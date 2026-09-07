@@ -29,6 +29,12 @@ phases to request routine continuation. Stop only for a consequential decision
 or a concrete blocker outside existing authority. Stop before claiming the next
 ticket after completing that flow.
 
+Treat hypotheses as claims to test. State the expected observable result,
+choose a check that could disprove it, and record what happened. Keep a useful
+baseline for comparisons. Scale evidence to the claim: source inspection,
+deterministic fixtures, and live product results prove different things. Do not
+present an untested idea or a native default as a measured quality improvement.
+
 Use one lead writer. Delegate a bounded investigation or independent review when
 it saves work. Default to at most two helpers, each with explicit ownership.
 Scale checks to the change. A documentation correction does not need product

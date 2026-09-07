@@ -95,6 +95,11 @@ container cannot run the coding agent.
 
 ## Usage contract
 
+This cumulative proof-run allowance is separate from active context and response
+length. The [context and response decision](../design.md#context-and-response-decision-2026-09-07)
+delegates compaction policy to research and model-aware verification.
+Compaction cannot establish or reset the whole-invocation bound below.
+
 Packet 20a has one 100,000-token ceiling across every model call in its healthy,
 fault, schema-retry, and live-preflight paths. Before a role call, require a
 verified maximum cumulative input-plus-output charge for that invocation,

@@ -9,7 +9,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate completion. Agents execute bounded packets; a future feature or release
 decision does not block an independent packet. Packet dependencies gate starts.
 
-Frontier: none.
+Frontier: 20e.
 In progress: none.
 
 ## Execution packets
@@ -28,6 +28,7 @@ In progress: none.
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |
 | [20c: Prepare the deterministic headless loop proof](packets/20c-headless-loop-preparation.md) | 20 | done | [10c] |
 | [20d: Repair the environment and simplify the development process](packets/20d-process-environment-maintenance.md) | 20 | done | [10c] |
+| [20e: Resolve the native usage-policy mismatch](packets/20e-native-usage-policy.md) | 20 | ready-for-agent | [10c, 20c] |
 | [24a: Index canonical sources and module ownership](packets/24a-source-module-navigation.md) | 24 | done | [12a] |
 
 ## Product outcomes

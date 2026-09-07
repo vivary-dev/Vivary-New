@@ -33,6 +33,15 @@ native flags, measured usage, and generated candidates can differ. Missing
 authentication or required enforcement leaves that runtime's proof incomplete.
 A single-runtime receipt cannot pass this cross-runtime acceptance.
 
+Under the [context and response decision](../design.md#context-and-response-decision-2026-09-07),
+distinguish active-context tokens, per-response limits, and cumulative run usage.
+Resolve compaction through each native runtime's verified model capacity and
+headroom. Start from native defaults and evaluate a 250k threshold as a candidate,
+not a universal limit. Preserve selected response and reasoning settings. Native compaction retains session ownership; existing task records
+retain accepted decisions, artifact references, and outstanding work. The
+[research and verification proposal](../research/context-compaction.md) defines
+the cases to prove before claiming this behavior. These criteria remain unimplemented.
+
 ## Verify
 
 Refuse planner or QA artifact writes, wrong-role tools, malformed outputs, exhausted retries, and stale configuration bindings. Verify these permissions in the actual adapter, not just a synthetic object.

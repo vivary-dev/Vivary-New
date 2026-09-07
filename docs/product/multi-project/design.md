@@ -106,6 +106,33 @@ one workflow and preserved handoff identities, artifacts, and shared accounting.
 Reuse the native run/session owners; this decision creates no replacement queue,
 unbounded worker service, spending grant, or live-runtime acceptance.
 
+## Context and response decision: 2026-09-07
+
+The owner clarified: "Response limit is different than chat length we should
+use something like 250k chat limit before compaction while response limit
+should be in-line with the best practices of current harnesses". The owner
+then instructed: "Use research to find best practice which will supersede my
+judgement". This supersedes both earlier numeric suggestions. Research and
+representative quality checks determine the compaction policy; 250k is a
+comparison candidate, not an approved universal default.
+
+The owner accepted the recommendation on 2026-09-07: "Lets use native for
+now" and "we should always test our hypotheses and current ideas". Use native
+defaults for this stage. Custom thresholds remain future experiments.
+
+The accepted baseline uses the selected native runtime's model-aware compaction
+and response defaults, with sufficient headroom for reasoning and output. This
+is a supported starting point, not a claim that those defaults are optimal for
+every task. Preserve the user's selected model and reasoning settings. Test
+threshold changes against that baseline before choosing a different default.
+
+The [compaction research](research/context-compaction.md) owns the source
+comparison and proposed implementation checks. Native runtimes keep compaction
+and session state. Outcome [04](tickets/04-define-runtime-session-contracts.md)
+owns the capability contract. This decision does not turn the separate 20a
+cumulative test-run allowance into a response limit or authorize an unbounded
+run. Native behavior and quality preservation still require execution evidence.
+
 ## Recommended architecture
 
 Use Vivary as the portable workspace and governance layer. Compose Agent-Native's application, action, chat, run, session, resource, connection, and automation primitives in the workbench. Selected coding runtimes retain their loops, tools, compaction, and native session state.

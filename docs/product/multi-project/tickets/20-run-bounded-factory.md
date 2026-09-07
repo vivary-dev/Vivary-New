@@ -63,3 +63,5 @@ they do not prove the behavior above.
 - 2026-09-07: 20d completed process cleanup and executed dependency/build checks plus Windows clock repair and a clean Habitat clock preflight. 20c is ready for a strict acceptance attempt. Factory acceptance remains open.
 
 - 2026-09-07: 20c completed the strict offline lifecycle and independent QA, with two 62-test passes and regression/restart corrections. Evidence and cleanup are recorded in its receipt. 20a remains blocked only on its live-call token bound; factory behavior remains unaccepted.
+
+- 2026-09-07: Native compaction and response defaults accepted. Packet [20e](../packets/20e-native-usage-policy.md) prepares the concrete usage-policy decision needed by 20a. This does not authorize live calls or change the hard admission rule.
