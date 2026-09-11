@@ -6,6 +6,8 @@ import os
 import argparse
 import ast
 import ctypes
+import codecs
+import selectors
 import hashlib
 import json
 import re
@@ -34,13 +36,18 @@ from hoh.protocol import (
     UsageLedger,
     _atomic_json_write,
     _exclusive_file_lock,
+    boottime_ns,
+    combine_clock_bindings,
+    uses_boottime,
     validate_evidence_record,
     validate_receipt_record,
     validate_role_request,
     validate_role_result,
+    validate_usage_record,
     validate_transition_record,
 )
 from hoh.workflow import REQUIREMENT_IDS, Workflow, evaluate_phase, record_hash
+from hoh.context import ContextRetrievalError, retrieve_planner_context
 
 
 class HarnessError(RuntimeError):
@@ -439,6 +446,76 @@ class RunFault:
     regress_before_qa: Callable[[Path], None] | None = None
 
 
+class PacketDeadline:
+    """Apply the existing trial clock to every process in an iteration."""
+
+    def __init__(self, iteration: IterationDeadline, ledger: UsageLedger):
+        self.iteration = iteration
+        self.ledger = ledger
+        self.path = iteration.path
+
+    @property
+    def expires_unix_ns(self) -> int:
+        return min(self.iteration.expires_unix_ns, self.ledger.packet_expires_unix_ns())
+
+    @property
+    def stop_grace_seconds(self) -> float:
+        return self.ledger.stop_grace_seconds
+
+    def remaining(self) -> float:
+        try:
+            return min(self.iteration.remaining(), self.ledger.packet_remaining())
+        except (DeadlineError, BudgetError):
+            self.ledger.stop("iteration or packet deadline stopped")
+            raise
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"iteration": self.iteration.snapshot(),
+                "usage_policy": self.ledger.observed_policy,
+                "expires_unix_ns": self.expires_unix_ns}
+
+    def clock_binding(self):
+        if not uses_boottime(self.ledger.observed_policy):
+            return None
+        return combine_clock_bindings(self.iteration.clock_binding(), self.ledger.clock_binding())
+
+
+class InvocationDeadline:
+    """Use the earliest existing iteration, packet, or invocation deadline."""
+
+    def __init__(self, iteration: IterationDeadline, ledger: UsageLedger, call_id: str):
+        self.iteration = iteration
+        self.ledger = ledger
+        self.call_id = call_id
+        self.path = iteration.path
+
+    @property
+    def expires_unix_ns(self) -> int:
+        return min(self.iteration.expires_unix_ns,
+                   self.ledger.invocation_expires_unix_ns(self.call_id))
+
+    @property
+    def stop_grace_seconds(self) -> float:
+        return self.ledger.stop_grace_seconds
+
+    def remaining(self) -> float:
+        try:
+            return min(self.iteration.remaining(), self.ledger.invocation_remaining(self.call_id))
+        except (DeadlineError, BudgetError):
+            self.ledger.stop("iteration or invocation deadline stopped", call_id=self.call_id)
+            raise
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"iteration": self.iteration.snapshot(),
+                "usage_policy": self.ledger.observed_policy,
+                "invocation": self.call_id, "expires_unix_ns": self.expires_unix_ns}
+
+    def clock_binding(self):
+        if not uses_boottime(self.ledger.observed_policy):
+            return None
+        return combine_clock_bindings(self.iteration.clock_binding(), self.ledger.clock_binding(self.call_id))
+
+
 class HeadlessLoop:
     """Deterministic outer sequencer; adapters own only individual role calls."""
 
@@ -466,8 +543,27 @@ class HeadlessLoop:
         self.iteration_timeout_seconds = iteration_timeout_seconds
         self.reported_token_budget = reported_token_budget
         self.usage_ledger_path = Path(usage_ledger).absolute()
-        self.ledger = UsageLedger(self.usage_ledger_path, reported_token_budget)
         self.workflow = Workflow(workflow, run_id=run_id, iterations=iterations, adapters=adapters)
+        self.observed_usage = self.workflow.usage_policy is not None
+        self.product_test_executor = None
+        native_hosts = [adapter for adapter in adapters.values()
+                        if getattr(adapter, "executable_scope", None) == "habitat-container"]
+        if native_hosts:
+            from hoh.native_host import verified_habitat_owner
+            from hoh.native_oracle import HabitatOracleExecutor
+            if len(native_hosts) != 1 or not self.observed_usage:
+                raise HarnessError("native oracle requires one observed Habitat runtime")
+            adapter = native_hosts[0]
+            owner = verified_habitat_owner(adapter.runner, adapter.launch_verifier)
+            self.product_test_executor = HabitatOracleExecutor(owner.task_root / "oracles", owner.source_root)
+        config = self.workflow.usage_policy
+        if config is not None and iteration_timeout_seconds != config["policy"]["iteration_seconds"]:
+            raise HarnessError("iteration timeout differs from the frozen experimental policy")
+        self.ledger = UsageLedger(
+            self.usage_ledger_path, reported_token_budget,
+            **({"observed_policy": config["policy"], "trial": config["trial"],
+                "admissions": config["admissions"]} if config is not None else {}),
+        )
         self.receipt_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = receipt_dir / "state.json"
         self.baseline_path = receipt_dir / "baseline.json"
@@ -846,10 +942,16 @@ class HeadlessLoop:
                 call_id = f"{self.run_id}-{request['iteration']}-{request['role']}-{request['attempt']}"
                 if key in claims or details.get("call_id") != call_id or call_id not in reservations:
                     raise HarnessError("persisted dispatch or its reservation is missing or repeated")
-                if details.get("maximum") != reservations[call_id]["maximum"]:
+                if self.observed_usage:
+                    if ("maximum" in details or details.get("usage_policy_sha256")
+                            != record_hash(self.workflow.usage_policy)):
+                        raise HarnessError("persisted dispatch usage policy differs")
+                elif details.get("maximum") != reservations[call_id]["maximum"]:
                     raise HarnessError("persisted dispatch reservation differs")
-                if request["attempt"] == 2 and (binding["stage_id"], 1) not in claims:
-                    raise HarnessError("persisted schema retry has no first attempt")
+                if request["attempt"] > self.workflow.max_attempts:
+                    raise HarnessError("persisted attempt exceeds its workflow policy")
+                if request["attempt"] > 1 and (binding["stage_id"], request["attempt"] - 1) not in claims:
+                    raise HarnessError("persisted schema retry has no preceding attempt")
                 if request["role"] != "planner" or request["iteration"] != 1:
                     predecessor = handoffs.get(request["handoff_sha256"])
                     if predecessor is None or predecessor["successor"] != binding:
@@ -899,6 +1001,8 @@ class HeadlessLoop:
             artifacts["qa_evidence_report_sha256"] = sha256_file(self.documents / f"iteration-{iteration}-evidence.md")
             artifacts["test_evidence_sha256"] = record_hash(evidence)
         return {
+            **({"context_capsule_fingerprint": result["_context_capsule_fingerprint"]}
+               if "_context_capsule_fingerprint" in result else {}),
             "role_request": result["_request"],
             "role_result": {key: value for key, value in result.items() if not key.startswith("_")},
             "role_result_sha256": result["output_sha256"],
@@ -932,6 +1036,7 @@ class HeadlessLoop:
         deadline: IterationDeadline,
         candidate: str,
         test_evidence_sha256: str | None = None,
+        context_capsule_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         self._verify_fixed_inputs()
         binding = self.workflow.binding(iteration, role)
@@ -957,11 +1062,27 @@ class HeadlessLoop:
             if view.writable_root is not None
             else None
         )
-        maximum = adapter.maximum_charge(role)
-        for attempt in (1, 2):
+        if role == "planner" and self.workflow.planner_priority_limit is not None:
+            prompt += (
+                f"\n\nTrial constraint: Report at most {self.workflow.planner_priority_limit} "
+                "numbered unmet priorities. If all requirements are already green, report that "
+                "honestly. Do not manufacture failures or edits, and do not undo collateral improvements."
+            )
+        if self.observed_usage and callable(getattr(adapter, "prepare_prompt", None)):
+            prompt = adapter.prepare_prompt(prompt, binding=binding, candidate_sha256=candidate,
+                                            test_evidence_sha256=test_evidence_sha256)
+        maximum = None if self.observed_usage else adapter.maximum_charge(role)
+        for attempt in range(1, self.workflow.max_attempts + 1):
             deadline.remaining()
             call_id = f"{self.run_id}-{iteration}-{role}-{attempt}"
-            self.ledger.reserve(call_id, maximum)
+            if self.observed_usage:
+                self.ledger.admit(call_id, binding=binding, attempt=attempt)
+                call_deadline = InvocationDeadline(deadline, self.ledger, call_id)
+                admission = {"usage_policy_sha256": record_hash(self.workflow.usage_policy)}
+            else:
+                self.ledger.reserve(call_id, maximum)
+                call_deadline = deadline
+                admission = {"maximum": maximum}
             request = validate_role_request(
                 {
                     "schema": ROLE_REQUEST_SCHEMA,
@@ -977,7 +1098,7 @@ class HeadlessLoop:
                     "baseline_sha256": self.baseline_sha256,
                     "candidate_sha256": candidate,
                     "receipt_chain_head": self.receipts.head,
-                    "deadline_unix_ns": deadline.expires_unix_ns,
+                    "deadline_unix_ns": call_deadline.expires_unix_ns,
                     "read_roots": sorted(path.name for path in view.root.iterdir()),
                     "write_root": view.writable_root,
                 }
@@ -985,22 +1106,47 @@ class HeadlessLoop:
             request_hash = sha256_bytes(canonical_json_bytes(request))
             self._append(
                 iteration, role, "started", candidate,
-                {"dispatch": request, "call_id": call_id, "maximum": maximum},
+                {"dispatch": request, "call_id": call_id, **admission,
+                 **({"context_capsule_fingerprint": context_capsule_fingerprint}
+                    if context_capsule_fingerprint is not None else {})},
                 assembled_prompt_sha256=request["prompt_sha256"],
             )
             try:
-                raw = adapter.invoke(request, prompt, view, deadline)
+                if self.observed_usage:
+                    from hoh.claude import NativeAccountedRejection, NativeRoleSchemaError
+                    try:
+                        raw = adapter.invoke_observed(request, prompt, view, call_deadline,
+                                                      ledger=self.ledger, call_id=call_id)
+                    except NativeRoleSchemaError as error:
+                        if error.request_sha256 != request_hash:
+                            raise BindingError("native schema failure belongs to another request") from error
+                        raw = {"usage": error.usage}
+                else:
+                    raw = adapter.invoke(request, prompt, view, call_deadline)
             except Exception as error:
-                try:
-                    self.ledger.settle(call_id, self._incomplete_usage(error))
-                except Exception:
-                    pass
+                if self.observed_usage and isinstance(error, NativeAccountedRejection):
+                    try:
+                        settled = self.ledger.snapshot()["reservations"].get(call_id)
+                        if (error.request_sha256 != request_hash or not isinstance(settled, dict)
+                                or settled["status"] != "settled" or settled["binding"] != binding
+                                or settled["attempt"] != attempt
+                                or settled["usage"] != validate_usage_record(error.usage)):
+                            raise BindingError("accounted native rejection differs from its settled request")
+                    except ProtocolError:
+                        self.ledger.stop("accounted native rejection binding failed", call_id=call_id)
+                        raise
+                else:
+                    try:
+                        self.ledger.settle(call_id, self._incomplete_usage(error))
+                    except Exception:
+                        pass
                 self._append(
                     iteration,
                     role,
                     "incomplete",
                     candidate,
-                    {"attempt": attempt, "request_sha256": request_hash, "adapter_error": str(error)},
+                    {"attempt": attempt, "request_sha256": request_hash, "adapter_error": str(error),
+                     "native_usage_raw": getattr(error, "native_usage_raw", None)},
                     assembled_prompt_sha256=request["prompt_sha256"],
                 )
                 self._refresh_state_after_role_failure(iteration, deadline.path)
@@ -1023,8 +1169,8 @@ class HeadlessLoop:
                 self._refresh_state_after_role_failure(iteration, deadline.path)
                 raise
             try:
-                deadline.remaining()
-            except DeadlineError as error:
+                call_deadline.remaining()
+            except (DeadlineError, BudgetError) as error:
                 try:
                     self.ledger.settle(call_id, self._incomplete_usage(raw))
                 except Exception:
@@ -1042,14 +1188,18 @@ class HeadlessLoop:
             try:
                 result = validate_role_result(raw, request=request)
                 if result["request_sha256"] != request_hash:
-                    raise ProtocolError("role result request hash differs")
+                    raise BindingError("role result request hash differs")
                 if result["output_sha256"] != sha256_bytes(result["output_text"].encode("utf-8")):
                     raise ProtocolError("role result output hash differs")
             except ProtocolError as error:
                 try:
-                    self.ledger.settle(call_id, self._incomplete_usage(raw))
+                    usage = (raw.get("usage") if self.observed_usage
+                             and not isinstance(error, BindingError) and isinstance(raw, dict)
+                             else self._incomplete_usage(raw))
+                    self.ledger.settle(call_id, usage)
                 except Exception:
-                    pass
+                    if self.observed_usage:
+                        self.ledger.stop("unsettled schema failure", call_id=call_id)
                 self._append(
                     iteration,
                     role,
@@ -1072,11 +1222,12 @@ class HeadlessLoop:
                     raise HarnessError(
                         f"{role} invalid attempt mutated its writable projection; refuse retry"
                     ) from error
-                if attempt == 2:
-                    raise HarnessError(f"{role} result failed its one schema retry: {error}") from error
+                if attempt == self.workflow.max_attempts:
+                    raise HarnessError(f"{role} result exhausted its configured schema attempts: {error}") from error
                 continue
             try:
                 self.ledger.settle(call_id, result["usage"])
+                self._verify_observed_acceptance()
             except BudgetError as error:
                 self._append(
                     iteration,
@@ -1092,12 +1243,17 @@ class HeadlessLoop:
                 )
                 self._refresh_state_after_role_failure(iteration, deadline.path)
                 raise HarnessError(f"{role} usage exceeded or corrupted its reservation") from error
-            return {**result, "_request": request, "_opened_files": list(view.read_log)}
+            return {**result, "_request": request, "_opened_files": list(view.read_log),
+                    **({"_context_capsule_fingerprint": context_capsule_fingerprint}
+                       if context_capsule_fingerprint is not None else {})}
         raise AssertionError("unreachable")
 
     @staticmethod
     def _incomplete_usage(raw: object) -> dict[str, Any]:
-        vendor = raw if isinstance(raw, dict) else {"unparsed_type": type(raw).__name__}
+        vendor = raw if isinstance(raw, dict) else {
+            "unparsed_type": type(raw).__name__,
+            "native_usage_raw": getattr(raw, "native_usage_raw", None),
+        }
         return {
             "schema": "vivary.hoh-usage/v1",
             "vendor_usage_raw": vendor,
@@ -1179,7 +1335,12 @@ class HeadlessLoop:
         ):
             result = run_owned_process(command, cwd=self.project, deadline=deadline, environment=environment)
             if not result["accepted"]:
-                raise HarnessError(f"developer checkpoint failed: {result['stderr'].strip()}")
+                reason = result["deadline_error"] or result["stderr"].strip()
+                raise HarnessError(
+                    f"developer checkpoint failed: {reason or 'process supervision rejected completion'}; "
+                    f"returncode={result['returncode']} cleanup_confirmed={result['cleanup_confirmed']} "
+                    f"orphaned_descendants={result['orphaned_descendants']}"
+                )
         completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.project, capture_output=True, text=True)
         if completed.returncode:
             raise HarnessError("cannot read developer checkpoint")
@@ -1208,7 +1369,20 @@ class HeadlessLoop:
                 result = value
         return result
 
+    def _verify_observed_acceptance(self) -> None:
+        if not self.observed_usage:
+            return
+        snapshot = self.ledger.snapshot()
+        stop = snapshot["stop"]
+        exact_target = (snapshot["charged"] == self.ledger.packet_budget
+                        and stop is not None and stop["reason"] == "reported-target-reached")
+        if (snapshot["charged"] > self.ledger.packet_budget
+                or any(item["status"] != "settled" for item in snapshot["reservations"].values())
+                or (stop is not None and not exact_target)):
+            raise BudgetError("observed usage or stop state does not permit acceptance")
+
     def _verify_terminal_evidence(self, candidate_sha256: str) -> None:
+        self._verify_observed_acceptance()
         last_test = None
         last_qa = None
         for path in sorted(self.receipts.details.glob("*.json")):
@@ -1351,7 +1525,8 @@ class HeadlessLoop:
             if state and state["iteration"] == iteration:
                 if Path(state["deadline_path"]) != deadline_path:
                     raise HarnessError("resume deadline path differs")
-                deadline = IterationDeadline.resume(deadline_path, run_id=self.run_id, iteration=iteration)
+                deadline = IterationDeadline.resume(deadline_path, run_id=self.run_id, iteration=iteration,
+                                                    observed_policy=self.ledger.observed_policy)
                 deadline.remaining()
             else:
                 deadline = IterationDeadline.create(
@@ -1359,6 +1534,7 @@ class HeadlessLoop:
                     run_id=self.run_id,
                     iteration=iteration,
                     duration_seconds=self.iteration_timeout_seconds,
+                    observed_policy=self.ledger.observed_policy,
                 )
                 self._append(iteration, "iteration", "started", hash_tree(self.project), {"deadline_unix_ns": deadline.expires_unix_ns})
                 self._save_state(
@@ -1369,14 +1545,29 @@ class HeadlessLoop:
                     no_progress_count=no_progress,
                 )
 
+            if self.observed_usage:
+                deadline = PacketDeadline(deadline, self.ledger)
+                deadline.remaining()
+
             development_path = self.documents / f"iteration-{iteration}-development.md"
             resume_after_developer = bool(state and state["stage"] == "developer_complete")
             if not resume_after_developer:
+                before = hash_tree(self.project)
+                try:
+                    capsule, retrieval = retrieve_planner_context(self.project, deadline, run_owned_process)
+                except ContextRetrievalError as error:
+                    self._append(iteration, "planner", "failed", before,
+                                 {"context_retrieval": error.evidence, "reason": str(error)})
+                    self._save_state(iteration, "failed", deadline.path,
+                                     previous_candidate_sha256=previous_hash, no_progress_count=no_progress)
+                    raise HarnessError(str(error)) from error
+                capsule_path = self.documents / f"iteration-{iteration}-task-capsule.json"
+                capsule_path.write_bytes(canonical_json_bytes(capsule))
                 public_receipts = self._receipt_projection("planner", iteration)
                 planner_view = self._new_view(
                     "planner",
                     iteration,
-                    {"specification": self.project / "spec.md", "receipts": public_receipts},
+                    {"context": capsule_path, "receipts": public_receipts},
                     None,
                 )
                 preceding_evidence = self._read_public_receipts(planner_view)
@@ -1384,16 +1575,18 @@ class HeadlessLoop:
                     "planner",
                     iteration,
                     {
-                        "public_specification": planner_view.read_text("specification/spec.md"),
+                        "task_capsule": planner_view.read_text(f"context/{capsule_path.name}"),
                         "previous_evidence": preceding_evidence,
                     },
                 )
                 before = hash_tree(self.project)
-                planner = self._role_call("planner", iteration, planner_prompt, planner_view, deadline, before)
+                planner = self._role_call("planner", iteration, planner_prompt, planner_view, deadline, before,
+                                          context_capsule_fingerprint=capsule["fingerprint"])
                 development_path.write_text(planner["output_text"], encoding="utf-8")
                 planner_gate = evaluate_phase(
                     planner["_request"], planner, iterations=self.iterations,
                     candidate_unchanged=hash_tree(self.project) == before,
+                    planner_priority_limit=self.workflow.planner_priority_limit,
                 )
                 if planner_gate["decision"] == "blocked":
                     self._reject_phase(planner, planner_gate, before, deadline)
@@ -1402,9 +1595,9 @@ class HeadlessLoop:
                     "planner",
                     "complete",
                     before,
-                    self._phase_details(planner, planner_gate, before),
+                    {**self._phase_details(planner, planner_gate, before), "context_retrieval": retrieval},
                     development_document_sha256=sha256_file(development_path),
-                    assembled_prompt_sha256=sha256_bytes(planner_prompt.encode("utf-8")),
+                    assembled_prompt_sha256=planner["_request"]["prompt_sha256"],
                 )
 
                 candidate_source = self.project / "linkcheck.py"
@@ -1467,7 +1660,7 @@ class HeadlessLoop:
                     development_document_sha256=sha256_file(development_path),
                     developer_report_sha256=sha256_file(developer_report_path),
                     developer_checkpoint=checkpoint,
-                    assembled_prompt_sha256=sha256_bytes(developer_prompt.encode("utf-8")),
+                    assembled_prompt_sha256=developer["_request"]["prompt_sha256"],
                 )
                 if fault.interrupt_before_developer_state:
                     return {"status": "interrupted", "iteration": iteration, "candidate_sha256": after}
@@ -1501,7 +1694,10 @@ class HeadlessLoop:
                 for path in healthy_freeze.rglob("*"):
                     path.chmod(0o444 if path.is_file() else 0o555)
                 healthy_frozen_hash_before = hash_tree(healthy_freeze)
-                healthy_result = run_product_tests(healthy_freeze, deadline=deadline)
+                healthy_result = run_product_tests(
+                    healthy_freeze, deadline=deadline, executor=self.product_test_executor,
+                    invocation_id=f"{self.run_id}-i{iteration}-before-regression",
+                )
                 healthy_frozen_hash_after = hash_tree(healthy_freeze)
                 healthy_project_hash_after = hash_tree(self.project)
                 healthy_changed = (
@@ -1588,7 +1784,10 @@ class HeadlessLoop:
                 elif path.is_dir():
                     path.chmod(0o555)
             frozen_hash_before = hash_tree(frozen)
-            test_result = run_product_tests(frozen, deadline=deadline)
+            test_result = run_product_tests(
+                frozen, deadline=deadline, executor=self.product_test_executor,
+                invocation_id=f"{self.run_id}-i{iteration}-oracle",
+            )
             frozen_hash_after_test = hash_tree(frozen)
             project_hash_after_test = hash_tree(self.project)
             if frozen_hash_after_test != frozen_hash_before or project_hash_after_test != after:
@@ -1750,7 +1949,7 @@ class HeadlessLoop:
                 qa_evidence_report_sha256=sha256_file(qa_report_path),
                 frozen_candidate_before_sha256=frozen_hash_before,
                 frozen_candidate_after_sha256=frozen_hash_after,
-                assembled_prompt_sha256=sha256_bytes(qa_prompt.encode("utf-8")),
+                assembled_prompt_sha256=qa["_request"]["prompt_sha256"],
             )
             no_progress = prospective_no_progress
             previous_hash = after
@@ -1787,6 +1986,7 @@ class HeadlessLoop:
                 no_progress_count=no_progress,
             )
             raise HarnessError("final candidate did not satisfy the fixed oracle")
+        self._verify_observed_acceptance()
         final_deadline = self.receipt_dir / f"iteration-{self.iterations}-deadline.json"
         self._append(
             self.iterations,
@@ -1845,6 +2045,7 @@ def _terminate_owned_group(
     process: subprocess.Popen[str],
     *,
     grace_seconds: float,
+    expires_boottime_ns: int | None = None,
 ) -> tuple[bool, list[int], float]:
     started = time.monotonic()
     stop_at = started + grace_seconds
@@ -1863,13 +2064,14 @@ def _terminate_owned_group(
         if not members:
             return killed, sorted(seen), time.monotonic() - started
         now = time.monotonic()
-        if not killed and now >= kill_at:
+        boot_remaining = (float("inf") if expires_boottime_ns is None else _boottime_cleanup_remaining(expires_boottime_ns))
+        if not killed and (now >= kill_at or boot_remaining <= min(0.25, grace_seconds / 4)):
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             killed = True
-        if now >= stop_at:
+        if now >= stop_at or boot_remaining <= 0:
             _reap_adopted_processes(process, seen)
             members = _process_group_members(process.pid)
             if members:
@@ -1877,7 +2079,130 @@ def _terminate_owned_group(
                     f"owned process cleanup was not confirmed within {grace_seconds:.1f}s: {members}"
                 )
             return killed, sorted(seen), time.monotonic() - started
-        time.sleep(min(0.01, stop_at - now))
+        time.sleep(min(0.01, stop_at - now, boot_remaining))
+
+
+def _boottime_cleanup_remaining(expires):
+    try:
+        return (expires - boottime_ns()) / 1_000_000_000
+    except DeadlineError:
+        # Clock uncertainty authorizes no additional waiting during a stop.
+        return 0
+
+
+def _communicate_streaming(process, *, stdin_text, deadline, on_stdout_line, captured, max_output_bytes=None):
+    """Drain both pipes while delivering complete native events before exit."""
+    decoders = {name: codecs.getincrementaldecoder("utf-8")() for name in ("stdout", "stderr")}
+    pending = ""
+    output_bytes = 0
+    input_bytes = memoryview((stdin_text or "").encode("utf-8"))
+    absolute_clock = callable(getattr(deadline, "clock_binding", None)) and deadline.clock_binding() is not None
+    with selectors.DefaultSelector() as selector:
+        for name in ("stdout", "stderr"):
+            pipe = getattr(process, name)
+            os.set_blocking(pipe.fileno(), False)
+            selector.register(pipe, selectors.EVENT_READ, name)
+        if process.stdin is not None:
+            if input_bytes:
+                os.set_blocking(process.stdin.fileno(), False)
+                selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+            else:
+                process.stdin.close()
+                process.stdin = None
+        while selector.get_map():
+            remaining = deadline.remaining()
+            for key, _ in selector.select(min(remaining, 0.05)):
+                if absolute_clock:
+                    deadline.remaining()
+                name = key.data
+                if name == "stdin":
+                    try:
+                        written = os.write(key.fd, input_bytes[:65536])
+                        input_bytes = input_bytes[written:]
+                    except BrokenPipeError:
+                        input_bytes = input_bytes[len(input_bytes):]
+                    if not input_bytes:
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                        process.stdin = None
+                    continue
+                raw = os.read(key.fd, 65536)
+                if max_output_bytes is not None and output_bytes + len(raw) > max_output_bytes:
+                    captured[name].append(raw[:max_output_bytes - output_bytes])
+                    raise HarnessError("owned process output exceeds its byte allowance")
+                output_bytes += len(raw)
+                captured[name].append(raw)
+                text = decoders[name].decode(raw, final=not raw)
+                if name == "stdout" and on_stdout_line is not None:
+                    pending += text
+                    while "\n" in pending:
+                        line, pending = pending.split("\n", 1)
+                        if len(line.encode("utf-8")) > 1_048_576:
+                            raise HarnessError("native stream event exceeds the transport allowance")
+                        if line.strip():
+                            if absolute_clock:
+                                deadline.remaining()
+                            on_stdout_line(line)
+                    if len(pending.encode("utf-8")) > 1_048_576:
+                        raise HarnessError("native stream event exceeds the transport allowance")
+                if not raw:
+                    selector.unregister(key.fileobj)
+                    if name == "stdout" and on_stdout_line is not None and pending.strip():
+                        if absolute_clock:
+                            deadline.remaining()
+                        on_stdout_line(pending)
+                        pending = ""
+        if absolute_clock:
+            while process.poll() is None:
+                try:
+                    process.wait(timeout=min(.05, deadline.remaining()))
+                except subprocess.TimeoutExpired:
+                    continue
+            deadline.remaining()
+        else:
+            process.wait(timeout=deadline.remaining())
+
+
+def _drain_stopped_stream(process, *, expires_monotonic, max_bytes, expires_boottime_ns=None):
+    """Drain stopped binary pipes with bounded storage and the original expiry."""
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    remaining_bytes = max_bytes
+    if process.stdin is not None:
+        process.stdin.close()
+        process.stdin = None
+    with selectors.DefaultSelector() as selector:
+        for name in output:
+            pipe = getattr(process, name)
+            if pipe is not None and not pipe.closed:
+                os.set_blocking(pipe.fileno(), False)
+                selector.register(pipe, selectors.EVENT_READ, name)
+        while selector.get_map():
+            remaining = expires_monotonic - time.monotonic()
+            if expires_boottime_ns is not None:
+                remaining = min(remaining, _boottime_cleanup_remaining(expires_boottime_ns))
+            if remaining <= 0:
+                raise HarnessError("owned process pipes did not close within the stop grace")
+            for key, _ in selector.select(min(remaining, 0.05)):
+                raw = os.read(key.fd, 65536)
+                if not raw:
+                    selector.unregister(key.fileobj)
+                    continue
+                retained = raw if remaining_bytes is None else raw[:remaining_bytes]
+                output[key.data].extend(retained)
+                if remaining_bytes is not None:
+                    remaining_bytes -= len(retained)
+        if expires_boottime_ns is not None:
+            while process.poll() is None:
+                remaining = min(expires_monotonic - time.monotonic(), _boottime_cleanup_remaining(expires_boottime_ns))
+                if remaining <= 0:
+                    raise HarnessError("owned process wait exceeded the absolute stop grace")
+                try:
+                    process.wait(timeout=min(.05, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+        else:
+            process.wait(timeout=max(0, expires_monotonic - time.monotonic()))
+    return bytes(output["stdout"]), bytes(output["stderr"])
 
 
 def run_owned_process(
@@ -1887,10 +2212,17 @@ def run_owned_process(
     deadline: IterationDeadline,
     environment: dict[str, str] | None = None,
     stdin_text: str | None = None,
+    on_stdout_line: Callable[[str], None] | None = None,
+    on_stop: Callable[..., None] | None = None,
+    max_output_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Run one owned process group within the persisted iteration deadline."""
+    if max_output_bytes is not None and (type(max_output_bytes) is not int or max_output_bytes < 1):
+        raise HarnessError("output allowance must be a positive byte count")
     _enable_child_subreaper()
     remaining = deadline.remaining()
+    absolute_clock = callable(getattr(deadline, "clock_binding", None)) and deadline.clock_binding() is not None
+    streaming = on_stdout_line is not None or max_output_bytes is not None or absolute_clock
     started_unix_ns = time.time_ns()
     started_monotonic_ns = time.monotonic_ns()
     process = subprocess.Popen(
@@ -1900,7 +2232,7 @@ def run_owned_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.PIPE if stdin_text is not None else None,
-        text=True,
+        text=not streaming,
         start_new_session=True,
     )
     timed_out = False
@@ -1911,8 +2243,49 @@ def run_owned_process(
     cleanup_seconds = 0.0
     deadline_error: str | None = None
     owned_pids = [process.pid]
+    captured: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
+    cleanup_started: float | None = None
+    cleanup_expires: float | None = None
+    cleanup_boottime: int | None = None
+    stop_error: BaseException | None = None
+    exception_cleanup_confirmed = False
+
+    def terminate():
+        nonlocal cleanup_started, cleanup_expires, cleanup_boottime, stop_error
+        if cleanup_expires is None:
+            cleanup_started = time.monotonic()
+            cleanup_expires = cleanup_started + deadline.stop_grace_seconds
+            if absolute_clock:
+                try:
+                    cleanup_boottime = boottime_ns() + int(deadline.stop_grace_seconds * 1_000_000_000)
+                except DeadlineError:
+                    cleanup_boottime = 0
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            if on_stop is not None:
+                try:
+                    on_stop(expires_monotonic=cleanup_expires,
+                            **({"expires_boottime_ns": cleanup_boottime} if absolute_clock else {}))
+                except BaseException as error:
+                    stop_error = error
+        forced, pids, _ = _terminate_owned_group(
+            process, grace_seconds=max(0, cleanup_expires - time.monotonic()),
+            **({"expires_boottime_ns": cleanup_boottime} if absolute_clock else {})
+        )
+        if stop_error is not None:
+            raise stop_error
+        return forced, pids, time.monotonic() - cleanup_started
+
     try:
-        stdout, stderr = process.communicate(input=stdin_text, timeout=remaining)
+        if not streaming:
+            stdout, stderr = process.communicate(input=stdin_text, timeout=remaining)
+        else:
+            _communicate_streaming(process, stdin_text=stdin_text, deadline=deadline,
+                                   on_stdout_line=on_stdout_line, captured=captured,
+                                   max_output_bytes=max_output_bytes)
+            stdout, stderr = (b"".join(captured[name]).decode("utf-8") for name in ("stdout", "stderr"))
         try:
             deadline.remaining()
         except DeadlineError as error:
@@ -1920,25 +2293,72 @@ def run_owned_process(
             late_output = True
             deadline_error = f"{type(error).__name__}: {error}"
         members = _process_group_members(process.pid)
-        if members:
-            orphaned_descendants = True
-            forced_after_grace, owned_pids, cleanup_seconds = _terminate_owned_group(
-                process, grace_seconds=deadline.stop_grace_seconds
-            )
-    except subprocess.TimeoutExpired:
+        _reap_adopted_processes(process, {pid for pid, state in members.items() if state == "Z"})
+        members = _process_group_members(process.pid)
+        if members or timed_out:
+            orphaned_descendants = bool(members)
+            forced_after_grace, owned_pids, cleanup_seconds = terminate()
+    except (subprocess.TimeoutExpired, DeadlineError) as error:
         timed_out = True
-        deadline_error = "TimeoutExpired: process exceeded the admitted deadline interval"
-        forced_after_grace, owned_pids, cleanup_seconds = _terminate_owned_group(
-            process, grace_seconds=deadline.stop_grace_seconds
-        )
-        remaining_cleanup = deadline.stop_grace_seconds - cleanup_seconds
+        deadline_error = f"{type(error).__name__}: {error}"
+        forced_after_grace, owned_pids, cleanup_seconds = terminate()
+        remaining_cleanup = cleanup_expires - time.monotonic()
         if remaining_cleanup <= 0:
-            raise HarnessError("owned process output cleanup exceeded the five-second grace")
+            raise HarnessError("owned process output cleanup exceeded the stop grace")
         try:
-            stdout, stderr = process.communicate(timeout=remaining_cleanup)
+            if streaming:
+                tail_allowance = (None if max_output_bytes is None else max_output_bytes -
+                                  sum(len(chunk) for chunks in captured.values() for chunk in chunks))
+                stdout, stderr = _drain_stopped_stream(
+                    process, expires_monotonic=cleanup_expires, max_bytes=tail_allowance,
+                    **({"expires_boottime_ns": cleanup_boottime} if absolute_clock else {}),
+                )
+            else:
+                stdout, stderr = process.communicate(timeout=remaining_cleanup)
         except subprocess.TimeoutExpired:
             cleanup_confirmed = False
-            raise HarnessError("owned process pipes did not close within the five-second grace")
+            raise HarnessError("owned process pipes did not close within the stop grace")
+        if streaming:
+            remaining_bytes = max_output_bytes
+            combined = []
+            for name, tail in (("stdout", stdout), ("stderr", stderr)):
+                value = b"".join(captured[name]) + tail
+                if remaining_bytes is not None:
+                    value = value[:remaining_bytes]
+                    remaining_bytes -= len(value)
+                combined.append(value.decode("utf-8", errors="replace"))
+            stdout, stderr = combined
+    except BaseException as error:
+        # A rejected stream event must stop the owned process just like a timeout.
+        _, _, cleanup_seconds = terminate()
+        remaining_cleanup = cleanup_expires - time.monotonic()
+        if remaining_cleanup <= 0:
+            raise HarnessError("owned process cleanup exceeded the stop grace")
+        if streaming:
+            tail_allowance = (None if max_output_bytes is None else max_output_bytes -
+                              sum(len(chunk) for chunks in captured.values() for chunk in chunks))
+            tail = _drain_stopped_stream(process, expires_monotonic=cleanup_expires, max_bytes=tail_allowance,
+                **({"expires_boottime_ns": cleanup_boottime} if absolute_clock else {}))
+            for name, value in zip(("stdout", "stderr"), tail):
+                captured[name].append(value)
+        else:
+            process.communicate(timeout=remaining_cleanup)
+        if _process_group_members(process.pid):
+            raise HarnessError("owned process group remains after rejected stream event")
+        exception_cleanup_confirmed = True
+        raise
+    finally:
+        failure = sys.exc_info()[1]
+        if failure is not None:
+            failure.process_evidence = {
+                "stdout": b"".join(captured["stdout"]).decode("utf-8", errors="replace"),
+                "stderr": b"".join(captured["stderr"]).decode("utf-8", errors="replace"),
+                "pid": process.pid, "cleanup_confirmed": exception_cleanup_confirmed,
+                "cleanup_seconds": time.monotonic() - cleanup_started if cleanup_started is not None else 0,
+            }
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            if pipe is not None:
+                pipe.close()
     remaining_members = _process_group_members(process.pid)
     if remaining_members:
         cleanup_confirmed = False
@@ -1972,6 +2392,8 @@ def run_product_tests(
     *,
     timeout_seconds: float | None = None,
     deadline: IterationDeadline | None = None,
+    executor: Any = None,
+    invocation_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the fixed product oracle and retain its case artifacts under `/tmp`."""
     project = project.resolve(strict=True)
@@ -2006,12 +2428,20 @@ def run_product_tests(
             "oracle_complete": oracle_complete,
             "oracle_accepted": oracle_complete and returncode == 0,
         }
+    if executor is not None and (deadline is None or invocation_id is None):
+        raise HarnessError("isolated oracle requires its persisted deadline and invocation identity")
     if deadline is not None:
-        process_result = run_owned_process(command, cwd=project, deadline=deadline, environment=environment)
+        if executor is None:
+            process_result = run_owned_process(command, cwd=project, deadline=deadline, environment=environment)
+        else:
+            from hoh.native_oracle import HabitatOracleExecutor
+            if type(executor) is not HabitatOracleExecutor:
+                raise HarnessError("native oracle executor differs from the verified Habitat implementation")
+            process_result = executor.run(project, deadline=deadline, invocation_id=invocation_id)
         output = process_result["stdout"] + process_result["stderr"]
         return {
             **process_result,
-            "command": command,
+            "command": process_result["command"],
             "output": output,
             **observed(output, process_result["returncode"], process_result["timed_out"]),
         }
@@ -2069,7 +2499,8 @@ def verify_expected_red(
     return result
 
 
-def _native_adapter(runtime: str, receipt_dir: Path) -> RoleAdapter:
+def _native_adapter(runtime: str, receipt_dir: Path, *, observed: bool = False,
+                    native_host_config: Path | None = None) -> RoleAdapter:
     if runtime != "claude":
         raise HarnessError(f"runtime adapter is not implemented by 20c: {runtime}")
     from hoh.claude import ClaudeAdapter, ClaudePreflightError
@@ -2081,6 +2512,40 @@ def _native_adapter(runtime: str, receipt_dir: Path) -> RoleAdapter:
         raise ClaudePreflightError(
             f"verified Claude capability evidence is unavailable: {evidence_path}: {error}"
         ) from error
+    if observed:
+        from hoh.native_host import CLAUDE, HabitatNativeHost
+        if sys.platform != "linux" or native_host_config is None:
+            raise ClaudePreflightError("observed native execution requires Linux Habitat and --native-host-config")
+        try:
+            if (not native_host_config.is_absolute() or ".." in native_host_config.parts
+                    or any(part.is_symlink() for part in (native_host_config, *native_host_config.parents))
+                    or not native_host_config.is_file()):
+                raise ValueError("host configuration must be an absolute, link-free regular file")
+            config = json.loads(native_host_config.read_text(encoding="utf-8"))
+            if (not isinstance(config, dict) or set(config) != {"schema", "task_root", "included_access_evidence"}
+                    or config["schema"] != "vivary.habitat-native-host/v1"):
+                raise ValueError("host configuration shape differs")
+            paths = {}
+            for key in ("task_root", "included_access_evidence"):
+                if not isinstance(config[key], str):
+                    raise ValueError("host configuration paths must be strings")
+                value = Path(config[key])
+                if not value.is_absolute() or ".." in value.parts or any(part.is_symlink() for part in (value, *value.parents)):
+                    raise ValueError("host configuration paths must be absolute and link-free")
+                paths[key] = value
+            if not paths["included_access_evidence"].is_file():
+                raise ValueError("included-access authority evidence is missing")
+            if paths["task_root"].exists() and not paths["task_root"].is_dir():
+                raise ValueError("native task root must be a directory")
+        except (OSError, ValueError) as error:
+            raise ClaudePreflightError(f"native host configuration is invalid: {error}") from error
+        host = HabitatNativeHost(paths["task_root"], Path(__file__).resolve().parents[1],
+                                 included_access_evidence=paths["included_access_evidence"])
+        return ClaudeAdapter(executable=Path(CLAUDE), capability_evidence=evidence,
+                             mode="observed", executable_scope="habitat-container",
+                             runner=host.runner, launch_verifier=host.launch_verifier)
+    if native_host_config is not None:
+        raise ClaudePreflightError("native host configuration requires an explicit observed-usage workflow")
     executable = shutil.which("claude")
     if executable is None:
         raise ClaudePreflightError("installed native Claude CLI is unavailable")
@@ -2092,6 +2557,7 @@ def _native_adapter(runtime: str, receipt_dir: Path) -> RoleAdapter:
 
 def load_native_workflow(
     path: Path, receipt_dir: Path, *, run_id: str, iterations: int,
+    native_host_config: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, RoleAdapter]]:
     from hoh.claude import ClaudeAdapter
 
@@ -2102,7 +2568,8 @@ def load_native_workflow(
     # Validate assignments before looking up any executable or capability file.
     workflow = Workflow(value, run_id=run_id, iterations=iterations, adapters={"claude": ClaudeAdapter})
     adapters = {
-        runtime: _native_adapter(runtime, receipt_dir)
+        runtime: _native_adapter(runtime, receipt_dir, observed=workflow.usage_policy is not None,
+                                 native_host_config=native_host_config)
         for runtime in {item["runtime"] for item in workflow.value["stages"]}
     }
     return workflow.value, adapters
@@ -2118,10 +2585,12 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--reported-token-budget", type=int, required=True)
     parser.add_argument("--usage-ledger", type=Path, required=True)
     parser.add_argument("--run-id", default="healthy")
+    parser.add_argument("--native-host-config", type=Path)
     values = parser.parse_args(arguments)
     try:
         workflow, adapters = load_native_workflow(
             values.workflow, values.receipt_dir, run_id=values.run_id, iterations=values.iterations,
+            native_host_config=values.native_host_config,
         )
         loop = HeadlessLoop(
             project=values.project,

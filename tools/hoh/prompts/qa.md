@@ -25,7 +25,8 @@ materials, or another receipt root.
 
 Derive checkable claims from public requirements. Cite support for verified
 behavior. Record failures, regressions, unmet requirements, and insufficient
-evidence as gaps. Return one Markdown report with nonempty `## Status`,
+evidence as gaps. Write the Markdown report body in `output_text`, with
+nonempty `## Status`,
 `## Evidence`, `## Gaps`, and `## Next action` sections. Include user impact and
 issue ownership with the gaps.
 

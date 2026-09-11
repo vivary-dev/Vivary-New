@@ -15,7 +15,7 @@ from typing import Any
 from hoh.protocol import (
     BindingError, ProtocolError, _require_exact_keys, _require_hash,
     validate_evidence_record, validate_role_request, validate_role_result,
-    validate_stage_binding,
+    validate_stage_binding, validate_observed_usage_policy,
 )
 
 
@@ -43,7 +43,28 @@ class Workflow:
     def __init__(self, value: object, *, run_id: str, iterations: int, adapters: dict[str, Any]):
         if not isinstance(value, dict):
             raise BindingError("workflow configuration must be an object")
-        _require_exact_keys(value, {"schema", "policy", "run_id", "iterations", "stages"}, "workflow")
+        keys = {"schema", "policy", "run_id", "iterations", "stages"}
+        if "usage_policy" in value:
+            keys.add("usage_policy")
+        if "planner_priority_limit" in value:
+            keys.add("planner_priority_limit")
+        _require_exact_keys(value, keys, "workflow")
+        self.usage_policy = None
+        self.planner_priority_limit = None
+        self.max_attempts = 2
+        if "planner_priority_limit" in value:
+            limit = value["planner_priority_limit"]
+            if type(limit) is not int or not 1 <= limit <= 3:
+                raise BindingError("workflow planner priority limit must be an integer from 1 to 3")
+            self.planner_priority_limit = limit
+        if "usage_policy" in value:
+            config = value["usage_policy"]
+            if not isinstance(config, dict):
+                raise BindingError("workflow usage policy must be an object")
+            _require_exact_keys(config, {"policy", "trial", "admissions"}, "workflow usage policy")
+            policy = validate_observed_usage_policy(config["policy"])
+            self.usage_policy = json.loads(json.dumps({**config, "policy": policy}))
+            self.max_attempts = 1 + policy["schema_retries"]
         if value["schema"] != WORKFLOW_SCHEMA or value["policy"] != PHASE_POLICY:
             raise BindingError("workflow schema or phase policy differs")
         if value["run_id"] != run_id or type(value["iterations"]) is not int or value["iterations"] != iterations:
@@ -70,6 +91,8 @@ class Workflow:
         if len(set(role_agents.values())) != len(ROLE_ORDER):
             raise BindingError("planner, developer, and QA require distinct agents")
         self.value = {**value, "stages": stages}
+        if self.usage_policy is not None:
+            self.value["usage_policy"] = self.usage_policy
         self.sha256 = record_hash(self.value)
         self.adapters = dict(adapters)
         self._stages = {(item["iteration"], item["role"]): item for item in stages}
@@ -121,7 +144,7 @@ class Workflow:
             raise ProtocolError("phase gate policy differs")
         if any(gate[key] != source[key] for key in ("iteration", "role", "stage_id")):
             raise BindingError("phase gate predecessor differs")
-        if type(record["attempt"]) is not int or record["attempt"] not in (1, 2) or type(gate["attempt"]) is not int or gate["attempt"] != record["attempt"]:
+        if type(record["attempt"]) is not int or not 1 <= record["attempt"] <= self.max_attempts or type(gate["attempt"]) is not int or gate["attempt"] != record["attempt"]:
             raise BindingError("handoff attempt differs")
         if gate["decision"] not in {"advance", "rework", "complete", "blocked"}:
             raise ProtocolError("unknown phase gate decision")
@@ -183,8 +206,12 @@ def evaluate_phase(
     developer_files: set[str] | None = None, evidence: dict[str, Any] | None = None,
     lost_passing: tuple[str, ...] = (),
     progress_allowed: bool = True,
+    planner_priority_limit: int | None = None,
 ) -> dict[str, Any]:
     """Decide a route from explicit submissions and coordinator observations."""
+    if (planner_priority_limit is not None
+            and (type(planner_priority_limit) is not int or not 1 <= planner_priority_limit <= 3)):
+        raise BindingError("planner priority limit must be an integer from 1 to 3")
     request = validate_role_request(request)
     result = validate_role_result({key: value for key, value in result.items() if not key.startswith("_")}, request=request)
     if result["request_sha256"] != record_hash(request) or result["output_sha256"] != "sha256:" + hashlib.sha256(result["output_text"].encode()).hexdigest():
@@ -203,8 +230,15 @@ def evaluate_phase(
         "candidate_unchanged": candidate_unchanged,
     }
     if role == "planner":
-        priorities = re.findall(r"(?m)^[1-3]\. \S.+$", result["output_text"])
-        checks["report_sections"] &= 1 <= len(priorities) <= 3
+        if planner_priority_limit is None:
+            priorities = re.findall(r"(?m)^[1-3]\. \S.+$", result["output_text"])
+            checks["report_sections"] &= 1 <= len(priorities) <= 3
+        else:
+            priorities = re.findall(r"(?m)^(\d+)\. \S.+$", result["output_text"])
+            checks["report_sections"] &= (
+                0 <= len(priorities) <= planner_priority_limit
+                and [int(value) for value in priorities] == list(range(1, len(priorities) + 1))
+            )
     if role == "developer":
         checks["candidate_file_set"] = developer_files == {"linkcheck.py"}
         try:

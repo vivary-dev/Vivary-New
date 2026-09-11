@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "packages/create-vivary"))
+import create_vivary
 TEST_BOOT_ID = "00000000-0000-4000-8000-000000000001"
 
 from hoh.protocol import (  # noqa: E402
@@ -59,7 +61,7 @@ from hoh_loop import (  # noqa: E402
 
 
 def preserved_test_dir(prefix: str) -> Path:
-    root = Path("/tmp/hoh-test-artifacts")
+    root = Path(os.environ.get("VIVARY_HOH_TEST_ROOT", "/tmp/hoh-test-artifacts"))
     root.mkdir(parents=True, exist_ok=True)
     return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
 
@@ -444,6 +446,41 @@ time.sleep(60)
         recorded["grandchild"] = int(grandchild_pid.read_text(encoding="utf-8"))
         for pid in recorded.values():
             self.assertFalse(Path(f"/proc/{pid}").exists(), f"pid {pid} was not reaped")
+
+    @unittest.skipIf(os.name == "nt", "process-group evidence runs in Habitat Linux")
+    def test_exited_adopted_child_is_reaped_before_success(self) -> None:
+        root = preserved_test_dir("exited-adopted-child-")
+        script = root / "exit-with-zombie.py"
+        child_record = root / "child.json"
+        script.write_text(
+            "import json, os, pathlib, sys, time\n"
+            "child = os.fork()\n"
+            "if child == 0: os._exit(0)\n"
+            "stat = pathlib.Path(f'/proc/{child}/stat')\n"
+            "expires = time.monotonic() + 2\n"
+            "while time.monotonic() < expires:\n"
+            "    raw = stat.read_text()\n"
+            "    state = raw[raw.rfind(') ') + 2:].split()[0]\n"
+            "    if state == 'Z': break\n"
+            "    time.sleep(.005)\n"
+            "else: raise RuntimeError('child did not exit')\n"
+            "pathlib.Path(sys.argv[1]).write_text(json.dumps({'pid': child, 'state': state}))\n"
+            "os._exit(0)\n",
+            encoding="utf8",
+        )
+        deadline = IterationDeadline.create(root / "deadline.json",
+            run_id="exited-child-001", iteration=1, duration_seconds=10)
+        result = run_owned_process([sys.executable, str(script), str(child_record)],
+            cwd=root, deadline=deadline)
+        child = json.loads(child_record.read_text("utf8"))
+        self.assertEqual(child["state"], "Z")
+        self.assertEqual(result["returncode"], 0)
+        self.assertFalse(result["timed_out"])
+        self.assertTrue(result["cleanup_confirmed"])
+        self.assertFalse(Path(f"/proc/{child['pid']}").exists())
+        self.assertTrue(result["accepted"], result)
+        self.assertFalse(result["orphaned_descendants"])
+        self.assertFalse(result["forced_after_grace"])
 
     @unittest.skipIf(os.name == "nt", "process-group evidence runs in Habitat Linux")
     def test_closed_pipe_descendant_is_detected_killed_and_reaped(self) -> None:
@@ -1142,7 +1179,8 @@ class SequencerTests(unittest.TestCase):
 
     def _project(self, name: str) -> Path:
         destination = self.root / name
-        shutil.copytree(self.fixture, destination)
+        create_vivary.scaffold_thin_workspace(destination, repo_root=ROOT)
+        shutil.copytree(self.fixture, destination, dirs_exist_ok=True)
         for path in destination.rglob("*"):
             path.chmod(0o755 if path.is_dir() else 0o644)
         destination.chmod(0o755)
@@ -1903,7 +1941,8 @@ class StageBindingAndHandoffTests(unittest.TestCase):
     def setUp(self):
         self.root = preserved_test_dir("stage-control-")
         self.project = self.root / "project"
-        shutil.copytree(ROOT / "docs/product/multi-project/fixtures/hoh-loop", self.project)
+        create_vivary.scaffold_thin_workspace(self.project, repo_root=ROOT)
+        shutil.copytree(ROOT / "docs/product/multi-project/fixtures/hoh-loop", self.project, dirs_exist_ok=True)
         self.project.chmod(0o755)
         for path in self.project.rglob("*"):
             path.chmod(0o755 if path.is_dir() else 0o644)

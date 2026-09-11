@@ -12,7 +12,8 @@ oracle, prompts, or public evidence.
 {{development_document}}
 
 Use only the explicit role tools and view supplied by the harness. Leave the
-updated implementation in `candidate`. Return a report with nonempty `## Changes`
+updated implementation in `candidate`. Write the Markdown report body in
+`output_text`, with nonempty `## Changes`
 and `## Validation` sections. Name the changed behavior and validation performed.
 Keep unavailable validation explicit.
 
