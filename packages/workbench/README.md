@@ -18,6 +18,28 @@ owns remaining GUI and loop seams. Source composition does not activate GUI crea
 
 ## Local shell
 
+### GUI chat titles
+
+The app's `server/plugins/00-chat-title.mjs` overrides the native title endpoint
+with DeepSeek. It registers before native bootstrap so title requests cannot
+fall through to the framework's Anthropic title handler. The server requires a
+native session and organization, then resolves `DEEPSEEK_API_KEY` through the
+native scoped secret resolver. Configure that key through the workspace vault.
+
+Only the first 500 characters of visible message text reach DeepSeek; hidden
+context and mention metadata are stripped. The request uses `deepseek-flash`
+with thinking disabled, a 64-token output limit, and a five-second timeout.
+Missing credentials or provider failure return a sanitized local title.
+The native client keeps responsibility for manual renames and title persistence.
+
+This is a GUI backend feature. It does not change the development harness or
+runtime preparation/start. The current read-only conversation view has no
+composer, so end-to-end automatic titles still require that chat integration.
+Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
+owns the source and focused proof; it does not establish production activation.
+
+### Shell evidence
+
 Packet [05a](../../docs/product/multi-project/receipts/05a-workbench-shell.md)
 preserved 24 selected source files before adapting the native providers, chat,
 two-pane layout, mobile navigation, and expandable work panels. The app uses
