@@ -22,10 +22,12 @@ from the sanitized message. The model/endpoint were checked against
 [chat completion reference](https://api-docs.deepseek.com/api/create-chat-completion/).
 These are proposed settings, not a measured cost or quality claim.
 
-Remove only the two literal `thread.title === "Project session"` comparisons
-from runtime preparation/start. Keep the initial fallback title and every ID,
-owner, organization, private visibility, scope, session, run, and receipt check.
-Retain native client protection for titles manually renamed by the user.
+Jeff subsequently clarified: "no this is internal to the vivary gui". Narrow
+this proposal to conversation titles inside that GUI. The earlier proposed
+runtime preparation/start guard changes are withdrawn from this packet. Keep
+native client protection for titles manually renamed by the user. The GUI
+backend calls DeepSeek for this feature; the development harness and main chat
+model do not change, and this session makes no live model call.
 
 ## Source evidence
 
@@ -67,9 +69,9 @@ new service was created. Source review does not prove endpoint behavior.
 
 ## Next action
 
-Obtain explicit approval for the described external payload and guard change.
-Then implement, verify native dispatch with a fake upstream, and check renamed
-thread replay/start alongside unchanged ownership rejection. A live paid smoke
+Resolve the approval review's objection to the bounded GUI title payload.
+Then implement and verify native GUI title dispatch with a fake upstream,
+including existing manual-rename protection. A live paid smoke
 test remains separately gated. No 05b runtime attempt has been consumed.
 
 ## Documentation checks

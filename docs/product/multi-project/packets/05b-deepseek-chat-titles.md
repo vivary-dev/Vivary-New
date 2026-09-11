@@ -7,8 +7,8 @@ Parent: 05
 Status: needs-info
 Depends-on: [05a]
 Owner: GPT-6 lead, sole writer; independent agent reviews composition and evidence.
-Needs: Jeff's explicit approval of the proposed DeepSeek title payload and mutable-title guard change after automatic approval review rejected the code patch.
-Scope: Native title endpoint, DeepSeek request adapter, mutable title compatibility, and deterministic tests. No live model call or chat activation.
+Needs: Resolve the automatic approval review's objection to the GUI backend sending a bounded message excerpt to DeepSeek. Runtime guard changes are withdrawn from this packet.
+Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, and deterministic tests. No development-loop or runtime preparation/start changes.
 Verification-kind: inspection
 Verification-result: pending
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
@@ -16,17 +16,18 @@ Timebox: Four Habitat attempts, at most 60 seconds each and 240 seconds total, i
 
 ## Goal
 
-Use DeepSeek for automatic native chat titles and preserve runtime identity when
-a thread's display title changes.
+Use DeepSeek to generate titles for conversations inside the Vivary GUI.
 
 ## Context
 
 Jeff requested DeepSeek API generation for chat titles on 2026-09-10. This is
 separate from 20j's deterministic creation/context packet and exhausted budget.
+Jeff clarified: "no this is internal to the vivary gui". The GUI backend owns
+this small model task. It is not a provider for the development harness, a change
+to the main conversation model, or a model call for this development session.
 Use the installed native title request and thread storage. Preserve manual
 renames, strip hidden context, and return a readable fallback if DeepSeek fails.
-Titles are display text, not runtime identity. Keep owner, organization,
-visibility, project scope, session, and receipt bindings intact.
+Runtime preparation/start and its guard changes are outside this narrowed scope.
 
 The current conversation UI has no composer. Endpoint integration does not
 activate that UI or establish production readiness. Paid calls and account
@@ -34,8 +35,8 @@ configuration retain their explicit gates. No model credentials are read by test
 
 ## Owned files
 
-Own the workbench title handler/plugin, focused tests, the title clauses in
-runtime preparation/start, this packet/receipt, package README, and generated
+Own the workbench title handler/plugin, focused tests,
+this packet/receipt, package README, and generated
 frontier. Test the installed H3/native mount with a fake upstream and synthetic
 authentication; verify failure, hidden context, scope isolation, and rate limits.
 Review native manual-rename protection at its existing owner.
@@ -43,7 +44,7 @@ Review native manual-rename protection at its existing owner.
 ## Done condition
 
 Prove native title-route dispatch, sanitized bounded requests, fallback behavior,
-scoped credentials, manual-rename protection, and renamed runtime-thread replay.
+scoped credentials, and manual-rename protection in GUI conversation history.
 The current inspection checkpoint does not meet those runtime conditions.
 
 ## Stop conditions
