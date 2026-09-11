@@ -455,6 +455,7 @@ def containment_plan(config: dict[str, Any], run_id: str) -> dict[str, Any]:
         "XDG_CONFIG_HOME": str(scratch / "config"),
         "NODE_OPTIONS": "--max-old-space-size=512",
         "ROLLDOWN_WORKER_THREADS": "1", "NODE_ENV": "production",
+        "DO_NOT_TRACK": "1",
         "AGENT_MODE": "production", "AGENT_NATIVE_DISABLE_RECURRING_JOBS": "true",
         "AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS": "true",
     }
@@ -612,6 +613,30 @@ class WindowsJob:
         values = ctypes.cast(ctypes.addressof(data) + offset, ctypes.POINTER(ctypes.c_size_t))
         return {values[index] for index in range(header[1])}
 
+    def terminate_children(self, seconds=5):
+        from ctypes import wintypes as w
+        self.api.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+        self.api.OpenProcess.restype = w.HANDLE
+        self.api.IsProcessInJob.argtypes = [w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)]
+        self.api.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
+        self.api.CloseHandle.argtypes = [w.HANDLE]
+        deadline = time.monotonic() + max(0, seconds)
+        for identity in self.process_ids() - {os.getpid()}:
+            handle = self.api.OpenProcess(0x0001 | 0x1000 | 0x00100000, False, identity)
+            if not handle:
+                require(ctypes.get_last_error() == 87, "owned Windows child could not be opened")
+                continue
+            try:
+                member = w.BOOL()
+                require(bool(self.api.IsProcessInJob(handle, self.handle, ctypes.byref(member))) and member.value,
+                        "Windows child no longer belongs to this Job")
+                require(bool(self.api.TerminateProcess(handle, 91)), "owned Windows child termination failed")
+            finally:
+                self.api.CloseHandle(handle)
+        while self.process_ids() != {os.getpid()} and time.monotonic() < deadline:
+            time.sleep(0.01)
+        require(self.process_ids() == {os.getpid()}, "owned Windows children remain after bounded termination")
+
 
 class Journal:
     def __init__(self, root: Path, name: str):
@@ -652,14 +677,16 @@ class Journal:
 
 def preserved_inputs(root: Path, config: dict[str, Any]) -> str:
     raw = read_regular(checked_path(root, config["preservedBinding"]), MAX_BINDING_BYTES)
-    value = exact(parse_json(raw), {"schema", "files", "exhausted20jLedger", "unused06eAuthority"}, "preserved inputs")
+    value = exact(parse_json(raw), {"schema", "files", "exhausted20jLedger", "unused06eDecisionRecord"}, "preserved inputs")
     require(value["schema"] == "vivary.05b-gui-preserved-binding/v1" and isinstance(value["files"], dict),
             "preserved binding schema differs")
     required = {config["endpointLedger"], ".tmp/05b/attempt-1.json",
                 f"{FIXTURE}/run_habitat.py", "docs/product/multi-project/fixtures/20j/run_habitat.py"}
-    for key, prefix in (("exhausted20jLedger", ".tmp/20j/"), ("unused06eAuthority", ".tmp/06e/")):
-        require(relative_name(value[key], key).startswith(prefix), "preserved budget owner differs")
-        required.add(value[key])
+    require(relative_name(value["exhausted20jLedger"], "exhausted ledger").startswith(".tmp/20j/"),
+            "preserved exhausted ledger owner differs")
+    require(value["unused06eDecisionRecord"] == "docs/product/multi-project/packets/06e-project-selection.md",
+            "preserved decision record owner differs")
+    required.update((value["exhausted20jLedger"], value["unused06eDecisionRecord"]))
     require(set(value["files"]) == required, "preserved budget bindings are incomplete")
     for name, expected in value["files"].items():
         require(stream_digest(checked_path(root, name)) == digest(expected, name), "a preserved budget or guard changed")
@@ -1010,16 +1037,747 @@ class LoopbackProxy:
             require(not self.server.connections and not self.server.workers, "an admitted HTTP worker remains")
 
 
+
+
+class Observer:
+    def __init__(self, root: Path, scratch: Path, deadline_seconds: int = 1200):
+        self.root = root
+        self.scratch = scratch
+        self.started = time.monotonic()
+        self.deadline = self.started + deadline_seconds
+        self.failure = None
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.samples = []
+        self.diagnostic_bytes = 0
+        self.phase = None
+        self.phase_started = None
+        self.phase_elapsed = 0.0
+        self.heartbeat = scratch / "heartbeat-dir/heartbeat"
+        self.heartbeat.parent.mkdir()
+        self.tick()
+        self.thread = threading.Thread(target=self.observe, daemon=True)
+        self.thread.start()
+
+    def fail(self, message):
+        with self.lock:
+            if self.failure is None:
+                self.failure = str(message)[:4096]
+
+    def check(self):
+        require(self.failure is None, "GUI observer refused: " + str(self.failure))
+        require(time.monotonic() < self.deadline, "aggregate GUI deadline exceeded")
+
+    def tick(self):
+        temporary = self.heartbeat.with_suffix(".next")
+        with temporary.open("w", encoding="ascii") as stream:
+            stream.write(str(time.time()) + "\n")
+            stream.flush()
+        os.replace(temporary, self.heartbeat)
+
+    def observe(self):
+        previous = time.monotonic()
+        while not self.stop.wait(0.25):
+            try:
+                now = time.monotonic()
+                require(self.failure is None, "the owner has already failed")
+                require(now - previous <= 1, "Windows observation gap exceeded")
+                reading = host_resources(self.root)
+                require(reading["ram"] >= 1536 * MIB, "host reserve breached")
+                require(now < self.deadline, "aggregate GUI deadline exceeded")
+                active_elapsed = now - self.phase_started if self.phase_started is not None else 0
+                overhead = now - self.started - self.phase_elapsed - active_elapsed
+                require(overhead <= 300, "binding, transfer, export, and cleanup allocation exceeded")
+                if self.phase is not None:
+                    require(active_elapsed <= PROFILE[self.phase + "Seconds"], "GUI phase deadline exceeded")
+                require(len(self.samples) < 5000, "resource observation sample cap exceeded")
+                self.samples.append({"elapsedSeconds": now - self.started, "phase": self.phase, **reading})
+                self.tick()
+                previous = now
+            except BaseException as error:
+                self.fail(error)
+                return
+
+    def begin(self, phase):
+        self.check()
+        require(self.phase is None, "GUI phases overlap")
+        reading = host_resources(self.root)
+        require(reading["ram"] >= PROFILE[phase + "WarmRamMiB"] * MIB
+                and reading["commit"] >= 4096 * MIB and reading["disk"] >= 10 * 1024 * MIB,
+                "fresh phase admission refused")
+        self.phase_started = time.monotonic()
+        self.phase = phase
+        return reading
+
+    def end(self):
+        if self.phase_started is not None:
+            self.phase_elapsed += time.monotonic() - self.phase_started
+        self.phase = None
+        self.phase_started = None
+
+    def diagnostics(self, chunk):
+        with self.lock:
+            self.diagnostic_bytes += len(chunk)
+            require(self.diagnostic_bytes <= MIB, "command diagnostics exceeded one MiB")
+
+    def finish(self):
+        stop = getattr(self, "stop", None)
+        if stop is not None:
+            stop.set()
+        thread = getattr(self, "thread", None)
+        if thread is not None and thread.ident is not None:
+            thread.join(timeout=1)
+            require(not thread.is_alive(), "resource observer did not stop")
+
+
+class ProcessOwner:
+    def __init__(self, observer=None):
+        self.observer = observer
+        self.processes = []
+        self.sequence = 0
+        self.stderr_hook = None
+
+    def spawn(self, command, *, environment=None):
+        if self.observer:
+            self.observer.check()
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   env=environment, creationflags=0x08000000)
+        self.processes.append(process)
+        if self.observer:
+            with (self.observer.scratch / "owned-processes.jsonl").open("ab") as journal:
+                journal.write(json.dumps({"pid": process.pid, "command": command, "startedUnixSeconds": time.time()}).encode() + b"\n")
+                journal.flush()
+                os.fsync(journal.fileno())
+        return process
+
+    def run(self, command, *, data=None, timeout=30, cap=MIB, destination=None, cleanup=False, environment=None):
+        if cleanup:
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       env=environment, creationflags=0x08000000)
+            self.processes.append(process)
+        else:
+            process = self.spawn(command, environment=environment)
+        output = bytearray()
+        errors = []
+        diagnostics = bytearray()
+        output_bytes = [0]
+        self.sequence += 1
+
+        def read_stdout():
+            stream = destination.open("xb") if destination is not None else None
+            try:
+                while chunk := process.stdout.read(65536):
+                    output_bytes[0] += len(chunk)
+                    require(output_bytes[0] <= cap, "owned command output exceeded its cap")
+                    if stream:
+                        stream.write(chunk)
+                    else:
+                        output.extend(chunk)
+            except BaseException as error:
+                errors.append(str(error))
+            finally:
+                if stream:
+                    stream.close()
+
+        def read_stderr():
+            try:
+                while chunk := process.stderr.read1(65536):
+                    require(len(diagnostics) + len(chunk) <= MIB, "owned command stderr exceeded one MiB")
+                    diagnostics.extend(chunk)
+                    if self.stderr_hook is not None:
+                        self.stderr_hook(chunk)
+                    if self.observer and not cleanup:
+                        self.observer.diagnostics(chunk)
+            except BaseException as error:
+                errors.append(str(error))
+
+        def write_stdin():
+            try:
+                if data is not None:
+                    process.stdin.write(data)
+                    process.stdin.flush()
+            except BaseException as error:
+                errors.append(str(error))
+            finally:
+                process.stdin.close()
+
+        threads = [threading.Thread(target=target, daemon=True)
+                   for target in (read_stdout, read_stderr, write_stdin)]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                if self.observer and not cleanup:
+                    self.observer.check()
+                require(not errors and time.monotonic() < deadline, "owned command failed its output or time bound")
+                time.sleep(0.05)
+            for thread in threads:
+                thread.join(timeout=1)
+            require(not errors and all(not thread.is_alive() for thread in threads), "owned command streams did not settle")
+            require(process.returncode == 0, "owned command failed: " + diagnostics.decode("utf-8", "replace")[-4096:])
+            return bytes(output)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
+            if self.observer:
+                with (self.observer.scratch / f"command-{self.sequence}-stderr.log").open("xb") as log:
+                    log.write(diagnostics[:MIB])
+
+    def stop_children(self, job=None, seconds=5):
+        deadline = time.monotonic() + max(0, seconds)
+        for process in self.processes:
+            if process.poll() is None:
+                process.terminate()
+        for process in self.processes:
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=max(0.01, min(1, deadline - time.monotonic())))
+                except subprocess.TimeoutExpired:
+                    process.kill()
+        if job is not None:
+            job.terminate_children(max(0, deadline - time.monotonic()))
+        for process in self.processes:
+            if process.poll() is None:
+                process.wait(timeout=max(0.01, deadline - time.monotonic()))
+        require(all(process.poll() is not None for process in self.processes), "owned Windows child remains")
+
+
+def wsl_command(script, *arguments):
+    executable = Path(os.environ["SystemRoot"]) / "System32/wsl.exe"
+    return [str(executable), "-d", "habitat", "-u", "root", "--exec", "sh", "-lc", script, "05b", *map(str, arguments)]
+
+
+def linux_name(owner, windows_path):
+    raw = owner.run(wsl_command('exec /usr/bin/wslpath -a -u "$1"', windows_path), timeout=10, cap=4096)
+    value = raw.decode("utf-8").strip()
+    require(value.startswith("/mnt/") and "\n" not in value and "\r" not in value, "Windows path translation differs")
+    return value
+
+
+def source_helper(owner, root, config_name, config_hash, mode, *arguments, expected_sources, data=None, destination=None, cap=MIB):
+    helper = checked_path(root, f"{FIXTURE}/gui_proof_linux.py")
+    controller = checked_path(root, f"{FIXTURE}/gui_proof_controller.py")
+    helper_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_linux.py"]["sha256"], "reviewed Linux helper")
+    controller_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_controller.py"]["sha256"], "reviewed controller")
+    require(stream_digest(helper) == helper_hash and stream_digest(controller) == controller_hash,
+            "reviewed elevated helper source changed")
+    linux_helper = linux_name(owner, helper)
+    linux_controller = linux_name(owner, controller)
+    linux_config = linux_name(owner, checked_path(root, config_name))
+    script = ('test "$(sha256sum -- "$1" | cut -d " " -f1)" = "$2" || exit 71; '
+              'test "$(sha256sum -- "$3" | cut -d " " -f1)" = "$4" || exit 72; '
+              'helper="$1"; shift 4; exec /usr/bin/python3 -I -B "$helper" "$@"')
+    command = wsl_command(script, linux_helper, helper_hash, linux_controller, controller_hash,
+                          mode, linux_config, config_hash, *arguments)
+    return owner.run(command, data=data, timeout=90, destination=destination, cap=cap)
+
+
+def windows_toolchains(config):
+    runtime = config["windowsRuntime"]
+    for name, expected_key in (("node", "nodeSha256"), ("playwrightPackageJson", "playwrightPackageJsonSha256"),
+                               ("playwrightCorePackageJson", "playwrightCorePackageJsonSha256"), ("chromium", "chromiumSha256")):
+        path = Path(runtime[name])
+        require(path.is_absolute() and path == path.resolve(), "Windows toolchain path is not canonical")
+        require(stream_digest(path) == runtime[expected_key], "Windows toolchain file changed")
+    for name in ("playwrightPackageJson", "playwrightCorePackageJson"):
+        package = parse_json(read_regular(Path(runtime[name]), MAX_CONFIG_BYTES))
+        require(package["version"] == "1.62.1", "Playwright package version changed")
+    return {name: tree_summary(Path(runtime[key]).parent) for name, key in (
+        ("nodeDirectory", "node"), ("playwright", "playwrightPackageJson"),
+        ("playwrightCore", "playwrightCorePackageJson"), ("chromium", "chromium"))}
+
+
+def freeze_bindings(root, config_name, config, config_hash):
+    """Read installed tools and write new bindings. This never grants runtime authority."""
+    require(sys.platform == "win32", "binding preparation requires Windows")
+    sources = source_inventory(root)
+    owner = ProcessOwner()
+    try:
+        linux = parse_json(source_helper(owner, root, config_name, config_hash, "inspect", expected_sources=sources))
+        windows = windows_toolchains(config)
+        require(source_inventory(root) == sources, "source changed during binding preparation")
+        source_path = checked_path(root, config["sourceBinding"], missing_leaf=True)
+        toolchain_path = checked_path(root, config["toolchainBinding"], missing_leaf=True)
+        require(not source_path.exists() and not toolchain_path.exists(), "reviewed bindings already exist")
+        write_json_exclusive(source_path, proposed_binding(config, config_hash, sources))
+        write_json_exclusive(toolchain_path, {"schema": "vivary.05b-gui-toolchain-binding/v1",
+                             "configSha256": config_hash, "linux": linux, "windows": windows})
+        return {"sourceBindingSha256": stream_digest(source_path), "toolchainBindingSha256": stream_digest(toolchain_path),
+                "runtimeAuthorized": False}
+    finally:
+        owner.stop_children()
+
+
+class BrowserLaunchEvidence:
+    def __init__(self, config, scratch, job):
+        self.config = config
+        self.scratch = scratch
+        self.job = job
+        self.buffer = ""
+        self.launch = None
+        self.pid = None
+
+    def receive(self, chunk):
+        self.buffer += chunk.decode("utf-8", "replace")
+        require(len(self.buffer) <= MIB, "Chromium diagnostic line exceeds its cap")
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line)
+            if "<launching>" in line:
+                require(self.launch is None, "a second Chromium launch was attempted")
+                expected = self.config["windowsRuntime"]["chromium"].replace("\\", "/").lower()
+                require(expected in line.replace("\\", "/").lower(), "Chromium executable differs")
+                for flag in ("--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu-sandbox", "--no-zygote-sandbox"):
+                    require(flag not in line, "Chromium launched without its sandbox")
+                require("--disable-background-networking" in line, "Chromium background networking was not disabled")
+                match = re.search(r"--user-data-dir=(.*?)(?= --[a-zA-Z-]+(?:[= ]|$))", line)
+                require(match is not None, "Chromium profile flag was not observed")
+                profile = Path(match.group(1).strip('"'))
+                allowed = self.scratch / "browser-temp"
+                require(profile.is_absolute() and profile.resolve().is_relative_to(allowed.resolve())
+                        and profile.resolve() != allowed.resolve(), "Chromium profile escaped owned scratch")
+                no_link(profile)
+                self.launch = {"command": line, "profile": str(profile), "sandboxEnabled": True}
+            if "<launched>" in line:
+                match = re.search(r"\bpid=(\d+)\b", line)
+                require(match is not None and self.pid is None, "Chromium PID report differs")
+                self.pid = int(match.group(1))
+
+    def verified(self):
+        return self.launch is not None and self.pid is not None and self.pid in self.job.process_ids()
+
+
+class ProofOwner:
+    def __init__(self, root, config_name, config, config_hash, authority_hash, run_id):
+        self.root = root
+        self.config_name = config_name
+        self.config = config
+        self.config_hash = config_hash
+        self.authority_hash = authority_hash
+        self.run_id = run_id
+        require(re.fullmatch(r"[a-f0-9]{12}", run_id) is not None, "invalid GUI run identity")
+        self.plan = containment_plan(config, run_id)
+        self.scratch = checked_path(root, config["scratchWindows"], missing_leaf=True)
+        self.export_path = checked_path(root, config["export"], missing_leaf=True)
+        self.result_path = checked_path(root, config["runtimeRecord"], missing_leaf=True)
+        for path in (self.scratch, self.export_path, self.result_path):
+            require(not path.exists() and not path.is_symlink(), "owned output already exists")
+        self.binding_path = checked_path(root, config["sourceBinding"])
+        self.binding_raw = read_regular(self.binding_path, MAX_BINDING_BYTES)
+        self.binding_hash = hashlib.sha256(self.binding_raw).hexdigest()
+        self.binding = parse_json(self.binding_raw)
+        self.toolchain_raw = read_regular(checked_path(root, config["toolchainBinding"]), MAX_BINDING_BYTES)
+        self.toolchain_hash = hashlib.sha256(self.toolchain_raw).hexdigest()
+        self.toolchain = exact(parse_json(self.toolchain_raw), {"schema", "configSha256", "linux", "windows"}, "toolchain binding")
+        require(self.toolchain["schema"] == "vivary.05b-gui-toolchain-binding/v1"
+                and self.toolchain["configSha256"] == config_hash, "toolchain configuration differs")
+        self.preserved_hash = preserved_inputs(root, config)
+        self.authority_raw = runtime_authority(root, config, authority_hash, {
+            "configSha256": config_hash, "sourceBindingSha256": self.binding_hash,
+            "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash,
+        })
+        self.observer = None
+        self.processes = None
+        self.job = None
+        self.rpc = None
+        self.proxy = None
+        self.staged = False
+        self.claimed_units = set()
+        self.runtime_hash = None
+        self.runtime = None
+        self.result = {"schema": "vivary.05b-gui-result/v1", "runId": run_id,
+                       "verificationPassed": False, "processCleanupAccepted": False,
+                       "filesystemCleanupAccepted": False, "filesystemDeletionAvailable": False,
+                       "errors": [], "phases": [], "units": [item["unit"] for item in self.plan["phases"].values()]}
+
+    def bound_inputs(self):
+        require(stream_digest(checked_path(self.root, self.config_name)) == self.config_hash, "configuration changed")
+        require(proposed_binding(self.config, self.config_hash, source_inventory(self.root)) == self.binding,
+                "reviewed source changed")
+        require(stream_digest(self.binding_path) == self.binding_hash, "source binding changed")
+        require(stream_digest(checked_path(self.root, self.config["toolchainBinding"])) == self.toolchain_hash,
+                "toolchain binding changed")
+        require(preserved_inputs(self.root, self.config) == self.preserved_hash, "a preserved guard or budget changed")
+        runtime_authority(self.root, self.config, self.authority_hash, {
+            "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
+            "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash,
+        })
+
+    def linux_operation(self, mode, *, data=None, destination=None, cleanup=False, timeout=90, cap=MIB):
+        helper = str(PurePosixPath(self.config["scratchLinux"]) / "harness/gui_proof_linux.py")
+        command = wsl_command('exec /usr/bin/python3 -I -B "$@"', helper, mode,
+                              self.config["scratchLinux"], self.run_id, self.runtime_hash)
+        remaining = self.observer.deadline - time.monotonic()
+        require(remaining > 0, "no cumulative time remains for evidence bookkeeping")
+        return self.processes.run(command, data=data, destination=destination, cleanup=cleanup,
+                                  timeout=min(timeout, remaining), cap=cap)
+
+    def transfer(self, config_raw):
+        buffer = io.BytesIO()
+        controls = {".control/config.json": config_raw, ".control/source-binding.json": self.binding_raw,
+                    ".control/runtime.json": (json.dumps(self.runtime, sort_keys=True, indent=2) + "\n").encode(),
+                    ".control/authority.json": self.authority_raw}
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            for name, expected in self.binding["sources"].items():
+                self.observer.check()
+                raw = read_regular(checked_path(self.root, name), MAX_SOURCE_FILE_BYTES)
+                require(len(raw) == expected["bytes"] and hashlib.sha256(raw).hexdigest() == expected["sha256"],
+                        "source changed before transfer")
+                if name.startswith(APP + "/"):
+                    projected = "app/" + name[len(APP) + 1:]
+                else:
+                    require(name.startswith(FIXTURE + "/"), "unexpected source transfer owner")
+                    projected = "harness/" + name[len(FIXTURE) + 1:]
+                controls[projected] = raw
+            for name, raw in controls.items():
+                item = tarfile.TarInfo(name)
+                item.size = len(raw)
+                item.mode = 0o444
+                archive.addfile(item, io.BytesIO(raw))
+        raw = buffer.getvalue()
+        require(len(raw) <= 40 * MIB, "source transfer archive exceeds its cap")
+        response = source_helper(self.processes, self.root, self.config_name, self.config_hash,
+                                 "stage", self.run_id, self.runtime_hash, expected_sources=self.binding["sources"], data=raw)
+        require(parse_json(response).get("staged") is True, "projection staging failed")
+        self.staged = True
+        self.result["transfer"] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+    def service(self, phase):
+        plan = self.plan["phases"][phase]
+        properties = dict(plan["properties"])
+        properties["Description"] = "Vivary 05b GUI proof " + plan["unit"]
+        properties["WorkingDirectory"] = plan["cwd"]
+        properties["BindReadOnlyPaths"] = [*properties["BindReadOnlyPaths"],
+            self.runtime["heartbeatSourceLinux"] + ":" + self.config["scratchLinux"] + "/.control/heartbeat-dir"]
+        if plan["privateWritableBindMounts"]:
+            properties["BindPaths"] = [item["source"] + ":" + item["destination"]
+                                      for item in plan["privateWritableBindMounts"]]
+        command = ["/usr/bin/systemd-run", "--unit=" + plan["unit"], "--wait", "--pipe", "--collect",
+                   "--quiet", "--service-type=exec", "--uid=1000", "--gid=1000"]
+        for name, value in properties.items():
+            if isinstance(value, list):
+                value = " ".join('"' + part.replace("\\", "\\\\").replace('"', '\\"') + '"' for part in value)
+            command.extend(["-p", name + "=" + value])
+        helper = str(PurePosixPath(self.config["scratchLinux"]) / "harness/gui_proof_linux.py")
+        command.extend(["/usr/bin/python3", "-I", "-B", helper, "inside", self.config["scratchLinux"],
+                        self.run_id, self.runtime_hash, phase])
+        self.claimed_units.add(plan["unit"])
+        return wsl_command('exec "$@"', *command)
+
+    def absent_before_start(self):
+        units = [item["unit"] for item in self.plan["phases"].values()]
+        script = ('for unit in "$@"; do '
+                  'test "$(systemctl show "$unit" -p LoadState --value)" = not-found || exit 74; '
+                  'test "$(systemctl show "$unit" -p ActiveState --value)" = inactive || exit 75; '
+                  'test "$(systemctl show "$unit" -p MainPID --value)" = 0 || exit 76; '
+                  'test ! -e "/sys/fs/cgroup/system.slice/$unit" || exit 77; done')
+        self.processes.run(wsl_command(script, *units), timeout=10, cap=8192)
+
+    def stop_units(self):
+        if not self.claimed_units:
+            return
+        script = ('for unit in "$@"; do '
+                  'load=$(systemctl show "$unit" -p LoadState --value) || exit 78; '
+                  'if [ "$load" != not-found ]; then '
+                  'test "$(systemctl show "$unit" -p Description --value)" = "Vivary 05b GUI proof $unit" || exit 79; '
+                  'systemctl stop --no-block "$unit" || exit 80; fi; done; '
+                  'deadline=$(( $(date +%s) + 5 )); '
+                  'while :; do present=0; for unit in "$@"; do '
+                  'test ! -e "/sys/fs/cgroup/system.slice/$unit" || present=1; '
+                  'test "$(systemctl show "$unit" -p LoadState --value)" = not-found || present=1; '
+                  'test "$(systemctl show "$unit" -p MainPID --value)" = 0 || present=1; done; '
+                  'test "$present" = 1 || break; test "$(date +%s)" -lt "$deadline" || exit 81; sleep 0.1; done')
+        self.processes.run(wsl_command(script, *sorted(self.claimed_units)), timeout=5, cap=8192, cleanup=True)
+
+    def phase_start(self, journal, phase):
+        self.bound_inputs()
+        before = self.observer.begin(phase)
+        journal.append({"event": "phase-start", "atUnixSeconds": time.time(), "phase": phase,
+                        "allocatedSeconds": PROFILE[phase + "Seconds"]})
+        self.result["phases"].append({"phase": phase, "before": before, "started": time.time()})
+
+    def phase_finish(self, journal, phase):
+        absent = parse_json(self.linux_operation("absent", timeout=5, cap=8192))
+        require(absent.get("absent") is True, "phase process or mount cleanup is unknown")
+        self.observer.end()
+        require(self.job.process_ids() == {os.getpid()}, "a Windows descendant remains after the phase")
+        require(parse_json(self.linux_operation("toolchains")) == self.toolchain["linux"], "Linux dependencies changed")
+        require(windows_toolchains(self.config) == self.toolchain["windows"], "Windows tools changed")
+        self.bound_inputs()
+        journal.append({"event": "phase-finish", "atUnixSeconds": time.time(), "phase": phase,
+                        "exit": 0, "cleanupAccepted": True})
+        self.result["phases"][-1].update({"exit": 0, "processCleanupAccepted": True, "finished": time.time()})
+
+    def browser_environment(self):
+        for name in ("browser-temp", "browser-home", "browser-data"):
+            (self.scratch / name).mkdir()
+        return {"SystemRoot": os.environ["SystemRoot"], "WINDIR": os.environ["SystemRoot"],
+                "PATH": str(Path(self.config["windowsRuntime"]["node"]).parent),
+                "TEMP": str(self.scratch / "browser-temp"), "TMP": str(self.scratch / "browser-temp"),
+                "TMPDIR": str(self.scratch / "browser-temp"), "HOME": str(self.scratch / "browser-home"),
+                "USERPROFILE": str(self.scratch / "browser-home"), "LOCALAPPDATA": str(self.scratch / "browser-data"),
+                "APPDATA": str(self.scratch / "browser-data"), "DEBUG": "pw:browser",
+                "NODE_OPTIONS": "--max-old-space-size=512"}
+
+    def browser(self):
+        process = self.processes.spawn(self.service("browser"))
+        self.backend_log = (self.scratch / "backend-stderr.log").open("xb")
+        def diagnostic(chunk):
+            self.observer.diagnostics(chunk)
+            self.backend_log.write(chunk)
+            self.backend_log.flush()
+        self.rpc = BoundedRpc(process, self.observer.check, diagnostic, self.observer.fail)
+        self.result["backendReady"] = self.rpc.ready(self.plan["phases"]["browser"]["unit"])
+        launch = BrowserLaunchEvidence(self.config, self.scratch, self.job)
+        self.proxy = LoopbackProxy(self.rpc, self.observer.check, self.observer.fail, launch.verified)
+        self.proxy.start()
+        browser_input = self.scratch / "browser-input.json"
+        write_json_exclusive(browser_input, {"schema": "vivary.05b-gui-browser-input/v1",
+            "baseUrl": self.proxy.base_url, "proofToken": self.proxy.token,
+            "chromiumExecutable": self.config["windowsRuntime"]["chromium"],
+            "playwrightPackageJson": self.config["windowsRuntime"]["playwrightPackageJson"],
+            "evidenceRoot": str(self.scratch / "browser-evidence")})
+        self.processes.stderr_hook = launch.receive
+        environment = self.browser_environment()
+        node = self.config["windowsRuntime"]["node"]
+        try:
+            version = self.processes.run([node, "--version"], environment=environment, timeout=5, cap=1024)
+            require(version.decode().strip() == "v24.19.0", "Windows Node version differs")
+            self.processes.run([node, str(checked_path(self.root, FIXTURE + "/gui_browser.mjs")), str(browser_input)],
+                               environment=environment, timeout=300)
+            require(launch.launch is not None and launch.pid is not None, "Chromium launch evidence is incomplete")
+            browser_result = parse_json(read_regular(self.scratch / "browser-evidence/browser-result.json", MIB))
+            require(browser_result.get("passed") is True, "browser acceptance failed")
+            self.result["browser"] = browser_result
+            self.result["chromium"] = {**launch.launch, "pid": launch.pid}
+            self.proxy.close()
+            self.proxy = None
+            self.result["backendClose"] = self.rpc.close()
+            process.wait(timeout=5)
+            require(process.returncode == 0, "contained backend command failed")
+            self.rpc = None
+        finally:
+            self.processes.stderr_hook = None
+            if self.rpc is None:
+                self.backend_log.close()
+
+    def evidence_export(self):
+        linux_archive = self.scratch / "linux-evidence.tar"
+        self.linux_operation("export", destination=linux_archive, cap=64 * MIB, cleanup=True)
+        linux_hash = stream_digest(linux_archive, 64 * MIB)
+        require(stream_digest(linux_archive, 64 * MIB) == linux_hash, "Linux archive readback differs")
+        with tarfile.open(linux_archive, mode="r:") as archive:
+            members = archive.getmembers()
+            require(len(members) <= 20000 and sum(item.size for item in members) <= 64 * MIB, "Linux archive inventory exceeds its cap")
+            for member in members:
+                relative_name(member.name, "Linux evidence member")
+                require(member.isfile() and not member.issparse() and member.name.startswith("evidence/"), "unsafe Linux evidence member")
+        write_json_exclusive(self.scratch / "owner-observations.json", {
+            "result": self.result, "samples": self.observer.samples,
+            "ownedWindowsPids": [process.pid for process in self.processes.processes],
+            "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
+            "toolchainBindingSha256": self.toolchain_hash, "authoritySha256": self.authority_hash})
+        retained = [linux_archive, self.scratch / "owner-observations.json", self.binding_path,
+                    checked_path(self.root, self.config["toolchainBinding"])]
+        retained += list(self.scratch.glob("*-stderr.log"))
+        if (self.scratch / "browser-evidence").exists():
+            for path in (self.scratch / "browser-evidence").iterdir():
+                require(stat.S_ISREG(no_link(path).st_mode), "unexpected browser evidence member")
+                retained.append(path)
+        require(len(retained) <= 256 and sum(path.stat().st_size for path in retained) <= 96 * MIB, "final evidence cap exceeded")
+        member_hashes = {}
+        with tarfile.open(self.export_path, mode="x", format=tarfile.USTAR_FORMAT) as archive:
+            for ordinal, path in enumerate(retained):
+                name = f"evidence/{ordinal:03d}-{path.name}"
+                member_hashes[name] = stream_digest(path, 64 * MIB)
+                archive.add(path, arcname=name, recursive=False)
+        archive_hash = stream_digest(self.export_path, 128 * MIB)
+        with tarfile.open(self.export_path, mode="r:") as archive:
+            members = archive.getmembers()
+            require({member.name for member in members} == set(member_hashes), "final evidence inventory differs")
+            for member in members:
+                stream = archive.extractfile(member)
+                require(stream is not None and member.isfile(), "final evidence is not regular")
+                digest_value = hashlib.sha256()
+                while chunk := stream.read(MIB):
+                    digest_value.update(chunk)
+                require(digest_value.hexdigest() == member_hashes[member.name], "final member readback differs")
+        require(stream_digest(self.export_path, 128 * MIB) == archive_hash, "final archive readback differs")
+        acknowledgement = json.dumps({"runId": self.run_id, "linuxArchiveSha256": linux_hash,
+                                      "finalArchiveSha256": archive_hash}).encode()
+        cleanup_plan = parse_json(self.linux_operation("cleanup-plan", data=acknowledgement, cleanup=True))
+        require(cleanup_plan.get("filesystemDeletionAvailable") is False, "cleanup unexpectedly offers deletion")
+        self.result["export"] = {"path": str(self.export_path), "sha256": archive_hash,
+                                 "bytes": self.export_path.stat().st_size, "members": member_hashes}
+        self.result["retainedCleanupPlan"] = {"linux": cleanup_plan,
+            "windows": {"scratch": str(self.scratch), "tree": tree_summary(self.scratch, maximum_bytes=256 * MIB),
+                        "filesystemDeletionAvailable": False}}
+
+    def execute(self):
+        require(sys.platform == "win32", "the GUI owner requires Windows")
+        with Journal(self.root, self.config["attemptLedger"]) as journal:
+            before = admission(self.root, self.config, self.authority_hash)
+            self.job = WindowsJob()
+            started_unix = time.time()
+            journal.append({"event": "run-start", "runId": self.run_id, "startedUnixSeconds": started_unix,
+                            "deadlineUnixSeconds": started_unix + 1200, "allocatedSeconds": 1200,
+                            "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
+                            "authoritySha256": self.authority_hash})
+            try:
+                self.result["admission"] = before
+                self.result["startedUnixSeconds"] = started_unix
+                self.scratch.mkdir()
+                self.observer = Observer.__new__(Observer)
+                self.observer.__init__(self.root, self.scratch)
+                self.observer.deadline = self.observer.started + max(0, started_unix + 1200 - time.time())
+                self.processes = ProcessOwner(self.observer)
+                self.bound_inputs()
+                head = self.processes.run(["git", "--no-optional-locks", "-C", str(self.root), "rev-parse", "HEAD"], timeout=5, cap=1024)
+                branch = self.processes.run(["git", "--no-optional-locks", "-C", str(self.root), "branch", "--show-current"], timeout=5, cap=1024)
+                require(head.decode().strip() == self.config["candidateHead"]
+                        and branch.decode().strip() == "docs/context-compaction-policy", "candidate checkout changed")
+                require(windows_toolchains(self.config) == self.toolchain["windows"], "Windows toolchains changed")
+                linux = parse_json(source_helper(self.processes, self.root, self.config_name, self.config_hash, "inspect",
+                                                expected_sources=self.binding["sources"]))
+                require(linux == self.toolchain["linux"], "Linux toolchains changed")
+                self.absent_before_start()
+                heartbeat = linux_name(self.processes, self.scratch / "heartbeat-dir")
+                self.runtime = {"runId": self.run_id, "configSha256": self.config_hash,
+                    "sourceBindingSha256": self.binding_hash, "toolchainBindingSha256": self.toolchain_hash,
+                    "authoritySha256": self.authority_hash, "startedUnixSeconds": started_unix,
+                    "deadlineUnixSeconds": started_unix + 1200, "heartbeatSourceLinux": heartbeat}
+                runtime_raw = (json.dumps(self.runtime, sort_keys=True, indent=2) + "\n").encode()
+                self.runtime_hash = hashlib.sha256(runtime_raw).hexdigest()
+                self.transfer(read_regular(checked_path(self.root, self.config_name), MAX_CONFIG_BYTES))
+                self.phase_start(journal, "build")
+                self.processes.run(self.service("build"), timeout=600)
+                self.phase_finish(journal, "build")
+                self.job.set_phase("browser")
+                self.phase_start(journal, "browser")
+                self.browser()
+                self.phase_finish(journal, "browser")
+                self.observer.check()
+                self.result["verificationPassed"] = True
+            except BaseException as error:
+                self.result["errors"].append({"step": "proof", "type": type(error).__name__, "message": str(error)[:4096]})
+                if self.observer is not None and hasattr(self.observer, "lock"):
+                    self.observer.fail(error)
+            finally:
+                cleanup_started = time.monotonic()
+                cleanup_failures = []
+                try:
+                    if self.claimed_units:
+                        require(self.processes is not None, "claimed units have no process owner")
+                        self.stop_units()
+                except BaseException as error:
+                    cleanup_failures.append(str(error))
+                try:
+                    remaining = max(0, 5 - (time.monotonic() - cleanup_started))
+                    if self.processes is not None:
+                        self.processes.stop_children(self.job, seconds=remaining)
+                    elif self.job is not None:
+                        self.job.terminate_children(seconds=remaining)
+                except BaseException as error:
+                    cleanup_failures.append(str(error))
+                try:
+                    if self.proxy is not None:
+                        self.proxy.close()
+                        self.proxy = None
+                except BaseException as error:
+                    cleanup_failures.append("proxy: " + str(error))
+                try:
+                    if self.job is not None:
+                        require(self.job.process_ids() == {os.getpid()}, "owned Windows descendants remain")
+                except BaseException as error:
+                    cleanup_failures.append("Windows absence: " + str(error))
+                try:
+                    if self.staged:
+                        require(parse_json(self.linux_operation("absent", cleanup=True, timeout=5)).get("absent") is True,
+                                "owned Linux unit or mount remains")
+                except BaseException as error:
+                    cleanup_failures.append("Linux absence: " + str(error))
+                try:
+                    require(not cleanup_failures and time.monotonic() - cleanup_started <= 5,
+                            "owned process cleanup exceeded its bound: " + "; ".join(cleanup_failures))
+                    self.result["processCleanupAccepted"] = True
+                except BaseException as error:
+                    self.result["errors"].append({"step": "process-cleanup", "type": type(error).__name__, "message": str(error)[:4096]})
+                try:
+                    if self.observer is not None and hasattr(self.observer, "phase_started"):
+                        self.observer.end()
+                except BaseException as error:
+                    self.result["processCleanupAccepted"] = False
+                    self.result["errors"].append({"step": "observer-phase-close", "message": str(error)[:4096]})
+                if self.rpc is not None:
+                    try:
+                        self.rpc.outgoing.put_nowait(None)
+                    except queue.Full:
+                        pass
+                    for thread in (self.rpc.reader, self.rpc.errors, self.rpc.writer):
+                        thread.join(timeout=0.1)
+                    if any(thread.is_alive() for thread in (self.rpc.reader, self.rpc.errors, self.rpc.writer)):
+                        self.result["processCleanupAccepted"] = False
+                        self.result["errors"].append({"step": "RPC-close", "message": "owned transport thread remains"})
+                    if not self.rpc.errors.is_alive() and hasattr(self, "backend_log"):
+                        self.backend_log.close()
+                if (self.staged and self.result["processCleanupAccepted"] and self.observer is not None
+                        and time.monotonic() < getattr(self.observer, "deadline", 0)):
+                    try:
+                        self.evidence_export()
+                    except BaseException as error:
+                        self.result["errors"].append({"step": "export", "type": type(error).__name__, "message": str(error)[:4096]})
+                try:
+                    if self.observer is not None:
+                        self.observer.finish()
+                except BaseException as error:
+                    self.result["processCleanupAccepted"] = False
+                    self.result["errors"].append({"step": "observer-close", "message": str(error)[:4096]})
+                self.result["elapsedSeconds"] = time.time() - started_unix
+                self.result["observerFailure"] = getattr(self.observer, "failure", None)
+                self.result["samples"] = getattr(self.observer, "samples", [])
+                self.result["retainedWindowsScratch"] = str(self.scratch)
+                self.result["retainedLinuxScratch"] = self.config["scratchLinux"] if self.staged else "stage not acknowledged; inspect exact configured path"
+                self.result["complete"] = False
+                self.result["nextGate"] = "Review exact retained scratch cleanup. Filesystem deletion is unavailable."
+                if self.result.get("export") and time.time() <= started_unix + 1200:
+                    state = ledger_state(read_regular(journal.path, MAX_LEDGER_BYTES))
+                    if state.get("activePhase") is None:
+                        journal.append({"event": "run-finish", "atUnixSeconds": time.time(),
+                                        "exportSha256": self.result["export"]["sha256"], "cleanupAccepted": False})
+                write_json_exclusive(self.result_path, self.result)
+        return self.result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="private repository-relative configuration path")
     parser.add_argument("--config-sha256", required=True)
     parser.add_argument("--run-id", required=True, help="proposed 12-digit lowercase hexadecimal identity")
     parser.add_argument("--require-binding", action="store_true")
+    parser.add_argument("--freeze-bindings", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--authority-sha256")
     args = parser.parse_args()
     root = Path(__file__).absolute().parents[5]
     require(root.resolve() == root, "repository root resolves through an alias")
     config, config_hash = load_config(root, args.config, args.config_sha256)
+    require(not (args.run and args.freeze_bindings), "binding preparation and runtime are separate operations")
+    if args.freeze_bindings:
+        print(json.dumps(freeze_bindings(root, args.config, config, config_hash), sort_keys=True))
+        return
+    if args.run:
+        require(args.authority_sha256 is not None, "runtime authority digest is required")
+        result = ProofOwner(root, args.config, config, config_hash, args.authority_sha256, args.run_id).execute()
+        print(json.dumps({"verificationPassed": result["verificationPassed"], "processCleanupAccepted": result["processCleanupAccepted"],
+                          "complete": result["complete"], "result": config["runtimeRecord"]}, sort_keys=True))
+        raise SystemExit(0 if result["verificationPassed"] and result["processCleanupAccepted"]
+                         and not result["errors"] and result.get("export") else 1)
     sources = source_inventory(root)
     binding = proposed_binding(config, config_hash, sources)
     binding_hash = verify_binding(root, config, binding) if args.require_binding else None

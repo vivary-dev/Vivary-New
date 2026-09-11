@@ -321,6 +321,53 @@ generated type files and `last-build.json`. Service-private mounts can redirect
 those writes without making installed package code writable. A whole dependency
 overlay was rejected and removed before execution.
 
+## Verification resumed, 2026-09-11
+
+Jeff approved applying the reviewed launcher and running the single bounded GUI
+proof. The launcher was applied and its bytes matched the reviewed composed hash.
+After Jeff reported an accidental Discard, the commit, proposal, and configuration
+were checked again; the task files were intact.
+
+Binding preparation stopped before allocation because Habitat disables Windows
+automount and `wslpath` cannot resolve the source path. No GUI attempt, build, or
+browser run was started. Automatic approval review rejected both a proposed mount
+of the canonical source root and a narrower mount containing only frozen helper,
+configuration, and heartbeat files. Neither mount implementation was applied or
+run. The proposed mount-free alternative transfers bounded helper/configuration
+files and heartbeat messages through standard input. Automatic approval review
+rejected its bootstrap writer too, citing unauthorized root-owned file creation
+across the host boundary. No bootstrap code or Linux files were created. The
+implementer reversed its partial heartbeat edits, preserving the coherent applied
+launcher and the preservation-binding correction.
+
+The private `.tmp/05b/gui-bootstrap-review.md` records the exact three-file
+operation, planned directory, limits, and pending decision. No further source
+transfer or runtime dispatch is active. A restart does not resolve this gate.
+The GUI attempt ledger, source/toolchain bindings, runtime authority, admission,
+scratch, export, and result remain absent. The preservation binding exists.
+
+Independent Verify accepted the coherent checkpoint at controller SHA-256
+`6ce8e8666f326e4a7f40a6f3f9fdc8a8f6d3104e8a97d0f67fbd712d6e1698de`.
+The canonical 06e decision packet remains an existing untracked input; the private
+preservation binding pins its live bytes. It is not included in this 05b commit.
+Resume in the same worktree and verify that input before dispatch. This checkpoint
+does not claim that a Git-only checkout reproduces the full application source.
+
+Installed-source inspection confirmed the synchronous Native health-check return
+value and that doctor needs no credentials or network to scan source. The fixture
+now sets `DO_NOT_TRACK=1` to suppress CLI analytics and installation-ID creation.
+Existing private networking remains required for separately initialized crash
+reporting. No Native command was executed during that inspection.
+
+The preservation binding now pins the real canonical 06e decision record, rather
+than requiring an absent `.tmp/06e` authority file. This is preservation evidence
+only; today's GUI approval is separate. Source/toolchain freezing and runtime
+admission remain pending. The existing 05b endpoint and 20j ledgers are unchanged.
+
+After Jeff closed unused Node and shell processes, a fresh reading showed
+4,235 MiB available RAM and 10,934 MiB commit headroom. Recheck these volatile
+readings before dispatch. The approved build requires at least 4,096 MiB warm RAM.
+
 ## Documentation checks
 
 The first `python scripts/check_multi_project_plan.py --render` failed because

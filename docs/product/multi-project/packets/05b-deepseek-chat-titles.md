@@ -121,8 +121,27 @@ The complete inert launcher proposal passed source QA, independent Verify, and
 static in-memory composition. Automatic approval review rejected executable
 root-owned WSL dispatch and process management without authority for that exact
 scope. Applying the reviewed launcher and admitting its one bounded proof remain
-the next gate. The proposal stops owned processes and exports evidence; it has no
+the recorded gate from that review. The proposal stops owned processes and exports evidence; it has no
 filesystem deletion operation. The receipt owns the frozen source hashes.
+
+On 2026-09-11 Jeff authorized verification: "ok please do verification i stopped
+because i went to bed no need to ask now its started for today". This approves
+applying the reviewed launcher and its one 1,200-second GUI proof under the bounds
+above. The launcher was applied. Fresh resource admission and exact source and
+toolchain bindings still precede dispatch; the old packet budgets remain intact.
+Preparation found that Habitat disables Windows automount, requiring source
+transport that does not depend on an existing Windows mount. It also corrected a nonexistent private 06e path to the
+canonical 06e decision record for preservation only. Neither preparation issue
+allocated a GUI attempt or changed the separate 06e grant.
+
+Automatic approval review also rejected the narrower bridge mount and the
+mount-free bootstrap writer. Those changes did not land; partial heartbeat edits
+were reversed. The coherent applied launcher remains unable to prepare source in
+the current Habitat configuration. The exact remaining decision is permission to
+implement the mount-free bootstrap and create its two reviewed Python helpers
+and configuration file in the named task-owned Habitat directory. The private
+`.tmp/05b/gui-bootstrap-review.md` records that operation and its bounds. No GUI
+attempt has been allocated.
 
 ## Verify
 
