@@ -1,6 +1,6 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-05. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Updated: 2026-09-07. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -63,8 +63,9 @@ This clarification was not a fourth answer in the three-question brief.
 
 Packet [20a](packets/20a-headless-loop-proof.md) carries the first bounded
 runtime proof and retains priority when its prerequisites are satisfied.
-[20c](packets/20c-headless-loop-preparation.md) owns deterministic preparation
-while 20a's native-call budget prerequisite is unavailable. This split follows
+[20c](packets/20c-headless-loop-preparation.md) completed deterministic preparation.
+The [experimental policy decision](#experimental-policy-and-continuous-execution-decision-2026-09-07)
+approves 20a's replacement admission policy for implementation and verification. This split follows
 the execution contract's rule to stop only dependent operations. The required
 20b continuation of 20a owns the cross-runtime proof. [Outcome 04](tickets/04-define-runtime-session-contracts.md#done-condition)
 owns the shared adapter acceptance. Outcomes 18, 19, 20, 30, and 36 carry the
@@ -132,6 +133,130 @@ and session state. Outcome [04](tickets/04-define-runtime-session-contracts.md)
 owns the capability contract. This decision does not turn the separate 20a
 cumulative test-run allowance into a response limit or authorize an unbounded
 run. Native behavior and quality preservation still require execution evidence.
+
+## Experimental policy and continuous execution decision: 2026-09-07
+
+Authority: Jeff explicitly approved `20a-observed-usage-v1` for experimentation
+and directed continuous implementation through outcome 28 and its dependencies.
+This decision supersedes earlier approval waits, packet-by-packet stops, and
+requirements to start a fresh conversation. Complete each packet's verification
+and checkpoint, then continue available work until that scope is verified or
+only genuine external gates remain.
+
+The policy's numbers and rules are configurable, versioned experimental
+settings. They are not permanent product limits. Packet
+[20a](packets/20a-headless-loop-proof.md#usage-contract) owns the active contract
+and initial trial settings. The [20e receipt](receipts/20e-native-usage-policy.md)
+preserves the reviewed proposal and its evidence. Approval accepts its stated
+unknown token-overrun exposure within bounded local execution. It does not
+establish complete provider accounting or live acceptance.
+
+Revise settings between trials using recorded evidence. Bind every trial to its
+policy revision, exact configuration, accounting, and recovery state. Never
+change settings during an admitted trial, reset accumulated usage, replay an
+uncertain invocation, or extend its deadlines through a configuration edit.
+Reconcile prior trials and record the reason and authority for the next one.
+Evidence-based experiment revisions are authorized within the existing
+subscription and security limits. An unresolved accounting or authority gate
+still blocks the dependent live call. Preserve native compaction and response
+defaults as the comparison baseline.
+
+The later [resource and model decision](#resource-and-model-decision-2026-09-07)
+keeps GPT-6 Astra as lead and permits task-appropriate Sol, Terra and Luna
+subagents. Each writer has explicit file ownership. Continue useful work across
+the dependency graph without concurrent writes to the same owner. These development assignments do not replace the native runtime
+selected for a product proof. In particular, 20a remains the Claude baseline.
+The separate 20b hard-reservation policy does not change by implication.
+
+Reuse the existing worktree and Habitat checkout named in the private handoff,
+mounted at `/workspace/vivary`. Windows edits do not synchronize automatically.
+Transfer only reviewed task files and verify their hashes before Habitat checks.
+Preserve `.claude/agents`, `.runtime-tools`, existing work, and dependencies.
+Do not create another development checkout or worktree. Reuse contained fixture
+projections where possible and treat fixture copies as test data, not a second
+development checkout. Clean only task-owned temporary resources by exact path.
+
+Jeff confirmed ample included Claude allowance during this continuation on
+2026-09-07. Record that as owner-supplied allowance evidence alongside the native
+subscription-authentication check. The initial confirmation did not authorize
+an account change. The later scoped account decision below records the separately
+approved disabling of Usage credits. Stop on a reported usage limit or paid-access
+requirement; included-subscription authority does not authorize paid fallback.
+
+Jeff further authorized existing Claude and Codex subscriptions, including
+supported subscription routes through Pi for Claude, Codex, or OpenCode.
+Verify each installed route's authentication, isolation, and live behavior.
+This broadens permitted subscription routes without accepting unavailable
+integrations or changing the separate proof requirements.
+
+Use existing included subscription access only where authorized and verified.
+No paid usage, credential copying, push, publication, merge, or legacy deletion
+is authorized. Account changes require their exact authority; the scoped exception
+below permits only disabling Claude Usage credits. Stop only the operation
+requiring additional authority. Keep graph status, receipts, and the existing Markdown/HTML handoff
+current. Separate documented capabilities, deterministic tests, and observed
+live behavior in every acceptance claim.
+
+
+
+### Resource and model decision: 2026-09-07
+
+Authority: Jeff asked agents to close completed processes and preserve free
+memory, then explicitly directed, "just autonomously go through the project."
+He wants to play games while work continues as a long-running task.
+
+Use GPT-6 Astra for the lead, difficult implementation and acceptance review.
+Use GPT-5.6 Sol for bounded medium-complexity work and Terra or Luna for source
+search, general search and straightforward checks. Choose reasoning effort for
+the actual task. This supersedes the earlier GPT-6-only development assignment;
+the native model selected for a product experiment remains separately bound.
+
+Keep local resource use small. Run one heavy build, browser proof or runtime
+experiment at a time. Check available RAM and disk before starting it; defer
+heavy work when headroom is low and continue source work or reviews. Close
+completed task processes and browser tabs, stop idle task containers, and verify
+cleanup. Preserve files, evidence, shared dependencies and unrelated user apps.
+Check included model usage between waves and retain existing spending limits.
+
+The initial cleanup confirmed no active test, build or model workers. The lead
+closed one idle Habitat terminal and stopped the two idle Vivary containers.
+They remain available to restart when needed. No unrelated app or shared WSL
+service was terminated. The existing handoff owns later resource state.
+
+Operational defaults revised after Jeff's 2026-09-07 slowdown report and request
+to continue without filling memory: use one implementation subagent and one
+local execution job at a time. Admit each heavy job using its measured or
+enforced total memory budget plus at least 1536 MiB available for other apps.
+The preflight check does not enforce a runtime cap; the runner owns enforcement.
+Recheck after startup and cleanup. Prepare an explicit bound for unmeasured
+jobs instead of waiting behind a blanket free-memory threshold. Existing
+packet-specific constraints remain until their bounded execution plan changes.
+The unused global Ruflo MCP autostart was disabled and its 14 verified launcher
+and server processes stopped. Preserve unrelated apps and active tool helpers;
+reuse existing collaborators rather than accumulating new tool sessions.
+
+
+### Included-only account setting decision: 2026-09-07
+
+Authority: Jeff explicitly answered, "Turn off usage credits and continue the
+included-only experiment." This is the canonical owner of the scoped decision
+mirrored as D32 in the preserved Littleagent plan.
+
+Automatic approval review rejected the initial bootstrap before execution because
+paid extra-usage eligibility was unresolved. Jeff then authorized disabling
+Claude Usage credits for the account used by the native runtime. The lead turned
+off that setting, confirmed the provider's Turn off action, and verified the fresh
+UI showed it disabled. Read-only native authentication evidence matched the browser
+organization and reported an authenticated first-party Claude subscription.
+Private account identifiers and email addresses are omitted from this record.
+
+This authority covers the completed account-wide disabling action and continuation
+of the already approved included-only experiment. It does not authorize buying
+credits, re-enabling Usage credits, changing auto-reload, using paid fallback, or
+changing another account. D31's permitted subscription routes and native defaults
+remain unchanged. A depleted allowance or paid-access requirement still stops the
+dependent call. This account-setting verification is not model execution evidence;
+the packet receipt and existing handoff own the current trial checkpoint.
 
 ## Recommended architecture
 
@@ -283,6 +408,8 @@ No release date or package version is invented. Publication, remote creation, da
 
 Authority: the owner explicitly requested a bounded process and environment
 maintenance ticket, modest sub-agent use, and discussion between product slices.
+The [2026-09-07 continuous-execution decision](#experimental-policy-and-continuous-execution-decision-2026-09-07)
+supersedes the discussion stop; the later resource and model decision sets current agent assignments.
 The owner asked to overwrite the original handoff, clean task temporary files,
 keep knowledge searchable through open formats and graph links, and incorporate
 the small maintenance details that prevent documentation and storage buildup.
@@ -337,3 +464,148 @@ experience as already implemented.
 When owner statements genuinely conflict, name the conflicting requirements and
 the decision they affect. Discuss that conflict before choosing a consequential
 interpretation. An explicit correction updates the existing decision.
+
+## Sandbox execution clarification (2026-09-09)
+
+Authority: Jeff, direct instruction in the active implementation conversation.
+Date: 2026-09-09.
+Answer: "yo have we not sandboxed while working? have we previously been sandboxed? I dont want performance degradation but we have to try and run code only in sandboxes and work should be kept in habitat or whatever"
+
+Execution interpretation: keep new application builds and tests in the verified
+Habitat boundary, with the existing resource limits and cleanup. Host controllers
+and source-only checks retain bounded ownership. Windows Job limits are resource
+containment rather than security isolation. The proposed Windows refresh
+component regression was prepared but not run; its gate does not establish
+permission to execute application code outside a security sandbox. Use the
+actual failed sandboxed browser proof as the refresh regression baseline, then
+verify the correction through a fresh Habitat build and sandboxed browser.
+No resource limit, credential, spending, or publication authority changed.
+
+## Handoff, resources and plan adaptation decision, 2026-09-10
+
+Authority: Jeff's explicit local task instructions on 2026-09-10.
+He requested a module file index, completed and remaining work, Markdown and HTML
+plans, a current handoff, and autonomous execution that can discuss needed changes.
+He also explicitly required the next agent to preserve resource discipline.
+
+Keep the existing handoff as the continuation owner. Generate file and status
+views from live records. Product implementation was paused during this handoff
+audit until the later runtime-continuation decision lifted that pause. Preserve the approved direction and all resource, security and external
+action gates. Agents may recommend alternatives when evidence challenges the
+plan. Record proposals separately from decisions and update affected packets
+after a decision. The execution contract owns the operational process.
+
+The mentioned search tool is an evaluation request, not adoption authority.
+Consider `zg` / `zvec-grep` as an optional retrieval candidate. First compare
+it with existing exact search and optional retrieval adapters under a bounded
+resource plan. No installation, model download, index, daemon or data transfer
+was authorized or performed by this handoff audit.
+
+## Runtime continuation and agent-loop priority, 2026-09-10
+
+Authority: the owner's explicit continuation request and answer on 2026-09-10.
+The owner answered: "Resume bounded Habitat proofs" once source review and
+resource gates pass. This lifts the temporary runtime pause from the handoff audit.
+It preserves existing resource caps, included-only access, ownership, cleanup,
+security and external-action gates. It does not authorize usage resets, paid
+fallback, account changes, scheduling or publication.
+
+The owner also clarified that the intended result is a platform running agents
+according to Vivary's design. Apply the existing loop-first decision: packet 20a
+has priority when its concrete prerequisites are satisfied. Deliver the distinct
+planner, developer and independent QA stages with file-based handoffs and evidence
+feeding the next iteration. Verification supports that working workflow.
+Registry and GUI preparation remain in scope and continue where independent.
+They do not become new start gates for the agent loop.
+
+## Existing Vivary and startup direction, 2026-09-10
+
+Authority: Jeff's explicit clarification in the local development task.
+Use Vivary's planning, development and independent QA approach to develop
+Vivary itself. Extend the shipped workspace logic, including brownfield setup
+and durable state. Preserve the complete program scope.
+
+Starting work should establish or resume the appropriate workspace as part of
+the normal flow. Support code, second brains and other projects. Detect an
+existing Vivary workspace and resume its state; route an existing unconfigured
+folder through the existing brownfield adoption mechanism. The project onboarding
+contract above retains inspection, a bound change plan and preservation of human
+files. Automatic routing does not make registration permission to overwrite them.
+This describes the target startup experience, not completed GUI acceptance.
+
+Rewrite the existing handoff in place. Keep it short and link to the file index,
+owning packets and evidence. Do not create another continuation document for
+each session. The execution contract already owns this rule.
+
+## Knowledge, retrieval and learning enforcement, 2026-09-10
+
+Authority: the owner's explicit request to use zvec-grep, enforce Open Knowledge
+Format and graph methodology, and research reviewed skill improvement.
+
+Use zvec-grep for developer retrieval within the existing environment and
+resource rules. Pin and verify its local behavior before indexing the selected
+source subset. Preserve exact search and Tropo's deterministic graph as the
+baseline; semantic results are candidates to inspect, not authoritative records.
+Routine local setup is included in this direction. Remote embeddings, disclosure,
+paid calls and scheduled execution retain their specific gates.
+
+Vivary-managed knowledge must have validated metadata and graph relationships
+in normal work. Apply OKF's required type/frontmatter convention to the declared
+knowledge scope. Keep source code, binaries and unadopted brownfield files outside
+an indiscriminate metadata rewrite. Preserve explicit local project-edge semantics
+and provenance requirements. Reuse Tropo parsing and graph validation rather than
+creating a second knowledge store. Migrate the program's legacy record readers
+before changing their metadata format; preserve frozen contract preimages.
+
+Outcome 18 already owns the WikiSkill-shaped product loop. Implement its trace,
+pattern, proposal and impact-ledger contracts with independent evaluation and
+rollback. Capturing a failure does not prove a skill improved. The workspace's
+own WikiSkill instance is not evidence that product learning is implemented.
+The recent OKF v0.2 specification and WikiSkill research inform implementation;
+they do not establish local performance or acceptance by themselves.
+
+## Windows settlement test correction authority, 2026-09-10
+
+Authority: Jeff answered **Allow two corrected attempts** after the original
+20h test consumed its single request and exposed missing child-output wiring.
+Allow up to two corrected Windows-only attempts with a new 120-second cumulative
+limit, the same 512 MiB Job cap, 1,536 MiB reserve and existing cleanup checks.
+Retain the failed evidence and count corrected requests together across agents,
+scripts and sessions. This authority does not change the 06e build budget or
+permit WSL, container or model work under the Windows-only test.
+
+## Corrected frozen-build request authority, 2026-09-10
+
+Authority: Jeff answered **Authorize one corrected build request** after reviewing
+the corrected build adapter proposal. Allow one new admission request with a
+1,200-second cumulative limit, including refusal, and the same memory, reserve,
+observer, CPU, task, output and cleanup limits. Dispatch only when fresh resource
+readings support it. Bind the answer to the reviewed source and preserve the
+original failed marker, Native10 freeze and all other exhausted budgets.
+This approval includes no model call or shared-helper cap mutation.
+
+## Shared helper cap authority, 2026-09-10
+
+Authority: Jeff answered **Authorize the exact helper change**. Authorize the
+existing reference container at 512 MiB and proxy at 256 MiB, with memory-swap
+equal to each memory cap, use within the bounded attempt and both stopped
+with those caps retained afterward. This is a persistent shared-container
+configuration decision. It does not waive source, runtime-evidence, memory,
+usage, ownership or cleanup gates, or authorize unrelated container changes.
+
+## Exact failed-build stage deletion authority, 2026-09-10
+
+Authority: Jeff answered **Approve exact stage deletion** for
+`vivary-06e-build-proof` under the verified Habitat work root, limited to the independently
+inspected eight generated files and 12 directories. Preserve Windows
+evidence. This resolves the automatic approval rejection of that deletion
+only; it does not renew an exhausted build request or authorize other cleanup.
+
+## Transfer-corrected build authority, 2026-09-10
+Jeff answered **Authorize one transfer-corrected build** after the accepted
+stage cleanup and reviewed transfer fix. One new admission request is authorized,
+with a 1,200-second cumulative limit including refusal. Keep 4 GiB warm physical
+and commit admission, 10 GiB disk, 2 GiB Linux and 512 MiB Windows caps, one CPU,
+existing task/output/observer limits and 1,536 MiB reserve. No model calls or
+shared-helper changes are included. The request is unused; dispatch only when
+fresh resource readings support it. Both earlier failed requests stay exhausted.

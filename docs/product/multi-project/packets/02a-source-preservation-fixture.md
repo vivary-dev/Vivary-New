@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 02a: Define the preservation manifest and restore acceptance fixtures
-Type: packet
 Parent: 02
 Status: done
 Depends-on: []

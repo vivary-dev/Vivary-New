@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 33: Publish an A2A service and agent card
-Type: outcome
 Status: planned
 Blocked-by: [26, 31]
 Unlocks: [27, 35]

@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 10a: Establish the BrowserPod compatibility boundary
-Type: packet
 Parent: 10
 Status: done
 Depends-on: []

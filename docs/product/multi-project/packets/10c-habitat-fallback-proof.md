@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 10c: Prove the authorized Habitat fallback toolchain
-Type: packet
 Parent: 10
 Status: done
 Depends-on: [10a]

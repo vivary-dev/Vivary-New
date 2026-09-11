@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 25: Update and verify the public website
-Type: outcome
 Status: planned
 Blocked-by: [23, 24]
 Unlocks: [26, 27, 35]

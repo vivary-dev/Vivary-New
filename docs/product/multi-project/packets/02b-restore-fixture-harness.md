@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 02b: Implement and execute the synthetic restoration harness
-Type: packet
 Parent: 02
 Status: done
 Depends-on: [02a, 10c]

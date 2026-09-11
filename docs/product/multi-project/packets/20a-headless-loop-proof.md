@@ -1,14 +1,35 @@
+---
+type: packet
+---
 # 20a: Prove the Claude Code headless loop on files
 
-Type: packet
 Parent: 20
-Status: needs-info
+Status: in-progress
 Depends-on: [10c, 20c]
-Owner: Claude loop proof agent
-Needs: A verified pre-admission bound on cumulative input and output for an installed Claude Code invocation, supplied by the runtime integration maintainer. Jeff owns any proposed change to this packet's hard token policy. The installed CLI has no documented bound that satisfies it.
-Scope: Run one Claude Code proof using the deterministic implementation frozen and source-reviewed under 20c. Complete three healthy iterations and two isolated fault runs within 100,000 reported tokens. Do not run Codex parity, a GUI, an Agent-Native server, a new scheduler, or a paid API key.
+Owner: GPT-6 implementation lead
+Scope: Implement the approved, configurable, versioned 20a-observed-usage-v1 experiment in the existing 20c coordinator and adapter, then verify one Claude Code proof. Initial acceptance uses three healthy iterations and two isolated fault runs within a 100,000 reported-token stopping target. Native isolation, included-only access, and coherent usage remain live preflight requirements. No Codex parity, GUI, Agent-Native server, new scheduler, or paid API key.
 Verification-kind: runtime
-Timebox: One context window. Stop after three healthy iterations and both fault runs, or at a stop condition, and write the receipt.
+Timebox: Checkpoint at each bounded verified unit and context boundary. Continue implementation and independent work under the execution contract. Each admitted trial retains its configured runtime deadlines and stop conditions.
+
+## Current progress
+
+Updated 2026-09-10. This is the current execution priority under the loop-first decision.
+
+**Accepted:** The isolated native host/worker source and its Windows/Linux
+resource controllers passed independent source review. The seven inert Windows
+admission and cleanup tests passed. The candidate includes CPU/PID verification,
+zero-swap limits, bounded observation and cleanup, and fixed failure handling.
+
+**Remaining:** The no-model container exercise has not run. The complete reference
+and proxy lifecycle and sizing remain unaccepted. Native V4 bootstrap and a full
+planner → developer → independent QA cycle have not completed. Source preparation
+does not establish that the agent loop works.
+
+**Next:** With reviewed bindings and fresh 6 GiB warm admission, exercise the new
+host/worker pair, including controller death and worker OOM. Keep the existing
+reference and proxy stopped and unchanged. The two-request, 1,200-second budget
+has used zero requests. Preserve the native usage ledger, including the invocation
+whose usage is unknown. See the [resource receipt](../receipts/20a-headless-loop-proof.md#reviewed-container-drivers-2026-09-10).
 
 ## Goal
 
@@ -16,8 +37,8 @@ Prove the file-based planning, development, and QA loop with the owner's Claude
 Code subscription. Bind each stage to the exact fixture, candidate, prompt,
 observation, and receipt state that produced it. The claimable
 [20c preparation](20c-headless-loop-preparation.md) keeps the
-[loop-first direction](../design.md#direction-decision-2026-09-06) executable
-while the native-call budget capability is unavailable.
+[loop-first direction](../design.md#direction-decision-2026-09-06) executable.
+The approved experiment replaces the unsupported hard-token prerequisite.
 
 Packet 20a proves one runtime against the common role and receipt contract. It
 does not prove cross-runtime acceptance. Packet 20b owns the Codex run and the
@@ -37,8 +58,8 @@ HTML omits them. The Fusepoint repository (`Flesymeb/fusepoint`, branch
 
 Packet 20c's [accepted preparation receipt](../receipts/20c-headless-loop-preparation.md)
 records per-stage bindings, explicit acceptance, and two independently checked
-62-test strict offline passes. Its dependency is complete. Packet 20a retains
-the separate pre-admission token-bound prerequisite above.
+62-test strict offline passes. Its dependency is complete. Packet 20a implements
+the approved observed-usage policy before attempting live acceptance.
 The [workflow input contract](20c-headless-loop-preparation.md#workflow-input)
 defines the required configuration files for the commands below. Bind native
 session references before starting a run. Prove the selected adapter creates
@@ -53,8 +74,9 @@ verified.
 The sequencer owns prompt assembly, schema validation with one retry, hashes,
 test execution, no-progress detection, receipt writes, and Git stage
 checkpoints. Follow appendix A.2 when the paper conflicts with its prose. The
-sequencer also enforces the one-hour iteration deadline and five-second stop
-grace specified and tested by 20c. Its remaining duration covers every CLI,
+sequencer also enforces the configurable iteration deadline and stop grace
+bound by the active policy. Their initial values match the one-hour and
+five-second settings tested by 20c. Its remaining duration covers every CLI,
 role-tool worker, and test process; resume cannot reset that deadline. The
 planner sees only the specification, its prompt, and prior public evidence. It
 cannot mount or inspect candidate production code. The developer receives its
@@ -95,49 +117,190 @@ container cannot run the coding agent.
 
 ## Usage contract
 
-This cumulative proof-run allowance is separate from active context and response
-length. The [context and response decision](../design.md#context-and-response-decision-2026-09-07)
-delegates compaction policy to research and model-aware verification.
-Compaction cannot establish or reset the whole-invocation bound below.
+Jeff approved `20a-observed-usage-v1` for experimentation on 2026-09-07 in the
+[policy and execution decision](../design.md#experimental-policy-and-continuous-execution-decision-2026-09-07).
+This section owns the active contract. The
+[20e receipt](../receipts/20e-native-usage-policy.md) retains the inspected
+proposal, its documented capabilities, and historical implementation limits.
+Approval permits implementation and verification. Live acceptance remains open.
 
-Packet 20a has one 100,000-token ceiling across every model call in its healthy,
-fault, schema-retry, and live-preflight paths. Before a role call, require a
-verified maximum cumulative input-plus-output charge for that invocation,
-including native retries and auxiliary model requests. Bind the maximum to the
-installed runtime, model, policy, and enforcement evidence. Reserve that maximum
-atomically from the remaining packet balance before launching the CLI. Refuse
-the call when the bound is unknown, cannot be enforced, or exceeds the balance.
+All numbers and policy choices below are initial, configurable trial settings.
+They are not permanent product limits. Persist a versioned policy configuration
+with a unique trial identity and a canonical configuration hash. Bind that
+configuration to the existing ledger, workflow, native sessions, and receipts.
+Do not silently select defaults for missing required settings.
 
-Settle from actual usage only when the result proves complete accounting.
-Retain the full reservation after interruption or incomplete usage. A turn cap,
-an output-only cap, and observed cost do not establish a total-token bound.
-Streamed usage and cancellation are secondary checks, never admission authority.
-Any observed overrun fails the proof. The current installed CLI has no documented
-mechanism that passes this preflight. Do not make a model call to discover the
-bound. Keep live execution stopped and continue independent deterministic work
-or another available packet. Changing this hard-token policy requires Jeff's
-specific approval of a reviewable alternative.
+| Setting | Initial `20a-observed-usage-v1` value |
+| --- | --- |
+| Reported-token stopping target | 100,000 |
+| Active invocation claims | 1 |
+| Declared launch slots | 29 |
+| Healthy iterations | 3 |
+| Resume and regression fault iterations | 1 each |
+| Schema retries per stage | 1 |
+| Optional live preflight launches | 1 |
+| Native turns per invocation | 10 |
+| Invocation deadline | 600 seconds |
+| Packet deadline | 3,600 seconds |
+| Iteration deadline | 3,600 seconds |
+| Local stop grace | 5 seconds |
 
-Store the monotonic packet ledger at
-`/tmp/vivary-hoh-proof/20a/usage.json`. Every healthy, fault, retry, and
-model-calling preflight reads and atomically advances that ledger. Passing
-`--reported-token-budget 100000` verifies the packet ceiling. It never resets
-the spent balance when a new process or receipt root starts.
+The eleven rules below define this revision. Their numeric references denote
+the settings above. Make policy settings explicit in configuration, validate
+their relationships, and bind their exact values before admission. Preserve
+the native compaction and response defaults. Token accounting is separate from
+active context and response length.
 
-Preserve `vendor_usage_raw` for every call and document the adapter's mapping.
-The normalized record contains `aggregate_input_tokens`,
-`aggregate_output_tokens`, `cache_read_input_tokens`, and
-`cache_write_input_tokens`. Count cache reads and writes once when Claude
-reports them separately. State whether its base input value includes either
-cache value so the total does not double count. `aggregate_input_tokens` is the
-base input plus cache tokens that the base excludes, counted once.
-`budget_counted_tokens` is aggregate input plus aggregate output. Cache fields
-remain named subsets and are not added again. Missing vendor fields are `null`,
-never zero.
+Change settings or policy only between trials after recording evidence and a
+new configuration revision. Preserve prior totals, unresolved claims, receipts,
+and recovery state. A new trial ID cannot clear a stop, replay an unknown call,
+or extend an admitted deadline. Reconcile any prior stop and record the next
+trial's authority before dispatch. Evidence-based revisions are authorized by
+the decision above, within existing account, spending, and security limits.
+An unresolved accounting or authority gate still blocks the dependent call.
+Changed proof counts require matching declared stages and acceptance evidence.
+Neither reaching a limit nor failing a test automatically increases settings.
 
-Record `claude_agentic_turns` and `codex_top_level_turns` as separate integer-or-null
-fields. For 20a, the Codex field is `null`. These fields have different meanings
-and must not feed a combined turn comparison.
+Keep the existing 20a `usage.json` as the durable accounting owner; the recorded
+implementation path appears in the experimental revision below.
+Extend the existing ledger and coordinator, retain the hard-reservation mode,
+and do not introduce another store or model loop. Configuration edits within
+an admitted trial must fail closed. Record supported configuration syntax and
+its verified invocation in the implementation receipt before any live command.
+
+1. Packet 20a uses a 100,000 reported-token stopping target. It has no guaranteed
+   maximum on actual cumulative input and output, including native retries and
+   auxiliary requests. Keep native compaction, response, model, and reasoning
+   settings. Use existing included Claude subscription access only. Verify its
+   authentication path without copying credentials. Do not introduce an API key,
+   enable paid overflow, buy credits, or change account settings. If included-only
+   operation cannot be established, stop the live operation and name that fact.
+
+2. Use one durable packet ledger at the existing 20a `usage.json` path. Bind it
+   to this policy revision, packet, source baseline, runtime version, model,
+   native session, role, and attempt. All healthy, fault, schema-retry, and
+   model-calling preflight paths share it. Before dispatch, atomically claim a
+   unique invocation ID and a launch slot. There can be only one active claim.
+   Never represent an estimate as `whole_invocation_maximum_tokens`. Extend the
+   existing coordinator ledger explicitly for this policy, without another store
+   or model loop. Keep the hard-reservation path for policies that require it.
+
+3. Admit only while reported usage is below 100,000, no invocation is unresolved,
+   and fewer than 29 launches have been claimed. Allow at most three healthy
+   iterations and one iteration for each of the two existing faults. Each role
+   has one initial attempt and at most one schema retry. One optional live
+   preflight launch shares these limits. Healthy work has nine role stages,
+   resume has three, and regression stops before QA after two. Two attempts for
+   each of those fourteen stages plus one preflight give 29 launches. Every
+   launch must name one of those declared stage/attempt IDs or the sole preflight.
+   Unused slots never authorize extra work. Never recycle a
+   claimed slot after a crash, cancellation, or failed start.
+
+4. Start a persisted 60-minute packet deadline at the first model admission.
+   Limit each invocation to ten minutes and preserve the existing one-hour
+   iteration deadline. Use the earliest termination-request deadline. Confirmed
+   local exit can take the additional five-second stop grace. Apply the existing clock and
+   boot-identity checks. Resume never extends any deadline. Run one prompt with
+   print mode and text input per invocation. Set `--max-turns 10`, use streamed
+   JSON output, and keep the native session ID bound to the stage. Do not queue
+   further user inputs, reset a native session to refresh counters, or launch
+   native background agents. Disable all built-in tools with `--tools ""`.
+   Expose only the role's scoped MCP tools through `--strict-mcp-config` and the
+   explicit configuration. Verify that customizations cannot add Agent, Task,
+   subagent, arbitrary shell, or provider-calling tools. Any subagent or background
+   task event is terminal. Keep unavoidable native helper coverage labeled unknown.
+
+   Ten turns and these durations are initial experimental
+   limits for the small fixture. Task fitness is unmeasured. Reaching a limit
+   leaves work unfinished instead of increasing the limit automatically.
+
+5. Before the optional first live preflight, verify configuration, process
+   isolation, watchdogs, durable counters, and refusal/recovery paths offline.
+   That preflight is the sole bootstrap exception to previously observed final
+   usage fields. Give it the same accounting and time controls and no write
+   tools. It may establish the installed event shape. A missing, invalid, or
+   inconsistent result stops all later live calls. If the preflight is omitted,
+   supply prior evidence for this exact installed runtime and event mapping.
+   A helper response cannot prove native turn-limit enforcement. Record that
+   behavior as unverified until an authorized run actually reaches the limit.
+
+6. Count each final invocation report once. Normalize input as `input_tokens`
+   plus `cache_read_input_tokens` plus `cache_creation_input_tokens` when the
+   installed mapping confirms these are separate. Add `output_tokens` once.
+   Preserve raw usage, `num_turns`, and available per-model usage. Keep missing
+   fields null. Label the accepted total `reported`, with native helper/retry
+   coverage unknown. Four present fields alone do not establish full accounting.
+   With subagents excluded, use the final main-loop usage as the required baseline.
+   Include any separately reported, disjoint auxiliary usage after verifying its
+   scope. Never add overlapping main-loop and per-model totals. Unexplained
+   contradictions between them stop admission. Do not convert dollars into tokens.
+
+7. During a call, use attributable usage events only as an early stop signal.
+   Deduplicate message IDs and replace cumulative updates instead of summing them.
+   Do not count assistant output placeholders as final output. Combine settled
+   prior invocations with a nonoverlapping observed lower bound for the current
+   one. Stop when this reaches 100,000. Final usage replaces that invocation's
+   provisional observation, rather than being added again. Reject a final report
+   below a verified comparable observation. Unavailable live output counts leave
+   the time watchdog active and the total visibly partial.
+
+8. On the token target, deadline, cancellation, native turn-limit error, native
+   failure, or uncertain usage, persist a stop before dispatching anything else.
+   Request termination, wait at most five seconds, then kill and reap the owned
+   process group and credential-free tool workers. Verify no owned process remains.
+   Failed cleanup blocks further calls. These actions limit local execution.
+   They do not guarantee that a provider request stops or is uncharged. Native
+   retries share the active invocation and its clock. They do not receive extra
+   launch slots, fresh time, or assumed zero usage.
+
+9. Require exactly one terminal native result, normal success subtype, exit code
+   zero, completed command, matching bound session/request identity, and coherent
+   required usage before settling the invocation's reported charge. Duplicate
+   or missing terminal results, any native error subtype, a nonzero exit, or
+   mismatched identity latch unknown accounting and stop the packet.
+
+   A schema-invalid role response
+   may use its one retry only if the native invocation otherwise succeeded,
+   usage settled, bindings and fixed inputs match, and every admission check passes.
+   A native error, crash, missing final report, missing field, negative count,
+   impossible decrease, or unbound result records `unknown` accounting and stops
+   the packet. Preserve known partial usage and the unresolved invocation ID.
+   Block the whole remaining allowance administratively. This hold is not a
+   numeric claim about consumed tokens. Never refund an unknown call as zero or
+   use a fabricated finite reservation. Unknown coverage of invisible native
+   helpers is the accepted policy limitation, distinct from a missing required
+   invocation report.
+
+10. Recovery first reconciles the existing ledger, receipt chain, candidate,
+    policy, deadlines, stage, and native session. A fully settled developer
+    checkpoint can recover deterministically without a second developer call.
+    An outstanding claim or uncertain invocation cannot be replayed. Read-only
+    reconciliation may attach a recovered final report, but cannot clear a
+    packet stop or silently grant another call. Expired deadlines, uncertainty,
+    or token overruns stop the trial. Any next trial requires explicit recorded
+    reconciliation and admission under the approved experiment authority. An
+    unresolved unknown invocation remains blocked and cannot be replayed. Compaction,
+    a new process, a new receipt root, and session resume never reset totals.
+
+11. Once reported usage reaches 100,000, launch nothing further. At exactly
+    100,000, completed work can be accepted only if every required proof check
+    already passed. Above it, record an overrun and leave 20a acceptance open.
+    Missing usage also leaves acceptance open. Preserve partial candidate and
+    test evidence. A successful 20a receipt may claim completion within the
+    reported target and observed controls only. It cannot claim total provider
+    consumption below 100,000 or complete invisible-request coverage.
+
+The approved experiment replaces a hard token guarantee with this stopping policy. It accepts
+unknown token overrun exposure within bounded local execution. It does not
+promise that all three healthy iterations and both faults fit the initial limits.
+Failed proof acceptance never automatically starts another attempt. Record
+its evidence and reconcile accounting before an explicitly versioned next trial.
+
+Record `vendor_usage_raw`, normalized input, output, cache, and budget fields
+for each invocation. `aggregate_input_tokens` includes separately reported
+cache input exactly once. `budget_counted_tokens` adds aggregate output once.
+Missing fields remain `null`. Record `claude_agentic_turns` separately from
+`codex_top_level_turns`, which is `null` for 20a. Never compare them as one unit.
 
 ## Fixture and execution layout
 
@@ -180,8 +343,9 @@ control process.
 Materialize the tracked fixture from the read-only bundle into a private Git
 repository in the persistent proof tree. Create one initial commit with fixed
 commit metadata, record its commit and tree hashes, and never write through its
-baseline checkout. Every healthy or fault run uses a distinct disposable
-worktree or copy from that commit. A later run may restore or rematerialize the
+baseline checkout. Every healthy or fault run uses a distinct disposable fixture copy from that
+commit. Reuse existing test worktrees when present. Do not create another
+development checkout or Git worktree. A later run may restore or rematerialize the
 baseline only when the resulting commit, tree, and common file hashes equal the
 20a receipt.
 
@@ -244,7 +408,7 @@ handoff evidence; do not call separate Claude and Codex runs mixed-stage accepta
 ## Required 20b continuation
 
 Before 20a closes, create packet 20b with `Parent: 20`, `Depends-on: [20a]`,
-owner `Codex loop parity agent`, and a one-context-window timebox. Set
+owner `GPT-6 parity implementation lead`, and a bounded checkpoint timebox. Set
 `Status: ready-for-agent` only when its native authentication and required
 pre-call budget bound are verified. Otherwise set `Status: needs-info` and
 name the missing capability and runtime integration maintainer in `Needs`.
@@ -275,8 +439,9 @@ Give 20b a separate 100,000-token ceiling covering healthy, fault, retry, and
 preflight calls. Apply the 20a usage field definitions and cache mapping rule.
 Preserve `vendor_usage_raw` and normalize input, output, cache read, and cache
 write fields without double counting. Require and reserve a verified maximum
-whole-invocation charge before each call, with the same refusal and incomplete-
-accounting rules as 20a. Missing enforcement blocks only live Codex execution.
+whole-invocation charge before each call. Keep the original hard-reservation
+refusal and incomplete-accounting rules for 20b. The approved 20a observed-usage
+experiment does not replace 20b's policy by implication. Missing enforcement blocks only live Codex execution.
 Record `codex_top_level_turns` while
 `claude_agentic_turns` is `null`. Record prompt bytes and SHA-256. All model
 calls atomically advance `/tmp/vivary-hoh-proof/20b/usage.json`. Repeating the
@@ -330,11 +495,11 @@ The 20b owner retains the persistent proof tree until independent parity review
 and a restore-and-hash check of both exported archives pass. Then that owner
 prepares an itemized cleanup receipt: exact task paths and container names,
 stopped-process evidence, reachable baseline commits, archive/manifest hashes,
-and the restoration result. Request approval for each removal operation. No
-authentication volume, image, proxy, production mount, or other agent's data is
-a cleanup target. Until approval, record the cleanup owner and a review-by date
-seven days after closure in the existing receipt. Surface an overdue decision
-at the next handoff without scheduling a job. The archives remain the evidence
+and the restoration result. The owner authorized cleanup of task-owned temporary
+resources. Verify the evidence export before removing exact contained temporary
+paths. No authentication volume, image, proxy, production mount, legacy data,
+or other agent's data is a cleanup target. Any retained resource names its owner
+and removal condition in the existing receipt. The archives remain the evidence
 input for outcome 04; their later removal needs that owner's acceptance and a
 separate approved operation.
 
@@ -377,10 +542,13 @@ Canonical 20b then becomes the only owner of its detailed contract.
    fault changes only candidate implementation before the QA freeze so a
    previously passing behavior fails. The sequencer halts, names the regression,
    and preserves the healthy proof. It does not change the oracle or prompts.
-10. `vendor_usage_raw` and the normalized input, output, cache, budget-total,
-    and separate turn fields bind every live call. Each call has a prior verified
-    reservation that fits the balance. The total never exceeds 100,000. Unknown
-    bounds or incomplete accounting cannot release or authorize usage.
+10. Every live call binds raw and normalized usage, native turns, a declared
+    launch claim, policy revision, configuration hash, trial, and session.
+    The initial proof must complete at or below the configured 100,000 reported
+    target. Overrun or missing required usage leaves acceptance open. Prove
+    persisted launch/deadline controls, provisional/final reconciliation,
+    unknown-accounting refusal, and recovery. Separate deterministic checks
+    from observed native enforcement and unmeasured helper/retry coverage.
 11. The receipt records wall time and the subscription used. No API-key spend,
     unit result, or fake-adapter result can replace live evidence.
 12. The mount record and exported evidence archive preserve the baseline,
@@ -395,22 +563,30 @@ Canonical 20b then becomes the only owner of its detailed contract.
 
 ## Verify
 
-First run the deterministic sequencer, adapter, and fixture tests:
+First implement the versioned configuration and all eleven usage rules. Run
+the deterministic sequencer, adapter, and fixture tests before any model call:
 
 ```console
 python tools/tests/test_hoh_loop.py
 ```
 
 Before a model call, verify the persistent proof bind and read-only source
-bundle. Then materialize the baseline and three Claude worktrees at the paths
-above:
+bundle. Then reuse the baseline and prepare the three Claude fixture copies
+at the paths above without creating a development checkout or Git worktree:
 
 ```console
 findmnt -T /tmp/vivary-hoh-proof -o TARGET,SOURCE,FSTYPE,OPTIONS
 findmnt -T /opt/vivary-hoh-source -o TARGET,SOURCE,FSTYPE,OPTIONS
 ```
 
-Run the healthy proof and the completed candidate's product tests:
+The commands below retain the initial trial values. They are execution
+templates, not evidence that the observed-usage mode is implemented. Bind each
+workflow to the same verified policy configuration and ledger. The retained
+`--reported-token-budget 100000` argument checks the configured stopping target
+in observed mode. It cannot prove a hard actual-token ceiling or reset usage.
+Document the implemented policy-selection syntax in the receipt before use.
+Run the healthy proof and the completed candidate's product tests only after
+offline controls, included-only authentication, and role isolation pass:
 
 ```console
 python tools/hoh_loop.py --project /tmp/vivary-hoh-proof/20a/claude/healthy/project --iterations 3 --workflow /tmp/vivary-hoh-proof/20a/claude/healthy/workflow.json --run-id claude-healthy --receipt-dir /tmp/vivary-hoh-proof/20a/claude/healthy/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
@@ -433,16 +609,53 @@ A second reader traces each tracked receipt claim to a private hash or captured
 command output. Then run the common planning checks from
 [the execution contract](../execution-contract.md#maintaining-the-graph).
 
+## BOOTTIME experimental revision
+
+The next prepared trial selects `20a-observed-usage-v3` under the owner's
+evidence-based policy-revision authority above. It retains v2's 300,000 reported
+token target and the initial launch, duration, turn, retry, and proof counts.
+Its explicit `clock_policy` is `linux-boottime-capped-wall-v1`.
+
+This Linux-only policy uses `CLOCK_BOOTTIME` for elapsed time. Persist the
+original absolute BOOTTIME expiry and a nonincreasing effective expiry. Wall
+time may shorten that expiry; a later wall correction cannot restore time.
+Keep the same boot identity across packet, invocation, iteration, worker,
+authenticated host, and oracle guards. Missing BOOTTIME, a boot change, or
+BOOTTIME reversal refuses execution. Earlier strict-clock policies retain their
+original behavior. Do not change WSL, Docker, kernel clock, or time-service settings.
+
+Persist bounded aggregate clock observations and wall backsteps. A correlation
+delta alone does not identify NTP or another cause. Reject role-output callbacks
+and worker requests after expiry, including buffered output and resumed processes.
+Native compaction, model, response, and reasoning defaults remain unchanged.
+
+The unused v2 preparation has no claims, clock, or stop. Revise it only through
+`UsageLedger.revise_unstarted`, checking the exact prior state and preparation
+digests. Preserve it as an abandoned preparation, separate from actual trial
+history. Retain the first trial's stop and all 14,369 reported tokens in the same
+ledger. The private preparation records name that existing live ledger;
+new preparation directories contain a reference to it, never another ledger.
+
+The private v3 driver requires independently reviewed, hash-bound Habitat test
+and no-model transport evidence. Its final preparation receipt and unchanged
+v2 inventory gate bootstrap. Policy selection and successful no-model checks do
+not constitute a native trial. The receipt below owns current execution evidence.
+
 ## Stop conditions
 
 Use no paid API key, GUI, Agent-Native server, change under `packages/`,
 scheduled job, or network beyond Claude Code's provider through the Habitat
 proxy. Use no more than three healthy iterations and the two named fault runs.
-Stop each iteration after one hour or the packet at its context-window boundary.
-Stop before starting any role call without an enforceable, verified maximum
-charge that fits the remaining token balance. Also stop on any credential-canary
-exposure or failed role isolation. No accounting-only fallback satisfies these
-requirements.
+Apply the earliest configured invocation, iteration, or packet deadline.
+The initial settings are ten minutes per invocation and one hour per packet
+and iteration, followed by at most five seconds of local stop grace. Context
+boundaries require checkpoints and never reset accounting or deadlines.
+Stop admission on a spent target, undeclared or exhausted launch, unresolved
+claim, native error, uncertain required usage, changed policy binding, or clock
+uncertainty. Any subagent/background-task event, credential-canary exposure,
+failed role isolation, or failed owned-process cleanup is terminal for the trial.
+Preserve evidence and continue independent work. Revise experimental settings
+between reconciled trials only, under the usage contract.
 
 Stop if fixture tests cannot run, the installed CLI cannot enforce the role's
 authority, the proxy cannot reach Claude Code, usage cannot be bound to the
@@ -469,3 +682,122 @@ them.
   source findings, but its strict Habitat acceptance remains `needs-info` after
   repeated wall-clock reversals. Packet 20a keeps its own distinct
   pre-admission token-bound prerequisite and does not start while 20c is open.
+
+- 2026-09-07: Jeff approved `20a-observed-usage-v1` as a configurable, versioned
+  experiment and continuous GPT-6-led work through outcome 28 dependencies.
+  This packet is in progress for implementation. The usage contract replaces
+  the unsupported hard-token prerequisite. Native proof remains unaccepted.
+
+- 2026-09-07: The [implementation receipt](../receipts/20a-headless-loop-proof.md) records observed-usage controls, 119 Habitat checks, six corrected stream lifecycle checks, and the separate constrained role-tool proof. Native-model acceptance remains open.
+
+- 2026-09-07: Selected the explicit BOOTTIME clock policy for the next inert preparation after measured wall reversals, reviewed source, final focused checks, and actual no-model process/worker pause proofs. Existing hard-clock policies and prior accounting remain unchanged.
+
+## Native launch resource continuation, 2026-09-10
+
+The owner explicitly authorized resuming bounded Habitat runs and clarified that
+the intended result is Vivary's planner, developer and independent QA workflow.
+The existing loop-first decision selects this packet. The design records the
+answer and authority; registry and GUI work remain independent where possible.
+
+The unchanged historical V4 launcher omits the required explicit memory-budget argument.
+Its existing reference and proxy containers have unbounded memory settings, and
+controller-death cleanup is incomplete. Preserve the 6 GiB gate while repairing
+these concrete prerequisites. Do not substitute a small arbitrary budget.
+
+The isolated native-host candidate requires MemorySwap to equal its 1 GiB
+memory cap. Canonical source was restored to the original bytes because 06e
+still owns that freeze. The candidate and its Windows/Linux controllers have
+passed source review, with seven inert Windows checks. Their Habitat container
+exercise remains unrun. The V4 freeze is unchanged and accepts none of these
+new bytes. Later application requires a reviewed preparation revision.
+
+The isolated host/worker resource drivers have since passed source review and
+seven inert Windows checks. The next step is their bounded no-model runtime
+exercise after fresh 6 GiB warm admission. Reference/proxy sizing and lifecycle
+remain deferred, with both existing helpers stopped and unchanged. The following
+allowances describe the earlier proposal, not completed runtime verification. Proposed enforced caps
+are 1,024 MiB each for the host and worker, 512 MiB for the reference, 256 MiB for
+the proxy, 256 MiB for the Linux controller and 128 MiB for its outside cleanup
+owner. With 512 MiB Windows containment and a declared 512 MiB platform allowance,
+the job totals 4,224 MiB. These values are experimental bounds, not measured
+requirements. Preserve the additional 1,536 MiB reserve and 6 GiB physical gate.
+
+Before execution, independently review the complete supervisor, source freeze,
+all concurrent cgroups, zero-swap settings, output bounds and cleanup custody.
+Exercise startup, controller death and worker OOM without model calls. Preserve
+the exact existing reference/proxy IDs and configuration, then restore them to
+their captured stopped state. Require physical and commit headroom, a 250 ms
+observer with at most a one-second gap, a 1,792 MiB pressure-stop threshold and
+settlement within five seconds. Confirm unchanged ledger bytes.
+
+The no-model experiment permits at most two admission requests or 1,200 elapsed
+seconds from the first request, whichever expires first. Count refused and failed
+requests across scripts and sessions. Each request has a 240-second work deadline
+plus five seconds for settlement. Record its attempt before any WSL call; an
+unresolved attempt prevents another launch. Zero requests have run at this source
+checkpoint. This experiment does not claim or reset native-model accounting.
+
+After resource acceptance, revise the frozen launch inputs through the existing
+preparation contract. Preserve all native model, context, compaction, invocation,
+deadline and included-access requirements, along with the immutable unknown-usage
+history. Native bootstrap and the first complete three-role cycle remain unrun.
+
+## Source isolation and first container exercise, 2026-09-10
+
+Fresh Native10 source admission exposed a shared dependency: the 06e owner
+closure still binds the original canonical native-host bytes. Preserve that
+accepted closure. The reviewed zero-swap source and its tests are now isolated
+under the preserved checkout's
+`.tmp/vivary-continuation/20a-native-resource/candidate/`. Their reviewed hashes
+are unchanged; exact canonical preimages were restored. The resource exercise
+must stage that candidate over a small isolated source snapshot. It must not
+update the existing Habitat source or frozen V4 inputs.
+
+The first no-model exercise is narrowed to the new invocation host and worker.
+Keep the existing reference and proxy stopped and unchanged. Their allowances
+remain reserved in the conservative 4,224 MiB budget, but this exercise cannot
+accept their sizing or lifecycle. Docker ignores a zero memory-swap setting;
+the proposed helper update does not establish an exact configuration rollback.
+See [Docker's resource documentation](https://docs.docker.com/engine/containers/resource_constraints/#--memory-swap-details).
+
+Prove the owned pair's caps, controller-death and worker-OOM cleanup first.
+Runtime acceptance of the complete live profile, helper lifecycle, Windows
+observer integration and native-model bootstrap remains open. All existing attempt,
+deadline, reserve and 6 GiB admission limits remain unchanged.
+
+## Reviewed V4 helper owner, 2026-09-10
+
+The preserved `.tmp/vivary-continuation/20a-v4-helper-lifecycle-candidate/`
+core and no-model lifecycle driver passed independent source review. All 25
+core and 15 driver inert checks passed. Exact custody includes the native audit,
+full helper configuration and every attempt/profile/custody journal identity.
+Only a durable owned start grants stop authority. Failed cleanup invokes
+serialized fallback; a missing journal grants no stop authority.
+
+Normal success waits for the owner unit to become inactive. Primary cleanup
+has at most three seconds; fallback receives only the remainder of the same
+five-second absolute expiry. Command timeouts normalize to a bounded timeout
+result. Expiry records unsettled and blocks success. Five seconds cannot
+guarantee that primary cleanup and fallback both finish.
+
+Jeff answered **Authorize the exact helper change** on 2026-09-10: reference
+512 MiB and proxy 256 MiB, memory-swap equal to each memory cap, bounded use and
+both left stopped with caps retained. Source acceptance is separate from that
+authority. Profile and custody runtime-promotion flags remain blocked.
+
+The original no-model host/worker exercise has zero of two requests used and a
+1,200-second cumulative budget. It must pass first, while helpers still match
+its stopped uncapped preimage. The helper lifecycle phase then has at most two
+requests and 1,200 cumulative seconds, with 240 seconds of work and five seconds
+of cleanup per live case. Both phases require fresh 6 GiB warm physical memory,
+5,760 MiB commit headroom, 10 GiB disk and the existing 1,536 MiB host reserve.
+The helper review binds this packet and requires a separately reviewed pair
+acceptance before dispatch. No phase has executed.
+
+The lifecycle cases cover partial cap failure, primary abort, exact outer
+Windows controller loss, heartbeat cleanup, serialized fallback and durable
+journal export. Cap faults cannot be replayed after persistent convergence;
+request two may reuse only exact accepted first-request fault coverage. The
+no-unowned-stop case remains inert-only because deliberately losing ownership
+of a shared running helper is unsafe. A passing lifecycle result retains this
+declared limitation and cannot accept the complete planner/developer/QA cycle.

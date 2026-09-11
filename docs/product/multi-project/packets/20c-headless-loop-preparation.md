@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 20c: Prepare the deterministic headless loop proof
-Type: packet
 Parent: 20
 Status: done
 Depends-on: [10c]

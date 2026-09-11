@@ -1,12 +1,16 @@
+---
+type: packet
+---
 # 20e: Resolve the native usage-policy mismatch
 
-Type: packet
 Parent: 20
-Status: ready-for-agent
+Status: done
 Depends-on: [10c, 20c]
-Owner: Next development session, sole writer with one independent reviewer
+Owner: Codex 20e lead, sole writer. Independent reviewer: usage_review.
 Scope: Prepare one verified execution-policy recommendation for 20a using existing native-runtime evidence. No live model call or change to active admission controls.
 Verification-kind: inspection
+Evidence: [Usage-policy receipt](../receipts/20e-native-usage-policy.md)
+Verification-result: passed
 Timebox: One bounded session through analysis, verification, review, fixes, and cleanup.
 
 ## Goal
@@ -80,3 +84,12 @@ verification and retain only the final receipt and necessary source evidence.
 ## Log
 
 - 2026-09-07: Prepared at the owner's request for the next development session.
+
+- 2026-09-07: Codex claimed 20e as sole writer and completed the inspection with
+  independent reviewer `usage_review`. The receipt proposes `20a-observed-usage-v1`.
+  Fifteen selected existing Habitat tests passed with no skips. Independent
+  review corrections, source navigation, planning checks, document/plan render
+  checks, writing lint, and task cleanup passed. The exact recommendation awaits
+  the owner's decision. 20a and its executable hard-admission rule remain
+  unchanged and blocked. No next packet, live model call, spend, push, publication,
+  or merge occurred.

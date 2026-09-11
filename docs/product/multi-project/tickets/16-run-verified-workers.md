@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 16: Run verified workers and account for costs
-Type: outcome
 Status: planned
 Blocked-by: [04, 10, 12, 14, 15]
 Unlocks: [17, 20, 21, 24, 29, 36]

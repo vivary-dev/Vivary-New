@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 09: Preserve standalone and headless operation parity
-Type: outcome
 Status: planned
 Blocked-by: [04, 07, 08]
 Unlocks: [23, 24]

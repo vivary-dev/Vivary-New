@@ -1,6 +1,8 @@
+---
+type: packet
+---
 # 24a: Index canonical sources and module ownership
 
-Type: packet
 Parent: 24
 Status: done
 Depends-on: [12a]

@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 21: Add research specialists and evaluation
-Type: outcome
 Status: planned
 Blocked-by: [04, 15, 16, 18]
 Unlocks: [24, 36]

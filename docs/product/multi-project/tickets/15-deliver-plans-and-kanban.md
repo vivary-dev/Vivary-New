@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 15: Deliver editable plans and dependency-aware kanban
-Type: outcome
 Status: planned
 Blocked-by: [05, 12, 14]
 Unlocks: [16, 17, 20, 21, 24, 29]

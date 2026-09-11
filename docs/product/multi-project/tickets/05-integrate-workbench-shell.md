@@ -1,10 +1,20 @@
+---
+type: outcome
+---
 # 05: Integrate the preserved workbench shell
-Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [02, 03]
 Unlocks: [06, 11, 15, 18, 24]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+
+## Current progress
+
+Updated 2026-09-10. Packet 05a accepts the scoped visual shell and its historical
+build/browser evidence. Current integrated selection behavior still needs 06e's
+fresh build/browser acceptance, and outcome 02 remains unfinished. Full parent
+closure must verify the required shell regions and provenance against the
+integrated source. See the [05a receipt](../receipts/05a-workbench-shell.md).
 
 Packet 05b retains eight passing backend title tests. Its `/chat` candidate
 composes Native chat and history. Independent QA and Verify accepted the corrected
@@ -37,3 +47,11 @@ they do not prove the behavior above.
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-07: Packet 05a preserves 24 selected GUI/composition source files and
+  composes a native shell in `packages/workbench`. Frozen Habitat build,
+  TypeScript, six preview tests, doctor, and the private exported-renderer browser
+  fixture pass. The lead independently accepted desktop/mobile/focus evidence.
+  Parent outcome remains open: full source preservation and runtime/identity
+  dependencies, connected project behavior, and real application acceptance
+  are not established by this shell proof. See the 05a receipt.

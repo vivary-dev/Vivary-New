@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 13: Connect optional repository hosts
-Type: outcome
 Status: planned
 Blocked-by: [07, 12]
 Unlocks: [23, 27]

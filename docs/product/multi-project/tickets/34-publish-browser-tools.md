@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 34: Publish working browser WebMCP tools
-Type: outcome
 Status: planned
 Blocked-by: [26, 31]
 Unlocks: [27, 35]

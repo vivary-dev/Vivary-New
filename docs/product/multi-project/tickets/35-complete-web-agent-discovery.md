@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 35: Complete DNS, headers, Markdown, skills, and ARD discovery
-Type: outcome
 Status: planned
 Blocked-by: [25, 26, 31, 32, 33, 34]
 Unlocks: [27]

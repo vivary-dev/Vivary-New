@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 32: Publish a hosted MCP endpoint and card
-Type: outcome
 Status: planned
 Blocked-by: [26]
 Unlocks: [27, 35]

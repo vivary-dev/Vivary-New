@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 26: Publish one real read-only service and OpenAPI catalog
-Type: outcome
 Status: planned
 Blocked-by: [23, 24, 25]
 Unlocks: [27, 31, 32, 33, 34, 35]

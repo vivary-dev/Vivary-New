@@ -23,7 +23,7 @@ class PlanCheckTests(unittest.TestCase):
             (self.plan / folder).mkdir(parents=True)
         for number in range(1, 37):
             key = f'{number:02}'
-            self.ticket(key).write_text(f'# {key}: fixture\nType: outcome\nStatus: planned\nBlocked-by: []\nUnlocks: []\n\n## Goal\nGoal.\n## Context\nContext.\n## Done condition\nAccepted.\n## Verify\n```console\npython check.py\n```\n## Log\nEvidence not yet produced.\n', encoding='utf-8')
+            self.ticket(key).write_text(f'---\ntype: outcome\n---\n# {key}: fixture\nStatus: planned\nBlocked-by: []\nUnlocks: []\n\n## Goal\nGoal.\n## Context\nContext.\n## Done condition\nAccepted.\n## Verify\n```console\npython check.py\n```\n## Log\nEvidence not yet produced.\n', encoding='utf-8')
         for name in ('design', 'execution-contract', 'audit', 'external-dependencies'):
             (self.plan / f'{name}.md').write_text(f'# {name}\n', encoding='utf-8')
         (self.plan / 'execution-contract.md').write_text(
@@ -43,7 +43,7 @@ class PlanCheckTests(unittest.TestCase):
         (self.plan / 'receipts/fixture.md').write_text(
             '# Fixture receipt\n\nEvidence-record: 02a\n', encoding='utf-8')
         self.packet = self.plan / 'packets/02a-fixture.md'
-        self.packet.write_text('# 02a: fixture\n\nType: packet\nParent: 02\nStatus: ready-for-agent\nDepends-on: []\nOwner: fixture agent\nScope: isolated fixture\nTimebox: one context\nVerification-kind: runtime\n\n## Goal\nRound trip.\n## Context\nSynthetic inputs.\n## Owned files\nCreate fixture.mjs.\n## Done condition\nExact roundtrip.\n## Verify\n```console\nnode --test fixture.mjs\n```\n## Stop conditions\nNo external writes.\n## Log\nPrepared.\n', encoding='utf-8')
+        self.packet.write_text('---\ntype: packet\n---\n# 02a: fixture\n\nParent: 02\nStatus: ready-for-agent\nDepends-on: []\nOwner: fixture agent\nScope: isolated fixture\nTimebox: one context\nVerification-kind: runtime\n\n## Goal\nRound trip.\n## Context\nSynthetic inputs.\n## Owned files\nCreate fixture.mjs.\n## Done condition\nExact roundtrip.\n## Verify\n```console\nnode --test fixture.mjs\n```\n## Stop conditions\nNo external writes.\n## Log\nPrepared.\n', encoding='utf-8')
         self.render()
 
     def ticket(self, key):
@@ -54,18 +54,115 @@ class PlanCheckTests(unittest.TestCase):
 
     def render(self):
         records = module.read_records(self.plan)
-        (self.plan / 'graph.md').write_text(module.render_graph(self.plan, records), encoding='utf-8')
+        (self.plan / 'graph.md').write_text(module.render_graph(self.plan, records), encoding='utf-8', newline='\n')
         render_index = getattr(module, 'render_index', None)
         if render_index:
-            (self.plan / 'index.md').write_text(render_index(self.plan, records), encoding='utf-8')
+            (self.plan / 'index.md').write_text(render_index(self.plan, records), encoding='utf-8', newline='\n')
         else:
-            (self.plan / 'index.md').write_text('# Current Vivary program frontier\n\nFrontier: 02a.\n', encoding='utf-8')
+            (self.plan / 'index.md').write_text('# Current Vivary program frontier\n\nFrontier: 02a.\n', encoding='utf-8', newline='\n')
 
     def assert_error(self, text):
         self.assertTrue(any(text in error for error in module.check(self.root)), module.check(self.root))
 
+    def install_cli_checker(self):
+        checker = self.root / 'scripts/check_multi_project_plan.py'
+        checker.parent.mkdir(exist_ok=True)
+        shutil.copyfile(module.__file__, checker)
+        tropo = self.root / 'packages/tropo/tropo.py'
+        tropo.parent.mkdir(parents=True)
+        shutil.copyfile(module.TROPO_PATH, tropo)
+        return checker
+
     def test_consistent_graph_passes(self):
         self.assertEqual(module.check(self.root), [])
+
+    def test_check_uses_supplied_record_snapshot_without_rereading_records(self):
+        record_texts = {
+            path: path.read_text(encoding='utf-8')
+            for folder in ('tickets', 'packets')
+            for path in (self.plan / folder).glob('*.md')
+        }
+        original_read = Path.read_text
+
+        def guarded_read(path, *args, **kwargs):
+            if path in record_texts:
+                raise AssertionError(f'read record outside supplied snapshot: {path}')
+            return original_read(path, *args, **kwargs)
+
+        with mock.patch.object(Path, 'read_text', guarded_read):
+            self.assertEqual(module.check(self.root, record_texts=record_texts), [])
+
+    def test_unknown_custom_yaml_fields_are_preserved(self):
+        self.replace(
+            self.packet,
+            'type: packet\n',
+            'type: packet\nsources: [contract, packet]\ntags: [knowledge]\ncustom-field:\n  retention: retained\n',
+        )
+        records = module.read_records(self.plan)
+        self.assertEqual(records['02a']['frontmatter'], {
+            'type': 'packet',
+            'sources': ['contract', 'packet'],
+            'tags': ['knowledge'],
+            'custom-field': {'retention': 'retained'},
+        })
+        self.render()
+        self.assertEqual(module.check(self.root), [])
+
+    def test_yaml_status_alias_is_rejected_when_value_matches_body(self):
+        self.replace(self.packet, 'type: packet\n', 'type: packet\nstatus: ready-for-agent\n')
+        self.assert_error("frontmatter key 'status' conflicts with body-owned metadata")
+
+    def test_yaml_status_alias_is_rejected_when_value_conflicts_with_body(self):
+        self.replace(self.packet, 'type: packet\n', 'type: packet\nStatus: done\n')
+        self.assert_error("frontmatter key 'Status' conflicts with body-owned metadata")
+
+    def test_yaml_underscore_alias_is_rejected_when_value_matches_body(self):
+        self.replace(self.packet, 'type: packet\n', 'type: packet\ndepends_on: []\n')
+        self.assert_error("frontmatter key 'depends_on' conflicts with body-owned metadata")
+
+    def test_yaml_underscore_alias_is_rejected_when_value_conflicts_with_body(self):
+        self.replace(self.packet, 'type: packet\n', 'type: packet\nDepends_On: [01]\n')
+        self.assert_error("frontmatter key 'Depends_On' conflicts with body-owned metadata")
+
+    def test_missing_yaml_frontmatter_fails(self):
+        self.replace(self.packet, '---\ntype: packet\n---\n', '')
+        self.assert_error('missing YAML frontmatter')
+
+    def test_unclosed_yaml_frontmatter_fails(self):
+        self.replace(self.packet, '---\ntype: packet\n---\n', '---\ntype: packet\n')
+        self.assert_error('malformed YAML frontmatter')
+
+    def test_nonmapping_yaml_frontmatter_fails(self):
+        self.replace(self.packet, 'type: packet', '- packet')
+        self.assert_error('frontmatter must be a mapping')
+
+    def test_duplicate_yaml_type_fails(self):
+        self.replace(self.packet, 'type: packet', 'type: packet\ntype: packet')
+        self.assert_error('duplicate key')
+
+    def test_nonstring_yaml_type_fails(self):
+        self.replace(self.packet, 'type: packet', 'type: [packet]')
+        self.assert_error('frontmatter type must be a string')
+
+    def test_wrong_yaml_type_fails(self):
+        self.replace(self.packet, 'type: packet', 'type: outcome')
+        self.assert_error("frontmatter type must be 'packet'")
+
+    def test_uppercase_yaml_type_does_not_replace_required_type(self):
+        self.replace(self.packet, 'type: packet', 'Type: packet')
+        self.assert_error('frontmatter is missing type')
+
+    def test_same_body_type_competes_with_yaml(self):
+        self.replace(self.packet, '# 02a: fixture', '# 02a: fixture\nType: packet')
+        self.assert_error('body metadata must not declare type')
+
+    def test_conflicting_lowercase_body_type_competes_with_yaml(self):
+        self.replace(self.packet, '# 02a: fixture', '# 02a: fixture\ntype: outcome')
+        self.assert_error('body metadata must not declare type')
+
+    def test_h1_must_start_the_frontmatter_body(self):
+        self.replace(self.packet, '---\n# 02a: fixture', '---\n\n# 02a: fixture')
+        self.assert_error('heading ID does not match filename')
 
     def test_dangling_dependency_fails(self):
         self.replace(self.ticket('01'), 'Blocked-by: []', 'Blocked-by: [99]')
@@ -359,7 +456,7 @@ class PlanCheckTests(unittest.TestCase):
 
     def test_empty_record_returns_validation_errors(self):
         self.packet.write_text('', encoding='utf-8')
-        self.assert_error('missing or invalid Type')
+        self.assert_error('missing YAML frontmatter')
 
     def test_external_dependencies_directory_is_invalid(self):
         external = self.plan / 'external-dependencies.md'
@@ -462,10 +559,7 @@ class PlanCheckTests(unittest.TestCase):
         self.assertEqual(errors, [f'{relative}: symbolic link is not allowed'])
 
     def test_render_cli_refuses_symlink_before_writing_outputs(self):
-        scripts = self.root / 'scripts'
-        scripts.mkdir()
-        checker = scripts / 'check_multi_project_plan.py'
-        shutil.copyfile(module.__file__, checker)
+        checker = self.install_cli_checker()
         graph = self.plan / 'graph.md'
         index = self.plan / 'index.md'
         graph.write_text('graph sentinel\n', encoding='utf-8')
@@ -493,10 +587,7 @@ class PlanCheckTests(unittest.TestCase):
         self.assertEqual((graph.read_bytes(), index.read_bytes()), before)
 
     def test_render_cli_rejects_unreadable_sources(self):
-        scripts = self.root / 'scripts'
-        scripts.mkdir()
-        checker = scripts / 'check_multi_project_plan.py'
-        shutil.copyfile(module.__file__, checker)
+        checker = self.install_cli_checker()
         graph = self.plan / 'graph.md'
         index = self.plan / 'index.md'
         before = (graph.read_bytes(), index.read_bytes())
@@ -509,10 +600,7 @@ class PlanCheckTests(unittest.TestCase):
         self.assertEqual((graph.read_bytes(), index.read_bytes()), before)
 
     def test_render_cli_repairs_missing_or_invalid_generated_files(self):
-        scripts = self.root / 'scripts'
-        scripts.mkdir()
-        checker = scripts / 'check_multi_project_plan.py'
-        shutil.copyfile(module.__file__, checker)
+        checker = self.install_cli_checker()
         graph = self.plan / 'graph.md'
         index = self.plan / 'index.md'
         before = (graph.read_bytes(), index.read_bytes())
@@ -529,10 +617,7 @@ class PlanCheckTests(unittest.TestCase):
                 self.assertEqual((graph.read_bytes(), index.read_bytes()), before)
 
     def test_render_cli_preserves_outputs_for_invalid_external_dependency_type(self):
-        scripts = self.root / 'scripts'
-        scripts.mkdir()
-        checker = scripts / 'check_multi_project_plan.py'
-        shutil.copyfile(module.__file__, checker)
+        checker = self.install_cli_checker()
         graph = self.plan / 'graph.md'
         index = self.plan / 'index.md'
         graph.write_text('graph sentinel\n', encoding='utf-8')
@@ -562,10 +647,7 @@ class PlanCheckTests(unittest.TestCase):
         self.assertEqual((graph.read_bytes(), index.read_bytes()), before)
 
     def test_render_cli_preserves_outputs_when_external_anchor_source_is_invalid(self):
-        scripts = self.root / 'scripts'
-        scripts.mkdir()
-        checker = scripts / 'check_multi_project_plan.py'
-        shutil.copyfile(module.__file__, checker)
+        checker = self.install_cli_checker()
         external = self.root / 'docs/shared-anchor.md'
         ticket_before = self.ticket('01').read_bytes()
         graph = self.plan / 'graph.md'

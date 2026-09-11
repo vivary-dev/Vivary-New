@@ -422,6 +422,101 @@
           "remoteRef": "synthetic-remote-only"
         }
       }
+    },
+    "quarantine": {
+      "operation": "quarantine-mutation",
+      "request": {
+        "operationId": "op-mutate",
+        "bindingId": "binding-a",
+        "fence": 8,
+        "expectedPolicyRevision": 1,
+        "expectedRegistryRevision": 8
+      },
+      "trusted": {
+        "actorId": "actor-a",
+        "collectionId": "collection-a",
+        "deviceId": "device-a",
+        "member": true,
+        "capabilities": [
+          "register-project",
+          "export-project",
+          "rebind-project",
+          "mutate-project",
+          "write-back-project"
+        ],
+        "rootAccess": [],
+        "policyRevision": 1,
+        "registryRevision": 8,
+        "root": {
+          "rootId": "unverified",
+          "locationRef": "unverified",
+          "exists": false,
+          "isDirectory": false,
+          "identityVerified": false,
+          "contentRevision": "unverified",
+          "vcs": {
+            "kind": "none",
+            "repositoryId": null,
+            "checkoutId": null,
+            "mutationOwner": null
+          }
+        },
+        "portable": null,
+        "binding": null,
+        "existingRootBindings": [],
+        "receipt": {
+          "actorId": "actor-a",
+          "collectionId": "collection-a",
+          "deviceId": "device-a",
+          "operation": "admit-mutation",
+          "operationId": "op-mutate",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "status": "pending",
+          "rootId": "root-a",
+          "vcs": {
+            "kind": "git",
+            "repositoryId": "repository-a",
+            "checkoutId": "checkout-a",
+            "mutationOwner": "git"
+          },
+          "output": {
+            "code": "admitted",
+            "bindingId": "binding-a",
+            "keys": [
+              "device-a:checkout:checkout-a",
+              "device-a:repository:repository-a"
+            ],
+            "fence": 8,
+            "ownerOperationId": "op-mutate"
+          }
+        },
+        "allocatedProjectId": "project-new",
+        "allocatedBindingId": "binding-new",
+        "allocatedIdsInUse": false,
+        "reservations": [
+          {
+            "keys": [
+              "device-a:checkout:checkout-a",
+              "device-a:repository:repository-a"
+            ],
+            "ownerActorId": "actor-a",
+            "ownerCollectionId": "collection-a",
+            "ownerDeviceId": "device-a",
+            "ownerOperationId": "op-mutate",
+            "state": "active",
+            "fence": 8
+          }
+        ],
+        "nextFence": 9,
+        "execution": null,
+        "patchVerified": true,
+        "overlapSafe": false,
+        "privateState": {
+          "locator": "synthetic-local-only",
+          "credentialRef": "synthetic-credential-only",
+          "remoteRef": "synthetic-remote-only"
+        }
+      }
     }
   },
   "cases": [
@@ -3279,6 +3374,738 @@
       "expect": {
         "output": {
           "code": "stale-binding"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "rebind-replay-vcs-changed",
+      "rules": [
+        "R9"
+      ],
+      "inputRef": "rebind",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt",
+          "value": {
+            "actorId": "actor-a",
+            "collectionId": "collection-a",
+            "deviceId": "device-a",
+            "operation": "rebind",
+            "operationId": "op-rebind",
+            "requestDigest": "e125c0d9d04a93e03c78dcdfa88d42ca0d0af65eb6415ab37a09c664fd750a19",
+            "status": "complete",
+            "rootId": "root-a",
+            "vcs": {
+              "kind": "git",
+              "repositoryId": "repository-a",
+              "checkoutId": "checkout-a",
+              "mutationOwner": "git"
+            },
+            "output": {
+              "code": "rebound",
+              "projectId": "project-a",
+              "bindingId": "binding-a",
+              "bindingRevision": 2,
+              "replayed": false
+            }
+          }
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/binding/bindingRevision",
+          "value": 2
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/binding/locationRef",
+          "value": "location-new"
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "superseded-operation"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "duplicate-root-stale-vcs",
+      "rules": [
+        "R4"
+      ],
+      "inputRef": "register",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/existingRootBindings",
+          "value": [
+            {
+              "bindingId": "binding-a",
+              "projectId": "project-a",
+              "collectionId": "collection-a",
+              "actorId": "actor-a",
+              "deviceId": "device-a",
+              "rootId": "root-a",
+              "locationRef": "location-a",
+              "bindingRevision": 1,
+              "policyRevision": 1,
+              "vcs": {
+                "kind": "git",
+                "repositoryId": "repository-a",
+                "checkoutId": "checkout-a",
+                "mutationOwner": "git"
+              }
+            }
+          ]
+        },
+        {
+          "op": "set",
+          "pointer": "/request/expectedRegistryRevision",
+          "value": 6
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "stale-binding"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-pending-active",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [],
+      "expect": {
+        "output": {
+          "code": "quarantined",
+          "bindingId": "binding-a",
+          "ownerOperationId": "op-mutate",
+          "fence": 8,
+          "replayed": false
+        },
+        "effects": [
+          "registry",
+          "reservation"
+        ],
+        "recordChanges": {
+          "registryRevision": 9,
+          "replaceReservation": {
+            "keys": [
+              "device-a:checkout:checkout-a",
+              "device-a:repository:repository-a"
+            ],
+            "ownerActorId": "actor-a",
+            "ownerCollectionId": "collection-a",
+            "ownerDeviceId": "device-a",
+            "ownerOperationId": "op-mutate",
+            "state": "uncertain",
+            "fence": 8
+          },
+          "replaceReceipt": {
+            "actorId": "actor-a",
+            "collectionId": "collection-a",
+            "deviceId": "device-a",
+            "operation": "admit-mutation",
+            "operationId": "op-mutate",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "status": "uncertain",
+            "rootId": "root-a",
+            "vcs": {
+              "kind": "git",
+              "repositoryId": "repository-a",
+              "checkoutId": "checkout-a",
+              "mutationOwner": "git"
+            },
+            "output": {
+              "code": "admitted",
+              "bindingId": "binding-a",
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "fence": 8,
+              "ownerOperationId": "op-mutate"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "quarantine-root-facts-unused",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/root/rootId",
+          "value": "missing-root"
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/root/locationRef",
+          "value": "missing-location"
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "quarantined",
+          "bindingId": "binding-a",
+          "ownerOperationId": "op-mutate",
+          "fence": 8,
+          "replayed": false
+        },
+        "effects": [
+          "registry",
+          "reservation"
+        ],
+        "recordChanges": {
+          "registryRevision": 9,
+          "replaceReservation": {
+            "keys": [
+              "device-a:checkout:checkout-a",
+              "device-a:repository:repository-a"
+            ],
+            "ownerActorId": "actor-a",
+            "ownerCollectionId": "collection-a",
+            "ownerDeviceId": "device-a",
+            "ownerOperationId": "op-mutate",
+            "state": "uncertain",
+            "fence": 8
+          },
+          "replaceReceipt": {
+            "actorId": "actor-a",
+            "collectionId": "collection-a",
+            "deviceId": "device-a",
+            "operation": "admit-mutation",
+            "operationId": "op-mutate",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "status": "uncertain",
+            "rootId": "root-a",
+            "vcs": {
+              "kind": "git",
+              "repositoryId": "repository-a",
+              "checkoutId": "checkout-a",
+              "mutationOwner": "git"
+            },
+            "output": {
+              "code": "admitted",
+              "bindingId": "binding-a",
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "fence": 8,
+              "ownerOperationId": "op-mutate"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "quarantine-repeat",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/status",
+          "value": "uncertain"
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "ownerActorId": "actor-a",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "uncertain",
+              "fence": 8
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "quarantined",
+          "bindingId": "binding-a",
+          "ownerOperationId": "op-mutate",
+          "fence": 8,
+          "replayed": true
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-repeat-precedes-stale-revision",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/status",
+          "value": "uncertain"
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "ownerActorId": "actor-a",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "uncertain",
+              "fence": 8
+            }
+          ]
+        },
+        {
+          "op": "set",
+          "pointer": "/request/expectedRegistryRevision",
+          "value": 0
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "quarantined",
+          "bindingId": "binding-a",
+          "ownerOperationId": "op-mutate",
+          "fence": 8,
+          "replayed": true
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-repeat-precedes-revision-exhaustion",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/status",
+          "value": "uncertain"
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "ownerActorId": "actor-a",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "uncertain",
+              "fence": 8
+            }
+          ]
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/registryRevision",
+          "value": 9007199254740991
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "quarantined",
+          "bindingId": "binding-a",
+          "ownerOperationId": "op-mutate",
+          "fence": 8,
+          "replayed": true
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-stale-registry",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/request/expectedRegistryRevision",
+          "value": 7
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "retry-state"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-revision-exhausted",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/registryRevision",
+          "value": 9007199254740991
+        },
+        {
+          "op": "set",
+          "pointer": "/request/expectedRegistryRevision",
+          "value": 9007199254740991
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "invalid-input"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-binding-mismatch",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/request/bindingId",
+          "value": "binding-other"
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "stale-fence"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-fence-mismatch",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/request/fence",
+          "value": 7
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "stale-fence"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-admission-unavailable",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt",
+          "value": null
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "admission-unavailable"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-parent-unavailable",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": []
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "invalid-input"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-stale-policy",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/request/expectedPolicyRevision",
+          "value": 2
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "stale-policy"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-revoked",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/member",
+          "value": false
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "denied"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-mixed-receipt",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/status",
+          "value": "uncertain"
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "reconciliation-required"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-mixed-reservation",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "ownerActorId": "actor-a",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "uncertain",
+              "fence": 8
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "reconciliation-required"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-receipt-scope-inconsistent",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/actorId",
+          "value": "actor-other"
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "invalid-input"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-parent-scope-inconsistent",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-a",
+                "device-a:repository:repository-a"
+              ],
+              "ownerActorId": "actor-other",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "active",
+              "fence": 8
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "invalid-input"
+        },
+        "effects": [],
+        "recordChanges": {}
+      }
+    },
+    {
+      "id": "quarantine-receipt-derived-keys-required",
+      "rules": [
+        "R9",
+        "R11",
+        "R12"
+      ],
+      "inputRef": "quarantine",
+      "mutations": [
+        {
+          "op": "set",
+          "pointer": "/trusted/receipt/output/keys",
+          "value": [
+            "device-a:checkout:checkout-other",
+            "device-a:repository:repository-other"
+          ]
+        },
+        {
+          "op": "set",
+          "pointer": "/trusted/reservations",
+          "value": [
+            {
+              "keys": [
+                "device-a:checkout:checkout-other",
+                "device-a:repository:repository-other"
+              ],
+              "ownerActorId": "actor-a",
+              "ownerCollectionId": "collection-a",
+              "ownerDeviceId": "device-a",
+              "ownerOperationId": "op-mutate",
+              "state": "active",
+              "fence": 8
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "output": {
+          "code": "invalid-input"
         },
         "effects": [],
         "recordChanges": {}

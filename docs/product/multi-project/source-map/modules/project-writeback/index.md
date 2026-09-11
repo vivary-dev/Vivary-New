@@ -20,6 +20,21 @@ integration, and portable handoffs. Outcome
 [06](../../../tickets/06-register-and-switch-projects.md) owns read-only registration
 and switching. Registration grants no project-file effect.
 
+
+## Creation boundary
+
+Outcome [07](../../../tickets/07-create-new-projects.md) owns new workspace
+creation. Its accepted preview, read-only authority and receipt persistence are
+routed from that outcome. [07d](../../../packets/07d-staged-creation-effects.md)
+has accepted [Linux engine evidence](../../../receipts/07d-staged-creation-effects.md)
+through injected trusted interfaces. [07e](../../../packets/07e-native-creation-admission.md)
+has accepted [Native admission evidence](../../../receipts/07e-native-creation-admission.md).
+[07f](../../../packets/07f-creation-duplex-bridge.md) has accepted
+[bounded child-protocol evidence](../../../receipts/07f-creation-duplex-bridge.md).
+Production custody and GUI remain unverified.
+Creation receipts and root registration do not authorize edits to existing projects.
+
+
 ## Intended caller-visible contract and errors
 
 When Outcome 11 is implemented, an authorized run will target a registered checkout,

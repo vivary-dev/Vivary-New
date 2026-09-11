@@ -1,10 +1,20 @@
+---
+type: outcome
+---
 # 10: Complete native runtime proof from S-00A
-Type: outcome
 Status: in-progress
 Blocked-by: [04]
 Unlocks: [16, 20, 22, 23, 24, 30, 36]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+
+## Current progress
+
+Updated 2026-09-10. Packet 10c accepts the Habitat toolchain environment, not a
+live coding-agent lifecycle. The exact runtime still needs authenticated,
+project-bound events, cancellation, resume and usage evidence. Outcome 04 is
+unfinished, and 20a's full three-role cycle has not completed.
+See the [10c limits](../receipts/10c-habitat-fallback-proof.md).
 
 ## Goal
 

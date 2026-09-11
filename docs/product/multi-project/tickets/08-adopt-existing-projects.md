@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 08: Implement existing-project adoption
-Type: outcome
 Status: planned
 Blocked-by: [03, 06]
 Unlocks: [09, 11, 19, 24]

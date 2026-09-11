@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 31: Implement authentication discovery and protected-resource flow
-Type: outcome
 Status: planned
 Blocked-by: [26]
 Unlocks: [27, 33, 34, 35]

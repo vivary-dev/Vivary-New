@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 24: Write installed docs, guides, and UI help
-Type: outcome
 Status: planned
 Blocked-by: [05, 07, 08, 09, 10, 11, 15, 16, 17, 18, 19, 20, 21, 22, 23, 29, 30, 36]
 Unlocks: [25, 26, 27]
@@ -22,6 +24,24 @@ Own canonical `docs/`, README and changelog updates, app help, and guide verific
 and four module routes over existing canonical records. It is independent preparatory
 work. Its completion does not close installed guides or change the dependencies above.
 
+## Program record knowledge format
+
+[Packet 24b](../packets/24b-program-record-knowledge-format.md) accepted required
+YAML type enforcement for program outcomes and packets, using Tropo and one
+shared parser. It preserves their existing planning fields and graph meaning.
+Frozen contracts and other knowledge classes were not migrated. This is
+preparatory tooling. Installed-guide acceptance and parent dependencies remain.
+
+## Local retrieval preparation
+
+[Packet 24c](../packets/24c-zg-direct-search.md) owns the bounded toolchain,
+installation and direct-rg evaluation for the approved local search direction.
+Private toolchain staging and preparation passed. Installation stopped on
+lost heartbeat, and runtime and clean settlement remain unaccepted. No query
+ran. Its packet and receipt preserve the eight consumed requests and partial
+stage evidence. This preparatory work does not close the installed-guide
+inventory or change this outcome's completion dependencies.
+
 ## Done condition
 
 The guide inventory in `release.md` is complete and follows installed behavior. Screens and commands match artifacts. Claims distinguish supported, optional, held, and unavailable behavior.
@@ -32,8 +52,8 @@ Follow every guide from installed artifacts in isolated fixtures. Run documentat
 
 
 Run the [canonical common planning checks](../execution-contract.md#maintaining-the-graph)
-after changing this outcome's metadata. These checks validate planning documents;
-they do not prove the behavior above.
+after changing this outcome's metadata. These checks validate planning documents.
+They do not prove the behavior above.
 
 ## Log
 
@@ -45,6 +65,10 @@ they do not prove the behavior above.
 
 - 2026-09-06: Packet 24a implemented its bounded source graph and entered independent retrieval review. Outcome 24 remains planned with all installed-guide dependencies unchanged.
 
-- 2026-09-06: Packet 24a passed independent retrieval and adversarial checks. Its source-navigation receipt is accepted. Outcome 24 remains planned; this preparatory map does not satisfy installed-guide acceptance or remove any dependency.
-- 2026-09-06: PR #336 review returned Packet 24a to a bounded correction pass for CI enforcement, metadata-target refusal, and exact outcome-owner summaries. The earlier acceptance and CI result remain evidence for commit `445464e` only; current acceptance awaits a new independent review.
+- 2026-09-06: Packet 24a passed independent retrieval and adversarial checks. Its source-navigation receipt is accepted. Outcome 24 remains planned. This preparatory map does not satisfy installed-guide acceptance or remove any dependency.
+- 2026-09-06: PR #336 review returned Packet 24a to a bounded correction pass for CI enforcement, metadata-target refusal, and exact outcome-owner summaries. The earlier acceptance and CI result remain evidence for commit `445464e` only. Current acceptance awaits a new independent review.
 - 2026-09-06: Packet 24a's PR correction passed independent CI-removal, metadata-target, symlink, Windows-junction, movement, planning, line-ending, and diff checks. The packet is done again with the prior commit evidence kept distinct from the accepted correction candidate. Outcome 24 remains planned.
+
+- 2026-09-10: Accepted 24b program-record metadata and snapshot-reader enforcement. Outcome 24 remains planned with its installed-guide acceptance unchanged.
+
+- 2026-09-10: Linked existing 24c retrieval preparation from its parent. Installed-guide acceptance and completion dependencies remain unchanged.

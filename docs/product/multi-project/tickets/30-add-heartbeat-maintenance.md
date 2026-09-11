@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 30: Add deterministic heartbeat maintenance
-Type: outcome
 Status: planned
 Blocked-by: [04, 10, 18]
 Unlocks: [24, 36]

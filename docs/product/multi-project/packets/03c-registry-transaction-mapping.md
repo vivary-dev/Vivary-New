@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 03c: Map registry transactions to native application seams
-Type: packet
 Parent: 03
 Status: done
 Depends-on: [03b]

@@ -1,6 +1,8 @@
+---
+type: packet
+---
 # 12a: Define the trusted root and VCS observation boundary
 
-Type: packet
 Parent: 12
 Status: done
 Depends-on: [03c]

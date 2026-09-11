@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 36: Measure the S-13 pilot outcomes
-Type: outcome
 Status: planned
 Blocked-by: [10, 16, 17, 18, 19, 20, 21, 22, 29, 30]
 Unlocks: [24, 27]

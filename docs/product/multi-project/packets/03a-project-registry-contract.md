@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 03a: Define the portable registry contract and acceptance fixtures
-Type: packet
 Parent: 03
 Status: done
 Depends-on: []

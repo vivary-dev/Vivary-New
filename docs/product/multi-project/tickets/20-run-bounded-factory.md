@@ -1,6 +1,8 @@
+---
+type: outcome
+---
 # 20: Run bounded factory work
-Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [04, 10, 14, 15, 16, 17, 29]
 Unlocks: [24, 36]
 
@@ -65,3 +67,15 @@ they do not prove the behavior above.
 - 2026-09-07: 20c completed the strict offline lifecycle and independent QA, with two 62-test passes and regression/restart corrections. Evidence and cleanup are recorded in its receipt. 20a remains blocked only on its live-call token bound; factory behavior remains unaccepted.
 
 - 2026-09-07: Native compaction and response defaults accepted. Packet [20e](../packets/20e-native-usage-policy.md) prepares the concrete usage-policy decision needed by 20a. This does not authorize live calls or change the hard admission rule.
+
+- 2026-09-07: [20e](../packets/20e-native-usage-policy.md) completed its independently reviewed usage-policy recommendation. Its [receipt](../receipts/20e-native-usage-policy.md) owns the exact proposed replacement and evidence. The owner has not approved it. 20a keeps its active hard-admission prerequisite and `needs-info` status. No native proof or factory acceptance follows from this inspection.
+
+- 2026-09-07: Jeff approved the [experimental policy and continuous execution](../design.md#experimental-policy-and-continuous-execution-decision-2026-09-07)
+  decision. Packet 20a now owns implementation of configurable, versioned
+  `20a-observed-usage-v1` settings and remains open for runtime acceptance.
+  GPT-6 leads bounded implementation, verification, and independent review
+  through outcome 28 and its dependencies. Prior approval waits are historical.
+  The 20b hard-reservation contract remains separate. Native compaction and
+  response defaults stay unchanged. Full factory acceptance remains open.
+
+- 2026-09-07: Packet 20a implements versioned observed-usage accounting and process controls. Its [checkpoint receipt](../receipts/20a-headless-loop-proof.md) separates deterministic checks and real isolated role-tool evidence from the still-open native-model trial. Full factory acceptance remains open.

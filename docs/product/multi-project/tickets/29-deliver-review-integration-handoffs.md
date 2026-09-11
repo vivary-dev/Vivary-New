@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 29: Deliver review, conditional integration, and portable handoffs
-Type: outcome
 Status: planned
 Blocked-by: [04, 11, 12, 14, 15, 16, 17]
 Unlocks: [20, 23, 24, 36]

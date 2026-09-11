@@ -1,10 +1,24 @@
+---
+type: outcome
+---
 # 03: Define project registry and authority contracts
-Type: outcome
-Status: in-progress
+Status: done
 Blocked-by: [01]
+Owner: Astra lead, with independent source review
+Evidence: [Contract acceptance](../receipts/03-registry-contract-acceptance.md)
+Verification-result: passed
 Unlocks: [04, 05, 06, 07, 08, 12, 14, 18]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+
+## Current progress
+
+Updated 2026-09-10. Parent contract acceptance is complete. The
+[acceptance receipt](../receipts/03-registry-contract-acceptance.md) maps each
+Done/Verify clause to accepted 03a through 03d and 12h evidence. This closes
+executable contract agreement and storage/transaction mapping. Production
+integration, project/VCS effects and external-writer fencing remain with their
+existing downstream owners.
 
 ## Goal
 
@@ -42,8 +56,8 @@ trusted root/VCS observation inspection. Follow [the generated
 frontier](../index.md) under [the loop-first
 direction](../design.md#direction-decision-2026-09-06). [03a's
 receipt](../receipts/03a-registry-contract.md) records the completed registry
-contract inspection. Production integration and full parent acceptance remain
-separate work.
+contract inspection. The [parent acceptance](../receipts/03-registry-contract-acceptance.md) now closes
+the defined contract scope. Production integration remains separate work.
 
 ## Log
 
@@ -56,3 +70,7 @@ separate work.
 - 2026-09-05: Packet 03b completed its sandboxed reference-model checks after independent QA corrections. Outcome 03 remains in progress: transaction mapping and owning production adapters still need evidence.
 
 - 2026-09-05: Packet 03c completed source mapping and independent oracle tracing. Outcome 03 remains in progress: configured database transactions, strict JSON transport, trusted root identity, and enforceable filesystem boundaries still need implementation evidence.
+
+- 2026-09-08: [03d](../packets/03d-vcs-replay-consistency.md) is ready for the two VCS consistency predicates identified by accepted 12f inspection. Existing replay and duplicate owners, output schemas and tests own the change; implementation and Native evidence remain open.
+
+- 2026-09-10: Completed parent acceptance after a clause-by-clause evidence review and independent review of the R11/R12 ownership boundary. The receipt binds accepted 03a through 03d and 12h evidence. No runtime was rerun, no production effect or release is claimed, and other outcomes retain their own acceptance requirements.

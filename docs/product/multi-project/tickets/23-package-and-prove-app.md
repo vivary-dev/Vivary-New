@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 23: Package and prove installed application behavior
-Type: outcome
 Status: planned
 Blocked-by: [09, 10, 13, 29]
 Unlocks: [24, 25, 26, 27]

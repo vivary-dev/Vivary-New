@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 01: Reconcile migration provenance and product boundaries
-Type: outcome
 Status: done
 Blocked-by: []
 Owner: integration agent

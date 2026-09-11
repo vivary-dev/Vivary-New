@@ -1,10 +1,23 @@
+---
+type: outcome
+---
 # 06: Implement project registration and switching
-Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [03, 05]
 Unlocks: [07, 08, 11, 12]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+
+## Current progress
+
+**Accepted:** 06a through 06d have accepted bounded storage, action, HTTP, and
+physical-root registration evidence. Native10 accepted the 06e activity transport.
+The build binding correction passed independent source review and 11 local checks.
+
+**Remaining:** The corrected build admission is unused and requires fresh
+resources. Build, browser verification, C5 application, and this outcome's full
+switching/draft-preservation conditions remain open. The [06e packet](../packets/06e-project-selection.md)
+and [receipt](../receipts/06e-project-selection.md) own the next operation and limits.
 
 ## Goal
 
@@ -26,9 +39,17 @@ Run integration tests with two roots, one missing root, duplicate physical paths
 
 
 Run the [canonical common planning checks](../execution-contract.md#maintaining-the-graph)
-after changing this outcome's metadata. These checks validate planning documents;
-they do not prove the behavior above.
+after changing this outcome's metadata. These checks validate planning documents.
+They do not prove the behavior above.
 
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-07: [06a native registry storage](../packets/06a-native-registry-storage.md) implements private registration and portable export through existing native database transactions. All 14 Windows tests passed, including rollback, restart, replay, and process contention. Two independent reviews, evidence verification, and bounded cleanup passed. GUI registration, policy and durable identity composition, project switching, and Linux storage verification remain open.
+
+- 2026-09-07: [06b internal native actions](../packets/06b-native-registry-actions.md) composes strict parsed-request entry validation, native authorization/output/audit, and the accepted registry store. All 12 Windows native tests passed. Independent source/archive review and bounded cleanup passed. The definitions remain undiscoverable pending production composition and raw transport.
+
+- 2026-09-07: [06c native registration HTTP](../packets/06c-native-registry-http.md) composes a strict raw request guard with native action mounting. All 10 Windows loopback HTTP-to-SQLite tests and lead source review passed. Independent source/archive review and bounded cleanup passed. Trusted policy/root and configured application/GUI composition remain open.
+
+- 2026-09-07: [06d live root registration](../packets/06d-native-root-registration.md) composes native session identity and current org/app capability with Linux root custody and SQLite. Six physical/native integration groups passed, including two-root registration, revocation, replacement, restart refusal, and source preservation. Independent source review, six-group replay, 63-entry archive verification and exact cleanup passed. Native doctor passed all ten guards. Configured GUI registration and switching remain open.

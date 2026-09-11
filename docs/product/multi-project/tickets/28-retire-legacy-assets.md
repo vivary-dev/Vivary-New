@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 28: Review deferred legacy retirement per item
-Type: outcome
 Status: planned
 Blocked-by: [27]
 Unlocks: []

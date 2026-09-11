@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 19: Integrate the template program after its prerequisites
-Type: outcome
 Status: planned
 Blocked-by: [07, 08]
 External-gates: [template-installer]

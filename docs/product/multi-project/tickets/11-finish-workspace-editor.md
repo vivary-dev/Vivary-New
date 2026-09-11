@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 11: Finish files, drafts, and conflict-safe editing
-Type: outcome
 Status: planned
 Blocked-by: [05, 06, 08]
 Unlocks: [17, 24, 29]

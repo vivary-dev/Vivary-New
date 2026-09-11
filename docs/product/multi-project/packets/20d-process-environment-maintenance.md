@@ -1,6 +1,8 @@
+---
+type: packet
+---
 # 20d: Repair the environment and simplify the development process
 
-Type: packet
 Parent: 20
 Status: done
 Depends-on: [10c]

@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 10b: Prove the first BrowserPod toolchain on a disposable fixture
-Type: packet
 Parent: 10
 Status: needs-info
 Depends-on: [10a]

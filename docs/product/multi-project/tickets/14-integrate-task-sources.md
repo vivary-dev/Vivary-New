@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 14: Integrate optional task sources without mirroring ownership
-Type: outcome
 Status: planned
 Blocked-by: [03, 12]
 Unlocks: [15, 16, 17, 20, 29]

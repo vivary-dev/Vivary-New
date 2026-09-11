@@ -1,5 +1,7 @@
+---
+type: packet
+---
 # 03b: Execute the portable registry contract against a deterministic model
-Type: packet
 Parent: 03
 Status: done
 Depends-on: [03a, 10c]

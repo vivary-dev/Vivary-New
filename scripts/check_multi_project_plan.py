@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -13,10 +14,28 @@ PACKET_STATES = {"ready-for-agent", "in-progress", "needs-info", "ready-for-huma
 REQUIRED_PACKET_HEADINGS = ("Goal", "Context", "Owned files", "Done condition", "Verify", "Stop conditions", "Log")
 EXPECTED_SCOPES = {"S-00A"} | {f"S-{n:02}" for n in range(14)}
 PRIVATE_VALUE = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/]|/home/[^/\s]+/|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+TROPO_PATH = Path(__file__).resolve().parents[1] / "packages/tropo/tropo.py"
+BODY_METADATA_FIELDS = {
+    "authority", "blocked-by", "depends-on", "evidence", "evidence-record",
+    "external-gates", "needs", "owner", "parent", "required-successor", "scope",
+    "status", "timebox", "unlocks", "verification-kind", "verification-result",
+}
 
 
-def parse_header(body: str) -> tuple[dict[str, str], list[str]]:
-    """Parse only the contiguous metadata block below a document heading."""
+def load_tropo():
+    spec = importlib.util.spec_from_file_location("vivary_program_record_tropo", TROPO_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load Tropo: {TROPO_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+TROPO = load_tropo()
+
+
+def parse_legacy_header(body: str) -> tuple[dict[str, str], list[str]]:
+    """Parse one legacy body metadata block after its Markdown heading."""
     fields = {}
     duplicates = []
     started = False
@@ -36,19 +55,68 @@ def parse_header(body: str) -> tuple[dict[str, str], list[str]]:
     return fields, duplicates
 
 
+def parse_record_metadata(source: str, kind: str) -> tuple[str, dict, dict[str, str], list[str], list[str]]:
+    """Parse YAML type while keeping every planning field body-owned."""
+    errors = []
+    yaml_text, body = TROPO.extract_frontmatter(source)
+    frontmatter = {}
+    if yaml_text is None:
+        normalized = TROPO._strip_leading_bom(source)
+        errors.append("malformed YAML frontmatter" if normalized.startswith("---")
+                      else "missing YAML frontmatter")
+        body = normalized
+    else:
+        try:
+            parsed = TROPO.parse_yaml(yaml_text)
+        except TROPO.YamlError as error:
+            errors.append(f"invalid YAML frontmatter: {error}")
+        else:
+            if not isinstance(parsed, dict):
+                errors.append("YAML frontmatter must be a mapping")
+            else:
+                frontmatter = TROPO.strip_meta(parsed)
+
+    # These known planning keys remain authoritative in the body during the
+    # type-only migration. Reject aliases even when a record omits that body
+    # field, and reject equal values as well as conflicting values.
+    for name in frontmatter:
+        normalized_name = name.casefold().replace("_", "-")
+        if normalized_name in BODY_METADATA_FIELDS:
+            errors.append(f"YAML frontmatter key {name!r} conflicts with body-owned metadata")
+
+    fields, duplicate_fields = parse_legacy_header(body)
+    body_type_fields = [name for name in fields if name.casefold() == "type"]
+    body_type_fields.extend(name for name in duplicate_fields if name.casefold() == "type")
+    if body_type_fields:
+        errors.append("body metadata must not declare type")
+
+    declared_type = frontmatter.get("type")
+    if "type" not in frontmatter:
+        errors.append("YAML frontmatter is missing type")
+    elif not isinstance(declared_type, str):
+        errors.append("YAML frontmatter type must be a string")
+    elif declared_type != kind:
+        errors.append(f"YAML frontmatter type must be {kind!r}")
+    if isinstance(declared_type, str):
+        fields["Type"] = declared_type
+    return body, frontmatter, fields, duplicate_fields, errors
+
+
 def read_records(plan: Path, texts: dict[Path, str] | None = None) -> dict[str, dict]:
     records = {}
     for directory, kind in (("tickets", "outcome"), ("packets", "packet")):
-        for path in sorted((plan / directory).glob("*.md")):
-            if texts is not None and path not in texts:
-                continue
-            body = path.read_text(encoding="utf-8") if texts is None else texts[path]
+        record_dir = plan / directory
+        paths = ((path for path in texts if path.parent == record_dir and path.suffix == ".md")
+                 if texts is not None else record_dir.glob("*.md"))
+        for path in sorted(paths):
+            source = path.read_text(encoding="utf-8") if texts is None else texts[path]
             key = path.name.split("-", 1)[0]
-            fields, duplicate_fields = parse_header(body)
+            body, frontmatter, fields, duplicate_fields, metadata_errors = parse_record_metadata(source, kind)
             heading = re.match(r"^# (\d{2}[a-z]?):", body)
             records[key] = {"path": path, "body": body, "kind": kind, "fields": fields,
                             "title": body.partition("\n")[0].removeprefix("# "), "key": key,
                             "heading_id": heading.group(1) if heading else None,
+                            "frontmatter": frontmatter, "metadata_errors": metadata_errors,
                             "duplicate_fields": duplicate_fields}
     return records
 
@@ -82,7 +150,7 @@ def read_external_gates(plan: Path, texts: dict[Path, str]) -> tuple[dict[str, d
         if not section.startswith("## "):
             continue
         section_name = section.splitlines()[0].removeprefix("## ").strip()
-        fields, duplicate_fields = parse_header(section)
+        fields, duplicate_fields = parse_legacy_header(section)
         gate = fields.get("Gate", "")
         label = gate or f"section {section_name}"
         for field in duplicate_fields:
@@ -197,7 +265,7 @@ def evidence_receipt(record: dict, plan: Path, texts: dict[Path, str]) -> tuple[
         receipts = (plan / "receipts").resolve()
         if target.suffix != ".md" or not target.is_relative_to(receipts) or not target.is_file():
             return None
-        return parse_header(texts[target]) if target in texts else None
+        return parse_legacy_header(texts[target]) if target in texts else None
     except (OSError, UnicodeError):
         return None
 
@@ -272,9 +340,11 @@ def preflight_plan(plan: Path, root: Path) -> list[str]:
     return errors
 
 
-def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> tuple[dict[Path, str], list[str]]:
+def read_plan_texts(
+        plan: Path, root: Path, *, skip: tuple[Path, ...] = (),
+        preloaded: dict[Path, str] | None = None) -> tuple[dict[Path, str], list[str]]:
     """Read the preflighted plan once before parsing any structural documents."""
-    texts = {}
+    texts = dict(preloaded or {})
     errors = []
     def load_text(path):
         try:
@@ -285,7 +355,10 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
         except OSError:
             errors.append(f"{path.relative_to(root)}: cannot read planning artifact")
 
-    for path in sorted(path for path in plan.rglob("*") if path.is_file() and path not in skip):
+    record_dirs = {plan / "tickets", plan / "packets"} if preloaded is not None else set()
+    for path in sorted(path for path in plan.rglob("*")
+                       if path.is_file() and path not in skip
+                       and path not in texts and path.parent not in record_dirs):
         load_text(path)
     if errors:
         return texts, errors
@@ -321,7 +394,9 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
     return texts, errors
 
 
-def check(root: Path, *, render: bool = False) -> list[str]:
+def check(
+        root: Path, *, render: bool = False,
+        record_texts: dict[Path, str] | None = None) -> list[str]:
     plan = root / "docs/product/multi-project"
     preflight_errors = preflight_plan(plan, root)
     if preflight_errors:
@@ -338,7 +413,11 @@ def check(root: Path, *, render: bool = False) -> list[str]:
                 output_errors.append(f"{path.relative_to(root)}: cannot write generated output")
         if output_errors:
             return output_errors
-    texts, read_errors = read_plan_texts(plan, root, skip=generated_paths if render else ())
+    record_paths = (sorted(record_texts) if record_texts is not None else
+                    sorted((plan / "tickets").glob("*.md")) +
+                    sorted((plan / "packets").glob("*.md")))
+    texts, read_errors = read_plan_texts(
+        plan, root, skip=generated_paths if render else (), preloaded=record_texts)
     if read_errors:
         return read_errors
     records = read_records(plan, texts)
@@ -347,20 +426,18 @@ def check(root: Path, *, render: bool = False) -> list[str]:
     expected = {f"{n:02}" for n in range(1, 37)}
     if outcomes != expected:
         errors.append(f"outcome IDs differ from 01-36: {sorted(outcomes ^ expected)}")
-    paths = list((plan / "tickets").glob("*.md")) + list((plan / "packets").glob("*.md"))
-    if len(paths) != len(records):
+    if len(record_paths) != len(records):
         errors.append("duplicate record ID")
     for key, record in records.items():
         fields, body, kind = record["fields"], record["body"], record["kind"]
         status = fields.get("Status")
         if "External-gates" in fields and not valid_names(fields["External-gates"]):
             errors.append(f"{key}: invalid External-gates")
+        errors.extend(f"{key}: {error}" for error in record["metadata_errors"])
         for field in record["duplicate_fields"]:
             errors.append(f"{key}: duplicate metadata field {field}")
         if record["heading_id"] != key:
             errors.append(f"{key}: heading ID does not match filename")
-        if fields.get("Type") != kind:
-            errors.append(f"{key}: missing or invalid Type")
         if status not in (OUTCOME_STATES if kind == "outcome" else PACKET_STATES):
             errors.append(f"{key}: invalid status {status!r}")
         edge_field = "Blocked-by" if kind == "outcome" else "Depends-on"

@@ -21,9 +21,15 @@ const fixturePath = process.env.PROJECT_REGISTRY_FIXTURE ??
 const fixture = parseStrictJson(await readFile(fixturePath, "utf8"));
 const base = (name) => structuredClone(fixture.inputs[name]);
 const decision = (input) => evaluateRegistryOperation(structuredClone(input));
+const exactRefusal = (code) => ({ output: { code }, effects: [], recordChanges: {} });
+const fixtureInput = (id) => {
+  const fixtureCase = fixture.cases.find((item) => item.id === id);
+  assert.ok(fixtureCase, `${id} fixture case is required`);
+  return materializeFixtureCase(fixture, fixtureCase);
+};
 
-test("the generic fixture DSL evaluates all 63 exact outputs, effects, and record changes", () => {
-  assert.equal(fixture.cases.length, 63);
+test(`the generic fixture DSL evaluates all ${fixture.cases.length} exact outputs, effects, and record changes`, () => {
+  assert.ok(fixture.cases.length > 0);
   const results = checkFixture(fixture);
   assert.deepEqual(results.filter((result) => !result.pass), []);
   for (const fixtureCase of fixture.cases) {
@@ -452,14 +458,187 @@ test("nonincrementable revisions refuse new writes while reads and safe incremen
   assert.equal(decision(read).output.code, "exported");
 });
 
+const completeJjVcs = () => ({
+  kind: "jj-git",
+  repositoryId: "repository-a",
+  checkoutId: "checkout-a",
+  jjRepositoryId: "jj-repository-a",
+  jjWorkspaceId: "jj-workspace-a",
+  mutationOwner: "jj",
+});
+const reorderedJjVcs = () => Object.fromEntries(Object.entries(completeJjVcs()).reverse());
+const replayInput = (operation) => fixtureInput(operation === "register"
+  ? "same-operation-replayed" : "rebind-replay-reauthorizes-current-result");
+const setReplayVcs = (input) => {
+  input.trusted.receipt.vcs = completeJjVcs();
+  input.trusted.binding.vcs = reorderedJjVcs();
+  input.trusted.root.vcs = {
+    repositoryId: "repository-a",
+    kind: "jj-git",
+    jjWorkspaceId: "jj-workspace-a",
+    mutationOwner: "jj",
+    checkoutId: "checkout-a",
+    jjRepositoryId: "jj-repository-a",
+  };
+  return input;
+};
+
+test("completed registration and rebind replay compare every complete VCS field independent of key order", () => {
+  const variants = [
+    ["kind", { kind: "git", repositoryId: "repository-a", checkoutId: "checkout-a", mutationOwner: "git" }],
+    ["repositoryId", { ...completeJjVcs(), repositoryId: "repository-other" }],
+    ["checkoutId", { ...completeJjVcs(), checkoutId: "checkout-other" }],
+    ["mutationOwner", { ...completeJjVcs(), mutationOwner: null }],
+    ["jjRepositoryId", { ...completeJjVcs(), jjRepositoryId: "jj-repository-other" }],
+    ["jjWorkspaceId", { ...completeJjVcs(), jjWorkspaceId: "jj-workspace-other" }],
+  ];
+  const locations = [
+    ["receipt", (input) => input.trusted.receipt],
+    ["binding", (input) => input.trusted.binding],
+    ["root", (input) => input.trusted.root],
+  ];
+  for (const operation of ["register", "rebind"]) {
+    assert.equal(decision(setReplayVcs(replayInput(operation))).output.replayed, true, operation);
+    for (const [field, changedVcs] of variants) {
+      for (const [location, select] of locations) {
+        const input = setReplayVcs(replayInput(operation));
+        select(input).vcs = structuredClone(changedVcs);
+        assert.deepEqual(decision(input), exactRefusal("superseded-operation"),
+          `${operation}:${location}:${field}`);
+      }
+    }
+  }
+});
+
+test("completed replay keeps digest, status, authority, policy, observation, and shape precedence", () => {
+  const mismatch = () => {
+    const input = setReplayVcs(replayInput("register"));
+    input.trusted.receipt.vcs.checkoutId = "checkout-other";
+    return input;
+  };
+
+  const digestConflict = mismatch();
+  digestConflict.request.displayName = "Changed label";
+  assert.deepEqual(decision(digestConflict), exactRefusal("operation-conflict"));
+
+  for (const status of ["pending", "uncertain"]) {
+    const unsettled = mismatch();
+    unsettled.trusted.receipt.status = status;
+    assert.deepEqual(decision(unsettled), exactRefusal("reconciliation-required"), status);
+  }
+
+  const denied = mismatch();
+  denied.trusted.member = false;
+  assert.deepEqual(decision(denied), exactRefusal("denied"));
+
+  const stalePolicy = mismatch();
+  stalePolicy.request.expectedPolicyRevision = 2;
+  assert.deepEqual(decision(stalePolicy), exactRefusal("stale-policy"));
+
+  const inaccessible = mismatch();
+  inaccessible.trusted.rootAccess = [];
+  assert.deepEqual(decision(inaccessible), exactRefusal("denied"));
+
+  const unverified = mismatch();
+  unverified.trusted.root.identityVerified = false;
+  assert.deepEqual(decision(unverified), exactRefusal("identity-unverified"));
+
+  const malformed = mismatch();
+  delete malformed.trusted.binding.vcs.jjWorkspaceId;
+  assert.deepEqual(decision(malformed), exactRefusal("invalid-input"));
+});
+
+test("completed replay ignores old requested revisions and remains eligible at the safe-integer boundary", () => {
+  for (const operation of ["register", "rebind"]) {
+    const input = setReplayVcs(replayInput(operation));
+    assert.equal(input.request.expectedRegistryRevision, 7);
+    if (operation === "rebind") assert.equal(input.request.expectedBindingRevision, 1);
+    input.trusted.registryRevision = Number.MAX_SAFE_INTEGER;
+    assert.equal(decision(input).output.replayed, true, operation);
+  }
+});
+
+test("duplicate registration compares complete VCS before success or revision checks", () => {
+  const matching = fixtureInput("duplicate-root-different-operation");
+  matching.trusted.root.vcs = completeJjVcs();
+  matching.trusted.existingRootBindings[0].vcs = reorderedJjVcs();
+  assert.equal(decision(matching).output.code, "already-registered");
+
+  const variants = [
+    ["kind", { kind: "git", repositoryId: "repository-a", checkoutId: "checkout-a", mutationOwner: "git" }],
+    ["repositoryId", { ...completeJjVcs(), repositoryId: "repository-other" }],
+    ["checkoutId", { ...completeJjVcs(), checkoutId: "checkout-other" }],
+    ["mutationOwner", { ...completeJjVcs(), mutationOwner: null }],
+    ["jjRepositoryId", { ...completeJjVcs(), jjRepositoryId: "jj-repository-other" }],
+    ["jjWorkspaceId", { ...completeJjVcs(), jjWorkspaceId: "jj-workspace-other" }],
+  ];
+  for (const [field, changedVcs] of variants) {
+    const input = fixtureInput("duplicate-root-different-operation");
+    input.trusted.root.vcs = completeJjVcs();
+    input.trusted.existingRootBindings[0].vcs = changedVcs;
+    input.request.expectedRegistryRevision = 0;
+    assert.deepEqual(decision(input), exactRefusal("stale-binding"), field);
+  }
+
+  const attachment = fixtureInput("duplicate-root-stale-vcs");
+  attachment.request.attachProjectId = "project-a";
+  assert.deepEqual(decision(attachment), exactRefusal("attachment-required"));
+
+  const overlap = fixtureInput("duplicate-root-stale-vcs");
+  overlap.trusted.overlapSafe = false;
+  assert.deepEqual(decision(overlap), exactRefusal("ambiguous-ownership"));
+
+  const ambiguous = fixtureInput("duplicate-root-stale-vcs");
+  ambiguous.trusted.existingRootBindings.push({
+    ...structuredClone(ambiguous.trusted.existingRootBindings[0]),
+    bindingId: "binding-other",
+  });
+  assert.deepEqual(decision(ambiguous), exactRefusal("ambiguous-ownership"));
+});
+
+test("new VCS consistency refusals preserve atomic state", () => {
+  const replay = setReplayVcs(replayInput("register"));
+  replay.trusted.receipt.vcs.checkoutId = "checkout-other";
+  const replayState = {
+    registryRevision: replay.trusted.registryRevision,
+    portables: [structuredClone(replay.trusted.portable)],
+    bindings: [structuredClone(replay.trusted.binding)],
+    receipts: [structuredClone(replay.trusted.receipt)],
+    reservations: [],
+  };
+  const replayed = applyAtomicTransition(replayState, replay);
+  assert.deepEqual(replayed.output, { code: "superseded-operation" });
+  assert.deepEqual(replayed.effects, []);
+  assert.deepEqual(replayed.recordChanges, {});
+  assert.equal(replayed.state, replayState);
+  assert.equal(replayed.committed, false);
+
+  const duplicate = fixtureInput("duplicate-root-stale-vcs");
+  const existing = duplicate.trusted.existingRootBindings[0];
+  const duplicateState = {
+    registryRevision: duplicate.trusted.registryRevision,
+    portables: [{ schemaVersion: 1, projectId: existing.projectId,
+      displayName: "Example project", contentIdentity: null }],
+    bindings: [structuredClone(existing)],
+    receipts: [],
+    reservations: [],
+  };
+  const duplicated = applyAtomicTransition(duplicateState, duplicate);
+  assert.deepEqual(duplicated.output, { code: "stale-binding" });
+  assert.deepEqual(duplicated.effects, []);
+  assert.deepEqual(duplicated.recordChanges, {});
+  assert.equal(duplicated.state, duplicateState);
+  assert.equal(duplicated.committed, false);
+});
+
 test("registration replay reauthorizes its selected binding scope while a fresh register ignores that field", () => {
-  const fixtureCase = fixture.cases.find((item) => item.id === "same-operation-replayed");
-  assert.ok(fixtureCase, "same-operation-replayed fixture case is required");
   for (const field of ["actorId", "collectionId", "deviceId"]) {
-    const replayInput = materializeFixtureCase(fixture, fixtureCase);
-    replayInput.trusted.binding[field] = `${field}-foreign`;
-    replayInput.trusted.existingRootBindings = [];
-    assert.equal(decision(replayInput).output.code, "denied", field);
+    const input = replayInput("register");
+    input.trusted.receipt.vcs = { kind: "git", repositoryId: "repository-a",
+      checkoutId: "checkout-a", mutationOwner: "git" };
+    input.trusted.binding[field] = `${field}-foreign`;
+    input.trusted.existingRootBindings = [];
+    assert.equal(decision(input).output.code, "denied", field);
   }
 
   const fresh = base("register");
@@ -697,6 +876,99 @@ test("all refusals preserve atomic state, including overlap and stale fence case
   assert.equal(decision(writeback).output.code, "stale-fence");
 });
 
+test("quarantine binds the historical admission and ignores unrelated current roots and owners", () => {
+  const input = base("quarantine");
+  const expected = {
+    code: "quarantined", bindingId: "binding-a", ownerOperationId: "op-mutate",
+    fence: 8, replayed: false,
+  };
+  assert.deepEqual(decision(input).output, expected);
+
+  const missingRoot = structuredClone(input);
+  Object.assign(missingRoot.trusted.root, {
+    rootId: "root-missing", locationRef: "location-missing",
+    exists: false, isDirectory: false, identityVerified: false,
+  });
+  missingRoot.trusted.binding = null;
+  assert.deepEqual(decision(missingRoot).output, expected);
+
+  const sameOperationElsewhere = structuredClone(input);
+  sameOperationElsewhere.trusted.reservations.push({
+    keys: ["device-other:root:root-other"],
+    ownerActorId: "actor-other", ownerCollectionId: "collection-other",
+    ownerDeviceId: "device-other", ownerOperationId: input.request.operationId,
+    state: "active", fence: 3,
+  });
+  assert.deepEqual(decision(sameOperationElsewhere).output, expected);
+
+  const forgedKeys = structuredClone(input);
+  const replacement = ["device-a:checkout:checkout-other", "device-a:repository:repository-other"];
+  forgedKeys.trusted.receipt.output.keys = replacement;
+  forgedKeys.trusted.reservations[0].keys = replacement;
+  assert.equal(decision(forgedKeys).output.code, "invalid-input");
+
+  for (const [field, value] of [["bindingId", "binding-other"], ["fence", 7]]) {
+    const stale = structuredClone(input);
+    stale.request[field] = value;
+    assert.equal(decision(stale).output.code, "stale-fence");
+  }
+});
+
+test("quarantine reauthorizes before lifecycle decisions and replays before revision checks", () => {
+  for (const [patch, code] of [
+    [{ member: false }, "denied"],
+    [{ capabilities: [] }, "denied"],
+  ]) {
+    const input = base("quarantine");
+    Object.assign(input.trusted, patch);
+    input.trusted.receipt.status = "uncertain";
+    assert.equal(decision(input).output.code, code);
+  }
+  const stalePolicy = base("quarantine");
+  stalePolicy.request.expectedPolicyRevision = 2;
+  stalePolicy.trusted.receipt.status = "uncertain";
+  assert.equal(decision(stalePolicy).output.code, "stale-policy");
+
+  const input = base("quarantine");
+  const state = {
+    registryRevision: input.trusted.registryRevision,
+    portables: [], bindings: [],
+    receipts: [structuredClone(input.trusted.receipt)],
+    reservations: [structuredClone(input.trusted.reservations[0])],
+  };
+  const before = structuredClone(state);
+  const first = applyAtomicTransition(state, input);
+  assert.equal(first.committed, true);
+  assert.equal(first.state.registryRevision, before.registryRevision + 1);
+  assert.equal(first.state.receipts[0].status, "uncertain");
+  assert.equal(first.state.reservations[0].state, "uncertain");
+  assert.deepEqual(state, before);
+
+  const repeat = structuredClone(input);
+  repeat.request.expectedRegistryRevision = 0;
+  const replayed = applyAtomicTransition(first.state, repeat);
+  assert.deepEqual(replayed.output, {
+    code: "quarantined", bindingId: "binding-a", ownerOperationId: "op-mutate",
+    fence: 8, replayed: true,
+  });
+  assert.equal(replayed.committed, false);
+  assert.equal(replayed.state, first.state);
+
+  const exhaustedRepeatState = structuredClone(first.state);
+  exhaustedRepeatState.registryRevision = Number.MAX_SAFE_INTEGER;
+  const exhaustedReplay = applyAtomicTransition(exhaustedRepeatState, repeat);
+  assert.equal(exhaustedReplay.output.replayed, true);
+  assert.equal(exhaustedReplay.state, exhaustedRepeatState);
+
+  const exhaustedFirstState = structuredClone(state);
+  exhaustedFirstState.registryRevision = Number.MAX_SAFE_INTEGER;
+  const exhaustedFirst = structuredClone(input);
+  exhaustedFirst.request.expectedRegistryRevision = Number.MAX_SAFE_INTEGER;
+  const refused = applyAtomicTransition(exhaustedFirstState, exhaustedFirst);
+  assert.equal(refused.output.code, "invalid-input");
+  assert.equal(refused.state, exhaustedFirstState);
+});
+
 const mutationDefinitions = {
   "path-dedup": (source) => source.replaceAll(
     "item.rootId === trusted.root.rootId",
@@ -717,6 +989,25 @@ const mutationDefinitions = {
   "accept-stale-fence": (source) => source
     .replaceAll("item.fence === request.fence", "item.fence >= request.fence")
     .replace("selectedReservation.fence === request.fence", "selectedReservation.fence >= request.fence"),
+  "ignore-replay-vcs-consistency": (source) => source.replace(
+    "    currentPortable.projectId !== stored.output.projectId ||\n" +
+      "    !same(stored.vcs, currentBinding.vcs) ||\n" +
+      "    !same(currentBinding.vcs, trusted.root.vcs)\n",
+    "    currentPortable.projectId !== stored.output.projectId\n",
+  ),
+  "ignore-duplicate-vcs-consistency": (source) => source.replace(
+    '      if (!same(existing.vcs, trusted.root.vcs)) return refusal("stale-binding");\n',
+    "",
+  ),
+};
+
+const expectedMutationFailures = {
+  "ignore-checkout-identity": [
+    "git-checkout-administration-changed",
+    "write-back-git-checkout-administration-changed",
+  ],
+  "ignore-replay-vcs-consistency": ["rebind-replay-vcs-changed"],
+  "ignore-duplicate-vcs-consistency": ["duplicate-root-stale-vcs"],
 };
 
 test("deliberate contract mutants are killed by the fixture oracle", async (context) => {
@@ -738,11 +1029,12 @@ test("deliberate contract mutants are killed by the fixture oracle", async (cont
       await writeFile(mutantPath, mutantSource, "utf8");
       const mutant = await import(`${pathToFileURL(mutantPath).href}?run=${Date.now()}-${name}`);
       const results = mutant.checkFixture(fixture);
-      assert.ok(results.some((result) => !result.pass), `${name} survived all 63 fixture cases`);
-      if (name === "ignore-checkout-identity") {
+      assert.ok(results.some((result) => !result.pass),
+        `${name} survived all ${fixture.cases.length} fixture cases`);
+      if (Object.hasOwn(expectedMutationFailures, name)) {
         assert.deepEqual(
           results.filter((result) => !result.pass).map((result) => result.id),
-          ["git-checkout-administration-changed", "write-back-git-checkout-administration-changed"],
+          expectedMutationFailures[name],
         );
       }
     });

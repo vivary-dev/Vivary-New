@@ -56,7 +56,7 @@ schema versions, duplicate JSON keys, and malformed JSON before planning writes.
 Fixtures' symbolic references are test setup, not accepted product fields.
 
 **R2, authorization.** Require the authenticated actor's current collection grant
-and operation capability. Every operation except export additionally requires
+and operation capability. Every operation except export and quarantine additionally requires
 explicit access to the observed root. Existing project/binding operations must resolve those records
 inside the same actor, collection, and device scope. Return `denied` without
 record details on a mismatch. Export requires `export-project`, independently of
@@ -73,6 +73,7 @@ binding on the receiving device.
 | `export` | `export-project` | `projectId` |
 | `rebind` | `rebind-project` | `expectedRegistryRevision`, `bindingId`, `expectedBindingRevision`, `locationRef` |
 | `admit-mutation` | `mutate-project` | `expectedRegistryRevision`, `bindingId`, `expectedBindingRevision`, `expectedContentRevision`, `requestedVcsOwner` |
+| `quarantine-mutation` | `mutate-project` | `bindingId`, `fence`, `expectedRegistryRevision` |
 | `authorize-write-back` | `mutate-project` and `write-back-project` | All `admit-mutation` fields except `expectedRegistryRevision`, plus `executionCopyId`, `patchDigest`, `selectedPaths`, `fence` |
 
 Every listed field is required. `attachProjectId` is null or an ID. Revision and
@@ -99,6 +100,13 @@ project and binding without allocating IDs or changing labels. Different operati
 keys for the same root still converge. Equal bytes, equal display names, or equal
 remote URLs do not merge different roots. Two logical subfolders may share
 repository and checkout IDs while having different roots and projects.
+A single authorized same-root binding must have a complete VCS object canonically
+equal to the current verified observation before it can produce
+`already-registered`. Compare every validated field, including both private
+Jujutsu identities when present, independent of object key order. A mismatch
+returns exactly `stale-binding` before constructing a success receipt or checking
+the new operation's expected registry revision. Do not rewrite the binding,
+allocate replacement IDs, or convert one VCS kind into another.
 A new operation key that resolves to `already-registered` still atomically writes
 its completed receipt and advances registry revision. It changes no project or
 binding fields. Subsequent same-key replay writes nothing under R9.
@@ -148,15 +156,25 @@ key with different request content returns `operation-conflict`. Reauthorize eve
 retry against current policy before returning a prior result. For `register` and
 `rebind`, a completed same-key retry returns its prior result with `replayed: true`
 and no writes only when the result's project, binding, root identity, and binding
-revision still match current authorized records. If those records are missing or
-later changed, return `superseded-operation`; do not restore old state or silently
+revision still match current authorized records. The complete validated VCS objects
+on the receipt, current binding, and current root observation must also be
+canonically equal, including kind, repository, checkout, mutation owner, and both
+Jujutsu identities when present. Object key order does not affect equality. If any
+of those records or VCS identities are missing or later changed, return
+`superseded-operation`; do not restore old state or silently
 substitute a newer result. A pending or
 uncertain receipt returns `reconciliation-required`, never a fresh allocation or
 second mutation. Different keys are still subject to R4 and revision checks.
 Receipt keys outside the current scope are not looked up or disclosed. A mismatched
 receipt supplied as a trusted lookup result is `invalid-input`. `export` is a fresh
 read on every call. `admit-mutation` retries return `reconciliation-required` until
-the operation owner reconciles its reservation and effects. `authorize-write-back`
+the operation owner reconciles its reservation and effects. `quarantine-mutation`
+uses that exact admission operation ID and its scoped `admit-mutation` receipt. It
+does not hash the quarantine request, compare it with the admission digest, or insert
+a second receipt. A current authorized exact uncertain repeat returns the prior
+quarantine result with `replayed: true` and no writes, even when its requested
+registry revision is stale or the current revision cannot be incremented.
+`authorize-write-back`
 rechecks every precondition on every call and never replays an authorization.
 
 Canonical request digest means SHA-256 over UTF-8 JSON with keys sorted recursively,
@@ -182,6 +200,9 @@ binding, including a changed colocated `jjRepositoryId` or `jjWorkspaceId`, or a
 `locationRef` differs from the binding, returns `stale-binding`. Refresh and authorize
 a rebind first. A native session ID, runtime
 origin, disk name, or storage key is not an access grant.
+R4 duplicate checks and R9 replay checks use the same complete-object comparison,
+but keep their own refusal codes and validation order. A valid current observation
+does not become `identity-unverified` merely because it disagrees with stored VCS.
 
 **R11, one mutation owner.** For Git, reserve both the common repository key and
 checkout key. For colocated Jujutsu, require an explicitly selected `jj` owner and
@@ -192,6 +213,8 @@ resource ID, so different collections sharing a physical repository still conten
 Never key locks only by project, actor, URL, or GUI tab. Acquire the complete sorted
 key set atomically or acquire none. An unresolved or unsupported VCS owner returns
 `read-only`; a held key returns `busy` with no partial reservation.
+R4 and R9 VCS disagreement is decided before mutation-owner selection or
+reservation contention, so it is neither `read-only` nor `busy`.
 Fixture keys serialize the structured tuple as `deviceId:resourceKind:resourceId`,
 with kinds `repository`, `checkout`, or `root`, sorted lexically. Colons are key
 separators, not part of an ID. Resource identity must be proven independently of
@@ -210,6 +233,24 @@ Never claim that an in-memory decision, JSON fixture, or database row alone can
 fence an external process. Outcome 04 owns the enforceable adapter and outcome 17
 owns cross-process recovery.
 
+The first recovery transition is `quarantine-mutation`. After current mutator
+authorization and policy checks, it selects the scoped admission receipt and its
+single reservation parent without observing or choosing a live root or binding.
+The receipt's immutable root/VCS identity determines the complete sorted key set;
+that set must equal both the receipt output and every claim attached to the parent.
+Exactly one high-water row per selected key must equal the parent's fence. Once a
+scoped admission exists, missing, extra, lower, higher, or inconsistent receipt,
+parent, claim, or high-water data is `invalid-input`, including on a repeat. A
+request binding or fence mismatch is `stale-fence`; an absent scoped admission is
+`admission-unavailable`.
+
+For a `pending` receipt with its `active` parent, one compare-and-set transaction
+advances registry revision once and replaces only the receipt and parent states with
+`uncertain`. It preserves all receipt and reservation identity, claims, high-waters,
+projects, bindings, and VCS data. An exact `uncertain`/`uncertain` repeat writes
+nothing. Other valid but mixed lifecycle combinations return
+`reconciliation-required`; unknown state values are `invalid-input`.
+
 **R13, execution-copy write-back.** Require an authenticated execution binding
 whose project, binding revision, policy revision, and owner match the selected
 root. Bind write-back to `executionCopyId`, the exact patch digest and selected
@@ -226,11 +267,11 @@ to attempt a bound operation; it is not evidence that bytes reached the root.
 | Stage | Operations and exact comparison |
 | --- | --- |
 | 1 | All operations validate schema, current membership/capabilities, and scope of any resolved records. Foreign records return `denied` |
-| 2 | Every operation compares `expectedPolicyRevision` with trusted `policyRevision`; mismatch returns `stale-policy`. Every operation except export checks current root access and R3's root observation |
-| 3 | Register/rebind/admission check a scoped R9 receipt and its request digest. Completed registration/rebind replay checks its current bound result, not old requested revisions. An admission retry reconciles. Export and write-back never replay |
-| 4 | New rebind/admission/write-back require the requested existing binding. Missing records return `binding-unavailable`, wrong binding revision returns `stale-binding`. Admission/write-back additionally require the binding policy to equal current trusted policy, otherwise `stale-policy` |
+| 2 | Every operation compares `expectedPolicyRevision` with trusted `policyRevision`; mismatch returns `stale-policy`. Every operation except export and quarantine checks current root access and R3's root observation. Quarantine reauthorizes here before any admission row is read |
+| 3 | Register/rebind/admission check a scoped R9 receipt and its request digest. Pending or uncertain receipts reconcile. Completed registration/rebind replay checks receipt status, its current bound result, and complete equality of receipt, binding, and current-root VCS, not old requested revisions. An admission retry reconciles. Quarantine selects the admission namespace without comparing a new digest, then validates its receipt-derived keys, exact parent, complete claims, and high-waters. Export and write-back never replay |
+| 4 | New register checks attachment, overlap, same-root uniqueness, then complete VCS equality for its one authorized duplicate before constructing `already-registered`. New rebind/admission/write-back require the requested existing binding. Missing records return `binding-unavailable`, wrong binding revision returns `stale-binding`. Admission/write-back additionally require the binding policy to equal current trusted policy, otherwise `stale-policy`. Quarantine validates its historical receipt binding and fence and does not require a current binding |
 | 5 | Apply the operation's root, identity, overlap, VCS owner, content, reservation, and patch rules. Mutation content is compared to `expectedContentRevision`; write-back also compares it to the execution copy's base revision |
-| 6 | New register, already-registered receipt creation, rebind, and admission compare `expectedRegistryRevision` with current `registryRevision` at atomic commit; mismatch returns `retry-state` with no writes. Each accepted transaction advances registry revision once. Export and write-back do not compare registry revision or change registry state |
+| 6 | New register, already-registered receipt creation, rebind, admission, and first quarantine compare `expectedRegistryRevision` with current `registryRevision` at atomic commit; mismatch returns `retry-state` with no writes. Each accepted transaction advances registry revision once. An exact quarantine repeat bypasses revision and increment checks. Export and write-back do not compare registry revision or change registry state |
 
 Before any new transaction, if its registry increment or a required binding-revision
 increment would exceed the safe-integer domain, return `invalid-input` with no
@@ -241,8 +282,9 @@ Apply R1, then R2. Resolve current scope, policy, binding, and root as required
 by the operation before accepting an idempotent replay. Check an existing receipt
 under R9 before proposing any new reservation or allocation. A replay must not
 repeat a successful rebind's old revision check; it reauthorizes the receipt's
-current bound result instead. For a new registration, check R6's explicit
-attachment trigger before R4/R5. For other new operations, evaluate the
+current bound result and complete VCS identity instead. For a new registration,
+check R6's explicit attachment trigger, overlap, and uniqueness before R4's VCS
+comparison, then apply R5. For other new operations, evaluate the
 operation-specific rules in numeric order. Refusals have no registry, reservation, project-file,
 session, or remote effects. Read-only audit of a refusal is allowed only through
 the existing native audit owner, without raw private values.
@@ -271,12 +313,12 @@ observations, not accept them from JSON request bodies.
 | `actorId`, `collectionId`, `deviceId` | Current scoped identifiers |
 | `member`, `capabilities`, `rootAccess` | Boolean collection membership, exact capability strings, and accessible canonical root IDs |
 | `policyRevision`, `registryRevision` | Current positive policy revision and nonnegative registry revision |
-| `root` | Root observation from the record table. For `register`/`rebind`, `locationRef` must equal the request, otherwise `invalid-input` |
+| `root` | Root observation from the record table. For `register`/`rebind`, `locationRef` must equal the request, otherwise `invalid-input`. Quarantine supplies an explicitly unverified unused shape and never observes it |
 | `portable`, `binding` | Current selected records or null. Existing-record operations check their requested IDs and actor/collection/device scope. Wrong scope returns `denied`; a missing requested record returns `binding-unavailable` unless a matching completed receipt requires `superseded-operation` |
 | `existingRootBindings` | Current bindings returned by the trusted register/rebind collision resolver. The resolver must include every binding matching the candidate physical-root key or destination. Other operations do not use this lookup. Multiple distinct matching binding IDs return `ambiguous-ownership`; a matching foreign actor returns `denied` before projection |
 | `allocatedProjectId`, `allocatedBindingId`, `allocatedIdsInUse` | Trusted proposed IDs and collision observation for a new registration. Unused by duplicates, replay, and other operations |
 | `overlapSafe` | Boolean verified overlap result required for registration and all mutation admission. False returns `ambiguous-ownership` |
-| `receipt` | Null or `{actorId, collectionId, deviceId, operation, operationId, requestDigest, status, rootId, vcs, output}`. Status is `complete`, `pending`, or `uncertain`. Digest is 64 lowercase hex. `vcs` freezes the admission-time VCS observation used to derive mutation keys, so reconciliation does not substitute a later live observation. Output is the recorded operation result. It must satisfy the exact replay rules |
+| `receipt` | Null or `{actorId, collectionId, deviceId, operation, operationId, requestDigest, status, rootId, vcs, output}`. Status is `complete`, `pending`, or `uncertain`. Digest is 64 lowercase hex. For registration and rebind, `vcs` binds completed replay to the same complete VCS identity as the current binding and root. For admission, it freezes the observation used to derive mutation keys, so reconciliation does not substitute a later live observation. Output is the recorded operation result. It must satisfy the exact replay rules |
 | `reservations` | Array of `{keys, ownerActorId, ownerCollectionId, ownerDeviceId, ownerOperationId, state, fence}`. Keys are unique sorted resource keys and every key's device component matches `ownerDeviceId`. State is `active` or `uncertain`; fence is a positive safe integer. The owner fields bind an otherwise scope-local operation ID to its authenticated admission scope without weakening cross-actor resource contention |
 | `nextFence` | Trusted next token for an admission. It must exceed every token for the selected keys; otherwise `stale-fence`. Monotonic allocation and historical high-water storage require a real owner in later integration |
 | `execution` | Null or the execution record in the table with `actorId`; required for write-back |
@@ -319,6 +361,8 @@ All refusals return exactly `{code}`. Successful public results contain only:
 - `admitted`: `code`, `bindingId`, sorted `keys`, `fence`, `ownerOperationId`.
   These resource keys are returned only to the authorized effect adapter, not UI
   telemetry, cross-user errors, or portable export.
+- `quarantined`: `code`, `bindingId`, `ownerOperationId`, `fence`, and boolean
+  `replayed`. It exposes no root, VCS, scope, key, receipt, or policy fields.
 - `authorized`: `code`, `bindingId`, `executionCopyId`, `patchDigest`,
   `selectedPaths`, and `fence`. This result authorizes an attempt and reports no
   completed file effect.
@@ -344,10 +388,11 @@ Expected `effects` lists every permitted write category: `registry`, `reservatio
 writes. An empty effect list means all state stays unchanged. `output` is an exact
 allowlist of public result fields for that case; diagnostic raw facts are forbidden.
 Expected `recordChanges` gives exact inserted/replaced portable and binding records,
-the new registry revision, reservation records, and `insertReceipt` where relevant.
+the new registry revision, reservation records, and inserted or replaced receipts where relevant.
 Everything not listed remains unchanged. Registration/rebind write a completed R9
 receipt bound to the exact request, root, and result; admission writes a pending
-intent receipt, never a completed effect receipt. The model must assert those receipts and atomic
+intent receipt, never a completed effect receipt. Quarantine replaces only that
+receipt's status and its parent reservation state. The model must assert those receipts and atomic
 state changes in its contender/crash schedules rather than treating `effects` as
 proof that a transaction happened.
 

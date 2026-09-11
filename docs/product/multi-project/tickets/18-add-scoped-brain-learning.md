@@ -1,5 +1,7 @@
+---
+type: outcome
+---
 # 18: Add optional Brain and reviewed learning
-Type: outcome
 Status: planned
 Blocked-by: [03, 05]
 Unlocks: [21, 22, 24, 30, 36]

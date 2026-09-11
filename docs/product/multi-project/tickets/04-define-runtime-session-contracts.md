@@ -1,10 +1,21 @@
+---
+type: outcome
+---
 # 04: Define runtime, session, action, and tool contracts
-Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [02, 03]
 Unlocks: [09, 10, 16, 17, 20, 21, 22, 29, 30]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+
+## Current progress
+
+Updated 2026-09-10. Packets 04a through 04d are accepted for bounded readiness,
+activity, preparation and synthetic first-start behavior. The complete runtime
+contract still needs production fencing, real adapters, scoped chat/history,
+role/tool permissions, runtime parity, cancellation/resume and remaining
+compaction cases. Outcome 02 is also unfinished.
+See the [04d limits](../receipts/04d-project-native-start.md).
 
 ## Goal
 
@@ -60,3 +71,27 @@ they do not prove the behavior above.
 - 2026-09-05: Refined acceptance after the owner-requested [HoH comparison](../research/hoh-alignment.md). These criteria remain unimplemented and unverified.
 
 - 2026-09-06: [Decision four](../design.md#direction-decision-2026-09-06) adds the shared adapter acceptance above. Packet [20a](../packets/20a-headless-loop-proof.md) supplies the first runtime evidence; its required continuation supplies parity evidence. Unimplemented and unverified.
+
+## Next packet
+
+[04a](../packets/04a-project-runtime-readiness.md) has accepted read-only Native
+action and controlled component evidence in its [receipt](../receipts/04a-project-runtime-readiness.md).
+[04b](../packets/04b-project-native-activity.md) has accepted exact-reference Native
+run activity evidence in its [receipt](../receipts/04b-project-native-activity.md). Complete conversation history, lifecycle, role/tool enforcement
+and cross-runtime acceptance remain open.
+
+- 2026-09-08: Accepted 04b bounded Native activity and controlled rendering after 8/8 Native and 6/6 component cases, full-row witnesses, independent review and cleanup. The next thread-preparation contract is under review; lifecycle and production provenance remain open.
+
+[04c](../packets/04c-project-native-preparation.md) now owns durable start intent
+and exact private Native thread preparation. Its required successor 04d must
+prove separately admitted harness start and uncertainty recovery.
+
+- 2026-09-08: Accepted private 04c thread preparation after 13 named Native database cases, full-row evidence, independent review and cleanup; see its [receipt](../receipts/04c-project-native-preparation.md). Native harness start remains a separate 04d successor under contract review; parent outcome stays incomplete.
+
+- 2026-09-08: [04d](../packets/04d-project-native-start.md) is ready after accepted 04c preparation. It owns a private receiving seam and one actual public Native synthetic first start; production host fencing and real adapter execution remain open.
+
+- 2026-09-09: Accepted [04d's receipt](../receipts/04d-project-native-start.md)
+  after 25 preparation/start cases, complete database witnesses, independent
+  review and cleanup. Canonical and Habitat contain the same four accepted
+  source files. Production host fencing, real runtime adapters, project chat,
+  external-runtime quiescence and cross-runtime acceptance remain open.
