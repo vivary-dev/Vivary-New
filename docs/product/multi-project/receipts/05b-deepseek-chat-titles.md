@@ -18,6 +18,12 @@ global result remains pending. Existing tests prove
 only the handler and native middleware composition with fake authentication,
 credentials, and provider responses.
 
+The first GUI bootstrap transfer succeeded on 2026-09-11. Toolchain binding then
+failed at an undersized inventory cap. The source correction passed independent
+review. A corrected versioned bootstrap destination awaits explicit approval
+after automatic approval review rejected its two-line source change. The original
+three frozen files remain intact. No GUI attempt was allocated.
+
 ## Issue correction ledger
 
 | Stage | Owner | State | Responsibility |
@@ -402,6 +408,42 @@ A failed binding preparation
 retains its exclusive bootstrap directory. The controller does not overwrite it
 or retry preparation automatically.
 
+### Binding preparation result and corrected inventory
+
+The reviewed transport was committed as `45c6648`. Configuration SHA-256 was
+`308f8bb07413e00d3e0b5c52a8aeac872afb92fd60ac83b8b55df707e8bde344`.
+The approved `--freeze-bindings` invocation created exactly three bootstrap files,
+then failed in Linux `toolchains()` with `toolchain entry limit exceeded`.
+The command reported exit 1. Source/toolchain bindings, runtime authority,
+admission, the GUI attempt ledger, proof scratch, export, and result remain absent.
+
+A bounded metadata-only scan counted 124,017 dependency entries: 109,543 regular
+files, 11,068 directories, and 3,406 links. Regular files total 1,006,707,540 bytes.
+The `.pnpm` subtree accounts for 123,967 entries. Links are recorded without
+traversal. Narrowing the inventory would omit files mounted into the proof, so
+the correction keeps full coverage and sets a 150,000-entry cap only for this tree.
+Other trees retain their existing cap. The 4 GiB byte cap, 512 MiB bookkeeping
+limit, one CPU, and 90-second alarm remain unchanged.
+
+Root source QA and independent Verify accepted corrected Linux helper SHA-256
+`004a3604e6c79efc3585296b10a5f8a156d446e463939d337d90b0ff75027bd2`.
+AST parsing and scoped diff checks pass. The corrected helper has not run.
+
+Readback confirmed the first bootstrap's reviewed hashes and 140,427 total bytes,
+directory mode `0700`, and three files at `0444`. No GUI services or proof scratch
+exist. Preparation processes exited. Habitat later stopped automatically. Ubuntu
+remained running, and no distribution termination or filesystem deletion was issued.
+Private `.tmp/05b/gui-binding-preparation-1.json` retains the exact readback values.
+The memory reading during preparation was 2,614 MiB. It was above the host reserve
+but below GUI build admission, which must be checked again before dispatch.
+
+The root proposed retaining the first bootstrap and creating a corrected version
+under the same task-owned parent. Automatic approval review rejected the two-line
+fixed-name change before it applied: the new root-owned Linux target requires
+explicit approval for that side effect. No alternative write or retry followed.
+The private bootstrap review names the exact second destination and three files.
+The original GUI proof approval and unused build/browser attempts remain intact.
+
 ### Planning evidence
 
 The first `python scripts/check_multi_project_plan.py --render` failed because
@@ -412,6 +454,9 @@ passed, exit 0, with all 36 outcomes checked. `git diff --check` passed, exit 0.
 CRLF lines in `fixtures/project-registry.json`; this packet did not edit it.
 The earlier documentation checkpoint staged only its packet, receipt, and graph
 row. Runtime acceptance now covers only the backend scope described above.
+The full-file writing linter reports style findings in the packet and receipt,
+including metadata and historical prose. It does not pass. This checkpoint does
+not claim that those full documents meet the prose score target.
 During implementation, the plan checker also caught private Habitat paths in
 the first proof-runner draft. Those were moved into private configuration and
 bound by SHA-256 before runtime. The corrected renderer passed.

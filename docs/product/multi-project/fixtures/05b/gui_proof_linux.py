@@ -69,7 +69,8 @@ def toolchains(config):
         destination = deps / name
         guard.require(stat.S_ISDIR(guard.no_link(destination).st_mode), "selective cache destination is absent")
     return {"node": {"bytes": node.stat().st_size, "sha256": guard.stream_digest(node)},
-            "dependencies": guard.tree_summary(deps, allow_links=True)}
+            # The installed dependency inventory contains 124,017 entries.
+            "dependencies": guard.tree_summary(deps, allow_links=True, maximum_entries=150000)}
 
 
 def load_run(scratch, run_id, runtime_hash):

@@ -4,7 +4,8 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: in-progress
+Status: needs-info
+Needs: Jeff's explicit approval for the corrected versioned three-file bootstrap directory in the private review record. Automatic approval review rejected that new destination. Keep the first frozen bootstrap intact.
 Depends-on: [05a]
 Owner: Root orchestrates. Source recovery used Plan `/root/plan_issue`, Implement `/root/implement_issue`, QA `/root/qa_issue`, and Verify `/root/verify_issue`. GUI source uses Plan `/root/plan_gui`, Implement `/root/implement_gui`, QA `/root/qa_gui`, and Verify `/root/review_doctor_fix`. Source QA and Verify are ready; GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
@@ -149,10 +150,19 @@ bootstrap and creating the three reviewed files in the directory named by the
 private review record. It preserves the existing GUI proof limits. Source QA,
 independent Verify, frozen bindings, and fresh admission still precede dispatch.
 
-The mount-free candidate passed root source QA and independent Verify. It creates
-only the approved helper/configuration directory and carries heartbeats through
-service input. Strict RPC ordering remains enforced. The next step is an atomic
-source checkpoint, exact binding preparation, and fresh runtime admission.
+The mount-free candidate passed root source QA and independent Verify and was
+committed as `45c6648`. The first three-file transfer succeeded. Binding preparation
+then failed at the dependency inventory's 100,000-entry cap, before GUI allocation.
+A metadata-only scan counted 124,017 entries. The corrected dependency-specific
+cap is 150,000. Source QA and independent Verify accepted that correction, with
+memory, time, byte, CPU, and link-handling limits unchanged.
+
+The original bootstrap remains frozen. Automatic approval review rejected the
+two-line change naming a corrected versioned bootstrap, requiring explicit
+approval for that destination. The private `.tmp/05b/gui-bootstrap-review.md`
+contains the exact recovery proposal. No GUI build or browser proof has run.
+After approval, apply the two fixed-name changes and private target update,
+checkpoint and bind the reviewed source, then perform fresh runtime admission.
 
 ## Verify
 
