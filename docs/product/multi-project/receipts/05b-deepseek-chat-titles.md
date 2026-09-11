@@ -152,6 +152,15 @@ unanswered. That rejected change did not apply. The implementer is retaining
 unapplied review material and continuing only unaffected preparation. The pending
 inline recovery question covers this exact amendment.
 
+A second automatic review rejected adding the recovery-only systemd/WSL launch
+for the same pending-authority reason. The active controller was restored to its
+reviewed `686c6b33` source hash. Incomplete source-only review material is retained
+privately at SHA-256
+`7127942d3bf30036bbba7f17d2fd89b21c111736de933e307c133ef0f966e5a0`.
+Its checker passes and explicitly reports that recovery dispatch is not
+implemented and requires a decision. This is preparation evidence only.
+The rejected operations have not been applied or executed.
+
 Planning and source-navigation checks passed. The repository line-ending check
 still reports the pre-existing 4,115 CRLF lines in `fixtures/project-registry.json`.
 The Workbench README now reflects accepted source review and the pre-build
