@@ -823,3 +823,21 @@ actual readonly mount observations, and exact source/build file bindings.
 Focused transport and boundary tests pass. The browser fixture remains byte
 identical to the preserved acceptance source. The next operation is one
 supervised browser attempt with all source and generated inputs hash-bound.
+
+### First browser attempt and correction
+
+Browser attempt 01 bootstrapped the native backend, then failed in 4.335 seconds
+before Chromium opened. The runner had created the browser evidence directory,
+which the unchanged browser fixture must create exclusively. The runner now
+leaves that directory to the fixture; independent QA reviewed the full launch
+contract and accepted the correction. The failed evidence remains retained.
+
+The Zo title endpoint suite passed all eight tests in 11.197 seconds, including
+scoped fake credentials, hidden-context removal, refusal cases, rate limits,
+provider failure, timeout behavior, and production route installation. No live
+provider was called. Cleanup passed.
+
+The supervisor now records the actual owned Chromium main-process command line
+and rejects flags that disable its sandbox. Independent QA accepted this capture
+before browser attempt 02. Source and built inputs must be rebound to the new
+committed candidate; no application rebuild is needed for these harness changes.

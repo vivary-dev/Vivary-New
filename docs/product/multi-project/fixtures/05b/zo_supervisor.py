@@ -15,6 +15,7 @@ BASE = ROOT / ".tmp/05b/zo-runtime"
 PNPM = Path("/root/.cache/node/corepack/v1/pnpm/10.33.2")
 MEMORY_STOP = 8 * 1024**3
 PROCESS_STOP = 256
+FORBIDDEN_CHROMIUM_FLAGS = {"--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu-sandbox", "--no-zygote-sandbox"}
 PROFILE = {
     "schema": "vivary.05b-zo-profile/v1",
     "sandbox": {"uid": 1000, "gid": 1000, "pidNamespace": True,
@@ -160,6 +161,7 @@ def run(args):
     samples = []
     outer_pid_namespace = os.readlink("/proc/self/ns/pid")
     observed_pid_namespaces = set()
+    chromium_launches = {}
     with (run_dir / "stdout.log").open("xb") as out, (run_dir / "stderr.log").open("xb") as err:
         child = subprocess.Popen(launch, env=environment, stdout=out, stderr=err,
                                  start_new_session=True,
@@ -181,6 +183,24 @@ def run(args):
                         observed_pid_namespaces.add(os.readlink(f"/proc/{pid}/ns/pid"))
                     except (FileNotFoundError, PermissionError):
                         pass
+                if args.phase == "browser":
+                    for pid in owned:
+                        if pid in chromium_launches:
+                            continue
+                        try:
+                            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+                            assert len(raw) <= 65536
+                            argv = [part.decode("utf-8", "strict") for part in raw.split(b"\0") if part]
+                            if not argv or argv[0] != "/browser/chrome" or any(arg.startswith("--type=") for arg in argv):
+                                continue
+                            current_stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+                            if int(current_stat[19]) != identities[pid]:
+                                continue
+                            chromium_launches[pid] = {"pid": pid, "started": identities[pid], "argv": argv}
+                            if any(arg.split("=", 1)[0] in FORBIDDEN_CHROMIUM_FLAGS for arg in argv):
+                                failure = "chromium-sandbox-disabled"
+                        except FileNotFoundError:
+                            pass
                 sample = {"seconds": round(time.monotonic() - started, 3),
                           "rssBytes": sum(table[p]["rss"] for p in owned),
                           "processes": len(owned),
@@ -225,6 +245,11 @@ def run(args):
                 failure = "cleanup-error:" + type(error).__name__
     if not any(sample["processes"] for sample in samples):
         failure = failure or "unobserved-process"
+    if args.phase == "browser":
+        if not chromium_launches:
+            failure = failure or "chromium-launch-unobserved"
+        elif any(arg.split("=", 1)[0] in FORBIDDEN_CHROMIUM_FLAGS for launch in chromium_launches.values() for arg in launch["argv"]):
+            failure = failure or "chromium-sandbox-disabled"
     result = {
         "phase": args.phase, "name": args.name, "returncode": child.returncode,
         "launcherPid": child.pid,
@@ -233,6 +258,7 @@ def run(args):
         "cpuAffinity": cpus, "samples": samples,
         "outerPidNamespace": outer_pid_namespace,
         "observedPidNamespaces": sorted(observed_pid_namespaces),
+        "chromiumLaunches": list(chromium_launches.values()),
         "cleanupAbsent": cleanup_ok, "remainingPids": sorted(owned),
         "supervision": PROFILE["supervision"],
         "network": "registry-acquisition" if args.phase == "install" else "pinned-browser-acquisition" if args.phase == "acquire" else "loopback-only",

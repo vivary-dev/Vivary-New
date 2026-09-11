@@ -212,6 +212,13 @@ test("backend uses the Zo boundary and contains no cgroup enforcement claim", as
   }
 });
 
+test("runner leaves exclusive ownership of the browser evidence root to the browser fixture", async () => {
+  const source = await readFile(new URL("../../../docs/product/multi-project/fixtures/05b/gui_zo_runner.mjs", import.meta.url), "utf8");
+  assert.ok(source.includes('const browserEvidence = path.join(config.evidenceRoot, "browser");'));
+  assert.ok(source.includes("evidenceRoot: browserEvidence"));
+  assert.equal(source.includes("mkdir(browserEvidence"), false);
+});
+
 test("browser acceptance fixture remains unchanged by the Zo adapter", async () => {
   const source = await readFile(new URL("../../../docs/product/multi-project/fixtures/05b/gui_browser.mjs", import.meta.url), "utf8");
   for (const term of [

@@ -433,7 +433,6 @@ async function run() {
   assert.ok(address && typeof address === "object");
 
   const browserEvidence = path.join(config.evidenceRoot, "browser");
-  await mkdir(browserEvidence, { recursive: false, mode: 0o700 });
   const browserInput = path.join(config.evidenceRoot, "browser-input.json");
   await writeFile(browserInput, JSON.stringify({
     schema: "vivary.05b-gui-browser-input/v1",
