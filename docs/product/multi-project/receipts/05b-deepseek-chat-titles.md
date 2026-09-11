@@ -27,6 +27,38 @@ either build or browser admission, as recorded below.
 
 ## Issue correction ledger
 
+### Continuation preparation, 2026-09-11
+
+The continuation session rechecked the preserved Windows artifacts before editing.
+Independent Verify matched the predecessor ledger, result, and export hashes,
+all 50 frozen source files, and all six preserved inputs. The export contains
+12 regular members with matching hashes. Its inner Linux archive is empty.
+The ledger has only the original start and finish events. All 260 observer
+samples have no active phase.
+
+The saved result records 68.56507468223572 seconds. The proposed continuation
+subtracts that value from 1,200 seconds. The journal's finish timestamp is
+0.00055003166199 seconds later because the controller records elapsed time before
+appending the finish event. Neither record was rewritten.
+
+Fresh host inspection found 6,752 MiB available RAM, 14,828 MiB commit headroom,
+and 139.5 GiB free disk. All WSL distributions were stopped. The Codex usage API
+reported 17 percent weekly usage and no five-hour reading. These readings support
+preparation only. Dispatch still requires fresh admission and Linux verification.
+
+Plan `/root/plan_continuation` selected a controller-only extension that reuses
+the staged application and frozen Linux helpers. Implement is
+`/root/implement_continuation`, QA is `/root/qa_continuation`, and independent
+Verify is `/root/verify_continuation`. The exact deadline amendment remains an
+unanswered inline question. Source preparation does not authorize runtime.
+
+Planning and source-navigation checks passed. The repository line-ending check
+still reports the pre-existing 4,115 CRLF lines in `fixtures/project-registry.json`.
+The Workbench README now reflects accepted source review and the pre-build
+resource refusal. The preserved Littleagent checkout was not accessed.
+
+### Earlier source correction
+
 | Stage | Owner | State | Responsibility |
 |---|---|---|---|
 | Plan | `/root/plan_issue` | accepted | Froze the source-only recovery scope and observable GUI acceptance. |

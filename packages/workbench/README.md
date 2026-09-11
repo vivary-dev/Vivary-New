@@ -55,10 +55,11 @@ This is a GUI backend implementation. It does not change the development harness
 or runtime preparation/start. The workbench keeps the read-only `Conversation`
 component without a composer, history flow, or title consumer. The first fixed-key
 `/chat` candidate failed source QA because it could display a prior account's
-cached thread. The identity-bound replacement is an unverified source candidate.
-It has not passed fresh QA, a Native build, or a browser check.
+cached thread. The identity-bound replacement passed independent source QA and
+Verify. Its GUI proof stopped at build RAM admission before build or browser
+started. That failed run retains its evidence and consumed time.
 Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
-remains in progress until an admitted Native build and browser proof passes its
+remains open until an admitted Native build and browser proof passes its
 observable history, persistence, rename, fallback, privacy, scope, and
 authentication cases.
 
