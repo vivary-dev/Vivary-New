@@ -4,15 +4,14 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: needs-info
-Needs: The authorized single continuation closed at build RAM admission. Any further manual recovery needs separate authority and a reviewed preparation-memory correction. The unused phase attempts and remaining active time do not authorize replay.
+Status: in-progress
 Depends-on: [05a]
-Owner: Root orchestrates the continuation. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Continuation source QA and Verify passed. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
+Owner: Root orchestrates recovery. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Recovery source QA and Verify passed. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 134.94620490074158 active seconds across the original run and its closed manual continuation. Both stopped before either phase. The remaining 1065.0537950992584 seconds include 165.0537950992584 for preparation, export, and cleanup. Further dispatch is not authorized.
+Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 134.94620490074158 active seconds across the original run and its closed manual continuation. Both stopped before either phase. The approved recovery retains 1065.0537950992584 active seconds, including 165.0537950992584 for preparation, export, and cleanup. Unused build/browser attempts remain capped at 600/300 seconds.
 
 ## Goal
 
@@ -201,6 +200,24 @@ control archives and the unchanged owner, configuration, and source binding.
 The continuation is closed. Correcting preparation memory containment and any
 further manual recovery require review before dispatch. Keep both failed results
 and exports, the four-event ledger, and all control archives intact.
+
+Jeff approved the pending recovery on 2026-09-11: "approved for everything just
+document and keep updating the state and handoff and git". This authorizes the
+memory-contained inspection service, recovery control amendments, source and
+verification work, state/handoff updates, and local atomic commits. It resolves
+the two automatic-review objections recorded in the receipt. Complete source QA
+and independent Verify, bind the approved remaining budget and reviewed candidate,
+then obtain fresh admission before recovery dispatch. Existing resource limits,
+frozen inputs, and restrictions on installs, paid calls, and outward actions remain.
+
+The completed recovery controller passed source QA, independent Verify, and its
+focused checker at SHA-256
+`df91b41c6cddf4794ec6ebe43d87f71399507574c7aa4cf7fc13e20a51fc4e5c`.
+Its `--recover-run` operation reuses the staged application and frozen helpers.
+It claims the remaining allocation before preparation, limits the three existing
+hash inspections to a memory-accounted service, and preserves both failed runs.
+Actual inspection limits, memory peak, OOM counters, cleanup, build, and browser
+behavior remain runtime acceptance checks.
 
 ## Verify
 

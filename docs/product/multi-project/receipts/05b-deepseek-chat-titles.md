@@ -120,7 +120,7 @@ Post-run host inspection showed 6,717 MiB available RAM and 14,728 MiB commit
 headroom, with all WSL distributions stopped. Readback inspection later started
 Habitat only to inspect control files and guest memory. No build or browser ran.
 
-### Further recovery proposal
+### Memory-contained recovery
 
 The proposed correction wraps the unchanged Linux hash helper in one task-owned
 transient inspection service. Its 512 MiB memory limit accounts for process and
@@ -141,9 +141,12 @@ One further manual recovery would retain 1065.0537950992584 active seconds and
 append to the exact four-event ledger, and exclusively archive current controls
 as `runtime.pre-recovery.json`, `authority.pre-recovery.json`, and
 `linux-export.pre-recovery.json`. The earlier control archives remain intact.
-This amendment is pending in an inline question. Source implementation, QA, and
-Verify must finish before dispatch. It authorizes no budget increase or automatic
-retry. No further recovery authority or runtime output exists.
+Jeff approved this amendment on 2026-09-11: "approved for everything just document
+and keep updating the state and handoff and git". This authorizes its source and
+control changes, inspection service, bounded verification, and ongoing state,
+handoff, and local Git checkpoints. Source implementation, QA, and Verify must
+finish before dispatch. The remaining aggregate and phase limits do not increase.
+No bound recovery authority or runtime output exists at this preparation checkpoint.
 
 Automatic approval review rejected applying the source change that adds the
 `pre-recovery` control amendments. It cited a persistent, security-sensitive
@@ -159,7 +162,25 @@ privately at SHA-256
 `7127942d3bf30036bbba7f17d2fd89b21c111736de933e307c133ef0f966e5a0`.
 Its checker passes and explicitly reports that recovery dispatch is not
 implemented and requires a decision. This is preparation evidence only.
-The rejected operations have not been applied or executed.
+The rejected operations had not been applied or executed at that checkpoint.
+The later explicit recovery approval above resolves both objections. Implementation
+can now continue under the recorded limits without repeating those permission
+questions. Runtime still requires reviewed bindings and fresh admission.
+
+Source QA and independent Verify then accepted the completed recovery controller
+at SHA-256 `df91b41c6cddf4794ec6ebe43d87f71399507574c7aa4cf7fc13e20a51fc4e5c`.
+Root and Verify independently ran its focused checker. Ledger/accounting,
+predecessor preservation, mocked inspection success/OOM/refusal, and recovery
+startup/cleanup ordering passed. The checker has SHA-256
+`45760e097d2501bf139f20dfea9ab50fa625f134a034cd52a9b5d0d439300240`.
+Review corrected CPU affinity before helper startup and counting failed inspection
+attempts before launch. All 49 other frozen source files, six preserved inputs,
+and both failed result/export sets still match. No recovery runtime has run.
+
+The installed Habitat kernel exposes the required memory, peak, OOM, swap, task,
+and CPU counters. A read-only check confirmed their presence and the nine current
+control files. Interface availability is not proof of the recovery service's
+actual limits or memory use. Those checks precede GUI phase admission.
 
 Planning and source-navigation checks passed. The repository line-ending check
 still reports the pre-existing 4,115 CRLF lines in `fixtures/project-registry.json`.
