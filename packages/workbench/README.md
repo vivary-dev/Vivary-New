@@ -30,12 +30,33 @@ Only the first 500 characters of visible message text reach DeepSeek; hidden
 context and mention metadata are stripped. The request uses `deepseek-flash`
 with thinking disabled, a 64-token output limit, and a five-second timeout.
 Missing credentials or provider failure return a sanitized local title.
-Installed native source contains manual-rename protection and title persistence,
-but this package has not composed or tested those behaviors in a working chat.
+Installed native source contains manual-rename protection and title persistence.
+The `/chat` source now composes the public `AgentChatSurface` in page mode with
+the fixed `vivary-workbench-chat-v1` workspace-app scope, scoped history, native
+header and tabs, chat-only behavior, and code access disabled. It derives the
+React mount key and storage key from the authenticated normalized email and live
+organization ID with collision-safe encoding. It does not derive chat identity,
+scope, thread, or context from the selected project.
+
+The route mounts no chat until `useSession` is authenticated and the successful
+`useOrg` result belongs to the same normalized email identity. Native ownership
+uses the required session email, so the route uses that value instead of the
+optional user ID. An empty or mismatched email fails closed. Organization fetch,
+failure, or stale identity unmounts the chat. Automatic active-thread restoration
+is disabled, so a fresh mount opens an empty conversation. Saved conversations
+and titles remain available through Native History.
+
+The root uses Core 0.176.5's `createAgentNativeQueryClient()` defaults. They set
+a 30-second stale time and disable focus refetch, so standard window focus does
+not unmount a draft. An actual organization invalidation intentionally unmounts
+the chat while Native resolves the new organization.
 
 This is a GUI backend implementation. It does not change the development harness
-or runtime preparation/start. Both `/chat` and the workbench use the read-only
-`Conversation` component without a composer, history flow, or title consumer.
+or runtime preparation/start. The workbench keeps the read-only `Conversation`
+component without a composer, history flow, or title consumer. The first fixed-key
+`/chat` candidate failed source QA because it could display a prior account's
+cached thread. The identity-bound replacement is an unverified source candidate.
+It has not passed fresh QA, a Native build, or a browser check.
 Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
 remains in progress until an admitted Native build and browser proof passes its
 observable history, persistence, rename, fallback, privacy, scope, and
@@ -65,11 +86,12 @@ pnpm test:shell
 pnpm run doctor
 ```
 
-Project editing and conversation input remain unavailable until their actual
-capability binding exists. Both conversation routes use the selected-project
-readiness panel and provide no composer or run controls. Server authorization
-remains mandatory for readiness observations. The unsafe legacy editor is
-preserved privately but is not imported into the executable app.
+Project editing remains unavailable until its capability binding exists. The
+workbench conversation uses the selected-project readiness panel and provides no
+composer or run controls. The `/chat` candidate uses its fixed app-owned scope
+with identity-bound local storage and no automatic active-thread restoration.
+Server authorization remains mandatory for readiness observations. The unsafe
+legacy editor is preserved privately but is not imported into the executable app.
 
 Publication rights, production configuration, and six inherited transitive
 vulnerability advisories remain recorded in 05a. A successful build does not

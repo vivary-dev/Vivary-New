@@ -6,12 +6,17 @@ Verification-result: pending
 
 ## Current result
 
-The backend passed eight tests in the first bounded Habitat attempt. The packet's
-global result is pending because no tested GUI path consumes the title endpoint.
-The tests prove the handler and native middleware composition with fake
-authentication, credentials, and provider responses. They do not prove title
-generation, persistence, switching, rename precedence, or fallback behavior in
-Native conversation history.
+The backend passed eight tests in the first bounded Habitat attempt. The first
+fixed-key `/chat` candidate failed source QA because it could display a prior
+account's cached active thread before server authorization completed. The corrected
+source gates the native chat on matching account and organization identity,
+binds its mount and storage keys to both identities, and disables automatic active
+thread restoration. QA also caught a nullable organization ID; the corrected
+route now reaches its unavailable state. Independent source QA and Verify report ready.
+No build or browser check has run against these changed bytes. The packet's
+global result remains pending. Existing tests prove
+only the handler and native middleware composition with fake authentication,
+credentials, and provider responses.
 
 ## Issue correction ledger
 
@@ -24,13 +29,33 @@ Native conversation history.
 
 This ledger records the repair of issue truth. It does not accept the GUI feature.
 
-On 2026-09-10, `/root/verify_issue` independently accepted this source correction
-after QA reported ready. `C:/Python314/python.exe scripts/check_multi_project_plan.py --check`
+On 2026-09-10, `/root/verify_issue` independently accepted the issue-truth
+correction after QA reported ready.
+`C:/Python314/python.exe scripts/check_multi_project_plan.py --check`
 and `git diff --check` exited 0. All 24 bound source hashes match, and the retained
 archive records eight backend passes and zero model calls. Separately,
 `C:/Python314/python.exe scripts/check_line_endings.py` exited 1 for the existing
-4,115 CRLF lines in `fixtures/project-registry.json`. No runtime was rerun, and
-GUI acceptance remains pending.
+4,115 CRLF lines in `fixtures/project-registry.json`. No runtime was rerun.
+
+## GUI implementation ledger
+
+| Stage | Owner | State | Responsibility |
+|---|---|---|---|
+| Plan | `/root/plan_gui` | accepted | Froze the Native app scope, route ownership, user-visible acceptance, and runtime separation. |
+| Implement | `/root/implement_gui` | completed | Replaced the failed fixed-key candidate with the identity-bound `/chat` source and reconciled its owned documentation. |
+| QA | `/root/qa_gui` | ready for source verification | Rejected cached restoration and nullable organization handling, then accepted both corrections against installed public APIs. |
+| Verify | `/root/review_doctor_fix` | passed for source only | Checked candidate and documentation bindings, public composition, identity gating, and unchanged project guards. Runtime acceptance remains pending. |
+
+Source QA accepted `app/routes/chat.tsx` SHA-256
+`0536dc59295273c1a155731c8039372b55b20ecb08a11478b107c3ff8250c44b`.
+It checked public exports, identity gating, fresh-thread restoration, and the
+root query-client defaults. This is source composition evidence only. Build,
+browser QA, and runtime Verify remain open.
+
+The separate verifier accepted that source hash and confirmed the Workbench
+conversation, activity, preparation, and start files match their preimages.
+The plan renderer and checker passed for all 36 outcomes; `git diff --check`
+passed. This checkpoint adds no runtime evidence or budget authority.
 
 ## Requested behavior and concrete proposal
 
@@ -72,10 +97,11 @@ model do not change, and this session makes no live model call.
   return a response to avoid falling through to Anthropic.
 - `packages/workbench/server/project-runtime-preparation.mjs:177` and
   `project-runtime-start.mjs:239` currently include the literal title check.
-- `packages/workbench/README.md` and `app/components/workbench/Conversation.tsx`
-  confirm the current UI is read-only, with no composer. Adding a title endpoint
-  alone does not activate automatic titles in that UI. The `/chat` route uses
-  the same read-only component and has no title consumer.
+- `app/components/workbench/Conversation.tsx` remains the read-only Workbench
+  panel with no composer. The `/chat` source now uses the public
+  `AgentChatSurface` with fixed workspace-app scope, scoped history isolation,
+  identity-bound mount and storage keys, and automatic active-thread restoration
+  disabled. This composition has no build or browser evidence.
 
 ## Rejected attempt and unchanged state
 
@@ -178,31 +204,58 @@ contains the evidence copied before that deletion.
 
 ## Open GUI acceptance
 
-The retained backend evidence does not close 05b. Both `/chat` and the workbench
-render the read-only `Conversation` component without a composer, history flow,
-or title consumer. Core 0.176.5 exports `AgentChatSurface` and its props from
-`@agent-native/core/client/chat`. The public props name a storage key, scope, and
-history scope, and the shipped docs show page-mode composition. This is the next
-component to inspect and compose. It does not prove activation or the complete
-authentication and storage contract.
+The retained backend evidence does not close 05b. The first fixed-key candidate
+failed source QA because Native can import a cached active thread before server
+authorization completes. The corrected `/chat` source uses Core 0.176.5's public
+`AgentChatSurface` in page mode with scope ID `vivary-workbench-chat-v1`, scope
+type `workspace-app`, app chat, scoped history isolation, native header and tabs,
+chat-only behavior, disabled code access, and no URL thread synchronization.
 
-The GUI must show that the first visible message generates a title, persistence
-survives reload and thread switching, a manual rename wins a delayed generation,
-and a local fallback persists. It must also prove hidden context never reaches
-DeepSeek, unauthenticated requests never fall through to Anthropic, and user,
-organization, and thread scope prevent cross-renames.
+The route requires an authenticated session and a successful live organization
+result whose normalized email matches the session. Native ownership uses the
+required session email, so the route uses that account identity rather than the
+optional user ID. Empty or mismatched identity fails closed. Collision-safe
+encoding of the normalized email and organization ID namespaces both the React
+mount key and Native storage key. Organization loading, refetch, error, or identity
+mismatch leaves the chat unmounted. Automatic active-thread restoration is
+disabled. Each fresh mount starts an empty thread, while server-fetched History
+retains saved conversations and titles. The Workbench `Conversation` remains
+read-only and project-bound. No old proof covers the changed route or root bytes.
+
+The public `createAgentNativeQueryClient()` used by the root sets a 30-second stale
+time and `refetchOnWindowFocus: false`. Standard window focus should not unmount
+a draft. An actual organization invalidation intentionally unmounts the chat while
+Native resolves the next identity. This behavior remains browser acceptance, not
+a source-proven result.
+
+The GUI must show that the first visible message generates a history title,
+persistence survives reload and thread switching, a manual rename wins a delayed
+generation, and a local fallback persists. Foreign and prepared coding threads
+must stay out of this app scope's history, and stale saved thread IDs must refuse.
+Cross-account and cross-organization access must fail. Cached history from another
+account or organization must not render before the authorized response resolves.
+Standard window focus must preserve an unsent draft. Organization switching must
+unmount old messages until the new identity resolves. Reload must start a fresh
+empty conversation, and selecting a saved conversation through History must load
+its persisted messages and title. The Workbench panel must remain read-only and
+issue no chat mutations. Existing backend cases must still prove that hidden
+context never reaches DeepSeek and unauthenticated requests do not fall through
+to Anthropic.
 
 The budget remains four 60-second allocations and 240 seconds total. One
-allocation is consumed. Do not rerun the accepted backend tests for this process
-correction. The 512 MiB, 60-second test profile disables Native services and
-cannot prove GUI behavior. The build profile remains 4 GiB warm and 2 GiB Linux.
-06e's unused build admission binds frozen source bytes and cannot absorb changed
-chat files. A later GUI run needs a reviewed Native composition and its own exact
-build and browser admission.
+allocation is consumed and three remain. Do not rerun the accepted backend tests
+for this source composition. The 512 MiB limit cannot expand, and the existing
+profile disables Native services. It cannot prove GUI behavior. Current Habitat
+inspection found no installed browser executable. Windows Playwright Chromium
+1234 is installed for a future bounded proof, but it has not run. A later GUI run
+needs a new exact build and browser admission for the reviewed Native composition.
+The frozen 06e one-request, 1,200-second grant cannot absorb these changed files.
 
 Project activity read, preparation, and start retain their literal guards. This
-recovery changes no product code, runtime process, dependency, credential, budget,
-or environment. Packet 20j remains budget-exhausted, and 20k remains blocked.
+GUI rework changes only the assigned `/chat` source. It changes no project control,
+Workbench Conversation, root, backend guard, runtime process, dependency,
+credential, budget, or environment. Packet 20j remains
+budget-exhausted, and 20k remains blocked.
 
 ## Documentation checks
 
