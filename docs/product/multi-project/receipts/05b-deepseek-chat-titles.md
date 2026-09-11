@@ -6,6 +6,36 @@ Verification-result: failed
 
 ## Current result
 
+Local GUI execution is closed. The final resume passed one real dependency
+inspection under its 512 MiB memory cap, zero swap, one CPU, private network,
+four exact read-only mounts and five empty capability sets. It then failed
+build admission at about 3.6 GiB available host RAM, below the 4 GiB gate.
+No build or browser phase ran. The owner selected Zo compute through the existing
+T3 connection and requested GitHub source delivery before handoff.
+
+The final result SHA-256 is
+`180119491b32cd2d06cab534e401b83121bfd5e9ed54b2243884f885485b1f10`.
+The 81,920-byte export contains 16 verified regular members and has SHA-256
+`950278eb873dd4db11d43be792464a98969f5989480e76ab23138f05d952518f`.
+The seven-event closed ledger has SHA-256
+`8254d432c415babf7fc121bb184c7d188dbf4ce2fa6e40e6587b53b9b76e2dd8`.
+Independent Verify matched all older evidence, 49 other frozen source files and
+six preserved inputs. The 268 observer samples contain no active phase.
+The inspection reached 512 MiB peak, with 6,232 memory-limit pressure events and
+zero OOM events. Two wrapper launches are consumed and one inspection passed.
+Process cleanup passed; 63 Linux files totaling 1,015,271 bytes remain preserved.
+
+The final resume consumed 71.26599550247192 seconds. Cumulative active time is
+214.56320595741272 seconds, leaving 985.4367940425873 seconds in the original
+allocation, including 85.4367940425873 overhead. The proposed further laptop
+completion was not implemented. All local allocations are unavailable for replay.
+
+The initial Zo read-only preflight reports a 128 GiB memory limit, 16-CPU quota,
+roughly 512 GiB free filesystem space, Node 24.15.0 and pnpm 10.33.2. Zo exposes
+a gVisor environment and cgroup v1, so the Windows/WSL and cgroup v2 proof owner
+cannot run there unchanged. These readings establish access and capacity, not
+GUI acceptance. No app was built, installed, published or run on Zo at this point.
+
 The backend passed eight tests in the first bounded Habitat attempt. The first
 fixed-key `/chat` candidate failed source QA because it could display a prior
 account's cached active thread before server authorization completed. The corrected

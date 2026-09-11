@@ -6,16 +6,28 @@ type: packet
 Parent: 05
 Status: in-progress
 Depends-on: [05a]
-Owner: Root orchestrates the interrupted recovery. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Independent QA and Verify accepted the exact-state resume source. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
+Owner: Root prepares the GitHub source delivery and Zo handoff. Implement, QA and Verify remain separate reviewers. Local GUI execution has stopped under the owner's 2026-09-11 decision to use Zo compute through the existing T3 connection. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 143.2972104549408 active seconds across the original run, closed manual continuation, and interrupted recovery. No phase started. The interrupted recovery retains 1056.7027895450592 active seconds, including 156.7027895450592 for preparation, export, and cleanup. Unused build/browser attempts remain capped at 600/300 seconds. The correction allows four total inspection wrapper launches, including the failed first launch, and three actual helper hash invocations.
+Timebox: Preserve the closed laptop ledger: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent, including 85.4367940425873 of its original overhead. No build or browser attempt started. The endpoint budget remains separate. The Zo execution profile must be reviewed against its actual environment and record any changed allocation; do not replay or reset the laptop ledger.
 
 ## Goal
 
 Use DeepSeek to generate titles for conversations inside the Vivary GUI.
+
+## Current execution decision
+
+On 2026-09-11, the owner directed moving execution to Zo because the laptop
+could not provide adequate resources. The owner confirmed an existing T3 Code
+connection, requested more intensive reviews, then requested a handoff with the
+work on GitHub first. This supersedes Habitat for the next execution of this
+packet. Preserve local evidence and unrelated changes. Publish the reviewed app
+source checkpoint to its existing GitHub branch, then supply a private handoff
+for the Zo/T3 session. No merge, public app deployment, or paid model call is
+part of this handoff. The Windows/WSL controller remains historical evidence;
+it is not the Zo runner. Keep independent environment, source and runtime review.
 
 ## Context
 
@@ -235,6 +247,14 @@ those tests for this process correction. GUI acceptance is pending.
 ## Log
 
 ### Current progress
+
+The resumed inspection passed its actual isolation checks, then build admission
+failed again at the host RAM gate. The run closed after 71.26599550247192 seconds,
+with process cleanup and evidence export accepted. No phase ran. Independent
+Verify matched the 16-member export and all predecessor records. The owner then
+selected Zo execution and GitHub-first handoff. Do not implement or run another
+laptop continuation. The source delivery is being checked for complete app files
+and public-safe contents before push.
 
 The reviewed recovery at `f581155` stopped after 8.351005554199219 seconds
 because the inspection service could not traverse a frozen-input ancestor with

@@ -68,8 +68,9 @@ authentication cases.
 Packet [05a](../../docs/product/multi-project/receipts/05a-workbench-shell.md)
 preserved 24 selected source files before adapting the native providers, chat,
 two-pane layout, mobile navigation, and expandable work panels. The app uses
-Core 0.176.5 and Toolkit 0.19.3. `source-provenance.json` maps each imported or
-composed file to its captured bytes and adaptation.
+Core 0.176.5 and Toolkit 0.19.3. `source-provenance.json` preserves the original
+05a capture hashes and adaptations. It is a historical snapshot; later changes
+are recorded in Git and their packet receipts.
 
 The native build, TypeScript check, six preview tests, and security doctor pass
 in the existing Habitat app directory. A private Windows browser fixture

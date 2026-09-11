@@ -1,0 +1,184 @@
+{
+  "schema": "vivary.workbench-source-provenance/v1",
+  "packet": "05a",
+  "record_kind": "historical-packet-05a-snapshot",
+  "current_source_note": "Target hashes and adaptation descriptions record the original 05a capture. Later changes are recorded in Git and the owning packet receipts; these hashes are not a manifest of the current checkout.",
+  "source_owner": "Littleagent",
+  "scope": "Private owner-authorized integration. Publication rights unresolved.",
+  "source_lock_sha256": "66c7d5694aa837923ba2bdce9e86863f59778e73f549eb38df4ac0a1614ca70b",
+  "source_files": [
+    {
+      "target": "app/entry.client.tsx",
+      "target_sha256": "7f4df5e2f2bd640fcebf602ef64188cb171ffed5ed044506e7d9f708c83e4263",
+      "source": "apps/chat/app/entry.client.tsx",
+      "source_sha256": "7f4df5e2f2bd640fcebf602ef64188cb171ffed5ed044506e7d9f708c83e4263",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/entry.server.tsx",
+      "target_sha256": "1ceb704c7bba95a8b55bcdd828e68c27a91c9870a1c18b95fddc6c4a4d454dfe",
+      "source": "apps/chat/app/entry.server.tsx",
+      "source_sha256": "1ceb704c7bba95a8b55bcdd828e68c27a91c9870a1c18b95fddc6c4a4d454dfe",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/components/ui/button.tsx",
+      "target_sha256": "611eea55439244f796027065828dceb97051cd9119b48f4eed2ba4bd61edc837",
+      "source": "apps/chat/app/components/ui/button.tsx",
+      "source_sha256": "611eea55439244f796027065828dceb97051cd9119b48f4eed2ba4bd61edc837",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/components/ui/input.tsx",
+      "target_sha256": "1c3654eb0b313a66a83f8de0365392d7120269ff02aee825163ed2b97275a090",
+      "source": "apps/chat/app/components/ui/input.tsx",
+      "source_sha256": "1c3654eb0b313a66a83f8de0365392d7120269ff02aee825163ed2b97275a090",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/lib/utils.ts",
+      "target_sha256": "bf6272ab81ce0ad54d72ff65e1cf79a26faad75ab9943ad9fe0370b9a0e8b360",
+      "source": "apps/chat/app/lib/utils.ts",
+      "source_sha256": "bf6272ab81ce0ad54d72ff65e1cf79a26faad75ab9943ad9fe0370b9a0e8b360",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/lib/tab-id.ts",
+      "target_sha256": "03c7f9c2cb2c889b1291c7c66930110ead7235ebbe571f7d82ad16c41e7dea42",
+      "source": "apps/chat/app/lib/tab-id.ts",
+      "source_sha256": "03c7f9c2cb2c889b1291c7c66930110ead7235ebbe571f7d82ad16c41e7dea42",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/lib/workbench-preview.ts",
+      "target_sha256": "ea83c562580a725a7f9cd7dc8e05a10dd43118bb0d807f60152f040aa3e02690",
+      "source": "apps/chat/app/lib/workbench-preview.ts",
+      "source_sha256": "ea83c562580a725a7f9cd7dc8e05a10dd43118bb0d807f60152f040aa3e02690",
+      "adaptation": "Unchanged captured source bytes."
+    },
+    {
+      "target": "app/components/workbench/BrowserPreview.tsx",
+      "target_sha256": "44d573893cec739c1c96da35473079373634e3812678b37f77b5e8d1e797b775",
+      "source": "apps/chat/app/components/workbench/BrowserPreview.tsx",
+      "source_sha256": "e5bb9101563a4927b205334e2eedfb60f5362f3a8f41322dac641d371fe4db12",
+      "adaptation": "Preserved preview behavior and sandbox. Updated copy to avoid promising file creation or server execution."
+    },
+    {
+      "target": "app/root.tsx",
+      "target_sha256": "74fb113c80abbf5adde47cf3bccecc7dd2a0b0bbf46069605841dec9ba16f9b8",
+      "source": "apps/chat/app/root.tsx",
+      "source_sha256": "d5ed935cd0ce237584fa44d80874711f4950a4d4608ce6e5065b569916b69675",
+      "adaptation": "Composed native provider/query/session boundary with Vivary navigation. Removed copied app-specific analytics, command menu and shared server assumptions."
+    },
+    {
+      "target": "app/routes/workbench.tsx",
+      "target_sha256": "13badbcab4a0e1b01c1a10f131c338b33a1b25e176c187f14c8c1197c9fda404",
+      "source": "apps/chat/app/routes/workbench.tsx",
+      "source_sha256": "53b71b96ec5cefda6fe31d151b596420cc32d802e56d94cd2762bde6aa813f18",
+      "adaptation": "Retained two-pane/mobile layout and native conversation. Added expandable panels and truthful unavailable states. Unsafe legacy ArtifactPane is excluded from execution."
+    },
+    {
+      "target": "app/components/workbench/Conversation.tsx",
+      "target_sha256": "642c2a9fba63efaa6bc75d4a49d0be55e7d11e48603ab6b9a991c63deb1e92a5",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Shared native AgentChatSurface for embedded and full-page routes, retaining the same native storage key and tab ID. Standard inert boundary and visible external explanation prevent interaction while no verified project/runtime capability exists. Core0.176.5 MultiTabAssistantChat overwrites its host composerDisabled property; no package patch. This UI boundary does not supply backend authorization."
+    },
+    {
+      "target": "app/routes/chat.tsx",
+      "target_sha256": "99a3ba28cc1593bb6a4f18b6d3823ca21e3df1c3856264d58d8a2a8f6e7e3c83",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Full-page native conversation route."
+    },
+    {
+      "target": "app/routes.ts",
+      "target_sha256": "e31bb93e5c0ebf53336122028704a9b744c93775133b290442980cb335158d22",
+      "source": "apps/chat/app/routes.ts",
+      "source_sha256": "c330da51037ea2ba5db2c3c4e3a6d6d1604e2696f23630085e8ffc862dca1918",
+      "adaptation": "Explicit bounded shell routes replace app-wide filesystem discovery."
+    },
+    {
+      "target": "app/design-system.ts",
+      "target_sha256": "7eccb55d0b93e8d0f745fc5d85c660af0dbf989de55fc1a844a2fab8453988b2",
+      "source": "apps/chat/app/design-system.ts",
+      "source_sha256": "2a9471cfaa9ad6e51811cea6b00bdd52dca3fcc7c7ad9f054c97b135a202d84c",
+      "adaptation": "Named native design-system seam Vivary."
+    },
+    {
+      "target": "app/global.css",
+      "target_sha256": "0a726159b02d7f23827c1201795b20ad08c9164babf1bcbc3e6665063e991f01",
+      "source": "apps/chat/app/global.css",
+      "source_sha256": "28dd761398f6638b3604f59a68d5a8755fbde0cf8e6298cbe9ebfd182a20e3e1",
+      "adaptation": "Kept native CSS imports and semantic tokens, applied Vivary dark/chartreuse palette and responsive S-01 composition."
+    },
+    {
+      "target": "react-router.config.ts",
+      "target_sha256": "5eed5c811009ab256db53b0c69cbb1b1d3a1b71ed93bb34fd0d0f9e1557b04c3",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Public template React Router SSR configuration."
+    },
+    {
+      "target": "agent-native.config.ts",
+      "target_sha256": "7c4d4c4ae32d2a73ddb4d1f13518b2396b7c06033dd2758591badbb97bf2ed76",
+      "source": "apps/chat/agent-native.config.ts",
+      "source_sha256": "92e695760d0ae598031f7f85062d8330bf3820143b74a4121de362450fb9100a",
+      "adaptation": "Keep native configuration. Harness remains unavailable until application runtime binding is connected."
+    },
+    {
+      "target": "vite.config.ts",
+      "target_sha256": "1d48126b1e1ef793fc03ad3cca467c72db39c8da85d90f1db0cbbbc4fa69282b",
+      "source": "apps/chat/vite.config.ts",
+      "source_sha256": "07b27beba8019f411d4546415ae633f3643213a3b7e4fd414ee191f2e9b361dc",
+      "adaptation": "Compose public Vite plugins. Source-specific assistant-ui aliases are added only if the new resolved dependency graph demonstrates a split context."
+    },
+    {
+      "target": "tsconfig.json",
+      "target_sha256": "2f87ab9f9ebbd88c7b4ff12a21d3e699d20dc5fa9e7246ec55bacfdc99d2b91d",
+      "source": "apps/chat/tsconfig.json",
+      "source_sha256": "977d6ac6c02bc40b89bbd0dc8392d033648d082110e360ec16ead8b5e484d8d9",
+      "adaptation": "Narrowed paths and include set to this shell."
+    },
+    {
+      "target": "package.json",
+      "target_sha256": "a11f346f896343e4484111eb9add461b55b159d133af8c36be9b57b41c947d0a",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Preserved registry scripts and added exact locked native shell dependencies and build commands."
+    },
+    {
+      "target": "pnpm-lock.yaml",
+      "target_sha256": "2acb9fbec13ccc0409754df3d582d195ba1034fd0022a3404e0c8691314b4836",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Resolved Core-declared better-auth1.6.28 and Toolkit-declared Tiptap3.30.1 without inherited source overrides. Retained compatible unrelated pins, restored17 hasBin metadata fields from integrity-verified installed manifests, and added the source TypeScript7.0.2 compiler/platform graph."
+    },
+    {
+      "target": "vitest.config.ts",
+      "target_sha256": "dfccf6b66b5c07c2725ece8805382aecd00e9e85a1103e7175d83fcd6ae11031",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Bounded Node preview test configuration."
+    },
+    {
+      "target": "DESIGN.md",
+      "target_sha256": "527ad5477573733132edbb926c01b4c5631282729831116e5095d413ff688e2a",
+      "source": null,
+      "source_sha256": null,
+      "adaptation": "Vivary palette and source S-01 composition with acceptance limits."
+    },
+    {
+      "target": "tests/workbench-preview.test.ts",
+      "target_sha256": "e9f0df2eb85d220609eaf10e7cd4ee9ebd326d5b122205dd7acaa30583185008",
+      "source": "apps/chat/app/lib/workbench-preview.test.ts",
+      "source_sha256": "396ea1bf3b0b18ee9642c9388a197dcf368f894b4dd97983b9eade8dff1cda6b",
+      "adaptation": "Preserved six preview checks with relative import updated to the target source."
+    }
+  ],
+  "preserved_only": [
+    "apps/chat/app/components/workbench/ArtifactPane.tsx"
+  ],
+  "dependency_packages": 1116,
+  "dependency_snapshots": 1116
+}

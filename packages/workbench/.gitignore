@@ -1,0 +1,10 @@
+# Native app build and local runtime output
+.cache/
+.react-router/
+.generated/
+.output/
+.data/
+.agent-native/
+.env
+.env.*
+!.env.example
