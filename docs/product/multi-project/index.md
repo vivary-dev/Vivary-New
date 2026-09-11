@@ -8,6 +8,7 @@ None.
 
 ## In-progress packets
 
+- [05b: Generate native chat titles with DeepSeek](packets/05b-deepseek-chat-titles.md)
 - [06e: Register and select authorized projects in the workbench](packets/06e-project-selection.md)
 - [17b: Read durable mutation recovery state](packets/17b-recovery-state-read.md)
 - [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md)

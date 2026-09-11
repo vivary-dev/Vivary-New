@@ -6,6 +6,11 @@ Unlocks: [06, 11, 15, 18, 24]
 
 Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
 
+Packet 05b retains eight passing backend title tests but is reopened. The current
+read-only `/chat` and workbench views do not consume title generation or prove
+Native history persistence. Its GUI acceptance and independent QA and Verify
+stages remain pending.
+
 ## Goal
 
 Place preserved Littleagent workbench source in the selected Vivary app package with provenance and a buildable shell.

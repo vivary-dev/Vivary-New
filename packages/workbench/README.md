@@ -30,13 +30,16 @@ Only the first 500 characters of visible message text reach DeepSeek; hidden
 context and mention metadata are stripped. The request uses `deepseek-flash`
 with thinking disabled, a 64-token output limit, and a five-second timeout.
 Missing credentials or provider failure return a sanitized local title.
-The native client keeps responsibility for manual renames and title persistence.
+Installed native source contains manual-rename protection and title persistence,
+but this package has not composed or tested those behaviors in a working chat.
 
-This is a GUI backend feature. It does not change the development harness or
-runtime preparation/start. The current read-only conversation view has no
-composer, so end-to-end automatic titles still require that chat integration.
+This is a GUI backend implementation. It does not change the development harness
+or runtime preparation/start. Both `/chat` and the workbench use the read-only
+`Conversation` component without a composer, history flow, or title consumer.
 Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
-owns the source and focused proof; it does not establish production activation.
+remains in progress until an admitted Native build and browser proof passes its
+observable history, persistence, rename, fallback, privacy, scope, and
+authentication cases.
 
 ### Shell evidence
 

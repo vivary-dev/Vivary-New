@@ -1,15 +1,36 @@
-# 05b title generation inspection and approval checkpoint
+# 05b title generation evidence and recovery checkpoint
 
 Evidence-record: 05b
 Verification-kind: runtime
-Verification-result: passed
+Verification-result: pending
 
 ## Current result
 
-Eight backend tests passed in the first bounded Habitat attempt. This proves
-the title handler and native middleware composition with fake authentication,
-credentials, and provider responses. It does not prove an active GUI composer,
-production authentication/vault setup, or a real DeepSeek completion.
+The backend passed eight tests in the first bounded Habitat attempt. The packet's
+global result is pending because no tested GUI path consumes the title endpoint.
+The tests prove the handler and native middleware composition with fake
+authentication, credentials, and provider responses. They do not prove title
+generation, persistence, switching, rename precedence, or fallback behavior in
+Native conversation history.
+
+## Issue correction ledger
+
+| Stage | Owner | State | Responsibility |
+|---|---|---|---|
+| Plan | `/root/plan_issue` | accepted | Froze the source-only recovery scope and observable GUI acceptance. |
+| Implement | `/root/implement_issue` | completed | Corrected packet, receipt, package, outcome, and execution-contract truth. |
+| QA | `/root/qa_issue` | ready | Independently reviewed the source correction; no blocking findings. GUI acceptance remains pending. |
+| Verify | `/root/verify_issue` | passed for source correction only | Checked raw diffs, 24 source bindings, archived backend evidence, generated views, and pending GUI acceptance. |
+
+This ledger records the repair of issue truth. It does not accept the GUI feature.
+
+On 2026-09-10, `/root/verify_issue` independently accepted this source correction
+after QA reported ready. `C:/Python314/python.exe scripts/check_multi_project_plan.py --check`
+and `git diff --check` exited 0. All 24 bound source hashes match, and the retained
+archive records eight backend passes and zero model calls. Separately,
+`C:/Python314/python.exe scripts/check_line_endings.py` exited 1 for the existing
+4,115 CRLF lines in `fixtures/project-registry.json`. No runtime was rerun, and
+GUI acceptance remains pending.
 
 ## Requested behavior and concrete proposal
 
@@ -53,7 +74,8 @@ model do not change, and this session makes no live model call.
   `project-runtime-start.mjs:239` currently include the literal title check.
 - `packages/workbench/README.md` and `app/components/workbench/Conversation.tsx`
   confirm the current UI is read-only, with no composer. Adding a title endpoint
-  alone would not activate automatic titles in that UI.
+  alone does not activate automatic titles in that UI. The `/chat` route uses
+  the same read-only component and has no title consumer.
 
 ## Rejected attempt and unchanged state
 
@@ -94,7 +116,7 @@ The runner executes:
 node --max-old-space-size=192 --import packages/workbench/tests/register-native-dependencies.mjs --test --test-concurrency=1 packages/workbench/tests/chat-title.test.mjs
 ```
 
-## Implementation and initial review
+## Backend implementation and initial review
 
 `server/chat-title.mjs` owns the authenticated title request. It removes nested
 and unterminated context blocks, bounds visible provider input, preserves native
@@ -105,8 +127,9 @@ The route does not write thread records or change the main chat provider.
 Independent source review found no blocking issue. The ten-per-minute limit is
 per process, matching the native default's deployment scope. Added explicit auth
 failure handling and nested-context coverage before runtime. Existing manual-rename
-protection remains a native-client source finding; these tests do not activate
-the GUI composer or prove production credential configuration.
+protection remains a native-client source finding. These tests do not activate
+the GUI composer, exercise Native history persistence, or prove production
+credential configuration.
 
 Preflight: 3,186,954,240 bytes available RAM; 8,348,303,360 bytes commit headroom;
 151,870,746,624 bytes free disk. Included weekly usage was two percent. The other
@@ -128,7 +151,8 @@ and refusal path avoided that sentinel. Actual AsyncLocalStorage kept overlappin
 user/organization requests separate. The production plugin was imported and
 mounted against installed H3; its method refusal was exercised without credentials.
 Default framework services were disabled in this fixture. Full production
-bootstrap, deployed authentication, and GUI title persistence remain untested.
+bootstrap, deployed authentication, and every user-visible GUI acceptance case
+remain untested.
 
 The source envelope binds 24 files and the private toolchain configuration.
 The service observed 512 MiB memory, zero swap, 64 tasks, one CPU, read-only
@@ -151,6 +175,34 @@ verified its resolved path, rejected links, and checked the absent mount/cgroup;
 then `rm -r -- "$scratch"; test ! -e "$scratch"` returned exit 0 and printed
 `05b disposable scratch removed after verified archive`. The retained archive
 contains the evidence copied before that deletion.
+
+## Open GUI acceptance
+
+The retained backend evidence does not close 05b. Both `/chat` and the workbench
+render the read-only `Conversation` component without a composer, history flow,
+or title consumer. Core 0.176.5 exports `AgentChatSurface` and its props from
+`@agent-native/core/client/chat`. The public props name a storage key, scope, and
+history scope, and the shipped docs show page-mode composition. This is the next
+component to inspect and compose. It does not prove activation or the complete
+authentication and storage contract.
+
+The GUI must show that the first visible message generates a title, persistence
+survives reload and thread switching, a manual rename wins a delayed generation,
+and a local fallback persists. It must also prove hidden context never reaches
+DeepSeek, unauthenticated requests never fall through to Anthropic, and user,
+organization, and thread scope prevent cross-renames.
+
+The budget remains four 60-second allocations and 240 seconds total. One
+allocation is consumed. Do not rerun the accepted backend tests for this process
+correction. The 512 MiB, 60-second test profile disables Native services and
+cannot prove GUI behavior. The build profile remains 4 GiB warm and 2 GiB Linux.
+06e's unused build admission binds frozen source bytes and cannot absorb changed
+chat files. A later GUI run needs a reviewed Native composition and its own exact
+build and browser admission.
+
+Project activity read, preparation, and start retain their literal guards. This
+recovery changes no product code, runtime process, dependency, credential, budget,
+or environment. Packet 20j remains budget-exhausted, and 20k remains blocked.
 
 ## Documentation checks
 

@@ -4,12 +4,12 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: done
+Status: in-progress
 Depends-on: [05a]
-Owner: GPT-6 lead, sole writer; independent agent reviews composition and evidence.
-Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, and deterministic tests. No development-loop or runtime preparation/start changes.
+Owner: Root orchestrates. Source recovery uses Plan `/root/plan_issue`, Implement `/root/implement_issue`, QA `/root/qa_issue`, and Verify `/root/verify_issue`. GUI implementation and acceptance remain open.
+Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
-Verification-result: passed
+Verification-result: pending
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
 Timebox: Four Habitat attempts, at most 60 seconds each and 240 seconds total, including retries.
 
@@ -31,9 +31,11 @@ Use the installed native title request and thread storage. Preserve manual
 renames, strip hidden context, and return a readable fallback if DeepSeek fails.
 Runtime preparation/start and its guard changes are outside this narrowed scope.
 
-The current conversation UI has no composer. Endpoint integration does not
-activate that UI or establish production readiness. Paid calls and account
-configuration retain their explicit gates. No model credentials are read by tests.
+The current `/chat` route and workbench conversation panel render the read-only
+`Conversation` component. They have no composer, history flow, or title consumer.
+Endpoint integration does not activate title generation or establish production
+readiness. Paid calls and account configuration retain their explicit gates. No
+model credentials are read by tests.
 
 ## Owned files
 
@@ -45,11 +47,23 @@ Review native manual-rename protection at its existing owner.
 
 ## Done condition
 
-Prove native title-route dispatch, sanitized bounded requests, fallback behavior,
-scoped credentials, and manual-rename protection in GUI conversation history.
-Native manual-rename behavior remains owned by the unchanged client and has
-source inspection evidence. Runtime acceptance here covers the backend, not an
-active GUI composer, real authentication deployment, or a paid provider request.
+Retain the accepted backend proof, then prove the user-visible title flow in the
+Native conversation history. The first visible user message generates a title.
+The title persists after reload and thread switching. A manual rename wins if
+generation returns later. Provider failure produces and persists a local fallback.
+No hidden context reaches DeepSeek. Authentication refusal does not fall through
+to Anthropic. User, organization, and thread boundaries cannot rename another
+conversation. Real authentication deployment and a paid provider request remain
+outside this packet's acceptance.
+
+Core 0.176.5 publicly exports `AgentChatSurface` and its props from
+`@agent-native/core/client/chat`; the shipped docs show page-mode composition.
+Its props expose a storage key, scope, and history scope. This identifies the
+existing component to compose, not activation proof or a complete authentication
+and storage contract. Inspect that composition before product edits and prefer
+the ordinary internal `/chat` flow over the project coding runtime. Do not absorb
+this work into 06e. That packet owns `Conversation` and the selected-project root,
+explicitly mounts no composer, and still has open build and browser gates.
 
 ## Stop conditions
 
@@ -74,8 +88,9 @@ python scripts/check_multi_project_plan.py --check
 git diff --check
 ```
 
-The first rejected patch did not land. The subsequently approved implementation
-passed all eight tests on its first Habitat attempt.
+The first rejected patch did not land. The subsequently approved backend
+implementation passed all eight tests on its first Habitat attempt. Do not rerun
+those tests for this process correction. GUI acceptance is pending.
 
 ## Log
 
@@ -92,14 +107,23 @@ changed. Jeff then explicitly authorized the narrowed GUI backend implementation
 The backend passed eight tests against installed H3/native request context with
 a fake provider, including the actual five-second timeout and concurrent request
 isolation. The production plugin imported and mounted its route. Independent
-source review found no blocking findings. Runtime preparation/start is unchanged.
+source review found no blocking backend findings. Runtime preparation/start is
+unchanged, including the literal guards in project activity read, preparation,
+and start.
 
 One 60-second allocation was used; the parent completed in 20.322 seconds with
 cleanup accepted. Verified evidence was archived and the exact Linux scratch
 removed. Habitat subsequently stopped; Ubuntu remained running. No live secret
-lookup or provider request occurred. The current read-only GUI still needs its
-chat composer integration before users can observe automatic titles.
+lookup or provider request occurred. This is narrow backend evidence. It does not
+prove any user-visible title behavior.
 
-The prepared next shipped integration packet is 20k; it still requires accepted
-20j context proof and resolved Habitat clock behavior. Those failures retain
-their separate status and are not changed by this backend acceptance.
+The 05b budget remains four 60-second allocations, 240 seconds total, with one
+allocation consumed. The existing 512 MiB, 60-second test profile disables Native
+services and cannot prove the GUI flow. The build profile remains 4 GiB warm and
+2 GiB Linux. The unused 06e build admission freezes exact source bytes and cannot
+accept changed chat files. A future GUI proof must bind a reviewed Native client
+and storage composition to an admitted build and browser environment.
+
+The prepared next shipped integration packet is 20k; it remains blocked because
+20j exhausted its budget without accepted context proof. This correction does not
+change either packet.

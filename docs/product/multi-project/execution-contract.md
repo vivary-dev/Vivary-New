@@ -66,6 +66,22 @@ continue source work and close completed processes before starting another job.
 Scale checks to the change. A documentation correction does not need product
 runtime tests. A runtime change needs behavior evidence from its named environment.
 
+For current issues, assign separate agents to Plan, Implement, QA, and Verify.
+The planner freezes user-visible acceptance, scope, and the sandbox profile before
+the writer starts. One implementation agent owns product edits. An independent QA
+agent reviews the candidate without editing product files. A separate verifier
+checks raw artifacts, candidate bindings, runtime isolation, cleanup, and the
+frozen acceptance criteria. The root agent orchestrates these roles and closes the
+issue only after Verify passes. Rework returns to Implement, followed by fresh QA
+and Verify passes.
+
+This role contract does not describe the existing HoH workflow as a four-stage
+runtime implementation. `tools/hoh/workflow.py` implements planner, developer,
+and QA roles. Ozone verification remains planned in 20l. Codex agents share the
+host filesystem, so role prompts are not operating-system sandboxes. Run product
+runtime work only behind the verified Habitat boundaries in its packet. Full
+agent-process isolation remains unproven.
+
 The owner's 2026-09-08 laptop-resource instruction makes prompt cleanup part of
 every run. Record owned processes, services, containers, and temporary paths before
 launch. Keep one heavy job active, enforce its declared limits, and check host
