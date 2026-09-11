@@ -18,8 +18,12 @@ Commit `29f7686ff40acfd00624875bd25ae3c795c67c7c` was pushed and verified throug
 GitHub, then cloned on Zo with its existing authenticated GitHub connection.
 The Zo checkout was clean and matched the exact commit. Its plan and source-map
 checks passed: 36 outcomes, 16 source records, 23 edges, 11 locators and no broken
-source references. The private evidence transfer and final documentation sync
-complete the handoff; build/browser acceptance remains pending.
+source references. The portable Zo handoff contains the verified state, hashes
+and next steps. Raw private log/configuration archives remain on the laptop;
+automatic approval review rejected their exact export. No archive was copied
+through another channel. Independent review caught missing scratch-ignore
+coverage on Zo; the repository now ignores root .tmp storage. Source delivery
+and the portable handoff are complete. Build/browser acceptance remains pending.
 
 Local GUI execution is closed. The final resume passed one real dependency
 inspection under its 512 MiB memory cap, zero swap, one CPU, private network,

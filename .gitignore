@@ -43,3 +43,6 @@ HANDOFF.md
 
 # Vivary runtime data (storage.toml is committed; data/ is not)
 /.vivary/data/
+
+# Private agent handoffs, proof records, and temporary work
+/.tmp/

@@ -38,8 +38,12 @@ delivery commit to Zo and verify the checkout before calling the handoff current
 Source delivery `29f7686ff40acfd00624875bd25ae3c795c67c7c` was pushed to the
 private repository and cloned on Zo. The local, GitHub and Zo commit identities
 matched, the Zo checkout was clean, and plan/source-navigation checks passed
-from its actual files. The remaining handoff work is private evidence transfer
-and the final documentation sync. This is source delivery, not app runtime acceptance.
+from its actual files. A portable handoff with verified state, evidence hashes
+and next steps is present on Zo. Raw private logs/configuration archives remain
+on the laptop after automatic approval review blocked that exact export.
+Private scratch is now ignored by repository policy, rather than relying on a
+laptop-global ignore. This completes source synchronization and the portable
+handoff; app build/browser acceptance remains open.
 
 ## Context
 
