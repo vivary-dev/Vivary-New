@@ -11,7 +11,10 @@ generated index routes to the active packet, full graph, and program design only
 when they are needed. The owner decided on 2026-09-05
 that Vivary absorbs the full Littleagent scope. The GUI is primary; standalone
 workspaces, runtime choice, optional version control, templates, and optional
-Brain learning remain supported. Ticket status owns the current frontier. Use the bounded, verified Habitat environment named by the packet. On 2026-09-05
+Brain learning remain supported. Ticket status owns the current frontier. Use the
+bounded, verified environment named by the packet. The owner's 2026-09-11
+[05b decision](docs/product/multi-project/packets/05b-deepseek-chat-titles.md#current-execution-decision)
+selects Zo for that packet's next execution and handoff. On 2026-09-05
 the owner confirmed BrowserPod is unavailable, superseding its earlier selection.
 Keep BrowserPod setup and execution out of the active task list. Preserve each
 packet's isolation, credential, spending, and cleanup limits.
@@ -21,6 +24,8 @@ generated graph. Keep the graph, owning packet, evidence, and next task current
 after each unit. Older issue priorities do not override this program.
 The existing standard and scaffolder remain the shipped baseline; the program
 does not turn planned application features into release claims.
+
+Before resuming work, follow the [resource-first continuation and change protocol](docs/product/multi-project/execution-contract.md#resource-first-continuation-and-plan-changes). A stale handoff or unknown resource reading cannot authorize runtime dispatch.
 
 ## Design law (non-negotiable)
 
@@ -36,6 +41,11 @@ package README. Use `tropo graph` and module indexes when the selected source
 tree configures them. When work crosses root observation, project identity,
 native runtime, or project write-back, start at the bounded
 [source map](docs/product/multi-project/source-map/index.md).
+
+Before handoff, completion or the next packet, perform the required
+[Reconcile documentation step](docs/product/multi-project/execution-contract.md#required-step-reconcile-documentation).
+Update the owning sources and run generated-view checks. A parity pass is not
+evidence that the underlying claims are current.
 
 ## The operating loop (per turn)
 
