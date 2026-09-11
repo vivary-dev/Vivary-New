@@ -10,7 +10,7 @@ gate completion. Agents execute bounded packets; a future feature or release
 decision does not block an independent packet. Packet dependencies gate starts.
 
 Frontier: none.
-In progress: 06e, 17b, 20a, 24c.
+In progress: 05b, 06e, 17b, 20a, 24c.
 
 ## Execution packets
 
@@ -28,7 +28,7 @@ In progress: 06e, 17b, 20a, 24c.
 | [04c: Prepare a project session with a durable intent and exact Native thread](packets/04c-project-native-preparation.md) | 04 | done | [04b, 07e, 07f] |
 | [04d: Admit one synthetic Native first start from an exact preparation](packets/04d-project-native-start.md) | 04 | done | [04c] |
 | [05a: Preserve and compose the native workbench shell](packets/05a-workbench-shell.md) | 05 | done | [02c, 03c] |
-| [05b: Generate native chat titles with DeepSeek](packets/05b-deepseek-chat-titles.md) | 05 | needs-info | [05a] |
+| [05b: Generate native chat titles with DeepSeek](packets/05b-deepseek-chat-titles.md) | 05 | in-progress | [05a] |
 | [06a: Persist native registry registration transactions](packets/06a-native-registry-storage.md) | 06 | done | [03c] |
 | [06b: Compose internal native registry actions](packets/06b-native-registry-actions.md) | 06 | done | [06a, 03c] |
 | [06c: Validate raw registration requests at the native HTTP mount](packets/06c-native-registry-http.md) | 06 | done | [06b, 03c] |

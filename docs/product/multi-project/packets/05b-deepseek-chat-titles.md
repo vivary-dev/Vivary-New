@@ -4,8 +4,7 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: needs-info
-Needs: Jeff's explicit approval for the corrected versioned three-file bootstrap directory in the private review record. Automatic approval review rejected that new destination. Keep the first frozen bootstrap intact.
+Status: in-progress
 Depends-on: [05a]
 Owner: Root orchestrates. Source recovery used Plan `/root/plan_issue`, Implement `/root/implement_issue`, QA `/root/qa_issue`, and Verify `/root/verify_issue`. GUI source uses Plan `/root/plan_gui`, Implement `/root/implement_gui`, QA `/root/qa_gui`, and Verify `/root/review_doctor_fix`. Source QA and Verify are ready; GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
@@ -163,6 +162,13 @@ approval for that destination. The private `.tmp/05b/gui-bootstrap-review.md`
 contains the exact recovery proposal. No GUI build or browser proof has run.
 After approval, apply the two fixed-name changes and private target update,
 checkpoint and bind the reviewed source, then perform fresh runtime admission.
+
+Jeff approved the exact second-directory recovery proposal on 2026-09-11:
+"please keep going and you have approval and a tool to call that doesnt stop
+the whole turn". The two fixed-name changes and private target update were
+applied. Retain the first bootstrap unchanged. Continue source verification,
+binding preparation, and the existing bounded GUI proof. Use inline questions
+for any later missing decision while continuing independent work.
 
 ## Verify
 

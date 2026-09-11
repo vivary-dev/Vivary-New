@@ -1331,7 +1331,7 @@ def wsl_command(script, *arguments):
     return [str(executable), "-d", "habitat", "-u", "root", "--exec", "sh", "-lc", script, "05b", *map(str, arguments)]
 
 
-BOOTSTRAP_NAME = "vivary-05b-gui-proof-bootstrap-fcd1b8ba9e294d95bc3497ea"
+BOOTSTRAP_NAME = "vivary-05b-gui-proof-bootstrap-r2-fcd1b8ba9e294d95bc3497ea"
 BOOTSTRAP_FILES = ("gui_proof_controller.py", "gui_proof_linux.py", "config.json")
 BOOTSTRAP_WRITER = r'''
 import hashlib, io, json, os, pathlib, resource, signal, stat, sys, tarfile
@@ -1346,7 +1346,7 @@ root = pathlib.Path(sys.argv[2])
 parent = pathlib.Path(sys.argv[3])
 names = ("gui_proof_controller.py", "gui_proof_linux.py", "config.json")
 check(os.getuid() == 0 and len(sys.argv) == 7 and sys.argv[1] in ("create", "verify"))
-check(root.is_absolute() and root.parent == parent and root.name == "vivary-05b-gui-proof-bootstrap-fcd1b8ba9e294d95bc3497ea")
+check(root.is_absolute() and root.parent == parent and root.name == "vivary-05b-gui-proof-bootstrap-r2-fcd1b8ba9e294d95bc3497ea")
 expected = dict(zip(names, sys.argv[4:]))
 check(all(len(value) == 64 and set(value) <= set("0123456789abcdef") for value in expected.values()))
 for item in root.parents:

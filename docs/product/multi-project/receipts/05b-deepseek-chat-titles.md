@@ -20,9 +20,9 @@ credentials, and provider responses.
 
 The first GUI bootstrap transfer succeeded on 2026-09-11. Toolchain binding then
 failed at an undersized inventory cap. The source correction passed independent
-review. A corrected versioned bootstrap destination awaits explicit approval
-after automatic approval review rejected its two-line source change. The original
-three frozen files remain intact. No GUI attempt was allocated.
+review. Jeff then approved the exact corrected bootstrap destination after
+automatic approval review rejected its two-line source change. The original three
+frozen files remain intact. No GUI attempt has been allocated at this checkpoint.
 
 ## Issue correction ledger
 
@@ -443,6 +443,16 @@ fixed-name change before it applied: the new root-owned Linux target requires
 explicit approval for that side effect. No alternative write or retry followed.
 The private bootstrap review names the exact second destination and three files.
 The original GUI proof approval and unused build/browser attempts remain intact.
+
+### Second bootstrap approved
+
+Jeff answered the exact recovery question on 2026-09-11: "please keep going and
+you have approval and a tool to call that doesnt stop the whole turn". This
+authorizes the named second bootstrap, retaining the original directory and
+continuing the existing bounded proof. The two fixed-name source edits and private
+target update were applied. Corrected controller SHA-256:
+`f9cfbe13d20158ca6d7fa64d86a289d830b5c3fe89bfc30af202a9a6fb93ed59`.
+The Linux helper remains at `004a3604e6c79efc3585296b10a5f8a156d446e463939d337d90b0ff75027bd2`.
 
 ### Planning evidence
 
