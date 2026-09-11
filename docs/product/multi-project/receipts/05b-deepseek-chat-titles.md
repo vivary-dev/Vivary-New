@@ -242,7 +242,7 @@ issue no chat mutations. Existing backend cases must still prove that hidden
 context never reaches DeepSeek and unauthenticated requests do not fall through
 to Anthropic.
 
-The budget remains four 60-second allocations and 240 seconds total. One
+The endpoint budget remains four 60-second allocations and 240 seconds total. One
 allocation is consumed and three remain. Do not rerun the accepted backend tests
 for this source composition. The 512 MiB limit cannot expand, and the existing
 profile disables Native services. It cannot prove GUI behavior. Current Habitat
@@ -256,6 +256,70 @@ GUI rework changes only the assigned `/chat` source. It changes no project contr
 Workbench Conversation, root, backend guard, runtime process, dependency,
 credential, budget, or environment. Packet 20j remains
 budget-exhausted, and 20k remains blocked.
+
+## GUI proof source preparation
+
+The GUI source checkpoint is local commit `b26a5e7`. The executable proof is a
+separate preparation unit and remains unexecuted. The first backend/browser
+draft failed source QA. Corrections address public engine selection, readiness,
+database containment, bounded transport, startup/close cleanup, ambiguous UI
+locators, continuous cache-leak observation, and rename-race ordering.
+The owning packet records the proposed build/browser bounds. The controller
+must pass source QA and separate verification before runtime dispatch.
+
+Independent QA and Verify accepted the backend/browser source unit after its
+rework. Backend SHA-256 is
+`10ad20d9057b32b8e853315a0fbc3802bc1db7eee30f93b166e10044de246e61`;
+browser SHA-256 is
+`43e2461b03e43e4470aa1dfd73d944efaa53a1c89188e82a95c3c5524477b03a`.
+These checks did not execute either file.
+
+Automatic approval review rejected the first Linux-controller patch before it
+landed. The review cited root-level subprocess/service operations, evidence
+streaming, and recursive scratch deletion without specific implementation and
+cleanup authority. A revised Linux helper now runs product commands only as the
+non-root service user after checking the service boundary. It can export evidence
+and describe retained scratch cleanup; it has no filesystem deletion operation.
+
+Automatic approval review then rejected the proposed host launcher before it
+landed. The review cited root-owned WSL commands and child-process management
+without trusted authorization for that exact scope. The proposed host integration
+is being preserved as an inert patch for source QA and separate verification.
+The installed controller remains an inspection entry point; the executable host
+dispatcher is not installed. No build, browser proof, or deletion followed either
+rejection. Applying and running that exact dispatcher remains the concrete gate.
+
+Controller QA corrected connection admission before HTTP worker creation, bounded
+RPC writes, and Native's file-shaped `nitro-preset` marker. Separate verification
+also checked heartbeat mounting and owned-child termination. Cleanup covers
+partial setup and independently attempts each stop and absence check. The
+browser fixture additionally blocks service workers and WebSockets; its revised
+SHA-256 is `4191693c766b2d6c0e07896f4450f2bc8ae8af0f53aa149e72415b2b1c3b4820`.
+The earlier backend/browser hashes above record their earlier source review.
+
+The rejected draft is retained separately from the final proposed patch. Static
+in-memory composition caught incompatible historical patch context; the corrected
+single proposal composes against the current source and parses as Python. This
+check does not apply the patch, import the proposed controller, or execute it.
+Final source QA and independent Verify accepted the setup-failure correction.
+The frozen proposal SHA-256 is
+`759fefec88eef173ef3f21a06cad504d3a216b652ca93efabaa81f48e191857d`.
+Static composition produced one patch block, two exact hunks, and 1,794 parsed
+lines, with composed-source SHA-256
+`56b43162e6b2d8900a5dd56a40b776e49eafd735df72e23bd5200d9c894ed789`.
+The installed inspection controller is
+`6f89ac719b1ee185ed02260031aeba3b7bc8963cd74b7231f1a932e1c924429b`;
+the Linux helper is
+`a7a6ef3d5bdd77eab0e4efecfc957a72149250c15a43faccf8ce0aa77d40d6e6`.
+These are source-review results, not runtime admission or GUI acceptance.
+The executable proposal remains unapplied. Source/toolchain bindings, runtime
+authority, fresh resource admission, and the GUI attempt ledger are absent.
+
+The dependency write paths were inspected in the installed Vite/Nitro source.
+Vite's bundled config loader uses `.vite-temp`; Nitro uses `.nitro` for four
+generated type files and `last-build.json`. Service-private mounts can redirect
+those writes without making installed package code writable. A whole dependency
+overlay was rejected and removed before execution.
 
 ## Documentation checks
 

@@ -11,7 +11,7 @@ Scope: Internal Vivary GUI conversation titles through its native title endpoint
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: Four Habitat attempts, at most 60 seconds each and 240 seconds total, including retries.
+Timebox: The endpoint phase retains four Habitat attempts, at most 60 seconds each and 240 seconds total. The separate GUI proof proposal below has not been dispatched.
 
 ## Goal
 
@@ -72,6 +72,7 @@ that panel, and still has open build and browser gates.
 
 The specific implementation approval is recorded above. Bind and prove the
 runtime configuration before executing tests. Keep live paid tests gated.
+The following limits belong to the existing endpoint phase.
 Use the existing Habitat dependencies read-only and the previously verified
 Node 22.23.2 binary. Bind exact scratch and executable paths in private
 `.tmp/05b` configuration before runtime. No install, model call, or new checkout.
@@ -81,6 +82,47 @@ Require 2560 MiB warm RAM, 2048 MiB commit headroom, and 10 GiB disk; preserve
 network, read-only source/dependencies, 250 ms observer, one-second observation
 gap, 1 MiB output, and five-second owned cleanup. Export evidence before removing
 contained scratch; preserve shared Docker and unrelated Habitat activity.
+
+## GUI proof preparation
+
+The source candidate passed independent QA and Verify in local commit `b26a5e7`.
+Prepare an executable build/browser owner before admitting GUI runtime work.
+Plan is `/root/plan_issue`; `/root/implement_gui` supplied the first backend and
+browser draft. `/root/implement_gui_guard` owns their rework and the containment
+controller. `/root/qa_gui` reviewed the backend/browser source. Root performs
+controller QA; `/root/review_doctor_fix` provides separate verification.
+Source review does not close this packet.
+
+The proposed phase allows one build and one browser attempt, no automatic retries,
+and 1,200 seconds aggregate. Build gets 600 seconds, with bundling capped at 300;
+browser gets 300; binding, transfer, export, and cleanup share the remaining 300.
+The build uses the established 2,048 MiB Linux and 512 MiB Windows limits, a
+512 MiB Node heap, and 4 GiB warm RAM admission. The browser uses 512 MiB Linux,
+1,024 MiB Windows, and 3 GiB warm RAM admission. Both require 4 GiB commit headroom,
+10 GiB disk, the 1,536 MiB host reserve, and the existing observer/cleanup limits.
+Review and bind this phase before dispatch. Its ledger must not reset or consume
+the endpoint phase, 20j, or 06e's immutable build grant.
+
+Use the real built `/chat`, Native chat transport and thread persistence, a
+registered synthetic engine, and the injected fake title provider. Native's
+plugin engine option alone does not select its interactive engine in 0.176.5.
+Prove public registry resolution and refuse other engine/model selections.
+Installed dependencies remain read-only. Only the two known Vite/Nitro cache
+directories receive task-owned writable mounts inside the service namespace.
+The Windows browser keeps its Chromium sandbox and a fresh profile.
+
+The proof must distinguish account/organization changes followed by reload from
+in-place switching. The app has no organization-switch control. Observe the
+entire hydration/history transition for foreign text and verify stored titles
+through Native persistence, including the delayed-generation/manual-rename race.
+No GUI build, browser, or model call has run during this preparation.
+
+The complete inert launcher proposal passed source QA, independent Verify, and
+static in-memory composition. Automatic approval review rejected executable
+root-owned WSL dispatch and process management without authority for that exact
+scope. Applying the reviewed launcher and admitting its one bounded proof remain
+the next gate. The proposal stops owned processes and exports evidence; it has no
+filesystem deletion operation. The receipt owns the frozen source hashes.
 
 ## Verify
 
@@ -143,7 +185,7 @@ header and tabs, chat-only behavior, disabled code access, and no URL thread
 synchronization remain unchanged. The Workbench conversation remains read-only.
 No build, browser, model, or runtime check has run against these changed bytes.
 
-The 05b budget remains four 60-second allocations and 240 seconds total. One
+The endpoint budget remains four 60-second allocations and 240 seconds total. One
 allocation is consumed and three remain. The 512 MiB limit cannot expand. That
 test profile disables Native services and cannot prove the GUI flow. The current
 Habitat inventory has no installed browser executable. Windows Playwright
