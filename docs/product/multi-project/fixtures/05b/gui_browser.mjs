@@ -167,8 +167,13 @@ async function finishLeakWatch(page) {
 async function openHistory(page) {
   const history = page.locator('[data-agent-native="chat-history-list"]');
   if (await history.isVisible()) return;
-  const button = page.getByRole("button", { name: "All chats" });
-  await button.click();
+  const directButton = page.getByRole("button", { name: "All chats" });
+  if (await directButton.isVisible()) {
+    await directButton.click();
+  } else {
+    await page.getByRole("button", { name: "Agent panel options" }).click();
+    await page.getByRole("menuitem", { name: "All chats" }).click();
+  }
   await history.waitFor();
 }
 

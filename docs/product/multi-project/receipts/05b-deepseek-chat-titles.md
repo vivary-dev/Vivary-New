@@ -820,9 +820,9 @@ client artifacts consumed by the GUI fixture. All owned build processes exited.
 Independent source QA also accepted the Zo backend/runner adapter after fixes
 for control-token authentication, 12 MiB RPC frames, bounded error settlement,
 actual readonly mount observations, and exact source/build file bindings.
-Focused transport and boundary tests pass. The browser fixture remains byte
-identical to the preserved acceptance source. The next operation is one
-supervised browser attempt with all source and generated inputs hash-bound.
+Focused transport and boundary tests pass. At this checkpoint the browser fixture was byte identical to the preserved
+acceptance source. The later navigation correction below preserves its behavioral
+assertions while matching the installed native menu.
 
 ### First browser attempt and correction
 
@@ -841,3 +841,25 @@ The supervisor now records the actual owned Chromium main-process command line
 and rejects flags that disable its sandbox. Independent QA accepted this capture
 before browser attempt 02. Source and built inputs must be rebound to the new
 committed candidate; no application rebuild is needed for these harness changes.
+
+### Second browser attempt and native menu correction
+
+Browser attempt 02 opened the actual application in sandboxed Chromium. It
+failed in 38.553 seconds because the fixture looked for a direct All chats
+button. Core 0.176.5 exposes that action under Agent panel options when the
+application supplies the native header. The screenshot confirms this header;
+independent QA inspected the installed framework and the remaining history and
+rename controls. The correction follows that menu when the direct button is
+absent. All title, persistence, race, fallback, scope, cache, and read-only
+assertions remain required, with four completion and three title calls expected.
+Failure-only screenshots and bounded diagnostics preserve future failure evidence.
+
+The retained database contains one generated DeepSeek proof title. That partial
+backend observation does not prove the browser journey passed. Actual Chromium
+process arguments contained no sandbox-disabling flags, and owned process cleanup
+passed. Peak summed process RSS was 5,678.9 MiB, with 166 tasks and a maximum
+sampling gap of 0.258 seconds. Shared pages can be counted more than once.
+
+Two of the three browser attempts are consumed. Attempt 03 requires a new source
+manifest for the reviewed fixture and unchanged built application. No attempt is
+replayed and the failures remain charged to the current Zo ledger.

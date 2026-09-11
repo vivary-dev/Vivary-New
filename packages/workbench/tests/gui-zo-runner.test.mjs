@@ -219,10 +219,12 @@ test("runner leaves exclusive ownership of the browser evidence root to the brow
   assert.equal(source.includes("mkdir(browserEvidence"), false);
 });
 
-test("browser acceptance fixture remains unchanged by the Zo adapter", async () => {
+test("browser acceptance fixture retains the complete journey and native history navigation", async () => {
   const source = await readFile(new URL("../../../docs/product/multi-project/fixtures/05b/gui_browser.mjs", import.meta.url), "utf8");
   for (const term of [
     'chromiumSandbox: true',
+    'getByRole("button", { name: "Agent panel options" })',
+    'getByRole("menuitem", { name: "All chats" })',
     'manual rename wins the completed delayed response and survives reload',
     'provider failure persists the local fallback title',
     'account reload ignores stale saved thread IDs and old transcript cache',
