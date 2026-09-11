@@ -84,7 +84,7 @@ PRIVATE_PATH_KEYS = (
 )
 CONFIG_KEYS = {
     "schema", "candidateHead", *PRIVATE_PATH_KEYS, "profileProposalSha256",
-    "scratchLinux", "dependencyRootLinux", "linuxNode", "nativePackages",
+    "scratchLinux", "bootstrapDirectory", "dependencyRootLinux", "linuxNode", "nativePackages",
     "windowsRuntime", "profile",
 }
 
@@ -279,6 +279,8 @@ def load_config(root: Path, name: str, expected_sha256: str) -> tuple[dict[str, 
     require(config["endpointLedger"] == ".tmp/05b/attempts.jsonl", "endpoint ledger moved")
     require(config["attemptLedger"] == ".tmp/05b/gui-attempts.jsonl", "GUI attempt ledger moved")
     scratch = linux_path(config["scratchLinux"], "scratch")
+    require(linux_path(config["bootstrapDirectory"], "bootstrap") == scratch.parent / BOOTSTRAP_NAME,
+            "approved bootstrap destination differs")
     dependencies = linux_path(config["dependencyRootLinux"], "dependencies")
     require(scratch.name == "vivary-05b-gui-proof" and dependencies.name == "node_modules",
             "Linux ownership names differ")
@@ -740,6 +742,13 @@ def admission(root, config, authority_hash):
     return {"usage": value, "host": reading}
 
 
+HEARTBEAT_SCHEMA = "vivary.05b-gui-heartbeat/v1"
+
+
+def heartbeat_frame():
+    return json.dumps({"schema": HEARTBEAT_SCHEMA, "atUnixSeconds": time.time()}, separators=(",", ":")).encode() + b"\n"
+
+
 class BoundedRpc:
     """Exchange bounded frames with an already contained backend process."""
 
@@ -843,18 +852,34 @@ class BoundedRpc:
             require(self.ordinal <= TRANSPORT["maximumRequests"], "RPC request cap exceeded")
             identity = self.ordinal
             self.pending[identity] = {"event": threading.Event(), "reply": None}
-        raw = json.dumps({"id": identity, **message}, separators=(",", ":")).encode() + b"\n"
-        require(len(raw) <= TRANSPORT["maximumFrameBytes"], "outgoing RPC frame exceeds its cap")
-        self.account(len(raw))
-        self.outgoing.put_nowait(raw)
+            raw = json.dumps({"id": identity, **message}, separators=(",", ":")).encode() + b"\n"
+            require(len(raw) <= TRANSPORT["maximumFrameBytes"], "outgoing RPC frame exceeds its cap")
+            self.total_bytes += len(raw)
+            require(self.total_bytes <= TRANSPORT["maximumTotalTransportBytes"], "RPC aggregate byte cap exceeded")
+            self.outgoing.put_nowait(raw)
         reply = self.wait(identity, timeout)
         self.records.append({"id": identity, "action": message.get("action"), "requestBytes": len(raw),
                              "requestSha256": hashlib.sha256(raw).hexdigest()})
         return reply
 
-    def close(self):
+    def publish_heartbeat(self):
+        raw = heartbeat_frame()
+        if not self.lock.acquire(blocking=False):
+            return
+        try:
+            require(self.total_bytes + len(raw) <= TRANSPORT["maximumTotalTransportBytes"], "RPC aggregate byte cap exceeded")
+            try:
+                self.outgoing.put_nowait(raw)
+            except queue.Full:
+                return
+            self.total_bytes += len(raw)
+        finally:
+            self.lock.release()
+
+    def close(self, before_stdin_close):
         reply = self.call({"action": "close"})
         require(reply.get("closing") is True, "backend close was not acknowledged")
+        before_stdin_close()
         self.outgoing.put_nowait(None)
         self.reader.join(timeout=5)
         self.errors.join(timeout=5)
@@ -1053,9 +1078,8 @@ class Observer:
         self.phase = None
         self.phase_started = None
         self.phase_elapsed = 0.0
-        self.heartbeat = scratch / "heartbeat-dir/heartbeat"
-        self.heartbeat.parent.mkdir()
-        self.tick()
+        self.heartbeat_lock = threading.Lock()
+        self.heartbeat_sink = None
         self.thread = threading.Thread(target=self.observe, daemon=True)
         self.thread.start()
 
@@ -1069,11 +1093,19 @@ class Observer:
         require(time.monotonic() < self.deadline, "aggregate GUI deadline exceeded")
 
     def tick(self):
-        temporary = self.heartbeat.with_suffix(".next")
-        with temporary.open("w", encoding="ascii") as stream:
-            stream.write(str(time.time()) + "\n")
-            stream.flush()
-        os.replace(temporary, self.heartbeat)
+        with self.heartbeat_lock:
+            if self.heartbeat_sink is not None:
+                self.heartbeat_sink()
+
+    def attach_heartbeat(self, sink):
+        with self.heartbeat_lock:
+            require(self.heartbeat_sink is None, "a service already owns the heartbeat stream")
+            self.heartbeat_sink = sink
+            sink()
+
+    def detach_heartbeat(self):
+        with self.heartbeat_lock:
+            self.heartbeat_sink = None
 
     def observe(self):
         previous = time.monotonic()
@@ -1121,6 +1153,8 @@ class Observer:
             require(self.diagnostic_bytes <= MIB, "command diagnostics exceeded one MiB")
 
     def finish(self):
+        if hasattr(self, "heartbeat_lock"):
+            self.detach_heartbeat()
         stop = getattr(self, "stop", None)
         if stop is not None:
             stop.set()
@@ -1150,7 +1184,10 @@ class ProcessOwner:
                 os.fsync(journal.fileno())
         return process
 
-    def run(self, command, *, data=None, timeout=30, cap=MIB, destination=None, cleanup=False, environment=None):
+    def run(self, command, *, data=None, timeout=30, cap=MIB, destination=None, cleanup=False, environment=None,
+            heartbeat=False):
+        require(not heartbeat or self.observer is not None and data is None and not cleanup,
+                "stream heartbeat requires its observer and exclusive stdin")
         if cleanup:
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                        env=environment, creationflags=0x08000000)
@@ -1161,7 +1198,16 @@ class ProcessOwner:
         errors = []
         diagnostics = bytearray()
         output_bytes = [0]
+        writer_stop = threading.Event()
+        heartbeat_queue = queue.Queue(maxsize=1)
+        heartbeat_pipe_closed = [None]
         self.sequence += 1
+
+        def publish_heartbeat():
+            try:
+                heartbeat_queue.put_nowait(heartbeat_frame())
+            except queue.Full:
+                pass
 
         def read_stdout():
             stream = destination.open("xb") if destination is not None else None
@@ -1192,14 +1238,36 @@ class ProcessOwner:
                 errors.append(str(error))
 
         def write_stdin():
+            def record_error(error):
+                if heartbeat and isinstance(error, BrokenPipeError):
+                    if heartbeat_pipe_closed[0] is None:
+                        heartbeat_pipe_closed[0] = time.monotonic()
+                else:
+                    errors.append(str(error))
+
             try:
-                if data is not None:
+                if heartbeat:
+                    while not writer_stop.is_set():
+                        try:
+                            raw = heartbeat_queue.get(timeout=0.1)
+                        except queue.Empty:
+                            continue
+                        if writer_stop.is_set() or process.poll() is not None:
+                            break
+                        process.stdin.write(raw)
+                        process.stdin.flush()
+                elif data is not None:
                     process.stdin.write(data)
                     process.stdin.flush()
             except BaseException as error:
-                errors.append(str(error))
+                record_error(error)
             finally:
-                process.stdin.close()
+                if heartbeat:
+                    self.observer.detach_heartbeat()
+                try:
+                    process.stdin.close()
+                except BaseException as error:
+                    record_error(error)
 
         threads = [threading.Thread(target=target, daemon=True)
                    for target in (read_stdout, read_stderr, write_stdin)]
@@ -1207,17 +1275,27 @@ class ProcessOwner:
             thread.start()
         deadline = time.monotonic() + timeout
         try:
+            if heartbeat:
+                self.observer.attach_heartbeat(publish_heartbeat)
             while process.poll() is None:
                 if self.observer and not cleanup:
                     self.observer.check()
                 require(not errors and time.monotonic() < deadline, "owned command failed its output or time bound")
+                require(heartbeat_pipe_closed[0] is None or time.monotonic() - heartbeat_pipe_closed[0] <= 5,
+                        "heartbeat pipe closed but its owned process did not exit within cleanup bound")
                 time.sleep(0.05)
+            if heartbeat:
+                self.observer.detach_heartbeat()
+            writer_stop.set()
             for thread in threads:
                 thread.join(timeout=1)
             require(not errors and all(not thread.is_alive() for thread in threads), "owned command streams did not settle")
             require(process.returncode == 0, "owned command failed: " + diagnostics.decode("utf-8", "replace")[-4096:])
             return bytes(output)
         finally:
+            if heartbeat:
+                self.observer.detach_heartbeat()
+            writer_stop.set()
             if process.poll() is None:
                 process.terminate()
                 try:
@@ -1253,23 +1331,114 @@ def wsl_command(script, *arguments):
     return [str(executable), "-d", "habitat", "-u", "root", "--exec", "sh", "-lc", script, "05b", *map(str, arguments)]
 
 
-def linux_name(owner, windows_path):
-    raw = owner.run(wsl_command('exec /usr/bin/wslpath -a -u "$1"', windows_path), timeout=10, cap=4096)
-    value = raw.decode("utf-8").strip()
-    require(value.startswith("/mnt/") and "\n" not in value and "\r" not in value, "Windows path translation differs")
-    return value
+BOOTSTRAP_NAME = "vivary-05b-gui-proof-bootstrap-fcd1b8ba9e294d95bc3497ea"
+BOOTSTRAP_FILES = ("gui_proof_controller.py", "gui_proof_linux.py", "config.json")
+BOOTSTRAP_WRITER = r'''
+import hashlib, io, json, os, pathlib, resource, signal, stat, sys, tarfile
+resource.setrlimit(resource.RLIMIT_AS, (536870912, 536870912))
+resource.setrlimit(resource.RLIMIT_FSIZE, (4194304, 4194304))
+os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+signal.alarm(30)
+def check(condition):
+    if not condition:
+        raise RuntimeError("bootstrap input or ownership differs")
+root = pathlib.Path(sys.argv[2])
+parent = pathlib.Path(sys.argv[3])
+names = ("gui_proof_controller.py", "gui_proof_linux.py", "config.json")
+check(os.getuid() == 0 and len(sys.argv) == 7 and sys.argv[1] in ("create", "verify"))
+check(root.is_absolute() and root.parent == parent and root.name == "vivary-05b-gui-proof-bootstrap-fcd1b8ba9e294d95bc3497ea")
+expected = dict(zip(names, sys.argv[4:]))
+check(all(len(value) == 64 and set(value) <= set("0123456789abcdef") for value in expected.values()))
+for item in root.parents:
+    check(stat.S_ISDIR(item.lstat().st_mode) and not item.is_symlink())
+check(root.parent == root.parent.resolve(strict=True))
+if sys.argv[1] == "create":
+    check(not root.exists() and not root.is_symlink())
+    raw = sys.stdin.buffer.read(10485761)
+    check(len(raw) <= 10485760)
+    payload = {}
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        members = archive.getmembers()
+        check(len(members) == 3)
+        for member in members:
+            check(member.name in names and member.name not in payload and member.isfile())
+            check(not member.issparse() and not member.pax_headers and 0 < member.size <= (65536 if member.name == "config.json" else 4194304))
+            stream = archive.extractfile(member)
+            check(stream is not None)
+            content = stream.read(member.size + 1)
+            check(len(content) == member.size and hashlib.sha256(content).hexdigest() == expected[member.name])
+            payload[member.name] = content
+    root.mkdir(mode=0o700)
+    for name in names:
+        with (root / name).open("xb") as output:
+            output.write(payload[name])
+            output.flush()
+            os.fsync(output.fileno())
+        (root / name).chmod(0o444)
+check(root.lstat().st_uid == 0 and stat.S_IMODE(root.lstat().st_mode) == 0o700 and root == root.resolve(strict=True))
+check(set(item.name for item in root.iterdir()) == set(names))
+for name in names:
+    target = root / name
+    info = target.lstat()
+    check(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o444)
+    check(0 < info.st_size <= (65536 if name == "config.json" else 4194304))
+    check(hashlib.sha256(target.read_bytes()).hexdigest() == expected[name])
+print(json.dumps({"directory": str(root), "files": expected, "filesystemDeletionAvailable": False}))
+'''
 
 
-def source_helper(owner, root, config_name, config_hash, mode, *arguments, expected_sources, data=None, destination=None, cap=MIB):
+class SourceBootstrap:
+    """Transfer or verify the three files in the approved fixed directory."""
+
+    def __init__(self, config):
+        self.directory = config["bootstrapDirectory"]
+        self.parent = str(PurePosixPath(config["scratchLinux"]).parent)
+        require(PurePosixPath(self.directory) == PurePosixPath(self.parent) / BOOTSTRAP_NAME,
+                "approved bootstrap destination differs")
+        self.files = None
+
+    def prepare(self, owner, root, config_name, config_hash, sources, *, create):
+        require(self.files is None, "bootstrap instance was already prepared")
+        require(config_name == ".tmp/05b/gui-proof-config.json", "bootstrap configuration path differs")
+        expected = {name: config_hash if name == "config.json" else sources[FIXTURE + "/" + name]["sha256"]
+                    for name in BOOTSTRAP_FILES}
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            for name, sha in expected.items():
+                source = config_name if name == "config.json" else FIXTURE + "/" + name
+                raw = read_regular(checked_path(root, source), MAX_CONFIG_BYTES if name == "config.json" else 4 * MIB)
+                require(hashlib.sha256(raw).hexdigest() == sha, "bootstrap source changed")
+                member = tarfile.TarInfo(name)
+                member.size = len(raw)
+                member.mode = 0o444
+                archive.addfile(member, io.BytesIO(raw))
+        raw = buffer.getvalue()
+        require(len(raw) <= 10 * MIB, "bootstrap archive exceeded its cap")
+        command = wsl_command('exec /usr/bin/python3 -I -B -c "$@"', BOOTSTRAP_WRITER,
+                              "create" if create else "verify", self.directory, self.parent, *expected.values())
+        result = parse_json(owner.run(command, data=raw if create else None, timeout=35, cap=4096))
+        require(result == {"directory": self.directory, "files": expected, "filesystemDeletionAvailable": False},
+                "bootstrap receipt differs")
+        self.files = expected
+        return result
+
+    def path(self, name):
+        require(self.files is not None and name in self.files, "bootstrap file is not verified")
+        return str(PurePosixPath(self.directory) / name)
+
+
+def source_helper(owner, root, config_name, config_hash, mode, *arguments, bootstrap, expected_sources,
+                  data=None, destination=None, cap=MIB):
     helper = checked_path(root, f"{FIXTURE}/gui_proof_linux.py")
     controller = checked_path(root, f"{FIXTURE}/gui_proof_controller.py")
     helper_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_linux.py"]["sha256"], "reviewed Linux helper")
     controller_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_controller.py"]["sha256"], "reviewed controller")
     require(stream_digest(helper) == helper_hash and stream_digest(controller) == controller_hash,
             "reviewed elevated helper source changed")
-    linux_helper = linux_name(owner, helper)
-    linux_controller = linux_name(owner, controller)
-    linux_config = linux_name(owner, checked_path(root, config_name))
+    require(stream_digest(checked_path(root, config_name)) == config_hash, "bootstrap configuration source changed")
+    linux_helper = bootstrap.path("gui_proof_linux.py")
+    linux_controller = bootstrap.path("gui_proof_controller.py")
+    linux_config = bootstrap.path("config.json")
     script = ('test "$(sha256sum -- "$1" | cut -d " " -f1)" = "$2" || exit 71; '
               'test "$(sha256sum -- "$3" | cut -d " " -f1)" = "$4" || exit 72; '
               'helper="$1"; shift 4; exec /usr/bin/python3 -I -B "$helper" "$@"')
@@ -1298,8 +1467,11 @@ def freeze_bindings(root, config_name, config, config_hash):
     require(sys.platform == "win32", "binding preparation requires Windows")
     sources = source_inventory(root)
     owner = ProcessOwner()
+    bootstrap = SourceBootstrap(config)
     try:
-        linux = parse_json(source_helper(owner, root, config_name, config_hash, "inspect", expected_sources=sources))
+        bootstrap.prepare(owner, root, config_name, config_hash, sources, create=True)
+        linux = parse_json(source_helper(owner, root, config_name, config_hash, "inspect",
+                                        bootstrap=bootstrap, expected_sources=sources))
         windows = windows_toolchains(config)
         require(source_inventory(root) == sources, "source changed during binding preparation")
         source_path = checked_path(root, config["sourceBinding"], missing_leaf=True)
@@ -1309,7 +1481,9 @@ def freeze_bindings(root, config_name, config, config_hash):
         write_json_exclusive(toolchain_path, {"schema": "vivary.05b-gui-toolchain-binding/v1",
                              "configSha256": config_hash, "linux": linux, "windows": windows})
         return {"sourceBindingSha256": stream_digest(source_path), "toolchainBindingSha256": stream_digest(toolchain_path),
-                "runtimeAuthorized": False}
+                "runtimeAuthorized": False, "retainedLinuxBootstrap": bootstrap.directory}
+    except BaseException as error:
+        raise Refusal(str(error) + "; retained bootstrap path to inspect: " + bootstrap.directory) from error
     finally:
         owner.stop_children()
 
@@ -1387,6 +1561,7 @@ class ProofOwner:
         self.job = None
         self.rpc = None
         self.proxy = None
+        self.bootstrap = None
         self.staged = False
         self.claimed_units = set()
         self.runtime_hash = None
@@ -1443,7 +1618,8 @@ class ProofOwner:
         raw = buffer.getvalue()
         require(len(raw) <= 40 * MIB, "source transfer archive exceeds its cap")
         response = source_helper(self.processes, self.root, self.config_name, self.config_hash,
-                                 "stage", self.run_id, self.runtime_hash, expected_sources=self.binding["sources"], data=raw)
+                                 "stage", self.run_id, self.runtime_hash, bootstrap=self.bootstrap,
+                                 expected_sources=self.binding["sources"], data=raw)
         require(parse_json(response).get("staged") is True, "projection staging failed")
         self.staged = True
         self.result["transfer"] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
@@ -1453,8 +1629,6 @@ class ProofOwner:
         properties = dict(plan["properties"])
         properties["Description"] = "Vivary 05b GUI proof " + plan["unit"]
         properties["WorkingDirectory"] = plan["cwd"]
-        properties["BindReadOnlyPaths"] = [*properties["BindReadOnlyPaths"],
-            self.runtime["heartbeatSourceLinux"] + ":" + self.config["scratchLinux"] + "/.control/heartbeat-dir"]
         if plan["privateWritableBindMounts"]:
             properties["BindPaths"] = [item["source"] + ":" + item["destination"]
                                       for item in plan["privateWritableBindMounts"]]
@@ -1533,6 +1707,7 @@ class ProofOwner:
             self.backend_log.write(chunk)
             self.backend_log.flush()
         self.rpc = BoundedRpc(process, self.observer.check, diagnostic, self.observer.fail)
+        self.observer.attach_heartbeat(self.rpc.publish_heartbeat)
         self.result["backendReady"] = self.rpc.ready(self.plan["phases"]["browser"]["unit"])
         launch = BrowserLaunchEvidence(self.config, self.scratch, self.job)
         self.proxy = LoopbackProxy(self.rpc, self.observer.check, self.observer.fail, launch.verified)
@@ -1558,11 +1733,12 @@ class ProofOwner:
             self.result["chromium"] = {**launch.launch, "pid": launch.pid}
             self.proxy.close()
             self.proxy = None
-            self.result["backendClose"] = self.rpc.close()
+            self.result["backendClose"] = self.rpc.close(self.observer.detach_heartbeat)
             process.wait(timeout=5)
             require(process.returncode == 0, "contained backend command failed")
             self.rpc = None
         finally:
+            self.observer.detach_heartbeat()
             self.processes.stderr_hook = None
             if self.rpc is None:
                 self.backend_log.close()
@@ -1643,20 +1819,22 @@ class ProofOwner:
                 require(head.decode().strip() == self.config["candidateHead"]
                         and branch.decode().strip() == "docs/context-compaction-policy", "candidate checkout changed")
                 require(windows_toolchains(self.config) == self.toolchain["windows"], "Windows toolchains changed")
+                self.bootstrap = SourceBootstrap(self.config)
+                self.result["bootstrap"] = self.bootstrap.prepare(self.processes, self.root, self.config_name,
+                    self.config_hash, self.binding["sources"], create=False)
                 linux = parse_json(source_helper(self.processes, self.root, self.config_name, self.config_hash, "inspect",
-                                                expected_sources=self.binding["sources"]))
+                                                bootstrap=self.bootstrap, expected_sources=self.binding["sources"]))
                 require(linux == self.toolchain["linux"], "Linux toolchains changed")
                 self.absent_before_start()
-                heartbeat = linux_name(self.processes, self.scratch / "heartbeat-dir")
                 self.runtime = {"runId": self.run_id, "configSha256": self.config_hash,
                     "sourceBindingSha256": self.binding_hash, "toolchainBindingSha256": self.toolchain_hash,
                     "authoritySha256": self.authority_hash, "startedUnixSeconds": started_unix,
-                    "deadlineUnixSeconds": started_unix + 1200, "heartbeatSourceLinux": heartbeat}
+                    "deadlineUnixSeconds": started_unix + 1200, "heartbeatTransport": HEARTBEAT_SCHEMA}
                 runtime_raw = (json.dumps(self.runtime, sort_keys=True, indent=2) + "\n").encode()
                 self.runtime_hash = hashlib.sha256(runtime_raw).hexdigest()
                 self.transfer(read_regular(checked_path(self.root, self.config_name), MAX_CONFIG_BYTES))
                 self.phase_start(journal, "build")
-                self.processes.run(self.service("build"), timeout=600)
+                self.processes.run(self.service("build"), timeout=600, heartbeat=True)
                 self.phase_finish(journal, "build")
                 self.job.set_phase("browser")
                 self.phase_start(journal, "browser")
@@ -1671,6 +1849,8 @@ class ProofOwner:
             finally:
                 cleanup_started = time.monotonic()
                 cleanup_failures = []
+                if self.observer is not None and hasattr(self.observer, "heartbeat_lock"):
+                    self.observer.detach_heartbeat()
                 try:
                     if self.claimed_units:
                         require(self.processes is not None, "claimed units have no process owner")
@@ -1742,6 +1922,7 @@ class ProofOwner:
                 self.result["observerFailure"] = getattr(self.observer, "failure", None)
                 self.result["samples"] = getattr(self.observer, "samples", [])
                 self.result["retainedWindowsScratch"] = str(self.scratch)
+                self.result["retainedLinuxBootstrap"] = self.config["bootstrapDirectory"]
                 self.result["retainedLinuxScratch"] = self.config["scratchLinux"] if self.staged else "stage not acknowledged; inspect exact configured path"
                 self.result["complete"] = False
                 self.result["nextGate"] = "Review exact retained scratch cleanup. Filesystem deletion is unavailable."

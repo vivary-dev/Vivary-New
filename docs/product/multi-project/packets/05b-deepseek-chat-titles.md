@@ -143,6 +143,17 @@ and configuration file in the named task-owned Habitat directory. The private
 `.tmp/05b/gui-bootstrap-review.md` records that operation and its bounds. No GUI
 attempt has been allocated.
 
+After the exact three-file bootstrap approval request and restart discussion,
+Jeff answered "ok go on" on 2026-09-11. This approves implementing the mount-free
+bootstrap and creating the three reviewed files in the directory named by the
+private review record. It preserves the existing GUI proof limits. Source QA,
+independent Verify, frozen bindings, and fresh admission still precede dispatch.
+
+The mount-free candidate passed root source QA and independent Verify. It creates
+only the approved helper/configuration directory and carries heartbeats through
+service input. Strict RPC ordering remains enforced. The next step is an atomic
+source checkpoint, exact binding preparation, and fresh runtime admission.
+
 ## Verify
 
 ```console

@@ -370,6 +370,40 @@ readings before dispatch. The approved build requires at least 4,096 MiB warm RA
 
 ## Documentation checks
 
+### Bootstrap continuation, 2026-09-11
+
+After the explicit three-file bootstrap approval request and restart discussion,
+Jeff answered "ok go on". The approved scope is the mount-free transfer described
+in `.tmp/05b/gui-bootstrap-review.md`. Implementation resumed under the existing
+single GUI proof allocation, with source QA and independent Verify before dispatch.
+The first fresh reading showed 5,349 MiB available RAM, 12,458 MiB commit headroom,
+and 138.39 GiB free disk. Habitat was stopped. The included-usage tool returned
+`Transport closed`. Jeff then supplied a fresh reading: weekly usage is 86 percent,
+and the five-hour window does not apply to his subscription. Record this as
+user-reported usage evidence for admission, without inventing a five-hour reading.
+No GUI attempt has been allocated at this checkpoint.
+
+Root source QA accepted the mount-free candidate. The controller and Linux helper
+parse, including the embedded bootstrap writer. The transfer validates exactly
+three regular files, their hashes, the approved destination, and exclusive creation.
+Build and browser heartbeats share service input. RPC identifiers enter the queue
+under the same lock that assigns them, preserving strict receiver ordering.
+Automatic approval review rejected an earlier proposal to relax that ordering.
+That proposal was not applied. A normal heartbeat pipe close requires the exact
+owned process to exit successfully within the existing bound.
+
+Reviewed controller SHA-256:
+`264d0269e96410bba3fa4b072e24e239a1e8035874132af6fedd47128853b331`.
+Reviewed Linux helper SHA-256:
+`ab5d9d7a0e1bd8e3efe38e938698d06c4f3a09814b105685052b7289dca89bf9`.
+Independent Verify accepted these exact bytes after checking the bootstrap,
+strict input protocol, containment, configuration schema, and binding lifecycle.
+A failed binding preparation
+retains its exclusive bootstrap directory. The controller does not overwrite it
+or retry preparation automatically.
+
+### Planning evidence
+
 The first `python scripts/check_multi_project_plan.py --render` failed because
 the new packet omitted required headings and classified its inspection as runtime.
 Corrected the packet format and verification kind. Render and `--check` then

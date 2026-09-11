@@ -10,9 +10,12 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
+import queue
 import resource
+import select
 import signal
 import stat
 import subprocess
@@ -139,7 +142,6 @@ def stage(config_path, config_hash, run_id, runtime_hash):
             stream.write(content)
         target.chmod(0o444)
     (scratch / "app/node_modules").mkdir(mode=0o555)
-    (scratch / ".control/heartbeat-dir").mkdir(mode=0o555)
     (scratch / ".owner.json").chmod(0o444)
     plans = guard.containment_plan(config, run_id)["phases"]
     writable = set()
@@ -214,14 +216,163 @@ def boundary(config, runtime, phase):
             "mountReadOnly": flags, "networkInterfaces": interfaces, "uid": os.getuid()}
 
 
+class ServiceInput:
+    """Consume owner heartbeats and forward only bounded browser RPC frames."""
+
+    def __init__(self, phase):
+        self.phase = phase
+        self.stop = threading.Event()
+        self.fresh = threading.Event()
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+        self.last_heartbeat = None
+        self.last_stamp = 0.0
+        self.failure = None
+        self.closing_requested = False
+        self.eof_at = None
+        self.total_bytes = 0
+        self.last_id = 0
+        self.outgoing = queue.Queue(maxsize=guard.TRANSPORT["maximumPendingRequests"])
+        self.child = None
+        self.reader = threading.Thread(target=self.read_frames, daemon=True)
+        self.writer = None
+
+    def __enter__(self):
+        self.reader.start()
+        return self
+
+    def __exit__(self, *_):
+        self.stop.set()
+        for thread in (self.reader, self.writer):
+            if thread is not None and thread.ident is not None:
+                thread.join(timeout=1)
+                guard.require(not thread.is_alive(), "service input thread did not stop")
+
+    def fail(self, error):
+        with self.lock:
+            if self.failure is None:
+                self.failure = str(error)[:4096]
+
+    def check(self):
+        with self.lock:
+            guard.require(self.failure is None, "service input failed: " + str(self.failure))
+            now = time.monotonic()
+            if self.eof_at is not None:
+                guard.require(self.phase == "browser" and self.closing_requested and now - self.eof_at <= 5,
+                              "service input ended outside bounded browser close")
+                return
+            guard.require(self.last_heartbeat is not None and now - self.last_heartbeat <= 1,
+                          "Linux observer lost its owner")
+
+    def wait_fresh(self):
+        guard.require(self.fresh.wait(timeout=max(0, 1 - (time.monotonic() - self.started))),
+                      "service owner heartbeat missing before dispatch")
+        self.check()
+
+    def accept(self, raw):
+        message = guard.parse_json(raw)
+        guard.require(isinstance(message, dict), "service frame is not an object")
+        if message.get("schema") == guard.HEARTBEAT_SCHEMA:
+            guard.exact(message, {"schema", "atUnixSeconds"}, "heartbeat frame")
+            stamp = message["atUnixSeconds"]
+            guard.require(type(stamp) in (int, float) and math.isfinite(stamp), "heartbeat timestamp differs")
+            with self.lock:
+                if 0 <= time.time() - stamp <= 1 and stamp > self.last_stamp:
+                    self.last_stamp = stamp
+                    self.last_heartbeat = time.monotonic()
+                    self.fresh.set()
+            return
+        guard.require(self.phase == "browser" and not self.closing_requested, "unexpected product input")
+        identity = message.get("id")
+        guard.require(type(identity) is int and identity == self.last_id + 1
+                      and identity <= guard.TRANSPORT["maximumRequests"] and isinstance(message.get("action"), str),
+                      "service RPC identity or request cap differs")
+        self.last_id = identity
+        self.outgoing.put_nowait(raw)
+        if message["action"] == "close":
+            with self.lock:
+                self.closing_requested = True
+
+    def read_frames(self):
+        pending = bytearray()
+        descriptor = sys.stdin.fileno()
+        try:
+            while not self.stop.is_set():
+                ready, _, _ = select.select([descriptor], [], [], 0.1)
+                if not ready:
+                    continue
+                chunk = os.read(descriptor, 65536)
+                if not chunk:
+                    guard.require(not pending, "service input ended within a frame")
+                    with self.lock:
+                        self.eof_at = time.monotonic()
+                    self.check()
+                    self.outgoing.put_nowait(None)
+                    return
+                self.total_bytes += len(chunk)
+                guard.require(self.total_bytes <= guard.TRANSPORT["maximumTotalTransportBytes"],
+                              "service aggregate input cap exceeded")
+                pending.extend(chunk)
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        break
+                    guard.require(newline + 1 <= guard.TRANSPORT["maximumFrameBytes"], "service frame cap exceeded")
+                    raw = bytes(pending[:newline + 1])
+                    del pending[:newline + 1]
+                    self.accept(raw)
+                guard.require(len(pending) < guard.TRANSPORT["maximumFrameBytes"], "service frame cap exceeded")
+        except BaseException as error:
+            self.fail(error)
+
+    def attach(self, child):
+        guard.require(self.phase == "browser" and self.child is None and child.stdin is not None,
+                      "service backend stdin ownership differs")
+        self.child = child
+        os.set_blocking(child.stdin.fileno(), False)
+        self.writer = threading.Thread(target=self.write_frames, daemon=True)
+        self.writer.start()
+
+    def write_frames(self):
+        descriptor = self.child.stdin.fileno()
+        try:
+            while not self.stop.is_set():
+                try:
+                    raw = self.outgoing.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                if raw is None:
+                    return
+                remaining = memoryview(raw)
+                while remaining and not self.stop.is_set():
+                    _, ready, _ = select.select([], [descriptor], [], 0.1)
+                    if ready:
+                        try:
+                            written = os.write(descriptor, remaining)
+                        except BlockingIOError:
+                            continue
+                        guard.require(written > 0, "backend stdin stopped accepting input")
+                        remaining = remaining[written:]
+        except BaseException as error:
+            self.fail(error)
+        finally:
+            self.child.stdin.close()
+
+
 def inside(scratch, run_id, runtime_hash, phase):
     config, runtime = load_run(scratch, run_id, runtime_hash)
     guard.require(phase in ("build", "browser"), "unknown Linux phase")
+    guard.require(runtime.get("heartbeatTransport") == guard.HEARTBEAT_SCHEMA, "service heartbeat transport differs")
+    with ServiceInput(phase) as service_input:
+        run_inside(scratch, run_id, config, runtime, phase, service_input)
+
+
+def run_inside(scratch, run_id, config, runtime, phase, service_input):
     plan = guard.containment_plan(config, run_id)["phases"][phase]
     evidence = scratch / "evidence" / phase
+    service_input.wait_fresh()
     observed = boundary(config, runtime, phase)
-    stamp = float((scratch / ".control/heartbeat-dir/heartbeat").read_text().strip())
-    guard.require(0 <= time.time() - stamp <= 1, "service owner heartbeat is stale before dispatch")
+    service_input.check()
     write_json(evidence / "boundary.json", observed)
     environment = plan["environment"]
     os.environ.clear()
@@ -238,8 +389,8 @@ def inside(scratch, run_id, runtime_hash, phase):
         while not finished.wait(0.25):
             try:
                 now = time.monotonic()
-                stamp = float((scratch / ".control/heartbeat-dir/heartbeat").read_text().strip())
-                guard.require(now - previous <= 1 and 0 <= time.time() - stamp <= 1, "Linux observer lost its owner")
+                guard.require(now - previous <= 1, "Linux observation gap exceeded")
+                service_input.check()
                 guard.require(now < deadline and diagnostics[0] <= MIB, "Linux command deadline or diagnostic cap exceeded")
                 previous = now
             except BaseException:
@@ -254,10 +405,13 @@ def inside(scratch, run_id, runtime_hash, phase):
             guard.require(built["passed"] is True and built["runId"] == run_id, "browser lacks this run's successful build")
             guard.require(guard.tree_summary(scratch / "app/build", maximum_bytes=128 * MIB)
                           == built["build"], "built renderer or assets changed")
-            child = subprocess.Popen(plan["backendArgv"], env=environment, start_new_session=True)
+            service_input.check()
+            child = subprocess.Popen(plan["backendArgv"], stdin=subprocess.PIPE, env=environment, start_new_session=True)
+            service_input.attach(child)
             write_json(evidence / "process-group.json", {"pid": child.pid, "pgid": child.pid})
             code = child.wait(timeout=max(0.01, deadline - time.monotonic()))
             guard.require(code == 0, "proof backend failed")
+            service_input.check()
         else:
             node = config["linuxNode"]["path"]
             health_source = (
@@ -270,6 +424,7 @@ def inside(scratch, run_id, runtime_hash, phase):
             )
             commands = [[node, "--input-type=module", "-e", health_source]] + [item["argv"] for item in plan["commands"]]
             for ordinal, command in enumerate(commands):
+                service_input.check()
                 verify_source(scratch, runtime)
                 command_deadline = min(deadline, time.monotonic() + (300 if ordinal == len(commands) - 1 else 600))
                 child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -308,6 +463,8 @@ def inside(scratch, run_id, runtime_hash, phase):
         raise
     finally:
         finished.set()
+        observer.join(timeout=1)
+        guard.require(not observer.is_alive(), "Linux observer did not stop")
 
 
 def assert_absent(config, runtime):
