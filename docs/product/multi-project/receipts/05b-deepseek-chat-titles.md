@@ -28,6 +28,43 @@ either build or browser admission, as recorded below.
 
 ## Issue correction ledger
 
+### Recovery stopped at directory traversal, 2026-09-11
+
+Reviewed recovery checkpoint `f581155` ran once with fresh admission and the
+recorded approval. It stopped after 8.351005554199219 seconds: the inspection
+process had UID/GID zero and no capabilities, but an ancestor of the frozen
+bootstrap was owned by UID/GID 1000 with mode 0750. The read-only wrapper could
+not traverse that directory. This failure occurred before any helper boundary,
+control amendment, build, or browser phase was acknowledged.
+
+Process cleanup passed. Live readback found the inspection unit absent, inactive,
+and without a main PID. No recovery export or ledger finish event was produced;
+the recovery ledger remains open. Preserve the failed result, authority, and
+command logs. The exact remaining allocation is 1056.7027895450592 seconds,
+including 156.7027895450592 seconds overhead. Total consumed active time is
+143.2972104549408 seconds. The original and continuation evidence remain intact.
+An interrupted-recovery correction is under review. GUI acceptance stays failed.
+
+Root preserved the raw Windows failure evidence in a separate archive, SHA-256
+`e02a5a890d3e90b4e8045c81754ebb7777835f26684ddfb290bc8fa9b63fb367`.
+Its manifest covers 12 regular files, including the five-event ledger, result,
+authority, admission, command logs, and a fresh readback of Linux control records.
+The failed result hash is
+`c2f3ff89b48d9e3ba4c0d622d5b222ffc38329306784e0defcce364698fb6efa`;
+the open ledger hash is
+`aa1a8de6a92f225832b32891cf5d779eadaf7a0840c534f79b45f48d78df0d4d`.
+This archive preserves failure evidence; it is not a passing GUI export.
+
+The authorized correction adds only supplementary group 1000 to the read-only
+inspection service, keeping UID/GID zero and all capability sets empty. It records
+the failed wrapper launch separately from helper execution: at most four wrapper
+launches across the interrupted recovery, including the failed first launch,
+and three actual helper hash invocations. It retains the same active-time budget,
+frozen helpers and application, and unused phase attempts. One exact-state resume
+must preserve all failed records and validate unchanged control files before
+amending them. The user's recorded recovery approval covers this correction;
+source QA, independent Verify and fresh admission still precede dispatch.
+
 ### Continuation preparation, 2026-09-11
 
 The continuation session rechecked the preserved Windows artifacts before editing.

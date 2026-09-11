@@ -236,6 +236,14 @@ those tests for this process correction. GUI acceptance is pending.
 
 ### Current progress
 
+The reviewed recovery at `f581155` stopped after 8.351005554199219 seconds
+because the inspection service could not traverse a frozen-input ancestor with
+its empty capability set. Process cleanup passed; no build/browser phase or
+control amendment was acknowledged. The recovery ledger is open, with its failed
+result and logs retained. Root and the assigned agents are reviewing the smallest
+interrupted-recovery correction. Remaining time is 1056.7027895450592 seconds,
+including 156.7027895450592 seconds overhead; previous consumed time is retained.
+
 Core 0.176.5 hardcodes Anthropic in the title endpoint; native chat model
 configuration does not change it. The client already suppresses generated titles
 after a manual rename. Workbench runtime guards currently require a literal
