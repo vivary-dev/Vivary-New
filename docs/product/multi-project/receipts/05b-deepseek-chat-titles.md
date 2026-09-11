@@ -777,3 +777,49 @@ not claim that those full documents meet the prose score target.
 During implementation, the plan checker also caught private Habitat paths in
 the first proof-runner draft. Those were moved into private configuration and
 bound by SHA-256 before runtime. The corrected renderer passed.
+
+## Zo setup and first build (2026-09-11)
+
+The owner resumed execution directly on Zo after the private source handoff.
+The new supervisor keeps setup and verification accounting separate from the
+closed laptop ledger. Independent QA accepted restricted pinned acquisition,
+offline native compilation, and the exact Chromium download command.
+
+- Pinned installation with lifecycle scripts disabled passed in 36.845 seconds.
+- SQLite compilation passed in 56.957 seconds after two subsecond failures exposed
+  missing conventional shell/compiler paths. The corrections expose existing
+  readonly system binaries. An actual SQLite write/read/close probe passed.
+- Offline esbuild preparation passed. Chromium revision 1243 downloaded from the
+  official Playwright endpoint and reported Chrome for Testing 153.0.8010.12.
+- Boundary probes observed UID/GID 1000, all five capability sets empty,
+  no-new-privileges, four CPUs, loopback-only networking, and an inner PID
+  namespace distinct from the supervisor. Forced-deadline cleanup passed.
+- Build 01 used 77 app inputs matched to the canonical source. It failed after
+  1.537 seconds at the enabled doctor gate: seven test-only environment reads
+  lacked the framework's explicit, reasoned annotations. No bundling started.
+- Every completed attempt remains charged, including failures. The early
+  `deadline-01` probe retains its conservative reservation because it produced
+  no final receipt. `chromium-01` failed during optional namespace observation;
+  its cleanup result remains unknown in that receipt. A later process inventory
+  found no task sandbox, and corrected boundary/acquisition attempts passed.
+
+Raw setup receipts, per-run logs, the cumulative ledger, and source manifests
+are retained privately under `.tmp/05b/zo-runtime/`. These results prove setup
+and the stated failures; they do not prove the GUI acceptance criteria. The
+program audit retains all seven dependency advisories under the all-issues goal.
+
+### Build accepted; browser candidate ready
+
+The framework's supported, reasoned annotations fixed all seven doctor findings
+without changing test behavior or disabling a guard. Independent QA accepted
+those exact comments. Doctor passed, then build 02 completed in 23.970 seconds.
+Its 77 source inputs matched the reviewed canonical files before the build and
+remained unchanged afterward. The output includes the React Router server and
+client artifacts consumed by the GUI fixture. All owned build processes exited.
+
+Independent source QA also accepted the Zo backend/runner adapter after fixes
+for control-token authentication, 12 MiB RPC frames, bounded error settlement,
+actual readonly mount observations, and exact source/build file bindings.
+Focused transport and boundary tests pass. The browser fixture remains byte
+identical to the preserved acceptance source. The next operation is one
+supervised browser attempt with all source and generated inputs hash-bound.

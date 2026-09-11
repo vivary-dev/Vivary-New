@@ -6,12 +6,12 @@ type: packet
 Parent: 05
 Status: in-progress
 Depends-on: [05a]
-Owner: Root prepares the GitHub source delivery and Zo handoff. Implement, QA and Verify remain separate reviewers. Local GUI execution has stopped under the owner's 2026-09-11 decision to use Zo compute through the existing T3 connection. GUI runtime acceptance remains pending.
+Owner: Root coordinates execution directly on Zo. Implement owns source fixes; QA and Verify independently review source and runtime evidence. The private GitHub handoff is complete. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: Preserve the closed laptop ledger: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent, including 85.4367940425873 of its original overhead. No build or browser attempt started. The endpoint budget remains separate. The Zo execution profile must be reviewed against its actual environment and record any changed allocation; do not replay or reset the laptop ledger.
+Timebox: The Zo allocation is 900 seconds of setup and 1800 seconds of verification, with durable cumulative accounting and at most three build and three browser attempts. Preserve the closed laptop ledger separately: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent. No laptop build or browser attempt started; do not replay or reset that ledger.
 
 ## Goal
 
@@ -44,6 +44,36 @@ on the laptop after automatic approval review blocked that exact export.
 Private scratch is now ignored by repository policy, rather than relying on a
 laptop-global ignore. This completes source synchronization and the portable
 handoff; app build/browser acceptance remains open.
+
+## Zo execution continuation
+
+On 2026-09-11, after the source handoff, the owner instructed "do it entirely".
+This authorizes remaining dependency setup, implementation, build, tests, fixes,
+and independent review directly on Zo, followed by the already-authorized
+private GitHub synchronization. The earlier no-install constraint belongs to
+the closed laptop run; its evidence and consumed time remain unchanged.
+
+The new Zo profile uses a private filesystem and PID/network namespaces,
+UID/GID 1000, zero capability sets, no-new-privileges, and four inherited CPU
+cores. Verification has loopback-only networking. Installation alone may access
+the package registry with a frozen lockfile and lifecycle scripts disabled.
+Only task-owned copied inputs and scratch are writable. No credentials are
+mounted. Memory and task counts use a 250 ms external observer with stop
+thresholds of 8 GiB aggregate RSS and 256 tasks; these are measured thresholds,
+not kernel-enforced cgroup limits. A direct allocation probe showed Zo subgroup
+cgroup limits did not enforce their configured values, so they are not accepted
+as containment proof.
+
+The new allocation is 900 seconds for setup and 1800 seconds for verification,
+with at most three reviewed build attempts (600 seconds each) and three reviewed
+browser attempts (300 seconds each). A failed attempt requires a diagnosed cause
+and reviewed correction. The supervisor persists cumulative accounting and
+permits one heavy job at a time. Keep the unchanged browser acceptance fixture.
+QA and Verify must independently accept the profile and results before closure.
+
+The dependency audit found seven distinct advisories (four high, three moderate)
+and the named local deny-list was unavailable. Those findings remain issues to
+resolve in the all-issues goal; restricted acquisition is not release clearance.
 
 ## Context
 

@@ -175,8 +175,8 @@ function startChild(payload) {
   const retained = ["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
     "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME", "LANG",
     "AGENT_NATIVE_DISABLED_PLUGINS"];
-  const env = Object.fromEntries(retained.filter((key) => process.env[key])
-    .map((key) => [key, process.env[key]]));
+  const env = Object.fromEntries(retained.filter((key) => process.env[key]) // guard:allow-env-credential — Fixed harmless child-process environment allowlist.
+    .map((key) => [key, process.env[key]])); // guard:allow-env-credential — Copies only values selected by the fixed allowlist.
   Object.assign(env, {
     VIVARY_17A_CHILD: "1",
     VIVARY_TEST_CORE_PACKAGE_JSON: process.env.VIVARY_TEST_CORE_PACKAGE_JSON, // guard:allow-env-credential — Existing dependency manifest path.
@@ -297,7 +297,7 @@ async function makeFixture(base) {
 
 async function mainTest(t) {
   assert.ok(process.execArgv.includes(HEAP));
-  assert.ok(process.env.VIVARY_TEST_CORE_PACKAGE_JSON);
+  assert.ok(process.env.VIVARY_TEST_CORE_PACKAGE_JSON); // guard:allow-env-credential — Reviewed installed Core package manifest path.
   const requestedRoot = process.env.VIVARY_17A_PROOF_ROOT; // guard:allow-env-credential — Disposable proof path.
   assert.ok(requestedRoot && path.isAbsolute(requestedRoot));
   const base = await realpath(requestedRoot);

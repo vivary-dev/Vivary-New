@@ -70,3 +70,44 @@ The [review receipt](receipts/pr-328-code-review.md) records all 40 thread dispo
 
 The [late-review receipt](receipts/pr-328-late-review.md) records the six subsequent
 validation fixes and their failing/passing regression evidence.
+
+## Dependency findings from the Zo audit (2026-09-11)
+
+These findings remain open under the all-issues goal. The audit inspected the
+pinned workbench lockfile before installation. Restricted verification does not
+close release security. The configured local deny-list was unavailable.
+
+- xlsx: high; [Prototype Pollution in sheetJS](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6).
+- xlsx: high; [SheetJS Regular Expression Denial of Service (ReDoS)](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9).
+- @anthropic-ai/sdk: moderate; [Claude SDK for TypeScript has Insecure Default File Permissions in Local Filesystem Memory Tool](https://github.com/advisories/GHSA-p7fg-763f-g4gf).
+- uuid: moderate; [uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
+- pdfjs-dist: high; [PDF.js: Arbitrary JavaScript execution upon opening a malicious PDF ](https://github.com/advisories/GHSA-hq66-cqwq-w95j).
+- @tiptap/core: moderate; [Tiptap: mergeAttributes() turns an own __proto__ key into inherited executable DOM attributes](https://github.com/advisories/GHSA-cp6q-959q-f8rh).
+- @tiptap/core: high; [Tiptap: Quadratic ReDoS in block and inline Markdown attribute parsing](https://github.com/advisories/GHSA-j95f-988m-3j2f).
+
+Resolve these at the supported package/framework owner, then rerun the audit
+and affected behavior checks. Preserve framework upgrade rules; do not patch
+installed framework code or silently waive advisories.
+
+## Zo build findings (2026-09-11)
+
+The pinned workbench build completed successfully after seven test-only doctor
+annotations were repaired. The same build reported these remaining findings:
+
+- Production authentication and persistent SQL configuration are absent in the
+  isolated proof environment. Outcome 27 owns actual deployment configuration
+  and its verification. The 05b fixture uses synthetic authentication and a
+  disposable database; its passing behavior cannot close deployment readiness.
+- The native `node-pty` binary was not prepared by the scripts-disabled install.
+  Outcomes 10 and 16 own terminal/runtime support. Review and build the pinned
+  native module offline, then prove actual terminal behavior before acceptance.
+- Framework initialization reported no auto-discovered template actions.
+  Outcome 06 owns proving that the built application's intended actions are
+  registered and usable. Trace the warning against the emitted static registry
+  and the actual runtime before classifying it as a defect or a build-only warning.
+- Some minified chunks exceed 500 kB. Outcome 05 owns inspecting the actual
+  browser loading behavior and deciding whether focused splitting is warranted.
+  A warning alone is not evidence of failed user-visible performance.
+
+Build logs remain in `.tmp/05b/zo-runtime/build-02/`. These findings are retained
+under the one goal for all issues; a successful 05b fixture does not waive them.

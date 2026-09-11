@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, readFile, readlink, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,7 +25,7 @@ const APP_SCOPE = {
   label: "Vivary",
 };
 
-const [appInput, evidenceInput, expectedUnit, expectedNodeSha256, expectedNodeBytes] =
+const [appInput, evidenceInput, profileInput, expectedProfileSha256, expectedNodeSha256, expectedNodeBytes] =
   process.argv.slice(2);
 
 function sha256(value) {
@@ -74,7 +75,8 @@ function assertSyntheticEmail(value) {
 
 assert.equal(process.platform, "linux");
 assert.equal(process.getuid?.(), 1000);
-assert.match(expectedUnit ?? "", /^vivary-05b-gui-browser-[a-z0-9]{12}\.service$/);
+assert.equal(process.getgid?.(), 1000);
+assert.match(expectedProfileSha256 ?? "", /^[0-9a-f]{64}$/);
 assert.match(expectedNodeSha256 ?? "", /^[0-9a-f]{64}$/);
 assert.ok(Number.isSafeInteger(Number(expectedNodeBytes)) && Number(expectedNodeBytes) > 0);
 assert.equal(process.env.AGENT_MODE, "production");
@@ -107,28 +109,73 @@ for await (const chunk of createReadStream(process.execPath, { highWaterMark: 10
 assert.equal(executableBytes, Number(expectedNodeBytes));
 assert.equal(executableDigest.digest("hex"), expectedNodeSha256);
 
-const cgroupMembership = (await readFile("/proc/self/cgroup", "utf8")).trim();
-assert.equal(cgroupMembership, `0::/system.slice/${expectedUnit}`);
-const cgroupRoot = `/sys/fs/cgroup/system.slice/${expectedUnit}`;
-const cgroupBoundary = Object.fromEntries(
-  await Promise.all(
-    ["memory.max", "memory.swap.max", "pids.max", "cpu.max"].map(async name => [
-      name,
-      (await readFile(path.join(cgroupRoot, name), "utf8")).trim(),
-    ]),
-  ),
+assert.ok(path.isAbsolute(profileInput));
+assert.equal(await realpath(profileInput), profileInput);
+const profileInfo = await lstat(profileInput);
+assert.ok(profileInfo.isFile() && profileInfo.nlink === 1 && profileInfo.size > 0 && profileInfo.size <= 64 * 1024);
+const profileBytes = await readFile(profileInput);
+const profileSha256 = sha256(profileBytes);
+assert.equal(profileSha256, expectedProfileSha256);
+const profile = JSON.parse(profileBytes);
+assert.ok(exactObject(profile, ["schema", "candidateHead", "sourceBindingSha256", "sandbox", "supervision"]));
+assert.equal(profile.schema, "vivary.05b-zo-profile/v1");
+assert.match(profile.candidateHead, /^[0-9a-f]{40}$/);
+assert.match(profile.sourceBindingSha256, /^[0-9a-f]{64}$/);
+assert.ok(exactObject(profile.sandbox, ["uid", "gid", "pidNamespace", "network", "filesystem", "capabilities", "noNewPrivileges"]));
+assert.equal(profile.sandbox.uid, 1000);
+assert.equal(profile.sandbox.gid, 1000);
+assert.equal(profile.sandbox.pidNamespace, true);
+assert.equal(profile.sandbox.network, "loopback-only");
+assert.equal(profile.sandbox.filesystem, "private-ro-source");
+assert.equal(profile.sandbox.capabilities, "none");
+assert.equal(profile.sandbox.noNewPrivileges, true);
+assert.ok(exactObject(profile.supervision, ["kind", "enforcement", "memoryStopBytes", "processStopCount", "sampleMilliseconds", "cpuCount", "swapTotalBytes"]));
+assert.equal(profile.supervision.kind, "external-observer");
+assert.equal(profile.supervision.enforcement, "monitored-stop");
+assert.equal(profile.supervision.memoryStopBytes, 8589934592);
+assert.equal(profile.supervision.processStopCount, 256);
+assert.equal(profile.supervision.sampleMilliseconds, 250);
+assert.equal(profile.supervision.cpuCount, 4);
+assert.equal(profile.supervision.swapTotalBytes, 0);
+
+const status = await readFile("/proc/self/status", "utf8");
+const statusValue = name => status.split("\n").find(line => line.startsWith(`${name}:`))?.split(":", 2)[1]?.trim();
+assert.equal(statusValue("NoNewPrivs"), "1");
+assert.equal(Number(statusValue("Uid")?.split(/\s+/)[1]), 1000);
+assert.equal(Number(statusValue("Gid")?.split(/\s+/)[1]), 1000);
+const capabilities = Object.fromEntries(
+  ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"].map(name => [name, Number.parseInt(statusValue(name), 16)]),
 );
-assert.deepEqual(cgroupBoundary, {
-  "cpu.max": "100000 100000",
-  "memory.max": String(512 * 1024 * 1024),
-  "memory.swap.max": "0",
-  "pids.max": "64",
-});
+assert.deepEqual(capabilities, { CapInh: 0, CapPrm: 0, CapEff: 0, CapBnd: 0, CapAmb: 0 });
+const cpuAffinity = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-B", "-c",
+  "import json,os; print(json.dumps(sorted(os.sched_getaffinity(0))))"],
+{ encoding: "utf8", timeout: 5_000, maxBuffer: 4096 }));
+assert.ok(Array.isArray(cpuAffinity) && cpuAffinity.every(Number.isSafeInteger));
+assert.equal(cpuAffinity.length, 4);
 const networkInterfaces = (await readFile("/proc/net/dev", "utf8"))
-  .split("\n")
-  .filter(line => line.includes(":"))
-  .map(line => line.split(":", 1)[0].trim());
+  .split("\n").filter(line => line.includes(":")).map(line => line.split(":", 1)[0].trim());
 assert.deepEqual(networkInterfaces, ["lo"]);
+const memory = await readFile("/proc/meminfo", "utf8");
+const memoryKb = name => Number(memory.match(new RegExp(`^${name}:\\s+(\\d+) kB$`, "m"))?.[1]);
+assert.equal(memoryKb("SwapTotal"), 0);
+assert.equal(memoryKb("SwapFree"), 0);
+const initPidNamespace = await readlink("/proc/1/ns/pid");
+const selfPidNamespace = await readlink("/proc/self/ns/pid");
+assert.equal(initPidNamespace, selfPidNamespace);
+assert.ok(process.pid > 1);
+const mountReadOnly = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-B", "-c",
+  'import json,os; paths=("/app","/source","/browser","/work"); print(json.dumps({p: bool(os.statvfs(p).f_flag & os.ST_RDONLY) for p in paths}, separators=(",",":")))',
+], { encoding: "utf8", timeout: 5_000, maxBuffer: 4096 }));
+assert.ok(exactObject(mountReadOnly, ["/app", "/source", "/browser", "/work"]));
+for (const readOnly of Object.values(mountReadOnly)) assert.equal(typeof readOnly, "boolean");
+assert.deepEqual(mountReadOnly, { "/app": true, "/source": true, "/browser": true, "/work": false });
+const readOnlyMounts = { "/app": true, "/source": true, "/browser": true };
+const boundary = {
+  schema: "vivary.05b-zo-boundary/v1", profileSha256, uid: process.getuid(), gid: process.getgid(),
+  pid: process.pid, initPid: 1, noNewPrivileges: true, capabilities, networkInterfaces, cpuAffinity,
+  swapTotalBytes: 0, swapFreeBytes: 0, pidNamespaceId: selfPidNamespace,
+  readOnlyMounts, supervision: profile.supervision,
+};
 
 let stderrBytes = 0;
 const writeDiagnostic = (...args) => {
@@ -551,7 +598,7 @@ async function snapshot(label, signal = AbortSignal.timeout(10_000)) {
     titlePayloads,
     requests: requestLog,
     tables: await tableEvidence(signal),
-    boundary: { cgroupMembership, cgroupBoundary, networkInterfaces, stderrBytes },
+    boundary: { ...boundary, stderrBytes },
   });
   const bytes = Buffer.from(JSON.stringify(value));
   assert.ok(bytes.length <= MAX_SNAPSHOT_BYTES);
@@ -784,7 +831,7 @@ try {
     startupProbe,
     limits: { frameBytes: MAX_FRAME_BYTES, requestBodyBytes: MAX_REQUEST_BODY_BYTES,
       responseBodyBytes: MAX_RESPONSE_BODY_BYTES, assetBytes: MAX_ASSET_BYTES },
-    boundary: { cgroupMembership, cgroupBoundary, networkInterfaces },
+    boundary,
   });
   for await (const line of readFrames(process.stdin)) {
     const message = JSON.parse(line.toString("utf8"));

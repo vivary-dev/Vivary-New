@@ -10,6 +10,22 @@ the index before committing and stage exact paths or reviewed hunks. Separate
 pre-existing work by responsibility. Local commits do not authorize push, PR,
 merge, publication, or a claim that failed verification passed.
 
+## One goal for all issues
+
+On 2026-09-11, the owner clarified: "one goal for all issues". The active work
+therefore covers every remaining issue in the [36-outcome program](graph.md),
+including existing packets and defects found during implementation or review.
+05b is the current step, not the completion boundary. Continue through executable
+dependencies after each accepted packet. Keep unresolved findings in their owning
+packet or the program audit; do not omit them to close the overall goal.
+
+This expands the work scope without granting paid calls, public deployment,
+merges, account changes, or destructive operations. Complete independently
+executable work while recording the exact prerequisites for gated issues.
+The Codex goal tool currently retains the older 05b objective and cannot edit an
+active objective. That tool limitation does not narrow this owner decision; do
+not mark the overall work complete when only 05b passes.
+
 ## One current frontier
 
 Read [the generated graph](graph.md). Outcome and packet files own their fields.
