@@ -24,10 +24,16 @@ could not provide adequate resources. The owner confirmed an existing T3 Code
 connection, requested more intensive reviews, then requested a handoff with the
 work on GitHub first. This supersedes Habitat for the next execution of this
 packet. Preserve local evidence and unrelated changes. Publish the reviewed app
-source checkpoint to its existing GitHub branch, then supply a private handoff
+source checkpoint to its private GitHub delivery branch, then supply a private handoff
 for the Zo/T3 session. No merge, public app deployment, or paid model call is
 part of this handoff. The Windows/WSL controller remains historical evidence;
 it is not the Zo runner. Keep independent environment, source and runtime review.
+
+After review identified unresolved public redistribution rights in the imported
+shell, the owner approved creating `vivary-dev/vivary-workbench-handoff` as a
+private repository. The repository was created and its private visibility
+verified on 2026-09-11. The public upstream remains unchanged. Sync the exact
+delivery commit to Zo and verify the checkout before calling the handoff current.
 
 ## Context
 

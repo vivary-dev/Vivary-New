@@ -6,6 +6,16 @@ Verification-result: failed
 
 ## Current result
 
+The complete app/native source and validation closure is committed in `9b11c45`.
+The current program records and registry semantic dependencies are committed in
+`c8fd467`. Their exact Git-index export passed plan and source-navigation checks
+without local untracked files. Independent QA verified both source allowlists
+and privacy scans. Historical source provenance remains labeled as a snapshot.
+The owner approved a private GitHub repository after the review identified
+unresolved public redistribution rights. `vivary-dev/vivary-workbench-handoff`
+was created with verified private visibility; the public upstream was not changed.
+GitHub push and matching Zo checkout verification are the next delivery checks.
+
 Local GUI execution is closed. The final resume passed one real dependency
 inspection under its 512 MiB memory cap, zero swap, one CPU, private network,
 four exact read-only mounts and five empty capability sets. It then failed
