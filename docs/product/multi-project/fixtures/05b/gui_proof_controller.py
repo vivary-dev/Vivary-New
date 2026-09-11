@@ -64,11 +64,25 @@ RECOVERY_RESULT = ".tmp/05b/gui-recovery-result.json"
 RECOVERY_EXPORT = ".tmp/05b/gui-recovery-evidence.tar"
 INSPECT_UNIT = "vivary-05b-gui-e3c709b2a451-inspect.service"
 MAX_INSPECT_INVOCATIONS = 3
+MAX_INSPECT_LAUNCHES = 4
+RECOVERY_RESUME_CONSUMED_SECONDS = 143.2972104549408
+RECOVERY_RESUME_REMAINING_SECONDS = 1056.7027895450592
+RECOVERY_RESUME_OVERHEAD_SECONDS = 156.7027895450592
+RECOVERY_OPEN_LEDGER_SHA256 = "aa1a8de6a92f225832b32891cf5d779eadaf7a0840c534f79b45f48d78df0d4d"
+RECOVERY_FAILURE_RESULT_SHA256 = "c2f3ff89b48d9e3ba4c0d622d5b222ffc38329306784e0defcce364698fb6efa"
+RECOVERY_FAILURE_FINISHED_UNIX_SECONDS = 1789147031.0015574
+RECOVERY_FAILURE_STDERR_SHA256 = "a9f5758572275f9bb8586ef106ff49b8fb7cacc66c054e4e326c7ea7e1b921a1"
+RECOVERY_FAILURE_PROCESSES_SHA256 = "0bae1cd99f0c554443477316d57053f91b9ba64654040072536b6013e2b7394d"
+RECOVERY_FAILURE_ARCHIVE_SHA256 = "e02a5a890d3e90b4e8045c81754ebb7777835f26684ddfb290bc8fa9b63fb367"
+RECOVERY_FAILURE_CONTROLS_SHA256 = "37b3e67114c8c477f17cfac8976243ada5b1587af0131916eca85e901162eaf4"
+RECOVERY_RESUME_SCRATCH = ".tmp/05b/gui-run/recovery-resume"
+RECOVERY_RESUME_RESULT = ".tmp/05b/gui-recovery-resume-result.json"
+RECOVERY_RESUME_EXPORT = ".tmp/05b/gui-recovery-resume-evidence.tar"
 INSPECT_PROPERTIES = {
     "MemoryMax": str(512 * MIB), "MemorySwapMax": "0", "TasksMax": "64", "CPUQuota": "100%",
     "RuntimeMaxSec": "90", "TimeoutStopSec": "5", "KillMode": "control-group",
     "PrivateNetwork": "yes", "PrivateTmp": "yes", "NoNewPrivileges": "yes",
-    "ProtectSystem": "strict", "ProtectHome": "read-only", "RestrictSUIDSGID": "yes",
+    "ProtectSystem": "strict", "ProtectHome": "tmpfs", "RestrictSUIDSGID": "yes",
     "CapabilityBoundingSet": "", "UMask": "0077",
 }
 FIXTURE = "docs/product/multi-project/fixtures/05b"
@@ -409,7 +423,7 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
     require(not raw or raw.endswith(b"\n"), "partial GUI ledger event")
     raw_lines = raw.splitlines(keepends=True)
     lines = [line[:-1] for line in raw_lines]
-    require(len(lines) <= 10 and all(lines), "GUI ledger event count differs")
+    require(len(lines) <= 11 and all(lines), "GUI ledger event count differs")
     if not lines:
         return {"started": False, "allocatedSeconds": 0, "buildConsumed": False,
                 "browserConsumed": False, "completed": False}
@@ -436,6 +450,7 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
     completed = False
     continuation = None
     recovery = None
+    recovery_resume = None
     for ordinal, record in enumerate(records[1:], start=1):
         event = record.get("event") if isinstance(record, dict) else None
         fields = {"event", "atUnixSeconds"}
@@ -470,6 +485,43 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
             deadline = record["deadlineUnixSeconds"]
             previous = record["atUnixSeconds"]
             completed = False
+            continue
+        if event == "recovery-resume":
+            require(not completed and continuation is not None and recovery is not None
+                    and recovery_resume is None and ordinal == 5 and active is None,
+                    "recovery resume does not follow the exact interrupted recovery")
+            exact(record, fields | {"runId", "deadlineUnixSeconds", "remainingSeconds", "consumedSeconds",
+                                    "maximumOverheadSeconds", "resumeControllerSha256", "resumeAuthoritySha256",
+                                    "predecessorLedgerSha256", "failureResultSha256", "failureStderrSha256",
+                                    "failureProcessesSha256", "failureArchiveSha256", "failureControlsSha256"},
+                  "GUI recovery resume")
+            require(hashlib.sha256(b"".join(raw_lines[:5])).hexdigest() == RECOVERY_OPEN_LEDGER_SHA256,
+                    "recovery resume predecessor ledger differs")
+            require(record["runId"] == CONTINUATION_RUN_ID == start["runId"], "recovery resume identity differs")
+            require(record["consumedSeconds"] == RECOVERY_RESUME_CONSUMED_SECONDS
+                    and record["remainingSeconds"] == RECOVERY_RESUME_REMAINING_SECONDS
+                    and record["maximumOverheadSeconds"] == RECOVERY_RESUME_OVERHEAD_SECONDS,
+                    "recovery resume accounting differs")
+            for key in ("resumeControllerSha256", "resumeAuthoritySha256", "predecessorLedgerSha256",
+                        "failureResultSha256", "failureStderrSha256", "failureProcessesSha256",
+                        "failureArchiveSha256", "failureControlsSha256"):
+                digest(record[key], key)
+            require(record["predecessorLedgerSha256"] == RECOVERY_OPEN_LEDGER_SHA256
+                    and record["failureResultSha256"] == RECOVERY_FAILURE_RESULT_SHA256
+                    and record["failureStderrSha256"] == RECOVERY_FAILURE_STDERR_SHA256
+                    and record["failureProcessesSha256"] == RECOVERY_FAILURE_PROCESSES_SHA256
+                    and record["failureArchiveSha256"] == RECOVERY_FAILURE_ARCHIVE_SHA256
+                    and record["failureControlsSha256"] == RECOVERY_FAILURE_CONTROLS_SHA256,
+                    "recovery resume failure evidence differs")
+            require(type(record["atUnixSeconds"]) in (int, float)
+                    and math.isfinite(record["atUnixSeconds"])
+                    and record["atUnixSeconds"] > RECOVERY_FAILURE_FINISHED_UNIX_SECONDS,
+                    "recovery resume must follow the interrupted result")
+            require(record["deadlineUnixSeconds"] == record["atUnixSeconds"] + RECOVERY_RESUME_REMAINING_SECONDS,
+                    "recovery resume deadline differs")
+            recovery_resume = record
+            deadline = record["deadlineUnixSeconds"]
+            previous = record["atUnixSeconds"]
             continue
         if event == "recovery-start":
             require(completed and continuation is not None and recovery is None and ordinal == 4,
@@ -544,7 +596,7 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
             "deadlineUnixSeconds": deadline, "buildConsumed": "build" in phases,
             "browserConsumed": "browser" in phases, "activePhase": active,
             "completed": completed, "continuationStarted": continuation is not None,
-            "recoveryStarted": recovery is not None}
+            "recoveryStarted": recovery is not None, "recoveryResumed": recovery_resume is not None}
 
 
 def containment_plan(config: dict[str, Any], run_id: str) -> dict[str, Any]:
@@ -745,13 +797,15 @@ class WindowsJob:
 
 
 class Journal:
-    def __init__(self, root: Path, name: str, *, continuation: bool = False, recovery: bool = False):
+    def __init__(self, root: Path, name: str, *, continuation: bool = False, recovery: bool = False,
+                 recovery_resume: bool = False):
         self.path = checked_path(root, name, missing_leaf=True)
         self.lock_path = checked_path(root, name + ".lock", missing_leaf=True)
         self.lock = None
         self.continuation = continuation
         self.recovery = recovery
-        require(not (continuation and recovery), "journal operation is ambiguous")
+        self.recovery_resume = recovery_resume
+        require(sum((continuation, recovery, recovery_resume)) <= 1, "journal operation is ambiguous")
 
     def __enter__(self):
         import msvcrt
@@ -763,7 +817,12 @@ class Journal:
         msvcrt.locking(self.lock.fileno(), msvcrt.LK_NBLCK, 1)
         raw = read_regular(self.path, MAX_LEDGER_BYTES) if self.path.exists() else b""
         state = ledger_state(raw)
-        if self.recovery:
+        if self.recovery_resume:
+            require(hashlib.sha256(raw).hexdigest() == RECOVERY_OPEN_LEDGER_SHA256
+                    and state.get("recoveryStarted") and not state.get("recoveryResumed")
+                    and not state["completed"] and state.get("activePhase") is None,
+                    "the exact interrupted GUI recovery is unavailable")
+        elif self.recovery:
             require(hashlib.sha256(raw).hexdigest() == RECOVERY_LEDGER_SHA256
                     and state["completed"] and state.get("continuationStarted")
                     and not state.get("recoveryStarted"),
@@ -954,6 +1013,30 @@ def recovery_predecessor_evidence(root, config):
             "resultSha256": RECOVERY_RESULT_SHA256, "exportSha256": RECOVERY_EXPORT_SHA256}
 
 
+def recovery_resume_evidence(root, config):
+    predecessor = recovery_predecessor_evidence(root, config)
+    paths = {
+        "resultSha256": (".tmp/05b/gui-recovery-result.json", RECOVERY_FAILURE_RESULT_SHA256, MAX_BINDING_BYTES),
+        "stderrSha256": (".tmp/05b/gui-run/recovery/command-5-stderr.log", RECOVERY_FAILURE_STDERR_SHA256, MIB),
+        "processesSha256": (".tmp/05b/gui-run/recovery/owned-processes.jsonl",
+                            RECOVERY_FAILURE_PROCESSES_SHA256, MIB),
+        "archiveSha256": (".tmp/05b/gui-recovery-failure-evidence.tar", RECOVERY_FAILURE_ARCHIVE_SHA256, 128 * MIB),
+        "controlsSha256": (".tmp/05b/gui-recovery-failure-controls.json", RECOVERY_FAILURE_CONTROLS_SHA256, MIB),
+    }
+    for _, (name, expected, maximum) in paths.items():
+        require(stream_digest(checked_path(root, name), maximum) == expected,
+                "interrupted recovery evidence changed")
+    result = parse_json(read_regular(checked_path(root, paths["resultSha256"][0]), MAX_BINDING_BYTES))
+    require(result.get("totalActiveSeconds") == RECOVERY_RESUME_CONSUMED_SECONDS
+            and result.get("elapsedSeconds") == 8.351005554199219
+            and result.get("phases") == [] and result.get("verificationPassed") is False
+            and result.get("processCleanupAccepted") is True and result.get("inspectionAttempts") == 1
+            and result.get("inspectionBoundaries") == [] and "export" not in result,
+            "interrupted recovery result semantics differ")
+    return {"predecessor": predecessor, **{key: expected for key, (_, expected, _) in paths.items()},
+            "ledgerSha256": RECOVERY_OPEN_LEDGER_SHA256}
+
+
 def recovery_authority(root, name, expected_hash, bindings, controller_hash, recovery_head):
     raw = read_regular(checked_path(root, name), MAX_BINDING_BYTES)
     require(hashlib.sha256(raw).hexdigest() == digest(expected_hash, "recovery authority digest"),
@@ -1020,6 +1103,78 @@ def recovery_admission(root, name, authority_hash):
     reading = host_resources(root)
     require(reading["ram"] >= 4096 * MIB and reading["commit"] >= 4096 * MIB
             and reading["disk"] >= 10 * 1024 * MIB, "fresh recovery admission refused")
+    return {"usage": value, "host": reading}
+
+
+def recovery_resume_authority(root, name, expected_hash, config, bindings, controller_hash, resume_head):
+    raw = read_regular(checked_path(root, name), MAX_BINDING_BYTES)
+    require(hashlib.sha256(raw).hexdigest() == digest(expected_hash, "recovery resume authority digest"),
+            "recovery resume authority changed")
+    value = exact(parse_json(raw), {
+        "schema", "approved", "approvedBy", "decisionReference", "createdUnixSeconds", "expiresUnixSeconds",
+        "runId", "configSha256", "sourceBindingSha256", "toolchainBindingSha256", "preservedBindingSha256",
+        "resumeControllerSha256", "resumeHead", "predecessorLedgerSha256", "failureResultSha256",
+        "failureStderrSha256", "failureProcessesSha256", "failureArchiveSha256", "failureControlsSha256",
+        "consumedSeconds", "remainingSeconds", "maximumOverheadSeconds", "maximumHelperInvocations",
+        "maximumWrapperLaunches", "wrapperLaunchesConsumed", "homeProtection", "readOnlyBindings",
+        "capabilities", "controlAmendments", "inspectionUnit", "cleanup",
+    }, "recovery resume authority")
+    require(value["schema"] == "vivary.05b-gui-recovery-resume-authority/v1"
+            and value["approved"] is True and value["approvedBy"] == "Jeff"
+            and isinstance(value["decisionReference"], str) and value["decisionReference"].strip(),
+            "recovery resume lacks explicit approval")
+    now = time.time()
+    require(type(value["createdUnixSeconds"]) in (int, float)
+            and type(value["expiresUnixSeconds"]) in (int, float)
+            and value["createdUnixSeconds"] <= now < value["expiresUnixSeconds"],
+            "recovery resume authority is not current")
+    require(value["runId"] == CONTINUATION_RUN_ID
+            and value["resumeControllerSha256"] == controller_hash and value["resumeHead"] == resume_head
+            and value["predecessorLedgerSha256"] == RECOVERY_OPEN_LEDGER_SHA256
+            and value["failureResultSha256"] == RECOVERY_FAILURE_RESULT_SHA256
+            and value["failureStderrSha256"] == RECOVERY_FAILURE_STDERR_SHA256
+            and value["failureProcessesSha256"] == RECOVERY_FAILURE_PROCESSES_SHA256
+            and value["failureArchiveSha256"] == RECOVERY_FAILURE_ARCHIVE_SHA256
+            and value["failureControlsSha256"] == RECOVERY_FAILURE_CONTROLS_SHA256
+            and value["consumedSeconds"] == RECOVERY_RESUME_CONSUMED_SECONDS
+            and value["remainingSeconds"] == RECOVERY_RESUME_REMAINING_SECONDS
+            and value["maximumOverheadSeconds"] == RECOVERY_RESUME_OVERHEAD_SECONDS,
+            "recovery resume accounting or evidence differs")
+    require(value["maximumHelperInvocations"] == MAX_INSPECT_INVOCATIONS
+            and value["maximumWrapperLaunches"] == MAX_INSPECT_LAUNCHES
+            and value["wrapperLaunchesConsumed"] == 1 and value["homeProtection"] == "tmpfs"
+            and value["readOnlyBindings"] == [config["bootstrapDirectory"], config["scratchLinux"],
+                                                config["dependencyRootLinux"], config["linuxNode"]["path"]]
+            and value["capabilities"] == "none" and value["inspectionUnit"] == INSPECT_UNIT
+            and value["controlAmendments"] == ["runtime.json->runtime.pre-recovery.json",
+                                                "authority.json->authority.pre-recovery.json",
+                                                "linux-export.json->linux-export.pre-recovery.json"]
+            and value["cleanup"] == "process-stop-and-export-only", "recovery resume scope differs")
+    for key, expected in bindings.items():
+        require(value[key] == expected, "recovery resume authority binds different inputs")
+    require(re.fullmatch(r"[0-9a-f]{40}", resume_head) is not None, "recovery resume HEAD differs")
+    return raw
+
+
+def recovery_resume_admission(root, name, authority_hash):
+    value = parse_json(read_regular(checked_path(root, name), MAX_BINDING_BYTES))
+    exact(value, {"schema", "capturedUnixSeconds", "authoritySha256", "fiveHourUsedPercent",
+                  "weeklyUsedPercent", "usageEvidence", "activeHeavyJobs"}, "recovery resume admission")
+    require(value["schema"] == "vivary.05b-gui-recovery-resume-admission/v1"
+            and value["authoritySha256"] == authority_hash, "recovery resume admission binding differs")
+    require(type(value["capturedUnixSeconds"]) in (int, float)
+            and 0 <= time.time() - value["capturedUnixSeconds"] <= 30,
+            "recovery resume admission is stale or future-dated")
+    require(value["activeHeavyJobs"] == [] and isinstance(value["usageEvidence"], str)
+            and value["usageEvidence"], "recovery resume heavy-job or usage evidence is missing")
+    windows = [value["fiveHourUsedPercent"], value["weeklyUsedPercent"]]
+    require(any(item is not None for item in windows), "recovery resume included usage is unknown")
+    for item in windows:
+        require(item is None or type(item) in (int, float) and math.isfinite(item) and 0 <= item < 95,
+                "recovery resume included usage blocks dispatch")
+    reading = host_resources(root)
+    require(reading["ram"] >= 4096 * MIB and reading["commit"] >= 4096 * MIB
+            and reading["disk"] >= 10 * 1024 * MIB, "fresh recovery resume admission refused")
     return {"usage": value, "host": reading}
 
 
@@ -1678,7 +1833,7 @@ def stop(condition, message):
     if not condition:
         raise RuntimeError(message)
 
-unit, helper, helper_hash, controller, controller_hash, source_root, dependencies, node, *arguments = sys.argv[1:]
+unit, helper, helper_hash, controller, controller_hash, bootstrap, scratch, dependencies, node, *arguments = sys.argv[1:]
 stop(os.getuid() == 0 and os.getgid() == 0, "inspect service identity differs")
 membership = open("/proc/self/cgroup", encoding="utf-8").read().strip()
 stop(membership == "0::/system.slice/" + unit, "inspect cgroup membership differs")
@@ -1693,11 +1848,17 @@ os.sched_setaffinity(0, {min(allowed_cpus)})
 stop(len(os.sched_getaffinity(0)) == 1, "inspect CPU affinity differs")
 status = open("/proc/self/status", encoding="utf-8").read()
 stop("NoNewPrivs:\t1\n" in status, "inspect NoNewPrivileges is absent")
+capabilities = {name: int(next(line.split()[1] for line in status.splitlines()
+                               if line.startswith(name + ":")), 16)
+                for name in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")}
+stop(set(os.getgroups()) <= {0}
+     and capabilities == {"CapInh": 0, "CapPrm": 0, "CapEff": 0, "CapBnd": 0, "CapAmb": 0},
+     "inspect groups or capabilities differ")
 interfaces = [line.split(":", 1)[0].strip()
               for line in open("/proc/net/dev", encoding="utf-8").read().splitlines() if ":" in line]
 stop(interfaces == ["lo"], "inspect network boundary differs")
 readonly = {path: bool(os.statvfs(path).f_flag & os.ST_RDONLY)
-            for path in (source_root, dependencies, node)}
+            for path in (bootstrap, scratch, dependencies, node)}
 stop(all(readonly.values()), "inspect source or toolchain mount is writable")
 for path, expected_hash in ((helper, helper_hash), (controller, controller_hash)):
     info = os.lstat(path)
@@ -1733,7 +1894,8 @@ boundary = {"schema": "vivary.05b-gui-inspect-boundary/v1", "unit": unit,
             "membership": membership, "limits": limits, "cpuAffinity": sorted(os.sched_getaffinity(0)),
             "noNewPrivileges": True, "networkInterfaces": interfaces, "readOnlyPaths": readonly,
             "memoryPeak": int(peak), "memoryEvents": events, "helperSha256": helper_hash,
-            "controllerSha256": controller_hash, "uid": os.getuid(), "gid": os.getgid()}
+            "controllerSha256": controller_hash, "uid": os.getuid(), "gid": os.getgid(),
+            "supplementaryGroups": os.getgroups(), "capabilities": capabilities}
 sys.stderr.write("VIVARY_INSPECT_BOUNDARY " + json.dumps(boundary, sort_keys=True) + "\n")
 sys.stderr.flush()
 stop(code == 0 and events.get("oom") == "0" and events.get("oom_kill") == "0",
@@ -2040,7 +2202,9 @@ class ProofOwner:
     def __init__(self, root, config_name, config, config_hash, authority_hash, run_id, *, continuation=False,
                  continuation_authority_name=None, continuation_admission_name=None, controller_hash=None,
                  continuation_head=None, recovery=False, recovery_authority_name=None,
-                 recovery_admission_name=None, recovery_head=None):
+                 recovery_admission_name=None, recovery_head=None, recovery_resume=False,
+                 recovery_resume_authority_name=None, recovery_resume_admission_name=None,
+                 recovery_resume_head=None):
         self.root = root
         self.config_name = config_name
         self.config = config
@@ -2048,22 +2212,28 @@ class ProofOwner:
         self.authority_hash = authority_hash
         self.run_id = run_id
         self.continuation = continuation
-        self.recovery = recovery
-        require(not (continuation and recovery), "proof operation is ambiguous")
+        self.recovery = recovery or recovery_resume
+        self.recovery_resume = recovery_resume
+        require(sum((continuation, recovery, recovery_resume)) <= 1, "proof operation is ambiguous")
         self.continuation_authority_name = continuation_authority_name
         self.continuation_admission_name = continuation_admission_name
         self.recovery_authority_name = recovery_authority_name
         self.recovery_admission_name = recovery_admission_name
+        self.recovery_resume_authority_name = recovery_resume_authority_name
+        self.recovery_resume_admission_name = recovery_resume_admission_name
         self.controller_hash = controller_hash
         self.continuation_head = continuation_head
-        self.recovery_head = recovery_head
+        self.recovery_head = recovery_resume_head if recovery_resume else recovery_head
         require(re.fullmatch(r"[a-f0-9]{12}", run_id) is not None, "invalid GUI run identity")
         self.plan = containment_plan(config, run_id)
-        self.scratch = checked_path(root, RECOVERY_SCRATCH if recovery else
+        self.scratch = checked_path(root, RECOVERY_RESUME_SCRATCH if recovery_resume else
+                                    RECOVERY_SCRATCH if recovery else
                                     CONTINUATION_SCRATCH if continuation else config["scratchWindows"], missing_leaf=True)
-        self.export_path = checked_path(root, RECOVERY_EXPORT if recovery else
+        self.export_path = checked_path(root, RECOVERY_RESUME_EXPORT if recovery_resume else
+                                        RECOVERY_EXPORT if recovery else
                                         CONTINUATION_EXPORT if continuation else config["export"], missing_leaf=True)
-        self.result_path = checked_path(root, RECOVERY_RESULT if recovery else
+        self.result_path = checked_path(root, RECOVERY_RESUME_RESULT if recovery_resume else
+                                        RECOVERY_RESULT if recovery else
                                         CONTINUATION_RESULT if continuation else config["runtimeRecord"], missing_leaf=True)
         for path in (self.scratch, self.export_path, self.result_path):
             require(not path.exists() and not path.is_symlink(), "owned output already exists")
@@ -2077,11 +2247,21 @@ class ProofOwner:
         require(self.toolchain["schema"] == "vivary.05b-gui-toolchain-binding/v1"
                 and self.toolchain["configSha256"] == config_hash, "toolchain configuration differs")
         self.preserved_hash = preserved_inputs(root, config)
-        self.predecessor = (recovery_predecessor_evidence(root, config) if recovery else
+        self.predecessor = (recovery_resume_evidence(root, config) if recovery_resume else
+                            recovery_predecessor_evidence(root, config) if recovery else
                             predecessor_evidence(root, config) if continuation else None)
         bindings = {"configSha256": config_hash, "sourceBindingSha256": self.binding_hash,
                     "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash}
-        if recovery:
+        if recovery_resume:
+            require(run_id == CONTINUATION_RUN_ID and recovery_resume_authority_name is not None
+                    and recovery_resume_admission_name is not None and controller_hash is not None
+                    and isinstance(recovery_resume_head, str), "recovery resume inputs are incomplete")
+            require(stream_digest(Path(__file__)) == digest(controller_hash, "recovery resume controller digest"),
+                    "recovery resume controller changed")
+            self.authority_raw = recovery_resume_authority(
+                root, recovery_resume_authority_name, authority_hash, config, bindings, controller_hash,
+                recovery_resume_head)
+        elif recovery:
             require(run_id == CONTINUATION_RUN_ID and recovery_authority_name is not None
                     and recovery_admission_name is not None and controller_hash is not None
                     and isinstance(recovery_head, str), "recovery inputs are incomplete")
@@ -2111,13 +2291,20 @@ class ProofOwner:
         self.runtime_hash = None
         self.runtime = None
         self.inspect_count = 0
+        self.inspect_launch_count = 1 if recovery_resume else 0
         self.inspect_boundaries = []
         self.result = {"schema": "vivary.05b-gui-result/v1", "runId": run_id,
                        "verificationPassed": False, "processCleanupAccepted": False,
                        "filesystemCleanupAccepted": False, "filesystemDeletionAvailable": False,
                        "errors": [], "phases": [], "units": [item["unit"] for item in self.plan["phases"].values()]
-                       + ([INSPECT_UNIT] if recovery else [])}
-        if recovery:
+                       + ([INSPECT_UNIT] if self.recovery else [])}
+        if recovery_resume:
+            self.result["predecessor"] = self.predecessor
+            self.result["consumedSecondsBeforeRecoveryResume"] = RECOVERY_RESUME_CONSUMED_SECONDS
+            self.result["remainingSecondsAtRecoveryResume"] = RECOVERY_RESUME_REMAINING_SECONDS
+            self.result["maximumOverheadSeconds"] = RECOVERY_RESUME_OVERHEAD_SECONDS
+            self.result["wrapperLaunchesBeforeResume"] = 1
+        elif recovery:
             self.result["predecessor"] = self.predecessor
             self.result["consumedSecondsBeforeRecovery"] = RECOVERY_CONSUMED_SECONDS
             self.result["remainingSecondsAtRecovery"] = RECOVERY_REMAINING_SECONDS
@@ -2135,7 +2322,8 @@ class ProofOwner:
             controller_name = FIXTURE + "/gui_proof_controller.py"
             require(stream_digest(Path(__file__)) == self.controller_hash, "resumed controller changed")
             sources[controller_name] = self.binding["sources"][controller_name]
-            evidence = (recovery_predecessor_evidence(self.root, self.config) if self.recovery
+            evidence = (recovery_resume_evidence(self.root, self.config) if self.recovery_resume else
+                        recovery_predecessor_evidence(self.root, self.config) if self.recovery
                         else predecessor_evidence(self.root, self.config))
             require(evidence == self.predecessor, "predecessor GUI evidence changed")
         require(proposed_binding(self.config, self.config_hash, sources) == self.binding, "reviewed source changed")
@@ -2145,7 +2333,10 @@ class ProofOwner:
         require(preserved_inputs(self.root, self.config) == self.preserved_hash, "a preserved guard or budget changed")
         bindings = {"configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
                     "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash}
-        if self.recovery:
+        if self.recovery_resume:
+            recovery_resume_authority(self.root, self.recovery_resume_authority_name, self.authority_hash,
+                                      self.config, bindings, self.controller_hash, self.recovery_head)
+        elif self.recovery:
             recovery_authority(self.root, self.recovery_authority_name, self.authority_hash,
                                bindings, self.controller_hash, self.recovery_head)
         elif self.continuation:
@@ -2266,6 +2457,7 @@ class ProofOwner:
         require(self.recovery and mode in ("inspect", "toolchains"),
                 "bounded inspection is unavailable for this operation")
         require(self.inspect_count < MAX_INSPECT_INVOCATIONS, "bounded inspection invocation cap exceeded")
+        require(self.inspect_launch_count < MAX_INSPECT_LAUNCHES, "bounded inspection launch cap exceeded")
         self.inspect_unit_absent()
         helper_hash = self.binding["sources"][FIXTURE + "/gui_proof_linux.py"]["sha256"]
         frozen_controller_hash = self.binding["sources"][FIXTURE + "/gui_proof_controller.py"]["sha256"]
@@ -2273,18 +2465,17 @@ class ProofOwner:
             require(self.inspect_count == 0 and self.bootstrap is not None, "initial inspection order differs")
             helper = self.bootstrap.path("gui_proof_linux.py")
             frozen_controller = self.bootstrap.path("gui_proof_controller.py")
-            readonly_path = self.bootstrap.directory
             arguments = ["inspect", self.bootstrap.path("config.json"), self.config_hash]
         else:
             require(self.inspect_count in (1, 2) and self.runtime_hash is not None,
                     "post-phase inspection order differs")
             helper = str(PurePosixPath(self.config["scratchLinux"]) / "harness/gui_proof_linux.py")
             frozen_controller = str(PurePosixPath(self.config["scratchLinux"]) / "harness/gui_proof_controller.py")
-            readonly_path = self.config["scratchLinux"]
             arguments = ["toolchains", self.config["scratchLinux"], self.run_id, self.runtime_hash]
-        readonly_paths = [readonly_path, self.config["dependencyRootLinux"], self.config["linuxNode"]["path"]]
+        readonly_paths = [self.bootstrap.directory, self.config["scratchLinux"],
+                          self.config["dependencyRootLinux"], self.config["linuxNode"]["path"]]
         properties = {**INSPECT_PROPERTIES, "Description": "Vivary 05b GUI proof " + INSPECT_UNIT,
-                      "ReadOnlyPaths": " ".join('"' + path + '"' for path in readonly_paths)}
+                      "BindReadOnlyPaths": " ".join('"' + path + '"' for path in readonly_paths)}
         command = ["/usr/bin/systemd-run", "--unit=" + INSPECT_UNIT, "--wait", "--pipe", "--collect",
                    "--quiet", "--service-type=exec"]
         for name, value in properties.items():
@@ -2298,7 +2489,7 @@ class ProofOwner:
         remaining = min(90, self.observer.deadline - now,
                         self.observer.overhead_seconds - overhead_elapsed)
         require(remaining > 0, "no recovery time remains for bounded inspection")
-        self.inspect_count += 1
+        self.inspect_launch_count += 1
         self.claimed_units.add(INSPECT_UNIT)
         output = self.processes.run(wsl_command('exec "$@"', *command), timeout=remaining, cap=MIB)
         lines = self.processes.last_diagnostics.decode("utf-8").splitlines()
@@ -2307,12 +2498,15 @@ class ProofOwner:
         boundary = parse_json(lines[0][len(prefix):].encode())
         exact(boundary, {"schema", "unit", "membership", "limits", "cpuAffinity", "noNewPrivileges",
                          "networkInterfaces", "readOnlyPaths", "memoryPeak", "memoryEvents", "helperSha256",
-                         "controllerSha256", "uid", "gid"},
+                         "controllerSha256", "uid", "gid", "supplementaryGroups", "capabilities"},
               "inspect boundary evidence")
         require(boundary["schema"] == "vivary.05b-gui-inspect-boundary/v1"
                 and boundary["unit"] == INSPECT_UNIT and boundary["helperSha256"] == helper_hash
                 and boundary["controllerSha256"] == frozen_controller_hash
                 and boundary["uid"] == 0 and boundary["gid"] == 0
+                and set(boundary["supplementaryGroups"]) <= {0}
+                and boundary["capabilities"] == {"CapInh": 0, "CapPrm": 0, "CapEff": 0,
+                                                  "CapBnd": 0, "CapAmb": 0}
                 and boundary["membership"] == "0::/system.slice/" + INSPECT_UNIT
                 and boundary["limits"] == {"memory.max": str(512 * MIB), "memory.swap.max": "0",
                                             "pids.max": "64", "cpu.max": "100000 100000"}
@@ -2322,6 +2516,7 @@ class ProofOwner:
                 and type(boundary["memoryPeak"]) is int and 0 <= boundary["memoryPeak"] <= 512 * MIB
                 and boundary["memoryEvents"].get("oom") == "0"
                 and boundary["memoryEvents"].get("oom_kill") == "0", "inspect boundary was not accepted")
+        self.inspect_count += 1
         self.inspect_boundaries.append(boundary)
         self.inspect_unit_absent()
         return output
@@ -2484,14 +2679,32 @@ class ProofOwner:
     def execute(self):
         require(sys.platform == "win32", "the GUI owner requires Windows")
         with Journal(self.root, self.config["attemptLedger"], continuation=self.continuation,
-                     recovery=self.recovery) as journal:
-            before = (recovery_admission(self.root, self.recovery_admission_name, self.authority_hash)
+                     recovery=self.recovery and not self.recovery_resume,
+                     recovery_resume=self.recovery_resume) as journal:
+            before = (recovery_resume_admission(
+                          self.root, self.recovery_resume_admission_name, self.authority_hash)
+                      if self.recovery_resume else
+                      recovery_admission(self.root, self.recovery_admission_name, self.authority_hash)
                       if self.recovery else
                       continuation_admission(self.root, self.continuation_admission_name, self.authority_hash)
                       if self.continuation else admission(self.root, self.config, self.authority_hash))
             self.job = WindowsJob()
             started_unix = time.time()
-            if self.recovery:
+            if self.recovery_resume:
+                journal.append({"event": "recovery-resume", "atUnixSeconds": started_unix,
+                                "deadlineUnixSeconds": started_unix + RECOVERY_RESUME_REMAINING_SECONDS,
+                                "runId": self.run_id, "remainingSeconds": RECOVERY_RESUME_REMAINING_SECONDS,
+                                "consumedSeconds": RECOVERY_RESUME_CONSUMED_SECONDS,
+                                "maximumOverheadSeconds": RECOVERY_RESUME_OVERHEAD_SECONDS,
+                                "resumeControllerSha256": self.controller_hash,
+                                "resumeAuthoritySha256": self.authority_hash,
+                                "predecessorLedgerSha256": RECOVERY_OPEN_LEDGER_SHA256,
+                                "failureResultSha256": RECOVERY_FAILURE_RESULT_SHA256,
+                                "failureStderrSha256": RECOVERY_FAILURE_STDERR_SHA256,
+                                "failureProcessesSha256": RECOVERY_FAILURE_PROCESSES_SHA256,
+                                "failureArchiveSha256": RECOVERY_FAILURE_ARCHIVE_SHA256,
+                                "failureControlsSha256": RECOVERY_FAILURE_CONTROLS_SHA256})
+            elif self.recovery:
                 journal.append({"event": "recovery-start", "atUnixSeconds": started_unix,
                                 "deadlineUnixSeconds": started_unix + RECOVERY_REMAINING_SECONDS,
                                 "runId": self.run_id, "remainingSeconds": RECOVERY_REMAINING_SECONDS,
@@ -2526,10 +2739,12 @@ class ProofOwner:
                 self.result["startedUnixSeconds"] = started_unix
                 self.scratch.mkdir()
                 self.observer = Observer.__new__(Observer)
-                overhead = (RECOVERY_OVERHEAD_SECONDS if self.recovery else
+                overhead = (RECOVERY_RESUME_OVERHEAD_SECONDS if self.recovery_resume else
+                            RECOVERY_OVERHEAD_SECONDS if self.recovery else
                             CONTINUATION_OVERHEAD_SECONDS if self.continuation else 300)
                 self.observer.__init__(self.root, self.scratch, overhead_seconds=overhead)
-                allocation = (RECOVERY_REMAINING_SECONDS if self.recovery else
+                allocation = (RECOVERY_RESUME_REMAINING_SECONDS if self.recovery_resume else
+                              RECOVERY_REMAINING_SECONDS if self.recovery else
                               CONTINUATION_REMAINING_SECONDS if self.continuation else 1200)
                 self.observer.deadline = self.observer.started + max(0, started_unix + allocation - time.time())
                 self.processes = ProcessOwner(self.observer)
@@ -2658,15 +2873,22 @@ class ProofOwner:
                     recovery_elapsed = self.result["elapsedSeconds"]
                     phase_elapsed = getattr(self.observer, "phase_elapsed", 0.0)
                     overhead = max(0.0, recovery_elapsed - phase_elapsed)
-                    total_active = RECOVERY_CONSUMED_SECONDS + recovery_elapsed
-                    self.result["recoveryElapsedSeconds"] = recovery_elapsed
-                    self.result["recoveryOverheadSeconds"] = overhead
+                    consumed = (RECOVERY_RESUME_CONSUMED_SECONDS if self.recovery_resume
+                                else RECOVERY_CONSUMED_SECONDS)
+                    overhead_limit = (RECOVERY_RESUME_OVERHEAD_SECONDS if self.recovery_resume
+                                      else RECOVERY_OVERHEAD_SECONDS)
+                    total_active = consumed + recovery_elapsed
+                    label = "recoveryResume" if self.recovery_resume else "recovery"
+                    self.result[label + "ElapsedSeconds"] = recovery_elapsed
+                    self.result[label + "OverheadSeconds"] = overhead
                     self.result["totalActiveSeconds"] = total_active
                     self.result["remainingSeconds"] = max(0.0, 1200 - total_active)
-                    self.result["inspectionAttempts"] = self.inspect_count
+                    self.result["inspectionAttempts"] = self.inspect_launch_count
+                    self.result["acceptedHelperInspections"] = self.inspect_count
                     self.result["inspectionBoundaries"] = self.inspect_boundaries
-                    if (overhead > RECOVERY_OVERHEAD_SECONDS or total_active > 1200
+                    if (overhead > overhead_limit or total_active > 1200
                             or self.result["observerFailure"] is not None
+                            or self.inspect_launch_count > MAX_INSPECT_LAUNCHES
                             or self.result["verificationPassed"] and self.inspect_count != MAX_INSPECT_INVOCATIONS):
                         self.result["verificationPassed"] = False
                         self.result["errors"].append({"step": "recovery-accounting",
@@ -2691,7 +2913,8 @@ class ProofOwner:
                 self.result["retainedLinuxScratch"] = self.config["scratchLinux"] if self.staged else "stage not acknowledged; inspect exact configured path"
                 self.result["complete"] = False
                 self.result["nextGate"] = "Review exact retained scratch cleanup. Filesystem deletion is unavailable."
-                deadline_seconds = (RECOVERY_REMAINING_SECONDS if self.recovery else
+                deadline_seconds = (RECOVERY_RESUME_REMAINING_SECONDS if self.recovery_resume else
+                                    RECOVERY_REMAINING_SECONDS if self.recovery else
                                     CONTINUATION_REMAINING_SECONDS if self.continuation else 1200)
                 if self.result.get("export") and time.time() <= started_unix + deadline_seconds:
                     state = ledger_state(read_regular(journal.path, MAX_LEDGER_BYTES))
@@ -2713,6 +2936,7 @@ def main() -> None:
     operation.add_argument("--run", action="store_true")
     operation.add_argument("--continue-run", action="store_true")
     operation.add_argument("--recover-run", action="store_true")
+    operation.add_argument("--resume-recovery", action="store_true")
     parser.add_argument("--authority-sha256")
     parser.add_argument("--continuation-authority")
     parser.add_argument("--continuation-admission")
@@ -2723,6 +2947,11 @@ def main() -> None:
     parser.add_argument("--recovery-admission")
     parser.add_argument("--recovery-controller-sha256")
     parser.add_argument("--recovery-head")
+    parser.add_argument("--resume-authority")
+    parser.add_argument("--resume-authority-sha256")
+    parser.add_argument("--resume-admission")
+    parser.add_argument("--resume-controller-sha256")
+    parser.add_argument("--resume-head")
     args = parser.parse_args()
     root = Path(__file__).absolute().parents[5]
     require(root.resolve() == root, "repository root resolves through an alias")
@@ -2763,6 +2992,20 @@ def main() -> None:
         print(json.dumps({"verificationPassed": result["verificationPassed"],
                           "processCleanupAccepted": result["processCleanupAccepted"],
                           "complete": result["complete"], "result": RECOVERY_RESULT}, sort_keys=True))
+        raise SystemExit(0 if result["verificationPassed"] and result["processCleanupAccepted"]
+                         and not result["errors"] and result.get("export") else 1)
+    if args.resume_recovery:
+        require(args.resume_authority is not None and args.resume_authority_sha256 is not None
+                and args.resume_admission is not None and args.resume_controller_sha256 is not None
+                and args.resume_head is not None, "recovery resume bindings are required")
+        result = ProofOwner(
+            root, args.config, config, config_hash, args.resume_authority_sha256, args.run_id,
+            recovery_resume=True, recovery_resume_authority_name=args.resume_authority,
+            recovery_resume_admission_name=args.resume_admission,
+            controller_hash=args.resume_controller_sha256, recovery_resume_head=args.resume_head).execute()
+        print(json.dumps({"verificationPassed": result["verificationPassed"],
+                          "processCleanupAccepted": result["processCleanupAccepted"],
+                          "complete": result["complete"], "result": RECOVERY_RESUME_RESULT}, sort_keys=True))
         raise SystemExit(0 if result["verificationPassed"] and result["processCleanupAccepted"]
                          and not result["errors"] and result.get("export") else 1)
     sources = source_inventory(root)

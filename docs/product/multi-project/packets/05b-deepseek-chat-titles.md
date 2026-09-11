@@ -6,12 +6,12 @@ type: packet
 Parent: 05
 Status: in-progress
 Depends-on: [05a]
-Owner: Root orchestrates recovery. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Recovery source QA and Verify passed. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
+Owner: Root orchestrates the interrupted recovery. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Independent QA and Verify accepted the exact-state resume source. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 134.94620490074158 active seconds across the original run and its closed manual continuation. Both stopped before either phase. The approved recovery retains 1065.0537950992584 active seconds, including 165.0537950992584 for preparation, export, and cleanup. Unused build/browser attempts remain capped at 600/300 seconds.
+Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 143.2972104549408 active seconds across the original run, closed manual continuation, and interrupted recovery. No phase started. The interrupted recovery retains 1056.7027895450592 active seconds, including 156.7027895450592 for preparation, export, and cleanup. Unused build/browser attempts remain capped at 600/300 seconds. The correction allows four total inspection wrapper launches, including the failed first launch, and three actual helper hash invocations.
 
 ## Goal
 

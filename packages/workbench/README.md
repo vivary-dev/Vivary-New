@@ -56,8 +56,8 @@ or runtime preparation/start. The workbench keeps the read-only `Conversation`
 component without a composer, history flow, or title consumer. The first fixed-key
 `/chat` candidate failed source QA because it could display a prior account's
 cached thread. The identity-bound replacement passed independent source QA and
-Verify. Its GUI proof stopped at build RAM admission before build or browser
-started. That failed run retains its evidence and consumed time.
+Verify. GUI build and browser acceptance remain pending. The packet receipt
+records the failed preparation attempts, preserved evidence, and remaining budget.
 Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
 remains open until an admitted Native build and browser proof passes its
 observable history, persistence, rename, fallback, privacy, scope, and

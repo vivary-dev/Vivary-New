@@ -15,7 +15,8 @@ thread restoration. QA also caught a nullable organization ID; the corrected
 route now reaches its unavailable state. Independent source QA and Verify report ready.
 No build or browser check has run against these changed bytes. The packet's
 GUI verification and its authorized continuation both stopped at the resource gate
-before either phase. Existing tests prove
+before either phase. Its recovery later stopped at directory traversal before
+the hash helper or a phase could start. Existing tests prove
 only the handler and native middleware composition with fake authentication,
 credentials, and provider responses.
 
@@ -55,8 +56,12 @@ the open ledger hash is
 `aa1a8de6a92f225832b32891cf5d779eadaf7a0840c534f79b45f48d78df0d4d`.
 This archive preserves failure evidence; it is not a passing GUI export.
 
-The authorized correction adds only supplementary group 1000 to the read-only
-inspection service, keeping UID/GID zero and all capability sets empty. It records
+Further metadata inspection found that the pinned Node binary also has an
+ancestor owned by UID/GID 1000 with mode 0700. Supplementary group access alone
+would therefore fail. The correction uses the existing build-service pattern:
+hide the home tree and bind only the bootstrap, staged scratch, dependencies,
+and pinned Node file read-only at their exact paths. It keeps UID/GID zero and
+all capability sets empty, with no permission or ownership changes. It records
 the failed wrapper launch separately from helper execution: at most four wrapper
 launches across the interrupted recovery, including the failed first launch,
 and three actual helper hash invocations. It retains the same active-time budget,
@@ -64,6 +69,19 @@ frozen helpers and application, and unused phase attempts. One exact-state resum
 must preserve all failed records and validate unchanged control files before
 amending them. The user's recorded recovery approval covers this correction;
 source QA, independent Verify and fresh admission still precede dispatch.
+
+The corrected resume source is frozen at SHA-256
+`0969f0671eaf5e421b8302628ee105665b0b08d8d412f5575ab93f493fbb42ff`.
+Root's focused checker passes ledger refusal, accounting, inspection lifecycle,
+and resume startup/cleanup checks. The checker SHA-256 is
+`0fb600f9fc57f117f95d66d6c7f234b3a23d1941dcb6fe90aeab40dd6a7c8e7c`.
+Review added checks for all five capability sets and renamed the completed-check
+count to `acceptedHelperInspections`. Cumulative wrapper launches retain their
+separate count. No resume runtime or authority has been created at this checkpoint.
+Independent QA and Verify accepted these exact source and checker hashes. Verify
+also matched all 49 other frozen source files, six preserved inputs, the open
+ledger, failure artifacts, and original evidence. Actual mount access, memory use,
+GUI behavior, export and process cleanup remain runtime checks.
 
 ### Continuation preparation, 2026-09-11
 
