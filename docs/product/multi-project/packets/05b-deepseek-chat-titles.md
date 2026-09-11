@@ -4,14 +4,15 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: in-progress
+Status: needs-info
+Needs: Approval of one manual continuation that preserves consumed time and unused phase limits while excluding the pause from the original absolute deadline. The original run closed before build admission. Fresh warm resource admission remains required.
 Depends-on: [05a]
 Owner: Root orchestrates. Source recovery used Plan `/root/plan_issue`, Implement `/root/implement_issue`, QA `/root/qa_issue`, and Verify `/root/verify_issue`. GUI source uses Plan `/root/plan_gui`, Implement `/root/implement_gui`, QA `/root/qa_gui`, and Verify `/root/review_doctor_fix`. Source QA and Verify are ready; GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
-Verification-result: pending
+Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The endpoint phase retains four Habitat attempts, at most 60 seconds each and 240 seconds total. The separate GUI proof proposal below has not been dispatched.
+Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. The 1,200-second GUI allocation closed after 68.56507468223572 seconds, before either phase started. A manual continuation remains proposed.
 
 ## Goal
 
@@ -169,6 +170,19 @@ the whole turn". The two fixed-name changes and private target update were
 applied. Retain the first bootstrap unchanged. Continue source verification,
 binding preparation, and the existing bounded GUI proof. Use inline questions
 for any later missing decision while continuing independent work.
+
+The corrected binding check passed. The approved run then stopped after
+68.56507468223572 seconds because fresh build admission failed after Habitat
+preparation. No build or browser phase started. Owned process cleanup and the
+evidence export passed independent verification. Preserve the ledger, staged
+source, both bootstraps, and failed evidence.
+
+The existing controller cannot resume a closed allocation. The proposed manual
+continuation preserves the 1,200-second total, subtracts the 68.56507468223572
+seconds already consumed, and retains one unused build and browser attempt.
+Excluding the pause changes its absolute-deadline contract and needs explicit
+approval. The private review record specifies the exact control-record amendments
+and separate outputs. No continuation code or authority has been created.
 
 ## Verify
 

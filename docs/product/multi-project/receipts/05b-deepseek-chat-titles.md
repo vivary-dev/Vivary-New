@@ -2,7 +2,7 @@
 
 Evidence-record: 05b
 Verification-kind: runtime
-Verification-result: pending
+Verification-result: failed
 
 ## Current result
 
@@ -14,7 +14,7 @@ binds its mount and storage keys to both identities, and disables automatic acti
 thread restoration. QA also caught a nullable organization ID; the corrected
 route now reaches its unavailable state. Independent source QA and Verify report ready.
 No build or browser check has run against these changed bytes. The packet's
-global result remains pending. Existing tests prove
+GUI verification stopped at its resource gate before either phase. Existing tests prove
 only the handler and native middleware composition with fake authentication,
 credentials, and provider responses.
 
@@ -22,7 +22,8 @@ The first GUI bootstrap transfer succeeded on 2026-09-11. Toolchain binding then
 failed at an undersized inventory cap. The source correction passed independent
 review. Jeff then approved the exact corrected bootstrap destination after
 automatic approval review rejected its two-line source change. The original three
-frozen files remain intact. No GUI attempt has been allocated at this checkpoint.
+frozen files remain intact. The later run allocated its timebox but stopped before
+either build or browser admission, as recorded below.
 
 ## Issue correction ledger
 
@@ -453,6 +454,44 @@ continuing the existing bounded proof. The two fixed-name source edits and priva
 target update were applied. Corrected controller SHA-256:
 `f9cfbe13d20158ca6d7fa64d86a289d830b5c3fe89bfc30af202a9a6fb93ed59`.
 The Linux helper remains at `004a3604e6c79efc3585296b10a5f8a156d446e463939d337d90b0ff75027bd2`.
+
+### Bound run stopped before build admission
+
+Source checkpoint `a4acea7` and configuration SHA-256
+`c93cd1c0947c195ebb06100a1354e9fa6bd85394c0a0ada8aaf22e89153db277`
+passed the corrected binding check. Independent Verify checked all 50 source
+files, totaling 995,303 bytes, and the full dependency inventory. Source binding
+SHA-256 is `466cc3197ef83447b210c55dcd9a0b061977ea1400aac405324bbfdce3c4ac21`.
+Toolchain binding SHA-256 is
+`fbd3d085b3ce8e1240780a5f1ea732dba5a281fa4a0169c4e8ed787d51fdde12`.
+Readback confirmed both bootstrap directories and their distinct frozen files.
+
+The approved run `e3c709b2a451` passed initial admission, revalidated its tools,
+and staged the source. It then returned `fresh phase admission refused` after
+68.56507468223572 seconds. The ledger contains `run-start` and `run-finish`, with
+no phase events. Neither build nor browser started. The 260 observer samples
+have `phase: null`. Available RAM fell from about 4,163 MiB to 2,256 MiB during
+preparation, remaining above the 1,536 MiB reserve but below build admission.
+The dependency read may contribute guest file cache. The evidence does not
+establish it as the only cause.
+
+The command exited 1 with `verificationPassed: false` and
+`processCleanupAccepted: true`. Independent Verify checked the 81,920-byte export,
+SHA-256 `15721396a78c26ec1b2795662b7afbd5d6b92989fde97a82ff403a6822a0e705`,
+and every one of its 12 member hashes. The 10,240-byte inner Linux evidence tar
+has no members, consistent with no phase execution. It has SHA-256
+`84ff92691f909a05b224e1c56abb4864f01b4f8e3c854e4bb4c7baf1d3f6d652`.
+The Linux cleanup plan reports no remaining units or mounts and retains 57 files,
+1,009,228 bytes. Windows scratch has 12 entries and 61,790 bytes. No filesystem
+deletion occurred. The process cleanup result does not authorize scratch removal.
+
+The original absolute deadline is preserved in the ledger. The controller has no
+continuation path and refuses a second allocation. The proposed single manual
+continuation would use at most 1,131.4349253177643 active seconds, excluding the
+pause, with at most 231.4349253177643 seconds of preparation/export/cleanup left.
+It would preserve the failed records, staged R2 source, and unused single build
+and browser attempts. This accounting amendment and its exact control-record
+updates require approval. No continuation code, new authority, or retry exists.
 
 ### Planning evidence
 
