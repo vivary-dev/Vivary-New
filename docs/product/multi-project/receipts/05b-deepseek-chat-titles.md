@@ -14,7 +14,8 @@ binds its mount and storage keys to both identities, and disables automatic acti
 thread restoration. QA also caught a nullable organization ID; the corrected
 route now reaches its unavailable state. Independent source QA and Verify report ready.
 No build or browser check has run against these changed bytes. The packet's
-GUI verification stopped at its resource gate before either phase. Existing tests prove
+GUI verification and its authorized continuation both stopped at the resource gate
+before either phase. Existing tests prove
 only the handler and native middleware composition with fake authentication,
 credentials, and provider responses.
 
@@ -56,8 +57,7 @@ Host readback then showed 5,999 MiB available RAM and 14,143 MiB commit headroom
 Plan `/root/plan_continuation` selected a controller-only extension that reuses
 the staged application and frozen Linux helpers. Implement is
 `/root/implement_continuation`, QA is `/root/qa_continuation`, and independent
-Verify is `/root/verify_continuation`. The exact deadline amendment remains an
-unanswered inline question. Source preparation does not authorize runtime.
+Verify is `/root/verify_continuation`. Source preparation does not authorize runtime.
 
 Source QA and independent Verify accepted the corrected controller at SHA-256
 `686c6b331a9401672957d3688110e91855b6d3d081841ee4d56416fffc6b7e48`.
@@ -73,7 +73,84 @@ predecessor evidence, mocked startup ordering, static amendment, and output-path
 checks. Root and independent Verify ran it separately. These checks execute no
 application code or Linux amendment. All 49 other frozen source files and all six
 preserved inputs still match. The original result, ledger, and archive are intact.
-Continuation authority, admission, outputs, and ledger events remain absent.
+Continuation authority, admission, outputs, and ledger events were absent at
+source checkpoint `9683102`.
+
+Jeff then answered "just do everything" on 2026-09-11, following the exact inline
+deadline question and its pending-approval reminder. This approves one continuation
+with 1,131.4349253177643 active seconds remaining, its three control amendments,
+and the unchanged phase and resource limits. It excludes the intervening pause.
+The separate continuation authority binds source checkpoint `9683102` and the
+reviewed controller hash. Original source, configuration, and evidence bindings
+remain unchanged. Fresh admission still precedes dispatch.
+
+### Authorized continuation stopped before build
+
+The authorized continuation ran once and exited 1 after 66.38113021850586 seconds.
+Fresh build admission refused when available RAM fell below 4 GiB. All 253
+observer samples have no active phase. Neither build nor browser started.
+The final observer error repeats the RAM refusal. Neither time limit expired.
+
+Process cleanup passed. The Linux report records no remaining units or mounts
+and retains 60 files totaling 1,011,741 bytes. No scratch deletion occurred.
+Independent Verify accepted the 81,920-byte export and all 13 member hashes.
+The inner Linux archive is empty, matching the absence of phase execution.
+
+| Artifact | SHA-256 |
+|---|---|
+| Continuation result | `75a4e1e23b40f32cefd0f45a75c42d3f05e145435ec8e7c4f0189507e2b5d4dc` |
+| Continuation export | `fe2344898dc32a7d7a7069f1a9e7ff11fdab5dbb49838b03f6e3a688cfc0184e` |
+| Four-event GUI ledger | `1e3f26c9ef8beded917b08625d84ab96e3d0386618703856f57b550e1f7bb7a0` |
+
+The original 590-byte ledger prefix, result, and export remain intact. All 49
+non-controller frozen source files and all six preserved inputs still match.
+A bounded read-only Linux readback confirmed the three archived control hashes
+and their `0444` modes. Owner, configuration, and source-binding hashes remain
+unchanged. The replacement runtime and authority match the authorized continuation.
+
+Cumulative active time is 134.94620490074158 seconds. The remainder is
+1065.0537950992584 seconds, including 165.0537950992584 for preparation, export,
+and cleanup. The single continuation is consumed. Remaining time is not authority
+for another attempt. Preparation uses an address-space limit while hashing the
+installed dependency tree. That does not account for its file-cache memory.
+The evidence supports correcting that gap, but does not attribute every lost RAM
+byte to the dependency cache. A further memory-contained recovery is a proposal.
+
+Post-run host inspection showed 6,717 MiB available RAM and 14,728 MiB commit
+headroom, with all WSL distributions stopped. Readback inspection later started
+Habitat only to inspect control files and guest memory. No build or browser ran.
+
+### Further recovery proposal
+
+The proposed correction wraps the unchanged Linux hash helper in one task-owned
+transient inspection service. Its 512 MiB memory limit accounts for process and
+file-cache memory, unlike the existing address-space limit. The
+[Linux memory-controller documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory)
+describes that accounting. This corrects a containment gap without claiming that
+every part of the observed RAM loss came from that cache.
+
+The inspection service retains zero swap, one CPU, 64 tasks, private networking,
+read-only inputs, a 90-second command limit, and five-second owned cleanup.
+The controller must verify actual limits, peak memory, OOM counters, and absence
+before sequential reuse. At most three invocations replace the existing initial,
+post-build, and post-browser toolchain checks. Every file hash remains required.
+The staged helper, application, configuration, and both bootstraps stay unchanged.
+
+One further manual recovery would retain 1065.0537950992584 active seconds and
+165.0537950992584 overhead. It would preserve both failed results and exports,
+append to the exact four-event ledger, and exclusively archive current controls
+as `runtime.pre-recovery.json`, `authority.pre-recovery.json`, and
+`linux-export.pre-recovery.json`. The earlier control archives remain intact.
+This amendment is pending in an inline question. Source implementation, QA, and
+Verify must finish before dispatch. It authorizes no budget increase or automatic
+retry. No further recovery authority or runtime output exists.
+
+Automatic approval review rejected applying the source change that adds the
+`pre-recovery` control amendments. It cited a persistent, security-sensitive
+control change beyond the consumed continuation while the further approval is
+unanswered. That rejected change did not apply. The implementer is retaining
+unapplied review material and continuing only unaffected preparation. The pending
+inline recovery question covers this exact amendment.
 
 Planning and source-navigation checks passed. The repository line-ending check
 still reports the pre-existing 4,115 CRLF lines in `fixtures/project-registry.json`.

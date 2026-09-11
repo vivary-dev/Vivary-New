@@ -5,14 +5,14 @@ type: packet
 
 Parent: 05
 Status: needs-info
-Needs: Approval of one manual continuation that preserves consumed time and unused phase limits while excluding the pause from the original absolute deadline. The original run closed before build admission. Fresh warm resource admission remains required.
+Needs: The authorized single continuation closed at build RAM admission. Any further manual recovery needs separate authority and a reviewed preparation-memory correction. The unused phase attempts and remaining active time do not authorize replay.
 Depends-on: [05a]
 Owner: Root orchestrates the continuation. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Continuation source QA and Verify passed. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. The 1,200-second GUI allocation closed after 68.56507468223572 seconds, before either phase started. A manual continuation remains proposed.
+Timebox: The endpoint phase retains its separate four-attempt, 240-second limit. GUI work consumed 134.94620490074158 active seconds across the original run and its closed manual continuation. Both stopped before either phase. The remaining 1065.0537950992584 seconds include 165.0537950992584 for preparation, export, and cleanup. Further dispatch is not authorized.
 
 ## Goal
 
@@ -186,10 +186,21 @@ and separate outputs. The controller-only continuation passed independent source
 QA, Verify, and its focused source checker. It preserves the original ledger
 prefix and separately binds the changed Windows controller and continuation
 commit. The staged application and Linux helpers retain their frozen bindings.
-No continuation authority, ledger suffix, or Linux control amendment exists.
-The inline deadline question remains unanswered. After approval, bind that answer
-and the reviewed source checkpoint, obtain fresh admission, and dispatch only
-`--continue-run`. Do not invoke the closed run or freeze new source bindings.
+On 2026-09-11 Jeff answered the pending exact deadline amendment with "just do
+everything". This authorizes its one-time continuation and three control-record
+amendments under the stated limits. That answer was bound to the reviewed source
+checkpoint, fresh admission passed, and `--continue-run` dispatched once. Do not
+invoke either closed allocation or freeze new source bindings. The approval did
+not authorize a second continuation or automatic retry.
+
+The authorized continuation stopped after 66.38113021850586 seconds at fresh build
+RAM admission. Neither phase started. Its control amendments, process cleanup,
+and evidence export passed their recorded checks. Independent Verify accepted
+the failure evidence. A later read-only check confirmed all three preserved
+control archives and the unchanged owner, configuration, and source binding.
+The continuation is closed. Correcting preparation memory containment and any
+further manual recovery require review before dispatch. Keep both failed results
+and exports, the four-event ledger, and all control archives intact.
 
 ## Verify
 
