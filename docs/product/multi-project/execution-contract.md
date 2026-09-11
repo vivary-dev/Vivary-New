@@ -176,7 +176,12 @@ Do not reset dirty work, run a competing push, or take over another active write
 
 ## Execution and verification
 
-Use the bounded Habitat development environment. The owner confirmed BrowserPod
+On 2026-09-11 the owner directed all current coding to Zo. Use the existing
+Zo checkout and the reviewed sandbox profile named by the active packet.
+The following Habitat directions describe earlier execution; retain their
+evidence and do not replay closed runs or copy private credentials.
+
+Earlier work used the bounded Habitat development environment. The owner confirmed BrowserPod
 is unavailable on 2026-09-05. See the latest answer in the design decision.
 BrowserPod setup and execution are outside the active task list. Reuse the
 existing Habitat checkout named in the private handoff. Verify its live path and

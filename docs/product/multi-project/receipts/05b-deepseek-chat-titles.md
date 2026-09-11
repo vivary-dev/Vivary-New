@@ -852,7 +852,6 @@ independent QA inspected the installed framework and the remaining history and
 rename controls. The correction follows that menu when the direct button is
 absent. All title, persistence, race, fallback, scope, cache, and read-only
 assertions remain required, with four completion and three title calls expected.
-Failure-only screenshots and bounded diagnostics preserve future failure evidence.
 
 The retained database contains one generated DeepSeek proof title. That partial
 backend observation does not prove the browser journey passed. Actual Chromium
@@ -863,3 +862,32 @@ sampling gap of 0.258 seconds. Shared pages can be counted more than once.
 Two of the three browser attempts are consumed. Attempt 03 requires a new source
 manifest for the reviewed fixture and unchanged built application. No attempt is
 replayed and the failures remain charged to the current Zo ledger.
+
+### Third browser attempt
+
+Attempt 03 used candidate `d2bcc472b875d0bfe2f717d571f39c7520484908`.
+Independent Verify accepted all 295 input bindings, including the unchanged 77
+build inputs and 213 build outputs. The browser opened the native menu and
+selected All chats, then timed out waiting for the history list. The attempt
+failed after 38.797 seconds. Actual Chromium sandbox flags and owned process
+cleanup passed. This does not close the GUI acceptance.
+
+The initial three browser attempts are exhausted. The ledger records 119.928
+verification seconds consumed of 1800; it is preserved without resetting any
+failed attempt. Further runtime requires a diagnosed correction and a reviewed,
+recorded continuation profile. Source diagnosis continues on Zo.
+
+### Reviewed diagnostic continuation
+
+Independent Verify accepted a revision to five total browser attempts within the
+unchanged 1800-second verification budget. The initial three attempts remain
+failed and charged. The old ledger and every prior profile/configuration/result
+are preserved. The supervisor records budget revision 2 in new entries and
+results; its exact bytes are bound by the candidate manifest. Build stays capped
+at three attempts. This revision adds no setup, spending or security authority.
+
+Source inspection confirms the history selector in the built artifact and finds
+no history feature gate or successful-response prerequisite. The menu defers
+its state toggle until the next animation frame. The next run adds bounded
+transition and failure observations to distinguish unmount, dismissal and render
+errors. It retains all existing behavior checks and does not change the app.

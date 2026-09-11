@@ -164,9 +164,73 @@ async function finishLeakWatch(page) {
   events.push({ type: "continuous-leak-observation", ...observation });
 }
 
+async function startHistoryWatch(page) {
+  await page.evaluate(() => {
+    const observations = [];
+    let scheduled = false;
+    let lastSignature = "";
+    const sample = reason => {
+      scheduled = false;
+      const histories = [...document.querySelectorAll('[data-agent-native="chat-history-list"]')];
+      const checkingAccess = [...document.querySelectorAll('*')].some(element =>
+        element.textContent?.trim() === "Checking Full chat access" && element.getClientRects().length > 0);
+      const signature = JSON.stringify({
+        historyCount: histories.length,
+        historyVisible: histories.some(element => element.getClientRects().length > 0),
+        checkingAccess,
+        panelOptions: document.querySelectorAll('button[aria-label="Agent panel options"]').length,
+      });
+      if (signature !== lastSignature && observations.length < 40) {
+        observations.push({ milliseconds: Math.round(performance.now()), reason, ...JSON.parse(signature) });
+        lastSignature = signature;
+      }
+    };
+    const markBoundaryNode = (action, node) => {
+      if (!(node instanceof Element) || observations.length >= 40) return;
+      if (node.matches('[data-agent-native="chat-history-list"]') ||
+          node.querySelector('[data-agent-native="chat-history-list"]')) {
+        observations.push({ milliseconds: Math.round(performance.now()),
+          reason: "mutation-record", action, target: "chat-history-list" });
+      }
+      if (observations.length >= 40) return;
+      const accessNodes = [node.matches(".sr-only") ? node : null,
+        ...[...node.querySelectorAll(".sr-only")].slice(0, 10)];
+      if (accessNodes.some(element => element?.textContent?.trim() === "Checking Full chat access")) {
+        observations.push({ milliseconds: Math.round(performance.now()),
+          reason: "mutation-record", action, target: "checking-full-chat-access" });
+      }
+    };
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.addedNodes) markBoundaryNode("attached", node);
+        for (const node of record.removedNodes) markBoundaryNode("detached", node);
+      }
+      if (!scheduled) {
+        scheduled = true;
+        requestAnimationFrame(() => sample("mutation"));
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true,
+      attributeFilter: ["class", "hidden", "style", "aria-hidden"] });
+    sample("start");
+    window.__vivaryHistoryWatch = { observations, observer };
+  });
+}
+
+async function finishHistoryWatch(page) {
+  return page.evaluate(() => {
+    const watch = window.__vivaryHistoryWatch;
+    if (!watch) return [];
+    watch.observer.disconnect();
+    delete window.__vivaryHistoryWatch;
+    return watch.observations;
+  });
+}
+
 async function openHistory(page) {
   const history = page.locator('[data-agent-native="chat-history-list"]');
   if (await history.isVisible()) return;
+  await startHistoryWatch(page);
   const directButton = page.getByRole("button", { name: "All chats" });
   if (await directButton.isVisible()) {
     await directButton.click();
@@ -175,6 +239,7 @@ async function openHistory(page) {
     await page.getByRole("menuitem", { name: "All chats" }).click();
   }
   await history.waitFor();
+  events.push({ type: "history-control-observation", observations: await finishHistoryWatch(page) });
 }
 
 async function selectHistoryTitle(page, title) {
@@ -512,6 +577,34 @@ try {
   await writeFile(path.join(evidenceRoot, "browser-result.json"), `${JSON.stringify(result, null, 2)}\n`, {
     flag: "wx",
   });
+} catch (error) {
+  try {
+    await page.screenshot({ path: path.join(evidenceRoot, "browser-failure.png"), fullPage: true });
+    const history = page.locator('[data-agent-native="chat-history-list"]');
+    const historyCount = await history.count();
+    const diagnostic = {
+      schema: "vivary.05b-gui-browser-failure/v1",
+      error: String(error?.message ?? error).slice(0, 4096),
+      url: page.url(),
+      visibleText: (await page.locator("body").innerText()).slice(0, 16384),
+      history: {
+        count: historyCount,
+        visible: historyCount > 0 ? await history.first().isVisible() : false,
+      },
+      menuItems: (await page.getByRole("menuitem").allTextContents()).slice(0, 50),
+      buttons: (await page.locator("button").evaluateAll(elements => elements.slice(0, 50).map(element => ({
+        ariaLabel: element.getAttribute("aria-label"),
+        text: element.textContent?.trim().slice(0, 200) ?? "",
+      })))).slice(0, 50),
+      checkingAccessVisible: await page.getByText("Checking Full chat access", { exact: true }).isVisible(),
+      historyTimeline: await finishHistoryWatch(page),
+      pageErrors: pageErrors.slice(-20),
+      consoleMessages: consoleMessages.slice(-50),
+      failedRequests: failedRequests.slice(-20),
+    };
+    await writeFile(path.join(evidenceRoot, "browser-failure.json"), `${JSON.stringify(diagnostic, null, 2)}\n`, { flag: "wx" });
+  } catch {}
+  throw error;
 } finally {
   await browser.close();
 }

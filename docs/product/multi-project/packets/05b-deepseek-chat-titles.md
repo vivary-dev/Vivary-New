@@ -11,7 +11,7 @@ Scope: Internal Vivary GUI conversation titles through its native title endpoint
 Verification-kind: runtime
 Verification-result: failed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The Zo allocation is 900 seconds of setup and 1800 seconds of verification, with durable cumulative accounting and at most three build and three browser attempts. Preserve the closed laptop ledger separately: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent. No laptop build or browser attempt started; do not replay or reset that ledger.
+Timebox: The Zo allocation is 900 seconds of setup and 1800 seconds of verification, with durable cumulative accounting and at most three build and five total browser attempts under budget revision 2. Preserve the closed laptop ledger separately: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent. No laptop build or browser attempt started; do not replay or reset that ledger.
 
 ## Goal
 
@@ -65,11 +65,28 @@ cgroup limits did not enforce their configured values, so they are not accepted
 as containment proof.
 
 The new allocation is 900 seconds for setup and 1800 seconds for verification,
-with at most three reviewed build attempts (600 seconds each) and three reviewed
-browser attempts (300 seconds each). A failed attempt requires a diagnosed cause
+with at most three reviewed build attempts (600 seconds each). Initial policy
+allowed three browser attempts. Budget revision 2 permits five total browser
+attempts (300 seconds each), preserving all prior charges and the same 1800-second
+verification ceiling. A failed attempt requires a diagnosed cause
 and reviewed correction. The supervisor persists cumulative accounting and
-permits one heavy job at a time. Keep the unchanged browser acceptance fixture.
+permits one heavy job at a time. Preserve every browser acceptance assertion;
+navigation may be corrected to match the installed native controls after review.
 QA and Verify must independently accept the profile and results before closure.
+
+Budget revision 2 is a reversible proof-method continuation under the owner's
+complete-on-Zo and all-issues instructions. Attempts 01–03 stay failed and
+charged; the pre-revision ledger is preserved with SHA-256
+`e60f27a8c17eaa7057875887b61f9cef53e41d883a8767b0e44bd84dacf18cc8`.
+The build cap, setup/probe budgets, isolation, sampling, cleanup and acceptance
+assertions are unchanged. Independent review must accept each correction.
+
+Attempt 04 adds bounded observations of history attachment/visibility, chat
+access loading, menus and render errors around the menu transition. This tests
+whether the history mounts and disappears, the surface remounts, or rendering
+fails. The same source and built assets contain the exact history selector.
+No product change is justified by the timeout alone. A repeated failure without
+new diagnostic evidence cannot consume attempt 05.
 
 The dependency audit found seven distinct advisories (four high, three moderate)
 and the named local deny-list was unavailable. Those findings remain issues to
@@ -294,13 +311,19 @@ those tests for this process correction. GUI acceptance is pending.
 
 ### Current progress
 
-The resumed inspection passed its actual isolation checks, then build admission
-failed again at the host RAM gate. The run closed after 71.26599550247192 seconds,
-with process cleanup and evidence export accepted. No phase ran. Independent
-Verify matched the 16-member export and all predecessor records. The owner then
-selected Zo execution and GitHub-first handoff. Do not implement or run another
-laptop continuation. The source delivery is being checked for complete app files
-and public-safe contents before push.
+Updated 2026-09-11. All current coding, builds, tests and fixes run directly on
+Zo, reaffirmed by the owner: "make sure we're coding in zo". The private GitHub
+branch receives commits from that checkout.
+
+Pinned setup, native SQLite compilation, doctor, the application build and eight
+title endpoint tests pass. Three browser attempts failed: exclusive evidence
+directory ownership, a missing direct history button, then a history list that
+did not appear after selecting the native menu action. All are retained and
+charged. Runtime GUI acceptance remains failed. The next step is source diagnosis
+and independent review of a bounded continuation with failure diagnostics.
+See the [receipt](../receipts/05b-deepseek-chat-titles.md) for exact evidence.
+
+### Historical laptop recovery
 
 The reviewed recovery at `f581155` stopped after 8.351005554199219 seconds
 because the inspection service could not traverse a frozen-input ancestor with

@@ -15,6 +15,8 @@ BASE = ROOT / ".tmp/05b/zo-runtime"
 PNPM = Path("/root/.cache/node/corepack/v1/pnpm/10.33.2")
 MEMORY_STOP = 8 * 1024**3
 PROCESS_STOP = 256
+BUDGET_REVISION = 2
+ATTEMPT_LIMITS = {"build": 3, "browser": 5}
 FORBIDDEN_CHROMIUM_FLAGS = {"--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu-sandbox", "--no-zygote-sandbox"}
 PROFILE = {
     "schema": "vivary.05b-zo-profile/v1",
@@ -121,7 +123,7 @@ def run(args):
     limit = {"setup": 900, "verification": 1800, "probe": 120}[category]
     spent = sum(item["chargedSeconds"] for item in ledger if item["category"] == category)
     assert spent + args.seconds + 5 <= limit, f"{category} budget cannot admit this deadline"
-    assert args.phase not in ("build", "browser") or sum(item["phase"] == args.phase for item in ledger) < 3
+    assert args.phase not in ATTEMPT_LIMITS or sum(item["phase"] == args.phase for item in ledger) < ATTEMPT_LIMITS[args.phase]
     run_dir = BASE / args.name
     run_dir.mkdir()
     work = run_dir / "work"
@@ -152,6 +154,7 @@ def run(args):
     supervisor_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     launch = command_for(args.phase, work, args.command, Path(args.browser) if args.browser else None)
     entry = {"name": args.name, "phase": args.phase, "category": category,
+             "budgetRevision": BUDGET_REVISION,
              "chargedSeconds": args.seconds + 5, "status": "reserved"}
     ledger.append(entry)
     persist_ledger(ledger_path, ledger)
@@ -253,7 +256,7 @@ def run(args):
     result = {
         "phase": args.phase, "name": args.name, "returncode": child.returncode,
         "launcherPid": child.pid,
-        "supervisorSha256": supervisor_sha256,
+        "supervisorSha256": supervisor_sha256, "budgetRevision": BUDGET_REVISION,
         "failure": failure, "elapsedSeconds": time.monotonic() - started,
         "cpuAffinity": cpus, "samples": samples,
         "outerPidNamespace": outer_pid_namespace,
