@@ -33,6 +33,21 @@ Storage and semantic-memory config remain explicit options. Non-interactive init
 without those options stays file-backed and writes no optional provider config.
 Obsidian setup is no longer scaffolded by thin init; configure the editor separately.
 
+### Exact creation preview API
+
+The source API `plan_thin_workspace(target, preset="coding", adapters=(),
+active_context=None)` previews the same ordered files and exact UTF-8 bytes
+used by `scaffold_thin_workspace`. The JSON-compatible `vivary.thin-init-plan/v1`
+record includes relative paths, content, byte lengths, and SHA-256 hashes.
+Preview validates the target and options but writes nothing.
+
+`content_sha256` binds the generated file list without its absolute target
+coordinates. `plan_sha256` additionally binds the normalized target and options.
+A changed project name can change generated content. Neither digest authorizes
+a filesystem effect or proves that target custody is still valid. Bound apply,
+crash recovery, registry integration, and a GUI creation flow remain separate
+program work. This source API is not a new installed CLI or publication claim.
+
 ## Existing repositories and vaults
 
 Adoption is a deterministic dry-run/apply transaction:
