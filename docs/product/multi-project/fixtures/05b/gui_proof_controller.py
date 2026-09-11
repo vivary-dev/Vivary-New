@@ -1,8 +1,4 @@
-"""Validate 05b GUI bindings and provide non-dispatch containment components.
-
-The CLI only inspects source. Executable root dispatch is unavailable following
-approval-review rejection. Its unapplied proposal is retained for review.
-"""
+"""Run the bounded 05b GUI proof or its separately authorized one-time continuation."""
 
 from __future__ import annotations
 
@@ -40,6 +36,20 @@ MAX_SOURCE_FILE_BYTES = 4 * MIB
 MAX_CONFIG_BYTES = 64 * 1024
 MAX_BINDING_BYTES = MIB
 MAX_LEDGER_BYTES = 64 * 1024
+CONTINUATION_RUN_ID = "e3c709b2a451"
+ORIGINAL_STARTED_UNIX_SECONDS = 1789138957.628146
+CONTINUATION_CONSUMED_SECONDS = 68.56507468223572
+CONTINUATION_REMAINING_SECONDS = 1131.4349253177643
+CONTINUATION_OVERHEAD_SECONDS = 231.4349253177643
+PREDECESSOR_LEDGER_SHA256 = "6d608071b2c7dbc8aef2395a61c91ef3a490f516d3395e4646b74902faa5d480"
+PREDECESSOR_RESULT_SHA256 = "7d440aaf7f6befe7418feb78dafa8563e8d65731c0d47eccad5b1146f912b786"
+PREDECESSOR_EXPORT_SHA256 = "15721396a78c26ec1b2795662b7afbd5d6b92989fde97a82ff403a6822a0e705"
+PREDECESSOR_RUNTIME_CONTROL_SHA256 = "ed59d3a7ab0e8ffeb9845f6fbfb9765beb6df182112880490da2fba0d5db7c6d"
+PREDECESSOR_AUTHORITY_CONTROL_SHA256 = "d4a2ab19bab51c3a6b48a772be8eb64bbb9c0f6cba8c9c891ab2a7efe45ca2c8"
+PREDECESSOR_LINUX_EXPORT_CONTROL_SHA256 = "40419a166b99f6872c7befe731af8dadd5068f52f5c2ed66f99e126e39a82087"
+CONTINUATION_SCRATCH = ".tmp/05b/gui-run/continuation"
+CONTINUATION_RESULT = ".tmp/05b/gui-continuation-result.json"
+CONTINUATION_EXPORT = ".tmp/05b/gui-continuation-evidence.tar"
 FIXTURE = "docs/product/multi-project/fixtures/05b"
 APP = "packages/workbench"
 SOURCE_DIRECTORIES = (f"{APP}/app", f"{APP}/server", f"{APP}/actions", f"{APP}/public")
@@ -376,8 +386,9 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
     """
     require(len(raw) <= MAX_LEDGER_BYTES, "GUI ledger byte limit exceeded")
     require(not raw or raw.endswith(b"\n"), "partial GUI ledger event")
-    lines = raw.splitlines()
-    require(len(lines) <= 6 and all(lines), "GUI ledger event count differs")
+    raw_lines = raw.splitlines(keepends=True)
+    lines = [line[:-1] for line in raw_lines]
+    require(len(lines) <= 8 and all(lines), "GUI ledger event count differs")
     if not lines:
         return {"started": False, "allocatedSeconds": 0, "buildConsumed": False,
                 "browserConsumed": False, "completed": False}
@@ -402,10 +413,43 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
     active = None
     previous = first
     completed = False
-    for record in records[1:]:
-        require(not completed, "events follow GUI run completion")
+    continuation = None
+    for ordinal, record in enumerate(records[1:], start=1):
         event = record.get("event") if isinstance(record, dict) else None
         fields = {"event", "atUnixSeconds"}
+        if event == "continuation-start":
+            require(completed and continuation is None and ordinal == 2 and len(records) >= 3,
+                    "continuation does not follow the closed predecessor")
+            exact(record, fields | {"runId", "deadlineUnixSeconds", "remainingSeconds", "consumedSeconds",
+                                    "maximumOverheadSeconds", "continuationControllerSha256",
+                                    "continuationAuthoritySha256", "predecessorLedgerSha256",
+                                    "predecessorResultSha256", "predecessorExportSha256"},
+                  "GUI continuation allocation")
+            require(hashlib.sha256(b"".join(raw_lines[:2])).hexdigest() == PREDECESSOR_LEDGER_SHA256,
+                    "continuation predecessor ledger differs")
+            require(record["runId"] == CONTINUATION_RUN_ID == start["runId"], "continuation run identity differs")
+            require(record["consumedSeconds"] == CONTINUATION_CONSUMED_SECONDS
+                    and record["remainingSeconds"] == CONTINUATION_REMAINING_SECONDS
+                    and record["maximumOverheadSeconds"] == CONTINUATION_OVERHEAD_SECONDS,
+                    "continuation accounting differs")
+            for key in ("continuationControllerSha256", "continuationAuthoritySha256",
+                        "predecessorLedgerSha256", "predecessorResultSha256", "predecessorExportSha256"):
+                digest(record[key], key)
+            require(record["predecessorLedgerSha256"] == PREDECESSOR_LEDGER_SHA256
+                    and record["predecessorResultSha256"] == PREDECESSOR_RESULT_SHA256
+                    and record["predecessorExportSha256"] == PREDECESSOR_EXPORT_SHA256,
+                    "continuation predecessor binding differs")
+            require(type(record["atUnixSeconds"]) in (int, float)
+                    and math.isfinite(record["atUnixSeconds"]) and record["atUnixSeconds"] > deadline,
+                    "continuation start must follow the original deadline")
+            require(record["deadlineUnixSeconds"] == record["atUnixSeconds"] + CONTINUATION_REMAINING_SECONDS,
+                    "continuation deadline differs")
+            continuation = record
+            deadline = record["deadlineUnixSeconds"]
+            previous = record["atUnixSeconds"]
+            completed = False
+            continue
+        require(not completed, "events follow GUI run completion")
         if event == "phase-start":
             exact(record, fields | {"phase", "allocatedSeconds"}, "phase allocation")
             phase = record["phase"]
@@ -440,7 +484,7 @@ def ledger_state(raw: bytes) -> dict[str, Any]:
     return {"started": True, "allocatedSeconds": 1200, "runId": start["runId"],
             "deadlineUnixSeconds": deadline, "buildConsumed": "build" in phases,
             "browserConsumed": "browser" in phases, "activePhase": active,
-            "completed": completed}
+            "completed": completed, "continuationStarted": continuation is not None}
 
 
 def containment_plan(config: dict[str, Any], run_id: str) -> dict[str, Any]:
@@ -641,10 +685,11 @@ class WindowsJob:
 
 
 class Journal:
-    def __init__(self, root: Path, name: str):
+    def __init__(self, root: Path, name: str, *, continuation: bool = False):
         self.path = checked_path(root, name, missing_leaf=True)
         self.lock_path = checked_path(root, name + ".lock", missing_leaf=True)
         self.lock = None
+        self.continuation = continuation
 
     def __enter__(self):
         import msvcrt
@@ -655,7 +700,13 @@ class Journal:
         self.lock.seek(0)
         msvcrt.locking(self.lock.fileno(), msvcrt.LK_NBLCK, 1)
         raw = read_regular(self.path, MAX_LEDGER_BYTES) if self.path.exists() else b""
-        require(not ledger_state(raw)["started"], "the GUI allocation is already consumed")
+        state = ledger_state(raw)
+        if self.continuation:
+            require(hashlib.sha256(raw).hexdigest() == PREDECESSOR_LEDGER_SHA256
+                    and state["completed"] and not state.get("continuationStarted"),
+                    "the exact closed GUI predecessor is unavailable")
+        else:
+            require(not state["started"], "the GUI allocation is already consumed")
         return self
 
     def append(self, value: dict[str, Any]) -> None:
@@ -740,6 +791,84 @@ def admission(root, config, authority_hash):
     require(reading["ram"] >= 4096 * MIB and reading["commit"] >= 4096 * MIB
             and reading["disk"] >= 10 * 1024 * MIB, "fresh build admission refused")
     return {"usage": value, "host": reading}
+
+
+def continuation_authority(root, name, expected_hash, config, bindings, controller_hash, continuation_head):
+    raw = read_regular(checked_path(root, name), MAX_BINDING_BYTES)
+    require(hashlib.sha256(raw).hexdigest() == digest(expected_hash, "continuation authority digest"),
+            "continuation authority changed")
+    value = exact(parse_json(raw), {
+        "schema", "approved", "approvedBy", "decisionReference", "createdUnixSeconds", "expiresUnixSeconds",
+        "runId", "configSha256", "sourceBindingSha256", "toolchainBindingSha256", "preservedBindingSha256",
+        "continuationControllerSha256", "continuationHead", "predecessorLedgerSha256", "predecessorResultSha256",
+        "predecessorExportSha256", "consumedSeconds", "remainingSeconds", "maximumOverheadSeconds",
+        "controlAmendments", "cleanup",
+    }, "continuation authority")
+    require(value["schema"] == "vivary.05b-gui-continuation-authority/v1"
+            and value["approved"] is True and value["approvedBy"] == "Jeff"
+            and isinstance(value["decisionReference"], str) and value["decisionReference"].strip(),
+            "continuation authority lacks an explicit approval")
+    now = time.time()
+    require(type(value["createdUnixSeconds"]) in (int, float)
+            and type(value["expiresUnixSeconds"]) in (int, float)
+            and value["createdUnixSeconds"] <= now < value["expiresUnixSeconds"],
+            "continuation authority is not current")
+    require(value["runId"] == CONTINUATION_RUN_ID
+            and value["continuationControllerSha256"] == controller_hash
+            and value["continuationHead"] == continuation_head
+            and value["predecessorLedgerSha256"] == PREDECESSOR_LEDGER_SHA256
+            and value["predecessorResultSha256"] == PREDECESSOR_RESULT_SHA256
+            and value["predecessorExportSha256"] == PREDECESSOR_EXPORT_SHA256
+            and value["consumedSeconds"] == CONTINUATION_CONSUMED_SECONDS
+            and value["remainingSeconds"] == CONTINUATION_REMAINING_SECONDS
+            and value["maximumOverheadSeconds"] == CONTINUATION_OVERHEAD_SECONDS,
+            "continuation authority accounting or predecessor differs")
+    require(value["controlAmendments"] == [
+        "runtime.json->runtime.pre-continuation.json",
+        "authority.json->authority.pre-continuation.json",
+        "linux-export.json->linux-export.pre-continuation.json",
+    ] and value["cleanup"] == "process-stop-and-export-only", "continuation authority scope differs")
+    for key, expected in bindings.items():
+        require(value[key] == expected, "continuation authority binds different inputs")
+    require(re.fullmatch(r"[0-9a-f]{40}", continuation_head) is not None, "continuation HEAD differs")
+    return raw
+
+
+def continuation_admission(root, name, authority_hash):
+    value = parse_json(read_regular(checked_path(root, name), MAX_BINDING_BYTES))
+    exact(value, {"schema", "capturedUnixSeconds", "authoritySha256", "fiveHourUsedPercent",
+                  "weeklyUsedPercent", "usageEvidence", "activeHeavyJobs"}, "continuation admission")
+    require(value["schema"] == "vivary.05b-gui-continuation-admission/v1"
+            and value["authoritySha256"] == authority_hash, "continuation admission binding differs")
+    require(type(value["capturedUnixSeconds"]) in (int, float)
+            and 0 <= time.time() - value["capturedUnixSeconds"] <= 30,
+            "continuation admission is stale or future-dated")
+    require(value["activeHeavyJobs"] == [] and isinstance(value["usageEvidence"], str)
+            and value["usageEvidence"], "continuation heavy-job or usage evidence is missing")
+    windows = [value["fiveHourUsedPercent"], value["weeklyUsedPercent"]]
+    require(any(item is not None for item in windows), "continuation included usage is unknown")
+    for item in windows:
+        require(item is None or type(item) in (int, float) and math.isfinite(item) and 0 <= item < 95,
+                "continuation included usage blocks dispatch")
+    reading = host_resources(root)
+    require(reading["ram"] >= 4096 * MIB and reading["commit"] >= 4096 * MIB
+            and reading["disk"] >= 10 * 1024 * MIB, "fresh continuation admission refused")
+    return {"usage": value, "host": reading}
+
+
+def predecessor_evidence(root, config):
+    result_path = checked_path(root, config["runtimeRecord"])
+    export_path = checked_path(root, config["export"])
+    require(stream_digest(result_path) == PREDECESSOR_RESULT_SHA256, "predecessor GUI result changed")
+    require(stream_digest(export_path, 128 * MIB) == PREDECESSOR_EXPORT_SHA256, "predecessor GUI export changed")
+    result = parse_json(read_regular(result_path, MAX_BINDING_BYTES))
+    require(result.get("elapsedSeconds") == CONTINUATION_CONSUMED_SECONDS
+            and result.get("phases") == [] and result.get("verificationPassed") is False
+            and result.get("processCleanupAccepted") is True
+            and result.get("export", {}).get("sha256") == PREDECESSOR_EXPORT_SHA256,
+            "predecessor GUI result semantics differ")
+    return {"ledgerSha256": PREDECESSOR_LEDGER_SHA256, "resultSha256": PREDECESSOR_RESULT_SHA256,
+            "exportSha256": PREDECESSOR_EXPORT_SHA256}
 
 
 HEARTBEAT_SCHEMA = "vivary.05b-gui-heartbeat/v1"
@@ -1065,11 +1194,12 @@ class LoopbackProxy:
 
 
 class Observer:
-    def __init__(self, root: Path, scratch: Path, deadline_seconds: int = 1200):
+    def __init__(self, root: Path, scratch: Path, deadline_seconds: int = 1200, overhead_seconds: float = 300):
         self.root = root
         self.scratch = scratch
         self.started = time.monotonic()
         self.deadline = self.started + deadline_seconds
+        self.overhead_seconds = overhead_seconds
         self.failure = None
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -1119,7 +1249,7 @@ class Observer:
                 require(now < self.deadline, "aggregate GUI deadline exceeded")
                 active_elapsed = now - self.phase_started if self.phase_started is not None else 0
                 overhead = now - self.started - self.phase_elapsed - active_elapsed
-                require(overhead <= 300, "binding, transfer, export, and cleanup allocation exceeded")
+                require(overhead <= self.overhead_seconds, "binding, transfer, export, and cleanup allocation exceeded")
                 if self.phase is not None:
                     require(active_elapsed <= PROFILE[self.phase + "Seconds"], "GUI phase deadline exceeded")
                 require(len(self.samples) < 5000, "resource observation sample cap exceeded")
@@ -1387,6 +1517,129 @@ print(json.dumps({"directory": str(root), "files": expected, "filesystemDeletion
 '''
 
 
+CONTINUATION_AMENDMENT = r'''
+import base64, hashlib, json, os, resource, signal, stat, sys
+
+def stop(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+signal.alarm(30)
+mode, scratch = sys.argv[1], os.path.realpath(sys.argv[2])
+stop(mode in ("preflight", "amend"), "amendment mode differs")
+stop(scratch == sys.argv[2] and scratch.endswith("/vivary-05b-gui-proof"), "scratch identity differs")
+control = os.path.join(scratch, ".control")
+stop(os.path.realpath(control) == control, "control directory alias refused")
+scratch_info = os.lstat(scratch)
+control_info = os.lstat(control)
+stop(stat.S_ISDIR(scratch_info.st_mode) and stat.S_ISDIR(control_info.st_mode)
+     and scratch_info.st_nlink >= 1 and control_info.st_nlink >= 1
+     and scratch_info.st_uid == 0 and scratch_info.st_gid == 0
+     and control_info.st_uid == 0 and control_info.st_gid == 0
+     and not stat.S_IMODE(scratch_info.st_mode) & 0o022
+     and not stat.S_IMODE(control_info.st_mode) & 0o022,
+     "control directory ownership or mode differs")
+payload_raw = sys.stdin.buffer.read(1048577)
+stop(len(payload_raw) <= 1048576, "amendment payload exceeded its cap")
+payload = json.loads(payload_raw)
+stop(set(payload) == {"expected", "replacement", "identity"}, "amendment payload fields differ")
+stop(set(payload["identity"]) == {"runId", "configSha256", "sourceBindingSha256", "candidateHead"}
+     and payload["identity"]["runId"] == "e3c709b2a451", "amendment identity fields differ")
+names = ("runtime.json", "authority.json", "linux-export.json")
+archives = tuple(name.replace(".json", ".pre-continuation.json") for name in names)
+stop(set(payload["expected"]) == set(names) and set(payload["replacement"]) == set(names[:2]),
+     "amendment inventory differs")
+
+def inspect(name, expected_hash, expected_mode=None, absent=False, link_count=1):
+    path = os.path.join(control, name)
+    if absent:
+        stop(not os.path.lexists(path), "archive destination exists")
+        return
+    info = os.lstat(path)
+    stop(stat.S_ISREG(info.st_mode) and info.st_nlink == link_count and info.st_uid == 0 and info.st_gid == 0,
+         "control identity, type, or link count differs")
+    stop((expected_mode is None or stat.S_IMODE(info.st_mode) == expected_mode) and os.path.realpath(path) == path,
+         "control mode or alias differs")
+    with open(path, "rb") as stream:
+        raw = stream.read(1048577)
+    stop(len(raw) <= 1048576 and hashlib.sha256(raw).hexdigest() == expected_hash,
+         "control hash differs")
+
+expected_modes = {"runtime.json": 0o444, "authority.json": 0o444, "linux-export.json": 0o644}
+for name, archive in zip(names, archives):
+    inspect(name, payload["expected"][name], expected_modes[name])
+    inspect(archive, "", absent=True)
+replacement = {}
+for name in names[:2]:
+    item = payload["replacement"][name]
+    stop(set(item) == {"base64", "sha256"}, "replacement fields differ")
+    raw = base64.b64decode(item["base64"], validate=True)
+    stop(len(raw) <= 1048576 and hashlib.sha256(raw).hexdigest() == item["sha256"],
+         "replacement hash differs")
+    replacement[name] = raw
+
+owner = os.path.join(scratch, ".owner.json")
+owner_info = os.lstat(owner)
+stop(stat.S_ISREG(owner_info.st_mode) and owner_info.st_nlink == 1 and owner_info.st_uid == 0
+     and owner_info.st_gid == 0 and stat.S_IMODE(owner_info.st_mode) == 0o444, "scratch owner differs")
+with open(owner, "rb") as stream:
+    owner_value = json.load(stream)
+stop(owner_value == {"runId": "e3c709b2a451", "configSha256": payload["identity"]["configSha256"]},
+     "scratch owner binding differs")
+for name, expected_hash in (("config.json", payload["identity"]["configSha256"]),
+                            ("source-binding.json", payload["identity"]["sourceBindingSha256"])):
+    inspect(name, expected_hash, 0o444)
+with open(os.path.join(control, "source-binding.json"), "rb") as stream:
+    binding = json.load(stream)
+stop(binding["candidateHead"] == payload["identity"]["candidateHead"], "frozen candidate differs")
+for source, expected in binding["sources"].items():
+    prefix = "packages/workbench/"
+    relative = "app/" + source[len(prefix):] if source.startswith(prefix) else "harness/" + source.rsplit("/", 1)[1]
+    path = os.path.join(scratch, relative)
+    info = os.lstat(path)
+    stop(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == 0 and info.st_gid == 0
+         and stat.S_IMODE(info.st_mode) == 0o444 and os.path.realpath(path) == path, "staged source identity differs")
+    with open(path, "rb") as stream:
+        raw = stream.read(4194305)
+    stop(len(raw) == expected["bytes"] and hashlib.sha256(raw).hexdigest() == expected["sha256"],
+         "staged source hash differs")
+if mode == "preflight":
+    print(json.dumps({"preflight": True, "files": len(binding["sources"])}))
+    raise SystemExit(0)
+
+for name, archive in zip(names, archives):
+    os.link(os.path.join(control, name), os.path.join(control, archive), follow_symlinks=False)
+for name, archive in zip(names, archives):
+    inspect(name, payload["expected"][name], expected_modes[name], link_count=2)
+    inspect(archive, payload["expected"][name], expected_modes[name], link_count=2)
+directory = os.open(control, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+os.fsync(directory)
+os.close(directory)
+for name in names:
+    os.unlink(os.path.join(control, name))
+for archive, name in zip(archives, names):
+    os.chmod(os.path.join(control, archive), 0o444)
+    inspect(archive, payload["expected"][name], 0o444)
+for name in names[:2]:
+    path = os.path.join(control, name)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o400)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(replacement[name])
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(path, 0o444)
+for name in names[:2]:
+    inspect(name, payload["replacement"][name]["sha256"], 0o444)
+directory = os.open(control, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+os.fsync(directory)
+os.close(directory)
+print(json.dumps({"amended": True, "archives": list(archives)}))
+'''
+
+
 class SourceBootstrap:
     """Transfer or verify the three files in the approved fixed directory."""
 
@@ -1422,19 +1675,33 @@ class SourceBootstrap:
         self.files = expected
         return result
 
+    def verify_frozen(self, owner, config_hash, sources):
+        """Verify the staged bootstrap without reading the changed Windows controller."""
+        require(self.files is None, "bootstrap instance was already prepared")
+        expected = {name: config_hash if name == "config.json" else sources[FIXTURE + "/" + name]["sha256"]
+                    for name in BOOTSTRAP_FILES}
+        command = wsl_command('exec /usr/bin/python3 -I -B -c "$@"', BOOTSTRAP_WRITER,
+                              "verify", self.directory, self.parent, *expected.values())
+        result = parse_json(owner.run(command, timeout=35, cap=4096))
+        require(result == {"directory": self.directory, "files": expected, "filesystemDeletionAvailable": False},
+                "frozen bootstrap receipt differs")
+        self.files = expected
+        return result
+
     def path(self, name):
         require(self.files is not None and name in self.files, "bootstrap file is not verified")
         return str(PurePosixPath(self.directory) / name)
 
 
 def source_helper(owner, root, config_name, config_hash, mode, *arguments, bootstrap, expected_sources,
-                  data=None, destination=None, cap=MIB):
+                  data=None, destination=None, cap=MIB, verify_local_controller=True):
     helper = checked_path(root, f"{FIXTURE}/gui_proof_linux.py")
     controller = checked_path(root, f"{FIXTURE}/gui_proof_controller.py")
     helper_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_linux.py"]["sha256"], "reviewed Linux helper")
     controller_hash = digest(expected_sources[f"{FIXTURE}/gui_proof_controller.py"]["sha256"], "reviewed controller")
-    require(stream_digest(helper) == helper_hash and stream_digest(controller) == controller_hash,
-            "reviewed elevated helper source changed")
+    require(stream_digest(helper) == helper_hash, "reviewed elevated Linux helper source changed")
+    if verify_local_controller:
+        require(stream_digest(controller) == controller_hash, "reviewed elevated controller source changed")
     require(stream_digest(checked_path(root, config_name)) == config_hash, "bootstrap configuration source changed")
     linux_helper = bootstrap.path("gui_proof_linux.py")
     linux_controller = bootstrap.path("gui_proof_controller.py")
@@ -1528,18 +1795,25 @@ class BrowserLaunchEvidence:
 
 
 class ProofOwner:
-    def __init__(self, root, config_name, config, config_hash, authority_hash, run_id):
+    def __init__(self, root, config_name, config, config_hash, authority_hash, run_id, *, continuation=False,
+                 continuation_authority_name=None, continuation_admission_name=None, controller_hash=None,
+                 continuation_head=None):
         self.root = root
         self.config_name = config_name
         self.config = config
         self.config_hash = config_hash
         self.authority_hash = authority_hash
         self.run_id = run_id
+        self.continuation = continuation
+        self.continuation_authority_name = continuation_authority_name
+        self.continuation_admission_name = continuation_admission_name
+        self.controller_hash = controller_hash
+        self.continuation_head = continuation_head
         require(re.fullmatch(r"[a-f0-9]{12}", run_id) is not None, "invalid GUI run identity")
         self.plan = containment_plan(config, run_id)
-        self.scratch = checked_path(root, config["scratchWindows"], missing_leaf=True)
-        self.export_path = checked_path(root, config["export"], missing_leaf=True)
-        self.result_path = checked_path(root, config["runtimeRecord"], missing_leaf=True)
+        self.scratch = checked_path(root, CONTINUATION_SCRATCH if continuation else config["scratchWindows"], missing_leaf=True)
+        self.export_path = checked_path(root, CONTINUATION_EXPORT if continuation else config["export"], missing_leaf=True)
+        self.result_path = checked_path(root, CONTINUATION_RESULT if continuation else config["runtimeRecord"], missing_leaf=True)
         for path in (self.scratch, self.export_path, self.result_path):
             require(not path.exists() and not path.is_symlink(), "owned output already exists")
         self.binding_path = checked_path(root, config["sourceBinding"])
@@ -1552,10 +1826,20 @@ class ProofOwner:
         require(self.toolchain["schema"] == "vivary.05b-gui-toolchain-binding/v1"
                 and self.toolchain["configSha256"] == config_hash, "toolchain configuration differs")
         self.preserved_hash = preserved_inputs(root, config)
-        self.authority_raw = runtime_authority(root, config, authority_hash, {
-            "configSha256": config_hash, "sourceBindingSha256": self.binding_hash,
-            "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash,
-        })
+        self.predecessor = predecessor_evidence(root, config) if continuation else None
+        bindings = {"configSha256": config_hash, "sourceBindingSha256": self.binding_hash,
+                    "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash}
+        if continuation:
+            require(run_id == CONTINUATION_RUN_ID and continuation_authority_name is not None
+                    and continuation_admission_name is not None and controller_hash is not None
+                    and isinstance(continuation_head, str),
+                    "continuation inputs are incomplete")
+            require(stream_digest(Path(__file__)) == digest(controller_hash, "continuation controller digest"),
+                    "continuation controller changed")
+            self.authority_raw = continuation_authority(root, continuation_authority_name, authority_hash,
+                                                        config, bindings, controller_hash, continuation_head)
+        else:
+            self.authority_raw = runtime_authority(root, config, authority_hash, bindings)
         self.observer = None
         self.processes = None
         self.job = None
@@ -1570,19 +1854,33 @@ class ProofOwner:
                        "verificationPassed": False, "processCleanupAccepted": False,
                        "filesystemCleanupAccepted": False, "filesystemDeletionAvailable": False,
                        "errors": [], "phases": [], "units": [item["unit"] for item in self.plan["phases"].values()]}
+        if continuation:
+            self.result["predecessor"] = self.predecessor
+            self.result["consumedSecondsBeforeContinuation"] = CONTINUATION_CONSUMED_SECONDS
+            self.result["remainingSecondsAtContinuation"] = CONTINUATION_REMAINING_SECONDS
+            self.result["maximumOverheadSeconds"] = CONTINUATION_OVERHEAD_SECONDS
 
     def bound_inputs(self):
         require(stream_digest(checked_path(self.root, self.config_name)) == self.config_hash, "configuration changed")
-        require(proposed_binding(self.config, self.config_hash, source_inventory(self.root)) == self.binding,
-                "reviewed source changed")
+        sources = source_inventory(self.root)
+        if self.continuation:
+            controller_name = FIXTURE + "/gui_proof_controller.py"
+            require(stream_digest(Path(__file__)) == self.controller_hash, "continuation controller changed")
+            sources[controller_name] = self.binding["sources"][controller_name]
+            require(predecessor_evidence(self.root, self.config) == self.predecessor,
+                    "predecessor GUI evidence changed")
+        require(proposed_binding(self.config, self.config_hash, sources) == self.binding, "reviewed source changed")
         require(stream_digest(self.binding_path) == self.binding_hash, "source binding changed")
         require(stream_digest(checked_path(self.root, self.config["toolchainBinding"])) == self.toolchain_hash,
                 "toolchain binding changed")
         require(preserved_inputs(self.root, self.config) == self.preserved_hash, "a preserved guard or budget changed")
-        runtime_authority(self.root, self.config, self.authority_hash, {
-            "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
-            "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash,
-        })
+        bindings = {"configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
+                    "toolchainBindingSha256": self.toolchain_hash, "preservedBindingSha256": self.preserved_hash}
+        if self.continuation:
+            continuation_authority(self.root, self.continuation_authority_name, self.authority_hash,
+                                   self.config, bindings, self.controller_hash, self.continuation_head)
+        else:
+            runtime_authority(self.root, self.config, self.authority_hash, bindings)
 
     def linux_operation(self, mode, *, data=None, destination=None, cleanup=False, timeout=90, cap=MIB):
         helper = str(PurePosixPath(self.config["scratchLinux"]) / "harness/gui_proof_linux.py")
@@ -1623,6 +1921,37 @@ class ProofOwner:
         require(parse_json(response).get("staged") is True, "projection staging failed")
         self.staged = True
         self.result["transfer"] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+    def continuation_control_operation(self, mode):
+        runtime_raw = (json.dumps(self.runtime, sort_keys=True, indent=2) + "\n").encode()
+        replacement = {
+            "runtime.json": {"base64": base64.b64encode(runtime_raw).decode(),
+                             "sha256": hashlib.sha256(runtime_raw).hexdigest()},
+            "authority.json": {"base64": base64.b64encode(self.authority_raw).decode(),
+                               "sha256": self.authority_hash},
+        }
+        payload = json.dumps({"expected": {
+            "runtime.json": PREDECESSOR_RUNTIME_CONTROL_SHA256,
+            "authority.json": PREDECESSOR_AUTHORITY_CONTROL_SHA256,
+            "linux-export.json": PREDECESSOR_LINUX_EXPORT_CONTROL_SHA256,
+        }, "replacement": replacement, "identity": {
+            "runId": self.run_id, "configSha256": self.config_hash,
+            "sourceBindingSha256": self.binding_hash, "candidateHead": self.config["candidateHead"],
+        }}, sort_keys=True).encode()
+        command = wsl_command('exec /usr/bin/python3 -I -B -c "$@"', CONTINUATION_AMENDMENT,
+                              mode, self.config["scratchLinux"])
+        result = parse_json(self.processes.run(command, data=payload, timeout=35, cap=4096))
+        if mode == "preflight":
+            require(result.get("preflight") is True and type(result.get("files")) is int,
+                    "continuation control preflight differs")
+            return result
+        require(result == {"amended": True, "archives": [
+            "runtime.pre-continuation.json", "authority.pre-continuation.json",
+            "linux-export.pre-continuation.json",
+        ]}, "continuation control amendment differs")
+        self.staged = True
+        self.result["controlAmendment"] = result
+        return result
 
     def service(self, phase):
         plan = self.plan["phases"][phase]
@@ -1797,42 +2126,68 @@ class ProofOwner:
 
     def execute(self):
         require(sys.platform == "win32", "the GUI owner requires Windows")
-        with Journal(self.root, self.config["attemptLedger"]) as journal:
-            before = admission(self.root, self.config, self.authority_hash)
+        with Journal(self.root, self.config["attemptLedger"], continuation=self.continuation) as journal:
+            before = (continuation_admission(self.root, self.continuation_admission_name, self.authority_hash)
+                      if self.continuation else admission(self.root, self.config, self.authority_hash))
             self.job = WindowsJob()
             started_unix = time.time()
-            journal.append({"event": "run-start", "runId": self.run_id, "startedUnixSeconds": started_unix,
-                            "deadlineUnixSeconds": started_unix + 1200, "allocatedSeconds": 1200,
-                            "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
-                            "authoritySha256": self.authority_hash})
+            if not self.continuation:
+                journal.append({"event": "run-start", "runId": self.run_id, "startedUnixSeconds": started_unix,
+                                "deadlineUnixSeconds": started_unix + 1200, "allocatedSeconds": 1200,
+                                "configSha256": self.config_hash, "sourceBindingSha256": self.binding_hash,
+                                "authoritySha256": self.authority_hash})
+            else:
+                journal.append({"event": "continuation-start", "atUnixSeconds": started_unix,
+                                "deadlineUnixSeconds": started_unix + CONTINUATION_REMAINING_SECONDS,
+                                "runId": self.run_id, "remainingSeconds": CONTINUATION_REMAINING_SECONDS,
+                                "consumedSeconds": CONTINUATION_CONSUMED_SECONDS,
+                                "maximumOverheadSeconds": CONTINUATION_OVERHEAD_SECONDS,
+                                "continuationControllerSha256": self.controller_hash,
+                                "continuationAuthoritySha256": self.authority_hash,
+                                "predecessorLedgerSha256": PREDECESSOR_LEDGER_SHA256,
+                                "predecessorResultSha256": PREDECESSOR_RESULT_SHA256,
+                                "predecessorExportSha256": PREDECESSOR_EXPORT_SHA256})
             try:
                 self.result["admission"] = before
                 self.result["startedUnixSeconds"] = started_unix
                 self.scratch.mkdir()
                 self.observer = Observer.__new__(Observer)
-                self.observer.__init__(self.root, self.scratch)
-                self.observer.deadline = self.observer.started + max(0, started_unix + 1200 - time.time())
+                self.observer.__init__(self.root, self.scratch, overhead_seconds=(
+                    CONTINUATION_OVERHEAD_SECONDS if self.continuation else 300))
+                allocation = CONTINUATION_REMAINING_SECONDS if self.continuation else 1200
+                self.observer.deadline = self.observer.started + max(0, started_unix + allocation - time.time())
                 self.processes = ProcessOwner(self.observer)
                 self.bound_inputs()
                 head = self.processes.run(["git", "--no-optional-locks", "-C", str(self.root), "rev-parse", "HEAD"], timeout=5, cap=1024)
                 branch = self.processes.run(["git", "--no-optional-locks", "-C", str(self.root), "branch", "--show-current"], timeout=5, cap=1024)
-                require(head.decode().strip() == self.config["candidateHead"]
+                expected_head = self.continuation_head if self.continuation else self.config["candidateHead"]
+                require(head.decode().strip() == expected_head
                         and branch.decode().strip() == "docs/context-compaction-policy", "candidate checkout changed")
                 require(windows_toolchains(self.config) == self.toolchain["windows"], "Windows toolchains changed")
                 self.bootstrap = SourceBootstrap(self.config)
-                self.result["bootstrap"] = self.bootstrap.prepare(self.processes, self.root, self.config_name,
-                    self.config_hash, self.binding["sources"], create=False)
+                if self.continuation:
+                    self.result["bootstrap"] = self.bootstrap.verify_frozen(
+                        self.processes, self.config_hash, self.binding["sources"])
+                else:
+                    self.result["bootstrap"] = self.bootstrap.prepare(self.processes, self.root, self.config_name,
+                        self.config_hash, self.binding["sources"], create=False)
                 linux = parse_json(source_helper(self.processes, self.root, self.config_name, self.config_hash, "inspect",
-                                                bootstrap=self.bootstrap, expected_sources=self.binding["sources"]))
+                                                bootstrap=self.bootstrap, expected_sources=self.binding["sources"],
+                                                verify_local_controller=not self.continuation))
                 require(linux == self.toolchain["linux"], "Linux toolchains changed")
                 self.absent_before_start()
                 self.runtime = {"runId": self.run_id, "configSha256": self.config_hash,
                     "sourceBindingSha256": self.binding_hash, "toolchainBindingSha256": self.toolchain_hash,
-                    "authoritySha256": self.authority_hash, "startedUnixSeconds": started_unix,
-                    "deadlineUnixSeconds": started_unix + 1200, "heartbeatTransport": HEARTBEAT_SCHEMA}
+                    "authoritySha256": self.authority_hash,
+                    "startedUnixSeconds": ORIGINAL_STARTED_UNIX_SECONDS if self.continuation else started_unix,
+                    "deadlineUnixSeconds": started_unix + allocation, "heartbeatTransport": HEARTBEAT_SCHEMA}
                 runtime_raw = (json.dumps(self.runtime, sort_keys=True, indent=2) + "\n").encode()
                 self.runtime_hash = hashlib.sha256(runtime_raw).hexdigest()
-                self.transfer(read_regular(checked_path(self.root, self.config_name), MAX_CONFIG_BYTES))
+                if self.continuation:
+                    self.continuation_control_operation("preflight")
+                    self.continuation_control_operation("amend")
+                else:
+                    self.transfer(read_regular(checked_path(self.root, self.config_name), MAX_CONFIG_BYTES))
                 self.phase_start(journal, "build")
                 self.processes.run(self.service("build"), timeout=600, heartbeat=True)
                 self.phase_finish(journal, "build")
@@ -1920,13 +2275,28 @@ class ProofOwner:
                     self.result["errors"].append({"step": "observer-close", "message": str(error)[:4096]})
                 self.result["elapsedSeconds"] = time.time() - started_unix
                 self.result["observerFailure"] = getattr(self.observer, "failure", None)
+                if self.continuation:
+                    continuation_elapsed = self.result["elapsedSeconds"]
+                    phase_elapsed = getattr(self.observer, "phase_elapsed", 0.0)
+                    overhead = max(0.0, continuation_elapsed - phase_elapsed)
+                    total_active = CONTINUATION_CONSUMED_SECONDS + continuation_elapsed
+                    self.result["continuationElapsedSeconds"] = continuation_elapsed
+                    self.result["continuationOverheadSeconds"] = overhead
+                    self.result["totalActiveSeconds"] = total_active
+                    self.result["remainingSeconds"] = max(0.0, 1200 - total_active)
+                    if (overhead > CONTINUATION_OVERHEAD_SECONDS or total_active > 1200
+                            or self.result["observerFailure"] is not None):
+                        self.result["verificationPassed"] = False
+                        self.result["errors"].append({"step": "continuation-accounting",
+                            "message": "continuation time or observer acceptance differs"})
                 self.result["samples"] = getattr(self.observer, "samples", [])
                 self.result["retainedWindowsScratch"] = str(self.scratch)
                 self.result["retainedLinuxBootstrap"] = self.config["bootstrapDirectory"]
                 self.result["retainedLinuxScratch"] = self.config["scratchLinux"] if self.staged else "stage not acknowledged; inspect exact configured path"
                 self.result["complete"] = False
                 self.result["nextGate"] = "Review exact retained scratch cleanup. Filesystem deletion is unavailable."
-                if self.result.get("export") and time.time() <= started_unix + 1200:
+                if self.result.get("export") and time.time() <= started_unix + (
+                        CONTINUATION_REMAINING_SECONDS if self.continuation else 1200):
                     state = ledger_state(read_regular(journal.path, MAX_LEDGER_BYTES))
                     if state.get("activePhase") is None:
                         journal.append({"event": "run-finish", "atUnixSeconds": time.time(),
@@ -1941,14 +2311,19 @@ def main() -> None:
     parser.add_argument("--config-sha256", required=True)
     parser.add_argument("--run-id", required=True, help="proposed 12-digit lowercase hexadecimal identity")
     parser.add_argument("--require-binding", action="store_true")
-    parser.add_argument("--freeze-bindings", action="store_true")
-    parser.add_argument("--run", action="store_true")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--freeze-bindings", action="store_true")
+    operation.add_argument("--run", action="store_true")
+    operation.add_argument("--continue-run", action="store_true")
     parser.add_argument("--authority-sha256")
+    parser.add_argument("--continuation-authority")
+    parser.add_argument("--continuation-admission")
+    parser.add_argument("--continuation-controller-sha256")
+    parser.add_argument("--continuation-head")
     args = parser.parse_args()
     root = Path(__file__).absolute().parents[5]
     require(root.resolve() == root, "repository root resolves through an alias")
     config, config_hash = load_config(root, args.config, args.config_sha256)
-    require(not (args.run and args.freeze_bindings), "binding preparation and runtime are separate operations")
     if args.freeze_bindings:
         print(json.dumps(freeze_bindings(root, args.config, config, config_hash), sort_keys=True))
         return
@@ -1957,6 +2332,20 @@ def main() -> None:
         result = ProofOwner(root, args.config, config, config_hash, args.authority_sha256, args.run_id).execute()
         print(json.dumps({"verificationPassed": result["verificationPassed"], "processCleanupAccepted": result["processCleanupAccepted"],
                           "complete": result["complete"], "result": config["runtimeRecord"]}, sort_keys=True))
+        raise SystemExit(0 if result["verificationPassed"] and result["processCleanupAccepted"]
+                         and not result["errors"] and result.get("export") else 1)
+    if args.continue_run:
+        require(args.authority_sha256 is not None and args.continuation_authority is not None
+                and args.continuation_admission is not None and args.continuation_controller_sha256 is not None
+                and args.continuation_head is not None, "continuation bindings are required")
+        result = ProofOwner(root, args.config, config, config_hash, args.authority_sha256, args.run_id,
+                            continuation=True, continuation_authority_name=args.continuation_authority,
+                            continuation_admission_name=args.continuation_admission,
+                            controller_hash=args.continuation_controller_sha256,
+                            continuation_head=args.continuation_head).execute()
+        print(json.dumps({"verificationPassed": result["verificationPassed"],
+                          "processCleanupAccepted": result["processCleanupAccepted"],
+                          "complete": result["complete"], "result": CONTINUATION_RESULT}, sort_keys=True))
         raise SystemExit(0 if result["verificationPassed"] and result["processCleanupAccepted"]
                          and not result["errors"] and result.get("export") else 1)
     sources = source_inventory(root)

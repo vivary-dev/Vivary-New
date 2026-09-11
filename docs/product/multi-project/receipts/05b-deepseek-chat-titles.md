@@ -46,11 +46,34 @@ and 139.5 GiB free disk. All WSL distributions were stopped. The Codex usage API
 reported 17 percent weekly usage and no five-hour reading. These readings support
 preparation only. Dispatch still requires fresh admission and Linux verification.
 
+A later bounded, read-only Habitat inspection matched the six staged control and
+owner hashes. The original export control has mode `0644`, as produced by the
+frozen export helper. Config, source binding, runtime, authority, and owner records
+have mode `0444`. All six are regular files owned by root with one hard link.
+No Linux file changed. The inspection process exited, and WSL stopped afterward.
+Host readback then showed 5,999 MiB available RAM and 14,143 MiB commit headroom.
+
 Plan `/root/plan_continuation` selected a controller-only extension that reuses
 the staged application and frozen Linux helpers. Implement is
 `/root/implement_continuation`, QA is `/root/qa_continuation`, and independent
 Verify is `/root/verify_continuation`. The exact deadline amendment remains an
 unanswered inline question. Source preparation does not authorize runtime.
+
+Source QA and independent Verify accepted the corrected controller at SHA-256
+`686c6b331a9401672957d3688110e91855b6d3d081841ee4d56416fffc6b7e48`.
+Review corrected late log-directory creation, missing predecessor artifact checks,
+normalized ledger-prefix hashing, and continuation preparation before its durable
+claim. The controller now claims the continuation before subprocess dispatch,
+keeps the original runtime start timestamp, and limits changes to the three
+proposed control records. Exclusive archives are verified and made durable before
+replacement. A partial amendment refuses phase dispatch.
+
+The local `gui-continuation-source-check.py` checker passed AST, adversarial ledger,
+predecessor evidence, mocked startup ordering, static amendment, and output-path
+checks. Root and independent Verify ran it separately. These checks execute no
+application code or Linux amendment. All 49 other frozen source files and all six
+preserved inputs still match. The original result, ledger, and archive are intact.
+Continuation authority, admission, outputs, and ledger events remain absent.
 
 Planning and source-navigation checks passed. The repository line-ending check
 still reports the pre-existing 4,115 CRLF lines in `fixtures/project-registry.json`.
@@ -523,7 +546,9 @@ continuation would use at most 1,131.4349253177643 active seconds, excluding the
 pause, with at most 231.4349253177643 seconds of preparation/export/cleanup left.
 It would preserve the failed records, staged R2 source, and unused single build
 and browser attempts. This accounting amendment and its exact control-record
-updates require approval. No continuation code, new authority, or retry exists.
+updates require approval. No continuation code, new authority, or retry existed at
+that failed-run checkpoint. The source continuation reviewed later is recorded
+under Continuation preparation above.
 
 ### Planning evidence
 

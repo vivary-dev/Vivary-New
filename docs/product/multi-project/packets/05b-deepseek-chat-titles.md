@@ -7,7 +7,7 @@ Parent: 05
 Status: needs-info
 Needs: Approval of one manual continuation that preserves consumed time and unused phase limits while excluding the pause from the original absolute deadline. The original run closed before build admission. Fresh warm resource admission remains required.
 Depends-on: [05a]
-Owner: Root orchestrates. Source recovery used Plan `/root/plan_issue`, Implement `/root/implement_issue`, QA `/root/qa_issue`, and Verify `/root/verify_issue`. GUI source uses Plan `/root/plan_gui`, Implement `/root/implement_gui`, QA `/root/qa_gui`, and Verify `/root/review_doctor_fix`. Source QA and Verify are ready; GUI runtime acceptance remains pending.
+Owner: Root orchestrates the continuation. Plan is `/root/plan_continuation`, Implement is `/root/implement_continuation`, QA is `/root/qa_continuation`, and Verify is `/root/verify_continuation`. Continuation source QA and Verify passed. The receipt retains earlier role assignments. GUI runtime acceptance remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
 Verification-result: failed
@@ -182,7 +182,14 @@ continuation preserves the 1,200-second total, subtracts the 68.56507468223572
 seconds already consumed, and retains one unused build and browser attempt.
 Excluding the pause changes its absolute-deadline contract and needs explicit
 approval. The private review record specifies the exact control-record amendments
-and separate outputs. No continuation code or authority has been created.
+and separate outputs. The controller-only continuation passed independent source
+QA, Verify, and its focused source checker. It preserves the original ledger
+prefix and separately binds the changed Windows controller and continuation
+commit. The staged application and Linux helpers retain their frozen bindings.
+No continuation authority, ledger suffix, or Linux control amendment exists.
+The inline deadline question remains unanswered. After approval, bind that answer
+and the reviewed source checkpoint, obtain fresh admission, and dispatch only
+`--continue-run`. Do not invoke the closed run or freeze new source bindings.
 
 ## Verify
 
