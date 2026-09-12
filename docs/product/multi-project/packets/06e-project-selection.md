@@ -36,11 +36,19 @@ The real source/dependency freeze and check passed. The seven component cases
 remain unchanged. The current component-test hash is an explicit test-only delta
 from the preserved build snapshot; all production inputs remain exact.
 
-**Next:** Fresh Verify admitted the first 90-second activity run with five seconds
-for cleanup. Execute that fixed command after the local preparation checkpoint.
-Then admit the 75-second component and mutant runs separately. The three runs
-share a separate 06e ledger; the accepted 05b snapshot and accounting are immutable.
-No 06e runtime result is accepted yet.
+**Activity execution recorded:** The admitted activity run finished with return 0,
+no recorded failure, natural exit and owned cleanup. Its 36.535973837999336 seconds
+are charged to the existing 300-second ledger. Raw-witness review identified two
+reviewer assumptions, now explained by the source: coverage requires the union
+of snapshot tables, and snapshot keys hash full rows rather than emitted summaries.
+This explanation is not final independent acceptance of the complete runtime.
+
+**Next:** Finish independent activity evidence acceptance from the retained raw
+records, then obtain fresh admission for the 75-second component and mutant runs
+separately. Neither has been admitted or started. Do not rerun activity or
+preparation, reset the ledger, or rebuild unchanged product code. The accepted
+05b snapshot and accounting are immutable. The [receipt](../receipts/06e-project-selection.md#activity-execution-checkpoint-2026-09-11)
+owns exact result hashes and remaining checks.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -66,7 +74,8 @@ Acceptance remains:
    `key={rendererKey}` removed. The selected remount case must fail for the exact
    remount assertion, and cleanup must pass. Canonical Conversation is unchanged.
 
-Use `.tmp/06e/zo-test` for a fresh packet-local ledger and proof artifacts.
+Reuse the existing `.tmp/06e/zo-test` packet-local ledger and proof artifacts.
+The namespace was prepared once; its activity entry is already consumed.
 The source of reused dependencies/build remains `.tmp/05b/zo-runtime/app`,
 mounted read-only. Overlay only the reviewed current component test and, during
 the mutant run, its exact staged Conversation mutation. Pin all files, toolchains,

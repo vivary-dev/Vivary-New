@@ -30,7 +30,8 @@ Accepted changes are preserved through local atomic Git commits on Zo.
 Private GitHub remains at `2e714f56f62b3fb17411c556947081067dee41ab`.
 The earlier automatic rejection applied to a combined commit-and-GitHub-push
 command. Local commits are authorized separately. The owner now selected private
-Entire hosting until the work is ready for GitHub; its sign-in/setup is pending.
+Entire hosting until the work is ready for GitHub. The existing private handoff
+owns volatile authentication and setup status; hosting is not 05b acceptance.
 Seven dependency advisories remain open. Tests used synthetic providers and
 identities; this acceptance does not establish production readiness.
 

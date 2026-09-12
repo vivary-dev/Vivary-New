@@ -15,9 +15,13 @@ HTTP and physical-root registration evidence. Native10 accepts the C5 activity
 transport. Zo build04 contains the exact current product bytes, and Doctor01
 passes. The historical Habitat build/application operation is superseded.
 
-**Remaining:** Current C5 activity/component tests, the missing-key mutant,
-Workbench browser acceptance and this outcome's full switching/draft-preservation
-conditions remain open. Full chat is independently owned by accepted 05b.
+The current Zo activity command finished with return 0 and recorded cleanup;
+its complete independent evidence acceptance remains pending.
+
+**Remaining:** Finish that activity review, then admit the component test and
+missing-key mutant separately. Neither has started. Workbench browser acceptance,
+configured production action mounting, and this outcome's full switching/draft-
+preservation conditions remain open. Full chat is independently owned by accepted 05b.
 The [06e packet](../packets/06e-project-selection.md) and
 [receipt](../receipts/06e-project-selection.md) own the next bounded Zo test unit.
 

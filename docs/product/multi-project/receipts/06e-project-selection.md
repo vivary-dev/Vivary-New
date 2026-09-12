@@ -3,7 +3,7 @@
 Evidence-record: 06e
 Date: 2026-09-11
 Verification-kind: runtime
-Result: In progress. Native10, exact current-product Zo build04 and Doctor01 are accepted. Current focused C5 tests, the missing-key mutant and Workbench browser acceptance remain open. Zo supersedes the historical Habitat application step; production authentication remains separate.
+Result: In progress. Native10, exact current-product Zo build04 and Doctor01 are accepted. The Zo activity command finished with return 0; complete independent evidence acceptance is pending. Component and mutant runs have not started; C5 browser acceptance and production action mounting remain open. Zo supersedes historical Habitat application; production authentication remains separate.
 
 The [owning packet](../packets/06e-project-selection.md) and
 [catalog contract](../contracts/project-catalog.md) define acceptance. The 05a
@@ -12,6 +12,44 @@ shell and 06d registration evidence remain separately frozen and verified.
 The workbench contains the shared authority and catalog/selection source.
 This receipt records the remaining verification and runtime-integration gaps.
 It does not establish configured model runtime or production authentication.
+
+## Activity execution checkpoint, 2026-09-11
+
+The existing `.tmp/06e/zo-test/activity` evidence records return 0, no failure or
+refusal, 36.535973837999336 seconds, empty stderr, natural worker exit and owned
+cleanup. The result records no TERM/KILL, no remaining PIDs, and retained work.
+Peak aggregate RSS including the controller was 873426944 bytes, with 28 tasks,
+six processes and a 0.282101301-second maximum observer gap. These observations
+remain below the focused-test stop thresholds; they are not cgroup sublimits.
+
+| Retained input or result | SHA-256 |
+| --- | --- |
+| Activity result | `be25e4b73d7ec2447252282cefa0d2cab031dcd4f1612090ba96099c97d4ec7e` |
+| Activity stdout | `2859950e6e29f25e10543d6241e75a52f109852209842e13fbe0dd81f4b60ac5` |
+| Profile | `52ecdbeb3fe187bba2e1c4506090e85b1b5b013ae92a1971297efcd34063f4b2` |
+| Source freeze | `271084d21fb182f4a5b10234c94cd9b313e6169dc7290fd6663cd02f93429701` |
+| Ledger after activity | `d8d534121625e34a119b39c8a12fe163d84caa11fed87758bb76f87b1f18340b` |
+
+The ledger has one finished activity entry charged 36.535973837999336 of 300
+seconds. Component and mutant have not been admitted or started. Do not rerun
+preparation or activity, reset accounting, or change the accepted 05b snapshot.
+
+Read-only witness reconciliation parsed eight cases, 43 refusals, four reads,
+three injected state changes and 22 snapshots whose union covers 26 tables,
+including all 13 required tables. Stdout also retains 41 legacy email-verification
+warnings about an absent user table. Empty stderr does not mean warning-free logs.
+The test checks table coverage across the union of snapshots. Snapshot keys hash
+full raw rows, while emitted snapshots contain summaries; hashing those summaries
+cannot reproduce the keys. Those earlier reviewer assumptions were incorrect,
+not established product defects. Complete independent evidence acceptance remains
+pending; this documentation checkpoint does not accept the full C5 unit.
+
+Next: verify the existing raw records and source/profile bindings, finish activity
+acceptance, and obtain fresh component admission under the packet's frozen
+profile. After the focused tests and mutant are accepted, prepare the separate
+C5 browser proof. Production mounting, authentication, and parent outcome gates
+remain open. The following sections preserve historical evidence and proposals;
+use this section and the packet's Current progress for the active next step.
 
 ## Selection races and inactive conversation
 
@@ -652,7 +690,9 @@ remained unproved. The component test pinned Windows x64 esbuild; the subsequent
 portable mapping is accepted below. Its assertions remain intact, with no
 canonical product change. The focused Zo profile and three-run acceptance are frozen in the
 [packet](../packets/06e-project-selection.md#zo-c5-focused-test-contract-2026-09-11).
-No 06e runtime has started. The historical laptop ledger remains unchanged.
+No 06e runtime had started at that preparation checkpoint. The activity run
+recorded in the [activity checkpoint](#activity-execution-checkpoint-2026-09-11)
+is subsequent evidence. The historical laptop ledger is unchanged.
 
 The current route contract is also reconciled: `/` and `/workbench` mount the
 read-only activity panel; accepted 05b owns the separate `/chat` surface.
@@ -665,7 +705,9 @@ The component fullPage variant does not establish a mounted activity page.
 Independent source QA accepted the portable component test and four proof tools
 after correcting all reported findings. Inert syntax, preparation, ledger/mount,
 and malformed-mutant checks passed. Real preparation and readback then passed
-against the installed dependencies. No application test or runtime has run yet.
+against the installed dependencies. No application test had run at that source
+preparation checkpoint; the [activity execution](#activity-execution-checkpoint-2026-09-11)
+occurred afterward.
 
 | Input | SHA-256 |
 | --- | --- |
@@ -681,7 +723,7 @@ against the installed dependencies. No application test or runtime has run yet.
 The dependency tree contains 109,605 regular files, 3,408 internal links and
 11,121 directories, totaling 1,047,716,004 file bytes. Its deterministic tree
 digest is `1e107737d2c2ff8cae42ec6eeeb7f1d7f09ebd39e27c842b21e112821c92121c`.
-The empty 06e ledger SHA-256 is
+The initial empty 06e ledger SHA-256 was
 `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`.
 Do not run preparation again: its namespace is exclusive. Fresh Verify checks
 the existing freeze before runtime. The current component test intentionally

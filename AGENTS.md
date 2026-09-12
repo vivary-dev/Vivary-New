@@ -108,8 +108,9 @@ mechanism (for Claude Code, see CLAUDE.md → "ultraplan").
 - **Supply chain.** Before any install, check `~/dev/agents/.shared/deny-list-npm.json`
   and run `npm`/`pnpm audit`. Vet new dependencies; prefer pinned pre-compromise
   versions.
-- **Platform.** Windows / PowerShell (`$null`, never `nul`; bash also available).
-  `tropo` needs Python 3.11+ (stdlib `tomllib`).
+- **Platform.** Current project work runs on Linux/Zo. Historical Windows tooling
+  uses PowerShell (`$null`, never `nul`); do not replay it on Zo. `tropo` needs
+  Python 3.11+ (stdlib `tomllib`).
 - **CI runs free** on the public `vivary-dev/vivary` repo (Actions is free for public
   repos): `.github/workflows/ci.yml` runs every package suite + parity + `tropo check` +
   a cross-platform (Ubuntu/Windows) orientation proof on every PR/push. The

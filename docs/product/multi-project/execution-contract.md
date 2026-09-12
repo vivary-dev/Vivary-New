@@ -42,8 +42,9 @@ proves the absence of every possible defect.
 The owner then selected Entire for development hosting until the work is ready
 for GitHub. Use private access and Entire-native branches under
 `entire/unmirrored/` so unfinished work is not forwarded to GitHub. Retain the
-local Zo Git repository. The hosting setup and session-capture compatibility
-still need verification. This direction does not authorize a paid plan, public
+local Zo Git repository. The existing private handoff owns hosting setup status. Session capture must
+be verified in the agent runtime actually used on Zo; desktop-to-Zo tool calls
+do not by themselves prove a local agent session was captured. This direction does not authorize a paid plan, public
 visibility, old private transcript/archive export, or GitHub publication.
 
 Earlier automatic approval review rejected a combined commit-and-push command
@@ -120,7 +121,8 @@ This role contract does not describe the existing HoH workflow as a four-stage
 runtime implementation. `tools/hoh/workflow.py` implements planner, developer,
 and QA roles. Ozone verification remains planned in 20l. Codex agents share the
 host filesystem, so role prompts are not operating-system sandboxes. Run product
-runtime work only behind the verified Habitat boundaries in its packet. Full
+runtime work only behind the verified Zo boundaries in its active packet.
+Historical Habitat boundaries and grants remain attached to their original runs. Full
 agent-process isolation remains unproven.
 
 The owner's 2026-09-08 laptop-resource instruction makes prompt cleanup part of
