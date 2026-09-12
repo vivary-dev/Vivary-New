@@ -12,6 +12,7 @@ Usage:
   tropo types
   tropo stats
   tropo graph [--json]
+  tropo community [--type TYPE] [--path GLOB] [--edge FIELD[:TARGET]] [--json]
   tropo blast <id> [--depth N] [--json]
   tropo view [graph | blast <id>] [--out FILE]
   tropo plan <change-spec.toml> [--json]
@@ -117,7 +118,7 @@ __version__ = "0.5.4"
 RECEIPT_ENV = "VIVARY_RECEIPT_LOG"
 RECEIPT_SCHEMA = "vivary.run_receipt.v1"
 COMMANDS = (
-    "check", "signal", "types", "stats", "graph", "blast", "view", "plan",
+    "check", "signal", "types", "stats", "graph", "community", "blast", "view", "plan",
     "fix", "init", "migrate", "query", "find", "map",
 )
 RECEIPT_VALUE_FLAGS = {
@@ -1444,6 +1445,11 @@ _LOCAL_VECTOR_PROVIDER = "local-hash"
 _LOCAL_VECTOR_VERSION = "local-hash-v2"
 _VECTOR_QUERY_MAX_VALIDATE_ROWS = 10_000
 _VECTOR_QUERY_MAX_CANDIDATES = 250
+_COMMUNITY_MAX_NODES = 250
+_COMMUNITY_SIMILARITY_THRESHOLD = 0.35
+_COMMUNITY_NOTICE = (
+    "Similarity communities are navigation leads for inspection, not graph truth."
+)
 _PUBLIC_MAX_SCAN_ENTRIES = 50_000
 _PUBLIC_MAX_MARKDOWN_FILES = 5_000
 _PUBLIC_MAX_FILE_BYTES = 1 * 1024 * 1024
@@ -4714,6 +4720,285 @@ def vector_query(resolver, text, *, k=10, type_filters=None, path_filters=None,
     )
 
 
+def _computed_community_vectors(records, config, detail=""):
+    dimensions = config.get("dimensions", _DEFAULT_VECTOR_DIMENSIONS)
+    status = dict(config)
+    status.update({
+        "source": "computed",
+        "index": "file-graph",
+        "embedding_version": _LOCAL_VECTOR_VERSION,
+    })
+    if detail:
+        status["fallback"] = "computed"
+        status["detail"] = detail
+    return {
+        record["id"]: _local_hash_vector(_record_vector_text(record), dimensions)
+        for record in records
+    }, status
+
+
+def _coerce_local_hash_vector(value, dimensions):
+    vector = _coerce_vector(value)
+    if vector is None or len(vector) != dimensions:
+        return None
+    if any(number < -1e-6 or number > 1.000001 for number in vector):
+        return None
+    norm_squared = sum(number * number for number in vector)
+    if abs(norm_squared - 1.0) > 1e-4:
+        return None
+    return vector
+
+
+def _stored_community_vectors(resolver, docs, records, config):
+    def computed(detail):
+        return _computed_community_vectors(records, config, detail)
+
+    try:
+        backend = get_backend(resolver.root, allow_auto_fallback=False)
+    except Exception as e:
+        detail = _redact_workspace_detail(e, resolver.root) or e.__class__.__name__
+        return computed(f"embedded vector index unavailable: {detail}")
+
+    try:
+        if not hasattr(backend, "all_nodes"):
+            return computed("embedded backend does not expose stored nodes")
+        try:
+            rows = backend.all_nodes()
+        except Exception as e:
+            detail = _redact_workspace_detail(e, resolver.root) or e.__class__.__name__
+            return computed(f"embedded vector index could not be read: {detail}")
+
+        if len(rows) > _VECTOR_QUERY_MAX_VALIDATE_ROWS:
+            return computed(
+                f"embedded vector index has {len(rows)} row(s), above the conservative validation cap"
+            )
+
+        records_by_id = {record["id"]: record for record in records}
+        rows_by_id = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                return computed("embedded vector index contains malformed or duplicate node rows")
+            node_id = str(row.get("id") or "")
+            if not node_id or node_id in rows_by_id:
+                return computed("embedded vector index contains malformed or duplicate node rows")
+            rows_by_id[node_id] = row
+
+        current_ids = set(records_by_id)
+        stored_ids = set(rows_by_id)
+        if current_ids != stored_ids:
+            detail = "embedded vector index is stale"
+            missing = current_ids - stored_ids
+            extra = stored_ids - current_ids
+            if missing:
+                detail += f"; missing {len(missing)} current node(s)"
+            if extra:
+                detail += f"; contains {len(extra)} deleted node(s)"
+            return computed(detail)
+
+        docs_by_id = {
+            doc.derived.get("id"): doc
+            for doc in docs
+            if doc.derived.get("id") is not None
+        }
+        dimensions = config.get("dimensions", _DEFAULT_VECTOR_DIMENSIONS)
+        vectors = {}
+        for node_id, record in records_by_id.items():
+            row = rows_by_id[node_id]
+            expected_metadata = {
+                "embedding_provider": config["provider"],
+                "embedding_dimensions": dimensions,
+                "embedding_version": _LOCAL_VECTOR_VERSION,
+                "embedding_scope": "typed-node",
+                "source_fingerprint": _source_fingerprint(docs_by_id.get(node_id), record),
+                "embedding_text_fingerprint": _sha256_text(_record_vector_text(record)),
+            }
+            stale_key = next(
+                (key for key, expected in expected_metadata.items() if row.get(key) != expected),
+                None,
+            )
+            if stale_key is not None:
+                return computed(f"stored vector for {node_id!r} has stale {stale_key}")
+            vector = _coerce_local_hash_vector(row.get("vector"), dimensions)
+            if vector is None:
+                return computed(
+                    f"stored vector for {node_id!r} has an invalid local-hash vector "
+                    "(missing, non-finite, wrong dimensions, range, or norm)"
+                )
+            vectors[node_id] = vector
+
+        status = dict(config)
+        status.update({
+            "source": "stored",
+            "index": "embedded",
+            "embedding_version": _LOCAL_VECTOR_VERSION,
+        })
+        return vectors, status
+    finally:
+        close = getattr(backend, "close", None)
+        if callable(close):
+            close()
+
+
+def _community_groups(records, edges, vectors, threshold):
+    records_by_id = {record["id"]: record for record in records}
+    node_ids = sorted(records_by_id)
+    adjacency = {node_id: set() for node_id in node_ids}
+    pair_scores = {}
+    for index, left_id in enumerate(node_ids):
+        for right_id in node_ids[index + 1:]:
+            score = min(1.0, max(0.0, _cosine_score(vectors[left_id], vectors[right_id])))
+            if score < threshold:
+                continue
+            pair_scores[(left_id, right_id)] = score
+            adjacency[left_id].add(right_id)
+            adjacency[right_id].add(left_id)
+
+    components = []
+    visited = set()
+    for start in node_ids:
+        if start in visited:
+            continue
+        pending = [start]
+        members = []
+        visited.add(start)
+        while pending:
+            node_id = pending.pop()
+            members.append(node_id)
+            for neighbor in sorted(adjacency[node_id], reverse=True):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    pending.append(neighbor)
+        components.append(sorted(members))
+
+    communities = []
+    unclustered = []
+    for members in components:
+        if len(members) == 1:
+            record = records_by_id[members[0]]
+            unclustered.append({
+                "id": record["id"],
+                "type": record["type"],
+                "path": record["path"],
+                "similarity": 0.0,
+            })
+            continue
+
+        member_set = set(members)
+        links = [
+            (left, right, score)
+            for (left, right), score in pair_scores.items()
+            if left in member_set and right in member_set
+        ]
+        nodes = []
+        for node_id in members:
+            peer_scores = [
+                score
+                for left, right, score in links
+                if left == node_id or right == node_id
+            ]
+            record = records_by_id[node_id]
+            nodes.append({
+                "id": node_id,
+                "type": record["type"],
+                "path": record["path"],
+                "similarity": round(max(peer_scores, default=0.0), 6),
+            })
+        graph_edges = [
+            edge for edge in edges
+            if edge["from"] in member_set and edge["to"] in member_set
+        ]
+        community_id = hashlib.sha256("\n".join(members).encode("utf-8")).hexdigest()[:12]
+        communities.append({
+            "id": f"community-{community_id}",
+            "confidence": round(
+                sum(score for _left, _right, score in links) / len(links),
+                6,
+            ),
+            "nodes": nodes,
+            "graph_edges": graph_edges,
+        })
+
+    communities.sort(key=lambda community: tuple(node["id"] for node in community["nodes"]))
+    unclustered.sort(key=lambda node: node["id"])
+    return communities, unclustered
+
+
+def community_view(resolver, *, type_filters=None, path_filters=None, edge_filters=None):
+    config = _load_vector_query_config(resolver.root)
+    if config["status"] == "fallback":
+        status = dict(config)
+        status.update({"status": "disabled", "source": "none"})
+        status.pop("fallback", None)
+        return 0, [], [], status
+    if config["status"] != "ok":
+        return 1, [], [], config
+
+    docs = analyze(resolver.root, [], resolver)
+    doc_ids = [
+        str(doc.derived.get("id"))
+        for doc in docs
+        if doc.derived.get("id") is not None
+    ]
+    duplicate_ids = sorted(
+        node_id for node_id, count in Counter(doc_ids).items()
+        if count > 1
+    )
+    if duplicate_ids:
+        preview = ", ".join(repr(node_id[:80]) for node_id in duplicate_ids[:5])
+        remaining = len(duplicate_ids) - 5
+        if remaining > 0:
+            preview += f", and {remaining} more"
+        status = dict(config)
+        status.update({
+            "status": "ambiguous",
+            "source": "none",
+            "detail": f"typed graph contains duplicate source node id(s): {preview}",
+        })
+        return 1, [], [], status
+
+    nodes, edges = build_graph(docs)
+    records = _build_search_records(docs, nodes, edges, body_limit=_VECTOR_CONTENT_CHARS)
+    selected = [
+        record for record in records
+        if _passes_search_filters(
+            record,
+            type_filters or [],
+            path_filters or [],
+            edge_filters or [],
+        )
+    ]
+    if len(selected) > _COMMUNITY_MAX_NODES:
+        status = dict(config)
+        status.update({
+            "status": "limited",
+            "source": "none",
+            "detail": (
+                f"community selection has {len(selected)} nodes, above the "
+                f"{_COMMUNITY_MAX_NODES}-node pairwise limit; narrow it with filters"
+            ),
+        })
+        return 1, [], [], status
+
+    embedded, detail = _storage_backend_is_embedded(resolver.root)
+    if embedded:
+        vectors, status = _stored_community_vectors(resolver, docs, records, config)
+    else:
+        vectors, status = _computed_community_vectors(records, config, detail)
+    selected_vectors = {record["id"]: vectors[record["id"]] for record in selected}
+    communities, unclustered = _community_groups(
+        selected,
+        edges,
+        selected_vectors,
+        _COMMUNITY_SIMILARITY_THRESHOLD,
+    )
+    status.update({
+        "threshold": _COMMUNITY_SIMILARITY_THRESHOLD,
+        "indexed": len(records),
+        "considered": len(selected),
+    })
+    return 0, communities, unclustered, status
+
+
 def _estimate_tokens(value):
     text = json.dumps(value, ensure_ascii=False, sort_keys=True)
     return max(0, math.ceil(len(text) / 4))
@@ -5846,6 +6131,64 @@ def cmd_migrate(args, resolver):
     return 0
 
 
+def cmd_community(args, resolver):
+    """Group typed nodes by local vector similarity without changing the graph."""
+    if args.paths:
+        sys.exit("tropo community: this command takes no text or paths; use filters to narrow nodes")
+
+    type_filters = getattr(args, "type", None) or []
+    path_filters = getattr(args, "path", None) or []
+    edge_filters = getattr(args, "edge", None) or []
+    rc, communities, unclustered, community = community_view(
+        resolver,
+        type_filters=type_filters,
+        path_filters=path_filters,
+        edge_filters=edge_filters,
+    )
+    payload = {
+        "mode": "community",
+        "notice": _COMMUNITY_NOTICE,
+        "community": community,
+        "filters": {
+            "type": type_filters,
+            "path": path_filters,
+            "edge": edge_filters,
+        },
+        "communities": communities,
+        "unclustered": unclustered,
+        "counts": {
+            "communities": len(communities),
+            "clustered_nodes": sum(len(item["nodes"]) for item in communities),
+            "unclustered_nodes": len(unclustered),
+        },
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return rc
+
+    if rc != 0:
+        print(f"tropo community: unavailable: {community.get('detail', community['status'])}")
+        return rc
+    if community["status"] == "disabled":
+        print(f"tropo community: disabled: {community['detail']}")
+        return 0
+
+    print(
+        f"tropo community: {len(communities)} community(s), "
+        f"{len(unclustered)} unclustered node(s)"
+    )
+    print(f"  {_COMMUNITY_NOTICE}")
+    for item in communities:
+        print(f"\n  {item['id']}  confidence {item['confidence']:.3f}")
+        for node in item["nodes"]:
+            typ = node["type"] or "untyped"
+            print(
+                f"    {node['id']}  [{typ}]  similarity {node['similarity']:.3f}  "
+                f"{node['path']}"
+            )
+    return 0
+
+
 def cmd_query(args, resolver):
     """Search the workspace knowledge graph by text."""
     if not args.paths:
@@ -6501,7 +6844,7 @@ def _main(argv=None, *, prog=None):
                        choices=[routed], help=argparse.SUPPRESS)
     p.add_argument("paths", nargs="*",
                    help="files or folders (default: whole tree); for blast/query/find, "
-                        "the target id/text; for map, the single tree to inventory")
+                        "the target id/text; community takes none; for map, the single tree to inventory")
     p.add_argument("--strict", action="store_true",
                    help="check: force warnings to fail (the default; overrides a lenient config)")
     p.add_argument("--lenient", action="store_true",
@@ -6529,11 +6872,11 @@ def _main(argv=None, *, prog=None):
     p.add_argument("--mode", choices=["text", "vector", "semantic"], default=None,
                    help="query: text graph search (default), local typed vector search, or optional semantic-memory provider search")
     p.add_argument("--type", action="append", default=[],
-                   help="query/find: restrict results to a document type; repeatable")
+                   help="query/find/community: restrict nodes to a document type; repeatable")
     p.add_argument("--path", action="append", default=[],
-                   help="query/find: restrict results to a path glob; repeatable")
+                   help="query/find/community: restrict nodes to a path glob; repeatable")
     p.add_argument("--edge", action="append", default=[],
-                   help="query/find: require outbound edge FIELD or FIELD:TARGET; repeatable")
+                   help="query/find/community: require outbound edge FIELD or FIELD:TARGET; repeatable")
     p.add_argument("--snippet", type=int, default=None,
                    help=f"query/find: snippet characters per result (default: {_DEFAULT_SNIPPET_CHARS}; 0 disables)")
     p.add_argument("--explain", action="store_true",
@@ -6560,7 +6903,7 @@ def _main(argv=None, *, prog=None):
     if args.config:
         root = args.root or os.path.dirname(os.path.abspath(args.config))
     else:
-        start = args.root or (args.paths[0] if args.paths and args.command not in ("migrate", "query", "find") else os.getcwd())
+        start = args.root or (args.paths[0] if args.paths and args.command not in ("migrate", "query", "find", "community") else os.getcwd())
         root = find_root(start)
         if root is None:
             sys.exit(f"tropo: no {CONFIG_NAME} found walking up from {os.path.abspath(start)}")
@@ -6570,9 +6913,10 @@ def _main(argv=None, *, prog=None):
         sys.exit(f"tropo: config error: {e}")
 
     return {"check": cmd_check, "signal": cmd_signal, "types": cmd_types,
-            "stats": cmd_stats, "graph": cmd_graph, "blast": cmd_blast,
-            "view": cmd_view, "plan": cmd_plan, "fix": cmd_fix,
-            "migrate": cmd_migrate, "query": cmd_query, "find": cmd_find}[args.command](args, resolver)
+            "stats": cmd_stats, "graph": cmd_graph, "community": cmd_community,
+            "blast": cmd_blast, "view": cmd_view, "plan": cmd_plan,
+            "fix": cmd_fix, "migrate": cmd_migrate, "query": cmd_query,
+            "find": cmd_find}[args.command](args, resolver)
 
 
 def main(argv=None, *, prog=None):

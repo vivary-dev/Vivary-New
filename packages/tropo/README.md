@@ -13,7 +13,7 @@ frontmatter** and still be fully typed and valid.
 > Status: **working engine (v0.5.4).** `tropo.py` implements spec v1 end-to-end —
 > folder-as-type resolution, derivation, validation, packs, **overlays**, the
 > `signal` report, **`fix`** (de-noise), **`init`**, the graph layer
-> (`graph`/`blast`/`view`/`plan`), typed retrieval (`find`/`query`), read-only
+> (`graph`/`community`/`blast`/`view`/`plan`), typed retrieval (`find`/`query`), read-only
 > filesystem inventory (**`map`**), and the data layer (file → embedded
 > migration). Cloud adapters are future work. An agent can drive the whole thing
 > via [.claude/skills/tropo/SKILL.md](.claude/skills/tropo/SKILL.md).
@@ -57,6 +57,15 @@ not trustworthy. `tropo query --mode semantic` is an optional-provider bridge: i
 runs when `.vivary/memory.toml` enables a supported semantic-memory provider,
 currently the separate `vivary-memory-cognee` package. Tropo core does not bundle
 Cognee, network calls, or provider indexing.
+
+`tropo community --json` groups typed nodes whose local-vector similarity is at
+least `0.35`. It requires the same explicit `[storage.embedding]` local policy.
+The command uses current stored vectors when available and recomputes local vectors
+when stored rows are missing, malformed, or stale. It compares at most 250 filtered
+nodes. Each result includes typed node ids, paths, similarity, confidence, and any
+typed graph edges within the group. Results are navigation leads for inspection. The
+typed graph remains the source of record.
+
 Cloud extras are reserved for future adapter work.
 
 `tropo migrate --from file --to embedded --json` reports embedding persistence

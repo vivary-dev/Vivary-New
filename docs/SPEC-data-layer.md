@@ -264,15 +264,21 @@ tropo migrate --from file --to embedded
 Non-file sources, cloud targets, automatic backend installation, and `migrated_at`
 tracking are future 0.3.x work.
 
-**No provider embeddings in tropo migration.** The embedded backend stores indexed
-node content and can be queried at the backend layer, but migration does not create
-stored vectors, call providers, or override the workspace's `tropo.toml` exclusions.
+**No provider embeddings in tropo migration.** When
+`[storage.embedding]` explicitly enables `provider = "local-hash"`, file-to-embedded
+migration stores one dependency-free vector for each typed node. It also stores source
+and embedding fingerprints so readers can reject stale rows. Migration does not call a
+provider, use the network, or override the workspace's `tropo.toml` exclusions.
+
 Public `tropo find` and default `tropo query` search the analyzed typed graph
-directly. `tropo query --mode vector` uses dependency-free local typed vectors at
-query time or falls back to text search when no vector config is present.
-`tropo query --mode semantic` delegates to an explicitly configured optional
-semantic-memory provider and returns typed node ids; it is unavailable until the user
-installs and indexes that provider.
+directly. `tropo query --mode vector` uses current stored local vectors or computes
+the same local vectors from the file graph. It falls back to text search when local
+vector policy is absent or stored query cannot be trusted. `tropo community` groups
+up to 250 filtered typed nodes with the same local vectors and a fixed similarity
+threshold. It reports groups as navigation leads and keeps the typed graph as the
+source of record. `tropo query --mode semantic` delegates to an explicitly configured
+optional semantic-memory provider and returns typed node ids. It remains unavailable
+until the user installs and indexes that provider.
 
 ---
 
@@ -477,7 +483,7 @@ Welcome to Vivary! Let's set up your workspace.
 - `tropo migrate --from file --to embedded`
 - Reports migrated/failed counts and duration
 - `--dry-run` preview mode
-- Uses indexed node content; no provider embeddings or stored vector search in migration
+- Stores local typed-node vectors and provenance when `[storage.embedding]` enables `local-hash`. It makes no provider or network calls.
 
 ### Future — Cloud adapters (0.3.x)
 
@@ -504,5 +510,5 @@ Welcome to Vivary! Let's set up your workspace.
 ---
 
 _Historical note: this plan was approved and shipped as the 0.2.0 data-layer slice.
-Future cloud/provider-vector work still requires fresh plan+alignment before
+Future cloud/provider-embedding work still requires fresh plan+alignment before
 implementation._

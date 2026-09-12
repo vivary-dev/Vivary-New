@@ -1206,6 +1206,60 @@ def _query_args(query, **overrides):
     return argparse.Namespace(**data)
 
 
+def _community_args(**overrides):
+    data = {
+        "paths": [],
+        "json": True,
+        "type": [],
+        "path": [],
+        "edge": [],
+    }
+    data.update(overrides)
+    return argparse.Namespace(**data)
+
+
+def _community_vault(tmp_path, *, embedding=True):
+    (tmp_path / "tropo.toml").write_text(
+        "[base]\n"
+        "derive = ['id', 'title']\n"
+        "allow_untyped = true\n"
+        "[types.note]\n"
+        "folder = 'notes'\n"
+        "optional = { related = 'ref' }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "auth-plan.md").write_text(
+        "---\nrelated: auth-review\n---\n"
+        "# Auth Plan\n\n"
+        "Authentication login access token security account. "
+        "Authentication login access token security account.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "auth-review.md").write_text(
+        "---\nrelated: auth-plan\n---\n"
+        "# Auth Review\n\n"
+        "Authentication login access token security account. "
+        "Authentication login access token security account.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "garden-plan.md").write_text(
+        "# Garden Plan\n\n"
+        "Garden tomato soil sunlight harvest. Garden tomato soil sunlight harvest.\n",
+        encoding="utf-8",
+    )
+    if embedding:
+        vivary_dir = tmp_path / ".vivary"
+        vivary_dir.mkdir()
+        (vivary_dir / "storage.toml").write_text(
+            "[storage.embedding]\n"
+            "enabled = true\n"
+            "provider = 'local-hash'\n"
+            "dimensions = 128\n",
+            encoding="utf-8",
+        )
+
+
 def _migrate_args(**overrides):
     data = {
         "from_backend": "file",
@@ -3239,6 +3293,289 @@ def test_cmd_query_no_results(tmp_path):
     )
     assert rc == 0
     assert out["results"] == []
+
+
+
+def test_community_groups_clamp_rounded_unit_vector_scores():
+    records = [
+        {"id": "left", "type": "note", "path": "left.md"},
+        {"id": "right", "type": "note", "path": "right.md"},
+    ]
+    rounded_unit = [0.707107, 0.707107]
+
+    communities, unclustered = tropo._community_groups(
+        records,
+        [],
+        {"left": rounded_unit, "right": rounded_unit},
+        0.35,
+    )
+
+    assert unclustered == []
+    assert communities[0]["confidence"] == 1.0
+    assert [node["similarity"] for node in communities[0]["nodes"]] == [1.0, 1.0]
+
+
+def test_cmd_community_returns_stable_typed_navigation_leads(tmp_path):
+    _community_vault(tmp_path)
+
+    rc, out = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+    rc_again, out_again = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+
+    assert rc == rc_again == 0
+    assert out == out_again
+    assert out["mode"] == "community"
+    assert "navigation leads" in out["notice"]
+    assert out["community"] == {
+        "enabled": True,
+        "provider": "local-hash",
+        "status": "ok",
+        "detail": "",
+        "dimensions": 128,
+        "source": "computed",
+        "index": "file-graph",
+        "embedding_version": "local-hash-v2",
+        "threshold": 0.35,
+        "indexed": 3,
+        "considered": 3,
+    }
+    assert [node["id"] for node in out["communities"][0]["nodes"]] == [
+        "auth-plan",
+        "auth-review",
+    ]
+    assert all(node["type"] == "note" for node in out["communities"][0]["nodes"])
+    assert all(node["similarity"] >= 0.35 for node in out["communities"][0]["nodes"])
+    assert out["communities"][0]["confidence"] >= 0.35
+    assert out["communities"][0]["graph_edges"] == [
+        {"from": "auth-plan", "field": "related", "to": "auth-review", "broken": False},
+        {"from": "auth-review", "field": "related", "to": "auth-plan", "broken": False},
+    ]
+    assert out["unclustered"] == [{
+        "id": "garden-plan",
+        "type": "note",
+        "path": "notes/garden-plan.md",
+        "similarity": 0.0,
+    }]
+    assert out["counts"] == {
+        "communities": 1,
+        "clustered_nodes": 2,
+        "unclustered_nodes": 1,
+    }
+
+
+def test_cmd_community_rejects_duplicate_source_node_ids(tmp_path):
+    _community_vault(tmp_path)
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    (archive / "auth-plan.md").write_text(
+        "# Archived Auth Plan\n\nThis must not replace the typed source citation.\n",
+        encoding="utf-8",
+    )
+
+    rc, out = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+
+    assert rc == 1
+    assert out["community"]["status"] == "ambiguous"
+    assert out["community"]["source"] == "none"
+    assert "duplicate source node id" in out["community"]["detail"]
+    assert "'auth-plan'" in out["community"]["detail"]
+    assert out["communities"] == []
+    assert out["unclustered"] == []
+
+
+def test_cmd_community_is_disabled_without_explicit_embedding_policy(tmp_path):
+    _community_vault(tmp_path, embedding=False)
+
+    rc, out = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+
+    assert rc == 0
+    assert out["community"]["status"] == "disabled"
+    assert out["community"]["source"] == "none"
+    assert out["communities"] == []
+    assert out["unclustered"] == []
+
+
+def test_cmd_community_handles_empty_graph(tmp_path):
+    (tmp_path / "tropo.toml").write_text(
+        "[base]\nderive = ['id', 'title']\nallow_untyped = true\n",
+        encoding="utf-8",
+    )
+    vivary_dir = tmp_path / ".vivary"
+    vivary_dir.mkdir()
+    (vivary_dir / "storage.toml").write_text(
+        "[storage.embedding]\nenabled = true\nprovider = 'local-hash'\n",
+        encoding="utf-8",
+    )
+
+    rc, out = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+
+    assert rc == 0
+    assert out["communities"] == []
+    assert out["unclustered"] == []
+    assert out["community"]["considered"] == 0
+    assert out["counts"] == {
+        "communities": 0,
+        "clustered_nodes": 0,
+        "unclustered_nodes": 0,
+    }
+
+
+def test_cmd_community_handles_one_node_as_unclustered(tmp_path):
+    _community_vault(tmp_path)
+    (tmp_path / "notes" / "auth-plan.md").unlink()
+    (tmp_path / "notes" / "auth-review.md").unlink()
+
+    rc, out = _capture_rc(
+        tropo.cmd_community,
+        _community_args(),
+        res(str(tmp_path)),
+    )
+
+    assert rc == 0
+    assert out["communities"] == []
+    assert [node["id"] for node in out["unclustered"]] == ["garden-plan"]
+    assert out["community"]["considered"] == 1
+
+
+def test_cmd_community_recomputes_when_stored_vectors_are_stale(tmp_path):
+    _community_vault(tmp_path)
+    _write_embedded_vector_config(tmp_path, dimensions=128)
+    config = tropo._load_vector_query_config(str(tmp_path))
+    docs = tropo.analyze(str(tmp_path), [], res(str(tmp_path)))
+    backend = _RecordingBackend()
+    backend.replace_all(tropo._migrate_nodes_with_embeddings(docs, config))
+    backend.records["auth-plan"]["embedding_version"] = "local-hash-v1"
+
+    with mock.patch.object(tropo, "get_backend", return_value=backend):
+        rc, out = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    assert rc == 0
+    assert out["community"]["source"] == "computed"
+    assert out["community"]["fallback"] == "computed"
+    assert "stale embedding_version" in out["community"]["detail"]
+    assert out["counts"]["clustered_nodes"] == 2
+    assert backend.closed is True
+
+
+def test_cmd_community_recomputes_scaled_stored_local_hash_vectors(tmp_path):
+    _community_vault(tmp_path)
+    _write_embedded_vector_config(tmp_path, dimensions=128)
+    config = tropo._load_vector_query_config(str(tmp_path))
+    docs = tropo.analyze(str(tmp_path), [], res(str(tmp_path)))
+    backend = _RecordingBackend()
+    backend.replace_all(tropo._migrate_nodes_with_embeddings(docs, config))
+
+    with mock.patch.object(tropo, "get_backend", return_value=backend):
+        rc_valid, out_valid = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    assert rc_valid == 0
+    assert out_valid["community"]["source"] == "stored"
+    assert "fallback" not in out_valid["community"]
+
+    backend.records["auth-plan"]["vector"] = [
+        value * 2 for value in backend.records["auth-plan"]["vector"]
+    ]
+    with mock.patch.object(tropo, "get_backend", return_value=backend):
+        rc_scaled, out_scaled = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    assert rc_scaled == 0
+    assert out_scaled["community"]["source"] == "computed"
+    assert out_scaled["community"]["fallback"] == "computed"
+    assert "invalid local-hash vector" in out_scaled["community"]["detail"]
+    assert "range, or norm" in out_scaled["community"]["detail"]
+    assert all(item["confidence"] <= 1 for item in out_scaled["communities"])
+    assert all(
+        node["similarity"] <= 1
+        for item in out_scaled["communities"]
+        for node in item["nodes"]
+    )
+    assert backend.closed is True
+
+
+def test_cmd_community_recomputes_for_duplicate_or_missing_stored_vectors(tmp_path):
+    _community_vault(tmp_path)
+    _write_embedded_vector_config(tmp_path, dimensions=128)
+    config = tropo._load_vector_query_config(str(tmp_path))
+    docs = tropo.analyze(str(tmp_path), [], res(str(tmp_path)))
+
+    missing = _RecordingBackend()
+    missing.replace_all(tropo._migrate_nodes_with_embeddings(docs, config))
+    missing.records["auth-plan"].pop("vector")
+    with mock.patch.object(tropo, "get_backend", return_value=missing):
+        rc_missing, out_missing = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    class DuplicateBackend(_RecordingBackend):
+        def all_nodes(self):
+            rows = super().all_nodes()
+            return [rows[0], rows[0], rows[2]]
+
+    duplicate = DuplicateBackend()
+    duplicate.replace_all(tropo._migrate_nodes_with_embeddings(docs, config))
+    with mock.patch.object(tropo, "get_backend", return_value=duplicate):
+        rc_duplicate, out_duplicate = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    assert rc_missing == rc_duplicate == 0
+    assert out_missing["community"]["fallback"] == "computed"
+    assert "missing" in out_missing["community"]["detail"]
+    assert out_duplicate["community"]["fallback"] == "computed"
+    assert "duplicate" in out_duplicate["community"]["detail"]
+
+
+def test_cmd_community_refuses_selection_above_pairwise_limit(tmp_path):
+    _community_vault(tmp_path)
+
+    with mock.patch.object(tropo, "_COMMUNITY_MAX_NODES", 2):
+        rc, out = _capture_rc(
+            tropo.cmd_community,
+            _community_args(),
+            res(str(tmp_path)),
+        )
+
+    assert rc == 1
+    assert out["community"]["status"] == "limited"
+    assert out["community"]["source"] == "none"
+    assert "2-node pairwise limit" in out["community"]["detail"]
+    assert out["communities"] == []
+    assert out["unclustered"] == []
 
 
 def test_cmd_query_vector_mode_falls_back_without_embedding_config(tmp_path):

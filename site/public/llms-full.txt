@@ -737,6 +737,8 @@ tropo [command] [paths...] [--lenient | --strict] [--json] [--quiet]
                 [--root DIR] [--config PATH] [--receipt PATH]
                 [--type TYPE] [--path GLOB] [--edge FIELD[:TARGET]]
                 [--snippet N] [--explain] [--mode text|vector|semantic] [--budget N]
+
+tropo community [--type TYPE] [--path GLOB] [--edge FIELD[:TARGET]] [--json]
 ```
 
 A document's **type is the folder it lives in** (`decisions/0001.md` → type
@@ -750,6 +752,7 @@ says. `tropo.toml` declares the types.
 | `types` | Print the resolved, merged type registry. |
 | `stats` | Document counts per type + a health summary. |
 | `graph [--json]` | Emit the typed graph: nodes (`id`,`type`,`path`) + edges (`from`,`field`,`to`,`broken`). |
+| `community [--type TYPE] [--path GLOB] [--edge FIELD[:TARGET]] [--json]` | Group typed nodes by opt-in local-vector similarity. Stable JSON reports communities as navigation leads with confidence, typed nodes, and relevant graph edges. The command performs no provider or network calls. |
 | `blast <id> [--depth N]` | The **blast radius** of `<id>`: everything that (transitively) refs it — what a change could touch. |
 | `view [graph \| blast <id>] [--out FILE]` | Render the graph (or one radius) as a single self-contained HTML file. `--out` must stay inside the tropo root, refuse symlink targets, and rewrite the workspace output path without mutating hard-linked files outside the workspace. |
 | `plan <change.toml>` | Simulate a change (remove/retype/break/add) and show the graph delta. |
@@ -824,6 +827,71 @@ Workspaces that enable local vectors without embedded storage still use computed
 graph-node vectors and report `vector.source: "computed"`. Without local vector
 config, `--mode vector` falls back to the normal typed text search.
 
+`tropo community --json` groups typed nodes by local-vector similarity. It uses the
+same explicit `[storage.embedding] provider = "local-hash"` policy as vector query.
+It prefers current embedded rows and recomputes vectors from the typed file graph when
+stored rows are unavailable, missing, malformed, or stale. The fallback does not call a
+provider or the network.
+
+The command compares each selected pair with a fixed `0.35` threshold. Use `--type`,
+`--path`, and `--edge` to narrow the input. Pairwise comparison stops when more than
+250 nodes pass the filters. Narrower input avoids an incomplete or misleading result.
+
+Stable JSON lists `communities` and `unclustered` nodes. Each community includes a
+stable id, confidence, typed node ids, types, paths, each node's strongest qualifying
+similarity, and typed graph edges whose endpoints are both in the community. The
+`notice` field states that communities are navigation leads for inspection. They do
+not replace the typed graph.
+
+Empty graphs return empty lists. A one-node graph returns that node under
+`unclustered`. Missing policy returns `community.status: "disabled"`. Invalid
+configuration or an input above the pairwise limit returns a nonzero exit code with a
+stable status and detail.
+
+A three-note typed dogfood vault produces this result excerpt:
+
+```json
+{
+  "notice": "Similarity communities are navigation leads for inspection, not graph truth.",
+  "communities": [
+    {
+      "id": "community-1d397906dc8e",
+      "confidence": 0.954368,
+      "nodes": [
+        {
+          "id": "auth-plan",
+          "type": "note",
+          "path": "notes/auth-plan.md",
+          "similarity": 0.954368
+        },
+        {
+          "id": "auth-review",
+          "type": "note",
+          "path": "notes/auth-review.md",
+          "similarity": 0.954368
+        }
+      ],
+      "graph_edges": [
+        {
+          "from": "auth-plan",
+          "field": "related",
+          "to": "auth-review",
+          "broken": false
+        }
+      ]
+    }
+  ],
+  "unclustered": [
+    {
+      "id": "garden",
+      "type": "note",
+      "path": "notes/garden.md",
+      "similarity": 0.0
+    }
+  ]
+}
+```
+
 `tropo query --mode semantic` is an optional-provider bridge: it requires
 `.vivary/memory.toml` to enable a supported semantic-memory provider, and today that
 means the separate `vivary-memory-cognee` package must be installed and indexed by
@@ -856,9 +924,9 @@ Useful retrieval flags:
 
 | Flag | Effect |
 |---|---|
-| `--type TYPE` | Restrict to a document type; repeat for multiple allowed types. |
-| `--path GLOB` | Restrict to path globs such as `decisions/*`; repeatable and slash-normalized for Windows paths. |
-| `--edge FIELD[:TARGET]` | Require an outbound graph edge field, optionally pointing at a target id. |
+| `--type TYPE` | Restrict query or community input to a document type. Repeat the flag for multiple types. |
+| `--path GLOB` | Restrict query or community input to path globs such as `decisions/*`. The flag is repeatable and slash-normalized for Windows paths. |
+| `--edge FIELD[:TARGET]` | Require an outbound graph edge field for query or community input. You can also name its target id. |
 | `--snippet N` | Include up to `N` snippet characters per result; `0` disables snippets. |
 | `--explain` | Include stable match reasons such as title/id, frontmatter, path, body, or edge context. |
 | `--mode text\|vector\|semantic` | `query` only: use dependency-free graph/text search, dependency-free local typed-vector search, or call the configured optional semantic-memory provider. |
@@ -873,6 +941,7 @@ tropo query "agent workspace" --edge affects:agent-workspace
 # Opt-in governed and vector paths:
 tropo find "where is release truth owned" --root . --governed --max-claims 12 --json
 tropo query "release truth" --mode vector --json
+tropo community --type decision --json
 tropo query "release truth" --mode semantic --json
 ```
 
