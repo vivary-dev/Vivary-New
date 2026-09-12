@@ -4,7 +4,7 @@ Parent: 06
 Status: in-progress
 Depends-on: [03c, 12h]
 Owner: Coordinating Codex, sole integration writer; independent boundary reviewer
-Scope: Finish the Workbench on feat/vivary-gui. First host a private Zo agent/file preview, then connect the remaining project workflows. Dev promotion requires Jeff's explicit product acceptance.
+Scope: Finish the Workbench on feat/vivary-gui. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Dev promotion requires Jeff's explicit product acceptance.
 Verification-kind: runtime
 Timebox: One coherent application increment per reviewed PR; use existing checks and the real application.
 
@@ -16,8 +16,10 @@ The local layout was shown; a working tool loop was not established there.
 The private Zo preview now passes actual Sonnet file creation/readback, a Fable
 follow-up, Opus cancellation, idle restart persistence, and active-run shutdown. It uses Native's
 Claude file tools, model selection, transcript history, and file inspection.
-Local no-signup access, hosted sign-in usability, and selected-project agent work
-are the next increments. Reuse the original Vivary context and authority owners.
+Self-hosted access opens without login or signup. Jeff explicitly prioritized
+local desktop delivery: Zo is the development/preview host, not a product
+dependency. The next increments are the local desktop entry point and
+selected-project agent work. Reuse the original Vivary context and authority owners.
 Test each completed capability through the normal app, fix failures, then move
 to the next product gap. Preserve prior failed evidence and budgets. No further
 merge into `dev` is authorized until Jeff explicitly accepts the product.

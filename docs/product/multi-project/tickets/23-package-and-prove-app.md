@@ -16,6 +16,14 @@ Program context: [design](../design.md), [migration](../migration.md), [release]
 
 Own app manifests, packaging, installers, artifact checks, and installed smoke fixtures. Read `release.md` and the existing Vivary release workflow. Pin dependencies through the repository's security process.
 
+## First desktop increment
+
+Jeff prioritized local desktop delivery on 2026-09-12. Prepare the desktop shell
+for the working agent surface during packet 06f. It must start its own local
+runtime, open without login or signup, keep files and state on the user's machine,
+and reuse their installed CLI model access. Zo is only the development/preview
+host. This bounded increment does not accept the full platform release matrix.
+
 ## Done condition
 
 Clean environments can install, open, upgrade, and remove the app as documented. Installed GUI and headless operations use the same contracts. Artifacts carry versions, licenses, and provenance.

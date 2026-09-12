@@ -9,13 +9,36 @@ The local preview was shown. Jeff then returned execution to Zo and authorized
 a private hosted GUI service and model trials on 2026-09-12. Preserve the local
 preview, Zo source, and existing evidence.
 Working components and passing tests do not establish a finished product.
-Jeff also confirmed local installation must not require signup, while hosted
+Vivary is a local desktop product. Zo is the current development and preview
+host, not a product dependency or a required deployment destination. Prioritize
+the installable desktop path from outcome 23 alongside the working agent slice.
+Users must be able to open Vivary and use their own local files and CLI models
+without a Vivary account, Zo account, or cloud control plane.
+Jeff confirmed self-hosted installation must not require login or signup. Private hosted
 access and model sign-in must work reliably. Reuse the original Vivary contracts
 and any relevant existing Paperclip integration; do not create a replacement
 agent system merely to connect the GUI.
 
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
+
+## Team and visual testing
+
+Jeff clarified on 2026-09-12: use up to three concurrent subagents as useful for
+implementation, research, independent review, and documentation. Keep one owner
+per shared file and coordinate through the primary agent. All implementation and
+runtime remain on Zo. Keep one heavy build, browser, or model job active at a time.
+
+Exercise completed UI flows extensively: real desktop and narrow layouts,
+keyboard interactions, empty/error states, navigation, persistence, and actual
+tool results. Fix a failure and repeat the affected journey. Then continue the
+product work. Do not turn visual testing into new verification infrastructure,
+repeat unrelated checks, or change historical evidence and budgets.
+
+Self-hosted Vivary does not require login or signup. Local access stays on loopback.
+The private Zo service uses Zo's existing owner-login boundary and must stay
+private. Internal Native session identity still scopes actions and records.
+Model-provider login remains separate from access to Vivary.
 
 ## Start with the product
 

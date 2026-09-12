@@ -1,101 +1,108 @@
 # Vivary Workbench
 
-This private application adds a GUI to the existing Vivary packages. Work stays
-on `feat/vivary-gui` until Jeff uses the product and approves promotion.
-The [program frontier](../../docs/product/multi-project/index.md) owns remaining
-work. Passing checks for one feature do not establish a finished product.
+Vivary is a local desktop product. The working GUI currently runs in a browser;
+desktop packaging is the next delivery increment under
+[outcome 23](../../docs/product/multi-project/tickets/23-package-and-prove-app.md).
+Zo is the current development and preview host, not a product dependency.
 
-## Current agent preview
+Work stays on `feat/vivary-gui` until Jeff uses the product and approves promotion.
+The [program frontier](../../docs/product/multi-project/index.md) owns remaining work.
+
+## Run locally from source
+
+Build with the pinned dependencies, then start the application:
+
+```console
+pnpm --dir packages/workbench build
+pnpm --dir packages/workbench start
+```
+
+Open the URL printed by the launcher. Local mode requires no Vivary login,
+signup, Zo account, paid auth service, or remote database. The server listens
+only on the numeric loopback address. A Native session is created internally so
+actions and saved runs retain their existing identity boundary.
+
+The default data directory is `~/.vivary/workbench`. It contains the local
+SQLite database, saved runs, workspace files, and a generated private session
+secret. The launcher preserves that secret across restarts. Keep this directory
+out of source control.
+
+```console
+node packages/workbench/bin/start.mjs --port 5173 --data-dir /path/to/data
+node packages/workbench/bin/start.mjs --workspace /path/to/workspace
+```
+
+The application uses the user's existing Claude Code installation and CLI login
+on the same computer. Model access is separate from opening Vivary. The current
+source launcher still requires Node 22.22.0 or newer and the built dependencies;
+it is not yet a standalone desktop installer.
+
+## Working agent surface
 
 The `/agent` route uses Agent-Native's Claude Code executor and conversation
-renderer. It supports messages, bounded conversation follow-ups, Sonnet/Opus/Fable
-selection, real tool events, Stop, saved run history, and a workspace file inspector.
+renderer. It supports messages, bounded follow-ups, Sonnet/Opus/Fable selection,
+real tool events, Stop, saved run history, and a workspace file inspector.
 The installed driver provides Read, Glob, Grep, Edit, and Write. Each invocation
 is a fresh CLI process with bounded prior user and assistant context.
 
-On Zo on 2026-09-12, the actual application passed:
-
-- Sonnet read the README, wrote a file, read it back, and displayed it in the GUI.
-- Fable continued the same conversation and changed the same file.
-- Opus produced a file-tool result; Stop settled its run to paused.
-- An idle service restart retained the Native session, run history, and file bytes.
-- Restart during a real file-tool run stopped it and retained a paused transcript.
-- Anonymous action access returned 401. The external service required Zo owner login.
-
-The checks used the existing CLI subscription, normal Native authentication, and
-the supervised production build. They did not use synthetic tool responses.
-Typechecking, the four focused agent/lifecycle tests, the build, and Native Doctor
-passed. The private handoff retains the browser results and earlier failed checks.
+On Zo on 2026-09-12, the real production app passed Sonnet file creation/readback,
+a Fable follow-up on that file, Opus cancellation after a tool result, and both
+idle and active-run restart checks. Native records and file bytes persisted.
+The private handoff preserves those results and earlier failed checks.
 
 Runs are limited to two minutes. The inspector lists Markdown, text, and JSON
 files up to 64 KiB. Shell execution, selected-project agent work, the multi-agent
-factory workflow, and multi-user workspace isolation are unfinished.
-The current GUI is a single-owner preview.
+factory workflow, and the full installed-platform matrix remain unfinished.
+The current GUI has one local owner.
 
-## Run the private hosted preview
+## Development preview
 
-Build with the pinned dependencies, then run `bin/serve-preview.sh` with `PORT`
-and a private `VIVARY_DATA_DIR`. That directory must contain `auth-secret`,
-`auth.sqlite`, `code-runs/`, and `workspace/`. Keep runtime data and secrets out
-of Git. The auth secret is generated once and readable only by the service owner.
+The optional `bin/serve-preview.sh` launcher serves the same app through the
+existing private Zo proxy. It requires `PORT`, a persistent `VIVARY_DATA_DIR`,
+the exact external HTTPS `APP_URL`, and
+`VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private. This mode also
+opens without a Vivary login or signup; Zo's existing access boundary applies
+only to that development preview.
 
 Run one supervised production Node process with process-group termination.
-Shutdown stops active runs. Startup reconciles interrupted records before
-accepting another message. Do not use a development server or cluster for this
-hosted preview.
-
-The present hosted setup combines Zo owner-only access with Native sign-in.
-Email verification is skipped for the private preview. Do not expose this setup
-publicly: all code and file actions currently share one owner's workspace.
-
-SQLite and workspace files live in persistent Zo storage. Native still displays
-its production-local-database warning. Multi-instance storage and project-root
-recovery remain unfinished; the single-process restart check does not accept them.
-
-The installable local application must open without signup or a Vivary account.
-Hosted access and coding-provider sign-in have separate responsibilities.
-Use the user's existing runtime subscriptions; do not require a paid auth
-service or a separate model API key for the CLI path. Local setup and hosted
-sign-in usability are the next access increment.
+Shutdown stops active runs; startup reconciles interrupted records before
+accepting another message. SQLite and workspace files stay in persistent local
+storage. The supported configuration declares that a remote database is not
+required. Multi-instance deployment and project-root recovery are unfinished.
 
 ## Existing project services
 
-The preserved Workbench implementation is included beside the new preview.
-Normal startup can mount its registry, catalog, readiness, and activity services
+The preserved Workbench implementation is included beside the agent surface.
+Normal startup mounts its registry, catalog, readiness, and activity services
 through `server/plugins/01-project-services.mjs`.
 
 A server-owned `VIVARY_PROJECT_INSTALLATION_FILE` configures the Python executable,
 Core stdio provider, allowed location references, and an existing Native
 organization grant. Browser requests supply location references, never executable
 paths or installation authority. Missing configuration returns an unavailable
-state. The project service does not grant model or write authority by itself.
+state. This setup is not yet connected to the agent's workspace selection.
 
-The preserved private source at commit `1d1018c` records the original configuration
-example and accepted project-registration checks. This hosted preview does not
-yet connect that project selection to the agent. Root recovery must use Core's
-custody contracts before a saved project can regain access after restart.
-
-Reuse the existing Core, Tropo, Strato, Ozone, Exo, and create-vivary implementations
-when connecting the GUI. Agent-Native retains session, transcript, action, and
-connection ownership. Check any existing Paperclip integration before replacing
-it; Paperclip is not a new required dependency merely because its old service slot
-was reused.
+Reuse Core, Tropo, Strato, Ozone, Exo, and create-vivary when connecting the GUI.
+Agent-Native retains session, transcript, action, and connection ownership.
+Paperclip is not a required dependency merely because its former service slot
+was reused for development.
 
 ## Source and checks
 
 `source-provenance.json` records the historical Littleagent shell capture.
-Later changes are recorded in Git. The private source checkpoint preserves the
-original implementation and evidence; public publication review remains separate.
+Later changes are recorded in Git. Private history and evidence remain separate
+from public publication review.
 
-Use Node 22.22.0 or newer and the pinned package dependencies:
+From this package directory:
 
 ```console
 pnpm typecheck
 node --test tests/local-code-agent.test.ts tests/code-host-lifecycle.test.ts
+node --test tests/local-access.test.ts tests/startup.test.mjs
 pnpm test:project-services
 pnpm build
 pnpm doctor
 ```
 
 The retained `/workbench` and `/chat` routes are unfinished project integration
-surfaces. The preview navigation exposes the working agent route.
+surfaces. Navigation exposes the working agent route.

@@ -20,6 +20,16 @@ Implementation proceeds through the bounded packets in the generated graph. Harn
 
 No model, storage vendor, hosting plan, default runtime, or payment service is selected by this document. Earlier Littleagent implementation authority remains relevant to compatible work after the changed contracts are reconciled. Planning authority does not establish implementation or publication evidence.
 
+## Local desktop delivery decision: 2026-09-12
+
+Jeff reiterated that Vivary must run on people's own computers and asked to move
+the desktop application forward now. Zo remains the authorized development and
+preview environment; it is not the product's required host. Deliver a local
+desktop window, local runtime and files, and existing local CLI model access
+without a Vivary or Zo account. Outcome 23 owns packaging and platform acceptance.
+Its broader release dependencies do not block a bounded desktop increment for
+the already working agent surface. Hosted preview work must not delay that path.
+
 ## Local access and original-system decision: 2026-09-12
 
 Jeff requested completion of the open issues using the original Vivary logic or
@@ -27,12 +37,18 @@ its existing system contracts. Reuse working packages and Native integrations
 before adding new orchestration. Check existing Paperclip use and retain a useful
 integration if one exists; this does not make Paperclip mandatory.
 
-An installable local application must open without signup or a Vivary account.
-Keep that access limited to the local machine. Hosted instances need reliable
-access control. Coding-provider sign-in remains separate and should reuse the
-user's existing CLI subscription. A paid authentication service is not required.
-The private Zo preview is the active development surface; promotion to dev still
-requires Jeff's explicit product acceptance.
+Jeff clarified later on 2026-09-12 that self-hosted Vivary must open without
+login or signup, including the private Zo instance. Local access stays on loopback. Zo's
+existing owner-login boundary controls remote access; the service must remain
+private. Internal Native identity and action scoping remain active without a
+second user account. Coding-provider sign-in is separate and reuses the user's
+existing CLI subscription. A paid authentication service is not required.
+
+Use up to three subagents as needed and make broad real visual/UI testing part
+of normal delivery. Repair failures, repeat the affected journey, and continue
+implementation without expanding verification machinery. The private Zo preview
+is the active development surface. Promotion to dev still requires Jeff's
+explicit product acceptance.
 
 ## Execution decision: 2026-09-05
 
