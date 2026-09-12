@@ -1215,3 +1215,162 @@ checkpoint. Do not repeat preparation.
 Browser acceptance, default production action mounting/authentication, and
 persistent-workspace custody remain open. The fixture still uses private tmpfs
 roots and the accepted build.
+
+## C5 Browser06 final-state failure, 2026-09-12
+
+Browser06 ran committed revision06 source `d1c09ea12c415c8aeebbfb2ad360a1c61b73e61a`.
+All six root-page scenario assertions passed: no selection, exact Alpha activity
+and expanded input/artifact, unavailable Beta activity, late Alpha delivery,
+replacement activity, and role revocation with Refresh. The source-path counters
+comparison also passed before the final root immutable-state comparison failed.
+The expected digest was `71ce5a1a2899df199ce4b456034ebaae7b96f4c65a9567e280cbf37c8e67397d`.
+The observed digest was `6762966a9bc25f6f3d9793ecfa69e96286e3bb4a47a8f974365c3802f1137ff3`.
+The following diagnosis identifies the exact difference.
+
+The browser retained one Alpha screenshot and one completed adversarial
+late-delivery probe. It recorded 117 requests: 110 finished and seven aborted
+during selection changes. It recorded no external-origin, WebSocket, EventSource,
+or page-error events. It did not reach `/workbench` or the independent
+`/chat` check. Raw final counters, the final Native snapshot, and backend
+shutdown witnesses are absent. The screenshot also shows a configuration-error
+toast. The following diagnosis records its source-derived cause. These partial results do not
+accept C5 or establish a clean final state.
+
+The attempt charged 70.05210709999665 seconds. The six attempts total
+299.03402556999936 of the original 365 seconds, leaving 65.96597443000064.
+All 257 samples remained within the profile: peak aggregate RSS was
+5,740,187,648 bytes, peak task count was 165, and the maximum observer gap was
+0.28050958400126547 seconds. Both frozen full-tree assertions preceded Node
+execution. This review used that execution path and retained bindings. It did
+not independently rescan the trees.
+
+The runner forcibly killed backend Node and Xvfb. Browser natural closure was
+false. The supervisor sent no signals. Independent Verify confirmed all 23
+saved process identities, including the supervisor, are absent. This containment does not provide passing lifecycle evidence.
+
+The retained archive `.tmp/06e/browser-06-failed-evidence.zip` is 6,223,084 bytes,
+SHA-256 `b74a65e0d1cb8e5269979d15b71d2e47d964d4e8bf729b42e5621ffb6d43fa17`.
+Independent verification passed CRC, safe exact membership, all 41 payload
+hashes, 35 retained-file matches, five committed-source/freeze matches, and all
+15 prior evidence pins. Payload bytes total 12,021,400 before the manifest.
+
+- Result: `69468c85dedf132781609d85f93a35acddef0ad2295ebeff63b7c913d48af1e8`.
+- Ledger: `208eb657469509646468a0edc1c2b9cb12946d8b985c97651d308b914fb1a6e5`.
+- Browser result: `4bc51fcd550f1ac1ff629fae861ced55c8484766a26ad4e1308c9b44aaada157`.
+
+The archive preserves all five earlier failure archives. No previous preparation,
+attempt, or budget is reset. A corrected retry needs a diagnosed cause, reviewed
+source, exact preparation, and fresh independent resource admission within the
+original remainder.
+
+## C5 Browser06 diagnosis and revision07 Plan amendment, 2026-09-12
+
+Independent QA reconstructed the final normalized database from its retained
+database and WAL bytes. It tested all 31 nonempty subsets of the five candidate
+tables. Removing only all five reproduces the original expected digest, with
+no row change after the declared selection/sync-event normalization:
+
+- `integration_pending_tasks`: 17 columns, no rows.
+- `integration_a2a_continuations`: 26 columns, no rows.
+- `integration_remote_commands`: 25 columns, no rows.
+- `integration_remote_push_registrations`: 13 columns, no rows.
+- `integration_remote_push_notifications`: 13 columns, no rows.
+
+Native's delayed integration maintenance initializes these stores. The private
+diagnosis `.tmp/06e/browser-06-state-diagnosis.json` is 18,918 bytes, SHA-256
+`0988cde014b3f3bda7c5003876b6bac21eaf9408749bca9a404aa357810ee238`.
+It preserves raw input pins, exact schemas, WAL handling, all subset checks,
+source identities, and the timing/configuration evidence limits. Retained input
+hashes matched after readback.
+
+The catalog request gap was 30,028 milliseconds. Window focus triggered an
+authentication read, while the catalog's interval caused eventual replacement.
+Query Core's focus manager listens for visibility changes. Browser06 therefore
+proves eventual replacement within a failed run, not focus causation.
+
+Root amended the Plan to use the existing **Refresh projects** control for the
+canonical reference-replacement criterion. Independent QA confirmed its
+production catalog-refetch path and required prompt correlated catalog,
+readiness, and activity requests, exact replacement identity/content, and no
+selection writes or unrelated state changes. The amendment preserves all 13
+checks and makes no window-focus claim. Source QA and fresh admission remain
+required.
+
+Pinned configuration source predicts the visible toast's single issue:
+`local-database-in-production` for the fixture's required file database.
+Browser06 retained neither the ping body nor expanded toast, so this explanation
+is source-derived. Revision07 must retain the diagnostic response and preserve
+the warning.
+
+## C5 revision07 source freeze, 2026-09-12
+
+The backend awaits four pinned Native maintenance functions before the original
+baseline. They must return no work and create exactly the five expected empty
+schemas. Every later immutable comparison includes those tables.
+
+Reference replacement now uses the real **Refresh projects** control. The
+five-second window requires exactly one new catalog, readiness, and activity
+request with exact claims and replacement identity. It rejects selection writes
+and the original activity/artifact. A recent completed catalog read excludes
+the 30-second polling fallback. The run makes no window-focus claim.
+
+The backend captures each existing configuration ping in an exclusive mode-0600
+sidecar before validation. It records the actual bounded body, request identity,
+status, length, and hash. Those bytes survive validator failure or backend
+termination. The validator accepts only Native's expected
+`local-database-in-production` issue for the fixture database. It preserves the
+visible warning and requires one diagnostic from each named document window.
+
+Independent QA accepted all five source files through complete source relayed
+from Zo. Root verified the physical hashes because the reviewer's Zo tools were
+unavailable. The implementation's syntax checks and the proof tools' compilation,
+inspection, authority checks, and supervisor self-test passed. This is source
+acceptance. It does not accept browser behavior or admit runtime.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `6181d4a026f8bc0270b031dcb83b202e07d1330efa75d4bc68d906b7e7a20290` |
+| c5_browser.mjs | `a65aaf5ecc573cdf9ed41a6a1ed172489581ced0b3620ec687b8ca8978702b3c` |
+| c5_browser_runner.mjs | `e18fcc8e8e054ee6eee359f1bfcd14c5d3a3a5a0234457da753b3293fbfda015` |
+| prepare_zo_browser.py | `e52d8dfa988213208134cfbe6e07d995763b254f1b130279d4992cdfe876e6f9` |
+| zo_browser_supervisor.py | `7f3e9243731b2a6840c77c2766010ea85ac9537e12a08464138edd83666c1b73` |
+
+Preparation completed once with 368 source entries and 11 tool entries. It binds
+80 app inputs, 212 build outputs, 43 Core Python files, 12 fixture/evaluator/Native
+initializer files, all 18 prior artifacts, the budget authority, and both tree
+records. The dependency and Chromium tree digests and counts match the previous
+freeze. Runtime must still perform both full tree scans before Node starts.
+
+| Frozen authority | SHA-256 |
+| --- | --- |
+| Source manifest | `5c9b88c79d02594b3f199f9de1e43823ecd645d5a212e02d593518d5ebafd015` |
+| Source binding | `960ce4084e21e0365e35db6424081f14e4ce9127129b846b34c65526a099207c` |
+| Profile | `3e6faef44efb81fa07b3d720dde45f17aebc0fa8d25acc195888dc4e52dd1d7b` |
+| Budget authority | `421239e6da2bbc52d36f04d7d8f0108c0d5e105a49c79313771e8276b0dd720b` |
+
+All six earlier charges total 299.03402556999936 seconds. One `browser-07`
+attempt in `.tmp/06e/zo-browser-r7` may use 60 execution seconds and five cleanup
+seconds, after fresh independent admission. Maximum combined use is
+364.03402556999936 of the original 365 seconds. Runtime fit remains an estimate.
+No preparation, prior charge, failed evidence, resource bound, or isolation
+requirement is reset.
+
+Full C5 browser acceptance, default production mounting/authentication,
+persistent-workspace custody, and the parent's switching/draft conditions remain
+open. Full chat retains its independent accepted 05b evidence.
+
+Independent Verify then admitted this exact preparation. It rehashed all 379
+physical bindings, including the four Native initializer files and all 18 prior
+artifacts. It independently confirmed 104 browser and 18 focused-test process
+identities absent. The new ledger is empty and no browser attempt has started.
+
+Fresh admission observed 134,861,230,080 available memory bytes, zero swap,
+548,745,191,424 free disk bytes, and CPUs 0 through 3. Included weekly usage was
+4% from the root's current account reading. Five-hour usage and commit headroom
+remain unknown. The reviewer compared the prepared tree records without another
+full scan. Both full boundary scans remain mandatory before Node starts.
+
+Admission record: `.tmp/06e/c5-r7-runtime-admission.json`, SHA-256
+`e2a49577e640b2bf5f4037b48132261664d640bba274307d67429e1b1c528c5b`.
+The record admits at most the existing 60-second execution and five-second cleanup
+allocation. It does not accept browser results.

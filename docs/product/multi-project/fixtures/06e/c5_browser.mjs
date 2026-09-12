@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { disablePlaywrightFocusEmulation } from "../05b/gui_display.mjs";
 
 const [inputPath] = process.argv.slice(2);
 assert.ok(inputPath);
@@ -36,6 +35,7 @@ const screenshots = [];
 const transportProbes = [];
 const bootstrapCompletions = [];
 const PROBE_DEADLINE_MILLISECONDS = 20_000;
+const REFRESH_DEADLINE_MILLISECONDS = 5_000;
 const COMPLETED_META_KEYS = [
   "ordinal", "window", "category", "method", "path", "requestBytes",
   "requestSha256", "responseStatus", "responseBytes", "responseSha256", "completedAt",
@@ -172,16 +172,18 @@ async function selectProject(page, name, deadlineAt) {
   return body;
 }
 
-async function waitForActivity(page, kind) {
+async function waitForActivity(page, kind, deadlineAt) {
+  const timeout = deadlineTimeout(deadlineAt, `${kind} activity render`);
+  const waitOptions = timeout === undefined ? {} : { timeout };
   const other = kind === "original" ? "replacement" : "original";
   const resultText = `C5 Alpha ${kind} tool result`;
-  await page.getByText(`C5 Alpha ${kind} activity`, { exact: true }).waitFor();
+  await page.getByText(`C5 Alpha ${kind} activity`, { exact: true }).waitFor(waitOptions);
   const card = page.locator("details.agent-conversation-tool")
     .filter({ hasText: "Read file" }).first();
   const summary = card.locator("summary");
-  await summary.waitFor();
+  await summary.waitFor(waitOptions);
   const input = card.locator(".agent-conversation-tool__details > pre");
-  await input.waitFor({ state: "attached" });
+  await input.waitFor({ state: "attached", ...waitOptions });
   assert.equal(await input.count(), 1);
   assert.equal(await input.locator("strong").textContent(), "input");
   assert.equal(await input.textContent(), 'input{\n  "path": "proof.txt"\n}');
@@ -189,13 +191,13 @@ async function waitForActivity(page, kind) {
   assert.ok(openAttribute === null || openAttribute === "");
   if (openAttribute === null) {
     assert.equal(await card.evaluate(element => element.open), false);
-    await summary.click();
+    await summary.click(waitOptions);
   }
   assert.equal(await card.getAttribute("open"), "");
   assert.equal(await card.evaluate(element => element.open), true);
-  await input.waitFor();
+  await input.waitFor(waitOptions);
   const result = page.locator(".agent-conversation-artifact").filter({ hasText: resultText });
-  await result.waitFor();
+  await result.waitFor(waitOptions);
   assert.equal(await result.count(), 1);
   assert.equal(await result.locator("span").textContent(), resultText);
   assert.equal(await page.getByText(`C5 Alpha ${other} activity`, { exact: true }).count(), 0);
@@ -203,8 +205,8 @@ async function waitForActivity(page, kind) {
     .filter({ hasText: `C5 Alpha ${other} tool result` }).count(), 0);
 }
 
-const waitForOriginal = page => waitForActivity(page, "original");
-const waitForReplacement = page => waitForActivity(page, "replacement");
+const waitForOriginal = (page, deadlineAt) => waitForActivity(page, "original", deadlineAt);
+const waitForReplacement = (page, deadlineAt) => waitForActivity(page, "replacement", deadlineAt);
 
 async function assertNoComposer(page) {
   assert.equal(await page.locator("textarea").count(), 0);
@@ -230,12 +232,12 @@ function originalClaims() {
   };
 }
 
-function originalActivityIdentity() {
-  const original = identityEvidence.seededRuns.original;
-  const reference = original.reference;
-  assert.equal(original.threadId, reference.nativeThreadId);
-  assert.equal(original.sessionId, reference.nativeSessionId);
-  assert.equal(original.runId, reference.nativeRunId);
+function activityIdentity(kind) {
+  const seeded = identityEvidence.seededRuns[kind];
+  const reference = seeded.reference;
+  assert.equal(seeded.threadId, reference.nativeThreadId);
+  assert.equal(seeded.sessionId, reference.nativeSessionId);
+  assert.equal(seeded.runId, reference.nativeRunId);
   return {
     code: "activity",
     projectId: fixtureIds.alpha.projectId,
@@ -252,18 +254,25 @@ function originalActivityIdentity() {
   };
 }
 
-function assertOriginalActivityBody(body) {
+const originalActivityIdentity = () => activityIdentity("original");
+
+function assertActivityBody(body, kind) {
+  const other = kind === "original" ? "replacement" : "original";
   assert.deepEqual(Object.keys(body).sort(), [
     "code", "projectId", "scopeKey", "bindingRevision", "policyRevision",
     "referenceRevision", "nativeThreadId", "nativeScope", "nativeRunId", "items",
   ].sort());
   const { items, ...identity } = body;
-  assert.deepEqual(identity, originalActivityIdentity());
+  assert.deepEqual(identity, activityIdentity(kind));
   assert.ok(Array.isArray(items) && items.length > 0);
   const serialized = JSON.stringify(items);
-  assert.ok(serialized.includes("C5 Alpha original activity"));
-  assert.ok(serialized.includes("C5 Alpha original tool result"));
+  assert.ok(serialized.includes(`C5 Alpha ${kind} activity`));
+  assert.ok(serialized.includes(`C5 Alpha ${kind} tool result`));
+  assert.equal(serialized.includes(`C5 Alpha ${other} activity`), false);
+  assert.equal(serialized.includes(`C5 Alpha ${other} tool result`), false);
 }
+
+const assertOriginalActivityBody = body => assertActivityBody(body, "original");
 
 async function waitForBootstrapDrain(page, startOrdinal, label) {
   assert.equal(page.isClosed(), false);
@@ -451,17 +460,101 @@ async function runRoute(page, routePath, label) {
 
     await selectProject(page, "Alpha");
     await waitForOriginal(page);
+    const beforeReplacement = (await control(
+      { action: "snapshot", label: `${label}-before-reference-replacement` },
+    )).snapshot;
+    const preRefreshDrain = await control({ action: "drain" });
+    assert.deepEqual(preRefreshDrain, {
+      id: preRefreshDrain.id,
+      drained: true,
+      pendingRequests: 0,
+    });
     await control({ action: "replace-reference" });
-    await disablePlaywrightFocusEmulation(context, page);
-    const otherPage = await context.newPage();
-    await disablePlaywrightFocusEmulation(context, otherPage);
-    await otherPage.goto("about:blank");
-    await otherPage.bringToFront();
-    await page.waitForTimeout(100);
-    await page.bringToFront();
-    await waitForReplacement(page);
-    await otherPage.close();
-    recordCheck(label, "focus refetch renders only the preseeded replacement reference");
+    const priorCatalog = requestLifecycle.findLast(item =>
+      item.method === "GET" && item.path === "/_agent-native/actions/vivary-project-catalog");
+    assert.ok(priorCatalog?.terminal?.kind === "finished");
+    const refreshRequestStart = requestLifecycle.length;
+    const refreshStartedAt = Date.now();
+    assert.ok(refreshStartedAt - priorCatalog.terminal.at < REFRESH_DEADLINE_MILLISECONDS);
+    const refreshDeadlineAt = refreshStartedAt + REFRESH_DEADLINE_MILLISECONDS;
+    const refreshClaims = originalClaims();
+    const matchesClaimResponse = (response, pathname) => {
+      const url = new URL(response.url());
+      return response.request().method() === "GET"
+        && url.pathname === pathname
+        && [...url.searchParams.keys()].length === 4
+        && url.searchParams.getAll("projectId").length === 1
+        && url.searchParams.getAll("expectedBindingRevision").length === 1
+        && url.searchParams.getAll("expectedPolicyRevision").length === 1
+        && url.searchParams.getAll("scopeKey").length === 1
+        && url.searchParams.get("projectId") === refreshClaims.projectId
+        && url.searchParams.get("expectedBindingRevision") === String(refreshClaims.expectedBindingRevision)
+        && url.searchParams.get("expectedPolicyRevision") === String(refreshClaims.expectedPolicyRevision)
+        && url.searchParams.get("scopeKey") === refreshClaims.scopeKey;
+    };
+    const catalogResponse = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return response.request().method() === "GET"
+        && url.pathname === "/_agent-native/actions/vivary-project-catalog"
+        && url.search === "";
+    }, { timeout: deadlineTimeout(refreshDeadlineAt, "manual catalog refresh") });
+    const readinessResponse = page.waitForResponse(response => matchesClaimResponse(
+      response,
+      "/_agent-native/actions/vivary-project-runtime-readiness",
+    ), { timeout: deadlineTimeout(refreshDeadlineAt, "manual readiness refresh") });
+    const activityResponse = page.waitForResponse(response => matchesClaimResponse(
+      response,
+      "/_agent-native/actions/vivary-project-runtime-activity",
+    ), { timeout: deadlineTimeout(refreshDeadlineAt, "manual activity refresh") });
+    await page.getByRole("button", { name: "Refresh projects", exact: true }).click({
+      timeout: deadlineTimeout(refreshDeadlineAt, "manual Refresh projects click"),
+    });
+    const [catalogRefreshed, readinessRefreshed, activityRefreshed] = await Promise.all([
+      catalogResponse,
+      readinessResponse,
+      activityResponse,
+    ]);
+    assert.equal(catalogRefreshed.status(), 200);
+    assert.equal(readinessRefreshed.status(), 200);
+    assert.equal(activityRefreshed.status(), 200);
+    assertActivityBody(await activityRefreshed.json(), "replacement");
+    await waitForReplacement(page, refreshDeadlineAt);
+    while (requestLifecycle.slice(refreshRequestStart).some(item => item.terminal === null)) {
+      await page.waitForTimeout(Math.min(10,
+        deadlineTimeout(refreshDeadlineAt, "manual refresh request completion")));
+    }
+    const refreshRequests = requestLifecycle.slice(refreshRequestStart);
+    const exactRefreshPath = "/_agent-native/actions/vivary-project-catalog";
+    assert.equal(refreshRequests.filter(item => item.method === "GET"
+      && item.path === exactRefreshPath).length, 1);
+    assert.equal(refreshRequests.filter(item => item.method === "GET"
+      && item.path.startsWith("/_agent-native/actions/vivary-project-runtime-readiness?")).length, 1);
+    assert.equal(refreshRequests.filter(item => item.method === "GET"
+      && item.path.startsWith("/_agent-native/actions/vivary-project-runtime-activity?")).length, 1);
+    assert.ok(refreshRequests.every(item => item.startedAt >= refreshStartedAt
+      && item.responseStatus === 200 && item.terminal?.kind === "finished"));
+    assert.equal(refreshRequests.some(item => item.method !== "GET"), false);
+    const refreshCompletedAt = Math.max(...refreshRequests.map(item => item.terminal.at));
+    assert.ok(refreshCompletedAt <= refreshDeadlineAt);
+    const afterReplacement = (await control(
+      { action: "snapshot", label: `${label}-after-manual-reference-refresh` },
+      refreshDeadlineAt,
+    )).snapshot;
+    const backendRefreshRequests = afterReplacement.requests.slice(beforeReplacement.requests.length);
+    assert.equal(backendRefreshRequests.filter(item => item.category === "catalog").length, 1);
+    assert.equal(backendRefreshRequests.filter(item => item.category === "readiness").length, 1);
+    const backendReplacementActivity = backendRefreshRequests.filter(item => item.category === "activity");
+    assert.equal(backendReplacementActivity.length, 1);
+    assert.deepEqual(backendReplacementActivity[0].activityIdentity, activityIdentity("replacement"));
+    assert.equal(backendRefreshRequests.some(item => item.category === "selection-write"), false);
+    recordCheck(label, "manual Refresh projects renders only the preseeded replacement reference", {
+      refreshStartedAt,
+      refreshCompletedAt,
+      durationMilliseconds: refreshCompletedAt - refreshStartedAt,
+      browserRequestOrdinals: refreshRequests.map(item => item.ordinal),
+      nativeRunId: identityEvidence.seededRuns.replacement.runId,
+      referenceRevision: identityEvidence.seededRuns.replacement.reference.referenceRevision,
+    });
 
     const beforeRevocation = (await control({ action: "snapshot", label: `${label}-before-revocation` })).snapshot;
     await control({ action: "revoke-role" });

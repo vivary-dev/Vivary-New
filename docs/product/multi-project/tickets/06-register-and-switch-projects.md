@@ -22,18 +22,19 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-Five browser attempts remain unaccepted. Browser05 passed the original baseline
-and root no-selection check, then timed out on the tool-result visibility
-assertion. Its Alpha requests returned 200. All failures and charges remain
-retained.
+Six browser attempts remain unaccepted. Browser06 passed all six root-page
+scenarios, then failed the final immutable-state comparison. It did not reach
+`/workbench` or `/chat`. Its archive passed independent verification, and all 23
+saved process identities are absent after forced cleanup. All failures and
+charges remain retained.
 
-**Accepted source:** Revision06 passed independent source QA and its one
-preparation is complete. It corrects Native tool/artifact assertions and
-initializes the empty local secret store before the original baseline.
+**Accepted source:** Revision07 passed independent semantic QA and completed one
+preparation. Root verified the reviewed physical hashes.
 
-**Remaining:** Independently verify the prepared inputs and fresh resources before
-the bounded browser execution. Workbench browser acceptance,
-configured production action mounting, and this outcome's switching and draft-preservation
+**Remaining:** Independent admission passed. Execute and review the single
+bounded browser attempt after committing the reviewed candidate to Entire. Only 65.96597443000064 seconds remain in
+the original 365-second allocation. Workbench browser acceptance, configured
+production action mounting, and this outcome's switching and draft-preservation
 conditions remain open. Full chat is independently owned by accepted 05b. The
 [06e packet](../packets/06e-project-selection.md) owns the next bounded unit.
 

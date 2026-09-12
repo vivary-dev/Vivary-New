@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. Five attempts consumed 228.9819184700027 seconds combined. Revision06 may use at most 136 seconds: 131 execution plus five cleanup. The remaining 0.01808152999728918 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. Six attempts consumed 299.03402556999936 seconds combined. Revision07 may allocate at most 65 seconds: 60 execution plus five cleanup, after source review and fresh admission. The remaining 0.9659744300006423 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -38,39 +38,22 @@ mutant wrapper accepted only the expected remount assertion failure. The retaine
 archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Browser setup remains unaccepted:** Browser01 failed on unsupported fixture
-storage and missing fixture auth configuration. Browser02 passed those corrected
-steps, then failed because its empty-state assertion did not match Native's
-batch response. Both attempts and their source are retained. No browser or model
-activity started; Browser02 seeded the two declared synthetic runs.
-
-Browser03 launched Chromium but stopped during the first route's bootstrap. Its
-locale write also produced Native's sync-event row, which the fixture incorrectly
-rejected. No scenario, screenshot, or late-delivery probe completed. Final
-counter and state witnesses are absent, so this run cannot establish zero model
-calls or unchanged Native records. Forced cleanup removed all owned processes.
-
-Browser04 passed its paired locale-write witness and drained all 85 bootstrap
-requests with status 200. It then rejected the difference between the pre-route
-immutable-state hash and the original setup baseline. No C5 scenario completed.
-Its failure archive passed independent review, and all 22 saved process identities
+**Browser acceptance remains open:** The archive preserves six attempts and their actual
+charges. Browser06 passed all six root-page scenarios, then failed the final
+immutable-state comparison. It did not reach `/workbench` or `/chat`. Independent
+Verify accepted its failure archive and confirmed all 23 saved process identities
 are absent after forced cleanup.
 
-Browser05 passed the original baseline checks and the root no-selection scenario.
-Alpha selection, readiness, and activity returned 200. The browser then timed out
-waiting for the visible tool result. All 92 requests settled. The failure archive
-passed independent review, and all 22 saved process identities are absent after
-forced cleanup. Full browser acceptance remains open.
+**Accepted source:** Independent semantic QA approved all five revision07 files
+using source relayed from Zo. Root verified their physical hashes because the
+reviewer's Zo tools were unavailable. Preparation completed once with 368 source
+entries and 11 tool entries.
 
-**Accepted source:** Independent QA approved all five final revision06 files.
-The browser checks Native's separate input card and artifact result. The backend
-also initializes the empty local secret store before the original baseline.
-Preparation completed once with 361 source entries and 11 tool entries.
-
-**Next:** Independently verify that existing freeze and fresh resources, then
-dispatch the single bounded attempt. Preserve all five failures and the original
-remaining budget. Do not repeat any preparation or rebuild unchanged product code.
-Production mounting/authentication and parent switching/draft gates remain open.
+**Next:** Independent admission passed for the prepared bindings and fresh
+resources. Commit the reviewed candidate, verify it on Entire, and dispatch the
+single bounded attempt. Preserve all six failures and the original remaining
+budget. Do not repeat preparation. Production mounting/authentication and parent
+switching/draft gates remain open.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -374,6 +357,42 @@ seconds and five cleanup seconds from the original remainder. Bind all five
 prior charges and all 15 ledger, result, and archive artifacts. Maximum combined
 use is 364.9819184700027 of the original 365 seconds. Keep all other source,
 resource, isolation, preparation, admission, and cleanup requirements.
+
+## C5 browser revision07: settled maintenance and manual refresh
+
+Independent QA reconstructed Browser06's final database and WAL. Exactly five
+new empty integration tables explain the original-baseline difference. The
+revision must await Native's supported local maintenance-store initialization
+before the original baseline. Verify the exact empty schemas and no other
+change. Keep all five tables fully covered by every later immutable comparison.
+Do not reset the baseline after browser activity or exempt these tables.
+
+The retained replacement appeared on the 30-second catalog poll. The earlier
+window-focus stimulus did not prove focus-triggered refetch. Root amends the
+Plan's trigger to the existing **Refresh projects** control. Independent QA
+confirmed that this covers the canonical replacement-reference criterion
+through the same production catalog refetch path. It does not establish
+window-focus behavior.
+
+After replacing the trusted reference, click the real control. Record the
+pre-click request state and timing, then require new catalog, readiness, and
+activity requests to complete promptly, before an interval poll could account
+for them. Require the exact replacement reference/run and activity/artifact,
+with the original activity and artifact absent. Keep selection-write, Native
+state, and request-boundary checks. Preserve all 13 scenario checks and label
+this one manual refresh. Do not alter clocks, query caches, or Native polling.
+
+Retain and verify the configuration diagnostic from the permitted ping read.
+The fixture's file database in production mode explains Native's expected
+local-database diagnostic by source inspection. Do not hide the warning or
+silence other configuration issues.
+
+One reviewed `browser-07` attempt in `.tmp/06e/zo-browser-r7` may reserve 60
+execution seconds and five cleanup seconds. Bind all six prior charges and all
+18 ledger/result/archive artifacts. Maximum combined use is
+364.03402556999936 of the original 365 seconds. Removing the poll wait may allow
+the full run to fit; this is an estimate, not runtime evidence. Keep every
+source, resource, isolation, preparation, admission, and cleanup requirement.
 
 ## Historical Habitat continuation
 

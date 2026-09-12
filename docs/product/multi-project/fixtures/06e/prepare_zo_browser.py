@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[5]
-BASE = ROOT / ".tmp/06e/zo-browser-r6"
+BASE = ROOT / ".tmp/06e/zo-browser-r7"
 R1_BASE = ROOT / ".tmp/06e/zo-browser"
 R1_LEDGER = R1_BASE / "budget.json"
 R1_RESULT = R1_BASE / "browser-01/result.json"
@@ -30,6 +30,10 @@ R5_BASE = ROOT / ".tmp/06e/zo-browser-r5"
 R5_LEDGER = R5_BASE / "budget.json"
 R5_RESULT = R5_BASE / "browser-05/result.json"
 R5_ARCHIVE = ROOT / ".tmp/06e/browser-05-failed-evidence.zip"
+R6_BASE = ROOT / ".tmp/06e/zo-browser-r6"
+R6_LEDGER = R6_BASE / "budget.json"
+R6_RESULT = R6_BASE / "browser-06/result.json"
+R6_ARCHIVE = ROOT / ".tmp/06e/browser-06-failed-evidence.zip"
 APP = ROOT / ".tmp/05b/zo-runtime/app"
 BUILD_INPUTS = ROOT / ".tmp/05b/zo-runtime/build-04-inputs.json"
 ACCEPTED_CANDIDATE = ROOT / ".tmp/05b/zo-runtime/source/candidate.json"
@@ -42,6 +46,11 @@ FIXTURE = ROOT / "docs/product/multi-project/fixtures/06e"
 SHARED_FIXTURE = ROOT / "docs/product/multi-project/fixtures/05b"
 CORE = ROOT / "packages/core/vivary_core"
 EVALUATOR = ROOT / "scripts/registry_contract_model.mjs"
+CORE_DIST = (
+    APP
+    / "node_modules/.pnpm/@agent-native+core@0.176.5_bf18bb7e1a4fb93368c4bdb4b1346da4/"
+    "node_modules/@agent-native/core/dist"
+)
 
 EXPECTED_R1_LEDGER_SHA256 = (
     "f7e5d3dddb92a5453947e8f508ce18d0a63bb661546e0baa75462750691bbc55"
@@ -88,19 +97,29 @@ EXPECTED_R5_RESULT_SHA256 = (
 EXPECTED_R5_ARCHIVE_SHA256 = (
     "57654ac65f21a509ba70f4c50e9bfc46ada3672f6f1a257673b921d9ae56d466"
 )
+EXPECTED_R6_LEDGER_SHA256 = (
+    "208eb657469509646468a0edc1c2b9cb12946d8b985c97651d308b914fb1a6e5"
+)
+EXPECTED_R6_RESULT_SHA256 = (
+    "69468c85dedf132781609d85f93a35acddef0ad2295ebeff63b7c913d48af1e8"
+)
+EXPECTED_R6_ARCHIVE_SHA256 = (
+    "b74a65e0d1cb8e5269979d15b71d2e47d964d4e8bf729b42e5621ffb6d43fa17"
+)
 R1_CHARGED_SECONDS = 37.09076154699869
 R2_CHARGED_SECONDS = 36.77261576199817
 R3_CHARGED_SECONDS = 45.64586168799724
 R4_CHARGED_SECONDS = 39.821340925002005
 R5_CHARGED_SECONDS = 69.6513385480066
+R6_CHARGED_SECONDS = 70.05210709999665
 PRIOR_CHARGED_SECONDS = (
     R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
-    + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS
+    + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS + R6_CHARGED_SECONDS
 )
 ORIGINAL_TOTAL_SECONDS = 365
-RETRY_EXECUTION_SECONDS = 131
+RETRY_EXECUTION_SECONDS = 60
 RETRY_CLEANUP_SECONDS = 5
-RETRY_TOTAL_SECONDS = 136
+RETRY_TOTAL_SECONDS = 65
 
 EXPECTED_BUILD_INPUTS_SHA256 = (
     "3904745d7a73c805b3662ac51c8da795d9f618d90daa4ee77ad60f1d9a565da1"
@@ -136,6 +155,20 @@ TOOLS = {
     "/usr/bin/xauth": "d5d3c556e7acc1a224a2847095bd5551a81b2418e2de827193119a028b0d0058",
     "/usr/bin/xkbcomp": "eca6986af7d15277394b8476b8ad85229ee1a1a879d43d2a526f106af3761550",
 }
+INITIALIZER_SOURCE_SHA256 = {
+    CORE_DIST / "integrations/pending-tasks-retry-job.js": (
+        "232da2b9ad1ce049af91e732763c6a92c82cdf83729e1aa089f5a685cc1e5c80"
+    ),
+    CORE_DIST / "integrations/a2a-continuation-processor.js": (
+        "9bf4b54ada66dbcdd2a662f6c02c2e41eedd67b6b4bb9443599624e40af4f82b"
+    ),
+    CORE_DIST / "integrations/remote-retry-job.js": (
+        "f9fab770d899dce7d6433bad8409fb59dc3a853ce276d3b78be4758acb0cf6bf"
+    ),
+    CORE_DIST / "integrations/remote-push-delivery.js": (
+        "2b762005974e289fb8e1116b922702fb5dba711414a89ca310a0aef874be0e8e"
+    ),
+}
 SOURCE_FILES = (
     FIXTURE / "c5_browser_backend.mjs",
     FIXTURE / "c5_browser.mjs",
@@ -145,6 +178,7 @@ SOURCE_FILES = (
     SHARED_FIXTURE / "gui_display.mjs",
     SHARED_FIXTURE / "gui_zo_runner.mjs",
     EVALUATOR,
+    *INITIALIZER_SOURCE_SHA256,
 )
 PROFILE_LIMITS = {
     "memoryStopBytes": 8 * 1024**3,
@@ -393,6 +427,21 @@ def prior_budget_authority() -> dict:
             ),
             "browserStarted": True,
         },
+        {
+            "name": "browser-06",
+            "charge": R6_CHARGED_SECONDS,
+            "ledgerPath": R6_LEDGER,
+            "ledgerSha256": EXPECTED_R6_LEDGER_SHA256,
+            "resultPath": R6_RESULT,
+            "resultSha256": EXPECTED_R6_RESULT_SHA256,
+            "archivePath": R6_ARCHIVE,
+            "archiveSha256": EXPECTED_R6_ARCHIVE_SHA256,
+            "expectedPriorCharge": (
+                R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
+                + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS
+            ),
+            "browserStarted": True,
+        },
     )
     attempts = []
     observed_charges = []
@@ -462,7 +511,7 @@ def prior_budget_authority() -> dict:
         "priorAttempts": attempts,
         "priorChargedSeconds": prior_total,
         "retry": {
-            "name": "browser-06",
+            "name": "browser-07",
             "executionSeconds": RETRY_EXECUTION_SECONDS,
             "cleanupSeconds": RETRY_CLEANUP_SECONDS,
             "totalSeconds": RETRY_TOTAL_SECONDS,
@@ -517,6 +566,8 @@ def collect_source_entries(
         regular_identity(path, "/source/" + path.relative_to(ROOT).as_posix())
         for path in core_files
     )
+    for path, expected in INITIALIZER_SOURCE_SHA256.items():
+        assert sha(path) == expected
     entries.extend(
         regular_identity(path, "/source/" + path.relative_to(ROOT).as_posix())
         for path in SOURCE_FILES
@@ -526,7 +577,7 @@ def collect_source_entries(
         raw = json.dumps(dependency_record, indent=2).encode() + b"\n"
         entries.append(
             {
-                "path": "/source/.tmp/06e/zo-browser-r6/dependency-tree.json",
+                "path": "/source/.tmp/06e/zo-browser-r7/dependency-tree.json",
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "bytes": len(raw),
             }
@@ -535,7 +586,7 @@ def collect_source_entries(
         raw = json.dumps(browser_record, indent=2).encode() + b"\n"
         entries.append(
             {
-                "path": "/source/.tmp/06e/zo-browser-r6/browser-tree.json",
+                "path": "/source/.tmp/06e/zo-browser-r7/browser-tree.json",
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "bytes": len(raw),
             }
@@ -543,7 +594,7 @@ def collect_source_entries(
 
     budget_raw = json.dumps(budget_record, indent=2).encode() + b"\n"
     entries.append({
-        "path": "/source/.tmp/06e/zo-browser-r6/budget-authority.json",
+        "path": "/source/.tmp/06e/zo-browser-r7/budget-authority.json",
         "sha256": hashlib.sha256(budget_raw).hexdigest(),
         "bytes": len(budget_raw),
     })
@@ -612,7 +663,7 @@ def inspect() -> dict:
     source_entries, summary = collect_source_entries(None, None, budget_record)
     tools = collect_tool_entries()
     traffic = traffic_manifest()
-    assert len(source_entries) == 80 + 212 + 43 + len(SOURCE_FILES) + 16
+    assert len(source_entries) == 80 + 212 + 43 + len(SOURCE_FILES) + 19
     return {
         "schema": "vivary.06e-c5-browser-inspection/v1",
         **summary,
@@ -723,9 +774,9 @@ def verify_boundary(config_path: Path) -> None:
     config = json.loads(config_path.read_text())
     assert config["schema"] == "vivary.06e-c5-browser-input/v1"
     assert config["deadlineSeconds"] == RETRY_EXECUTION_SECONDS
-    assert config["sourceManifestPath"] == "/source/.tmp/06e/zo-browser-r6/source-manifest.json"
-    dependency_path = Path("/source/.tmp/06e/zo-browser-r6/dependency-tree.json")
-    browser_path = Path("/source/.tmp/06e/zo-browser-r6/browser-tree.json")
+    assert config["sourceManifestPath"] == "/source/.tmp/06e/zo-browser-r7/source-manifest.json"
+    dependency_path = Path("/source/.tmp/06e/zo-browser-r7/dependency-tree.json")
+    browser_path = Path("/source/.tmp/06e/zo-browser-r7/browser-tree.json")
     dependency = json.loads(dependency_path.read_text())
     browser = json.loads(browser_path.read_text())
     validate_tree_record(dependency, "vivary.06e-c5-dependency-tree/v1", "/app/node_modules")
@@ -733,7 +784,7 @@ def verify_boundary(config_path: Path) -> None:
 
     source_manifest = json.loads(Path(config["sourceManifestPath"]).read_text())
     listed = {entry["path"]: entry for entry in source_manifest["files"]}
-    budget_path = Path("/source/.tmp/06e/zo-browser-r6/budget-authority.json")
+    budget_path = Path("/source/.tmp/06e/zo-browser-r7/budget-authority.json")
     assert prior_budget_authority() == json.loads(budget_path.read_text())
     prior_paths = [
         ROOT / identity["path"].removeprefix("/source/")

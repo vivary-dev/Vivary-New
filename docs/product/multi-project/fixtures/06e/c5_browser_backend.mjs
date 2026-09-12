@@ -302,6 +302,12 @@ const {
 } = await importPackage("@agent-native/core/agent/harness");
 const { registerAgentEngine } = await importPackage("@agent-native/core/agent/engine");
 const { getIntegrationConfig } = await importPackage("@agent-native/core/integrations");
+const integrationModuleRoot = path.dirname(appRequire.resolve("@agent-native/core/integrations"));
+const importIntegrationModule = relative => import(pathToFileURL(path.join(integrationModuleRoot, relative)).href);
+const { retryStuckPendingTasks } = await importIntegrationModule("pending-tasks-retry-job.js");
+const { processDueA2AContinuations } = await importIntegrationModule("a2a-continuation-processor.js");
+const { retryRemoteCommands } = await importIntegrationModule("remote-retry-job.js");
+const { deliverPendingRemotePushNotifications } = await importIntegrationModule("remote-push-delivery.js");
 const { readAppSecret } = await importPackage("@agent-native/core/secrets");
 const { defaultOnboardingPlugin } = await importPackage("@agent-native/core/onboarding");
 const { closeDbExec, getDbExec, runMigrations, withMigrationRuntime } =
@@ -330,6 +336,12 @@ const appSecretsSourceIdentity = await digestFile(path.join(
   path.dirname(appRequire.resolve("@agent-native/core/secrets")),
   "storage.js",
 ));
+const integrationInitializerSourceIdentities = Object.fromEntries(await Promise.all([
+  "pending-tasks-retry-job.js",
+  "a2a-continuation-processor.js",
+  "remote-retry-job.js",
+  "remote-push-delivery.js",
+].map(async relative => [relative, await digestFile(path.join(integrationModuleRoot, relative))])));
 const readinessSourceIdentity = await digestFile(
   path.join(app, "server/project-runtime-readiness.mjs"));
 const { createProjectRuntimeReadiness, mountProjectRuntimeReadiness } =
@@ -521,6 +533,7 @@ const controlledWrites = [];
 const readWitnesses = [];
 const controlLog = [];
 const requestLog = [];
+const configurationDiagnostics = [];
 const attemptedRequestCounts = { asset: 0, nonAsset: 0 };
 let requestOrdinal = 0;
 let assetBytesServed = 0;
@@ -1170,6 +1183,68 @@ async function initialize() {
     changedTables(appSecretsBefore, appSecretsAfter),
     existingAppSecretsTable === null ? ["app_secrets"] : [],
   );
+  const integrationTableSchemas = Object.freeze({
+    integration_pending_tasks: [
+      "attempts", "completed_at", "created_at", "dispatch_attempts", "dispatch_scope",
+      "error_message", "external_event_key", "external_thread_id", "id", "last_dispatch_at",
+      "last_dispatch_outcome", "org_id", "owner_email", "payload", "platform", "status", "updated_at",
+    ],
+    integration_a2a_continuations: [
+      "a2a_auth_token", "a2a_task_id", "agent_name", "agent_url", "attempts", "completed_at",
+      "created_at", "dedupe_key", "error_message", "external_thread_id", "id", "incoming_payload",
+      "integration_task_id", "next_check_at", "org_id", "owner_email", "placeholder_ref", "platform",
+      "progress_ref", "progress_ref_claimed", "status", "terminal_delivery_confirmed_at",
+      "terminal_delivery_kind", "terminal_history_payload", "updated_at", "verified_artifact_checkpoint",
+    ],
+    integration_remote_commands: [
+      "action_hash", "approval_scope", "attempts", "claimed_at", "completed_at", "computer_run_id",
+      "computer_sequence", "computer_task_id", "created_at", "device_id", "error_message",
+      "external_thread_id", "id", "idempotency_key", "kind", "lease_expires_at", "next_check_at",
+      "operation_class", "org_id", "owner_email", "params_json", "platform", "result_json", "status",
+      "updated_at",
+    ],
+    integration_remote_push_registrations: [
+      "client_device_id", "created_at", "id", "label", "last_seen_at", "org_id", "owner_email",
+      "platform", "provider", "status", "token", "token_hash", "updated_at",
+    ],
+    integration_remote_push_notifications: [
+      "attempts", "created_at", "delivered_at", "id", "last_error", "next_attempt_at", "org_id",
+      "owner_email", "payload_json", "provider_ticket_id", "registration_id", "status", "updated_at",
+    ],
+  });
+  const integrationInitializersBefore = await tableSnapshot();
+  for (const tableName of Object.keys(integrationTableSchemas)) {
+    assert.equal(integrationInitializersBefore.tables[tableName], undefined);
+  }
+  const pendingTasksResult = await retryStuckPendingTasks({ limit: 1 });
+  assert.deepEqual(pendingTasksResult, {
+    selected: 0,
+    dispatched: 0,
+    markedFailed: 0,
+    skipped: 0,
+    dispatchFailed: 0,
+  });
+  assert.equal(await processDueA2AContinuations({ adapters: new Map(), limit: 1 }), undefined);
+  assert.deepEqual(await retryRemoteCommands(), { retried: 0, failed: 0 });
+  let remotePushFetchCalls = 0;
+  const remotePushResult = await deliverPendingRemotePushNotifications({
+    limit: 1,
+    fetchImpl: async () => {
+      remotePushFetchCalls += 1;
+      throw new Error("empty remote push initialization must not make a request");
+    },
+  });
+  assert.deepEqual(remotePushResult, { sent: 0, delivered: 0, retried: 0, failed: 0 });
+  assert.equal(remotePushFetchCalls, 0);
+  const integrationInitializersAfter = await tableSnapshot();
+  const integrationInitializerTables = Object.keys(integrationTableSchemas).sort();
+  assert.deepEqual(
+    changedTables(integrationInitializersBefore, integrationInitializersAfter),
+    integrationInitializerTables,
+  );
+  for (const [tableName, columns] of Object.entries(integrationTableSchemas)) {
+    assert.deepEqual(integrationInitializersAfter.tables[tableName], { columns, rows: [] });
+  }
   initializationEvidence = {
     integrationConfig: {
       source: {
@@ -1200,6 +1275,22 @@ async function initialize() {
       afterTablesSha256: canonicalDigest(appSecretsAfter),
       changedTables: changedTables(appSecretsBefore, appSecretsAfter),
       table: appSecretsAfter.tables.app_secrets,
+    },
+    integrationBackgroundStores: {
+      sources: Object.fromEntries(Object.entries(integrationInitializerSourceIdentities)
+        .map(([relative, file]) => [`@agent-native/core/dist/integrations/${relative}`, file])),
+      operations: {
+        pendingTasks: pendingTasksResult,
+        a2aContinuations: null,
+        remoteCommands: { retried: 0, failed: 0 },
+        remotePush: remotePushResult,
+        remotePushFetchCalls,
+      },
+      beforeTablesSha256: canonicalDigest(integrationInitializersBefore),
+      afterTablesSha256: canonicalDigest(integrationInitializersAfter),
+      changedTables: changedTables(integrationInitializersBefore, integrationInitializersAfter),
+      tables: Object.fromEntries(integrationInitializerTables
+        .map(tableName => [tableName, integrationInitializersAfter.tables[tableName]])),
     },
   };
   const nativeTables = await tableSnapshot();
@@ -1359,6 +1450,29 @@ async function routeRequest(url, method, headers, body, category) {
   return { response, bytes: await readBoundedResponse(response) };
 }
 
+function assertConfigurationDiagnostic(bytes) {
+  const body = JSON.parse(bytes.toString("utf8"));
+  assert.ok(exactObject(body, ["message", "configuration"]));
+  assert.equal(typeof body.message, "string");
+  assert.ok(body.message.length > 0);
+  assert.ok(exactObject(body.configuration,
+    ["ok", "status", "environment", "phase", "issues", "prompt"]));
+  assert.equal(body.configuration.ok, false);
+  assert.equal(body.configuration.status, "error");
+  assert.equal(body.configuration.environment, "production");
+  assert.equal(body.configuration.phase, "runtime");
+  assert.equal(typeof body.configuration.prompt, "string");
+  assert.ok(body.configuration.prompt.length > 0);
+  assert.deepEqual(body.configuration.issues, [{
+    code: "local-database-in-production",
+    title: "Production is using a local database",
+    message: "DATABASE_URL resolves to a local database. Use a persistent remote SQL URL for deploys so auth and app state survive new instances.",
+    envKeys: ["DATABASE_URL"],
+    severity: "error",
+  }]);
+  return body;
+}
+
 async function handleRequest(message) {
   assert.equal(typeof message.url, "string");
   assert.ok(["GET", "POST", "PUT", "PATCH", "DELETE"].includes(message.method));
@@ -1462,6 +1576,33 @@ async function handleRequest(message) {
     responseSha256: sha256(routed.bytes),
     completedAt: Date.now(),
   };
+  if (message.method === "GET"
+    && responseMeta.path === "/_agent-native/ping?configuration=1") {
+    assert.equal(category, "shell");
+    assert.equal(routed.response.status, 200);
+    assert.ok(["c5-root", "c5-workbench", "chat"].includes(requestWindow));
+    assert.ok(configurationDiagnostics.length < 3);
+    assert.equal(configurationDiagnostics.some(item => item.window === requestWindow), false);
+    const diagnostic = {
+      schema: "vivary.06e-c5-configuration-diagnostic/v1",
+      ordinal: responseMeta.ordinal,
+      window: responseMeta.window,
+      path: responseMeta.path,
+      responseStatus: responseMeta.responseStatus,
+      responseBytes: responseMeta.responseBytes,
+      responseSha256: responseMeta.responseSha256,
+      bodyBase64: routed.bytes.toString("base64"),
+    };
+    await writeFile(
+      path.join(evidenceRoot, `configuration-diagnostic-${responseMeta.ordinal}.json`),
+      JSON.stringify(diagnostic, null, 2) + "\n",
+      { flag: "wx", mode: 0o600 },
+    );
+    configurationDiagnostics.push(diagnostic);
+    const body = assertConfigurationDiagnostic(routed.bytes);
+    diagnostic.body = body;
+    responseMeta.configurationDiagnostic = body;
+  }
   if (category === "activity" && holdNextAlpha
     && url.searchParams.get("projectId") === fixture.alpha.projectId) {
     const activityBody = JSON.parse(routed.bytes.toString("utf8"));
@@ -1736,6 +1877,7 @@ async function handle(message) {
         },
         reference: activeAlphaReference,
         requests: requestLog,
+        configurationDiagnostics,
         controls: controlLog,
         controlledWrites,
         readWitnesses,
@@ -1877,6 +2019,9 @@ async function closeBackend() {
   assert.deepEqual(chatMutationsByWindow, {
     chat: { chatUrlWrites: 1, chatEngineLists: 1 },
   });
+  assert.deepEqual(configurationDiagnostics.map(item => item.window).sort(),
+    ["c5-root", "c5-workbench", "chat"].sort());
+  assert.equal(configurationDiagnostics.length, 3);
   await settlePending();
   assert.deepEqual(requestFailures, []);
   assert.deepEqual(timeoutFailures, []);
@@ -2005,6 +2150,7 @@ try {
     terminalError,
     shutdown,
     requestLog,
+    configurationDiagnostics,
     controlLog,
     controlledWrites,
     readWitnesses,
