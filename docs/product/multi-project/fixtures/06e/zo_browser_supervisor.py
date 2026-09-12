@@ -17,7 +17,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[5]
-BASE = ROOT / ".tmp/06e/zo-browser-r7"
+BASE = ROOT / ".tmp/06e/zo-browser-r8"
 R1_BASE = ROOT / ".tmp/06e/zo-browser"
 R1_LEDGER = R1_BASE / "budget.json"
 R1_RESULT = R1_BASE / "browser-01/result.json"
@@ -42,6 +42,10 @@ R6_BASE = ROOT / ".tmp/06e/zo-browser-r6"
 R6_LEDGER = R6_BASE / "budget.json"
 R6_RESULT = R6_BASE / "browser-06/result.json"
 R6_ARCHIVE = ROOT / ".tmp/06e/browser-06-failed-evidence.zip"
+R7_BASE = ROOT / ".tmp/06e/zo-browser-r7"
+R7_LEDGER = R7_BASE / "budget.json"
+R7_RESULT = R7_BASE / "browser-07/result.json"
+R7_ARCHIVE = ROOT / ".tmp/06e/browser-07-failed-evidence.zip"
 EXPECTED_R1_LEDGER_SHA256 = (
     "f7e5d3dddb92a5453947e8f508ce18d0a63bb661546e0baa75462750691bbc55"
 )
@@ -96,27 +100,46 @@ EXPECTED_R6_RESULT_SHA256 = (
 EXPECTED_R6_ARCHIVE_SHA256 = (
     "b74a65e0d1cb8e5269979d15b71d2e47d964d4e8bf729b42e5621ffb6d43fa17"
 )
+EXPECTED_R7_LEDGER_SHA256 = (
+    "164b1c3182b8ebd6d2214762504fc11b1c12d66655ce82736897cd48d0d03902"
+)
+EXPECTED_R7_RESULT_SHA256 = (
+    "f93cb2ba26950808950e3194e8cec9b6d636f13ae04c0f3534adac8ec48d0cec"
+)
+EXPECTED_R7_ARCHIVE_SHA256 = (
+    "e2ded5d50b91becace4c7cb615f81f98a86c9314e52593324d16f28b67c3104b"
+)
 R1_CHARGED_SECONDS = 37.09076154699869
 R2_CHARGED_SECONDS = 36.77261576199817
 R3_CHARGED_SECONDS = 45.64586168799724
 R4_CHARGED_SECONDS = 39.821340925002005
 R5_CHARGED_SECONDS = 69.6513385480066
 R6_CHARGED_SECONDS = 70.05210709999665
+R7_CHARGED_SECONDS = 47.22683318899999
 PRIOR_CHARGED_SECONDS = (
     R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
     + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS + R6_CHARGED_SECONDS
+    + R7_CHARGED_SECONDS
 )
 ORIGINAL_TOTAL_SECONDS = 365
+SUPPLEMENTAL_ALLOCATION = {
+    "seconds": 120,
+    "attempts": 1,
+    "sourceAuthority": (
+        "docs/product/multi-project/design.md"
+        "#c5-supplemental-browser-allocation-2026-09-12"
+    ),
+}
 APP = ROOT / ".tmp/05b/zo-runtime/app"
 BROWSER = (
     ROOT
     / ".tmp/05b/zo-runtime/chromium-02/work/browsers/"
     "chromium-1243/chrome-linux64"
 )
-NAME = "browser-07"
-EXECUTION_SECONDS = 60
+NAME = "browser-08"
+EXECUTION_SECONDS = 115
 CLEANUP_SECONDS = 5
-TOTAL_SECONDS = 65
+TOTAL_SECONDS = 120
 MEMORY_STOP = 8 * 1024**3
 TASK_STOP = 256
 HOST_RESERVE = 1536 * 1024**2
@@ -163,6 +186,25 @@ def write_json_atomic(path: Path, value) -> None:
         os.close(descriptor)
 
 
+def budget_accounting(charge: float) -> dict:
+    assert isinstance(charge, (int, float)) and not isinstance(charge, bool)
+    assert math.isfinite(charge) and charge >= 0
+    return {
+        "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
+        "currentChargedSeconds": charge,
+        "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
+        "originalChargedSeconds": PRIOR_CHARGED_SECONDS,
+        "originalRemainingSeconds": ORIGINAL_TOTAL_SECONDS - PRIOR_CHARGED_SECONDS,
+        "originalBudgetOverrun": PRIOR_CHARGED_SECONDS > ORIGINAL_TOTAL_SECONDS,
+        "supplementalAllocation": SUPPLEMENTAL_ALLOCATION,
+        "supplementalChargedSeconds": charge,
+        "supplementalRemainingSeconds": TOTAL_SECONDS - charge,
+        "supplementalBudgetOverrun": charge > TOTAL_SECONDS,
+        "combinedChargedSeconds": PRIOR_CHARGED_SECONDS + charge,
+        "totalAllocatedSeconds": ORIGINAL_TOTAL_SECONDS + TOTAL_SECONDS,
+    }
+
+
 def validate_ledger(value) -> list[dict]:
     assert isinstance(value, list)
     assert len(value) <= 1
@@ -174,6 +216,12 @@ def validate_ledger(value) -> list[dict]:
         charge = entry["chargedSeconds"]
         assert isinstance(charge, (int, float)) and not isinstance(charge, bool)
         assert math.isfinite(charge) and charge >= 0
+        assert all(
+            entry[key] == expected
+            for key, expected in budget_accounting(charge).items()
+        )
+        if entry["status"] == "reserved":
+            assert charge == TOTAL_SECONDS
     return value
 
 
@@ -410,14 +458,14 @@ def config_for() -> dict:
         "playwrightPackageJsonSha256": sha(playwright),
         "chromiumExecutable": "/browser/chrome",
         "chromiumSha256": sha(chromium),
-        "sourceManifestPath": "/source/.tmp/06e/zo-browser-r7/source-manifest.json",
+        "sourceManifestPath": "/source/.tmp/06e/zo-browser-r8/source-manifest.json",
         "sourceManifestSha256": sha(source_manifest),
         "sourceBindingSha256": source_value["bindingSha256"],
-        "toolManifestPath": "/source/.tmp/06e/zo-browser-r7/tool-manifest.json",
+        "toolManifestPath": "/source/.tmp/06e/zo-browser-r8/tool-manifest.json",
         "toolManifestSha256": sha(tool_manifest),
-        "trafficManifestPath": "/source/.tmp/06e/zo-browser-r7/traffic-manifest.json",
+        "trafficManifestPath": "/source/.tmp/06e/zo-browser-r8/traffic-manifest.json",
         "trafficManifestSha256": sha(traffic_manifest),
-        "profilePath": "/source/.tmp/06e/zo-browser-r7/profile.json",
+        "profilePath": "/source/.tmp/06e/zo-browser-r8/profile.json",
         "profileSha256": sha(profile),
         "proofToken": secrets.token_hex(32),
         "deadlineSeconds": EXECUTION_SECONDS,
@@ -506,6 +554,21 @@ def read_budget_authority() -> dict:
             ),
             "browserStarted": True,
         },
+        {
+            "name": "browser-07",
+            "charge": R7_CHARGED_SECONDS,
+            "ledgerPath": R7_LEDGER,
+            "ledgerSha256": EXPECTED_R7_LEDGER_SHA256,
+            "resultPath": R7_RESULT,
+            "resultSha256": EXPECTED_R7_RESULT_SHA256,
+            "archivePath": R7_ARCHIVE,
+            "archiveSha256": EXPECTED_R7_ARCHIVE_SHA256,
+            "expectedPriorCharge": (
+                R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
+                + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS + R6_CHARGED_SECONDS
+            ),
+            "browserStarted": True,
+        },
     )
     attempts = []
     observed_charges = []
@@ -568,22 +631,28 @@ def read_budget_authority() -> dict:
         })
     prior_total = sum(observed_charges)
     assert prior_total == PRIOR_CHARGED_SECONDS
-    assert prior_total + TOTAL_SECONDS <= ORIGINAL_TOTAL_SECONDS
+    assert prior_total <= ORIGINAL_TOTAL_SECONDS
+    assert TOTAL_SECONDS == SUPPLEMENTAL_ALLOCATION["seconds"]
+    assert TOTAL_SECONDS == EXECUTION_SECONDS + CLEANUP_SECONDS
     return {
-        "schema": "vivary.06e-c5-browser-budget-authority/v2",
+        "schema": "vivary.06e-c5-browser-budget-authority/v3",
         "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
+        "originalChargedSeconds": prior_total,
+        "originalRemainingSeconds": ORIGINAL_TOTAL_SECONDS - prior_total,
         "priorAttempts": attempts,
         "priorChargedSeconds": prior_total,
+        "supplementalAllocation": SUPPLEMENTAL_ALLOCATION,
         "retry": {
-            "name": "browser-07",
+            "name": "browser-08",
+            "allocation": "supplemental",
             "executionSeconds": EXECUTION_SECONDS,
             "cleanupSeconds": CLEANUP_SECONDS,
             "totalSeconds": TOTAL_SECONDS,
+            "originalRemainingAvailableSeconds": 0,
         },
+        "totalAllocatedSeconds": ORIGINAL_TOTAL_SECONDS + TOTAL_SECONDS,
         "maximumCombinedChargeSeconds": prior_total + TOTAL_SECONDS,
-        "remainingUnallocatedSeconds": (
-            ORIGINAL_TOTAL_SECONDS - prior_total - TOTAL_SECONDS
-        ),
+        "remainingUnallocatedSeconds": ORIGINAL_TOTAL_SECONDS - prior_total,
     }
 
 
@@ -683,6 +752,7 @@ def reserve() -> tuple[Path, dict]:
         entry = {
             "name": NAME,
             "chargedSeconds": TOTAL_SECONDS,
+            **budget_accounting(TOTAL_SECONDS),
             "status": "reserved",
             "reservedAtUnixNs": time.time_ns(),
             "reservedAtMonotonic": time.monotonic(),
@@ -723,8 +793,7 @@ def reserve() -> tuple[Path, dict]:
                         }
                         for attempt in authority["priorAttempts"]
                     ],
-                    "priorChargedSeconds": authority["priorChargedSeconds"],
-                    "originalTotalSeconds": authority["originalTotalSeconds"],
+                    **budget_accounting(TOTAL_SECONDS),
                     "supervisorSha256": sha(Path(__file__)),
                     "runtimeAdmittedBySource": False,
                 },
@@ -732,9 +801,8 @@ def reserve() -> tuple[Path, dict]:
         except Exception as error:
             elapsed = time.monotonic() - entry["reservedAtMonotonic"]
             failure = f"reservation-error:{type(error).__name__}"
-            combined = PRIOR_CHARGED_SECONDS + elapsed
-            if combined > ORIGINAL_TOTAL_SECONDS:
-                failure = "original-budget-overrun"
+            if elapsed > TOTAL_SECONDS:
+                failure = "supplemental-budget-overrun"
             entry.update(
                 status="refused",
                 chargedSeconds=elapsed,
@@ -745,11 +813,9 @@ def reserve() -> tuple[Path, dict]:
                     {"name": "browser-04", "chargedSeconds": R4_CHARGED_SECONDS},
                     {"name": "browser-05", "chargedSeconds": R5_CHARGED_SECONDS},
                     {"name": "browser-06", "chargedSeconds": R6_CHARGED_SECONDS},
+                    {"name": "browser-07", "chargedSeconds": R7_CHARGED_SECONDS},
                 ],
-                priorChargedSeconds=PRIOR_CHARGED_SECONDS,
-                combinedChargedSeconds=combined,
-                originalTotalSeconds=ORIGINAL_TOTAL_SECONDS,
-                originalBudgetOverrun=combined > ORIGINAL_TOTAL_SECONDS,
+                **budget_accounting(elapsed),
                 resultFailure=failure,
             )
             write_json_atomic(ledger_path, ledger)
@@ -768,11 +834,9 @@ def reserve() -> tuple[Path, dict]:
                         {"name": "browser-04", "chargedSeconds": R4_CHARGED_SECONDS},
                         {"name": "browser-05", "chargedSeconds": R5_CHARGED_SECONDS},
                         {"name": "browser-06", "chargedSeconds": R6_CHARGED_SECONDS},
+                        {"name": "browser-07", "chargedSeconds": R7_CHARGED_SECONDS},
                     ],
-                    "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
-                    "combinedChargedSeconds": combined,
-                    "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
-                    "originalBudgetOverrun": combined > ORIGINAL_TOTAL_SECONDS,
+                    **budget_accounting(elapsed),
                 },
             )
             raise
@@ -1082,10 +1146,8 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
         except Exception as error:
             failure = failure or f"runner-result:{type(error).__name__}"
 
-    combined_charged = PRIOR_CHARGED_SECONDS + elapsed
-    original_budget_overrun = combined_charged > ORIGINAL_TOTAL_SECONDS
-    if original_budget_overrun:
-        failure = failure or "original-budget-overrun"
+    if elapsed > TOTAL_SECONDS:
+        failure = failure or "supplemental-budget-overrun"
 
     result = {
         "schema": "vivary.06e-c5-browser-supervisor-result/v1",
@@ -1101,12 +1163,9 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
             {"name": "browser-04", "chargedSeconds": R4_CHARGED_SECONDS},
             {"name": "browser-05", "chargedSeconds": R5_CHARGED_SECONDS},
             {"name": "browser-06", "chargedSeconds": R6_CHARGED_SECONDS},
+            {"name": "browser-07", "chargedSeconds": R7_CHARGED_SECONDS},
         ],
-        "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
-        "currentChargedSeconds": elapsed,
-        "combinedChargedSeconds": combined_charged,
-        "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
-        "originalBudgetOverrun": original_budget_overrun,
+        **budget_accounting(elapsed),
         "budgetAuthoritySha256": sha(BASE / "budget-authority.json"),
         "priorEvidence": [
             {
@@ -1144,6 +1203,12 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
                 "ledgerSha256": EXPECTED_R6_LEDGER_SHA256,
                 "resultSha256": EXPECTED_R6_RESULT_SHA256,
                 "archiveSha256": EXPECTED_R6_ARCHIVE_SHA256,
+            },
+            {
+                "name": "browser-07",
+                "ledgerSha256": EXPECTED_R7_LEDGER_SHA256,
+                "resultSha256": EXPECTED_R7_RESULT_SHA256,
+                "archiveSha256": EXPECTED_R7_ARCHIVE_SHA256,
             },
         ],
         "executionDeadlineSeconds": EXECUTION_SECONDS,
@@ -1201,11 +1266,9 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
             {"name": "browser-04", "chargedSeconds": R4_CHARGED_SECONDS},
             {"name": "browser-05", "chargedSeconds": R5_CHARGED_SECONDS},
             {"name": "browser-06", "chargedSeconds": R6_CHARGED_SECONDS},
+            {"name": "browser-07", "chargedSeconds": R7_CHARGED_SECONDS},
         ],
-        priorChargedSeconds=PRIOR_CHARGED_SECONDS,
-        combinedChargedSeconds=combined_charged,
-        originalTotalSeconds=ORIGINAL_TOTAL_SECONDS,
-        originalBudgetOverrun=original_budget_overrun,
+        **budget_accounting(elapsed),
         resultFailure=failure,
         resultSha256=sha(result_path),
     )
@@ -1252,14 +1315,40 @@ def run_reserved(run_dir: Path) -> int:
 def self_test() -> dict:
     assert ADMISSION_MEMORY == int(9.5 * 1024**3)
     assert TOTAL_SECONDS == EXECUTION_SECONDS + CLEANUP_SECONDS
-    assert PRIOR_CHARGED_SECONDS + TOTAL_SECONDS <= ORIGINAL_TOTAL_SECONDS
+    assert TOTAL_SECONDS == SUPPLEMENTAL_ALLOCATION["seconds"] == 120
+    assert SUPPLEMENTAL_ALLOCATION["attempts"] == 1
+    assert PRIOR_CHARGED_SECONDS == 346.26085875899935
+    assert math.isclose(
+        ORIGINAL_TOTAL_SECONDS - PRIOR_CHARGED_SECONDS, 18.73914124100065,
+        rel_tol=0, abs_tol=1e-12,
+    )
     validate_ledger([])
-    validate_ledger(
-        [{"name": NAME, "chargedSeconds": 65, "status": "reserved"}]
-    )
-    validate_ledger(
-        [{"name": NAME, "chargedSeconds": 65.25, "status": "finished"}]
-    )
+    for charge, status in ((120, "reserved"), (120.25, "finished")):
+        value = budget_accounting(charge)
+        validate_ledger(
+            [{"name": NAME, "chargedSeconds": charge, "status": status, **value}]
+        )
+        assert value["originalBudgetOverrun"] is False
+        assert value["originalChargedSeconds"] == PRIOR_CHARGED_SECONDS
+        assert value["originalRemainingSeconds"] == ORIGINAL_TOTAL_SECONDS - PRIOR_CHARGED_SECONDS
+        assert value["supplementalChargedSeconds"] == charge
+        assert value["supplementalBudgetOverrun"] is (charge > TOTAL_SECONDS)
+        assert value["combinedChargedSeconds"] == PRIOR_CHARGED_SECONDS + charge
+        assert value["totalAllocatedSeconds"] == 485
+    for invalid in (
+        [{"name": NAME, "chargedSeconds": 119, "status": "reserved",
+          **budget_accounting(119)}],
+        [{"name": NAME, "chargedSeconds": 120, "status": "reserved",
+          **budget_accounting(120), "originalChargedSeconds": 0}],
+        [{"name": NAME, "chargedSeconds": 120, "status": "reserved",
+          **budget_accounting(120)}] * 2,
+    ):
+        try:
+            validate_ledger(invalid)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("invalid supplemental reservation accepted")
     table = {
         10: {"parent": 1, "pgrp": 10, "started": 100, "rss": 1, "threads": 1},
         11: {"parent": 10, "pgrp": 10, "started": 101, "rss": 1, "threads": 1},

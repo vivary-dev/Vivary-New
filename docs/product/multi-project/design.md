@@ -609,3 +609,25 @@ and commit admission, 10 GiB disk, 2 GiB Linux and 512 MiB Windows caps, one CPU
 existing task/output/observer limits and 1,536 MiB reserve. No model calls or
 shared-helper changes are included. The request is unused; dispatch only when
 fresh resource readings support it. Both earlier failed requests stay exhausted.
+
+## C5 supplemental browser allocation, 2026-09-12
+
+Authority: In response to the proposal for one additional 120-second browser
+attempt, Jeff directed: "keep it going until completion but i need your help to
+ensure that we are not going off the rails". This approves that single proposed
+allocation: 115 execution seconds and five cleanup seconds. It does not renew
+the original 365-second ledger or authorize another retry after this attempt.
+
+Preserve all seven original charges, totaling 346.26085875899935 seconds, and
+their 18.73914124100065-second remainder. Charge the new attempt only to the
+separate 120-second allocation. Keep all source, resource, isolation, and
+acceptance requirements. Review the remaining browser paths and budget changes,
+prepare once, and obtain fresh independent admission before dispatch.
+
+The direction audit found excessive fixture churn and recursive archive copies.
+Finish the existing 13 checks without expanding the proof framework. Preserve
+old archives and reference their hashes in the next bundle. A failed attempt
+ends this allocation; retain its evidence and continue independent source work.
+A passing fixture establishes only its stated browser behavior. The next product
+unit is configured Workbench startup using the existing project services.
+Production custody and parent session/draft conditions remain separate gates.

@@ -26,12 +26,14 @@ Seven browser attempts remain unaccepted. Browser07 recorded four root checks,
 then failed on a fixture metadata assertion. Independent Verify accepted its
 archive and confirmed all 24 saved process identities absent after forced cleanup.
 
-**Accepted source:** Independent QA approved the browser-only response-byte
-correction. Syntax checks passed, but the correction has not run.
+**Accepted source:** Independent QA approved the response-byte correction and
+the remaining browser paths, including a corrected SSR port-close wait.
+Root prepared revision08 once, and fresh independent admission passed.
 
-**Remaining:** The original browser allocation has 18.73914124100065 seconds left,
-which cannot cover the required boundary scan. A separate allocation proposal
-awaits the owner's decision in the [06e packet](../packets/06e-project-selection.md#c5-additional-allocation-proposal-pending-owner-decision).
+**Remaining:** Jeff approved one separate 120-second browser allocation in the
+[06e packet](../packets/06e-project-selection.md#c5-supplemental-allocation-approved-2026-09-12).
+After the reviewed commit and Entire readback, execute that attempt once.
+The original allocation and all seven charges remain unchanged.
 Workbench browser acceptance, configured production action mounting, and this
 outcome's switching and draft-preservation conditions remain open. Full chat
 retains its independent accepted 05b evidence.

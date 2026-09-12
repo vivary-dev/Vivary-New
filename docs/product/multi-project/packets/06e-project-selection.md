@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. Seven attempts consumed 346.26085875899935 seconds combined. The remaining 18.73914124100065 seconds cannot cover the required full boundary scan. No further C5 browser run is admitted. Earlier focused and 05b allocations remain unchanged.
+Timebox: Preserve the original 365-second allocation and 346.26085875899935 seconds charged. Jeff approved one separate 120-second allocation, with 115 execution seconds and five cleanup seconds. Review source, prepare once, and obtain independent resource admission before its single attempt. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -45,16 +45,17 @@ metadata field during the manual-refresh check. It did not reach role revocation
 Verify accepted the failure archive and confirmed all 24 saved process identities
 are absent after forced cleanup.
 
-**Accepted source:** Independent QA approved the browser-only correction. It
-validates actual replacement response bytes and compares their size and hash
-with the backend's response record. The correction has syntax and source-review
-evidence only. It has not been prepared or executed.
+**Accepted source:** Independent QA approved the actual-response correction and
+the remaining browser paths. It found and closed a finalization race: the backend
+now awaits both SSR port close events with the existing one-second bound.
+Root independently reviewed the separate budget accounting and prepared
+revision08 once. Fresh independent admission passed. No new browser runtime
+has executed.
 
-**Next:** Preserve the original budget and leave C5 runtime paused. Only
-18.73914124100065 seconds remain, less than the required full boundary scan.
-The [allocation proposal](#c5-additional-allocation-proposal-pending-owner-decision)
-requires an owner decision. Production mounting/authentication and parent
-switching/draft gates remain open.
+**Next:** Commit the reviewed candidate, verify the private Entire ref, and
+dispatch the single [approved supplemental attempt](#c5-supplemental-allocation-approved-2026-09-12).
+Source review and independent admission passed. Preserve the original budget.
+Production mounting/authentication and parent switching/draft gates remain open.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -395,30 +396,31 @@ execution seconds and five cleanup seconds. Bind all six prior charges and all
 the full run to fit; this is an estimate, not runtime evidence. Keep every
 source, resource, isolation, preparation, admission, and cleanup requirement.
 
-## C5 additional allocation proposal, pending owner decision
+## C5 supplemental allocation approved, 2026-09-12
 
-Browser07 exposed a fixture metadata assumption. Its source-only correction now
-passes independent QA, but the original allocation cannot cover another full
-boundary scan and all 13 checks. Do not shorten the scan, skip a scenario, reuse
-a consumed attempt, or reset a ledger.
+The [owner decision](../design.md#c5-supplemental-browser-allocation-2026-09-12)
+approves one additional attempt: 115 execution seconds and five cleanup seconds.
+The original 365-second allocation retains seven charges totaling
+346.26085875899935 seconds and its unused 18.73914124100065-second remainder.
+The new attempt consumes only the separate 120-second allocation.
 
-Root recommends a separate 120-second allocation for one additional browser
-attempt: 115 execution seconds and five cleanup seconds. Preserve the original
-365-second allocation and all seven actual charges. Record any additional
-authority separately before changing the profile or preparing another namespace.
-Keep the same four CPUs, 8 GiB RSS stop, 256-task stop, output/observer limits,
-host reserve, network isolation, and no-install/no-build/no-model scope.
+Use `browser-08` in a new `.tmp/06e/zo-browser-r8` namespace. Pin all seven prior
+ledger/result/archive sets. Keep the same four CPUs, 8 GiB RSS stop, 256-task
+stop, output/observer limits, host reserve, network isolation, and
+no-install/no-build/no-model scope. Review the remaining browser and final
+lifecycle paths, then review the budget profile, prepare once, and obtain fresh
+independent admission.
 
-The alternative is to leave C5 browser acceptance open and continue independent
-source work. That needs no new runtime allocation. The recommendation changes
-only the bounded verification allowance. It changes no product behavior or
-security boundary. If the extra attempt fails or the owner declines it, retain
-the evidence and leave acceptance open.
+Completion still requires all 13 checks, both delayed-response probes, raw
+state/counter and permitted-write witnesses, resource/isolation checks, passing
+cleanup, and independent archive/evidence review. Preserve old archives; the new
+bundle references their hashes instead of embedding their bytes again.
+A failure consumes this attempt and leaves acceptance open. Do not add optional
+proof work or admit another retry under this decision.
 
-The exact decision needed from Jeff is whether to authorize that separate
-120-second, one-attempt allocation. No answer or additional authority is recorded.
-After approval, update and independently review the budget profile, freeze the
-candidate once, and obtain fresh source/resource admission before dispatch.
+The next product unit connects the existing project services to configured
+Workbench startup. This fixture cannot establish production mounting,
+persistent root custody, or parent session/draft behavior.
 
 ## Historical Habitat continuation
 

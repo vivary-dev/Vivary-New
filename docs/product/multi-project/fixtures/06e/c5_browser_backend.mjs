@@ -2074,11 +2074,26 @@ async function closeBackend() {
   await closeDbExec();
   const channel = capturedSsrChannels[0];
   const closeEvents = [];
-  channel.channel.port1.addEventListener("close", () => closeEvents.push("port1"), { once: true });
-  channel.channel.port2.addEventListener("close", () => closeEvents.push("port2"), { once: true });
-  channel.channel.port1.close();
-  channel.channel.port2.close();
-  await new Promise(resolve => setImmediate(resolve));
+  const ports = [["port1", channel.channel.port1], ["port2", channel.channel.port2]];
+  const closed = ports.map(([name, port]) => new Promise(resolve => {
+    port.addEventListener("close", () => {
+      closeEvents.push(name);
+      resolve();
+    }, { once: true });
+  }));
+  for (const [, port] of ports) port.close();
+  let closeDeadline;
+  try {
+    await Promise.race([
+      Promise.all(closed),
+      new Promise((_, reject) => {
+        closeDeadline = setTimeout(() => reject(
+          new Error("SSR MessageChannel close events did not settle")), 1_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(closeDeadline);
+  }
   assert.deepEqual(closeEvents.sort(), ["port1", "port2"]);
   shutdown = {
     stage: "backend-finalized",

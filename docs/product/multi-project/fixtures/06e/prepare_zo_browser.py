@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[5]
-BASE = ROOT / ".tmp/06e/zo-browser-r7"
+BASE = ROOT / ".tmp/06e/zo-browser-r8"
 R1_BASE = ROOT / ".tmp/06e/zo-browser"
 R1_LEDGER = R1_BASE / "budget.json"
 R1_RESULT = R1_BASE / "browser-01/result.json"
@@ -34,6 +34,10 @@ R6_BASE = ROOT / ".tmp/06e/zo-browser-r6"
 R6_LEDGER = R6_BASE / "budget.json"
 R6_RESULT = R6_BASE / "browser-06/result.json"
 R6_ARCHIVE = ROOT / ".tmp/06e/browser-06-failed-evidence.zip"
+R7_BASE = ROOT / ".tmp/06e/zo-browser-r7"
+R7_LEDGER = R7_BASE / "budget.json"
+R7_RESULT = R7_BASE / "browser-07/result.json"
+R7_ARCHIVE = ROOT / ".tmp/06e/browser-07-failed-evidence.zip"
 APP = ROOT / ".tmp/05b/zo-runtime/app"
 BUILD_INPUTS = ROOT / ".tmp/05b/zo-runtime/build-04-inputs.json"
 ACCEPTED_CANDIDATE = ROOT / ".tmp/05b/zo-runtime/source/candidate.json"
@@ -106,20 +110,39 @@ EXPECTED_R6_RESULT_SHA256 = (
 EXPECTED_R6_ARCHIVE_SHA256 = (
     "b74a65e0d1cb8e5269979d15b71d2e47d964d4e8bf729b42e5621ffb6d43fa17"
 )
+EXPECTED_R7_LEDGER_SHA256 = (
+    "164b1c3182b8ebd6d2214762504fc11b1c12d66655ce82736897cd48d0d03902"
+)
+EXPECTED_R7_RESULT_SHA256 = (
+    "f93cb2ba26950808950e3194e8cec9b6d636f13ae04c0f3534adac8ec48d0cec"
+)
+EXPECTED_R7_ARCHIVE_SHA256 = (
+    "e2ded5d50b91becace4c7cb615f81f98a86c9314e52593324d16f28b67c3104b"
+)
 R1_CHARGED_SECONDS = 37.09076154699869
 R2_CHARGED_SECONDS = 36.77261576199817
 R3_CHARGED_SECONDS = 45.64586168799724
 R4_CHARGED_SECONDS = 39.821340925002005
 R5_CHARGED_SECONDS = 69.6513385480066
 R6_CHARGED_SECONDS = 70.05210709999665
+R7_CHARGED_SECONDS = 47.22683318899999
 PRIOR_CHARGED_SECONDS = (
     R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
     + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS + R6_CHARGED_SECONDS
+    + R7_CHARGED_SECONDS
 )
 ORIGINAL_TOTAL_SECONDS = 365
-RETRY_EXECUTION_SECONDS = 60
+SUPPLEMENTAL_ALLOCATION = {
+    "seconds": 120,
+    "attempts": 1,
+    "sourceAuthority": (
+        "docs/product/multi-project/design.md"
+        "#c5-supplemental-browser-allocation-2026-09-12"
+    ),
+}
+RETRY_EXECUTION_SECONDS = 115
 RETRY_CLEANUP_SECONDS = 5
-RETRY_TOTAL_SECONDS = 65
+RETRY_TOTAL_SECONDS = 120
 
 EXPECTED_BUILD_INPUTS_SHA256 = (
     "3904745d7a73c805b3662ac51c8da795d9f618d90daa4ee77ad60f1d9a565da1"
@@ -442,6 +465,21 @@ def prior_budget_authority() -> dict:
             ),
             "browserStarted": True,
         },
+        {
+            "name": "browser-07",
+            "charge": R7_CHARGED_SECONDS,
+            "ledgerPath": R7_LEDGER,
+            "ledgerSha256": EXPECTED_R7_LEDGER_SHA256,
+            "resultPath": R7_RESULT,
+            "resultSha256": EXPECTED_R7_RESULT_SHA256,
+            "archivePath": R7_ARCHIVE,
+            "archiveSha256": EXPECTED_R7_ARCHIVE_SHA256,
+            "expectedPriorCharge": (
+                R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
+                + R4_CHARGED_SECONDS + R5_CHARGED_SECONDS + R6_CHARGED_SECONDS
+            ),
+            "browserStarted": True,
+        },
     )
     attempts = []
     observed_charges = []
@@ -504,22 +542,28 @@ def prior_budget_authority() -> dict:
         })
     prior_total = sum(observed_charges)
     assert prior_total == PRIOR_CHARGED_SECONDS
-    assert prior_total + RETRY_TOTAL_SECONDS <= ORIGINAL_TOTAL_SECONDS
+    assert prior_total <= ORIGINAL_TOTAL_SECONDS
+    assert RETRY_TOTAL_SECONDS == SUPPLEMENTAL_ALLOCATION["seconds"]
+    assert RETRY_TOTAL_SECONDS == RETRY_EXECUTION_SECONDS + RETRY_CLEANUP_SECONDS
     return {
-        "schema": "vivary.06e-c5-browser-budget-authority/v2",
+        "schema": "vivary.06e-c5-browser-budget-authority/v3",
         "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
+        "originalChargedSeconds": prior_total,
+        "originalRemainingSeconds": ORIGINAL_TOTAL_SECONDS - prior_total,
         "priorAttempts": attempts,
         "priorChargedSeconds": prior_total,
+        "supplementalAllocation": SUPPLEMENTAL_ALLOCATION,
         "retry": {
-            "name": "browser-07",
+            "name": "browser-08",
+            "allocation": "supplemental",
             "executionSeconds": RETRY_EXECUTION_SECONDS,
             "cleanupSeconds": RETRY_CLEANUP_SECONDS,
             "totalSeconds": RETRY_TOTAL_SECONDS,
+            "originalRemainingAvailableSeconds": 0,
         },
+        "totalAllocatedSeconds": ORIGINAL_TOTAL_SECONDS + RETRY_TOTAL_SECONDS,
         "maximumCombinedChargeSeconds": prior_total + RETRY_TOTAL_SECONDS,
-        "remainingUnallocatedSeconds": (
-            ORIGINAL_TOTAL_SECONDS - prior_total - RETRY_TOTAL_SECONDS
-        ),
+        "remainingUnallocatedSeconds": ORIGINAL_TOTAL_SECONDS - prior_total,
     }
 
 def collect_source_entries(
@@ -577,7 +621,7 @@ def collect_source_entries(
         raw = json.dumps(dependency_record, indent=2).encode() + b"\n"
         entries.append(
             {
-                "path": "/source/.tmp/06e/zo-browser-r7/dependency-tree.json",
+                "path": "/source/.tmp/06e/zo-browser-r8/dependency-tree.json",
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "bytes": len(raw),
             }
@@ -586,7 +630,7 @@ def collect_source_entries(
         raw = json.dumps(browser_record, indent=2).encode() + b"\n"
         entries.append(
             {
-                "path": "/source/.tmp/06e/zo-browser-r7/browser-tree.json",
+                "path": "/source/.tmp/06e/zo-browser-r8/browser-tree.json",
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "bytes": len(raw),
             }
@@ -594,7 +638,7 @@ def collect_source_entries(
 
     budget_raw = json.dumps(budget_record, indent=2).encode() + b"\n"
     entries.append({
-        "path": "/source/.tmp/06e/zo-browser-r7/budget-authority.json",
+        "path": "/source/.tmp/06e/zo-browser-r8/budget-authority.json",
         "sha256": hashlib.sha256(budget_raw).hexdigest(),
         "bytes": len(budget_raw),
     })
@@ -663,7 +707,7 @@ def inspect() -> dict:
     source_entries, summary = collect_source_entries(None, None, budget_record)
     tools = collect_tool_entries()
     traffic = traffic_manifest()
-    assert len(source_entries) == 80 + 212 + 43 + len(SOURCE_FILES) + 19
+    assert len(source_entries) == 80 + 212 + 43 + len(SOURCE_FILES) + 22
     return {
         "schema": "vivary.06e-c5-browser-inspection/v1",
         **summary,
@@ -675,6 +719,9 @@ def inspect() -> dict:
         "priorAttempts": len(budget_record["priorAttempts"]),
         "priorChargedSeconds": budget_record["priorChargedSeconds"],
         "retryTotalSeconds": budget_record["retry"]["totalSeconds"],
+        "originalRemainingSeconds": budget_record["originalRemainingSeconds"],
+        "supplementalAllocation": budget_record["supplementalAllocation"],
+        "totalAllocatedSeconds": budget_record["totalAllocatedSeconds"],
         "maximumCombinedChargeSeconds": budget_record["maximumCombinedChargeSeconds"],
     }
 
@@ -774,9 +821,9 @@ def verify_boundary(config_path: Path) -> None:
     config = json.loads(config_path.read_text())
     assert config["schema"] == "vivary.06e-c5-browser-input/v1"
     assert config["deadlineSeconds"] == RETRY_EXECUTION_SECONDS
-    assert config["sourceManifestPath"] == "/source/.tmp/06e/zo-browser-r7/source-manifest.json"
-    dependency_path = Path("/source/.tmp/06e/zo-browser-r7/dependency-tree.json")
-    browser_path = Path("/source/.tmp/06e/zo-browser-r7/browser-tree.json")
+    assert config["sourceManifestPath"] == "/source/.tmp/06e/zo-browser-r8/source-manifest.json"
+    dependency_path = Path("/source/.tmp/06e/zo-browser-r8/dependency-tree.json")
+    browser_path = Path("/source/.tmp/06e/zo-browser-r8/browser-tree.json")
     dependency = json.loads(dependency_path.read_text())
     browser = json.loads(browser_path.read_text())
     validate_tree_record(dependency, "vivary.06e-c5-dependency-tree/v1", "/app/node_modules")
@@ -784,7 +831,7 @@ def verify_boundary(config_path: Path) -> None:
 
     source_manifest = json.loads(Path(config["sourceManifestPath"]).read_text())
     listed = {entry["path"]: entry for entry in source_manifest["files"]}
-    budget_path = Path("/source/.tmp/06e/zo-browser-r7/budget-authority.json")
+    budget_path = Path("/source/.tmp/06e/zo-browser-r8/budget-authority.json")
     assert prior_budget_authority() == json.loads(budget_path.read_text())
     prior_paths = [
         ROOT / identity["path"].removeprefix("/source/")

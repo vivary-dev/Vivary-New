@@ -1450,3 +1450,66 @@ new preparation, runtime, or admission. The consumed revision07 freeze remains
 historical. The remaining original allowance cannot cover another full scan.
 The packet's separate 120-second allocation is a proposal awaiting the owner,
 not a decision or changed budget.
+
+## C5 supplemental allocation and direction audit, 2026-09-12
+
+The [owner decision](../design.md#c5-supplemental-browser-allocation-2026-09-12)
+approves one separate 120-second attempt, preserving all earlier budgets and
+evidence. Source review and admission remain prerequisites; this decision is
+not runtime evidence.
+
+Independent Plan review found the remaining browser check justified but the
+proof tooling too costly. Eight commits after focused acceptance changed no
+Workbench product files. The five browser proof files had reached 6,077 lines.
+The seven failures concern fixture assumptions; they are not demonstrated
+product regressions. Root will finish the existing proof without generalizing
+its framework, preserve prior archives by hash reference, and move the product
+frontier toward configured Workbench startup.
+
+## C5 revision08 preparation, 2026-09-12
+
+Independent QA reviewed the unreached replacement, revocation, second-route,
+chat, counter, and shutdown paths. It found one finalization race: a single
+setImmediate turn did not establish both SSR MessagePort close events. The
+backend now attaches both listeners before closing, awaits both events with a
+one-second deadline, and clears that timer in finally. The exact two-event
+assertion remains. QA closed the finding by reviewing the final source.
+
+Root independently reviewed the supplemental budget implementation. Both
+authority constructors agree, and all 21 historical ledger/result/archive pins
+match. Python syntax, the existing inert self-check, JavaScript syntax, and
+diff checks pass. These checks start no browser or application.
+
+Root prepared revision08 once with 371 source entries and 11 tools. It reuses
+all 80 accepted app inputs, 212 build outputs, 43 Core Python files, and both
+unchanged full-tree digests. The original charges remain pinned. The separate
+allocation permits only browser-08, with 115 execution seconds and five cleanup
+seconds. The original remainder is unavailable to this attempt.
+
+- Source manifest: `3ac546a6a0e8774bb7c207a71848c801bda468bb9b6b95ab4117d05b584953e4`.
+- Source binding: `8336015a7a576f8e0c1fe921156ed32441e451ee8a049614d63cf76d757483c4`.
+- Profile: `dc6e7ac94314470beeca8671bcdbd10042c7a77bf554df7bca86dd3711ea03da`.
+- Budget authority: `68a528faf99b03a1d10c3c56f8b86a03204f5f7a1d07b9921e9a4a5ff8a0d265`.
+- Remaining-path review: `74440d8aa7b09eea027b00c678d483b6aa31d6787fe597b26d98db0cbbefcd15`.
+
+Preparation observed 134,850,789,376 available memory bytes, zero swap,
+548,747,415,552 free disk bytes, and 16 available CPUs. Included weekly usage
+was 8%; ordinary five-hour usage and commit headroom remain unavailable.
+No proof process was active. These are preparation readings; fresh independent
+runtime admission remains required. No browser runtime has executed.
+
+Independent Verify then admitted revision08 at 15:39 UTC. All 382 physical
+bindings and 21 historical pins matched. All 146 prior process identities were
+absent, no proof process was active, and the heavy-job lock was unheld.
+The ledger was empty and browser-08 had not started.
+
+Fresh admission observed 134,852,763,648 available memory bytes, zero swap,
+548,748,218,368 free disk bytes, and CPUs 0 through 15. The four-CPU proof
+restriction remains. The reviewer compared prepared tree records against their
+accepted records without another full scan. Both full scans remain mandatory
+before Node starts.
+
+Admission record: `.tmp/06e/c5-r8-runtime-admission.json`, SHA-256
+`ba567410729f28f5be15aaa7f6e1376f55250da5db57c0c47904221aafd60d16`.
+It permits one 115-second execution and five-second cleanup after the reviewed
+commit and private Entire readback. It does not accept a browser result.
