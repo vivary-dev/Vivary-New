@@ -302,6 +302,7 @@ const {
 } = await importPackage("@agent-native/core/agent/harness");
 const { registerAgentEngine } = await importPackage("@agent-native/core/agent/engine");
 const { getIntegrationConfig } = await importPackage("@agent-native/core/integrations");
+const { readAppSecret } = await importPackage("@agent-native/core/secrets");
 const { defaultOnboardingPlugin } = await importPackage("@agent-native/core/onboarding");
 const { closeDbExec, getDbExec, runMigrations, withMigrationRuntime } =
   await importPackage("@agent-native/core/db");
@@ -324,6 +325,10 @@ const { createProjectCatalog, mountProjectCatalog } = await appImport("server/pr
 const integrationConfigSourceIdentity = await digestFile(path.join(
   path.dirname(appRequire.resolve("@agent-native/core/integrations")),
   "config-store.js",
+));
+const appSecretsSourceIdentity = await digestFile(path.join(
+  path.dirname(appRequire.resolve("@agent-native/core/secrets")),
+  "storage.js",
 ));
 const readinessSourceIdentity = await digestFile(
   path.join(app, "server/project-runtime-readiness.mjs"));
@@ -1139,6 +1144,32 @@ async function initialize() {
     changedTables(integrationConfigBefore, integrationConfigAfter),
     existingIntegrationConfigTable === null ? ["integration_configs"] : [],
   );
+  const appSecretsColumns = [
+    "created_at", "description", "encrypted_value", "id", "key", "scope", "scope_id",
+    "shared_encrypted_value", "updated_at", "url_allowlist",
+  ];
+  const appSecretsBefore = await tableSnapshot();
+  const existingAppSecretsTable = appSecretsBefore.tables.app_secrets ?? null;
+  if (existingAppSecretsTable !== null) {
+    assert.deepEqual(existingAppSecretsTable, {
+      columns: appSecretsColumns,
+      rows: [],
+    });
+  }
+  assert.equal(await readAppSecret({
+    key: "ANTHROPIC_API_KEY",
+    scope: "user",
+    scopeId: identity.email,
+  }), null);
+  const appSecretsAfter = await tableSnapshot();
+  assert.deepEqual(appSecretsAfter.tables.app_secrets, {
+    columns: appSecretsColumns,
+    rows: [],
+  });
+  assert.deepEqual(
+    changedTables(appSecretsBefore, appSecretsAfter),
+    existingAppSecretsTable === null ? ["app_secrets"] : [],
+  );
   initializationEvidence = {
     integrationConfig: {
       source: {
@@ -1152,6 +1183,23 @@ async function initialize() {
       afterTablesSha256: canonicalDigest(integrationConfigAfter),
       changedTables: changedTables(integrationConfigBefore, integrationConfigAfter),
       table: integrationConfigAfter.tables.integration_configs,
+    },
+    appSecrets: {
+      source: {
+        packagePath: "@agent-native/core/dist/secrets/storage.js",
+        ...appSecretsSourceIdentity,
+      },
+      read: {
+        key: "ANTHROPIC_API_KEY",
+        scope: "user",
+        scopeId: identity.email,
+      },
+      value: null,
+      tableCreatedByRead: existingAppSecretsTable === null,
+      beforeTablesSha256: canonicalDigest(appSecretsBefore),
+      afterTablesSha256: canonicalDigest(appSecretsAfter),
+      changedTables: changedTables(appSecretsBefore, appSecretsAfter),
+      table: appSecretsAfter.tables.app_secrets,
     },
   };
   const nativeTables = await tableSnapshot();

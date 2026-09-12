@@ -22,13 +22,14 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-Four browser attempts remain unaccepted. Browser04 passed the corrected paired
-state/sync write and bootstrap drain, then failed its pre-route baseline
-comparison. All failures and charges remain retained.
+Five browser attempts remain unaccepted. Browser05 passed the original baseline
+and root no-selection check, then timed out on the tool-result visibility
+assertion. Its Alpha requests returned 200. All failures and charges remain
+retained.
 
-**Accepted source:** Revision05 passed independent diagnosis and source review.
-Its single preparation is complete. It awaits Native's local integration-schema
-initializer before the original baseline and preserves later comparisons.
+**Accepted source:** Revision06 passed independent source QA and its one
+preparation is complete. It corrects Native tool/artifact assertions and
+initializes the empty local secret store before the original baseline.
 
 **Remaining:** Independently verify the prepared inputs and fresh resources before
 the bounded browser execution. Workbench browser acceptance,

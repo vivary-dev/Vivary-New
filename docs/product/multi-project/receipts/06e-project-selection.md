@@ -1126,3 +1126,92 @@ checkpoint. Do not repeat preparation.
 Browser acceptance, default production action mounting/authentication, and
 persistent-workspace custody remain open. The fixture still uses private tmpfs
 roots and the accepted build.
+
+## C5 Browser05 tool-result failure, 2026-09-12
+
+Browser05 passed the original baseline comparisons and the root no-selection
+scenario. Alpha selection, readiness, and activity returned 200. All 92 browser
+requests settled with status 200: 90 GETs and two PUTs. The activity text and
+Read file summary appeared. The fixture then timed out after 30 seconds waiting
+for its tool-result `pre` locator to become visible.
+
+This is one passing C5 check inside a failed attempt. Alpha acceptance,
+screenshots, delayed-response probes, final state/model counters, and graceful
+shutdown witnesses remain absent.
+
+The attempt charged 69.6513385480066 seconds. Cumulative use is
+228.9819184700027 of the original 365 seconds, leaving 136.0180815299973 seconds.
+The runner SIGKILLed backend Node and Xvfb during failure containment. The browser
+reported natural closure false. The supervisor sent no signals, and independent
+Verify confirmed all 22 saved process identities absent.
+
+Peak aggregate RSS was 5,360,574,464 bytes, peak tasks 154, and maximum observer
+gap 0.27956222399370745 seconds. Chromium's observed sandbox flags passed. The
+resource thresholds held.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Supervisor result | `c280f80048ecbff311256dff6bb8216dc7d2136a94ddead01062edbfe9beba32` |
+| Browser05 ledger | `ae91b12707ce018d3abb12b650b93d87f31684f3fe6b57b8b427eec63c1d16e8` |
+| Runner stderr | `4d354987b05fd0fa9190b4d710f7bf688b9391ea8ea0d61c6029f7e69b8d4ba0` |
+| Failure archive | `57654ac65f21a509ba70f4c50e9bfc46ada3672f6f1a257673b921d9ae56d466` |
+
+The archive is 3,078,055 bytes, with 39 payload members totaling 7,659,771 bytes
+plus its manifest. Independent review passed CRC, exact safe membership, every
+payload hash, 33 retained-file matches, all five sources at commit `a2fbf40`,
+the freeze, and all 12 prior evidence pins. That source commit remains on private
+Entire. Revision06 may allocate 136 seconds from the original remainder after
+source QA, one preparation, and fresh independent admission.
+
+## C5 revision06 source freeze, 2026-09-12
+
+Pinned Native source explains the Browser05 locator failure. The background
+projector maps `tool_done` to an artifact. The normalizer merges status tool
+events, so the Read file details card contains its input while
+`.agent-conversation-artifact` renders the result separately. The diagnosis record
+is `.tmp/06e/browser-05-renderer-diagnosis.json`, SHA-256
+`30096d5148afdbaea940849143141e56d55e5223cceffb62118c5779e51eaa71`.
+This conclusion comes from retained responses and pinned source. Browser05
+retained no DOM or screenshot.
+
+The corrected helper verifies one exact input card, its boolean open state,
+one exact separate artifact result, and absence of the other run's activity and
+artifact. It covers both original and replacement runs. All 13 success checks,
+timeouts, traffic limits, and Native state witnesses remain in force.
+
+A separate source check caught a future chat startup write before dispatch.
+The permitted engine-list action prefetches required provider credentials and
+would create the absent `app_secrets` table. The backend now awaits Native's
+public local scoped secret read before the original baseline. It requires a
+null result, the exact empty ten-column table, and no change beyond optional
+table creation. No secret value, environment lookup, network call, or model
+activation is part of this setup. Later immutable comparisons include the table.
+
+Independent QA accepted all five final files. Preparation completed once with
+361 source entries and 11 tool entries. The same 80 app inputs, 212 build outputs,
+43 Core Python files, dependency tree, and Chromium tree remain bound.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `128089dce627fb48c210f001c97f69f5c6c85e8e23bc80f214157027ab5669f0` |
+| c5_browser.mjs | `d202cdb29a8f3bcc049bb48c40492525acaa6f2d19a67f4708f77d991411be86` |
+| c5_browser_runner.mjs | `ec9dfb4b89b2ea0844457bc418b16ffdd0d58f852956ce14f8227d8df90eb6dc` |
+| prepare_zo_browser.py | `694d1ff2e1af8c43129ea75cb3345fdc57ed5bdedea1dfa2cd994fbcae7ca2e3` |
+| zo_browser_supervisor.py | `8244b55fd3d9aee46cdded9ba13c87d1db858e2478edf49fe486659af33d9b23` |
+
+| Frozen authority | SHA-256 |
+| --- | --- |
+| Source manifest | `680726ef9fa3cd6fbc61ae9a1917302792d50de989d6404ad6a114543c852733` |
+| Source binding | `3ce4f3159471d55b3ba1be83ebdb345e7de24e12cba10750fcdadd4444ce5f63` |
+| Profile | `1a5810f0999a056bb7548f5793e260ecdb6cdabc3c644e1b9b235491a559875c` |
+| Budget authority | `e1d767a2e1a9f98d0dd11a2a59cd1b3950bcd0f44e19ad32bfa5abdd7b6ee289` |
+
+The authority binds all five prior charges and all 15 retained evidence artifacts.
+One `browser-06` attempt in `.tmp/06e/zo-browser-r6` may use 131 execution seconds
+and five cleanup seconds. Maximum combined use is 364.9819184700027 of the original
+365 seconds. Fresh independent admission remains required at this source
+checkpoint. Do not repeat preparation.
+
+Browser acceptance, default production action mounting/authentication, and
+persistent-workspace custody remain open. The fixture still uses private tmpfs
+roots and the accepted build.

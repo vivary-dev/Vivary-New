@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. Four attempts consumed 159.3305799219961 seconds combined. Revision05 may use at most 205 seconds: 200 execution plus five cleanup. The remaining 0.6694200780038955 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. Five attempts consumed 228.9819184700027 seconds combined. Revision06 may use at most 136 seconds: 131 execution plus five cleanup. The remaining 0.01808152999728918 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -56,16 +56,21 @@ immutable-state hash and the original setup baseline. No C5 scenario completed.
 Its failure archive passed independent review, and all 22 saved process identities
 are absent after forced cleanup.
 
-**Accepted source:** Independent QA reproduced the exact table-only difference
-and approved all five revision05 files. The fixture now awaits Native's existing
-local initializer before the original baseline. Preparation completed once with
-358 source entries and 11 tool entries.
+Browser05 passed the original baseline checks and the root no-selection scenario.
+Alpha selection, readiness, and activity returned 200. The browser then timed out
+waiting for the visible tool result. All 92 requests settled. The failure archive
+passed independent review, and all 22 saved process identities are absent after
+forced cleanup. Full browser acceptance remains open.
+
+**Accepted source:** Independent QA approved all five final revision06 files.
+The browser checks Native's separate input card and artifact result. The backend
+also initializes the empty local secret store before the original baseline.
+Preparation completed once with 361 source entries and 11 tool entries.
 
 **Next:** Independently verify that existing freeze and fresh resources, then
-dispatch the single bounded attempt. Preserve all four failures and the original
-budget. Do not repeat any preparation or rebuild unchanged product code.
-Configured production mounting/authentication and parent switching/draft gates
-remain open.
+dispatch the single bounded attempt. Preserve all five failures and the original
+remaining budget. Do not repeat any preparation or rebuild unchanged product code.
+Production mounting/authentication and parent switching/draft gates remain open.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -341,6 +346,34 @@ four actual prior charges and all 12 ledger, result, and archive artifacts.
 
 Maximum combined charge is 364.3305799219961 of 365 seconds. Keep all other source,
 resource, isolation, request, cleanup, preparation, and fresh-admission requirements.
+
+
+## C5 browser revision06: Native tool and artifact rendering
+
+Native projects the stored `tool_done` event as an artifact. Its conversation
+normalizer merges status tool events, while the generic Read file details card
+retains the input. The exact result renders separately in
+`.agent-conversation-artifact`. Browser05 incorrectly waited for the result inside
+the details card.
+
+For original and replacement activity, verify the matching activity text, Read
+file card, exact input, and separate exact artifact result. Open the details only
+when closed, and check the actual boolean state. Preserve the assertion that the
+other activity is absent. Keep the existing timeout, request boundaries, Native
+state witnesses, and all 13 success checks.
+
+A source check also found that the permitted chat engine-list read initializes
+the absent `app_secrets` table through Native's credential prefetch. Await the
+public local secret-store read before the original baseline. Require a null
+result, the exact empty table, and no change beyond optional table creation.
+Do not log secret values. Keep this table fully covered by later immutable
+comparisons. The fixture has no configured provider keys or external network.
+
+Use one `browser-06` attempt in `.tmp/06e/zo-browser-r6`. Allocate 131 execution
+seconds and five cleanup seconds from the original remainder. Bind all five
+prior charges and all 15 ledger, result, and archive artifacts. Maximum combined
+use is 364.9819184700027 of the original 365 seconds. Keep all other source,
+resource, isolation, preparation, admission, and cleanup requirements.
 
 ## Historical Habitat continuation
 

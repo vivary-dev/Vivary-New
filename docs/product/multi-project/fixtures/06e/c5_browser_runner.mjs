@@ -192,7 +192,7 @@ function validateConfig(value) {
   ]) assert.match(value[name], /^[0-9a-f]{64}$/);
   assert.match(value.proofToken, /^[0-9a-f]{64}$/);
   assert.ok(Number.isSafeInteger(value.nodeBytes) && value.nodeBytes > 0);
-  assert.equal(value.deadlineSeconds, 200);
+  assert.equal(value.deadlineSeconds, 131);
   assert.deepEqual({
     appRoot: value.appRoot,
     sourceRoot: value.sourceRoot,

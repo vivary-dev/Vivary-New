@@ -174,14 +174,33 @@ async function selectProject(page, name, deadlineAt) {
 
 async function waitForActivity(page, kind) {
   const other = kind === "original" ? "replacement" : "original";
+  const resultText = `C5 Alpha ${kind} tool result`;
   await page.getByText(`C5 Alpha ${kind} activity`, { exact: true }).waitFor();
   const card = page.locator("details.agent-conversation-tool")
     .filter({ hasText: "Read file" }).first();
-  await card.locator("summary").waitFor();
-  if (!await card.evaluate(element => element.open)) await card.locator("summary").click();
-  const result = card.locator("pre").filter({ hasText: `C5 Alpha ${kind} tool result` });
+  const summary = card.locator("summary");
+  await summary.waitFor();
+  const input = card.locator(".agent-conversation-tool__details > pre");
+  await input.waitFor({ state: "attached" });
+  assert.equal(await input.count(), 1);
+  assert.equal(await input.locator("strong").textContent(), "input");
+  assert.equal(await input.textContent(), 'input{\n  "path": "proof.txt"\n}');
+  const openAttribute = await card.getAttribute("open");
+  assert.ok(openAttribute === null || openAttribute === "");
+  if (openAttribute === null) {
+    assert.equal(await card.evaluate(element => element.open), false);
+    await summary.click();
+  }
+  assert.equal(await card.getAttribute("open"), "");
+  assert.equal(await card.evaluate(element => element.open), true);
+  await input.waitFor();
+  const result = page.locator(".agent-conversation-artifact").filter({ hasText: resultText });
   await result.waitFor();
+  assert.equal(await result.count(), 1);
+  assert.equal(await result.locator("span").textContent(), resultText);
   assert.equal(await page.getByText(`C5 Alpha ${other} activity`, { exact: true }).count(), 0);
+  assert.equal(await page.locator(".agent-conversation-artifact")
+    .filter({ hasText: `C5 Alpha ${other} tool result` }).count(), 0);
 }
 
 const waitForOriginal = page => waitForActivity(page, "original");
@@ -317,7 +336,7 @@ async function runRoute(page, routePath, label) {
     await selectProject(page, "Alpha");
     await waitForOriginal(page);
     await assertNoComposer(page);
-    recordCheck(label, "Alpha shows only exact Native text and expanded tool activity");
+    recordCheck(label, "Alpha shows exact Native text, expanded tool input, and artifact result");
     await takeScreenshot(page, `${label}-alpha`);
 
     await selectProject(page, "Beta");
