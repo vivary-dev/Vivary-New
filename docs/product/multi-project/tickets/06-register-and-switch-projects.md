@@ -22,13 +22,13 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-Three browser attempts remain unaccepted. The first two stopped during setup;
-the third reached Chromium but rejected Native's normal sync-event effect during
-bootstrap. Their evidence and actual charges remain retained.
+Four browser attempts remain unaccepted. Browser04 passed the corrected paired
+state/sync write and bootstrap drain, then failed its pre-route baseline
+comparison. All failures and charges remain retained.
 
-**Accepted source:** Revision04 passed independent QA and its exact source freeze
-is prepared. The corrected fixture validates Native's paired state and sync-event
-effect and drains bootstrap responses.
+**Accepted source:** Revision05 passed independent diagnosis and source review.
+Its single preparation is complete. It awaits Native's local integration-schema
+initializer before the original baseline and preserves later comparisons.
 
 **Remaining:** Independently verify the prepared inputs and fresh resources before
 the bounded browser execution. Workbench browser acceptance,

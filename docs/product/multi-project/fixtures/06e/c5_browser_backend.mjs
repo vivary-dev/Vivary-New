@@ -301,6 +301,7 @@ const {
   startAgentHarnessRun,
 } = await importPackage("@agent-native/core/agent/harness");
 const { registerAgentEngine } = await importPackage("@agent-native/core/agent/engine");
+const { getIntegrationConfig } = await importPackage("@agent-native/core/integrations");
 const { defaultOnboardingPlugin } = await importPackage("@agent-native/core/onboarding");
 const { closeDbExec, getDbExec, runMigrations, withMigrationRuntime } =
   await importPackage("@agent-native/core/db");
@@ -320,6 +321,10 @@ const tables = await appImport("server/db/schema.mjs");
 const { createNativeRegistry, createNativeRegistryAuth } = await appImport("server/native-registry.mjs");
 const { mountRegistryHttp } = await appImport("server/registry-http.mjs");
 const { createProjectCatalog, mountProjectCatalog } = await appImport("server/project-catalog.mjs");
+const integrationConfigSourceIdentity = await digestFile(path.join(
+  path.dirname(appRequire.resolve("@agent-native/core/integrations")),
+  "config-store.js",
+));
 const readinessSourceIdentity = await digestFile(
   path.join(app, "server/project-runtime-readiness.mjs"));
 const { createProjectRuntimeReadiness, mountProjectRuntimeReadiness } =
@@ -528,6 +533,7 @@ let heldAlpha = null;
 let holdNextAlpha = false;
 let activeAlphaReference = "original";
 let measurementBaseline = null;
+let initializationEvidence = null;
 let registeredRootFacts = null;
 let custodyEvidence = null;
 
@@ -1110,6 +1116,44 @@ async function initialize() {
     values: {},
     missing: [SELECTION_KEY],
   });
+
+  const integrationConfigColumns = [
+    "config_data", "config_key", "owner", "platform", "updated_at",
+  ];
+  const integrationConfigBefore = await tableSnapshot();
+  const existingIntegrationConfigTable =
+    integrationConfigBefore.tables.integration_configs ?? null;
+  if (existingIntegrationConfigTable !== null) {
+    assert.deepEqual(existingIntegrationConfigTable, {
+      columns: integrationConfigColumns,
+      rows: [],
+    });
+  }
+  assert.equal(await getIntegrationConfig("google-docs"), null);
+  const integrationConfigAfter = await tableSnapshot();
+  assert.deepEqual(integrationConfigAfter.tables.integration_configs, {
+    columns: integrationConfigColumns,
+    rows: [],
+  });
+  assert.deepEqual(
+    changedTables(integrationConfigBefore, integrationConfigAfter),
+    existingIntegrationConfigTable === null ? ["integration_configs"] : [],
+  );
+  initializationEvidence = {
+    integrationConfig: {
+      source: {
+        packagePath: "@agent-native/core/dist/integrations/config-store.js",
+        ...integrationConfigSourceIdentity,
+      },
+      platformRead: "google-docs",
+      value: null,
+      tableCreatedByRead: existingIntegrationConfigTable === null,
+      beforeTablesSha256: canonicalDigest(integrationConfigBefore),
+      afterTablesSha256: canonicalDigest(integrationConfigAfter),
+      changedTables: changedTables(integrationConfigBefore, integrationConfigAfter),
+      table: integrationConfigAfter.tables.integration_configs,
+    },
+  };
   const nativeTables = await tableSnapshot();
   measurementBaseline = {
     sha256: canonicalDigest(nativeTables),
@@ -1650,6 +1694,7 @@ async function handle(message) {
         requestFailures,
         timeoutFailures,
         requestFailureOverflow,
+        initialization: initializationEvidence,
         bootstrap: { open: bootstrapOpen, localizationWrites, chatUrlWrites, chatEngineLists,
           localizationWritesByWindow, chatMutationsByWindow },
         provider: {
@@ -1930,6 +1975,7 @@ try {
       chatModelCalls,
     },
     setupCounters: measurementBaseline?.counters ?? null,
+    initialization: initializationEvidence,
     readinessEvidence: {
       source: readinessSourceIdentity,
       projects: Object.fromEntries([...readinessEvidenceByProject.entries()]

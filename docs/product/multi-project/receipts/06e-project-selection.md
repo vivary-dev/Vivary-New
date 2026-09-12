@@ -1044,3 +1044,85 @@ required at this source checkpoint. Do not repeat preparation.
 This source acceptance does not establish browser acceptance, default production
 action mounting/authentication, or custody on Zo's persistent workspace
 filesystem. The fixture's physical roots remain private disposable tmpfs.
+
+## C5 Browser04 baseline failure, 2026-09-12
+
+Browser04 completed the first `/` bootstrap. All 85 requests returned 200 and
+settled, including the exact locale PUT and its paired state/sync-event witness.
+
+The next assertion compared the pre-route immutable hash with the original
+setup baseline and found a difference. It did not reach the following comparison
+against the post-bootstrap snapshot. No C5 checks, screenshots, or transport
+probes completed.
+
+The attempt charged 39.821340925002005 seconds. Cumulative use is
+159.3305799219961 of the original 365 seconds, leaving 205.6694200780039 seconds.
+
+The runner SIGKILLed backend Node and Xvfb during failure containment. Browser
+natural closure was false. The supervisor sent no signals. Independent Verify
+confirmed all 21 owned process identities and the supervisor identity absent.
+
+Peak observed aggregate RSS was 5,281,505,280 bytes, peak tasks 156, and maximum
+observer gap 0.2793011820031097 seconds. Final state, model, provider, database,
+and SSR-close witnesses are absent. Browser acceptance remains open.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Supervisor result | `117d047b25e1e5bb303811d9df6564f20d889632cdaa1172c72679a2bd0ae73c` |
+| Browser04 ledger | `7638309ae90a2ce1a4771b7c0cdf2612941f628c4dd83840e11080794dd99a27` |
+| Runner stderr | `3c6036a090410852b766cd3fa2346dc736ae80083b613bf454538bea3ad47d46` |
+| Failure archive | `bc184bea2d34514f176809b36fb1c20c7a0120a3444c33d1dc0e600ab2c897a7` |
+
+The archive is 1,537,846 bytes, with 38 payload members totaling 5,554,172 bytes
+plus its manifest. Independent verification passed CRC, safe exact membership,
+every payload hash, retained-file matching, all five source files from commit
+`13e2d7b`, frozen inputs, and the prior evidence pins. That source commit remains
+on private Entire.
+
+Revision05 may allocate 205 seconds from the original remainder only after source
+QA accepts the diagnosis and correction, preparation runs once, and independent
+admission passes.
+
+## C5 revision05 source freeze, 2026-09-12
+
+Independent QA reconstructed both Browser04 hashes from the retained SQLite and
+WAL in memory. Removing only the empty five-column `integration_configs` table
+changes the pre-route hash to the original baseline hash. The diagnosis record
+is `.tmp/06e/browser-04-baseline-diagnosis.json`, SHA-256
+`1b1d9e41944300517753add596a9fece75e33ce572a63b9a0b94db0bf7b2865a`.
+
+Native's integrations plugin schedules its Google Docs poller after two seconds.
+That poller reads the local configuration store, whose cached initializer creates
+the empty table. Revision05 awaits the same public null configuration read before
+taking the original baseline. It records the initializer source, exact columns,
+zero rows, and only the optional empty-table creation. Later immutable comparisons
+still include that table.
+
+QA accepted all five final source files. Preparation completed once with 358
+source entries and 11 tool entries, including the same 80 accepted app inputs,
+212 build outputs, and 43 Core Python files.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `e25c19f7b64fbf31a808265e467fbf39c69da5459fa109be2365930c3acfb215` |
+| c5_browser.mjs | `87b353369d1e47cd040d429c4d26ffdc3a169069ea439557582a4da972a45824` |
+| c5_browser_runner.mjs | `8a49764712b03663b1a69ada1d9f80e98e27f2285177eadff869b5b5640b575c` |
+| prepare_zo_browser.py | `2244fb5b4516b70a99c8eed122627f7ee13dcb9315a436d95644e1d60fd3c669` |
+| zo_browser_supervisor.py | `e21a895d06414d9238516031fe9d81c5e683b978f3a42784578c76b4ad51a965` |
+
+| Frozen authority | SHA-256 |
+| --- | --- |
+| Source manifest | `a25115a5114bde0d7603c41cc6d269f970b7585a067145a2b902aa1d710b4fb3` |
+| Source binding | `c028df5ba66554c72089d621f5f7ab146ddb014a40a75d14aff441c7f3243b4f` |
+| Profile | `149068ac1b90db7422134824fd9a13c6fb2781faa16a70f53b32441cc4162049` |
+| Budget authority | `00106c08e87b1f5cf3899b26227906ac223284e2553483e45ed217322d172291` |
+
+The authority binds all four prior charges and all 12 retained evidence artifacts.
+One `browser-05` attempt in `.tmp/06e/zo-browser-r5` may use 200 execution seconds
+and five cleanup seconds. Maximum combined use is 364.3305799219961 of the original
+365 seconds. Fresh independent admission remains required at this source
+checkpoint. Do not repeat preparation.
+
+Browser acceptance, default production action mounting/authentication, and
+persistent-workspace custody remain open. The fixture still uses private tmpfs
+roots and the accepted build.

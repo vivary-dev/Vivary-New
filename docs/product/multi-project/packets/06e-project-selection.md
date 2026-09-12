@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. The three attempts consumed 119.5092389969941 seconds combined. Revision04 may use at most 245 seconds: 240 execution plus five cleanup. The remaining 0.4907610030059004 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. Four attempts consumed 159.3305799219961 seconds combined. Revision05 may use at most 205 seconds: 200 execution plus five cleanup. The remaining 0.6694200780038955 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -50,13 +50,20 @@ rejected. No scenario, screenshot, or late-delivery probe completed. Final
 counter and state witnesses are absent, so this run cannot establish zero model
 calls or unchanged Native records. Forced cleanup removed all owned processes.
 
-**Accepted source:** Independent QA approved all five revision04 files. The exact
-Native paired-write witness and browser bootstrap drain are source-reviewed.
-Preparation completed once with 355 source entries and 11 tool entries.
+Browser04 passed its paired locale-write witness and drained all 85 bootstrap
+requests with status 200. It then rejected the difference between the pre-route
+immutable-state hash and the original setup baseline. No C5 scenario completed.
+Its failure archive passed independent review, and all 22 saved process identities
+are absent after forced cleanup.
 
-**Next:** Independently verify the existing revision04 freeze and fresh resources,
-then dispatch its single bounded attempt. Preserve all earlier namespaces and
-evidence. Do not repeat any preparation or rebuild unchanged product code.
+**Accepted source:** Independent QA reproduced the exact table-only difference
+and approved all five revision05 files. The fixture now awaits Native's existing
+local initializer before the original baseline. Preparation completed once with
+358 source entries and 11 tool entries.
+
+**Next:** Independently verify that existing freeze and fresh resources, then
+dispatch the single bounded attempt. Preserve all four failures and the original
+budget. Do not repeat any preparation or rebuild unchanged product code.
 Configured production mounting/authentication and parent switching/draft gates
 remain open.
 
@@ -310,6 +317,30 @@ must bind all three actual charges and all nine prior ledger, result, and archiv
 artifacts. Maximum combined charge is 364.5092389969941 of 365 seconds. No prior
 namespace or ledger may change. All other CPU, memory, task, output, isolation,
 cleanup, source-review, preparation, and fresh-admission requirements still apply.
+
+
+## C5 browser revision05: settled integration schema
+
+Browser04's difference is one empty `integration_configs` table. Reconstructing
+the immutable digest from the retained database matches the pre-route hash.
+Removing only that table matches the original baseline hash. This explains the
+difference without any row changes.
+
+Await Native's existing configuration-store initializer through its supported
+local read before taking the original post-seed baseline. Record the resulting
+schema and empty-row readiness witness. Keep this table in all later immutable
+comparisons.
+
+Do not exempt it, sleep to hide the race, or replace the baseline
+after browser activity. Preserve the paired state/sync write checks and bootstrap
+drain from revision04.
+
+Use one `browser-05` attempt in `.tmp/06e/zo-browser-r5`. Allocate 200 execution
+seconds and five cleanup seconds from the original remaining budget. Bind all
+four actual prior charges and all 12 ledger, result, and archive artifacts.
+
+Maximum combined charge is 364.3305799219961 of 365 seconds. Keep all other source,
+resource, isolation, request, cleanup, preparation, and fresh-admission requirements.
 
 ## Historical Habitat continuation
 
