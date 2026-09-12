@@ -12,17 +12,16 @@ Execution: Start only a bounded packet listed in [the graph](../graph.md). Paren
 
 Updated 2026-09-11. Packet 05a accepts the scoped visual shell and its historical
 build/browser evidence. Current integrated selection behavior still needs 06e's
-fresh build/browser acceptance, and outcome 02 remains unfinished. Full parent
+focused C5 tests and browser acceptance; its exact product build is accepted.
+Outcome 02 remains unfinished. Full parent
 closure must verify the required shell regions and provenance against the
 integrated source. See the [05a receipt](../receipts/05a-workbench-shell.md).
 
-Packet 05b retains eight passing backend title tests. Its `/chat` candidate
-composes Native chat and history. Independent QA and Verify accepted the corrected
-identity gating and restoration behavior at source level. Workbench project
-activity remains read-only. The Zo build and eight endpoint tests pass. Three
-browser attempts failed before history acceptance; correction and runtime Verify
-remain pending. The [05b receipt](../receipts/05b-deepseek-chat-titles.md) owns the
-current results and cumulative budget.
+Packet 05b accepts eight endpoint tests, Zo build 04 and browser 15. All twelve
+GUI checks, natural backend exit, resource closure and independent runtime review
+passed. The [05b receipt](../receipts/05b-deepseek-chat-titles.md) owns exact hashes,
+the retained failures and the documentation-only README delta. Parent outcome
+05 remains in progress for the integrated 06e behavior and its other exit gates.
 
 ## Goal
 

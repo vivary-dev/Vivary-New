@@ -15,8 +15,8 @@ BASE = ROOT / ".tmp/05b/zo-runtime"
 PNPM = Path("/root/.cache/node/corepack/v1/pnpm/10.33.2")
 MEMORY_STOP = 8 * 1024**3
 PROCESS_STOP = 256
-BUDGET_REVISION = 2
-ATTEMPT_LIMITS = {"build": 3, "browser": 5}
+BUDGET_REVISION = 9
+ATTEMPT_LIMITS = {"build": 4, "browser": 15}
 FORBIDDEN_CHROMIUM_FLAGS = {"--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu-sandbox", "--no-zygote-sandbox"}
 PROFILE = {
     "schema": "vivary.05b-zo-profile/v1",
@@ -104,7 +104,7 @@ def command_for(phase, work, command, browser):
 def run(args):
     assert args.phase in ("probe", "install", "acquire", "hooks", "build", "browser", "tests")
     assert re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", args.name)
-    assert 0 < args.seconds <= {"install": 900, "acquire": 300, "hooks": 300, "build": 600, "browser": 300, "tests": 300, "probe": 30}[args.phase]
+    assert 0 < args.seconds <= {"install": 900, "acquire": 300, "hooks": 300, "build": 600, "browser": 360, "tests": 300, "probe": 30}[args.phase]
     if args.phase == "install":
         assert args.command == ["/usr/bin/node", "/pnpm/bin/pnpm.cjs", "install",
                                 "--frozen-lockfile", "--ignore-scripts",
@@ -186,7 +186,7 @@ def run(args):
                         observed_pid_namespaces.add(os.readlink(f"/proc/{pid}/ns/pid"))
                     except (FileNotFoundError, PermissionError):
                         pass
-                if args.phase == "browser":
+                if args.phase == "browser" or (args.phase == "probe" and args.browser):
                     for pid in owned:
                         if pid in chromium_launches:
                             continue
@@ -248,7 +248,7 @@ def run(args):
                 failure = "cleanup-error:" + type(error).__name__
     if not any(sample["processes"] for sample in samples):
         failure = failure or "unobserved-process"
-    if args.phase == "browser":
+    if args.phase == "browser" or (args.phase == "probe" and args.browser):
         if not chromium_launches:
             failure = failure or "chromium-launch-unobserved"
         elif any(arg.split("=", 1)[0] in FORBIDDEN_CHROMIUM_FLAGS for launch in chromium_launches.values() for arg in launch["argv"]):

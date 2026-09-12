@@ -1,16 +1,9 @@
-import {
-  AgentChatSurface,
-  type ChatThreadScope,
-} from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/chat";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { Skeleton } from "@agent-native/toolkit/ui";
+import { vivaryChatScope } from "../lib/chat-scope";
 
-const VIVARY_CHAT_SCOPE = {
-  type: "workspace-app",
-  id: "vivary-workbench-chat-v1",
-  label: "Vivary",
-} satisfies ChatThreadScope;
 const VIVARY_CHAT_STORAGE_KEY = "vivary-workbench-chat-v1";
 
 function normalizeEmail(value: string) {
@@ -79,33 +72,37 @@ export default function ChatRoute() {
       content = (
         <ChatUnavailable message="Your account and active organization could not be matched. Refresh the page and try again." />
       );
-    } else if (!orgId) {
-      content = (
-        <ChatUnavailable message="Full chat requires a stable organization ID. Ask the workspace owner to update organization settings." />
-      );
     } else {
-      const identityNamespace = encodeURIComponent(
-        JSON.stringify([sessionEmail, orgId]),
-      );
-      const storageKey = `${VIVARY_CHAT_STORAGE_KEY}:${identityNamespace}`;
+      const scope = vivaryChatScope(orgId);
 
-      content = (
-        <AgentChatSurface
-          key={storageKey}
-          mode="page"
-          className="h-full min-h-0"
-          storageKey={storageKey}
-          scope={VIVARY_CHAT_SCOPE}
-          isolateHistoryByScope
-          restoreActiveThread={false}
-          agentChatSurface="app"
-          chatOnly
-          codeAccess={{ enabled: false }}
-          showHeader
-          showTabBar
-          threadUrlSync={false}
-        />
-      );
+      if (!scope) {
+        content = (
+          <ChatUnavailable message="Full chat requires a stable organization ID. Ask the workspace owner to update organization settings." />
+        );
+      } else {
+        const identityNamespace = encodeURIComponent(
+          JSON.stringify([sessionEmail, orgId]),
+        );
+        const storageKey = `${VIVARY_CHAT_STORAGE_KEY}:${identityNamespace}`;
+
+        content = (
+          <AgentChatSurface
+            key={storageKey}
+            mode="page"
+            className="h-full min-h-0"
+            storageKey={storageKey}
+            scope={scope}
+            isolateHistoryByScope
+            restoreActiveThread={false}
+            agentChatSurface="app"
+            chatOnly
+            codeAccess={{ enabled: false }}
+            showHeader
+            showTabBar
+            threadUrlSync={false}
+          />
+        );
+      }
     }
   }
 

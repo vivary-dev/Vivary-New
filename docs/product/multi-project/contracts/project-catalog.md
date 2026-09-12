@@ -83,8 +83,8 @@ and its conversation scope when it disappears, becomes unavailable, or the
 catalog cannot verify current access. Ignore stale selection reads or responses
 from an older selection scope.
 
-For this inert stage, both conversation routes show the existing 04b **Run
-activity** projection through Native's stateless `AgentConversation`. The activity
+The Workbench routes `/` and `/workbench` show the existing 04b **Run activity**
+projection through Native's stateless `AgentConversation`. The activity
 response supplies the exact verified Native thread ID and scope. It does so only
 after the final authority, reference, Native identity, root and binding checks.
 The scope type is `vivary-project-runtime-v1`. Its ID is the existing binding
@@ -94,9 +94,18 @@ selected project ID grants access.
 Key the renderer by that exact thread and scope, including the reference revision
 and run when either changes. Refuse responses that do not match the current
 catalog claim. Clear the display during a selection or access check and ignore
-late results from an older claim. Both routes retain one shared ProjectContext.
-Do not discover other threads, copy transcripts, create another thread/session
-store, or infer runtime availability from registration. No composer is mounted.
+late results from an older claim. Both Workbench routes use the shared
+ProjectContext. Their activity flow must not discover other threads, copy
+transcripts, create another thread/session store, or infer runtime availability
+from registration. No composer is mounted in Workbench.
+
+The accepted [05b title flow](../receipts/05b-deepseek-chat-titles.md#current-result)
+owns `/chat`: a separate authenticated, organization-qualified Full chat surface
+whose identity does not come from selected projects. This 2026-09-11
+reconciliation supersedes the earlier requirement that `/chat` also render
+stateless project activity. C5 browser acceptance covers both Workbench aliases
+and their separation from Full chat. The component's `fullPage` variant remains
+unit-level renderer coverage; it is not a currently mounted activity route.
 
 This proves selection-bound Run activity isolation, not complete conversation
 history or Core's `isolateHistoryByScope` behavior. Full conversation fidelity and

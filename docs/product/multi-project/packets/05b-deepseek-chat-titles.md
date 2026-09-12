@@ -4,20 +4,179 @@ type: packet
 # 05b: Generate native chat titles with DeepSeek
 
 Parent: 05
-Status: in-progress
+Status: done
 Depends-on: [05a]
-Owner: Root coordinates execution directly on Zo. Implement owns source fixes; QA and Verify independently review source and runtime evidence. The private GitHub handoff is complete. GUI runtime acceptance remains pending.
+Owner: Root coordinates execution directly on Zo. Implement owns source fixes; QA and Verify independently review source and runtime evidence. QA and Verify accepted build 04 and browser 15. Local atomic commits preserve accepted work; private Entire setup remains pending.
 Scope: Internal Vivary GUI conversation titles through its native title endpoint, DeepSeek request adapter, Native history consumer, and observable GUI behavior. No development-loop or runtime preparation/start changes.
 Verification-kind: runtime
-Verification-result: failed
+Verification-result: passed
 Evidence: [Title receipt](../receipts/05b-deepseek-chat-titles.md)
-Timebox: The Zo allocation is 900 seconds of setup and 1800 seconds of verification, with durable cumulative accounting and at most three build and five total browser attempts under budget revision 2. Preserve the closed laptop ledger separately: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent. No laptop build or browser attempt started; do not replay or reset that ledger.
+Timebox: The Zo allocation is 900 seconds of setup and 1800 seconds of verification, with durable cumulative accounting and at most four build and fifteen total browser attempts under budget revision 9. Preserve the closed laptop ledger separately: 214.56320595741272 active seconds consumed, 985.4367940425873 unspent. No laptop build or browser attempt started; do not replay or reset that ledger.
+
+## Accepted result
+
+Updated 2026-09-11. Build 04 and browser 15 passed on Zo. All twelve browser
+checks passed, including generated history titles, reload persistence, delayed
+manual-rename protection, provider fallback, real window focus, account and
+organization cache privacy, current-scope refusal, and read-only Workbench.
+Three raw Native observer cancellations have exact successful authorized
+replacement reads; there are zero fatal request failures or page errors.
+
+Natural backend exit 0 passed after the unchanged Native retention timers
+expired. The fixture closed both ports of the captured React SSR channel and
+observed both public close events. Audit cleanup, database closure, HTTP shutdown,
+display shutdown and all six ordered runner stages passed. The supervisor
+returned 0 after 322.754664 seconds with no failure and complete
+owned process cleanup. Independent QA and Verify accepted the raw evidence.
+
+The tested snapshot contains 80 exact app inputs, 212 build outputs and six
+fixture files. The README was then corrected as a documentation-only delta:
+tested SHA-256 `cdbf2d6053d7649439a39ee1316088b112a141285f67faa427126b448f31a837`;
+current SHA-256 `996e9d2865ba4ab2c8d348f3352b6eab6950da7839362feb7ffadc515e36c06d`. No product code or build output changed after
+the accepted runtime proof. The original tested manifest remains preserved.
+
+Accepted changes are preserved through local atomic Git commits on Zo.
+Private GitHub remains at `2e714f56f62b3fb17411c556947081067dee41ab`.
+The earlier automatic rejection applied to a combined commit-and-GitHub-push
+command. Local commits are authorized separately. The owner now selected private
+Entire hosting until the work is ready for GitHub; its sign-in/setup is pending.
+Seven dependency advisories remain open. Tests used synthetic providers and
+identities; this acceptance does not establish production readiness.
+
+## Historical organization-scope correction
+
+Source review found that Native's account-owner history predicate is not restricted
+to the active organization. Full chat must therefore derive its workspace-app
+scope from the confirmed organization ID. The existing account/org cache key,
+identity-loading mount gate, Native ownership checks, and all GUI assertions stay
+required. Native continues to permit the owner's deliberate old-scope or unscoped
+API access; changing that account authority is outside this GUI correction.
+Legacy constant-scope rows are preserved without retagging or deletion. They are
+not automatically listed by the new organization-qualified Full chat scope. No
+production-data migration has been performed or claimed.
+
+Budget revision 4 admits one clean rebuild for this product correction: four
+build attempts total, eight browser attempts total, and the unchanged 1800-second
+verification ceiling. The six browser failures and three builds remain charged;
+236.457777354 verification seconds have been consumed. Isolation, resource stop
+thresholds, cleanup, setup/probe budgets, and browser assertions are unchanged.
+Preserve build 03 outputs and the pre-revision ledger. Independent source review
+and exact-input verification are required before build 04 and browser 07.
+
+## Historical headed-browser continuation
+
+Browser 08 passed fallback persistence, then timed out waiting for a real blur
+or hidden event after headless Chromium brought a second tab forward. No focus
+assertion is waived. Use the installed Xvfb display server and headed Chromium
+inside the existing private filesystem/PID/network sandbox. Pin Xvfb, xauth and
+xkbcomp; generate private display authorization; disable X TCP listening; inherit
+no host display. The same observer and owned cleanup cover the display server.
+First run a bounded 30-second inert two-page display probe under the remaining
+120-second probe budget. It must prove actual blur/focus and preserve a draft
+without synthetic events or focus emulation before another full browser run.
+
+Revision 5 permits ten total browser attempts with four total builds and the
+unchanged 1800 verification seconds. Eight failed browser attempts and every
+previous charge remain intact; current verification consumption is 361.05706319499586.
+No new build, dependency install, paid call, deployment or privilege is admitted.
+Each new run requires source QA, exact bindings, live resource checks and a
+successful real-focus probe. Preserve the pre-revision ledger.
+
+The saved browser 08 ledger contains 332 asset and 396 non-asset attempts, with
+repeated Native application/status polling during the focus wait. The full
+journey has ten document loads. The next fixture admits at most 1024 non-asset
+requests and 4096 static requests, preserving the 128 MiB asset-byte ceiling,
+8 MiB per-response limit, 16 pending requests and all runtime stop thresholds.
+This is a bounded allowance for the complete observed Native flow; it does not
+remove request accounting or classify repeated requests as successful proof.
+Selected-thread history navigation must wait for its exact sharing read to finish
+before New chat. Unexpected aborts remain failures; no exemption is broadened.
+
+## Historical navigation-matched focus verification
+
+Browser 09 stopped before Chromium because the fixture manifest allowlist omitted
+two new display files. The exact entries are now admitted and every preparation
+runs the real manifest/config validators. Browser 10 passed title, rename and
+fallback checks, then failed real focus after application navigations. The inert
+probe used setContent and did not cover that sequence. Match the probe to real
+navigation/reload, disable the driver override after the last navigation, establish
+actual foreground/editor focus, and retain trusted blur/refocus assertions. Treat
+this as a proposed working correction, not a uniquely proven cause of the old failure.
+
+The next fixture also admits the exact existing Native sharing metadata GET for
+chat_thread resources, preserving Native authorization and the bounded synthetic
+DB. It supplies no fake response and changes no provider or global permission
+policy. General Native group branches may lazily initialize local tables; do not
+claim every possible path is write-free. Unexpected transport aborts remain failures.
+
+Revision 6 admits at most twelve browser attempts and four builds within the
+unchanged 1800 verification seconds. Ten failed attempts remain charged; current
+verification use is 388.15092520399776. The 120-second probe budget and all isolation,
+resource, request and cleanup limits remain unchanged. Probe 03 must pass the
+navigation-matched real-focus sequence before browser 11. Preserve browser 10's
+six fixture files and its exact configuration, and the pre-revision ledger.
+
+## Sharing-request cancellation correction
+
+Browser 12 retained the failure assertion and captured passive request evidence.
+Independent QA and Verify matched all three canceled reads to Native's query
+observer unsubscribe path. The initial creation reads finished normally. During
+history restoration, each canceled read has a distinct same-document replacement
+that completes with HTTP 200 and verified owner authorization. The exact built
+bundle maps the captured stack to caller-signal forwarding, query cancellation,
+observer removal and unsubscribe. This corrects the earlier initial-send hypothesis.
+
+Preserve raw failures. The next fixture may classify only this demonstrated
+lifecycle when exact request/fetch identity, short bounded ages, the Native abort
+stack, a successful same-document replacement and its owner response all agree.
+Missing or ambiguous evidence, unrelated failures and unreplaced cancellations
+remain fatal. Keep all title, scope, privacy, focus and Workbench assertions.
+
+Revision 7 permits fourteen total browser attempts and four builds within the
+unchanged 1800 verification seconds. All twelve failures remain charged;
+456.6324903400018 seconds have been used. The 36-entry pre-revision ledger is
+preserved with SHA-256
+`afbfc8750ae0f05623fe12adf08114221028d36fd5fb315e0bb250055af0cb19`.
+Setup, probe, resource, isolation and request limits are unchanged. This is a
+reviewed correction under the owner's standing instruction to fix problems and
+continue; it grants no new spending, public action or total runtime allocation.
+No app/build, backend, provider, permission or scope change is needed.
+
+## Natural shutdown after Native retention
+
+Source review identified the shutdown mismatch in Core 0.176.5. Its run manager
+schedules a referenced 300-second timeout for each completed run; the callback
+only removes two in-memory cache entries. Handles are not retained and no public
+run-cache disposer is exported. The final proof run ends near 30 seconds, so a
+300-second outer deadline expires before its cache timer. Do not intercept,
+shorten, clear or unref those Native timers to make the proof exit.
+
+Revision 8 permits exactly 360 seconds for the next run within the unchanged 1800-second
+verification allocation and existing fourteen-attempt cap. Stop the audit cleanup
+job through its public lifecycle function before closing the database, then let
+Native's cache timers expire. Success requires actual backend exit code 0 and a
+complete ordered runner journal; a supervisor kill remains failure. Preserve
+bounded resource-type counts and audit/database cleanup receipts.
+
+The Zo MCP transport has a 300-second call ceiling. Use the reviewed one-shot
+`.tmp/05b/dispatch-zo-gui.py` launcher after source QA and Verify. It pins its own,
+supervisor, validator, config and manifest hashes, verifies manifest files, and
+writes an exclusive durable intent and process-identity receipt. The same
+supervisor reserves the existing ledger and enforces resource/deadline/cleanup
+limits. Dispatch success is not runtime acceptance; read the authoritative
+supervisor and inner receipts. No scheduled job, permanent service, additional
+budget, provider call or public action is created.
 
 ## Goal
 
 Use DeepSeek to generate titles for conversations inside the Vivary GUI.
 
 ## Current execution decision
+
+Zo remains the selected execution environment. The following paragraphs record
+the original transfer decision and its historical source checkpoint. Current
+runtime acceptance and the still-pending private synchronization are described
+in [Accepted result](#accepted-result).
 
 On 2026-09-11, the owner directed moving execution to Zo because the laptop
 could not provide adequate resources. The owner confirmed an existing T3 Code
@@ -42,8 +201,9 @@ from its actual files. A portable handoff with verified state, evidence hashes
 and next steps is present on Zo. Raw private logs/configuration archives remain
 on the laptop after automatic approval review blocked that exact export.
 Private scratch is now ignored by repository policy, rather than relying on a
-laptop-global ignore. This completes source synchronization and the portable
-handoff; app build/browser acceptance remains open.
+laptop-global ignore. This completed the original source synchronization and
+portable handoff. The later accepted build/browser result and current uncommitted
+changes supersede that checkpoint.
 
 ## Zo execution continuation
 
@@ -88,6 +248,16 @@ fails. The same source and built assets contain the exact history selector.
 No product change is justified by the timeout alone. A repeated failure without
 new diagnostic evidence cannot consume attempt 05.
 
+Budget revision 3 preserves all five failed browser attempts and the same
+1800-second verification ceiling. It allows at most eight total browser attempts;
+the build cap stays three. Attempt 05 passed the history opening and reload
+assertions with no hydration errors, then exposed a New chat selector that also
+matched a tab. The next reviewed correction selects the actual create button.
+Only existing same-origin read requests canceled by a successfully completed,
+explicit fixture navigation may be classified separately from transport failures.
+All title, privacy, persistence and real menu checks remain required. Each
+remaining attempt requires a concrete diagnosed correction and independent review.
+
 The dependency audit found seven distinct advisories (four high, three moderate)
 and the named local deny-list was unavailable. Those findings remain issues to
 resolve in the all-issues goal; restricted acquisition is not release clearance.
@@ -108,7 +278,7 @@ Runtime preparation/start and its guard changes are outside this narrowed scope.
 
 The workbench conversation panel renders the read-only `Conversation` component.
 The `/chat` source candidate now composes Native's public `AgentChatSurface` with
-a fixed app-owned scope and an authenticated account/organization mount gate.
+an organization-qualified app scope and an authenticated account/organization mount gate.
 This source change does not prove title generation or production readiness. Paid
 calls and account configuration retain their explicit gates. No model credentials
 are read by tests.
@@ -305,22 +475,35 @@ git diff --check
 
 The first rejected patch did not land. The subsequently approved backend
 implementation passed all eight tests on its first Habitat attempt. Do not rerun
-those tests for this process correction. GUI acceptance is pending.
+those tests for this process correction. Build 04 and browser 15 now pass;
+the [receipt](../receipts/05b-deepseek-chat-titles.md#current-result) owns acceptance.
 
 ## Log
 
-### Current progress
+### Historical progress before browser 15
 
-Updated 2026-09-11. All current coding, builds, tests and fixes run directly on
-Zo, reaffirmed by the owner: "make sure we're coding in zo". The private GitHub
-branch receives commits from that checkout.
+Updated 2026-09-11. The owner reaffirmed fixing all problems, obtaining review
+and continuing automatically. All current coding, builds, tests and fixes run
+directly on Zo under the existing all-issues goal.
 
-Pinned setup, native SQLite compilation, doctor, the application build and eight
-title endpoint tests pass. Three browser attempts failed: exclusive evidence
-directory ownership, a missing direct history button, then a history list that
-did not appear after selecting the native menu action. All are retained and
-charged. Runtime GUI acceptance remains failed. The next step is source diagnosis
-and independent review of a bounded continuation with failure diagnostics.
+Pinned setup, SQLite preparation, doctor, build 04 and eight endpoint tests pass.
+Browsers 13 and 14 pass the full inner browser checks, including strict cancellation
+classification. Both overall runs fail natural shutdown. Browser 14's public audit
+stop and database close pass, but a React SSR MessageChannel remains a candidate
+exit blocker. Track and close only that exact renderer-owned channel after requests
+settle; preserve its allocation evidence, global constructor restoration and public
+port-close events. Keep Native's five-minute cache timers unchanged.
+
+Revision 9 retains fourteen failed overall attempts and four builds, allowing one
+further browser attempt within the unchanged 1800 verification seconds.
+Consumption is 1116.9277641060035 seconds; probe use is 44.14757724199808 of 120.
+Use the existing reviewed one-shot dispatcher with a 360-second limit plus five
+seconds cleanup after exact source QA, rebinding, read-only preflight and Verify.
+All browser, app and build bytes remain frozen; no provider or permission changes.
+
+The tested source is a reviewed working tree. Automatic approval review blocked
+commit/push; GitHub remains at the last synchronized checkpoint. A fresh private
+synchronization approval is pending while independent Zo verification continues.
 See the [receipt](../receipts/05b-deepseek-chat-titles.md) for exact evidence.
 
 ### Historical laptop recovery

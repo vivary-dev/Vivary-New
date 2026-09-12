@@ -4,6 +4,9 @@
 @import "@agent-native/toolkit/styles.css";
 @source "./**/*.{ts,tsx}";
 
+/* Unmount closing menus before a sibling overlay takes focus. */
+[role="menu"][data-state="closed"] { animation: none; }
+
 :root, .dark {
   color-scheme: dark;
   --background: 220 10% 10%; --foreground: 60 9% 91%;

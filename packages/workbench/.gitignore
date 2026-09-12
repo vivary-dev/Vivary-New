@@ -3,6 +3,7 @@
 .react-router/
 .generated/
 .output/
+build/
 .data/
 .agent-native/
 .env

@@ -16,14 +16,26 @@ const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_TABLES = 160;
 const MAX_ROWS_PER_TABLE = 512;
 const MAX_DATABASE_BYTES = 8 * 1024 * 1024;
-const MAX_REQUESTS = 512;
+const MAX_NON_ASSET_REQUESTS = 1_024;
+const MAX_ASSET_REQUESTS = 4_096;
 const MAX_PENDING_REQUESTS = 16;
 const REQUEST_DEADLINE_MILLISECONDS = 15_000;
-const APP_SCOPE = {
-  type: "workspace-app",
-  id: "vivary-workbench-chat-v1",
-  label: "Vivary",
-};
+const SSR_BUNDLE_SHA256 = "8c9a139b8c88dfbd577ccceb1451a35aae469c92710e6c1c208154f86e3a91a6";
+
+function activeResourceCounts() {
+  const resources = process.getActiveResourcesInfo();
+  assert.ok(resources.length <= 256, "active resource diagnostic exceeded");
+  const counts = {};
+  for (const resource of resources) {
+    assert.match(resource, /^[A-Za-z][A-Za-z0-9_]{0,127}$/);
+    counts[resource] = (counts[resource] ?? 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)));
+}
+function orgChatScope(orgId) {
+  assert.match(orgId, /^[A-Za-z0-9_-]{1,128}$/);
+  return { type: "workspace-app", id: `vivary-workbench-chat-v1:${orgId}`, label: "Vivary" };
+}
 
 const [appInput, evidenceInput, profileInput, expectedProfileSha256, expectedNodeSha256, expectedNodeBytes] =
   process.argv.slice(2);
@@ -204,6 +216,7 @@ const {
 } = await importPackage("@agent-native/core/server");
 const { closeDbExec, getDbExec, runMigrations, withMigrationRuntime } =
   await importPackage("@agent-native/core/db");
+const { stopAuditCleanupJob } = await importPackage("@agent-native/core/audit");
 const {
   getMyOrgHandler,
   getOrgContext,
@@ -223,7 +236,48 @@ const { registerAgentEngine, resolveEngine } =
   await importPackage("@agent-native/core/agent/engine");
 const { getDb } = await appImport("server/db/index.mjs");
 const { mountChatTitles } = await appImport("server/chat-title.mjs");
-const build = await appImport("build/server/index.js");
+const ssrBundlePath = path.join(app, "build/server/index.js");
+const ssrBundleBytes = await readFile(ssrBundlePath);
+assert.ok(ssrBundleBytes.length <= MAX_ASSET_BYTES);
+const ssrBundleSha256 = sha256(ssrBundleBytes);
+assert.equal(ssrBundleSha256, SSR_BUNDLE_SHA256);
+const NativeMessageChannel = globalThis.MessageChannel;
+assert.equal(typeof NativeMessageChannel, "function");
+const messageChannelDescriptor = Object.getOwnPropertyDescriptor(globalThis, "MessageChannel");
+assert.ok(messageChannelDescriptor?.configurable);
+const capturedSsrChannels = [];
+const TrackedMessageChannel = new Proxy(NativeMessageChannel, {
+  construct(target, args, newTarget) {
+    const channel = Reflect.construct(target, args, newTarget);
+    const stack = new Error("SSR MessageChannel creation").stack ?? "";
+    if (/\/app\/build\/server\/index\.js:3995:\d+/.test(stack)) {
+      assert.ok(capturedSsrChannels.length < 2, "SSR MessageChannel capture exceeded");
+      capturedSsrChannels.push({
+        channel,
+        createdAt: Date.now(),
+        stack: stack.slice(0, 4096),
+        stackSha256: sha256(Buffer.from(stack)),
+      });
+    }
+    return channel;
+  },
+});
+let build;
+try {
+  Object.defineProperty(globalThis, "MessageChannel", {
+    configurable: messageChannelDescriptor.configurable,
+    enumerable: messageChannelDescriptor.enumerable,
+    writable: true,
+    value: TrackedMessageChannel,
+  });
+  build = await appImport("build/server/index.js");
+} finally {
+  Object.defineProperty(globalThis, "MessageChannel", messageChannelDescriptor);
+}
+const restoredMessageChannelDescriptor = Object.getOwnPropertyDescriptor(globalThis, "MessageChannel");
+assert.deepEqual(restoredMessageChannelDescriptor, messageChannelDescriptor);
+assert.equal(globalThis.MessageChannel, NativeMessageChannel);
+assert.equal(capturedSsrChannels.length, 1);
 const render = createRequestHandler(build, "production");
 
 const identities = {
@@ -239,6 +293,7 @@ const identities = {
     primaryOrgId: "gui-org-b-primary",
   },
 };
+const APP_SCOPE = orgChatScope(identities.accountA.primaryOrgId);
 
 const orgRows = [
   {
@@ -293,6 +348,7 @@ let completionCalls = 0;
 let titleCalls = 0;
 let assetBytesServed = 0;
 let requestOrdinal = 0;
+const attemptedRequestCounts = { asset: 0, nonAsset: 0 };
 const requestLog = [];
 const titlePayloads = [];
 const completionPayloads = [];
@@ -497,6 +553,7 @@ function chatRequestAllowed(url, method) {
   if (url.pathname === `${base}/generate-title`) return method === "POST";
   if (url.pathname === `${base}/mode`) return method === "GET";
   if (url.pathname === `${base}/threads`) return method === "GET";
+  if (new RegExp(`^${base}/threads/[^/]+/rename$`).test(url.pathname)) return method === "POST";
   if (new RegExp(`^${base}/threads/[^/]+$`).test(url.pathname)) {
     return method === "GET" || method === "PUT";
   }
@@ -504,10 +561,23 @@ function chatRequestAllowed(url, method) {
   return false;
 }
 
+function nativeShareReadAllowed(url, method) {
+  if (method !== "GET" || url.pathname !== "/_agent-native/actions/list-resource-shares") {
+    return false;
+  }
+  const keys = [...url.searchParams.keys()].sort();
+  return keys.length === 2
+    && keys[0] === "resourceId"
+    && keys[1] === "resourceType"
+    && url.searchParams.get("resourceType") === "chat_thread"
+    && /^[A-Za-z0-9_-]{8,200}$/.test(url.searchParams.get("resourceId") ?? "");
+}
+
 function nativeRequestAllowed(url, method) {
   if (url.pathname === "/_agent-native/auth/session") return method === "GET";
   if (url.pathname === "/_agent-native/org/me") return method === "GET";
   if (url.pathname === "/_agent-native/org/switch") return method === "PUT";
+  if (nativeShareReadAllowed(url, method)) return true;
   return chatRequestAllowed(url, method);
 }
 
@@ -597,6 +667,10 @@ async function snapshot(label, signal = AbortSignal.timeout(10_000)) {
     completionPayloads,
     titlePayloads,
     requests: requestLog,
+    attemptedRequestCounts: {
+      ...attemptedRequestCounts,
+      total: attemptedRequestCounts.asset + attemptedRequestCounts.nonAsset,
+    },
     tables: await tableEvidence(signal),
     boundary: { ...boundary, stderrBytes },
   });
@@ -623,8 +697,16 @@ async function handleRequest(message, signal) {
     signal,
     ...(!["GET", "HEAD"].includes(message.method) ? { body: body ?? null } : {}),
   });
+  const staticAssetRequest = ["GET", "HEAD"].includes(message.method)
+    && url.pathname.startsWith("/assets/")
+    && !url.pathname.includes("_agent-native")
+    && !url.pathname.startsWith("/api/");
+  const requestCategory = staticAssetRequest ? "asset" : "nonAsset";
+  attemptedRequestCounts[requestCategory] += 1;
+  const categoryLimit = staticAssetRequest ? MAX_ASSET_REQUESTS : MAX_NON_ASSET_REQUESTS;
+  assert.ok(attemptedRequestCounts[requestCategory] <= categoryLimit,
+    `${requestCategory} request count exceeded`);
   const ordinal = ++requestOrdinal;
-  assert.ok(ordinal <= MAX_REQUESTS, "request count exceeded");
   let routedResponse;
   if (
     message.method === "POST" &&
@@ -654,7 +736,7 @@ async function handleRequest(message, signal) {
       { error: "This bounded proof blocks non-chat Native routes." },
       { status: 503 },
     );
-  } else if (url.pathname.startsWith("/assets/")) {
+  } else if (staticAssetRequest) {
     const relative = `build/client${decodeURIComponent(url.pathname)}`;
     assert.match(relative, /^build\/client\/assets\/[A-Za-z0-9._/-]+$/);
     assert.ok(!relative.split("/").some(part => part === ".."));
@@ -830,7 +912,8 @@ try {
     ready: true,
     startupProbe,
     limits: { frameBytes: MAX_FRAME_BYTES, requestBodyBytes: MAX_REQUEST_BODY_BYTES,
-      responseBodyBytes: MAX_RESPONSE_BODY_BYTES, assetBytes: MAX_ASSET_BYTES },
+      responseBodyBytes: MAX_RESPONSE_BODY_BYTES, assetBytes: MAX_ASSET_BYTES,
+      nonAssetRequests: MAX_NON_ASSET_REQUESTS, assetRequests: MAX_ASSET_REQUESTS },
     boundary,
   });
   for await (const line of readFrames(process.stdin)) {
@@ -846,7 +929,26 @@ try {
       if (expectedTitleCalls !== null) assert.equal(titleCalls, expectedTitleCalls);
       const closingSnapshot = await snapshot("requested-close", AbortSignal.timeout(10_000));
       closeRequested = true;
-      await encodeReply(message.id, { closing: true, snapshot: closingSnapshot });
+      await encodeReply(message.id, {
+        closing: true,
+        snapshot: closingSnapshot,
+        shutdown: {
+          stage: "close-acknowledged",
+          activeResources: activeResourceCounts(),
+          pendingRequests: pending.size,
+          outstandingOperations: outstandingOperations.size,
+          stdin: {
+            destroyed: process.stdin.destroyed,
+            readableEnded: process.stdin.readableEnded,
+            paused: process.stdin.isPaused(),
+          },
+          ssrChannel: {
+            bundleSha256: ssrBundleSha256,
+            captured: capturedSsrChannels.length,
+            stackSha256: capturedSsrChannels[0].stackSha256,
+          },
+        },
+      });
       break;
     }
     schedule(message);
@@ -870,8 +972,75 @@ try {
   let finalSnapshot = null;
   try { finalSnapshot = await snapshot("backend-final", AbortSignal.timeout(10_000)); }
   catch (error) { cleanupErrors.push({ step: "snapshot", ...boundedError(error) }); }
-  try { await closeDbExec(); }
-  catch (error) { cleanupErrors.push({ step: "database", ...boundedError(error) }); }
+  const shutdown = {
+    stage: "backend-finalized",
+    activeResourcesBeforeAuditStop: activeResourceCounts(),
+    auditCleanup: { attempted: true, stopped: false },
+    activeResourcesAfterAuditStop: null,
+    databaseClosed: false,
+    activeResourcesAfterDatabaseClose: null,
+    ssrChannel: {
+      bundleSha256: ssrBundleSha256,
+      captured: capturedSsrChannels.length,
+      createdAt: capturedSsrChannels[0].createdAt,
+      creationStack: capturedSsrChannels[0].stack,
+      stackSha256: capturedSsrChannels[0].stackSha256,
+      globalDescriptorRestored: globalThis.MessageChannel === NativeMessageChannel,
+      portsClosed: 0,
+      closeEvents: 0,
+    },
+    activeResourcesAfterSsrChannelClose: null,
+    stdin: null,
+  };
+  try {
+    stopAuditCleanupJob();
+    shutdown.auditCleanup.stopped = true;
+  } catch (error) {
+    cleanupErrors.push({ step: "audit-cleanup", ...boundedError(error) });
+  }
+  shutdown.activeResourcesAfterAuditStop = activeResourceCounts();
+  try {
+    await closeDbExec();
+    shutdown.databaseClosed = true;
+  } catch (error) { cleanupErrors.push({ step: "database", ...boundedError(error) }); }
+  shutdown.activeResourcesAfterDatabaseClose = activeResourceCounts();
+  try {
+    const ports = [capturedSsrChannels[0].channel.port1, capturedSsrChannels[0].channel.port2];
+    assert.equal(pending.size, 0, "pending requests remain before SSR MessageChannel close");
+    assert.equal(outstandingOperations.size, 0,
+      "outstanding operations remain before SSR MessageChannel close");
+    const closeEvents = ports.map(port => new Promise(resolve => {
+      port.addEventListener("close", resolve, { once: true });
+    }));
+    for (const port of ports) {
+      port.close();
+      shutdown.ssrChannel.portsClosed += 1;
+    }
+    let closeDeadline;
+    try {
+      await Promise.race([
+        Promise.all(closeEvents).then(events => { shutdown.ssrChannel.closeEvents = events.length; }),
+        new Promise((_, reject) => {
+          closeDeadline = setTimeout(() => reject(
+            new Error("SSR MessageChannel close events did not settle")), 1_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(closeDeadline);
+    }
+  } catch (error) {
+    cleanupErrors.push({ step: "ssr-message-channel", ...boundedError(error) });
+  }
+  shutdown.activeResourcesAfterSsrChannelClose = activeResourceCounts();
+  shutdown.stdin = {
+    destroyed: process.stdin.destroyed,
+    readableEnded: process.stdin.readableEnded,
+    paused: process.stdin.isPaused(),
+  };
+  if (closeRequested && !shutdown.stdin.destroyed) {
+    cleanupErrors.push({ step: "stdin", type: "Error",
+      message: "proof backend stdin iterator did not release after close" });
+  }
   await writeFile(
     path.join(evidenceRoot, "backend-final.json"),
     `${JSON.stringify({
@@ -880,6 +1049,7 @@ try {
       finalSnapshot,
       terminalError: terminalError ? boundedError(terminalError) : null,
       cleanupErrors,
+      shutdown,
     }, null, 2)}\n`,
     { flag: "wx" },
   );

@@ -32,7 +32,7 @@ with thinking disabled, a 64-token output limit, and a five-second timeout.
 Missing credentials or provider failure return a sanitized local title.
 Installed native source contains manual-rename protection and title persistence.
 The `/chat` source now composes the public `AgentChatSurface` in page mode with
-the fixed `vivary-workbench-chat-v1` workspace-app scope, scoped history, native
+an organization-qualified `vivary-workbench-chat-v1:<orgId>` workspace-app scope, scoped history, native
 header and tabs, chat-only behavior, and code access disabled. It derives the
 React mount key and storage key from the authenticated normalized email and live
 organization ID with collision-safe encoding. It does not derive chat identity,
@@ -51,17 +51,19 @@ a 30-second stale time and disable focus refetch, so standard window focus does
 not unmount a draft. An actual organization invalidation intentionally unmounts
 the chat while Native resolves the new organization.
 
-This is a GUI backend implementation. It does not change the development harness
-or runtime preparation/start. The workbench keeps the read-only `Conversation`
-component without a composer, history flow, or title consumer. The first fixed-key
-`/chat` candidate failed source QA because it could display a prior account's
-cached thread. The identity-bound replacement passed independent source QA and
-Verify. GUI build and browser acceptance remain pending. The packet receipt
-records the failed preparation attempts, preserved evidence, and remaining budget.
-Packet [05b](../../docs/product/multi-project/packets/05b-deepseek-chat-titles.md)
-remains open until an admitted Native build and browser proof passes its
-observable history, persistence, rename, fallback, privacy, scope, and
-authentication cases.
+The Workbench keeps the read-only `Conversation` component without a composer,
+history flow, or title consumer. Packet
+[05b](../../docs/product/multi-project/receipts/05b-deepseek-chat-titles.md)
+accepts Zo build 04 and browser 15: twelve checks cover titles, persistence,
+manual rename, fallback, real focus, account and organization cache privacy,
+scope refusal, and read-only Workbench behavior. The proof uses synthetic
+authentication and provider responses. Live provider calls and production
+authentication remain separate gates.
+
+Native continues to authorize deliberate owner access to an older scope through
+its API. The current GUI scope partitions History by confirmed organization.
+Existing constant-scope rows are preserved without retagging or deletion and
+are not automatically listed in the new scope.
 
 ### Shell evidence
 
@@ -90,13 +92,13 @@ pnpm run doctor
 
 Project editing remains unavailable until its capability binding exists. The
 workbench conversation uses the selected-project readiness panel and provides no
-composer or run controls. The `/chat` candidate uses its fixed app-owned scope
+composer or run controls. The `/chat` route uses its organization-qualified scope
 with identity-bound local storage and no automatic active-thread restoration.
 Server authorization remains mandatory for readiness observations. The unsafe
 legacy editor is preserved privately but is not imported into the executable app.
 
-Publication rights, production configuration, and six inherited transitive
-vulnerability advisories remain recorded in 05a. A successful build does not
+Publication rights, production configuration, and seven dependency advisories
+remain open in the program audit and the 05b receipt. A successful build does not
 establish production readiness.
 
 The registration store composes Agent-Native's public database, portable schema,

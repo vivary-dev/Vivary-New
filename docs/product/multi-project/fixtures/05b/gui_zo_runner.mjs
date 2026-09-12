@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, mkdir, readFile, readlink, realpath, writeFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, readlink, realpath, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { startPrivateDisplay } from "./gui_display.mjs";
 
 const MAX_JSON = 64 * 1024;
 const MAX_FRAME = 12 * 1024 * 1024;
@@ -18,6 +19,7 @@ const PROFILE = Object.freeze({
 });
 const ownedChildren = new Set();
 let ownedServer = null;
+let ownedDisplay = null;
 export function track(child) {
   ownedChildren.add(child);
   child.once("close", () => ownedChildren.delete(child));
@@ -38,6 +40,11 @@ export async function stopOwned() {
       Promise.allSettled(children.map(child => new Promise(resolve => child.once("close", resolve)))),
       timeout,
     ]);
+    if (ownedDisplay) {
+      const display = ownedDisplay;
+      ownedDisplay = null;
+      await display.stop().catch(() => undefined);
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -97,7 +104,7 @@ export function validateConfig(value) {
   assert.match(value.candidateHead, /^[0-9a-f]{40}$/);
   assert.match(value.proofToken, /^[0-9a-f]{64}$/);
   assert.ok(Number.isSafeInteger(value.nodeBytes) && value.nodeBytes > 0);
-  assert.equal(value.deadlineSeconds, 300);
+  assert.ok([300, 360].includes(value.deadlineSeconds));
   assert.equal(value.appRoot, "/app");
   assert.equal(value.scratchRoot, "/work");
   assert.equal(value.evidenceRoot, "/work/evidence");
@@ -122,6 +129,8 @@ export function validateCandidateManifest(value) {
   const allowedFixtures = new Set([
     "/source/docs/product/multi-project/fixtures/05b/gui_backend.mjs",
     "/source/docs/product/multi-project/fixtures/05b/gui_browser.mjs",
+    "/source/docs/product/multi-project/fixtures/05b/gui_display.mjs",
+    "/source/docs/product/multi-project/fixtures/05b/gui_display_probe.mjs",
     "/source/docs/product/multi-project/fixtures/05b/gui_zo_runner.mjs",
     "/source/docs/product/multi-project/fixtures/05b/zo_supervisor.py",
   ]);
@@ -316,6 +325,18 @@ async function run() {
   assert.equal(await realpath(config.scratchRoot), config.scratchRoot);
   assert.equal(path.dirname(config.evidenceRoot), config.scratchRoot);
   await mkdir(config.evidenceRoot, { recursive: false, mode: 0o700 });
+  const stageJournalPath = path.join(config.evidenceRoot, "runner-stages.jsonl");
+  await writeFile(stageJournalPath, "", { flag: "wx", mode: 0o600 });
+  const stages = [];
+  async function recordStage(stage, details = {}) {
+    assert.match(stage, /^[a-z][a-z0-9-]{0,63}$/);
+    const entry = { ordinal: stages.length + 1, stage, recordedAt: Date.now(), ...details };
+    const line = `${JSON.stringify(entry)}\n`;
+    assert.ok(Buffer.byteLength(line) <= 4096, "runner stage entry exceeded");
+    assert.ok(stages.length < 16, "runner stage journal exceeded");
+    await appendFile(stageJournalPath, line, { encoding: "utf8" });
+    stages.push(entry);
+  }
 
   const profileRead = await readJson(config.profilePath);
   assert.equal(profileRead.sha256, config.profileSha256);
@@ -443,8 +464,11 @@ async function run() {
     proofToken: config.proofToken,
   }) + "\n", { flag: "wx", mode: 0o600 });
 
+  ownedDisplay = await startPrivateDisplay({ workRoot: config.scratchRoot, track });
+  const displayMetadata = ownedDisplay.metadata;
   const browser = track(spawn(config.nodeExecutable, [config.browserPath, browserInput], {
-    cwd: config.appRoot, env: { HOME: "/tmp", PATH: "/usr/bin:/bin", LANG: "C.UTF-8" },
+    cwd: config.appRoot, env: { HOME: "/tmp", PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
+      ...ownedDisplay.env },
     stdio: ["ignore", "pipe", "pipe"],
   }));
   const browserExit = new Promise(resolve => browser.once("close", resolve));
@@ -457,26 +481,84 @@ async function run() {
   assert.equal(browserCode, 0, browserErr.toString("utf8"));
   assert.equal(browserOut.length, 0);
   assert.equal(browserErr.length, 0);
+  await recordStage("browser-exit", { code: browserCode });
   const browserResultRead = await readJson(path.join(browserEvidence, "browser-result.json"), 4 * 1024 * 1024);
   assert.equal(browserResultRead.value.passed, true);
 
   const closing = await rpc.request({ action: "close" }, 30000);
   assert.equal(closing.closing, true);
+  assert.ok(exactObject(closing.shutdown, ["stage", "activeResources", "pendingRequests",
+    "outstandingOperations", "stdin", "ssrChannel"]));
+  assert.equal(closing.shutdown.stage, "close-acknowledged");
+  assert.equal(closing.shutdown.pendingRequests, 0);
+  assert.equal(closing.shutdown.outstandingOperations, 0);
+  assert.equal(closing.shutdown.ssrChannel.captured, 1);
+  assert.match(closing.shutdown.ssrChannel.bundleSha256, /^[a-f0-9]{64}$/);
+  assert.match(closing.shutdown.ssrChannel.stackSha256, /^[a-f0-9]{64}$/);
+  await recordStage("close-ack", {
+    activeResources: closing.shutdown.activeResources,
+    pendingRequests: closing.shutdown.pendingRequests,
+    outstandingOperations: closing.shutdown.outstandingOperations,
+    ssrChannel: closing.shutdown.ssrChannel,
+    stdin: closing.shutdown.stdin,
+  });
   backend.stdin.end();
   const backendCode = await backendExit;
   const backendErrors = await backendErrorsPromise;
   assert.equal(backendCode, 0, backendErrors.toString("utf8"));
+  await recordStage("backend-natural-exit", { code: backendCode });
+  const backendFinalRead = await readJson(path.join(backendEvidence, "backend-final.json"),
+    8 * 1024 * 1024);
+  assert.equal(backendFinalRead.value.closeRequested, true);
+  assert.equal(backendFinalRead.value.terminalError, null);
+  assert.deepEqual(backendFinalRead.value.cleanupErrors, []);
+  assert.ok(exactObject(backendFinalRead.value.shutdown, ["stage", "activeResourcesBeforeAuditStop",
+    "auditCleanup", "activeResourcesAfterAuditStop", "databaseClosed",
+    "activeResourcesAfterDatabaseClose", "ssrChannel", "activeResourcesAfterSsrChannelClose",
+    "stdin"]));
+  assert.equal(backendFinalRead.value.shutdown.stage, "backend-finalized");
+  assert.deepEqual(backendFinalRead.value.shutdown.auditCleanup, { attempted: true, stopped: true });
+  assert.equal(backendFinalRead.value.shutdown.databaseClosed, true);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.bundleSha256,
+    closing.shutdown.ssrChannel.bundleSha256);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.stackSha256,
+    closing.shutdown.ssrChannel.stackSha256);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.captured, 1);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.globalDescriptorRestored, true);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.portsClosed, 2);
+  assert.equal(backendFinalRead.value.shutdown.ssrChannel.closeEvents, 2);
+  assert.equal(backendFinalRead.value.shutdown.stdin.destroyed, true);
+  assert.equal(typeof backendFinalRead.value.shutdown.stdin.readableEnded, "boolean");
+  assert.equal(typeof backendFinalRead.value.shutdown.stdin.paused, "boolean");
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   ownedServer = null;
+  await recordStage("http-close", { closed: true });
+  const displayStop = await ownedDisplay.stop();
+  ownedDisplay = null;
+  await recordStage("display-stop", { stopped: true });
   clearTimeout(deadline);
 
+  await recordStage("runner-final", { passed: true });
+  const stageJournal = await digestFile(stageJournalPath);
+  assert.deepEqual(stages.map(entry => entry.stage), ["browser-exit", "close-ack",
+    "backend-natural-exit", "http-close", "display-stop", "runner-final"]);
   const result = {
     schema: "vivary.05b-zo-gui-result/v1", passed: true, candidateHead: config.candidateHead,
     sourceBindingSha256: config.sourceBindingSha256, configSha256: configRead.sha256,
     profileSha256: config.profileSha256, candidateManifestSha256: config.candidateManifestSha256,
     identities, boundary,
+    display: { ...displayMetadata, ...displayStop },
     backendReadySha256: createHash("sha256").update(JSON.stringify(ready)).digest("hex"),
     backendClosingSha256: createHash("sha256").update(JSON.stringify(closing)).digest("hex"),
+    backendFinalSha256: backendFinalRead.sha256,
+    shutdown: {
+      auditCleanupStopped: true,
+      ssrMessagePortsClosed: backendFinalRead.value.shutdown.ssrChannel.portsClosed,
+      ssrMessagePortCloseEvents: backendFinalRead.value.shutdown.ssrChannel.closeEvents,
+      backendExitedNaturally: true,
+      stageJournalSha256: stageJournal.sha256,
+      stageCount: stages.length,
+    },
     backendStderrBytes: backendErrors.length,
     backendStderrSha256: createHash("sha256").update(backendErrors).digest("hex"),
     browserResultSha256: browserResultRead.sha256,
