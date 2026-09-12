@@ -3,7 +3,7 @@
 Evidence-record: 06e
 Date: 2026-09-11
 Verification-kind: runtime
-Result: In progress. Native10, exact current-product Zo build04 and Doctor01 are accepted. The Zo activity command finished with return 0; complete independent evidence acceptance is pending. Component and mutant runs have not started; C5 browser acceptance and production action mounting remain open. Zo supersedes historical Habitat application; production authentication remains separate.
+Result: In progress. Native10, exact current-product Zo build04, Doctor01, and all three focused Zo tests are accepted. C5 browser acceptance and production action mounting remain open. Zo supersedes historical Habitat application. Production authentication remains separate.
 
 The [owning packet](../packets/06e-project-selection.md) and
 [catalog contract](../contracts/project-catalog.md) define acceptance. The 05a
@@ -29,27 +29,88 @@ remain below the focused-test stop thresholds; they are not cgroup sublimits.
 | Profile | `52ecdbeb3fe187bba2e1c4506090e85b1b5b013ae92a1971297efcd34063f4b2` |
 | Source freeze | `271084d21fb182f4a5b10234c94cd9b313e6169dc7290fd6663cd02f93429701` |
 | Ledger after activity | `d8d534121625e34a119b39c8a12fe163d84caa11fed87758bb76f87b1f18340b` |
+| Activity acceptance | `ad143ae38518e602ddd11a514763c852fec074cd0aa3da4151e70f9a0493dcfe` |
 
-The ledger has one finished activity entry charged 36.535973837999336 of 300
-seconds. Component and mutant have not been admitted or started. Do not rerun
-preparation or activity, reset accounting, or change the accepted 05b snapshot.
+The ledger after activity has one finished entry charged
+36.535973837999336 of 300 seconds. Its hash remains unchanged. QA and Verify
+independently accepted the retained evidence on September 11 in America/Denver
+and September 12 UTC. They did not rerun activity.
 
-Read-only witness reconciliation parsed eight cases, 43 refusals, four reads,
-three injected state changes and 22 snapshots whose union covers 26 tables,
-including all 13 required tables. Stdout also retains 41 legacy email-verification
-warnings about an absent user table. Empty stderr does not mean warning-free logs.
-The test checks table coverage across the union of snapshots. Snapshot keys hash
-full raw rows, while emitted snapshots contain summaries; hashing those summaries
-cannot reproduce the keys. Those earlier reviewer assumptions were incorrect,
-not established product defects. Complete independent evidence acceptance remains
-pending; this documentation checkpoint does not accept the full C5 unit.
+The accepted witness contains eight cases, 43 refusals, four reads, three injected
+state changes, and 22 snapshots. Their union covers 26 tables, including all 13
+required tables. Forty refusal cases left state unchanged. Each intentional
+change affected one table. The runtime test checked full raw-row hashes. The
+emitted summaries do not retain enough data for an independent reconstruction.
+Reviewers independently reproduced the code-only refusal response hashes.
 
-Next: verify the existing raw records and source/profile bindings, finish activity
-acceptance, and obtain fresh component admission under the packet's frozen
-profile. After the focused tests and mutant are accepted, prepare the separate
-C5 browser proof. Production mounting, authentication, and parent outcome gates
-remain open. The following sections preserve historical evidence and proposals;
-use this section and the packet's Current progress for the active next step.
+Stdout retains 41 identical legacy warnings about the missing user table. It also
+contains one ephemeral development-secret warning and the expected
+unauthenticated 401 log. This fixture does not prove production email
+verification or authentication.
+
+Verify passed 111 named bindings and all 80 original build inputs. Root's fresh
+preparation check returned operation `check`, status `ok`, and exit 0. That
+check reuses the recorded dependency tree while checking named files. It does not
+rescan the full dependency tree. The runtime boundary computes the full tree
+before execution. Natural exit, cleanup, and resource observations remain as
+recorded above.
+
+All three focused attempts are accepted in the [focused-test checkpoint](#focused-zo-tests-accepted-2026-09-11).
+Do not rerun preparation or any focused attempt, reset accounting, or change the
+accepted 05b snapshot. Production mounting, authentication, and parent outcome
+gates remain open. The following sections preserve historical evidence and
+proposals. Use this checkpoint and the packet's Current progress for the active
+next step.
+
+## Focused Zo tests accepted, 2026-09-11
+
+Root accepted the activity, component, and missing-key mutant after independent
+QA and Verify review. Each command returned 0, exited naturally, and required no
+cleanup intervention. The three attempts consumed 107.12825294700451 of 300
+seconds. Their names are consumed. Do not run another focused attempt.
+
+| Retained result | SHA-256 |
+| --- | --- |
+| Activity acceptance | `ad143ae38518e602ddd11a514763c852fec074cd0aa3da4151e70f9a0493dcfe` |
+| Component acceptance | `40eab8dd7c068e8c26ffc7b74577cf3231a65f4af5e19d2a88f7017426c67830` |
+| Component result | `9537db6e07162021c5d60c5e269faef3339a9706e3d92be8509ef2dff08041c5` |
+| Component stdout | `8d6bd626d953e5bf70c8c30f7b66fd0e124c220b8678bd9bb5bb6bf7bc7d1155` |
+| Component boundary | `2a9e34fee6677d1c0cfb3799738fae2dbfdf14b51764da78430db00380a44ea8` |
+| Ledger after component | `24ab346df95018c354d8dd4020612e05df1ffa2e8a7b93bc2dc8c32c0bd0399c` |
+| Mutant acceptance | `f209a9b5590f09ddbfbf83d918f1c483a3280f7c7430b2b5a984c9239cddc0a0` |
+| Mutant result | `3bb73cd1849e2e5f4f6e748373569dafbc871c5fc5b685df9f2b8f114a7eb2ff` |
+| Mutant stdout | `9e98b1c4169fb722e30018af2333564ad9cca0180800667e88fd54cee9e865f3` |
+| Mutant boundary | `03bdae732fc409856d11e75646adf31ce54726108799d899a12d0838aa8b2373` |
+| Final focused-test ledger | `4b77b2bce264fa3a383046917e61396601e21719154fdbc5f275cfa7544d51ab` |
+| Earlier archive provenance | `6fcdaa99e7a501ac3743db0e7be67bf28563b24cab98db1ac6e73aa4731f255a` |
+| Final accepted evidence archive | `98ed2ae90177a43d4b282b297689a99ec6c043d6bf21791157e8d5b5fe9de082` |
+
+The component run passed seven cases and matched all 1,419 physical bundle input
+hashes. It cleaned up 167 channels and 334 ports. Its 125 samples recorded a
+maximum aggregate RSS of 864837632 bytes, 30 tasks, seven processes, and a
+0.281509255-second maximum observer gap. All six saved PID and start-time pairs
+were absent after exit. Output totaled 327775 bytes. Stdout retains one
+`NO_I18NEXT_INSTANCE` warning and the React DevTools advisory.
+
+The component fixture uses simulated hooks and selection writes. It does not
+measure HTTP or model calls, exercise real Native no-write snapshots, or prove
+browser behavior or production authentication.
+
+The mutant wrapper passed by observing the exact expected remount assertion
+failure. Its 130 samples recorded a maximum aggregate RSS of 1006276608 bytes,
+37 tasks, eight processes, and a 0.28750897-second maximum observer gap. It
+cleaned up 1,337 channels and 2,674 ports. Output totaled 328500 bytes.
+
+The final archive is `.tmp/06e/focused-evidence-accepted-r2.zip`. It is 226369
+bytes and contains 31 evidence files with 1014859 source bytes plus its manifest.
+Independent Verify passed CRC, safe-member, retained-byte, acceptance-binding,
+member-rehash, and both historical-ledger checks. The earlier archive remains
+retained as provenance. The original evidence also remains retained.
+
+Next, freeze and review the separate C5 browser fixture and resource profile.
+Its fixture design must preserve the exact Native selection-write contract.
+Browser execution, production mounting, authentication, and the parent outcome
+remain open.
 
 ## Selection races and inactive conversation
 

@@ -5,12 +5,12 @@ type: packet
 Parent: 06
 Status: in-progress
 Depends-on: [05a, 06d]
-Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the portable component fixture and bounded proof tools; QA and Verify independently review. Native10, Zo build04 and Doctor01 are accepted. Current focused tests, mutant and C5 browser acceptance remain open.
+Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the portable component fixture and bounded proof tools. QA and Verify independently accepted the retained activity, component, and mutant evidence. C5 browser acceptance remains open.
 Scope: Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Current Zo focused-test unit admits 90/75/75-second runs within 300 cumulative seconds, with separate source and runtime review. Later browser work requires its own frozen profile. Historical Habitat allocations remain closed to replay.
+Timebox: The three Zo focused-test attempts consumed 107.12825294700451 of 300 seconds. Do not run another focused attempt. Later browser work requires its own frozen profile. Historical Habitat allocations remain closed to replay.
 
 ## Current progress
 
@@ -18,44 +18,43 @@ Updated 2026-09-11. The owner requires all current coding and verification on Zo
 This supersedes the historical Habitat application/launcher steps below. Preserve
 the original laptop evidence and unused admission; do not replay or reset it.
 
-**Accepted:** Native10 transport evidence remains accepted. Zo build 04 contains
-the exact five reviewed C5 files among its 80 app inputs and all 212 build outputs
-remain unchanged. Doctor01 is accepted. This closes the current production-build
-and doctor evidence gaps. Current canonical and copied Zo product bytes already
-match, so no separate application to the obsolete Habitat location is needed.
+**Accepted:** Native10 transport, Zo build04, and Doctor01 remain accepted.
+QA and Verify independently accepted the retained activity evidence on September
+11 in America/Denver and September 12 UTC without a rerun. They also accepted the
+component and deliberate missing-renderer-key mutant runs. The three focused
+attempts returned 0, exited naturally, and passed owned cleanup.
 
-**Remaining:** Prove the current activity and component suites, the deliberate
-missing-renderer-key mutant, and the C5-specific browser journey. Browser15's
-read-only Workbench check is supporting evidence, not C5 selection acceptance.
-Standalone typegen/typecheck belonged to the older build envelope; the C5
-amendment requires the fresh build already accepted, not another unchanged build.
+The activity proof covers eight cases, 43 refusals, four reads, three injected
+state changes, and 22 snapshots. Their union covers 26 tables, including all 13
+required tables. Forty refusal cases left state unchanged. Each of the three
+intentional changes affected one table. The runtime test checked full raw-row
+hashes, but the emitted summaries do not contain enough data to reconstruct those
+hashes independently. Reviewers independently reproduced the code-only refusal response hashes.
 
-**Source preparation accepted:** The portable Linux x64/Windows x64 component
-fixture and four bounded proof tools passed independent QA and inert checks.
-The real source/dependency freeze and check passed. The seven component cases
-remain unchanged. The current component-test hash is an explicit test-only delta
-from the preserved build snapshot; all production inputs remain exact.
+The component proof passed seven cases and matched all 1,419 physical bundle
+inputs. It uses simulated hooks and selection writes, so it does not prove HTTP,
+model-call, Native no-write, browser, or production-authentication behavior. The
+mutant wrapper accepted only the expected remount assertion failure. The retained
+archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
+owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Activity execution recorded:** The admitted activity run finished with return 0,
-no recorded failure, natural exit and owned cleanup. Its 36.535973837999336 seconds
-are charged to the existing 300-second ledger. Raw-witness review identified two
-reviewer assumptions, now explained by the source: coverage requires the union
-of snapshot tables, and snapshot keys hash full rows rather than emitted summaries.
-This explanation is not final independent acceptance of the complete runtime.
+**Remaining:** Complete the separate C5 browser fixture design, source review, and
+resource-profile review before browser execution. Browser15's read-only Workbench
+check remains supporting evidence. Configured production action mounting,
+authentication, and the parent outcome's switching and draft-preservation gates
+also remain open.
 
-**Next:** Finish independent activity evidence acceptance from the retained raw
-records, then obtain fresh admission for the 75-second component and mutant runs
-separately. Neither has been admitted or started. Do not rerun activity or
-preparation, reset the ledger, or rebuild unchanged product code. The accepted
-05b snapshot and accounting are immutable. The [receipt](../receipts/06e-project-selection.md#activity-execution-checkpoint-2026-09-11)
-owns exact result hashes and remaining checks.
+**Next:** Freeze and review the separate C5 browser fixture and profile. Do not
+rerun preparation or any focused attempt, reset the ledger, or rebuild unchanged
+product code. The accepted 05b snapshot and accounting remain immutable.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
 Authority: the owner's all-issues continuous-execution instruction and explicit
 Zo-only direction. Root owns this plan and acceptance. Implement owns the bounded
-fixture changes. Independent QA reviews source; Verify checks frozen inputs,
-runtime evidence, isolation, resources and cleanup before acceptance.
+fixture changes. Independent QA reviews source. Verify checks frozen inputs,
+runtime evidence, isolation, resources, and cleanup before acceptance. This
+contract now records completed runs. All three attempt names are consumed.
 
 Product scope remains C5's existing identity projection and read-only renderer.
 Own only the component test's explicit platform mapping and the new 06e test
@@ -74,34 +73,35 @@ Acceptance remains:
    `key={rendererKey}` removed. The selected remount case must fail for the exact
    remount assertion, and cleanup must pass. Canonical Conversation is unchanged.
 
-Reuse the existing `.tmp/06e/zo-test` packet-local ledger and proof artifacts.
-The namespace was prepared once; its activity entry is already consumed.
-The source of reused dependencies/build remains `.tmp/05b/zo-runtime/app`,
-mounted read-only. Overlay only the reviewed current component test and, during
-the mutant run, its exact staged Conversation mutation. Pin all files, toolchains,
-dependency manifests and esbuild binary. Writable storage is limited to private
-/work and tmpfs /tmp and /home. Keep private user/PID/network namespaces,
-loopback only, UID/GID 1000, no capabilities and no-new-privileges.
+Retain the existing `.tmp/06e/zo-test` packet-local ledger and proof artifacts.
+The namespace was prepared once. Activity, component, and mutant attempt names
+are consumed. The runs reused dependencies and the build from
+`.tmp/05b/zo-runtime/app`, mounted read-only. They overlaid only the reviewed
+component test and the exact staged Conversation mutation. The profile pinned
+all files, toolchains, dependency manifests, and the esbuild binary. Writable
+storage was limited to private /work and tmpfs /tmp and /home. The runs used
+private user, PID, and network namespaces with loopback only, UID/GID 1000, no
+capabilities, and no-new-privileges.
 
-The proposed first source-reviewed profile admits one activity run up to 90
-seconds, one component run up to 75 seconds and one mutant run up to 75 seconds,
-with 300 cumulative seconds including dispatch/refusal/cleanup. Each run gets
-five seconds for owned cleanup. Use two inherited CPUs, zero swap, a 1536 MiB
-aggregate RSS stop, 64-task stop, 250 ms observer, 8 MiB combined output cap and
-1536 MiB host reserve. Zo cgroup sublimits are not enforceable; describe these
-as externally monitored stop thresholds. No install, network access, model call,
-production build or browser run belongs to this focused-test admission.
-A failure needs diagnosis, a reviewed correction and an explicit bounded revision
-within retained accounting. Do not launch before exact source QA and fresh Verify.
+The completed source-reviewed profile admitted one activity run up to 90 seconds,
+one component run up to 75 seconds, and one mutant run up to 75 seconds. Its
+300-second cumulative limit included dispatch, refusal, and cleanup. Each run
+had five seconds for owned cleanup. The profile used two inherited CPUs, zero
+swap, a 1536 MiB aggregate RSS stop, a 64-task stop, a 250 ms observer, an 8 MiB
+combined output cap, and a 1536 MiB host reserve. Zo cgroup sublimits were not
+enforceable, so these values were externally monitored stop thresholds. The
+admission excluded installs, network access, model calls, production builds, and
+browser runs. No further focused attempt is admitted.
 
-After these tests pass, freeze a separate C5 browser packet with its own exact
-scenario/input/resource bindings. It must prove project switching, delayed stale
-responses, remount/revocation on `/` and `/workbench`, separation from 05b's
-organization-qualified `/chat`, and zero unauthorized activity requests or model
-calls. The component's fullPage variant is unit coverage, not a mounted route. Complete source review and resource admission before that browser run.
-The packet and parent outcome remain in progress until all C5 criteria pass.
+The focused tests passed. Next, freeze a separate C5 browser packet with exact
+scenario, input, and resource bindings. It must prove project switching, delayed
+stale responses, remount and revocation on `/` and `/workbench`, separation from
+05b's organization-qualified `/chat`, and zero unauthorized activity requests or
+model calls. The component's fullPage variant is unit coverage, not a mounted
+route. Complete source review and resource admission before the browser run. The
+packet and parent outcome remain in progress until all C5 criteria pass.
 
-## C5 browser design pending focused-test acceptance
+## Proposed C5 browser design, not admitted
 
 Read-only source review found that the standalone app's only server plugin
 mounts chat titles and awaits Native bootstrap. It does not currently mount

@@ -10,20 +10,23 @@ Execution: Start only a bounded packet listed in [the graph](../graph.md). Paren
 
 ## Current progress
 
-Updated 2026-09-11. **Accepted:** 06a through 06d retain bounded storage, action,
-HTTP and physical-root registration evidence. Native10 accepts the C5 activity
-transport. Zo build04 contains the exact current product bytes, and Doctor01
-passes. The historical Habitat build/application operation is superseded.
+Updated 2026-09-11. **Accepted:** 06a through 06d retain bounded storage,
+action, HTTP, and physical-root registration evidence. Native10 accepts the C5
+activity transport. Zo build04 contains the exact current product bytes, and
+Doctor01 passes. The historical Habitat build and application operation is
+superseded.
 
-The current Zo activity command finished with return 0 and recorded cleanup;
-its complete independent evidence acceptance remains pending.
+QA and Verify independently accepted the retained activity evidence without a
+rerun. They also accepted the component and deliberate missing-key mutant. All
+three focused attempts returned 0, exited naturally, and passed cleanup. The
+[06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
+owns the exact evidence, resource observations, and limits.
 
-**Remaining:** Finish that activity review, then admit the component test and
-missing-key mutant separately. Neither has started. Workbench browser acceptance,
-configured production action mounting, and this outcome's full switching/draft-
-preservation conditions remain open. Full chat is independently owned by accepted 05b.
-The [06e packet](../packets/06e-project-selection.md) and
-[receipt](../receipts/06e-project-selection.md) own the next bounded Zo test unit.
+**Remaining:** Freeze and review the separate C5 browser fixture and resource
+profile before browser execution. Workbench browser acceptance, configured
+production action mounting, and this outcome's switching and draft-preservation
+conditions remain open. Full chat is independently owned by accepted 05b. The
+[06e packet](../packets/06e-project-selection.md) owns the next bounded unit.
 
 ## Goal
 
