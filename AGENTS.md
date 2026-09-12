@@ -13,8 +13,9 @@ that Vivary absorbs the full Littleagent scope. The GUI is primary; standalone
 workspaces, runtime choice, optional version control, templates, and optional
 Brain learning remain supported. Ticket status owns the current frontier. Use the
 bounded, verified environment named by the packet. The owner's 2026-09-11
-[05b decision](docs/product/multi-project/packets/05b-deepseek-chat-titles.md#current-execution-decision)
-selects Zo for that packet's next execution and handoff. On 2026-09-05
+[execution direction](docs/product/multi-project/execution-contract.md#one-goal-for-all-issues)
+selects Zo for all current project work. Preserve historical Habitat evidence;
+do not replay its launchers or grants on another environment. On 2026-09-05
 the owner confirmed BrowserPod is unavailable, superseding its earlier selection.
 Keep BrowserPod setup and execution out of the active task list. Preserve each
 packet's isolation, credential, spending, and cleanup limits.

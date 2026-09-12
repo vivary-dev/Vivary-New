@@ -15,7 +15,12 @@ merge, publication, or a claim that failed verification passed.
 On 2026-09-11, the owner clarified: "one goal for all issues". The active work
 therefore covers every remaining issue in the [36-outcome program](graph.md),
 including existing packets and defects found during implementation or review.
-05b is the current step, not the completion boundary. Continue through executable
+The owner also instructed “make sure we're coding in zo.” All current project
+coding, tests, fixes and verification therefore run on Zo through its existing
+connection. Each packet still requires its own verified isolation/resource
+profile; this direction does not transfer or reset historical Habitat budgets.
+The graph selects the current step; no individual packet is the completion
+boundary. Continue through executable
 dependencies after each accepted packet. Keep unresolved findings in their owning
 packet or the program audit; do not omit them to close the overall goal.
 
@@ -25,6 +30,26 @@ executable work while recording the exact prerequisites for gated issues.
 The Codex goal tool currently retains the older 05b objective and cannot edit an
 active objective. That tool limitation does not narrow this owner decision; do
 not mark the overall work complete when only 05b passes.
+
+## Private development hosting and review direction, 2026-09-11
+
+The owner asked for atomic commits and reaffirmed fixing issues and reviewing
+until no more findings remain. Keep each accepted change in a local atomic Git
+commit with its tests and owning documentation. Continue independent review and
+fix every remaining finding in that change before acceptance; do not claim this
+proves the absence of every possible defect.
+
+The owner then selected Entire for development hosting until the work is ready
+for GitHub. Use private access and Entire-native branches under
+`entire/unmirrored/` so unfinished work is not forwarded to GitHub. Retain the
+local Zo Git repository. The hosting setup and session-capture compatibility
+still need verification. This direction does not authorize a paid plan, public
+visibility, old private transcript/archive export, or GitHub publication.
+
+Earlier automatic approval review rejected a combined commit-and-push command
+because it included a GitHub push. Local atomic commits are a separate, already
+authorized operation. Keep GitHub publication separate from local commits and
+from the newly requested private Entire hosting.
 
 ## One current frontier
 
