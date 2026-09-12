@@ -10,11 +10,11 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: C5 browser source implementation uses the separate one-attempt 360-second execution and five-second cleanup profile below, source-reviewed and frozen, pending fresh independent resource admission. The three focused attempts remain consumed at 107.12825294700451 of 300 seconds. Historical Habitat allocations remain closed to replay.
+Timebox: The original C5 browser budget remains 365 seconds. Browser01 consumed 37.09076154699869 seconds. Revision02 may use at most 327 seconds: 322 execution plus five cleanup. The remaining 0.9092384530013 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
-Updated 2026-09-11. The owner requires all current coding and verification on Zo.
+Updated 2026-09-12. The owner requires all current coding and verification on Zo.
 This supersedes the historical Habitat application/launcher steps below. Preserve
 the original laptop evidence and unused admission; do not replay or reset it.
 
@@ -38,20 +38,24 @@ mutant wrapper accepted only the expected remount assertion failure. The retaine
 archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Accepted source:** Independent QA approved all five C5 browser fixture files
-after the reported findings were fixed. The [source checkpoint](../receipts/06e-project-selection.md#c5-browser-source-checkpoint-2026-09-11)
-owns their exact hashes. Syntax, inert tooling checks, and the current contract's
-prose check passed. Browser runtime has not run at this checkpoint.
+**Browser01 failed during setup:** Root registration returned
+`identity-unverified` before browser or model activity. The fixture placed
+physical roots on an unsupported filesystem. Production Native authentication
+also lacked its required fixture secret. The failed attempt and original source
+are archived; the [receipt](../receipts/06e-project-selection.md#c5-browser01-setup-failure-2026-09-11)
+owns the exact charge, diagnostics, and cleanup result.
 
-**Remaining:** Verify the existing C5 browser freeze and obtain fresh independent
-resource admission before execution. Configured production action mounting,
+**Accepted revision source:** Independent QA approved all five revision02 files.
+The new 349-entry freeze is prepared and binds the retained Browser01 evidence.
+
+**Remaining:** Obtain fresh independent admission before the bounded retry. Configured production action mounting,
 authentication, and the parent outcome's switching and draft-preservation gates
 remain open.
 
-**Next:** Verify the existing frozen manifests and dispatch the bounded browser
-attempt after independent admission. C5 preparation has completed once; do not
-repeat it. Preserve both earlier ledgers and all accepted evidence. Do not rerun
-focused preparation or tests, reset accounting, or rebuild unchanged product code.
+**Next:** Verify the existing revision02 freeze and dispatch after independent
+admission. Both preparation operations are consumed; do not repeat them. Keep
+Browser01's namespace and ledger intact.
+Preserve all earlier evidence and allocations. Do not rebuild product code.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -229,6 +233,31 @@ The source-derived provider shutdown clarification preserves the accepted public
 API. A graceful provider lifecycle would require a separate product change and
 fresh evidence. The production-action gap remains with outcome 06 and runtime
 owners.
+
+## C5 browser revision02: retained budget
+
+Browser01 consumed 37.09076154699869 seconds and failed before launching Chromium.
+Its physical roots used `/work` on v9fs (`0x01021997`), which the existing observer
+rejects. Revision02 moves only disposable physical roots and private custody
+state into the sandbox's existing `/tmp` mount. Require tmpfs (`0x01021994`) before
+registration and retain path, file-hash, and observation evidence. Preserve the
+product filesystem allowlist. Generate a fresh fixture-only authentication secret
+before Native initialization; do not persist, log, or pass it to child processes.
+
+Use `.tmp/06e/zo-browser-r2` for the single `browser-02` attempt. Its 327-second
+allocation is drawn from the original 365 seconds: 322 for execution and five
+for cleanup. Pin Browser01's actual charge, failed result, ledger hash, and
+verified cleanup in a frozen budget-authority record. Require prior plus current
+actual charges to remain within the original limit. Keep the old namespace,
+ledger, manifests, source archive, and diagnostics unchanged. A new namespace
+does not create a new budget. The original profile's memory, task, CPU, output,
+isolation, and traffic limits remain in force.
+
+The failure archive is `.tmp/06e/browser-01-failed-evidence.zip`, SHA-256
+`3d6be2d7a802a3d0551222b04d6d83e090ca5861251249f7107a6399720f8fc4`.
+CRC, all 33 members, and their hashes passed readback. Independent QA accepted the fixture correction and retry tools; the 349-entry
+revision02 freeze is prepared. Fresh Verify admission remains required. No retry
+is authorized by the failed result alone.
 
 ## Historical Habitat continuation
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, readlink, realpath, readdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -93,6 +93,21 @@ async function digestFile(file, maximum = 512 * 1024 * 1024) {
     hash.update(chunk);
   }
   return { sha256: hash.digest("hex"), bytes };
+}
+async function localPathFacts(target, expectedType) {
+  assert.equal(await realpath(target), target);
+  const information = await lstat(target);
+  assert.equal(expectedType === "directory" ? information.isDirectory() : information.isFile(), true);
+  if (expectedType === "file") assert.equal(information.nlink, 1);
+  return {
+    path: target,
+    type: expectedType,
+    device: information.dev,
+    inode: information.ino,
+    mode: (information.mode & 0o777).toString(8).padStart(3, "0"),
+    links: information.nlink,
+    bytes: information.size,
+  };
 }
 
 function activeResourceCounts() {
@@ -206,6 +221,13 @@ assert.deepEqual(profile.sandbox, {
   capabilities: "none",
   noNewPrivileges: true,
 });
+assert.equal(process.env.BETTER_AUTH_SECRET, undefined);
+process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("hex");
+const ephemeralAuthConfiguration = Object.freeze({
+  generatedInFixture: true,
+  encodedBytes: 64,
+  persisted: false,
+});
 
 const status = await readFile("/proc/self/status", "utf8");
 const statusValue = name => status.split("\n").find(line => line.startsWith(`${name}:`))?.split(":", 2)[1]?.trim();
@@ -216,7 +238,7 @@ const capabilities = Object.fromEntries(
 assert.deepEqual(capabilities, { CapInh: 0, CapPrm: 0, CapEff: 0, CapBnd: 0, CapAmb: 0 });
 const cpuAffinity = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-B", "-c",
   "import json,os; print(json.dumps(sorted(os.sched_getaffinity(0))))"],
-{ encoding: "utf8", timeout: 5000, maxBuffer: 4096 }));
+{ encoding: "utf8", timeout: 5000, maxBuffer: 4096, env: { LANG: "C.UTF-8" } }));
 assert.equal(cpuAffinity.length, PROFILE_LIMITS.cpuCount);
 const networkInterfaces = (await readFile("/proc/net/dev", "utf8"))
   .split("\n").filter(line => line.includes(":")).map(line => line.split(":", 1)[0].trim());
@@ -229,7 +251,7 @@ const pidNamespaceId = await readlink("/proc/self/ns/pid");
 assert.equal(pidNamespaceId, await readlink("/proc/1/ns/pid"));
 const mountReadOnly = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-B", "-c",
   'import json,os; paths=("/app","/source","/browser","/work"); print(json.dumps({p: bool(os.statvfs(p).f_flag & os.ST_RDONLY) for p in paths}, separators=(",",":")))',
-], { encoding: "utf8", timeout: 5000, maxBuffer: 4096 }));
+], { encoding: "utf8", timeout: 5000, maxBuffer: 4096, env: { LANG: "C.UTF-8" } }));
 assert.deepEqual(mountReadOnly, { "/app": true, "/source": true, "/browser": true, "/work": false });
 const boundary = {
   schema: "vivary.06e-c5-runner-boundary/v1",
@@ -367,15 +389,39 @@ const runtimeIdentity = Object.freeze({
   configurationRevision: 1,
   authorityContract: "c5-browser-read-only-v1",
 });
-const rootsRoot = path.join(evidenceRoot, "roots");
-const privateRoot = path.join(evidenceRoot, "provider");
+const custodyRoot = "/tmp/c5-browser-custody";
+const rootsRoot = path.join(custodyRoot, "roots");
+const privateRoot = path.join(custodyRoot, "provider");
+const providerStatePath = path.join(privateRoot, "roots.json");
 const locations = Object.freeze({
   alpha: path.join(rootsRoot, "alpha"),
   beta: path.join(rootsRoot, "beta"),
 });
+await mkdir(custodyRoot, { recursive: false, mode: 0o700 });
 for (const folder of [rootsRoot, privateRoot, ...Object.values(locations)]) {
   await mkdir(folder, { recursive: false, mode: 0o700 });
 }
+const custodyFilesystem = JSON.parse(execFileSync("/usr/bin/python3", ["-I", "-B", "-c",
+  [
+    "import ctypes,json,os,sys",
+    "def magic(path):",
+    " b=ctypes.create_string_buffer(256)",
+    " f=os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)",
+    " try:",
+    "  fn=ctypes.CDLL(None,use_errno=True).fstatfs",
+    "  fn.argtypes=(ctypes.c_int,ctypes.c_void_p)",
+    "  fn.restype=ctypes.c_int",
+    "  assert fn(f,b)==0",
+    "  return hex(ctypes.c_long.from_buffer(b).value & 0xffffffff)",
+    " finally: os.close(f)",
+    "print(json.dumps({name:magic(path) for name,path in zip(('custody','roots','state'),sys.argv[1:])},separators=(',',':')))",
+  ].join("\n"), custodyRoot, rootsRoot, privateRoot,
+], { encoding: "utf8", timeout: 5000, maxBuffer: 4096, env: { LANG: "C.UTF-8" } }));
+assert.deepEqual(custodyFilesystem, {
+  custody: "0x1021994",
+  roots: "0x1021994",
+  state: "0x1021994",
+});
 await writeFile(path.join(locations.alpha, "proof.txt"), "alpha original\n", { flag: "wx", mode: 0o600 });
 await writeFile(path.join(locations.beta, "proof.txt"), "beta original\n", { flag: "wx", mode: 0o600 });
 
@@ -481,6 +527,8 @@ let heldAlpha = null;
 let holdNextAlpha = false;
 let activeAlphaReference = "original";
 let measurementBaseline = null;
+let registeredRootFacts = null;
+let custodyEvidence = null;
 
 const setRole = role => setAppMemberRole({
   appId: "workbench",
@@ -736,7 +784,7 @@ async function initialize() {
     config: {
       deviceId: "c5-browser-device",
       scope: rootsRoot,
-      statePath: path.join(privateRoot, "roots.json"),
+      statePath: providerStatePath,
       locations,
     },
     parseStrictJson,
@@ -840,6 +888,10 @@ async function initialize() {
   const betaRoot = await provider.inspect("beta");
   assert.equal(alphaRoot.code, "available");
   assert.equal(betaRoot.code, "available");
+  registeredRootFacts = Object.freeze({
+    alpha: Object.freeze({ rootId: alphaRoot.rootId, contentRevision: alphaRoot.contentRevision }),
+    beta: Object.freeze({ rootId: betaRoot.rootId, contentRevision: betaRoot.contentRevision }),
+  });
   const alphaIdentity = bindingIdentity(scope, byId.get(alphaBinding.projectId), alphaBinding, alphaRoot);
   const betaIdentity = bindingIdentity(scope, byId.get(betaBinding.projectId), betaBinding, betaRoot);
   for (const binding of [alphaIdentity, betaIdentity]) {
@@ -1600,6 +1652,27 @@ async function closeBackend() {
   const afterProviderClose = await tableSnapshot();
   assert.deepEqual(afterProviderClose, beforeClose);
   const retainedPreCloseSnapshotSha256 = canonicalDigest(afterProviderClose);
+  custodyEvidence = {
+    filesystem: custodyFilesystem,
+    custodyRoot: await localPathFacts(custodyRoot, "directory"),
+    rootsRoot: await localPathFacts(rootsRoot, "directory"),
+    privateRoot: await localPathFacts(privateRoot, "directory"),
+    state: {
+      ...await localPathFacts(providerStatePath, "file"),
+      ...await digestFile(providerStatePath),
+    },
+    roots: Object.fromEntries(await Promise.all(Object.entries(locations).map(async ([name, root]) => {
+      const proof = path.join(root, "proof.txt");
+      return [name, {
+        ...await localPathFacts(root, "directory"),
+        observed: registeredRootFacts[name],
+        proof: {
+          ...await localPathFacts(proof, "file"),
+          ...await digestFile(proof),
+        },
+      }];
+    }))),
+  };
 
   await removeSession(identity.token);
   const activeResourcesBeforeAuditStop = activeResourceCounts();
@@ -1674,6 +1747,9 @@ try {
 } finally {
   Object.defineProperty(globalThis, "setTimeout", originalSetTimeoutDescriptor);
   for (const handle of ownedNativeTimers.keys()) Reflect.apply(originalClearTimeout, globalThis, [handle]);
+  const ephemeralSecretWasPresent = typeof process.env.BETTER_AUTH_SECRET === "string";
+  delete process.env.BETTER_AUTH_SECRET;
+  assert.equal(process.env.BETTER_AUTH_SECRET, undefined);
   const final = {
     schema: "vivary.06e-c5-browser-backend-final/v1",
     closeRequested,
@@ -1702,6 +1778,16 @@ try {
       source: readinessSourceIdentity,
       projects: Object.fromEntries([...readinessEvidenceByProject.entries()]
         .sort(([left], [right]) => left.localeCompare(right))),
+    },
+    custodyStorage: {
+      configuredPaths: { custodyRoot, rootsRoot, privateRoot, providerStatePath, locations },
+      filesystem: custodyFilesystem,
+      evidence: custodyEvidence,
+    },
+    ephemeralAuthConfiguration: {
+      ...ephemeralAuthConfiguration,
+      presentUntilFinalization: ephemeralSecretWasPresent,
+      cleared: true,
     },
     stderrBytes,
   };

@@ -10,7 +10,7 @@ Execution: Start only a bounded packet listed in [the graph](../graph.md). Paren
 
 ## Current progress
 
-Updated 2026-09-11. **Accepted:** 06a through 06d retain bounded storage,
+Updated 2026-09-12. **Accepted:** 06a through 06d retain bounded storage,
 action, HTTP, and physical-root registration evidence. Native10 accepts the C5
 activity transport. Zo build04 contains the exact current product bytes, and
 Doctor01 passes. The historical Habitat build and application operation is
@@ -22,10 +22,12 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-**Accepted source:** Independent QA approved the separate C5 browser fixture.
+**Accepted source:** Independent QA approved the corrected C5 browser fixture
+and its remaining-budget retry. The first attempt failed during setup; its
+evidence and charge are retained.
 
-**Remaining:** Freeze its exact inputs and verify fresh resources before the
-bounded browser execution. Workbench browser acceptance, configured
+**Remaining:** Independently verify the prepared revision02 inputs and fresh
+resources before the bounded browser execution. Workbench browser acceptance, configured
 production action mounting, and this outcome's switching and draft-preservation
 conditions remain open. Full chat is independently owned by accepted 05b. The
 [06e packet](../packets/06e-project-selection.md) owns the next bounded unit.

@@ -847,3 +847,63 @@ Chromium tree contains 303 files and 410,251,304 bytes. Its SHA-256 is
 `2488c3e5b591e2b3c69da5ed1d483a433eda7f324a619da3be4927ee13b3a130`.
 The browser ledger is empty. Independent frozen-byte and resource admission
 remains required before its single attempt. Do not repeat preparation.
+
+## C5 Browser01 setup failure, 2026-09-11
+
+The admitted attempt failed during registration before browser launch. It charged
+37.09076154699869 of the original 365 seconds. The supervisor returned 1 with
+`child-failed`; the backend returned `identity-unverified` instead of `registered`.
+Native also reported a missing production authentication secret. All model and
+harness counters were zero.
+
+Independent QA traced root refusal to v9fs under `/work`, which the existing
+physical observer correctly rejects. It separately confirmed Native's supported
+fixture-secret configuration. The [revision02 contract](../packets/06e-project-selection.md#c5-browser-revision02-retained-budget)
+owns the bounded correction. Product and accepted build bytes remain unchanged.
+
+Cleanup was not wholly natural: the runner recorded a backend SIGKILL attempt.
+The supervisor required no additional intervention, reported cleanup absent,
+and all five saved host PID/start identities were absent on independent review.
+Raw diagnostics and the failed SQLite/WAL state remain retained.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Supervisor result | `39a2280c5b1040fe884691a583e5f12b55188f9c1761ef99443e2c6ec26dbf9f` |
+| Raw backend stderr | `652852b77a5b813e745c473bb5cce850ade4797359944686dbbc552c4996b1af` |
+| Consumed Browser01 ledger | `f7e5d3dddb92a5453947e8f508ce18d0a63bb661546e0baa75462750691bbc55` |
+| Failure archive | `3d6be2d7a802a3d0551222b04d6d83e090ca5861251249f7107a6399720f8fc4` |
+
+The archive contains 33 evidence/source members totaling 3,398,901 original bytes;
+the ZIP is 193,327 bytes. CRC and every member hash passed readback. Original
+source commit `2f20ab7` is retained on private Entire. Revision02 may use at most
+327 of the remaining 327.9092384530013 seconds. No earlier ledger is reset.
+
+## C5 revision02 source freeze, 2026-09-12
+
+Independent QA accepted the bounded fixture correction and inherited-budget tools.
+Preparation completed once with 349 source entries and 11 tool entries. The
+accepted app, build, dependency tree, and Chromium tree remain unchanged.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `bd506767cbca3666a751b61d62379ca774e4439e40300cdd8e99e2f9299273f2` |
+| c5_browser_runner.mjs | `23e7d9bb8941a0f96a26e03fb1676ebac3ed29ff04022c089e5606697bd0d1c6` |
+| c5_browser.mjs | `905afaaf9244a0e12fcfd8443e7cd7c26eac58781cbadd985a1532810ff24ea0` |
+| prepare_zo_browser.py | `c01d7e04289acfac25f42d9961a1944afecffc8f57b1e110b8a7c850e1e41413` |
+| zo_browser_supervisor.py | `d473ce73ab62992fa61e7664e9f6aa70472570fc91168851d1310a85dfd4d708` |
+
+The source manifest SHA-256 is
+`1d724073109be114ddd1f57a7f729fd7b6da2df54729a674be3c8fe1a5d4623c`.
+The profile SHA-256 is
+`1cb9c516a102c27a697319b60deb74c54d515b4b40bea86195820a61d36a8742`.
+The budget-authority SHA-256 is
+`8d5bd98905dae540f10de6d3760e5cfee2456cc6c51ce05e04507fac5abe41ad`.
+It binds the original charge, ledger, failed result, and archive. The retry may
+use 327 seconds, with a maximum combined charge of 364.0907615469987 seconds.
+The original 365-second allocation remains unchanged.
+
+The revised fixture requires private tmpfs before registration and generates a
+fresh Native fixture secret. Source review confirms that the secret is excluded
+from retained evidence and fixture child environments. Source checks pass;
+fresh independent admission and browser execution remain pending at this
+source checkpoint. No preparation may be repeated.

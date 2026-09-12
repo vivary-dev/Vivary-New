@@ -17,17 +17,32 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[5]
-BASE = ROOT / ".tmp/06e/zo-browser"
+BASE = ROOT / ".tmp/06e/zo-browser-r2"
+PRIOR_BASE = ROOT / ".tmp/06e/zo-browser"
+PRIOR_LEDGER = PRIOR_BASE / "budget.json"
+PRIOR_RESULT = PRIOR_BASE / "browser-01/result.json"
+PRIOR_ARCHIVE = ROOT / ".tmp/06e/browser-01-failed-evidence.zip"
+EXPECTED_PRIOR_LEDGER_SHA256 = (
+    "f7e5d3dddb92a5453947e8f508ce18d0a63bb661546e0baa75462750691bbc55"
+)
+EXPECTED_PRIOR_RESULT_SHA256 = (
+    "39a2280c5b1040fe884691a583e5f12b55188f9c1761ef99443e2c6ec26dbf9f"
+)
+EXPECTED_PRIOR_ARCHIVE_SHA256 = (
+    "3d6be2d7a802a3d0551222b04d6d83e090ca5861251249f7107a6399720f8fc4"
+)
+PRIOR_CHARGED_SECONDS = 37.09076154699869
+ORIGINAL_TOTAL_SECONDS = 365
 APP = ROOT / ".tmp/05b/zo-runtime/app"
 BROWSER = (
     ROOT
     / ".tmp/05b/zo-runtime/chromium-02/work/browsers/"
     "chromium-1243/chrome-linux64"
 )
-NAME = "browser-01"
-EXECUTION_SECONDS = 360
+NAME = "browser-02"
+EXECUTION_SECONDS = 322
 CLEANUP_SECONDS = 5
-TOTAL_SECONDS = 365
+TOTAL_SECONDS = 327
 MEMORY_STOP = 8 * 1024**3
 TASK_STOP = 256
 HOST_RESERVE = 1536 * 1024**2
@@ -321,24 +336,79 @@ def config_for() -> dict:
         "playwrightPackageJsonSha256": sha(playwright),
         "chromiumExecutable": "/browser/chrome",
         "chromiumSha256": sha(chromium),
-        "sourceManifestPath": "/source/.tmp/06e/zo-browser/source-manifest.json",
+        "sourceManifestPath": "/source/.tmp/06e/zo-browser-r2/source-manifest.json",
         "sourceManifestSha256": sha(source_manifest),
         "sourceBindingSha256": source_value["bindingSha256"],
-        "toolManifestPath": "/source/.tmp/06e/zo-browser/tool-manifest.json",
+        "toolManifestPath": "/source/.tmp/06e/zo-browser-r2/tool-manifest.json",
         "toolManifestSha256": sha(tool_manifest),
-        "trafficManifestPath": "/source/.tmp/06e/zo-browser/traffic-manifest.json",
+        "trafficManifestPath": "/source/.tmp/06e/zo-browser-r2/traffic-manifest.json",
         "trafficManifestSha256": sha(traffic_manifest),
-        "profilePath": "/source/.tmp/06e/zo-browser/profile.json",
+        "profilePath": "/source/.tmp/06e/zo-browser-r2/profile.json",
         "profileSha256": sha(profile),
         "proofToken": secrets.token_hex(32),
         "deadlineSeconds": EXECUTION_SECONDS,
     }
 
 
+def validate_budget_authority() -> dict:
+    authority_path = BASE / "budget-authority.json"
+    authority = json.loads(authority_path.read_text())
+    assert authority["schema"] == "vivary.06e-c5-browser-budget-authority/v1"
+    assert authority["originalTotalSeconds"] == ORIGINAL_TOTAL_SECONDS
+    assert authority["prior"]["name"] == "browser-01"
+    assert authority["prior"]["chargedSeconds"] == PRIOR_CHARGED_SECONDS
+    assert authority["prior"]["failure"] == "child-failed"
+    assert authority["prior"]["cleanupAbsent"] is True
+    assert authority["prior"]["browserStarted"] is False
+    assert authority["retry"] == {
+        "name": NAME,
+        "executionSeconds": EXECUTION_SECONDS,
+        "cleanupSeconds": CLEANUP_SECONDS,
+        "totalSeconds": TOTAL_SECONDS,
+    }
+    assert authority["maximumCombinedChargeSeconds"] == (
+        PRIOR_CHARGED_SECONDS + TOTAL_SECONDS
+    )
+    assert authority["maximumCombinedChargeSeconds"] <= ORIGINAL_TOTAL_SECONDS
+    assert authority["remainingUnallocatedSeconds"] == (
+        ORIGINAL_TOTAL_SECONDS - PRIOR_CHARGED_SECONDS - TOTAL_SECONDS
+    )
+    expected = (
+        (PRIOR_LEDGER, authority["prior"]["ledger"], EXPECTED_PRIOR_LEDGER_SHA256),
+        (PRIOR_RESULT, authority["prior"]["result"], EXPECTED_PRIOR_RESULT_SHA256),
+        (PRIOR_ARCHIVE, authority["prior"]["archive"], EXPECTED_PRIOR_ARCHIVE_SHA256),
+    )
+    for path, identity, digest in expected:
+        assert identity == {
+            "path": "/source/" + path.relative_to(ROOT).as_posix(),
+            "sha256": digest,
+            "bytes": path.stat().st_size,
+        }
+        assert sha(path) == digest
+    ledger = json.loads(PRIOR_LEDGER.read_text())
+    assert len(ledger) == 1
+    assert ledger[0]["name"] == "browser-01"
+    assert ledger[0]["status"] == "finished"
+    assert ledger[0]["chargedSeconds"] == PRIOR_CHARGED_SECONDS
+    assert ledger[0]["resultFailure"] == "child-failed"
+    assert ledger[0]["resultSha256"] == EXPECTED_PRIOR_RESULT_SHA256
+    prior_result = json.loads(PRIOR_RESULT.read_text())
+    assert prior_result["failure"] == "child-failed"
+    assert prior_result["elapsedSecondsIncludingDispatchAndCleanup"] == PRIOR_CHARGED_SECONDS
+    assert prior_result["cleanupAbsent"] is True
+    assert prior_result["remainingPids"] == []
+    assert prior_result["supervisorTermSignaledPids"] == []
+    assert prior_result["supervisorKillSignaledPids"] == []
+    assert prior_result["chromiumLaunches"] == []
+    assert prior_result["runnerResultSha256"] is None
+    return authority
+
+
 def validate_prepared_inputs() -> None:
     preparation = json.loads((BASE / "preparation.json").read_text())
     assert preparation["schema"] == "vivary.06e-c5-browser-preparation/v1"
     expected = {
+        "budget-authority.json": preparation["budgetAuthoritySha256"],
         "source-manifest.json": preparation["sourceManifestSha256"],
         "tool-manifest.json": preparation["toolManifestSha256"],
         "traffic-manifest.json": preparation["trafficManifestSha256"],
@@ -347,6 +417,8 @@ def validate_prepared_inputs() -> None:
     for name, digest in expected.items():
         assert re.fullmatch(r"[0-9a-f]{64}", digest)
         assert sha(BASE / name) == digest
+    authority = validate_budget_authority()
+    assert preparation["budgetAuthority"] == authority
     source = json.loads((BASE / "source-manifest.json").read_text())
     profile = json.loads((BASE / "profile.json").read_text())
     assert source["schema"] == "vivary.06e-c5-source/v1"
@@ -354,6 +426,13 @@ def validate_prepared_inputs() -> None:
     assert profile["sourceBindingSha256"] == source["bindingSha256"]
     assert profile["trafficManifestSha256"] == preparation["trafficManifestSha256"]
     listed = {entry["path"]: entry for entry in source["files"]}
+    for path in (BASE / "budget-authority.json", PRIOR_LEDGER, PRIOR_RESULT, PRIOR_ARCHIVE):
+        sandbox_path = "/source/" + path.relative_to(ROOT).as_posix()
+        assert listed[sandbox_path] == {
+            "path": sandbox_path,
+            "sha256": sha(path),
+            "bytes": path.stat().st_size,
+        }
     for path in (
         Path(__file__),
         Path(__file__).with_name("prepare_zo_browser.py"),
@@ -416,6 +495,7 @@ def reserve() -> tuple[Path, dict]:
         write_json_atomic(ledger_path, ledger)
         try:
             required = [
+                "budget-authority.json",
                 "dependency-tree.json",
                 "browser-tree.json",
                 "source-manifest.json",
@@ -425,6 +505,7 @@ def reserve() -> tuple[Path, dict]:
                 "preparation.json",
             ]
             assert all((BASE / name).is_file() for name in required)
+            authority = validate_budget_authority()
             validate_prepared_inputs()
             run_dir = BASE / NAME
             run_dir.mkdir(mode=0o700, exist_ok=False)
@@ -439,6 +520,8 @@ def reserve() -> tuple[Path, dict]:
                     "executionSeconds": EXECUTION_SECONDS,
                     "cleanupSeconds": CLEANUP_SECONDS,
                     "totalSeconds": TOTAL_SECONDS,
+                    "priorChargedSeconds": authority["prior"]["chargedSeconds"],
+                    "originalTotalSeconds": authority["originalTotalSeconds"],
                     "supervisorSha256": sha(Path(__file__)),
                     "runtimeAdmittedBySource": False,
                 },
@@ -446,9 +529,16 @@ def reserve() -> tuple[Path, dict]:
         except Exception as error:
             elapsed = time.monotonic() - entry["reservedAtMonotonic"]
             failure = f"reservation-error:{type(error).__name__}"
+            combined = PRIOR_CHARGED_SECONDS + elapsed
+            if combined > ORIGINAL_TOTAL_SECONDS:
+                failure = "original-budget-overrun"
             entry.update(
                 status="refused",
                 chargedSeconds=elapsed,
+                priorChargedSeconds=PRIOR_CHARGED_SECONDS,
+                combinedChargedSeconds=combined,
+                originalTotalSeconds=ORIGINAL_TOTAL_SECONDS,
+                originalBudgetOverrun=combined > ORIGINAL_TOTAL_SECONDS,
                 resultFailure=failure,
             )
             write_json_atomic(ledger_path, ledger)
@@ -460,6 +550,10 @@ def reserve() -> tuple[Path, dict]:
                     "failure": failure,
                     "message": str(error)[:4096],
                     "chargedSeconds": elapsed,
+                    "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
+                    "combinedChargedSeconds": combined,
+                    "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
+                    "originalBudgetOverrun": combined > ORIGINAL_TOTAL_SECONDS,
                 },
             )
             raise
@@ -769,6 +863,11 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
         except Exception as error:
             failure = failure or f"runner-result:{type(error).__name__}"
 
+    combined_charged = PRIOR_CHARGED_SECONDS + elapsed
+    original_budget_overrun = combined_charged > ORIGINAL_TOTAL_SECONDS
+    if original_budget_overrun:
+        failure = failure or "original-budget-overrun"
+
     result = {
         "schema": "vivary.06e-c5-browser-supervisor-result/v1",
         "name": NAME,
@@ -776,6 +875,15 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
         "failure": failure,
         "refusal": refusal,
         "elapsedSecondsIncludingDispatchAndCleanup": elapsed,
+        "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
+        "currentChargedSeconds": elapsed,
+        "combinedChargedSeconds": combined_charged,
+        "originalTotalSeconds": ORIGINAL_TOTAL_SECONDS,
+        "originalBudgetOverrun": original_budget_overrun,
+        "budgetAuthoritySha256": sha(BASE / "budget-authority.json"),
+        "priorLedgerSha256": EXPECTED_PRIOR_LEDGER_SHA256,
+        "priorResultSha256": EXPECTED_PRIOR_RESULT_SHA256,
+        "priorArchiveSha256": EXPECTED_PRIOR_ARCHIVE_SHA256,
         "executionDeadlineSeconds": EXECUTION_SECONDS,
         "cleanupSeconds": CLEANUP_SECONDS,
         "cumulativeDeadlineSeconds": TOTAL_SECONDS,
@@ -824,6 +932,10 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
     ledger[0].update(
         status="refused" if refusal else "finished",
         chargedSeconds=elapsed,
+        priorChargedSeconds=PRIOR_CHARGED_SECONDS,
+        combinedChargedSeconds=combined_charged,
+        originalTotalSeconds=ORIGINAL_TOTAL_SECONDS,
+        originalBudgetOverrun=original_budget_overrun,
         resultFailure=failure,
         resultSha256=sha(result_path),
     )
@@ -870,12 +982,13 @@ def run_reserved(run_dir: Path) -> int:
 def self_test() -> dict:
     assert ADMISSION_MEMORY == int(9.5 * 1024**3)
     assert TOTAL_SECONDS == EXECUTION_SECONDS + CLEANUP_SECONDS
+    assert PRIOR_CHARGED_SECONDS + TOTAL_SECONDS <= ORIGINAL_TOTAL_SECONDS
     validate_ledger([])
     validate_ledger(
-        [{"name": NAME, "chargedSeconds": 365, "status": "reserved"}]
+        [{"name": NAME, "chargedSeconds": 327, "status": "reserved"}]
     )
     validate_ledger(
-        [{"name": NAME, "chargedSeconds": 365.25, "status": "finished"}]
+        [{"name": NAME, "chargedSeconds": 327.25, "status": "finished"}]
     )
     table = {
         10: {"parent": 1, "pgrp": 10, "started": 100, "rss": 1, "threads": 1},
