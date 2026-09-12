@@ -1,6 +1,10 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-07. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Engineering process follows [ENGINEERING.md](../../../ENGINEERING.md), approved
+on 2026-09-12. Historical process decisions below retain their provenance and
+do not override that policy.
+
+Updated: 2026-09-12. Status: program implementation is in progress, with evidence tracked by the ticket graph. Project execution runs on Zo. Historical Habitat results remain in their receipts. Ordinary reversible choices belong to the implementing agent. Product, account, security, and release decisions retain their stated authority.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -631,3 +635,22 @@ ends this allocation; retain its evidence and continue independent source work.
 A passing fixture establishes only its stated browser behavior. The next product
 unit is configured Workbench startup using the existing project services.
 Production custody and parent session/draft conditions remain separate gates.
+
+## Product engineering policy decision, 2026-09-12
+
+Jeff supplied the product engineering policy and directed making it the
+top-level policy, with the former heavy verification workflow available only
+for dangerous work. The governing rule is:
+
+> When verification infrastructure begins approaching the complexity of the feature being verified, stop and simplify it.
+
+[ENGINEERING.md](../../../ENGINEERING.md) owns the complete policy.
+[High-assurance mode](../../verification/high-assurance-mode.md) owns optional
+extra controls for named risks. This supersedes default four-role reviews,
+per-run admission, proof archives, immutable test-attempt accounting, and
+documentation review gates. Ordinary tests may be fixed and rerun.
+
+Preserve existing evidence, recorded budgets, and actual product requirements.
+Failed results stay failed. Existing external-action permissions remain.
+Prioritize normal application startup and the project-switching vertical slice.
+The C5 custom fixture campaign is not a prerequisite to that implementation.

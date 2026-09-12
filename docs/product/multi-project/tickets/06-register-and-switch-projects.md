@@ -10,33 +10,16 @@ Execution: Start only a bounded packet listed in [the graph](../graph.md). Paren
 
 ## Current progress
 
-Updated 2026-09-12. **Accepted:** 06a through 06d retain bounded storage,
-action, HTTP, and physical-root registration evidence. Native10 accepts the C5
-activity transport. Zo build04 contains the exact current product bytes, and
-Doctor01 passes. The historical Habitat build and application operation is
-superseded.
+Updated 2026-09-12. Bounded registration, authorization, transport, root custody,
+build, doctor, and focused activity evidence remain accepted in their receipts.
+Browser08 recorded twelve Workbench checks but failed the separate chat check
+and did not complete final verification. See the [06e receipt](../receipts/06e-project-selection.md).
 
-QA and Verify independently accepted the retained activity evidence without a
-rerun. They also accepted the component and deliberate missing-key mutant. All
-three focused attempts returned 0, exited naturally, and passed cleanup. The
-[06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
-owns the exact evidence, resource observations, and limits.
-
-Seven browser attempts remain unaccepted. Browser07 recorded four root checks,
-then failed on a fixture metadata assertion. Independent Verify accepted its
-archive and confirmed all 24 saved process identities absent after forced cleanup.
-
-**Accepted source:** Independent QA approved the response-byte correction and
-the remaining browser paths, including a corrected SSR port-close wait.
-Root prepared revision08 once, and fresh independent admission passed.
-
-**Remaining:** Jeff approved one separate 120-second browser allocation in the
-[06e packet](../packets/06e-project-selection.md#c5-supplemental-allocation-approved-2026-09-12).
-After the reviewed commit and Entire readback, execute that attempt once.
-The original allocation and all seven charges remain unchanged.
-Workbench browser acceptance, configured production action mounting, and this
-outcome's switching and draft-preservation conditions remain open. Full chat
-retains its independent accepted 05b evidence.
+The [engineering policy](../../../../ENGINEERING.md) now governs the work.
+The next product step is normal Workbench startup using the existing project
+services, followed by a small real-app project-switching check. Configured
+startup, retained state and drafts, and persistence remain unfinished.
+The custom C5 fixture is not a prerequisite to this implementation.
 
 ## Goal
 

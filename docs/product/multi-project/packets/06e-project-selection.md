@@ -5,57 +5,37 @@ type: packet
 Parent: 06
 Status: in-progress
 Depends-on: [05a, 06d]
-Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the separate C5 browser fixture and bounded proof tools. QA and Verify independently accepted the retained activity, component, and mutant evidence. C5 browser acceptance remains open.
+Owner: Root owns the current product slice and acceptance. Use independent review where a named risk warrants it under ENGINEERING.md.
 Scope: Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Preserve the original 365-second allocation and 346.26085875899935 seconds charged. Jeff approved one separate 120-second allocation, with 115 execution seconds and five cleanup seconds. Review source, prepare once, and obtain independent resource admission before its single attempt. Earlier focused and 05b allocations remain unchanged.
+Timebox: Ordinary development uses relevant test timeouts and owned cleanup under ENGINEERING.md. Retain the historical C5 allocations and results. No further custom C5 fixture run is planned.
 
 ## Current progress
 
-Updated 2026-09-12. The owner requires all current coding and verification on Zo.
-This supersedes the historical Habitat application/launcher steps below. Preserve
-the original laptop evidence and unused admission; do not replay or reset it.
+Updated 2026-09-12. [ENGINEERING.md](../../../../ENGINEERING.md) governs this work.
+Keep all implementation and runtime on Zo.
 
-**Accepted:** Native10 transport, Zo build04, and Doctor01 remain accepted.
-QA and Verify independently accepted the retained activity evidence on September
-11 in America/Denver and September 12 UTC without a rerun. They also accepted the
-component and deliberate missing-renderer-key mutant runs. The three focused
-attempts returned 0, exited naturally, and passed owned cleanup.
+**Accepted:** Native10 transport, Zo build04, Doctor01, and the retained activity,
+component, and missing-key mutant checks retain their bounded acceptance.
+The [receipt](../receipts/06e-project-selection.md) owns their evidence and limits.
 
-The activity proof covers eight cases, 43 refusals, four reads, three injected
-state changes, and 22 snapshots. Their union covers 26 tables, including all 13
-required tables. Forty refusal cases left state unchanged. Each of the three
-intentional changes affected one table. The runtime test checked full raw-row
-hashes, but the emitted summaries do not contain enough data to reconstruct those
-hashes independently. Reviewers independently reproduced the code-only refusal response hashes.
+**Incomplete:** Browser08 recorded all twelve selected-project checks across
+both Workbench routes, then failed in the separate chat check. The fixture
+expected a hidden inactive thread title and rejected real chat startup requests.
+It did not reach final state, model-counter, or passing lifecycle verification.
+Independent review preserved the failure and verified all owned processes absent.
 
-The component proof passed seven cases and matched all 1,419 physical bundle
-inputs. It uses simulated hooks and selection writes, so it does not prove HTTP,
-model-call, Native no-write, browser, or production-authentication behavior. The
-mutant wrapper accepted only the expected remount assertion failure. The retained
-archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
-owns exact hashes, warnings, resources, cleanup, and limitations.
+**Next:** Wire the existing registry, catalog, readiness, and activity services
+into normal Workbench startup. Use safe configuration and exercise the actual
+application with disposable projects and disabled model providers. Do not extend
+the custom C5 proof framework. Preserve its failed evidence and original budgets.
 
-**Browser acceptance remains open:** All seven failures and their charges are
-retained. Browser07 recorded four root checks, then rejected an absent fixture
-metadata field during the manual-refresh check. It did not reach role revocation,
-`/workbench`, `/chat`, or final state/model/lifecycle verification. Independent
-Verify accepted the failure archive and confirmed all 24 saved process identities
-are absent after forced cleanup.
-
-**Accepted source:** Independent QA approved the actual-response correction and
-the remaining browser paths. It found and closed a finalization race: the backend
-now awaits both SSR port close events with the existing one-second bound.
-Root independently reviewed the separate budget accounting and prepared
-revision08 once. Fresh independent admission passed. No new browser runtime
-has executed.
-
-**Next:** Commit the reviewed candidate, verify the private Entire ref, and
-dispatch the single [approved supplemental attempt](#c5-supplemental-allocation-approved-2026-09-12).
-Source review and independent admission passed. Preserve the original budget.
-Production mounting/authentication and parent switching/draft gates remain open.
+The product still needs configured startup, project switching with retained
+state, restart persistence, and clear missing or revoked access. A policy change
+does not accept those behaviors. The historical C5 plans below describe their
+original runs and grants. They are not default gates for ordinary implementation.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -444,6 +424,9 @@ this scope on 2026-09-07 under the owner's continuous implementation authority.
 
 ## Owned files
 
+- Normal application project-service composition and its startup plugin, with
+  focused tests that invoke that same composition. Reuse existing service,
+  authorization, custody, and migration owners.
 - New `packages/workbench/server/project-catalog.mjs` and focused catalog tests.
 - App project selection/context/form components, the workbench route, shared
   Conversation integration, focused behavior tests and styles. The root remains

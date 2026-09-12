@@ -3,7 +3,7 @@
 Evidence-record: 06e
 Date: 2026-09-11
 Verification-kind: runtime
-Result: In progress. Native10, exact current-product Zo build04, Doctor01, and all three focused Zo tests are accepted. C5 browser acceptance and production action mounting remain open. Zo supersedes historical Habitat application. Production authentication remains separate.
+Result: In progress. Accepted transport, build, doctor, and focused evidence remain bounded. Browser08 recorded twelve Workbench checks but failed chat and final verification. Normal application startup and the complete project-switching behavior remain unfinished.
 
 The [owning packet](../packets/06e-project-selection.md) and
 [catalog contract](../contracts/project-catalog.md) define acceptance. The 05a
@@ -1513,3 +1513,30 @@ Admission record: `.tmp/06e/c5-r8-runtime-admission.json`, SHA-256
 `ba567410729f28f5be15aaa7f6e1376f55250da5db57c0c47904221aafd60d16`.
 It permits one 115-second execution and five-second cleanup after the reviewed
 commit and private Entire readback. It does not accept a browser result.
+
+## Browser08 and engineering policy checkpoint, 2026-09-12
+
+Browser08 ran committed source `c85776355fb7c428ac94e2c4954fa81fddfbe7f0`.
+It recorded all twelve Workbench checks before the separate chat timeout.
+The fixture waited for a title hidden by the real chat UI and rejected real
+startup requests. A locator change alone would not repair the proof.
+The earlier source review missed those paths. Final state, model counters,
+and passing lifecycle evidence remain absent.
+
+The attempt used 81.76995382300083 seconds of its separate 120-second allocation.
+The original 346.26085875899935 seconds charged to 365 seconds remain unchanged.
+All 289 observed resource samples stayed within the profile. Failure cleanup
+forcibly stopped backend Node and Xvfb. Independent verification found all 28
+new and 174 cumulative saved process identities absent.
+
+Retained evidence: `.tmp/06e/browser-08-evidence.zip`, 522,800 bytes, SHA-256
+`05d8cf78966435b9752fad95a22ee8f095a04ac18837bb772109b2b887ebbbaf`.
+Its 43 payloads passed integrity checks and reference the 21 prior artifacts
+without copying the old archives. The private `browser-08-evidence-review.json`
+and `browser-08-diagnosis.json` record the detailed findings and their limits.
+Root inspected the retained Workbench Alpha and revoked-access screenshots.
+
+Jeff's [engineering policy decision](../design.md#product-engineering-policy-decision-2026-09-12)
+ends further work on this custom verification campaign. Preserve all evidence.
+Continue through normal application wiring, focused tests, and a small real-app
+project-switching journey. No historical failure becomes accepted.
