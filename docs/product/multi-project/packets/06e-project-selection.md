@@ -5,12 +5,12 @@ type: packet
 Parent: 06
 Status: in-progress
 Depends-on: [05a, 06d]
-Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the portable component fixture and bounded proof tools. QA and Verify independently accepted the retained activity, component, and mutant evidence. C5 browser acceptance remains open.
+Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the separate C5 browser fixture and bounded proof tools. QA and Verify independently accepted the retained activity, component, and mutant evidence. C5 browser acceptance remains open.
 Scope: Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: The three Zo focused-test attempts consumed 107.12825294700451 of 300 seconds. Do not run another focused attempt. Later browser work requires its own frozen profile. Historical Habitat allocations remain closed to replay.
+Timebox: C5 browser source implementation uses the separate one-attempt 360-second execution and five-second cleanup profile below, source-reviewed and frozen, pending fresh independent resource admission. The three focused attempts remain consumed at 107.12825294700451 of 300 seconds. Historical Habitat allocations remain closed to replay.
 
 ## Current progress
 
@@ -38,15 +38,20 @@ mutant wrapper accepted only the expected remount assertion failure. The retaine
 archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Remaining:** Complete the separate C5 browser fixture design, source review, and
-resource-profile review before browser execution. Browser15's read-only Workbench
-check remains supporting evidence. Configured production action mounting,
-authentication, and the parent outcome's switching and draft-preservation gates
-also remain open.
+**Accepted source:** Independent QA approved all five C5 browser fixture files
+after the reported findings were fixed. The [source checkpoint](../receipts/06e-project-selection.md#c5-browser-source-checkpoint-2026-09-11)
+owns their exact hashes. Syntax, inert tooling checks, and the current contract's
+prose check passed. Browser runtime has not run at this checkpoint.
 
-**Next:** Freeze and review the separate C5 browser fixture and profile. Do not
-rerun preparation or any focused attempt, reset the ledger, or rebuild unchanged
-product code. The accepted 05b snapshot and accounting remain immutable.
+**Remaining:** Verify the existing C5 browser freeze and obtain fresh independent
+resource admission before execution. Configured production action mounting,
+authentication, and the parent outcome's switching and draft-preservation gates
+remain open.
+
+**Next:** Verify the existing frozen manifests and dispatch the bounded browser
+attempt after independent admission. C5 preparation has completed once; do not
+repeat it. Preserve both earlier ledgers and all accepted evidence. Do not rerun
+focused preparation or tests, reset accounting, or rebuild unchanged product code.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -103,43 +108,127 @@ packet and parent outcome remain in progress until all C5 criteria pass.
 
 ## Proposed C5 browser design, not admitted
 
-Read-only source review found that the standalone app's only server plugin
-mounts chat titles and awaits Native bootstrap. It does not currently mount
-catalog, registry, readiness or activity actions. The next browser proof must
-explicitly compose the existing public services in its isolated fixture. That
-acceptance will not establish default production startup or real authentication.
+The owner's September 11 continuation authorizes implementation of this bounded
+proof on Zo. The separate Plan role supplied the scope and profile below.
+Implement agents own disjoint new fixture files under `fixtures/06e/`: one owns
+the backend and runner; the other owns browser assertions and proof tools. Root
+owns this packet, the receipt, and the handoff. Independent QA and Verify review the
+finished source and evidence. No browser runtime is admitted by this contract.
+
+The standalone app's server plugin mounts chat titles and awaits Native bootstrap.
+It does not mount catalog, registry, readiness, or activity actions. This proof
+explicitly composes those public services in a private fixture. Acceptance does
+not establish default production startup or production authentication.
 
 Reuse `createNativeRegistry`, `createNativeRegistryAuth`, `createProjectCatalog`,
-`createProjectRuntimeReadiness`, `createProjectRuntimeActivity` and their existing
-mount functions. Use the real Native database, sessions, memberships, app roles,
-registration endpoint and root provider against two disposable physical roots.
-Serve the exact accepted build04 through the tested SSR/H3 seam. Keep 05b files
-and proof snapshots unchanged.
+`createProjectRuntimeReadiness`, `createProjectRuntimeActivity`, and their mount
+functions. Use real Native storage, sessions, memberships, app roles, registration,
+and root custody against two disposable physical roots. Serve accepted build04
+through the tested SSR/H3 composition. Keep accepted 05b files and both earlier
+ledgers unchanged. No install, new build, dependency upgrade, or model call belongs
+in this proof. Product source remains unchanged.
 
-Seed bounded Native threads, sessions, runs and events through their public APIs
-before browser measurements, using a declared synthetic adapter. Resolve exact
-immutable activity references through the existing trusted reference seam.
-After setup, adapter starts/turns and model calls must stay at zero, and Native
-thread/session/run/event records must stay unchanged. Do not manufacture catalog,
-readiness or activity responses.
+The backend validates and hashes each static asset request. The runner serves
+those same bytes from the frozen, read-only app after matching the exact source
+manifest entry and backend metadata. Asset bodies do not cross the framed RPC
+pipe. Keep its byte count and all diagnostic streams within the output limit.
+Retain bounded raw diagnostic sidecars on success and failure.
 
-Exercise both `/` and `/workbench`: no selection, Alpha activity, available Beta
-without verified activity, late Alpha delivery after Beta selection, replaced
-Alpha reference/run, and actual role revocation followed by Refresh. Any held
-activity response must be produced by the real handler before delayed delivery.
-Allow only named fixture setup/control writes and ordinary Native selection
-persistence. Workbench must issue no thread/history discovery or chat/run
-mutation. Keep `/chat` organization-qualified and independent of project activity.
+Seed original and replacement Native threads, sessions, runs, and events through
+public APIs before browser measurement with a declared synthetic adapter. Resolve
+strict activity references through the existing trusted-reference callbacks.
+Reference replacement during measurement changes only the selected fixture
+reference to an already finalized run. Adapter starts, turns, and model calls
+must remain zero after setup. Native thread, session, run, and event records must
+remain unchanged. Do not manufacture catalog, readiness, or activity responses.
 
-Browser refetch temporarily unmounts the renderer, so DOM replacement alone
-cannot prove the React key is necessary. The component missing-key mutant owns
-that evidence. Call the Beta case unavailable activity unless a genuine empty
-verified Native projection is separately seeded and proved.
+Run all six scenarios on both `/` and `/workbench`: no selection, Alpha activity,
+available Beta without verified activity, delayed Alpha delivery after Beta
+selection, replaced Alpha reference, and actual role revocation followed by
+Refresh. Produce any delayed response with the real handler before holding its
+delivery. The component mutant proves that the renderer key is necessary. Browser
+DOM replacement alone cannot establish that claim. Call Beta unavailable
+activity unless a genuine empty verified projection is seeded and proved.
 
-Before implementation/runtime, freeze exact fixture sources, root-provider
-dependencies, trusted evidence/reference rules, request allowlist, resource
-profile and natural shutdown contract. This design creates no browser admission.
-The configured production-action gap remains with outcome 06 and runtime owners.
+Native normally cancels a superseded activity fetch. For the late-delivery case,
+arm one exact Alpha activity GET per route in a fixture-only fetch wrapper. Keep
+the original fetch chain, headers, credentials, request options, and response.
+Detach only that matched request's supplied signal, and record its later abort.
+The real Alpha response must finish before Beta selection starts. Beta's selection
+PUT and the supplied-signal abort must both precede release, before Native's direct
+timeout. Bound the response clone and match its browser hash to the held backend
+bytes. Assert zero Alpha rendering afterward. Admit exactly two such probes and
+restore the previous fetch descriptor on every path. This tests adversarial
+transport that ignores cancellation. It does not claim normal transport delivers
+cancelled requests or change product source.
+
+Freeze separate request windows for shell bootstrap, Workbench measurements, and
+an independent `/chat` scope check. Enumerate bootstrap and asset reads from the
+accepted build and evidence. The Workbench may read the exact catalog, readiness,
+and activity actions. It may read Native application state for
+`vivary-project-selection-v1` and save only the exact selection object through
+`PUT /_agent-native/application-state/vivary-project-selection-v1`.
+That object's only fields are the current catalog `scopeKey` and available
+`projectId`. No selection DELETE is allowed. Block all other writes during
+Workbench measurement, thread/history discovery, model requests, external
+origins, WebSockets, and EventSource. Record and reject unexpected requests.
+
+The accepted shell persists locale on document startup. Set browser locale to
+`en-US`, preference to absent or `system`, and no hydration override. Each named
+bootstrap may make one `PUT /_agent-native/application-state/localization` with
+exact JSON `{"locale":"en-US","preference":"system","dir":"ltr"}`,
+`Content-Type: application/json`, and `X-Request-Source: localization`. Record and
+settle that response before measurement; reject later or repeated locale writes.
+The independent `/chat` window may save only its exact `__url__` application-state
+object `{"pathname":"/chat","search":"","hash":"","searchParams":{}}`
+and call `POST /_agent-native/actions/manage-agent-engine` with
+`{"action":"list"}` for read-only discovery. Reject engine activation and
+`agent-chat-context` writes. These source-derived exceptions preserve the
+accepted build. They do not authorize thread, session, run, or event mutations.
+
+Compare immutable Native rows to the original post-seed baseline across every
+window, including bootstrap. For application state, allow only each declared
+cell's exact value and its schema-defined update timestamp. Fixture setup, role,
+reference, delay, snapshot, and close controls are separate from browser traffic
+and have exact declared effects. The `/chat` check remains organization-qualified
+and separate from Workbench activity.
+
+The new `.tmp/06e/zo-browser` ledger admits at most one reviewed browser attempt:
+360 seconds for execution and five seconds for cleanup within 365 cumulative
+seconds. Reservation, refusals, execution, and cleanup retain their charges.
+Use four inherited CPUs, zero swap, an 8 GiB aggregate RSS stop, a 256-task stop,
+a 250 ms observer, a one-second maximum observer gap, and an 8 MiB combined output
+cap. Preserve a 1536 MiB host reserve. Admission needs at least 9.5 GiB available
+memory. Record disk, included usage, exact process ownership, and unknown metrics
+before dispatch. These are externally monitored stop thresholds, not enforceable
+Zo cgroup sublimits. Keep one heavy job active. A failed attempt requires diagnosis
+and a reviewed bounded revision before any retry. It never resets either ledger.
+
+Require private user, PID, network, and mount namespaces, loopback only, UID/GID
+1000, no capabilities, and no-new-privileges. Source, app, Chromium, and proof
+inputs remain read-only. Only packet work and private `/tmp` and `/home` are
+writable. Freeze final fixture bytes, all 43 core Python files used by root
+custody, registry evaluator dependencies, accepted build inputs/outputs, installed
+dependency hashes, runtime identities, trusted evidence rules, the request
+allowlist, and executable hashes before independent runtime admission. Verify
+Chromium sandbox flags from its actual process. Do not disable its sandbox.
+
+Settle browser requests and held responses before cleanup. Require browser and
+backend exit, server/display closure, database and audit disposal, and closure of
+owned SSR MessageChannel ports. Record the display helper's expected Xvfb SIGTERM
+separately and reject its SIGKILL fallback on a passing run. Clear only explicitly captured fixture retention
+timers. Call `await provider.close()` exactly once after provider work settles.
+The accepted provider implements this call with SIGKILL. Record
+`providerStopMode: public-close-sigkill`, unavailable readiness, refused post-close
+inspection, and absence of its exact Python process. Do not call that provider
+exit natural. A passing run requires zero supervisor escalation and no remaining
+owned process. Retain bounded raw evidence and verify its archive before any
+separately authorized removal. No accepted snapshot is a cleanup target.
+
+The source-derived provider shutdown clarification preserves the accepted public
+API. A graceful provider lifecycle would require a separate product change and
+fresh evidence. The production-action gap remains with outcome 06 and runtime
+owners.
 
 ## Historical Habitat continuation
 

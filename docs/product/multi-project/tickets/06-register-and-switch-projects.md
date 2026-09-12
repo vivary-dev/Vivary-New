@@ -22,8 +22,10 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-**Remaining:** Freeze and review the separate C5 browser fixture and resource
-profile before browser execution. Workbench browser acceptance, configured
+**Accepted source:** Independent QA approved the separate C5 browser fixture.
+
+**Remaining:** Freeze its exact inputs and verify fresh resources before the
+bounded browser execution. Workbench browser acceptance, configured
 production action mounting, and this outcome's switching and draft-preservation
 conditions remain open. Full chat is independently owned by accepted 05b. The
 [06e packet](../packets/06e-project-selection.md) owns the next bounded unit.

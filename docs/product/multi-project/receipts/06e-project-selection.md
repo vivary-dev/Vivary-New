@@ -796,3 +796,54 @@ proof inputs read-only. It retains work until archive/readback, records all
 cleanup interventions as failures, accounts for refusals, and includes the
 supervisor in aggregate resource observations. The mutant validator accepts
 only the exact remount failure with complete cleanup and outer test evidence.
+
+
+## C5 browser source checkpoint, 2026-09-11
+
+Independent QA approved the five new fixture sources on September 11 in
+America/Denver and September 12 UTC. This checkpoint approves preparation;
+browser runtime and evidence acceptance remain pending.
+
+| Source under fixtures/06e | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `8710c713d11c52c3faebd6eee5f2b8f7dbc85ba787e3c8ed4d36d70c7cf610b2` |
+| c5_browser_runner.mjs | `9a52cb81a2d09c3133d26e6565e112cc7ba79f86b90846872a708268e3c4a836` |
+| c5_browser.mjs | `905afaaf9244a0e12fcfd8443e7cd7c26eac58781cbadd985a1532810ff24ea0` |
+| prepare_zo_browser.py | `a6008d75974c599e54ef711859e623541a7fc1501fc9bad2fe425e250c0002ea` |
+| zo_browser_supervisor.py | `4373286f75caa4449961323d9d6d42ca3a99427bd549bd68632759ab83a3a3d8` |
+
+The fixture composes real Native services against two disposable roots and the
+unchanged accepted build04. It covers six Workbench scenarios on both aliases
+and a separate organization-qualified chat check. Readiness evidence binds exact
+registered identities. Every nonasset GET has a full-table state witness.
+Permitted writes have exact row and value checks; any handler or timeout failure
+prevents acceptance.
+
+The runner retains raw diagnostic sidecars and enforces the shared 8 MiB output
+limit while running. Static asset metadata crosses RPC; the runner serves each
+frozen file only after matching its source entry and the backend's hash and size.
+The supervisor preserves actual charges, exact process generations, resource
+stops, and cleanup evidence. The [packet](../packets/06e-project-selection.md#proposed-c5-browser-design-not-admitted)
+owns the complete profile and traffic exceptions.
+
+Node and Python syntax, supervisor inert checks, preparer inspection, and diff
+checks passed. Inspection matched 80 app inputs, all 212 accepted build outputs,
+43 Core Python files totaling 662,654 bytes, 141 assets, and 11 tool entries.
+The current C5 contract's prose check passed at 1.56 violations per 100 words.
+Historical packet prose remains above the whole-file target at 2.08.
+
+The isolated detachment preflight completed naturally after its launcher exited.
+Both recorded identities were absent afterward. Its four-second lifetime did
+not extend past the client response, so that narrower fact is the accepted
+evidence. No browser attempt was consumed by source review or this preflight.
+
+Preparation subsequently completed once with no browser runtime. The source
+manifest contains 345 entries, SHA-256
+`5e1f60d785dacf35bad66515dbd904691136c9dea8545a7b72d7dbc197cf1029`.
+The profile SHA-256 is
+`9b080898ff2ed08d18ad705c622108938d423690d7d1000eda884ae7ed166986`.
+The dependency tree matches the accepted focused-test digest and counts. The
+Chromium tree contains 303 files and 410,251,304 bytes. Its SHA-256 is
+`2488c3e5b591e2b3c69da5ed1d483a433eda7f324a619da3be4927ee13b3a130`.
+The browser ledger is empty. Independent frozen-byte and resource admission
+remains required before its single attempt. Do not repeat preparation.
