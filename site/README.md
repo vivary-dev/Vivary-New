@@ -31,6 +31,7 @@ Then set the production domain. To enable the sitemap/canonical URLs, set
 ```
 src/
   content/docs/      generated docs routes; edit ../docs/ and run sync-docs
+  pages/             first-class site routes and future interactive shells
   assets/vivary-mark.png  docs-site logo
   styles/theme.css   brand colours (atmosphere greens/teals)
 public/
@@ -40,9 +41,15 @@ public/
 astro.config.mjs     title, sidebar, social, theme
 ```
 
-Docs routes are generated from `../docs/`; edit canonical docs and run
-`npm run sync-docs`. The landing page and blog posts are edited directly under
-`src/pages/` and `src/content/blog/`.
+Docs routes are generated from `../docs/`. Edit canonical docs and run
+`npm run sync-docs`. Development and builds may refresh these generated mirrors. The
+release workflow governs publication.
+
+Learn-by-doing prose stays in `../docs/LEARN-BY-DOING.md` and `../docs/guides/`.
+Generated Starlight files under `src/content/docs/` remain output-only. Any future
+interactive tutorial shell belongs under `src/pages/` at a distinct route. It links to
+the canonical guide instead of duplicating its prose. The landing page and blog posts
+are also edited directly under `src/pages/` and `src/content/blog/`.
 
 The homepage FAQ and first-class roadmap page are marketing-site surfaces under
 `src/pages/`; they are intentionally not generated Starlight documentation. The

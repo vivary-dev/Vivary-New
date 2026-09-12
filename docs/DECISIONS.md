@@ -29,7 +29,11 @@ reviewed on **2026-08-09**. Later decisions carry their approval date.
   terms.
 - [**D-006 — Canonical source docs own truth; generated site pages are mirrors.**](RELEASE-WORKFLOW.md#3-keep-docs-and-site-in-sync)
   Behavior, migration, and release facts change in their named canonical owner first.
-  Site synchronization happens only in the approved release workflow.
+  Learn-by-doing prose lives in `docs/` and syncs to generated Starlight routes under
+  `site/src/content/docs/`. Those generated files remain output-only. Development and
+  builds may refresh them through `sync-docs`. The release workflow governs publication.
+  Any future interactive tutorial shell lives under `site/src/pages/` at a distinct
+  route and links to the canonical guide instead of duplicating its prose.
 
 - [**D-007 — Product engineering is the default.**](https://github.com/vivary-dev/vivary/blob/dev/ENGINEERING.md)
   Jeff approved this policy on **2026-09-12**. Implement a coherent user capability,
