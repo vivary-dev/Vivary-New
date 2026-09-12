@@ -1374,3 +1374,79 @@ Admission record: `.tmp/06e/c5-r7-runtime-admission.json`, SHA-256
 `e2a49577e640b2bf5f4037b48132261664d640bba274307d67429e1b1c528c5b`.
 The record admits at most the existing 60-second execution and five-second cleanup
 allocation. It does not accept browser results.
+
+## C5 Browser07 assertion failure and source correction, 2026-09-12
+
+Browser07 ran source commit `01a58b21f5d570f0d632463294911b50caa9b903`,
+verified on the private Entire-only ref. It recorded four passing root checks:
+no selection, exact Alpha activity/input/artifact, unavailable Beta activity,
+and adversarial late Alpha delivery. One Alpha screenshot and one completed
+late-delivery probe remain retained.
+
+Manual refresh produced catalog, readiness, and activity requests in 74
+milliseconds. The exact replacement body, DOM, and five-second assertions ran
+before the browser rejected `backendReplacementActivity[0].activityIdentity`.
+The backend supplies that field only for the held original-response probe.
+The generic response record supplies byte count and hash instead. This was a
+fixture assertion defect. The earlier source review missed that producer/consumer
+difference.
+
+The replacement check was not recorded as passed. Role revocation,
+`/workbench`, and `/chat` were unreached. Raw final Native state, model counters,
+and passing lifecycle witnesses are absent. The initialization assertions for
+five empty tables ran before browser startup, but their raw snapshots were not
+retained. This is execution-path evidence, not an independently reconstructed
+before/after table witness. Raw replacement RPC bytes were also not retained,
+so this review cannot retrospectively recompute their hash.
+
+The raw root configuration sidecar contains 1,089 response bytes, SHA-256
+`5ed8e147965c34ec070f44f879aaa68a0138aa679375956988b64c3b85c0b455`.
+Independent Verify decoded it and confirmed the sole
+`local-database-in-production` issue. Root's screenshot review confirmed the
+exact Alpha text, expanded input, separate artifact, and visible one-issue
+configuration notice. That review covers only the retained root view.
+
+The attempt charged 47.22683318899999 seconds. Seven attempts total
+346.26085875899935 of the original 365 seconds, leaving 18.73914124100065.
+All 170 samples stayed within limits: peak RSS 5,396,766,720 bytes, peak task
+count 156, minimum available memory 133,341,425,664 bytes, zero swap, and maximum
+observer gap 0.2858385740000813 seconds. Both full-tree assertions preceded Node
+execution. The independent review used source and that execution path without
+another tree rescan.
+
+The host's monotonic epoch changed before Browser07. Fresh admission reverified
+all inputs and resources. Historical charges remain pinned across that change.
+No earlier elapsed time or budget was reset.
+
+The runner forcibly killed backend Node and Xvfb. The supervisor sent no signals.
+Independent Verify confirmed all 24 saved process identities absent. This proves
+failure containment, not passing natural/provider cleanup.
+
+Archive `.tmp/06e/browser-07-failed-evidence.zip` is 12,425,798 bytes, SHA-256
+`e2ded5d50b91becace4c7cb615f81f98a86c9314e52593324d16f28b67c3104b`.
+Independent verification passed CRC, 43 exact safe payload members, all member
+hashes, 37 retained-file matches, five committed-source/freeze matches, and all
+18 prior pins. Payload bytes total 18,124,819 before the manifest. It preserves
+all six earlier failure archives.
+
+- Result: `f93cb2ba26950808950e3194e8cec9b6d636f13ae04c0f3534adac8ec48d0cec`.
+- Ledger: `164b1c3182b8ebd6d2214762504fc11b1c12d66655ce82736897cd48d0d03902`.
+- Browser result: `e8a5233ca259c23d049519541ef257a9ddc66e2eabc4ce5664751f62ed60c84a`.
+- Backend stderr: `16f78ad60f6327d6fad23ddcbe79b32c5163ba63cd5bd340d9f2eb2dd72484ca`.
+- Diagnosis: `.tmp/06e/browser-07-assertion-diagnosis.json`, SHA-256
+  `5da726b0c486915253bab704bea7b71a93b74597a743c0b991665de2977e3a11`.
+
+The browser-only correction captures one actual response body, requires
+1 through 262,144 bytes, parses and validates its exact replacement identity,
+then compares its length and SHA-256 with the backend's response record. The
+existing check retains those bytes, hash, and identity when it completes.
+All 13 checks, traffic/state guards, timeouts, and other source files remain
+unchanged.
+
+Independent QA directly reviewed the correction at browser SHA-256
+`1c6b879f673b1c8f7be238e5837280ccc736c9d9dff68bee5f7edd214cabf461`.
+Node syntax and scoped diff checks passed. This source-only correction has no
+new preparation, runtime, or admission. The consumed revision07 freeze remains
+historical. The remaining original allowance cannot cover another full scan.
+The packet's separate 120-second allocation is a proposal awaiting the owner,
+not a decision or changed budget.

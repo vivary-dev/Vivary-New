@@ -517,7 +517,12 @@ async function runRoute(page, routePath, label) {
     assert.equal(catalogRefreshed.status(), 200);
     assert.equal(readinessRefreshed.status(), 200);
     assert.equal(activityRefreshed.status(), 200);
-    assertActivityBody(await activityRefreshed.json(), "replacement");
+    const replacementActivityBytes = await activityRefreshed.body();
+    assert.ok(replacementActivityBytes.length > 0);
+    assert.ok(replacementActivityBytes.length <= 256 * 1024);
+    const replacementActivitySha256 = sha256(replacementActivityBytes);
+    const replacementActivityBody = JSON.parse(replacementActivityBytes.toString("utf8"));
+    assertActivityBody(replacementActivityBody, "replacement");
     await waitForReplacement(page, refreshDeadlineAt);
     while (requestLifecycle.slice(refreshRequestStart).some(item => item.terminal === null)) {
       await page.waitForTimeout(Math.min(10,
@@ -545,7 +550,8 @@ async function runRoute(page, routePath, label) {
     assert.equal(backendRefreshRequests.filter(item => item.category === "readiness").length, 1);
     const backendReplacementActivity = backendRefreshRequests.filter(item => item.category === "activity");
     assert.equal(backendReplacementActivity.length, 1);
-    assert.deepEqual(backendReplacementActivity[0].activityIdentity, activityIdentity("replacement"));
+    assert.equal(backendReplacementActivity[0].responseBytes, replacementActivityBytes.length);
+    assert.equal(backendReplacementActivity[0].responseSha256, replacementActivitySha256);
     assert.equal(backendRefreshRequests.some(item => item.category === "selection-write"), false);
     recordCheck(label, "manual Refresh projects renders only the preseeded replacement reference", {
       refreshStartedAt,
@@ -554,6 +560,12 @@ async function runRoute(page, routePath, label) {
       browserRequestOrdinals: refreshRequests.map(item => item.ordinal),
       nativeRunId: identityEvidence.seededRuns.replacement.runId,
       referenceRevision: identityEvidence.seededRuns.replacement.reference.referenceRevision,
+      activityResponse: {
+        bytes: replacementActivityBytes.length,
+        sha256: replacementActivitySha256,
+        bodyBase64: replacementActivityBytes.toString("base64"),
+        decodedIdentity: activityIdentity("replacement"),
+      },
     });
 
     const beforeRevocation = (await control({ action: "snapshot", label: `${label}-before-revocation` })).snapshot;

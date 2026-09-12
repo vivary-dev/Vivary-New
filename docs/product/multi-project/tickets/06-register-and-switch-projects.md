@@ -22,21 +22,19 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-Six browser attempts remain unaccepted. Browser06 passed all six root-page
-scenarios, then failed the final immutable-state comparison. It did not reach
-`/workbench` or `/chat`. Its archive passed independent verification, and all 23
-saved process identities are absent after forced cleanup. All failures and
-charges remain retained.
+Seven browser attempts remain unaccepted. Browser07 recorded four root checks,
+then failed on a fixture metadata assertion. Independent Verify accepted its
+archive and confirmed all 24 saved process identities absent after forced cleanup.
 
-**Accepted source:** Revision07 passed independent semantic QA and completed one
-preparation. Root verified the reviewed physical hashes.
+**Accepted source:** Independent QA approved the browser-only response-byte
+correction. Syntax checks passed, but the correction has not run.
 
-**Remaining:** Independent admission passed. Execute and review the single
-bounded browser attempt after committing the reviewed candidate to Entire. Only 65.96597443000064 seconds remain in
-the original 365-second allocation. Workbench browser acceptance, configured
-production action mounting, and this outcome's switching and draft-preservation
-conditions remain open. Full chat is independently owned by accepted 05b. The
-[06e packet](../packets/06e-project-selection.md) owns the next bounded unit.
+**Remaining:** The original browser allocation has 18.73914124100065 seconds left,
+which cannot cover the required boundary scan. A separate allocation proposal
+awaits the owner's decision in the [06e packet](../packets/06e-project-selection.md#c5-additional-allocation-proposal-pending-owner-decision).
+Workbench browser acceptance, configured production action mounting, and this
+outcome's switching and draft-preservation conditions remain open. Full chat
+retains its independent accepted 05b evidence.
 
 ## Goal
 

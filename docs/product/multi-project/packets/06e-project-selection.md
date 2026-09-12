@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. Six attempts consumed 299.03402556999936 seconds combined. Revision07 may allocate at most 65 seconds: 60 execution plus five cleanup, after source review and fresh admission. The remaining 0.9659744300006423 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. Seven attempts consumed 346.26085875899935 seconds combined. The remaining 18.73914124100065 seconds cannot cover the required full boundary scan. No further C5 browser run is admitted. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -38,21 +38,22 @@ mutant wrapper accepted only the expected remount assertion failure. The retaine
 archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Browser acceptance remains open:** The archive preserves six attempts and their actual
-charges. Browser06 passed all six root-page scenarios, then failed the final
-immutable-state comparison. It did not reach `/workbench` or `/chat`. Independent
-Verify accepted its failure archive and confirmed all 23 saved process identities
+**Browser acceptance remains open:** All seven failures and their charges are
+retained. Browser07 recorded four root checks, then rejected an absent fixture
+metadata field during the manual-refresh check. It did not reach role revocation,
+`/workbench`, `/chat`, or final state/model/lifecycle verification. Independent
+Verify accepted the failure archive and confirmed all 24 saved process identities
 are absent after forced cleanup.
 
-**Accepted source:** Independent semantic QA approved all five revision07 files
-using source relayed from Zo. Root verified their physical hashes because the
-reviewer's Zo tools were unavailable. Preparation completed once with 368 source
-entries and 11 tool entries.
+**Accepted source:** Independent QA approved the browser-only correction. It
+validates actual replacement response bytes and compares their size and hash
+with the backend's response record. The correction has syntax and source-review
+evidence only. It has not been prepared or executed.
 
-**Next:** Independent admission passed for the prepared bindings and fresh
-resources. Commit the reviewed candidate, verify it on Entire, and dispatch the
-single bounded attempt. Preserve all six failures and the original remaining
-budget. Do not repeat preparation. Production mounting/authentication and parent
+**Next:** Preserve the original budget and leave C5 runtime paused. Only
+18.73914124100065 seconds remain, less than the required full boundary scan.
+The [allocation proposal](#c5-additional-allocation-proposal-pending-owner-decision)
+requires an owner decision. Production mounting/authentication and parent
 switching/draft gates remain open.
 
 ## Zo C5 focused-test contract, 2026-09-11
@@ -393,6 +394,31 @@ execution seconds and five cleanup seconds. Bind all six prior charges and all
 364.03402556999936 of the original 365 seconds. Removing the poll wait may allow
 the full run to fit; this is an estimate, not runtime evidence. Keep every
 source, resource, isolation, preparation, admission, and cleanup requirement.
+
+## C5 additional allocation proposal, pending owner decision
+
+Browser07 exposed a fixture metadata assumption. Its source-only correction now
+passes independent QA, but the original allocation cannot cover another full
+boundary scan and all 13 checks. Do not shorten the scan, skip a scenario, reuse
+a consumed attempt, or reset a ledger.
+
+Root recommends a separate 120-second allocation for one additional browser
+attempt: 115 execution seconds and five cleanup seconds. Preserve the original
+365-second allocation and all seven actual charges. Record any additional
+authority separately before changing the profile or preparing another namespace.
+Keep the same four CPUs, 8 GiB RSS stop, 256-task stop, output/observer limits,
+host reserve, network isolation, and no-install/no-build/no-model scope.
+
+The alternative is to leave C5 browser acceptance open and continue independent
+source work. That needs no new runtime allocation. The recommendation changes
+only the bounded verification allowance. It changes no product behavior or
+security boundary. If the extra attempt fails or the owner declines it, retain
+the evidence and leave acceptance open.
+
+The exact decision needed from Jeff is whether to authorize that separate
+120-second, one-attempt allocation. No answer or additional authority is recorded.
+After approval, update and independently review the budget profile, freeze the
+candidate once, and obtain fresh source/resource admission before dispatch.
 
 ## Historical Habitat continuation
 
