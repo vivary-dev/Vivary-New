@@ -18,6 +18,73 @@ owns remaining GUI and loop seams. Source composition does not activate GUI crea
 
 ## Local shell
 
+### Configured project startup
+
+Normal startup mounts the registry, catalog, readiness, and activity services
+through `server/plugins/01-project-services.mjs`. The standard Native page
+handler serves the React Router application. The Node build uses React's Node
+renderer so rendering a page does not leave a message channel holding the server
+open after shutdown.
+
+Set `VIVARY_PROJECT_INSTALLATION_FILE` to an absolute, server-owned JSON file:
+
+```json
+{
+  "python": "/path/to/resolved/python",
+  "entryFile": "/path/to/vivary/packages/core/vivary_core/root_provider_stdio.py",
+  "provider": {
+    "deviceId": "device-example",
+    "scope": "/srv/projects",
+    "statePath": "/srv/private/roots.json",
+    "locations": {
+      "alpha": "/srv/projects/alpha",
+      "beta": "/srv/projects/beta"
+    }
+  },
+  "grant": {
+    "orgId": "org-example",
+    "collectionId": "collection-example",
+    "policyRevision": 1,
+    "locationRefs": ["alpha", "beta"]
+  },
+  "locationLabels": {
+    "alpha": "Alpha folder",
+    "beta": "Beta folder"
+  }
+}
+```
+
+Replace the example paths and IDs with the existing installation's values.
+The Python executable and provider entry must be resolved regular files. The
+private state directory and project folders must exist. Every granted folder
+needs a label. Configuration is immutable for the process lifetime. Requests
+supply folder references, never filesystem paths or installation authority.
+
+The grant references an existing Native organization. The signed-in member needs
+the Native Workbench app role `project-registrar` or `project-mutator`.
+Startup does not create users, memberships, or role assignments. Native
+authentication and database configuration retain their existing owners.
+
+Startup runs the registry migrations and opens one owned root provider before
+serving the four project actions. Missing or failed configuration returns 503
+for those actions. Shutdown refuses new project requests, drains active requests
+for up to five seconds, and closes the owned provider. Node termination signals
+use the same cleanup because the pinned Node server does not invoke Nitro's
+close hook for those signals.
+
+This configuration leaves project runtime unavailable. It does not configure
+model credentials, start an agent, mount mutation actions, or enable file editing.
+The browser persists its selected project through Native application state.
+
+The normal Zo build and browser check pass registration, switching, page-reload
+selection, scoped readiness, missing folders, and Native role revocation.
+Application restart retains project records but marks their roots unavailable:
+the existing custody owner requires identity reconciliation after losing its
+live handles. Persistent deployment storage and usable root recovery remain open.
+The disposable local database produces Native's expected production-storage
+warning. See the [06e receipt](../../docs/product/multi-project/receipts/06e-project-selection.md)
+for the check and its limits.
+
 ### GUI chat titles
 
 The app's `server/plugins/00-chat-title.mjs` overrides the native title endpoint
@@ -87,6 +154,7 @@ Run the package scripts with Node 22.22.0 or newer:
 pnpm build
 pnpm typecheck
 pnpm test:shell
+pnpm test:project-services
 pnpm run doctor
 ```
 
@@ -117,8 +185,9 @@ have been checked. Native migrations run before the application serves requests.
 Packet [06a](../../docs/product/multi-project/packets/06a-native-registry-storage.md)
 owns the Windows SQLite proof, exact source hashes, and limits. Its tests use
 synthetic identities. The observer's private lifetime handles are not wired to
-this store. Production registration still needs durable identity, configured
-authorization, transport validation, deployment storage, and application wiring.
+this store. Normal startup now composes authentication, transport, registry, and custody.
+Production registration still needs supported persistent storage and root
+identity recovery after restart.
 
 ## Bounded database proof
 

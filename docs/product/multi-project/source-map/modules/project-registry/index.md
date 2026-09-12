@@ -43,6 +43,13 @@ The JavaScript model proves the contract. [06a](../../../packets/06a-native-regi
 
 [06d live root registration](../../../packets/06d-native-root-registration.md) composes native request authentication and current app capability with durable application root records and live Linux custody. Its [receipt](../../../receipts/06d-native-root-registration.md) records six passing native HTTP/SQLite and physical-root groups. Production configuration, durable Git administration identity, restart reconciliation, and GUI catalog/switching remain open.
 
+[06e project selection](../../../packets/06e-project-selection.md) now mounts the
+existing registry, catalog, readiness, and activity services during normal
+Workbench startup. Its real-app check covers registration, switching, saved
+selection after page reload, and missing or revoked access. Restart retains
+project records but refuses unverified root identities. Durable deployment,
+root recovery, and project-bound runtime or draft behavior remain open.
+
 [07c creation intent](../../../packets/07c-creation-receipts.md) reuses the receipt owner for creation reservations and phase transitions. Its [receipt](../../../receipts/07c-creation-receipts.md) records Windows and Habitat database evidence. Historical read/replay is not filesystem authority; [07d](../../../packets/07d-staged-creation-effects.md) owns the next effect engine and the later native admission seam remains explicit.
 
 [12f inspection](../../../packets/12f-native-vcs-mapping.md) maps the three

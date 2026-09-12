@@ -1113,6 +1113,8 @@ async function cli(argv) {
   return passed === results.length ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// A server bundle rewrites import.meta.url; only the named CLI may run this entrypoint.
+if (process.argv[1] && pathToFileURL(process.argv[1]).pathname.endsWith("/registry_contract_model.mjs")
+  && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await cli(process.argv.slice(2));
 }

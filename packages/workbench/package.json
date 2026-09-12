@@ -28,7 +28,8 @@
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
     "test:shell": "vitest run tests/workbench-preview.test.ts",
-    "doctor": "agent-native doctor"
+    "doctor": "agent-native doctor",
+    "test:project-services": "node --test tests/project-services.test.mjs"
   },
   "devDependencies": {
     "@react-router/dev": "8.3.1",
@@ -40,6 +41,7 @@
     "vite": "8.1.0",
     "vitest": "4.1.11",
     "tsx": "4.23.13",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "esbuild": "0.28.2"
   }
 }

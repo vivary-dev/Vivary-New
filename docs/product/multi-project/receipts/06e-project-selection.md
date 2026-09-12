@@ -3,7 +3,7 @@
 Evidence-record: 06e
 Date: 2026-09-11
 Verification-kind: runtime
-Result: In progress. Accepted transport, build, doctor, and focused evidence remain bounded. Browser08 recorded twelve Workbench checks but failed chat and final verification. Normal application startup and the complete project-switching behavior remain unfinished.
+Result: In progress. Normal application startup, UI registration, project switching, page-reload selection, missing access, and record persistence pass. Usable root recovery after restart and project-bound draft/runtime behavior remain open. Earlier evidence retains its recorded results and limits.
 
 The [owning packet](../packets/06e-project-selection.md) and
 [catalog contract](../contracts/project-catalog.md) define acceptance. The 05a
@@ -12,6 +12,51 @@ shell and 06d registration evidence remain separately frozen and verified.
 The workbench contains the shared authority and catalog/selection source.
 This receipt records the remaining verification and runtime-integration gaps.
 It does not establish configured model runtime or production authentication.
+
+## Normal application startup, 2026-09-12
+
+Normal Workbench startup invokes the existing registry, authentication, root
+owner, catalog, readiness, and activity services through its Native plugin.
+A standard Native SSR route serves the pages.
+
+The esbuild declaration uses the version already installed and locked.
+The registry model's CLI guard no longer runs inside a server bundle.
+
+Node termination signals close the owned project provider. The SSR build
+resolves Core's browser renderer to React's matching Node renderer.
+All fixes live in application source and build configuration.
+
+The actual app check used a synthetic Native session and membership, SQLite,
+two disposable tmpfs roots, loopback networking, and sandboxed Chromium.
+It exercised the application's own routes and disabled model execution.
+
+The check passed these behaviors:
+
+- Alpha registration through Native HTTP and Beta registration in the UI.
+- Project switching and restored Beta selection after a page reload.
+- Separate readiness claims with runtime unavailable.
+- A missing selected folder shown as unavailable and disabled.
+- Native role revocation clearing the project list and selection.
+- No uncaught browser errors or changes to either folder's files.
+- Clean Node shutdown and restart with both project IDs and binding revisions retained.
+
+Eight startup tests, 49 registry tests, the normal build, type checking, and all
+ten Native Doctor guards pass. Type checking retains the local-database warning.
+
+Run the focused package test and the private Zo application check with:
+
+```console
+pnpm test:project-services
+python3 .tmp/06e/run-workbench-start.py
+```
+
+The private check keeps ordinary logs and useful screenshots under `.tmp/06e`.
+
+After restart, project records persist but root identity recovery must
+re-establish access. The check does not prove durable deployment, production
+sign-in, active project execution, or draft preservation.
+The disposable SQLite database produces Native's production-storage warning.
+These limits keep 06e and its parent outcome open.
 
 ## Activity execution checkpoint, 2026-09-11
 

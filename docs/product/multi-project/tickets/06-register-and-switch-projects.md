@@ -16,10 +16,12 @@ Browser08 recorded twelve Workbench checks but failed the separate chat check
 and did not complete final verification. See the [06e receipt](../receipts/06e-project-selection.md).
 
 The [engineering policy](../../../../ENGINEERING.md) now governs the work.
-The next product step is normal Workbench startup using the existing project
-services, followed by a small real-app project-switching check. Configured
-startup, retained state and drafts, and persistence remain unfinished.
-The custom C5 fixture is not a prerequisite to this implementation.
+Normal startup, UI registration, project switching, selection after page reload,
+scoped readiness, and missing or revoked access pass through the actual built app.
+Restart retains both project records but refuses their unverified root identities.
+Root recovery, supported persistent deployment storage, and project-bound drafts
+and active sessions remain open. The [06e receipt](../receipts/06e-project-selection.md#normal-application-startup-2026-09-12)
+owns this working increment. Do not resume the custom C5 fixture campaign.
 
 ## Goal
 

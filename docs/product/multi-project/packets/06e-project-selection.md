@@ -6,7 +6,7 @@ Parent: 06
 Status: in-progress
 Depends-on: [05a, 06d]
 Owner: Root owns the current product slice and acceptance. Use independent review where a named risk warrants it under ENGINEERING.md.
-Scope: Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
+Scope: Normal Workbench startup, Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
@@ -27,15 +27,24 @@ expected a hidden inactive thread title and rejected real chat startup requests.
 It did not reach final state, model-counter, or passing lifecycle verification.
 Independent review preserved the failure and verified all owned processes absent.
 
-**Next:** Wire the existing registry, catalog, readiness, and activity services
-into normal Workbench startup. Use safe configuration and exercise the actual
-application with disposable projects and disabled model providers. Do not extend
-the custom C5 proof framework. Preserve its failed evidence and original budgets.
+**Working through normal startup:** The built app now serves Workbench pages and
+mounts the existing registry, catalog, readiness, and activity services. Eight
+startup tests, 49 registry tests, the normal build, and a real-app browser journey
+pass. The journey uses Native authentication and app roles with disposable
+accounts, roots, and SQLite. It proves UI registration, switching, selection
+after page reload, project-specific readiness, missing folders, and revocation.
+A normal shutdown and restart retains the registered project records.
 
-The product still needs configured startup, project switching with retained
-state, restart persistence, and clear missing or revoked access. A policy change
-does not accept those behaviors. The historical C5 plans below describe their
-original runs and grants. They are not default gates for ordinary implementation.
+**Next:** Complete root identity recovery and the remaining project-bound state
+and draft behavior. After restart, the current custody owner correctly refuses
+the saved root identities, so the projects remain listed but unavailable.
+Supported persistent deployment storage and configured runtime remain open.
+[The receipt](../receipts/06e-project-selection.md#normal-application-startup-2026-09-12)
+owns the current check and limits.
+
+Preserve the failed C5 evidence and budgets. Its historical plans below describe
+the original runs and grants. Do not extend or rerun that fixture campaign.
+Ordinary development follows the engineering policy.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
