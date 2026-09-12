@@ -823,7 +823,7 @@ The runner retains raw diagnostic sidecars and enforces the shared 8 MiB output
 limit while running. Static asset metadata crosses RPC; the runner serves each
 frozen file only after matching its source entry and the backend's hash and size.
 The supervisor preserves actual charges, exact process generations, resource
-stops, and cleanup evidence. The [packet](../packets/06e-project-selection.md#proposed-c5-browser-design-not-admitted)
+stops, and cleanup evidence. The [packet](../packets/06e-project-selection.md#c5-browser-design-and-original-allocation)
 owns the complete profile and traffic exceptions.
 
 Node and Python syntax, supervisor inert checks, preparer inspection, and diff
@@ -907,3 +907,69 @@ fresh Native fixture secret. Source review confirms that the secret is excluded
 from retained evidence and fixture child environments. Source checks pass;
 fresh independent admission and browser execution remain pending at this
 source checkpoint. No preparation may be repeated.
+
+## C5 Browser02 setup failure, 2026-09-12
+
+Browser02 failed at the empty selection batch assertion after both projects
+registered and the two synthetic Native runs were seeded. Native correctly
+returned `{"values":{},"missing":["vivary-project-selection-v1"]}`. The
+fixture expected `{}`. Independent QA confirmed the installed handler contract.
+No browser launched and model counters remained zero; synthetic harness create,
+turn, and detach counts were two each.
+
+The attempt charged 36.77261576199817 seconds. Combined actual use is
+73.86337730899686 of the original 365 seconds. The runner recorded a backend
+SIGKILL attempt; the supervisor added no signals. All five saved host PID/start
+identities were absent on independent readback. The tmpfs facts and registered
+identities are present; post-close custody evidence was not reached.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Supervisor result | `ed654f8090101b21fe140a2c72fe157a36cdc20b3908b00cfb5c8c595cca24f2` |
+| Raw backend stderr | `3e773792a65eed1884b3c56a8595df55aac9306a13411127fa2c65d3d48dd1b5` |
+| Browser02 ledger | `ed8df562b0de4c3c18632cc0e38b5ec93157f621aec6eb48487f6695a44d8c1d` |
+| Failure archive | `866c7f989fc5230714104464785b7bcde730730e087c09ab15a9518f99172d36` |
+
+The ZIP is 388,443 bytes and contains 32 payload members totaling 4,172,651 bytes,
+including the prior archive. CRC and every payload hash passed readback. Source
+commit `fe0a1dc` remains on private Entire. The [revision03 contract](../packets/06e-project-selection.md#c5-browser-revision03-exact-empty-selection)
+limits the next reviewed attempt to 291 seconds from the remaining original
+allocation. Both earlier ledgers remain unchanged.
+
+## C5 revision03 source freeze, 2026-09-12
+
+Independent QA accepted the exact empty-state assertion correction and the
+remaining-budget tools. Preparation completed once with 352 source entries and
+11 tool entries. The accepted app, build, dependency tree, and Chromium tree
+remain unchanged. This checkpoint records source acceptance, not browser proof.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `b8be04565d56eb3cd6f4c12ec28c0c1b55972aa0bc803e0700b24bc8a43bddd0` |
+| c5_browser_runner.mjs | `9c8949c100b207778f96b519da18e83d95ebbaff752ecb9311cfc029ac4f2eb7` |
+| c5_browser.mjs | `905afaaf9244a0e12fcfd8443e7cd7c26eac58781cbadd985a1532810ff24ea0` |
+| prepare_zo_browser.py | `f3e7caab21a003b0c03dfc6c613a2f38ee619acaec5a0e713537fde08bf2865c` |
+| zo_browser_supervisor.py | `0258e6ec5d191da1be0c9917c0fabed4e1e5227f2f65418ded7a63f7a04d1855` |
+
+The source manifest SHA-256 is
+`4b68cdc83882b0263c3d6a199880a663bf665a95469beddf0bd5a86803fafe3b`.
+
+The source binding SHA-256 is
+`55ff3d4c4a2b08abaaaba4147313b3832f1752a06c65d85f4f0a3a26bafc59cd`.
+
+The profile SHA-256 is
+`060ceef3cc2065771cc5ad899d219b583f7b0872ec1f1af00bc5b1d98a56389e`.
+
+The budget-authority SHA-256 is
+`582867d53a880ac20e5b4a716bd3dafb1bacbbc4d3f49c4a89f6cfe11106e7b6`.
+
+It pins both failed attempts' actual charges and all six ledger, result, and
+archive artifacts. Prior use is 73.86337730899686 seconds. The new attempt allows
+286 execution seconds and five cleanup seconds, within the original 365 seconds.
+The maximum combined charge is 364.86337730899686 seconds.
+
+The one prepared namespace is `.tmp/06e/zo-browser-r3`. Fresh independent
+admission passed against 363 physical files and fresh resources. Do not repeat
+preparation. The fixture uses private disposable tmpfs roots. It does not prove
+custody on Zo's persistent
+workspace filesystem or default production action mounting/authentication.

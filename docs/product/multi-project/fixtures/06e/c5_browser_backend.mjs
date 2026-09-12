@@ -964,7 +964,10 @@ async function initialize() {
     { headers: { cookie: `${COOKIE_NAME}=${identity.token}` } },
   ));
   assert.equal(applicationStateBootstrap.status, 200);
-  assert.deepEqual(await applicationStateBootstrap.json(), {});
+  assert.deepEqual(await applicationStateBootstrap.json(), {
+    values: {},
+    missing: [SELECTION_KEY],
+  });
   const nativeTables = await tableSnapshot();
   measurementBaseline = {
     sha256: canonicalDigest(nativeTables),

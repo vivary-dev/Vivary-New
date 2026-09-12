@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: The original C5 browser budget remains 365 seconds. Browser01 consumed 37.09076154699869 seconds. Revision02 may use at most 327 seconds: 322 execution plus five cleanup. The remaining 0.9092384530013 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. Browser01 and Browser02 consumed 73.86337730899686 seconds combined. Revision03 may use at most 291 seconds: 286 execution plus five cleanup. The remaining 0.13662269100314006 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -38,24 +38,21 @@ mutant wrapper accepted only the expected remount assertion failure. The retaine
 archive passed ZIP CRC and member rehash checks. The [receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns exact hashes, warnings, resources, cleanup, and limitations.
 
-**Browser01 failed during setup:** Root registration returned
-`identity-unverified` before browser or model activity. The fixture placed
-physical roots on an unsupported filesystem. Production Native authentication
-also lacked its required fixture secret. The failed attempt and original source
-are archived; the [receipt](../receipts/06e-project-selection.md#c5-browser01-setup-failure-2026-09-11)
-owns the exact charge, diagnostics, and cleanup result.
+**Browser setup remains unaccepted:** Browser01 failed on unsupported fixture
+storage and missing fixture auth configuration. Browser02 passed those corrected
+steps, then failed because its empty-state assertion did not match Native's
+batch response. Both attempts and their source are retained. No browser or model
+activity started; Browser02 seeded the two declared synthetic runs.
 
-**Accepted revision source:** Independent QA approved all five revision02 files.
-The new 349-entry freeze is prepared and binds the retained Browser01 evidence.
+**Accepted source:** Independent QA approved revision03's exact batch-response
+correction and remaining-budget tools. Preparation completed once with 352 source
+entries and 11 tool entries. Browser acceptance remains open.
 
-**Remaining:** Obtain fresh independent admission before the bounded retry. Configured production action mounting,
-authentication, and the parent outcome's switching and draft-preservation gates
+**Next:** Independently verify the existing revision03 freeze and fresh resources
+before dispatch. Keep both consumed namespaces, ledgers, manifests, and archives
+intact. Do not repeat any preparation or rebuild unchanged product code.
+Configured production mounting/authentication and parent switching/draft gates
 remain open.
-
-**Next:** Verify the existing revision02 freeze and dispatch after independent
-admission. Both preparation operations are consumed; do not repeat them. Keep
-Browser01's namespace and ledger intact.
-Preserve all earlier evidence and allocations. Do not rebuild product code.
 
 ## Zo C5 focused-test contract, 2026-09-11
 
@@ -110,7 +107,7 @@ model calls. The component's fullPage variant is unit coverage, not a mounted
 route. Complete source review and resource admission before the browser run. The
 packet and parent outcome remain in progress until all C5 criteria pass.
 
-## Proposed C5 browser design, not admitted
+## C5 browser design and original allocation
 
 The owner's September 11 continuation authorizes implementation of this bounded
 proof on Zo. The separate Plan role supplied the scope and profile below.
@@ -258,6 +255,29 @@ The failure archive is `.tmp/06e/browser-01-failed-evidence.zip`, SHA-256
 CRC, all 33 members, and their hashes passed readback. Independent QA accepted the fixture correction and retry tools; the 349-entry
 revision02 freeze is prepared. Fresh Verify admission remains required. No retry
 is authorized by the failed result alone.
+
+## C5 browser revision03: exact empty selection
+
+Browser02 consumed 36.77261576199817 seconds, bringing actual combined use to
+73.86337730899686 of the original 365 seconds. Native returned the documented
+empty batch response `{"values":{},"missing":["vivary-project-selection-v1"]}`;
+the fixture incorrectly expected `{}`. Correct only that expectation and retain
+the real handler and store. The tmpfs and auth corrections reached registration;
+full post-close custody evidence remains unproved because setup stopped early.
+
+Use one `browser-03` attempt in `.tmp/06e/zo-browser-r3`. Allocate 291 seconds from
+the original remainder: 286 execution and five cleanup, with a maximum combined
+charge of 364.86337730899686 seconds. Pin and sum both earlier actual charges,
+ledgers, failed results, and archives in the new authority record. Preserve them
+unchanged; no namespace creates a new budget. Keep all other resource, isolation,
+traffic, and evidence requirements. Independent QA accepted all five source files,
+and preparation completed once with 352 source entries. Verify that existing
+freeze and fresh resources before admission; do not repeat preparation.
+
+The Browser02 archive is `.tmp/06e/browser-02-failed-evidence.zip`, SHA-256
+`866c7f989fc5230714104464785b7bcde730730e087c09ab15a9518f99172d36`.
+All 32 payload members, hashes, and ZIP CRC passed readback. It also retains the
+Browser01 archive. No further runtime follows from the failed result alone.
 
 ## Historical Habitat continuation
 
