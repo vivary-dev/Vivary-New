@@ -11,6 +11,12 @@ packages/core/tests/.fixtures/
 
 # Node
 node_modules/
+.tmp/
+packages/workbench/.output/
+packages/workbench/.react-router/
+packages/workbench/.cache/
+packages/workbench/.data/
+packages/workbench/.agent-native/
 
 # Editor / OS
 .DS_Store

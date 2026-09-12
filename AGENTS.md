@@ -1,5 +1,19 @@
 # Vivary agent instructions
 
+## GUI branch acceptance
+
+Jeff corrected delivery on 2026-09-12: keep new Vivary product work on
+`feat/vivary-gui`. Do not merge it into `dev` until Jeff has used the GUI,
+seen the real agent loop and tool results, and explicitly approved promotion.
+The local preview was shown. Jeff then returned execution to Zo and authorized
+a private hosted GUI service and model trials on 2026-09-12. Preserve the local
+preview, Zo source, and existing evidence.
+Working components and passing tests do not establish a finished product.
+Jeff also confirmed local installation must not require signup, while hosted
+access and model sign-in must work reliably. Reuse the original Vivary contracts
+and any relevant existing Paperclip integration; do not create a replacement
+agent system merely to connect the GUI.
+
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
 

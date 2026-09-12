@@ -8,6 +8,7 @@ const OPERATIONS = new Set([
   "export",
   "rebind",
   "admit-mutation",
+  "quarantine-mutation",
   "authorize-write-back",
 ]);
 const CAPABILITIES = new Set([
@@ -411,6 +412,7 @@ const requestFields = {
   export: ["operationId", "expectedPolicyRevision", "projectId"],
   rebind: ["operationId", "expectedPolicyRevision", "expectedRegistryRevision", "bindingId", "expectedBindingRevision", "locationRef"],
   "admit-mutation": ["operationId", "expectedPolicyRevision", "expectedRegistryRevision", "bindingId", "expectedBindingRevision", "expectedContentRevision", "requestedVcsOwner"],
+  "quarantine-mutation": ["operationId", "bindingId", "fence", "expectedPolicyRevision", "expectedRegistryRevision"],
   "authorize-write-back": ["operationId", "expectedPolicyRevision", "bindingId", "expectedBindingRevision", "expectedContentRevision", "requestedVcsOwner", "executionCopyId", "patchDigest", "selectedPaths", "fence"],
 };
 
@@ -418,7 +420,7 @@ const validateRequest = (operation, request) => {
   exactKeys(request, requestFields[operation], "request");
   id(request.operationId, "request.operationId");
   safeInteger(request.expectedPolicyRevision, 1, "request.expectedPolicyRevision");
-  if (["register", "rebind", "admit-mutation"].includes(operation)) {
+  if (["register", "rebind", "admit-mutation", "quarantine-mutation"].includes(operation)) {
     safeInteger(request.expectedRegistryRevision, 0, "request.expectedRegistryRevision");
   }
   if (operation === "register") {
@@ -433,6 +435,9 @@ const validateRequest = (operation, request) => {
     if (request.attachProjectId !== null) id(request.attachProjectId, "request.attachProjectId");
   } else if (operation === "export") {
     id(request.projectId, "request.projectId");
+  } else if (operation === "quarantine-mutation") {
+    id(request.bindingId, "request.bindingId");
+    safeInteger(request.fence, 1, "request.fence");
   } else {
     id(request.bindingId, "request.bindingId");
     safeInteger(request.expectedBindingRevision, 1, "request.expectedBindingRevision");
@@ -523,10 +528,11 @@ const requiredCapability = {
   export: ["export-project"],
   rebind: ["rebind-project"],
   "admit-mutation": ["mutate-project"],
+  "quarantine-mutation": ["mutate-project"],
   "authorize-write-back": ["mutate-project", "write-back-project"],
 };
 
-const mutationKeys = (trusted, requestedOwner) => {
+export const deriveMutationKeys = (trusted, requestedOwner) => {
   const observed = trusted.root.vcs;
   if (observed.kind === "none") {
     return requestedOwner === null ? [`${trusted.deviceId}:root:${trusted.root.rootId}`] : null;
@@ -582,31 +588,86 @@ const scopedRecordsAreAuthorized = (operation, trusted) => {
 
 const cannotIncrement = (value) => value === Number.MAX_SAFE_INTEGER;
 
+const quarantine = (request, trusted) => {
+  const stored = trusted.receipt;
+  if (stored === null) return refusal("admission-unavailable");
+  if (
+    stored.actorId !== trusted.actorId ||
+    stored.collectionId !== trusted.collectionId ||
+    stored.deviceId !== trusted.deviceId ||
+    stored.operation !== "admit-mutation" ||
+    stored.operationId !== request.operationId
+  ) return refusal("invalid-input");
+  if (stored.output.bindingId !== request.bindingId || stored.output.fence !== request.fence) {
+    return refusal("stale-fence");
+  }
+  const receiptKeys = admissionKeysFromReceipt(stored);
+  if (receiptKeys === null || !same(stored.output.keys, receiptKeys)) {
+    return refusal("invalid-input");
+  }
+  const parents = trusted.reservations.filter((item) =>
+    item.ownerActorId === trusted.actorId &&
+    item.ownerCollectionId === trusted.collectionId &&
+    item.ownerDeviceId === trusted.deviceId &&
+    item.ownerOperationId === request.operationId
+  );
+  if (parents.length !== 1) return refusal("invalid-input");
+  const parent = parents[0];
+  if (
+    parent.ownerOperationId !== stored.output.ownerOperationId ||
+    parent.fence !== stored.output.fence ||
+    !same(parent.keys, stored.output.keys)
+  ) return refusal("invalid-input");
+  const output = {
+    code: "quarantined",
+    bindingId: stored.output.bindingId,
+    ownerOperationId: stored.output.ownerOperationId,
+    fence: parent.fence,
+    replayed: parent.state === "uncertain" && stored.status === "uncertain",
+  };
+  if (output.replayed) return accepted(output, [], {});
+  if (parent.state !== "active" || stored.status !== "pending") {
+    return refusal("reconciliation-required");
+  }
+  if (request.expectedRegistryRevision !== trusted.registryRevision) return refusal("retry-state");
+  if (cannotIncrement(trusted.registryRevision)) return refusal("invalid-input");
+  return accepted(output, ["registry", "reservation"], {
+    registryRevision: trusted.registryRevision + 1,
+    replaceReservation: { ...parent, state: "uncertain" },
+    replaceReceipt: { ...stored, status: "uncertain" },
+  });
+};
+
+const admissionKeysFromReceipt = (stored) => {
+  const observed = stored.vcs;
+  if (observed.kind === "none") {
+    return [`${stored.deviceId}:root:${stored.rootId}`];
+  }
+  if (observed.kind === "git") {
+    return [
+      `${stored.deviceId}:checkout:${observed.checkoutId}`,
+      `${stored.deviceId}:repository:${observed.repositoryId}`,
+    ].sort();
+  }
+  if (
+    observed.kind === "jj-git" &&
+    observed.mutationOwner === "jj"
+  ) {
+    return [
+      `${stored.deviceId}:checkout:${observed.checkoutId}`,
+      `${stored.deviceId}:repository:${observed.repositoryId}`,
+    ].sort();
+  }
+  return null;
+};
+
 const admissionReceiptMatchesRequest = (request, stored) => {
   if (stored.output.bindingId !== request.bindingId) return false;
-  const observed = stored.vcs;
-  let expectedKeys;
-  if (observed.kind === "none") {
-    if (request.requestedVcsOwner !== null) return false;
-    expectedKeys = [`${stored.deviceId}:root:${stored.rootId}`];
-  } else if (observed.kind === "git" && request.requestedVcsOwner === "git") {
-    expectedKeys = [
-      `${stored.deviceId}:checkout:${observed.checkoutId}`,
-      `${stored.deviceId}:repository:${observed.repositoryId}`,
-    ].sort();
-  } else if (
-    observed.kind === "jj-git" &&
-    observed.mutationOwner === "jj" &&
-    request.requestedVcsOwner === "jj"
-  ) {
-    expectedKeys = [
-      `${stored.deviceId}:checkout:${observed.checkoutId}`,
-      `${stored.deviceId}:repository:${observed.repositoryId}`,
-    ].sort();
-  } else {
-    return false;
-  }
-  return same(stored.output.keys, expectedKeys);
+  if (stored.vcs.kind === "none" && request.requestedVcsOwner !== null) return false;
+  if (stored.vcs.kind === "git" && request.requestedVcsOwner !== "git") return false;
+  if (stored.vcs.kind === "jj-git" && request.requestedVcsOwner !== "jj") return false;
+  const expectedKeys = admissionKeysFromReceipt(stored);
+  return expectedKeys !== null && same(stored.output.keys, expectedKeys);
 };
 
 const replay = (operation, request, trusted) => {
@@ -632,7 +693,9 @@ const replay = (operation, request, trusted) => {
     currentBinding.bindingRevision !== stored.output.bindingRevision ||
     currentBinding.rootId !== stored.rootId ||
     trusted.root.rootId !== stored.rootId ||
-    currentPortable.projectId !== stored.output.projectId
+    currentPortable.projectId !== stored.output.projectId ||
+    !same(stored.vcs, currentBinding.vcs) ||
+    !same(currentBinding.vcs, trusted.root.vcs)
   ) return refusal("superseded-operation");
   return accepted({ ...stored.output, replayed: true }, [], {});
 };
@@ -648,6 +711,8 @@ export function evaluateRegistryOperation(input) {
   const { operation, request, trusted } = input;
   if (!authorize(operation, trusted) || !scopedRecordsAreAuthorized(operation, trusted)) return refusal("denied");
   if (request.expectedPolicyRevision !== trusted.policyRevision) return refusal("stale-policy");
+
+  if (operation === "quarantine-mutation") return quarantine(request, trusted);
 
   if (operation !== "export") {
     if (!trusted.rootAccess.includes(trusted.root.rootId)) return refusal("denied");
@@ -682,6 +747,7 @@ export function evaluateRegistryOperation(input) {
     if (new Set(matches.map((item) => item.bindingId)).size > 1) return refusal("ambiguous-ownership");
     if (matches.length === 1) {
       const existing = matches[0];
+      if (!same(existing.vcs, trusted.root.vcs)) return refusal("stale-binding");
       const output = {
         code: "already-registered",
         projectId: existing.projectId,
@@ -774,7 +840,7 @@ export function evaluateRegistryOperation(input) {
   if (trusted.root.locationRef !== current.locationRef) return refusal("stale-binding");
   if (!same(trusted.root.vcs, current.vcs)) return refusal("stale-binding");
   if (trusted.root.contentRevision !== request.expectedContentRevision) return refusal("content-conflict");
-  const keys = mutationKeys(trusted, request.requestedVcsOwner);
+  const keys = deriveMutationKeys(trusted, request.requestedVcsOwner);
   if (keys === null) return refusal("read-only");
 
   if (operation === "admit-mutation") {
@@ -879,12 +945,14 @@ export function applyAtomicTransition(state, input) {
   const trusted = refreshed.trusted;
   trusted.registryRevision = state.registryRevision;
   trusted.reservations = clone(state.reservations);
+  const receiptOperation = refreshed.operation === "quarantine-mutation"
+    ? "admit-mutation" : refreshed.operation;
   trusted.receipt = clone(state.receipts.find((item) =>
     receiptKey(item) === receiptKey({
       actorId: trusted.actorId,
       collectionId: trusted.collectionId,
       deviceId: trusted.deviceId,
-      operation: refreshed.operation,
+      operation: receiptOperation,
       operationId: refreshed.request.operationId,
     })
   ) ?? null);
@@ -906,7 +974,7 @@ export function applyAtomicTransition(state, input) {
       matchingBindings[0] ??
       null
     );
-  } else {
+  } else if (refreshed.operation !== "quarantine-mutation") {
     trusted.binding = clone(state.bindings.find((item) => item.bindingId === refreshed.request.bindingId) ?? null);
     trusted.portable = clone(trusted.binding === null ? null : state.portables.find((item) => item.projectId === trusted.binding.projectId) ?? null);
     if (refreshed.operation === "rebind") {
@@ -933,6 +1001,23 @@ export function applyAtomicTransition(state, input) {
     const index = next.bindings.findIndex((item) => item.bindingId === changes.replaceBinding.bindingId);
     if (index < 0) invalid("Atomic replacement target disappeared");
     next.bindings[index] = clone(changes.replaceBinding);
+  }
+  if (changes.replaceReceipt) {
+    const key = receiptKey(changes.replaceReceipt);
+    const index = next.receipts.findIndex((item) => receiptKey(item) === key);
+    if (index < 0) invalid("Atomic receipt replacement target disappeared");
+    next.receipts[index] = clone(changes.replaceReceipt);
+  }
+  if (changes.replaceReservation) {
+    const replacement = changes.replaceReservation;
+    const index = next.reservations.findIndex((item) =>
+      item.ownerActorId === replacement.ownerActorId &&
+      item.ownerCollectionId === replacement.ownerCollectionId &&
+      item.ownerDeviceId === replacement.ownerDeviceId &&
+      item.ownerOperationId === replacement.ownerOperationId
+    );
+    if (index < 0) invalid("Atomic reservation replacement target disappeared");
+    next.reservations[index] = clone(replacement);
   }
   if (changes.insertReceipt) next.receipts.push(clone(changes.insertReceipt));
   if (changes.insertReservation) next.reservations.push(clone(changes.insertReservation));
@@ -1028,6 +1113,8 @@ async function cli(argv) {
   return passed === results.length ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// A server bundle rewrites import.meta.url; only the named CLI may run this entrypoint.
+if (process.argv[1] && pathToFileURL(process.argv[1]).pathname.endsWith("/registry_contract_model.mjs")
+  && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await cli(process.argv.slice(2));
 }

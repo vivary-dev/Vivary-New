@@ -20,6 +20,20 @@ Implementation proceeds through the bounded packets in the generated graph. Harn
 
 No model, storage vendor, hosting plan, default runtime, or payment service is selected by this document. Earlier Littleagent implementation authority remains relevant to compatible work after the changed contracts are reconciled. Planning authority does not establish implementation or publication evidence.
 
+## Local access and original-system decision: 2026-09-12
+
+Jeff requested completion of the open issues using the original Vivary logic or
+its existing system contracts. Reuse working packages and Native integrations
+before adding new orchestration. Check existing Paperclip use and retain a useful
+integration if one exists; this does not make Paperclip mandatory.
+
+An installable local application must open without signup or a Vivary account.
+Keep that access limited to the local machine. Hosted instances need reliable
+access control. Coding-provider sign-in remains separate and should reuse the
+user's existing CLI subscription. A paid authentication service is not required.
+The private Zo preview is the active development surface; promotion to dev still
+requires Jeff's explicit product acceptance.
+
 ## Execution decision: 2026-09-05
 
 The current development environment is the bounded Habitat container named by

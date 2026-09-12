@@ -1,12 +1,29 @@
 # 06f: Integrate the working Workbench into canonical Vivary
 Type: packet
 Parent: 06
-Status: ready-for-agent
+Status: in-progress
 Depends-on: [03c, 12h]
 Owner: Coordinating Codex, sole integration writer; independent boundary reviewer
-Scope: Bring the existing project registry, catalog, readiness, activity, selection UI, and normal application startup into canonical dev as reviewed source increments.
+Scope: Finish the Workbench on feat/vivary-gui. First host a private Zo agent/file preview, then connect the remaining project workflows. Dev promotion requires Jeff's explicit product acceptance.
 Verification-kind: runtime
 Timebox: One coherent application increment per reviewed PR; use existing checks and the real application.
+
+## Current increment
+
+Jeff corrected delivery on 2026-09-12: show the GUI on its own branch, then
+returned execution to Zo and requested a private web service with model trials.
+The local layout was shown; a working tool loop was not established there.
+The private Zo preview now passes actual Sonnet file creation/readback, a Fable
+follow-up, Opus cancellation, idle restart persistence, and active-run shutdown. It uses Native's
+Claude file tools, model selection, transcript history, and file inspection.
+Local no-signup access, hosted sign-in usability, and selected-project agent work
+are the next increments. Reuse the original Vivary context and authority owners.
+Test each completed capability through the normal app, fix failures, then move
+to the next product gap. Preserve prior failed evidence and budgets. No further
+merge into `dev` is authorized until Jeff explicitly accepts the product.
+
+This increment does not accept shell execution, multi-user access, full factory
+orchestration, persistent project-root recovery, or the remaining outcomes.
 
 ## Goal
 
