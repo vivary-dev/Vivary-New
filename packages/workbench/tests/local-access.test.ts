@@ -157,6 +157,30 @@ describe("Vivary local access configuration", () => {
     }
   });
 
+  it("infers the local origin when Native's public URL is unset", () => {
+    for (const appUrl of [undefined, ""]) {
+      assert.deepEqual(
+        resolveVivaryLocalAccessConfig(localEnvironment({ APP_URL: appUrl })),
+        {
+          mode: "local",
+          host: "127.0.0.1",
+          origin: ORIGIN,
+          ownerEmail: VIVARY_LOCAL_OWNER_EMAIL,
+          port: 4317,
+        },
+      );
+    }
+  });
+
+  it("rejects an explicit local URL from a different origin", () => {
+    assert.throws(
+      () => resolveVivaryLocalAccessConfig(
+        localEnvironment({ APP_URL: "http://127.0.0.2:4317" }),
+      ),
+      /must exactly match the configured numeric loopback HOST and PORT/,
+    );
+  });
+
   it("requires an explicit private ingress profile and canonical external HTTPS origin", () => {
     assert.deepEqual(resolveVivaryLocalAccessConfig(privateProxyEnvironment()), {
       mode: "private-proxy",

@@ -1,6 +1,6 @@
 # 23: Package and prove installed application behavior
 Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [09, 10, 13, 29]
 Unlocks: [24, 25, 26, 27]
 
@@ -24,6 +24,13 @@ runtime, open without login or signup, keep files and state on the user's machin
 and reuse their installed CLI model access. Zo is only the development/preview
 host. This bounded increment does not accept the full platform release matrix.
 
+The private Linux x64 desktop preview now bundles Electron, ordinary Node, and
+Workbench. Actual package checks proved no-login startup, a Sonnet Read/Write/Read
+file task, local state restoration after reopening, healthy local configuration,
+and server shutdown on quit.
+See [desktop package](../../../../packages/desktop/README.md). Windows/macOS
+installers and the full release matrix remain unaccepted.
+
 ## Done condition
 
 Clean environments can install, open, upgrade, and remove the app as documented. Installed GUI and headless operations use the same contracts. Artifacts carry versions, licenses, and provenance.
@@ -42,3 +49,7 @@ they do not prove the behavior above.
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
 
 - 2026-09-05: Preserve unresolved earlier dogfood, tutorial, and token-savings benchmark requirements through [the issue authority map](../issue-authority.md). Pilot cost metrics do not replace the separate comparative token-savings protocol.
+
+- 2026-09-12: The first private Linux x64 desktop package passed startup, actual
+  Sonnet file tools, reopen persistence, local configuration, and shutdown checks.
+  Windows/macOS packaging and installed platform acceptance remain open.

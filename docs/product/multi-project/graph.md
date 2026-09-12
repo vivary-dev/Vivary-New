@@ -59,7 +59,7 @@ In progress: 06f.
 | [20: Run bounded factory work](tickets/20-run-bounded-factory.md) | planned | [04, 10, 14, 15, 16, 17, 29] |
 | [21: Add research specialists and evaluation](tickets/21-add-research-specialists.md) | planned | [04, 15, 16, 18] |
 | [22: Add signed email intake](tickets/22-add-intake-and-maintenance.md) | planned | [04, 10, 18] |
-| [23: Package and prove installed application behavior](tickets/23-package-and-prove-app.md) | planned | [09, 10, 13, 29] |
+| [23: Package and prove installed application behavior](tickets/23-package-and-prove-app.md) | in-progress | [09, 10, 13, 29] |
 | [30: Add deterministic heartbeat maintenance](tickets/30-add-heartbeat-maintenance.md) | planned | [04, 10, 18] |
 | [36: Measure the S-13 pilot outcomes](tickets/36-measure-pilot-outcomes.md) | planned | [10, 16, 17, 18, 19, 20, 21, 22, 29, 30] |
 | [24: Write installed docs, guides, and UI help](tickets/24-write-product-docs-guides.md) | planned | [05, 07, 08, 09, 10, 11, 15, 16, 17, 18, 19, 20, 21, 22, 23, 29, 30, 36] |

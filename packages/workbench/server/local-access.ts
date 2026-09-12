@@ -104,7 +104,11 @@ export function resolveVivaryLocalAccessConfig(
     throw new Error("[vivary-local-access] HOST must be the numeric loopback address 127.0.0.1 or ::1.");
   }
   const port = parsePort(requiredValue(env, "PORT"));
-  const rawAppUrl = requiredValue(env, "APP_URL");
+  const expectedHostname = host === "::1" ? "[::1]" : host;
+  const configuredAppUrl = env.APP_URL?.trim() || undefined;
+  const rawAppUrl = configuredAppUrl ?? (mode === "local"
+    ? new URL(`http://${expectedHostname}:${port}`).origin
+    : requiredValue(env, "APP_URL"));
   let appUrl: URL;
   try {
     appUrl = new URL(rawAppUrl);
@@ -120,7 +124,6 @@ export function resolveVivaryLocalAccessConfig(
   }
 
   if (mode === "local") {
-    const expectedHostname = host === "::1" ? "[::1]" : host;
     if (
       appUrl.protocol !== "http:" ||
       appUrl.hostname !== expectedHostname ||

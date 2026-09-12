@@ -18,8 +18,9 @@ follow-up, Opus cancellation, idle restart persistence, and active-run shutdown.
 Claude file tools, model selection, transcript history, and file inspection.
 Self-hosted access opens without login or signup. Jeff explicitly prioritized
 local desktop delivery: Zo is the development/preview host, not a product
-dependency. The next increments are the local desktop entry point and
-selected-project agent work. Reuse the original Vivary context and authority owners.
+dependency. The private Linux desktop entry point now opens the same agent surface and
+has passed a real file-tool run and reopening check. The next increments are
+Windows desktop packaging and selected-project agent work. Reuse the original Vivary context and authority owners.
 Test each completed capability through the normal app, fix failures, then move
 to the next product gap. Preserve prior failed evidence and budgets. No further
 merge into `dev` is authorized until Jeff explicitly accepts the product.

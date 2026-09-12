@@ -1,0 +1,17 @@
+{
+  "name": "@vivary/desktop",
+  "productName": "Vivary",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Local Vivary desktop window using the existing Workbench runtime.",
+  "scripts": {
+    "start": "electron .",
+    "package": "node package.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "@electron/packager": "20.3.0"
+  }
+}

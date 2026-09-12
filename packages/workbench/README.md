@@ -1,8 +1,9 @@
 # Vivary Workbench
 
-Vivary is a local desktop product. The working GUI currently runs in a browser;
-desktop packaging is the next delivery increment under
-[outcome 23](../../docs/product/multi-project/tickets/23-package-and-prove-app.md).
+Vivary is a local desktop product. The working GUI runs in a browser or the private
+[desktop package](../desktop/README.md). The Linux desktop preview has passed
+a real file-tool run and reopening check. [Outcome 23](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
+owns Windows/macOS installers and the remaining platform proof.
 Zo is the current development and preview host, not a product dependency.
 
 Work stays on `feat/vivary-gui` until Jeff uses the product and approves promotion.
