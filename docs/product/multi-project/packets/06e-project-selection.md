@@ -5,46 +5,139 @@ type: packet
 Parent: 06
 Status: in-progress
 Depends-on: [05a, 06d]
-Owner: Astra lead owns acceptance and the revised C5 contract. Sol owns the bounded 04b identity-projection seam and Conversation candidate. Earlier build and synthetic browser evidence certifies earlier source bytes. Native10 accepts the corrected activity transport. Fresh build, browser and application acceptance remain open.
+Owner: Root owns C5 acceptance and the Zo test plan. Implement owns the portable component fixture and bounded proof tools; QA and Verify independently review. Native10, Zo build04 and Doctor01 are accepted. Current focused tests, mutant and C5 browser acceptance remain open.
 Scope: Native scoped project catalog, registration form, shared selection, and exact Native scope association for read-only Run activity. No model activation, arbitrary path registration, portable export grant, or project file writes.
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: One bounded contract, action/UI composition, real Habitat proof, browser verification, independent review, and cleanup unit.
+Timebox: Current Zo focused-test unit admits 90/75/75-second runs within 300 cumulative seconds, with separate source and runtime review. Later browser work requires its own frozen profile. Historical Habitat allocations remain closed to replay.
 
 ## Current progress
 
-Updated 2026-09-11.
+Updated 2026-09-11. The owner requires all current coding and verification on Zo.
+This supersedes the historical Habitat application/launcher steps below. Preserve
+the original laptop evidence and unused admission; do not replay or reset it.
 
-**Accepted:** Native10 verified the corrected activity transport: eight worker
-cases, 43 refusals, four successful reads and three injected state changes.
-Independent review accepted the raw results and cleanup, with zero forced
-Windows helpers. The build snapshot and guarded build launcher are source-reviewed.
-See the [current receipt](../receipts/06e-project-selection.md#accepted-native10-and-current-build-gate-2026-09-10).
+**Accepted:** Native10 transport evidence remains accepted. Zo build 04 contains
+the exact five reviewed C5 files among its 80 app inputs and all 212 build outputs
+remain unchanged. Doctor01 is accepted. This closes the current production-build
+and doctor evidence gaps. Current canonical and copied Zo product bytes already
+match, so no separate application to the obsolete Habitat location is needed.
 
-**Remaining:** Run the fresh build and sandboxed browser checks, apply the five
-reviewed C5 files to Habitat, and close the remaining Workbench activity scope
-acceptance. Those checks and application have not run against the current bytes.
-This packet and its parent outcome remain in progress.
+**Remaining:** Prove the current activity and component suites, the deliberate
+missing-renderer-key mutant, and the C5-specific browser journey. Browser15's
+read-only Workbench check is supporting evidence, not C5 selection acceptance.
+Standalone typegen/typecheck belonged to the older build envelope; the C5
+amendment requires the fresh build already accepted, not another unchanged build.
 
-**Next:** Use the binding-corrected dispatcher only after independent source
-acceptance, a bound continuation record and fresh resource admission. The
-[receipt](../receipts/06e-project-selection.md) owns the exact current review state.
+**Source preparation accepted:** The portable Linux x64/Windows x64 component
+fixture and four bounded proof tools passed independent QA and inert checks.
+The real source/dependency freeze and check passed. The seven component cases
+remain unchanged. The current component-test hash is an explicit test-only delta
+from the preserved build snapshot; all production inputs remain exact.
 
-Independent execution-flow review confirms the transfer adapter failed before
-resource admission, marker creation, Windows Owner construction, WSL dispatch or
-build execution. Its one approved build admission remains unused. The immutable
-application freeze names the original launcher and driver, but the wrapper
-replaced those expected bindings with corrected runtime paths and hashes.
+**Next:** Fresh Verify admitted the first 90-second activity run with five seconds
+for cleanup. Execute that fixed command after the local preparation checkpoint.
+Then admit the 75-second component and mutant runs separately. The three runs
+share a separate 06e ledger; the accepted 05b snapshot and accounting are immutable.
+No 06e runtime result is accepted yet.
 
-The selected correction retains both original frozen source bindings and adds
-separate corrected runtime bindings. Every freeze validation must check the
-original fields and re-hash corrected runtime sources, including pre-admission,
-pre-dispatch and post-build checks. The application freeze is unchanged. The
-candidate uses a new exclusive proof directory and preserves the occupied prior
-proof. Independent source review and a derived continuation record are required
-before using the same one-admission, 1,200-second authority; no extra admission
-or invented user answer is included. Build, browser and C5 gates remain open.
+## Zo C5 focused-test contract, 2026-09-11
+
+Authority: the owner's all-issues continuous-execution instruction and explicit
+Zo-only direction. Root owns this plan and acceptance. Implement owns the bounded
+fixture changes. Independent QA reviews source; Verify checks frozen inputs,
+runtime evidence, isolation, resources and cleanup before acceptance.
+
+Product scope remains C5's existing identity projection and read-only renderer.
+Own only the component test's explicit platform mapping and the new 06e test
+supervisor, preparation helper and mutant assertion wrapper. Do not change the
+product implementation merely to satisfy a test. Preserve all five original
+C5 hashes, the 05b build/input manifest and the accepted README documentation delta.
+A portable test-only correction does not require rebuilding unchanged product code.
+
+Acceptance remains:
+1. Current activity suite: eight cases, 43 refusals, four accepted reads and three
+   injected state changes, with natural worker exit and the state witness.
+2. Component suite: all seven cases, both renderer surfaces, empty selection,
+   delayed old selection, changed reference remount, revocation, malformed/missing
+   native identity fields and unavailable transport. Require cleanup evidence.
+3. Missing-key mutant: stage a copy of Conversation with exactly one
+   `key={rendererKey}` removed. The selected remount case must fail for the exact
+   remount assertion, and cleanup must pass. Canonical Conversation is unchanged.
+
+Use `.tmp/06e/zo-test` for a fresh packet-local ledger and proof artifacts.
+The source of reused dependencies/build remains `.tmp/05b/zo-runtime/app`,
+mounted read-only. Overlay only the reviewed current component test and, during
+the mutant run, its exact staged Conversation mutation. Pin all files, toolchains,
+dependency manifests and esbuild binary. Writable storage is limited to private
+/work and tmpfs /tmp and /home. Keep private user/PID/network namespaces,
+loopback only, UID/GID 1000, no capabilities and no-new-privileges.
+
+The proposed first source-reviewed profile admits one activity run up to 90
+seconds, one component run up to 75 seconds and one mutant run up to 75 seconds,
+with 300 cumulative seconds including dispatch/refusal/cleanup. Each run gets
+five seconds for owned cleanup. Use two inherited CPUs, zero swap, a 1536 MiB
+aggregate RSS stop, 64-task stop, 250 ms observer, 8 MiB combined output cap and
+1536 MiB host reserve. Zo cgroup sublimits are not enforceable; describe these
+as externally monitored stop thresholds. No install, network access, model call,
+production build or browser run belongs to this focused-test admission.
+A failure needs diagnosis, a reviewed correction and an explicit bounded revision
+within retained accounting. Do not launch before exact source QA and fresh Verify.
+
+After these tests pass, freeze a separate C5 browser packet with its own exact
+scenario/input/resource bindings. It must prove project switching, delayed stale
+responses, remount/revocation on `/` and `/workbench`, separation from 05b's
+organization-qualified `/chat`, and zero unauthorized activity requests or model
+calls. The component's fullPage variant is unit coverage, not a mounted route. Complete source review and resource admission before that browser run.
+The packet and parent outcome remain in progress until all C5 criteria pass.
+
+## C5 browser design pending focused-test acceptance
+
+Read-only source review found that the standalone app's only server plugin
+mounts chat titles and awaits Native bootstrap. It does not currently mount
+catalog, registry, readiness or activity actions. The next browser proof must
+explicitly compose the existing public services in its isolated fixture. That
+acceptance will not establish default production startup or real authentication.
+
+Reuse `createNativeRegistry`, `createNativeRegistryAuth`, `createProjectCatalog`,
+`createProjectRuntimeReadiness`, `createProjectRuntimeActivity` and their existing
+mount functions. Use the real Native database, sessions, memberships, app roles,
+registration endpoint and root provider against two disposable physical roots.
+Serve the exact accepted build04 through the tested SSR/H3 seam. Keep 05b files
+and proof snapshots unchanged.
+
+Seed bounded Native threads, sessions, runs and events through their public APIs
+before browser measurements, using a declared synthetic adapter. Resolve exact
+immutable activity references through the existing trusted reference seam.
+After setup, adapter starts/turns and model calls must stay at zero, and Native
+thread/session/run/event records must stay unchanged. Do not manufacture catalog,
+readiness or activity responses.
+
+Exercise both `/` and `/workbench`: no selection, Alpha activity, available Beta
+without verified activity, late Alpha delivery after Beta selection, replaced
+Alpha reference/run, and actual role revocation followed by Refresh. Any held
+activity response must be produced by the real handler before delayed delivery.
+Allow only named fixture setup/control writes and ordinary Native selection
+persistence. Workbench must issue no thread/history discovery or chat/run
+mutation. Keep `/chat` organization-qualified and independent of project activity.
+
+Browser refetch temporarily unmounts the renderer, so DOM replacement alone
+cannot prove the React key is necessary. The component missing-key mutant owns
+that evidence. Call the Beta case unavailable activity unless a genuine empty
+verified Native projection is separately seeded and proved.
+
+Before implementation/runtime, freeze exact fixture sources, root-provider
+dependencies, trusted evidence/reference rules, request allowlist, resource
+profile and natural shutdown contract. This design creates no browser admission.
+The configured production-action gap remains with outcome 06 and runtime owners.
+
+## Historical Habitat continuation
+
+The earlier corrected launcher and one-admission 1,200-second build allocation
+remain preserved as historical evidence. Zo's accepted exact-byte build replaces
+the need to execute that launcher. Do not modify its frozen bindings or claim a
+new Habitat run. The receipt retains failures and their accounting.
 
 ## Goal
 
@@ -98,6 +191,11 @@ with their existing owners. Record any necessary shared seam before changing it.
 
 ## Verify
 
+The current executable checks are the [Zo C5 focused-test contract](#zo-c5-focused-test-contract-2026-09-11)
+and its subsequent browser phase. Build04 and Doctor01 are already accepted for
+the unchanged product bytes. The older Habitat commands below are historical
+provenance, not instructions to rerun a build or transfer files.
+
 ### 2026-09-09 shared activity seam
 
 The lead authorizes this packet to extend the existing 04b ready response with
@@ -129,7 +227,8 @@ canonical worktree on 2026-09-09 for source freezing. Exact preimages and pendin
 proof gates are recorded privately. This is candidate application, not runtime
 acceptance. The Habitat checkout retains its prior bytes until fresh acceptance.
 
-Reuse the existing Habitat app and frozen dependencies. Transfer only reviewed
+At the historical Habitat checkpoint, the plan was to reuse its app and frozen
+dependencies and transfer only reviewed
 owned source with hash checks. Use test-owned physical roots and a synthetic
 native identity inside a disposable local fixture database. Preserve existing
 runtime tools, provider owners, app dependencies, and unrelated processes.

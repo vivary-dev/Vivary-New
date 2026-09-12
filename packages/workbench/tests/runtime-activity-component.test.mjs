@@ -19,9 +19,20 @@ const TARGET_CASE_ENV = "VIVARY_RUNTIME_ACTIVITY_COMPONENT_TARGET_CASE";
 const REMOUNT_CASE = "replaced reference remounts the Native renderer";
 const MAX_BUNDLE_INPUTS = 16_384;
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
+const esbuildPlatforms = Object.freeze({
+  "linux-x64": Object.freeze({
+    packageName: "@esbuild/linux-x64", binarySegments: Object.freeze(["bin", "esbuild"]),
+  }),
+  "win32-x64": Object.freeze({
+    packageName: "@esbuild/win32-x64", binarySegments: Object.freeze(["esbuild.exe"]),
+  }),
+});
+const platformKey = `${process.platform}-${process.arch}`;
+const esbuildPlatform = esbuildPlatforms[platformKey];
+assert.ok(esbuildPlatform, `unsupported esbuild test platform: ${platformKey}`);
 const expectedDependencies = Object.freeze({
   esbuild: Object.freeze({ name: "esbuild", version: "0.28.2" }),
-  esbuildNative: Object.freeze({ name: "@esbuild/win32-x64", version: "0.28.2" }),
+  esbuildNative: Object.freeze({ name: esbuildPlatform.packageName, version: "0.28.2" }),
   linkedom: Object.freeze({ name: "linkedom", version: "0.18.12" }),
   react: Object.freeze({ name: "react", version: "19.2.8" }),
   reactDom: Object.freeze({ name: "react-dom", version: "19.2.8" }),
@@ -640,9 +651,8 @@ function appImport(specifier) {
 }
 
 async function worker() {
-  assert.equal(`${process.platform}-${process.arch}`, "win32-x64");
   const dependencies = loadDependencies();
-  const nativeBinary = dependencyFile(dependencies, "esbuildNative", "esbuild.exe");
+  const nativeBinary = dependencyFile(dependencies, "esbuildNative", ...esbuildPlatform.binarySegments);
   // guard:allow-env-mutation - Isolated fixture worker binds the reviewed esbuild binary.
   process.env.ESBUILD_BINARY_PATH = nativeBinary; // guard:allow-env-credential - Exact reviewed test binary path.
   const esbuild = dependencies.get("esbuild").require("esbuild");

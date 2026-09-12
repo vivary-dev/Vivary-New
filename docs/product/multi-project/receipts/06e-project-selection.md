@@ -1,9 +1,9 @@
 # 06e project selection receipt
 
 Evidence-record: 06e
-Date: 2026-09-07
+Date: 2026-09-11
 Verification-kind: runtime
-Result: In progress. Earlier build and synthetic Native browser gates passed for their recorded bytes. The later refresh correction needs current Native, build, sandboxed browser and Habitat application evidence. Production authentication and complete project-conversation acceptance remain open.
+Result: In progress. Native10, exact current-product Zo build04 and Doctor01 are accepted. Current focused C5 tests, the missing-key mutant and Workbench browser acceptance remain open. Zo supersedes the historical Habitat application step; production authentication remains separate.
 
 The [owning packet](../packets/06e-project-selection.md) and
 [catalog contract](../contracts/project-catalog.md) define acceptance. The 05a
@@ -635,3 +635,61 @@ No build has run. Browser verification and five-file C5 application remain open.
 Candidate manifest: `70ae9389296a6849d79937df43588e1e7232d82926d6e461439116d19b6cf2fc`.
 Independent source acceptance: `1dd4621975ab5b4c76b772a0ccb50303202dfdcc32ee02757532ad0db95cc7df`.
 Derived continuation authority: `2284ff29a29acbe1954ae8a826f17bed8279917aaacd8b60cff636a911feec98`.
+
+## Zo current-byte reconciliation, 2026-09-11
+
+The owner selected Zo for all current project work. Read-only reconciliation
+matched all five C5 files to the 80-input build04 snapshot; all 212 build outputs
+remain exact. Build04 returned 0 in 23.440384656998503 seconds with cleanup.
+Its supervisor SHA-256 is
+`cef0c60fc026b680961ee59ac1d98efe975790d4eaa984b309fd22ca88125e39`.
+Doctor01 returned 0 with ten guards, Clean/no findings and cleanup.
+The [05b accepted receipt](05b-deepseek-chat-titles.md#current-result) owns those
+raw records. No fresh build or separate Habitat application remains necessary.
+
+At that reconciliation, current focused C5 tests and the missing-key mutant
+remained unproved. The component test pinned Windows x64 esbuild; the subsequent
+portable mapping is accepted below. Its assertions remain intact, with no
+canonical product change. The focused Zo profile and three-run acceptance are frozen in the
+[packet](../packets/06e-project-selection.md#zo-c5-focused-test-contract-2026-09-11).
+No 06e runtime has started. The historical laptop ledger remains unchanged.
+
+The current route contract is also reconciled: `/` and `/workbench` mount the
+read-only activity panel; accepted 05b owns the separate `/chat` surface.
+The earlier both-conversation-routes claim is historical. C5's remaining browser
+proof must exercise both Workbench aliases and preserve the Full chat boundary.
+The component fullPage variant does not establish a mounted activity page.
+
+## Focused Zo test preparation accepted, 2026-09-11
+
+Independent source QA accepted the portable component test and four proof tools
+after correcting all reported findings. Inert syntax, preparation, ledger/mount,
+and malformed-mutant checks passed. Real preparation and readback then passed
+against the installed dependencies. No application test or runtime has run yet.
+
+| Input | SHA-256 |
+| --- | --- |
+| Portable component test | `4bd477ea9fa90722215edacbbb72844f1a4ba4d80964af2dd873f79c0d24b4c4` |
+| Supervisor | `ca62a328dee8a37e9ac05d380fac28a23791b12774d72179bbfd7f32d78eb8d6` |
+| Preparer | `d16a13d6d598085e0ccf60ed622ad46339d6240fb3e3a977ed038594ab6cb8ed` |
+| Boundary attestation | `89eac21b0c9966c01a034704e5f773dca3305d46afaa557c757d2235d8a84bcf` |
+| Missing-key validator | `06e60372e5bdc5177dccfc3b827d131b257c979e91167f5f7c469c284fe50e8b` |
+| Real source freeze | `271084d21fb182f4a5b10234c94cd9b313e6169dc7290fd6663cd02f93429701` |
+| Component dependency manifest | `16f4119888df69024271e5cd7870c0418dcc45f305d3b3efc5bd2c72163791d0` |
+| Staged missing-key Conversation | `4254ba928150d08910aba2f19c8f057afa8f8f1320ff84b14e333ae3dd16be7e` |
+
+The dependency tree contains 109,605 regular files, 3,408 internal links and
+11,121 directories, totaling 1,047,716,004 file bytes. Its deterministic tree
+digest is `1e107737d2c2ff8cae42ec6eeeb7f1d7f09ebd39e27c842b21e112821c92121c`.
+The empty 06e ledger SHA-256 is
+`37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`.
+Do not run preparation again: its namespace is exclusive. Fresh Verify checks
+the existing freeze before runtime. The current component test intentionally
+differs from the original `8165ff26...` snapshot test; production sources do not.
+
+The controller records actual inner sandbox attestations, verifies the 80
+original app inputs with exact named overrides and dependency bytes, and keeps
+proof inputs read-only. It retains work until archive/readback, records all
+cleanup interventions as failures, accounts for refusals, and includes the
+supervisor in aggregate resource observations. The mutant validator accepts
+only the exact remount failure with complete cleanup and outer test evidence.

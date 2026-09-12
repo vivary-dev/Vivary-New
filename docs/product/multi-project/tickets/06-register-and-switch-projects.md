@@ -10,14 +10,16 @@ Execution: Start only a bounded packet listed in [the graph](../graph.md). Paren
 
 ## Current progress
 
-**Accepted:** 06a through 06d have accepted bounded storage, action, HTTP, and
-physical-root registration evidence. Native10 accepted the 06e activity transport.
-The build binding correction passed independent source review and 11 local checks.
+Updated 2026-09-11. **Accepted:** 06a through 06d retain bounded storage, action,
+HTTP and physical-root registration evidence. Native10 accepts the C5 activity
+transport. Zo build04 contains the exact current product bytes, and Doctor01
+passes. The historical Habitat build/application operation is superseded.
 
-**Remaining:** The corrected build admission is unused and requires fresh
-resources. Build, browser verification, C5 application, and this outcome's full
-switching/draft-preservation conditions remain open. The [06e packet](../packets/06e-project-selection.md)
-and [receipt](../receipts/06e-project-selection.md) own the next operation and limits.
+**Remaining:** Current C5 activity/component tests, the missing-key mutant,
+Workbench browser acceptance and this outcome's full switching/draft-preservation
+conditions remain open. Full chat is independently owned by accepted 05b.
+The [06e packet](../packets/06e-project-selection.md) and
+[receipt](../receipts/06e-project-selection.md) own the next bounded Zo test unit.
 
 ## Goal
 
