@@ -22,13 +22,16 @@ three focused attempts returned 0, exited naturally, and passed cleanup. The
 [06e receipt](../receipts/06e-project-selection.md#focused-zo-tests-accepted-2026-09-11)
 owns the exact evidence, resource observations, and limits.
 
-**Accepted source:** Independent QA approved revision03's corrected browser
-fixture and remaining-budget tools. Its 352-entry source freeze is prepared.
-Both earlier attempts stopped during setup; their evidence and charges remain
-retained.
+Three browser attempts remain unaccepted. The first two stopped during setup;
+the third reached Chromium but rejected Native's normal sync-event effect during
+bootstrap. Their evidence and actual charges remain retained.
 
-**Remaining:** Independently verify the revision03 inputs and fresh
-resources before the bounded browser execution. Workbench browser acceptance,
+**Accepted source:** Revision04 passed independent QA and its exact source freeze
+is prepared. The corrected fixture validates Native's paired state and sync-event
+effect and drains bootstrap responses.
+
+**Remaining:** Independently verify the prepared inputs and fresh resources before
+the bounded browser execution. Workbench browser acceptance,
 configured production action mounting, and this outcome's switching and draft-preservation
 conditions remain open. Full chat is independently owned by accepted 05b. The
 [06e packet](../packets/06e-project-selection.md) owns the next bounded unit.

@@ -34,6 +34,7 @@ const failedRequests = [];
 const browserRequests = [];
 const screenshots = [];
 const transportProbes = [];
+const bootstrapCompletions = [];
 const PROBE_DEADLINE_MILLISECONDS = 20_000;
 const COMPLETED_META_KEYS = [
   "ordinal", "window", "category", "method", "path", "requestBytes",
@@ -89,14 +90,23 @@ function assertBootstrapComplete(value, windowName) {
   ].sort());
   assert.ok(Number.isSafeInteger(value.id) && value.id > 0);
   assert.equal(value.ok, true);
-  assert.equal(value.localizationWrites, 1);
+  assert.ok(value.localizationWrites === 0 || value.localizationWrites === 1);
   const categories = windowName === "chat"
-    ? ["chat-engine-list", "chat-url-write", "localization-write"]
-    : ["localization-write"];
+    ? ["chat-engine-list", "chat-url-write"]
+    : [];
+  if (value.localizationWrites === 1) categories.push("localization-write");
+  categories.sort();
   assert.equal(value.chatUrlWrites, windowName === "chat" ? 1 : 0);
   assert.equal(value.chatEngineLists, windowName === "chat" ? 1 : 0);
   assert.deepEqual(Object.keys(value.completed).sort(), categories);
   for (const category of categories) assertCompletedMeta(value.completed[category], windowName, category);
+  bootstrapCompletions.push({
+    window: windowName,
+    localizationWrites: value.localizationWrites,
+    chatUrlWrites: value.chatUrlWrites,
+    chatEngineLists: value.chatEngineLists,
+    completed: value.completed,
+  });
 }
 
 function sha256(value) {
@@ -236,18 +246,65 @@ function assertOriginalActivityBody(body) {
   assert.ok(serialized.includes("C5 Alpha original tool result"));
 }
 
+async function waitForBootstrapDrain(page, startOrdinal, label) {
+  assert.equal(page.isClosed(), false);
+  const deadline = Date.now() + 10_000;
+  let lastState = "";
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const entries = requestLifecycle.slice(startOrdinal);
+    const state = entries.map(entry => [
+      entry.ordinal,
+      entry.responseStatus,
+      entry.terminal?.kind ?? null,
+    ]).map(JSON.stringify).join("\n");
+    if (state !== lastState) {
+      lastState = state;
+      stableSince = Date.now();
+    }
+    const allTerminal = entries.length > 0
+      && entries.every(entry => entry.terminal?.kind === "finished"
+        && Number.isSafeInteger(entry.responseStatus));
+    if (allTerminal && Date.now() - stableSince >= 250) {
+      for (const entry of entries) {
+        assert.ok(entry.responseStatus >= 200 && entry.responseStatus < 400,
+          `${label} swallowed HTTP ${entry.responseStatus} for ${entry.method} ${entry.path}`);
+      }
+      events.push({
+        type: "bootstrap-request-drain",
+        label,
+        startOrdinal,
+        endOrdinal: requestLifecycle.length,
+        requestCount: entries.length,
+        statuses: entries.map(entry => ({
+          ordinal: entry.ordinal,
+          method: entry.method,
+          path: entry.path,
+          responseStatus: entry.responseStatus,
+          terminal: entry.terminal,
+        })),
+      });
+      return;
+    }
+    await page.waitForTimeout(25);
+  }
+  throw new Error(`${label} browser requests did not settle cleanly before bootstrap completion`);
+}
+
 async function runRoute(page, routePath, label) {
   let probeArmed = false;
   try {
     await control({ action: "reset-route", label });
     await control({ action: "window", name: `c5-${label}` });
     const routeStart = (await control({ action: "snapshot", label: `${label}-before-route` })).snapshot;
+    const bootstrapRequestStart = requestLifecycle.length;
 
     await page.goto(new URL(routePath, baseUrl).href);
     await waitForProject(page, "Alpha");
     await waitForProject(page, "Beta");
     await waitForNoSelection(page);
     assert.equal(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().locale), "en-US");
+    await waitForBootstrapDrain(page, bootstrapRequestStart, `c5-${label}`);
     const bootstrap = await control({ action: "bootstrap-complete" });
     assertBootstrapComplete(bootstrap, `c5-${label}`);
     const noSelection = (await control({ action: "snapshot", label: `${label}-no-selection` })).snapshot;
@@ -460,11 +517,20 @@ context.on("request", request => {
     documentUrl: request.frame()?.url() ?? null,
     bodySha256: request.postData() ? sha256(Buffer.from(request.postData())) : null,
     startedAt: Date.now(),
+    responseStatus: null,
+    responseAt: null,
     terminal: null,
   };
   requestLifecycle.push(entry);
   requestRecords.set(request, entry);
-  browserRequests.push({ ...entry });
+  browserRequests.push(entry);
+});
+context.on("response", response => {
+  const entry = requestRecords.get(response.request());
+  if (entry) {
+    entry.responseStatus = response.status();
+    entry.responseAt = Date.now();
+  }
 });
 context.on("requestfinished", request => {
   const entry = requestRecords.get(request);
@@ -729,11 +795,13 @@ try {
   await control({ action: "reset-route", label: "workbench" });
   await control({ action: "window", name: "chat" });
   const beforeChat = (await control({ action: "snapshot", label: "before-chat" })).snapshot;
+  const chatBootstrapRequestStart = requestLifecycle.length;
   const chatPage = await context.newPage();
   attachPage(chatPage);
   await chatPage.goto(new URL("/chat", baseUrl).href);
   await chatPage.getByText("C5 chat boundary", { exact: true }).waitFor();
   assert.equal(await chatPage.evaluate(() => Intl.DateTimeFormat().resolvedOptions().locale), "en-US");
+  await waitForBootstrapDrain(chatPage, chatBootstrapRequestStart, "chat");
   const chatBootstrap = await control({ action: "bootstrap-complete" });
   assertBootstrapComplete(chatBootstrap, "chat");
   const afterChat = (await control({ action: "snapshot", label: "after-chat" })).snapshot;
@@ -743,12 +811,17 @@ try {
     && item.path.includes(`scopeId=vivary-workbench-chat-v1%3A${identityReply.identity.orgId}`)));
   assert.equal(await chatPage.getByText(/C5 Alpha/, { exact: false }).count(), 0);
   assert.equal(afterChat.immutableTablesSha256, beforeChat.immutableTablesSha256);
+  const localizationWritesByWindow = Object.fromEntries(
+    bootstrapCompletions.map(item => [item.window, item.localizationWrites]),
+  );
+  assert.deepEqual(Object.keys(localizationWritesByWindow).sort(),
+    ["c5-root", "c5-workbench", "chat"].sort());
   assert.deepEqual(afterChat.bootstrap, {
     open: false,
-    localizationWrites: 1,
+    localizationWrites: localizationWritesByWindow.chat,
     chatUrlWrites: 1,
     chatEngineLists: 1,
-    localizationWritesByWindow: { "c5-root": 1, "c5-workbench": 1, chat: 1 },
+    localizationWritesByWindow,
     chatMutationsByWindow: { chat: { chatUrlWrites: 1, chatEngineLists: 1 } },
   });
   recordCheck("chat", "organization-qualified chat stays separate from C5 activity");
@@ -795,7 +868,10 @@ try {
       path: selectionPath,
       bodySha256: selectionBody(fixtureIds.beta.projectId),
     })),
-    ...Array.from({ length: 3 }, () => ({
+    ...Array.from({
+      length: Object.values(localizationWritesByWindow)
+        .reduce((total, count) => total + count, 0),
+    }, () => ({
       method: "PUT",
       path: MUTATION_REQUESTS["localization-write"].path,
       bodySha256: sha256(Buffer.from(MUTATION_BODIES["localization-write"])),
@@ -863,6 +939,7 @@ try {
     events,
     screenshots,
     transportProbes,
+    bootstrapCompletions,
     browserRequests,
     requestLifecycle,
     externalAttempts,

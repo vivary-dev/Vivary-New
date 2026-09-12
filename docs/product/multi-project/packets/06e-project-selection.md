@@ -10,7 +10,7 @@ Scope: Native scoped project catalog, registration form, shared selection, and e
 Verification-kind: runtime
 Verification-result: pending
 Evidence: [Project selection receipt](../receipts/06e-project-selection.md)
-Timebox: Original C5 budget 365 seconds. Browser01 and Browser02 consumed 73.86337730899686 seconds combined. Revision03 may use at most 291 seconds: 286 execution plus five cleanup. The remaining 0.13662269100314006 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
+Timebox: Original C5 budget 365 seconds. The three attempts consumed 119.5092389969941 seconds combined. Revision04 may use at most 245 seconds: 240 execution plus five cleanup. The remaining 0.4907610030059004 seconds is unallocated. Earlier focused and 05b allocations remain unchanged.
 
 ## Current progress
 
@@ -44,13 +44,19 @@ steps, then failed because its empty-state assertion did not match Native's
 batch response. Both attempts and their source are retained. No browser or model
 activity started; Browser02 seeded the two declared synthetic runs.
 
-**Accepted source:** Independent QA approved revision03's exact batch-response
-correction and remaining-budget tools. Preparation completed once with 352 source
-entries and 11 tool entries. Browser acceptance remains open.
+Browser03 launched Chromium but stopped during the first route's bootstrap. Its
+locale write also produced Native's sync-event row, which the fixture incorrectly
+rejected. No scenario, screenshot, or late-delivery probe completed. Final
+counter and state witnesses are absent, so this run cannot establish zero model
+calls or unchanged Native records. Forced cleanup removed all owned processes.
 
-**Next:** Independently verify the existing revision03 freeze and fresh resources
-before dispatch. Keep both consumed namespaces, ledgers, manifests, and archives
-intact. Do not repeat any preparation or rebuild unchanged product code.
+**Accepted source:** Independent QA approved all five revision04 files. The exact
+Native paired-write witness and browser bootstrap drain are source-reviewed.
+Preparation completed once with 355 source entries and 11 tool entries.
+
+**Next:** Independently verify the existing revision04 freeze and fresh resources,
+then dispatch its single bounded attempt. Preserve all earlier namespaces and
+evidence. Do not repeat any preparation or rebuild unchanged product code.
 Configured production mounting/authentication and parent switching/draft gates
 remain open.
 
@@ -187,9 +193,11 @@ and call `POST /_agent-native/actions/manage-agent-engine` with
 `agent-chat-context` writes. These source-derived exceptions preserve the
 accepted build. They do not authorize thread, session, run, or event mutations.
 
-Compare immutable Native rows to the original post-seed baseline across every
-window, including bootstrap. For application state, allow only each declared
-cell's exact value and its schema-defined update timestamp. Fixture setup, role,
+Compare immutable Native execution rows to the original post-seed baseline
+across every window, including bootstrap. For each permitted application-state
+PUT, validate the exact cell value and update timestamp plus Native's one
+corresponding sync-event append. Preserve all preexisting sync-event rows and
+reject any extra event. The revision04 contract below owns this paired witness. Fixture setup, role,
 reference, delay, snapshot, and close controls are separate from browser traffic
 and have exact declared effects. The `/chat` check remains organization-qualified
 and separate from Workbench activity.
@@ -278,6 +286,30 @@ The Browser02 archive is `.tmp/06e/browser-02-failed-evidence.zip`, SHA-256
 `866c7f989fc5230714104464785b7bcde730730e087c09ab15a9518f99172d36`.
 All 32 payload members, hashes, and ZIP CRC passed readback. It also retains the
 Browser01 archive. No further runtime follows from the failed result alone.
+
+
+## C5 browser revision04: exact Native write effects
+
+Browser03 exposed the normal sync-event append from an allowed application-state
+PUT. The fixture must validate both effects against the installed Native schema:
+the one declared state cell and its one corresponding new sync-event row. Retain
+the raw before/after values and the exact event in each write witness. Preserve
+every preexisting sync row. Exclude only individually verified new rows from the
+immutable-state comparison and reject all additional, changed, or removed rows.
+Thread, session, run, and execution-event records remain unchanged.
+
+Drain browser bootstrap requests and inspect their actual response statuses
+before closing the bootstrap window. Surface a rejected fire-and-forget request.
+Locale startup still allows zero or one exact PUT. Keep the existing separate
+chat URL and engine-list allowances. Do not widen browser traffic or change the
+accepted app to satisfy the fixture.
+
+Use one `browser-04` attempt in `.tmp/06e/zo-browser-r4`. Its 245 seconds come
+from the original remainder: 240 execution and five cleanup. The frozen authority
+must bind all three actual charges and all nine prior ledger, result, and archive
+artifacts. Maximum combined charge is 364.5092389969941 of 365 seconds. No prior
+namespace or ledger may change. All other CPU, memory, task, output, isolation,
+cleanup, source-review, preparation, and fresh-admission requirements still apply.
 
 ## Historical Habitat continuation
 

@@ -17,7 +17,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[5]
-BASE = ROOT / ".tmp/06e/zo-browser-r3"
+BASE = ROOT / ".tmp/06e/zo-browser-r4"
 R1_BASE = ROOT / ".tmp/06e/zo-browser"
 R1_LEDGER = R1_BASE / "budget.json"
 R1_RESULT = R1_BASE / "browser-01/result.json"
@@ -26,6 +26,10 @@ R2_BASE = ROOT / ".tmp/06e/zo-browser-r2"
 R2_LEDGER = R2_BASE / "budget.json"
 R2_RESULT = R2_BASE / "browser-02/result.json"
 R2_ARCHIVE = ROOT / ".tmp/06e/browser-02-failed-evidence.zip"
+R3_BASE = ROOT / ".tmp/06e/zo-browser-r3"
+R3_LEDGER = R3_BASE / "budget.json"
+R3_RESULT = R3_BASE / "browser-03/result.json"
+R3_ARCHIVE = ROOT / ".tmp/06e/browser-03-failed-evidence.zip"
 EXPECTED_R1_LEDGER_SHA256 = (
     "f7e5d3dddb92a5453947e8f508ce18d0a63bb661546e0baa75462750691bbc55"
 )
@@ -44,9 +48,19 @@ EXPECTED_R2_RESULT_SHA256 = (
 EXPECTED_R2_ARCHIVE_SHA256 = (
     "866c7f989fc5230714104464785b7bcde730730e087c09ab15a9518f99172d36"
 )
+EXPECTED_R3_LEDGER_SHA256 = (
+    "0187e8028ff6f12a0cfcf749c1b0ae299415323ec0b6aeb33b05b99e3c0629b6"
+)
+EXPECTED_R3_RESULT_SHA256 = (
+    "ac7929e7653b27f6854308a1856f06f9e724ef89b407ac82e621eed52501c0c3"
+)
+EXPECTED_R3_ARCHIVE_SHA256 = (
+    "b1b45eb1c7864c1bd48267041c6cc39881ffbf7e7cdec74104a6b9c4b9ccde65"
+)
 R1_CHARGED_SECONDS = 37.09076154699869
 R2_CHARGED_SECONDS = 36.77261576199817
-PRIOR_CHARGED_SECONDS = R1_CHARGED_SECONDS + R2_CHARGED_SECONDS
+R3_CHARGED_SECONDS = 45.64586168799724
+PRIOR_CHARGED_SECONDS = R1_CHARGED_SECONDS + R2_CHARGED_SECONDS + R3_CHARGED_SECONDS
 ORIGINAL_TOTAL_SECONDS = 365
 APP = ROOT / ".tmp/05b/zo-runtime/app"
 BROWSER = (
@@ -54,10 +68,10 @@ BROWSER = (
     / ".tmp/05b/zo-runtime/chromium-02/work/browsers/"
     "chromium-1243/chrome-linux64"
 )
-NAME = "browser-03"
-EXECUTION_SECONDS = 286
+NAME = "browser-04"
+EXECUTION_SECONDS = 240
 CLEANUP_SECONDS = 5
-TOTAL_SECONDS = 291
+TOTAL_SECONDS = 245
 MEMORY_STOP = 8 * 1024**3
 TASK_STOP = 256
 HOST_RESERVE = 1536 * 1024**2
@@ -351,14 +365,14 @@ def config_for() -> dict:
         "playwrightPackageJsonSha256": sha(playwright),
         "chromiumExecutable": "/browser/chrome",
         "chromiumSha256": sha(chromium),
-        "sourceManifestPath": "/source/.tmp/06e/zo-browser-r3/source-manifest.json",
+        "sourceManifestPath": "/source/.tmp/06e/zo-browser-r4/source-manifest.json",
         "sourceManifestSha256": sha(source_manifest),
         "sourceBindingSha256": source_value["bindingSha256"],
-        "toolManifestPath": "/source/.tmp/06e/zo-browser-r3/tool-manifest.json",
+        "toolManifestPath": "/source/.tmp/06e/zo-browser-r4/tool-manifest.json",
         "toolManifestSha256": sha(tool_manifest),
-        "trafficManifestPath": "/source/.tmp/06e/zo-browser-r3/traffic-manifest.json",
+        "trafficManifestPath": "/source/.tmp/06e/zo-browser-r4/traffic-manifest.json",
         "trafficManifestSha256": sha(traffic_manifest),
-        "profilePath": "/source/.tmp/06e/zo-browser-r3/profile.json",
+        "profilePath": "/source/.tmp/06e/zo-browser-r4/profile.json",
         "profileSha256": sha(profile),
         "proofToken": secrets.token_hex(32),
         "deadlineSeconds": EXECUTION_SECONDS,
@@ -377,6 +391,7 @@ def read_budget_authority() -> dict:
             "archivePath": R1_ARCHIVE,
             "archiveSha256": EXPECTED_R1_ARCHIVE_SHA256,
             "expectedPriorCharge": None,
+            "browserStarted": False,
         },
         {
             "name": "browser-02",
@@ -388,6 +403,19 @@ def read_budget_authority() -> dict:
             "archivePath": R2_ARCHIVE,
             "archiveSha256": EXPECTED_R2_ARCHIVE_SHA256,
             "expectedPriorCharge": R1_CHARGED_SECONDS,
+            "browserStarted": False,
+        },
+        {
+            "name": "browser-03",
+            "charge": R3_CHARGED_SECONDS,
+            "ledgerPath": R3_LEDGER,
+            "ledgerSha256": EXPECTED_R3_LEDGER_SHA256,
+            "resultPath": R3_RESULT,
+            "resultSha256": EXPECTED_R3_RESULT_SHA256,
+            "archivePath": R3_ARCHIVE,
+            "archiveSha256": EXPECTED_R3_ARCHIVE_SHA256,
+            "expectedPriorCharge": R1_CHARGED_SECONDS + R2_CHARGED_SECONDS,
+            "browserStarted": True,
         },
     )
     attempts = []
@@ -416,7 +444,7 @@ def read_budget_authority() -> dict:
         assert result["supervisorTermSignaledPids"] == []
         assert result["supervisorKillSignaledPids"] == []
         assert result["passingRunSupervisorEscalation"] is False
-        assert result["chromiumLaunches"] == []
+        assert bool(result["chromiumLaunches"]) is spec["browserStarted"]
         assert result["runnerResultSha256"] is None
         if spec["expectedPriorCharge"] is not None:
             assert entry["priorChargedSeconds"] == spec["expectedPriorCharge"]
@@ -432,7 +460,7 @@ def read_budget_authority() -> dict:
             "failure": "child-failed",
             "refusal": None,
             "cleanupAbsent": True,
-            "browserStarted": False,
+            "browserStarted": spec["browserStarted"],
             "ledger": {
                 "path": "/source/" + spec["ledgerPath"].relative_to(ROOT).as_posix(),
                 "sha256": spec["ledgerSha256"],
@@ -458,7 +486,7 @@ def read_budget_authority() -> dict:
         "priorAttempts": attempts,
         "priorChargedSeconds": prior_total,
         "retry": {
-            "name": "browser-03",
+            "name": "browser-04",
             "executionSeconds": EXECUTION_SECONDS,
             "cleanupSeconds": CLEANUP_SECONDS,
             "totalSeconds": TOTAL_SECONDS,
@@ -624,6 +652,7 @@ def reserve() -> tuple[Path, dict]:
                 priorAttempts=[
                     {"name": "browser-01", "chargedSeconds": R1_CHARGED_SECONDS},
                     {"name": "browser-02", "chargedSeconds": R2_CHARGED_SECONDS},
+                    {"name": "browser-03", "chargedSeconds": R3_CHARGED_SECONDS},
                 ],
                 priorChargedSeconds=PRIOR_CHARGED_SECONDS,
                 combinedChargedSeconds=combined,
@@ -643,6 +672,7 @@ def reserve() -> tuple[Path, dict]:
                     "priorAttempts": [
                         {"name": "browser-01", "chargedSeconds": R1_CHARGED_SECONDS},
                         {"name": "browser-02", "chargedSeconds": R2_CHARGED_SECONDS},
+                        {"name": "browser-03", "chargedSeconds": R3_CHARGED_SECONDS},
                     ],
                     "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
                     "combinedChargedSeconds": combined,
@@ -972,6 +1002,7 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
         "priorAttempts": [
             {"name": "browser-01", "chargedSeconds": R1_CHARGED_SECONDS},
             {"name": "browser-02", "chargedSeconds": R2_CHARGED_SECONDS},
+            {"name": "browser-03", "chargedSeconds": R3_CHARGED_SECONDS},
         ],
         "priorChargedSeconds": PRIOR_CHARGED_SECONDS,
         "currentChargedSeconds": elapsed,
@@ -991,6 +1022,12 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
                 "ledgerSha256": EXPECTED_R2_LEDGER_SHA256,
                 "resultSha256": EXPECTED_R2_RESULT_SHA256,
                 "archiveSha256": EXPECTED_R2_ARCHIVE_SHA256,
+            },
+            {
+                "name": "browser-03",
+                "ledgerSha256": EXPECTED_R3_LEDGER_SHA256,
+                "resultSha256": EXPECTED_R3_RESULT_SHA256,
+                "archiveSha256": EXPECTED_R3_ARCHIVE_SHA256,
             },
         ],
         "executionDeadlineSeconds": EXECUTION_SECONDS,
@@ -1044,6 +1081,7 @@ def supervise(run_dir: Path, dispatch_record: dict) -> int:
         priorAttempts=[
             {"name": "browser-01", "chargedSeconds": R1_CHARGED_SECONDS},
             {"name": "browser-02", "chargedSeconds": R2_CHARGED_SECONDS},
+            {"name": "browser-03", "chargedSeconds": R3_CHARGED_SECONDS},
         ],
         priorChargedSeconds=PRIOR_CHARGED_SECONDS,
         combinedChargedSeconds=combined_charged,
@@ -1098,10 +1136,10 @@ def self_test() -> dict:
     assert PRIOR_CHARGED_SECONDS + TOTAL_SECONDS <= ORIGINAL_TOTAL_SECONDS
     validate_ledger([])
     validate_ledger(
-        [{"name": NAME, "chargedSeconds": 291, "status": "reserved"}]
+        [{"name": NAME, "chargedSeconds": 245, "status": "reserved"}]
     )
     validate_ledger(
-        [{"name": NAME, "chargedSeconds": 291.25, "status": "finished"}]
+        [{"name": NAME, "chargedSeconds": 245.25, "status": "finished"}]
     )
     table = {
         10: {"parent": 1, "pgrp": 10, "started": 100, "rss": 1, "threads": 1},

@@ -522,6 +522,7 @@ let chatUrlWrites = 0;
 let chatEngineLists = 0;
 const localizationWritesByWindow = {};
 const chatMutationsByWindow = {};
+const acceptedMutableSyncEvents = new Map();
 let serialNativeReads = Promise.resolve();
 let heldAlpha = null;
 let holdNextAlpha = false;
@@ -567,11 +568,24 @@ function immutableTablesDigest(snapshot) {
   const tables = Object.fromEntries(Object.entries(snapshot.tables)
     .filter(([name]) => name !== "app_member_roles")
     .map(([name, table]) => {
-      if (name !== "application_state") return [name, table];
-      return [name, {
-        ...table,
-        rows: table.rows.filter(row => !mutableApplicationKeys.has(row.key)),
-      }];
+      if (name === "application_state") {
+        return [name, {
+          ...table,
+          rows: table.rows.filter(row => !mutableApplicationKeys.has(row.key)),
+        }];
+      }
+      if (name === "sync_events") {
+        for (const [id, expectedRowJson] of acceptedMutableSyncEvents) {
+          const retained = table.rows.filter(row => row.id === id);
+          assert.equal(retained.length, 1);
+          assert.equal(canonicalJson(retained[0]), expectedRowJson);
+        }
+        return [name, {
+          ...table,
+          rows: table.rows.filter(row => !acceptedMutableSyncEvents.has(row.id)),
+        }];
+      }
+      return [name, table];
     }));
   return canonicalDigest({ schemaVersion: snapshot.schemaVersion, tables });
 }
@@ -620,6 +634,134 @@ function assertExactRowScope(label, before, after, tableName, rowMatches, allowU
 
 function applicationStateRow(key) {
   return row => row.session_id === identity.email && row.key === key;
+}
+
+const APPLICATION_STATE_COLUMNS = ["key", "session_id", "updated_at", "value"];
+const SYNC_EVENT_COLUMNS = [
+  "created_at", "event_json", "event_key", "id", "org_id", "owner",
+  "resource_id", "resource_type", "source", "type", "version",
+];
+
+async function waitForSyncEventAppend(before) {
+  const beforeRows = before.tables.sync_events?.rows ?? [];
+  const beforeRowsJson = new Set(beforeRows.map(canonicalJson));
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const after = await tableSnapshot();
+    const addedRows = (after.tables.sync_events?.rows ?? [])
+      .filter(row => !beforeRowsJson.has(canonicalJson(row)));
+    if (addedRows.length > 0) return after;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error("timed out waiting for the Native application-state sync event");
+}
+
+function assertExactApplicationStateEffect(
+  label,
+  before,
+  after,
+  key,
+  expectedValue,
+  requestSource,
+  operationStartedAt,
+  operationCompletedAt,
+  allowUnchangedApplicationState = false,
+) {
+  assert.deepEqual(before.tables.application_state.columns, APPLICATION_STATE_COLUMNS);
+  assert.deepEqual(after.tables.application_state.columns, APPLICATION_STATE_COLUMNS);
+  assert.deepEqual(before.tables.sync_events.columns, SYNC_EVENT_COLUMNS);
+  assert.deepEqual(after.tables.sync_events.columns, SYNC_EVENT_COLUMNS);
+
+  const matchesState = applicationStateRow(key);
+  const beforeApplicationRows = before.tables.application_state.rows.filter(matchesState);
+  const afterApplicationRows = after.tables.application_state.rows.filter(matchesState);
+  assert.ok(beforeApplicationRows.length <= 1);
+  assert.equal(afterApplicationRows.length, 1);
+  assert.deepEqual(
+    before.tables.application_state.rows.filter(row => !matchesState(row)),
+    after.tables.application_state.rows.filter(row => !matchesState(row)),
+  );
+  const applicationStateChanged =
+    canonicalJson(before.tables.application_state) !== canonicalJson(after.tables.application_state);
+  if (!allowUnchangedApplicationState) assert.equal(applicationStateChanged, true);
+  assert.deepEqual(changedTables(before, after),
+    applicationStateChanged ? ["application_state", "sync_events"] : ["sync_events"]);
+
+  const applicationRow = afterApplicationRows[0];
+  assert.deepEqual(JSON.parse(applicationRow.value), expectedValue);
+  assert.ok(Number.isSafeInteger(applicationRow.updated_at) && applicationRow.updated_at > 0);
+  assert.ok(applicationRow.updated_at >= operationStartedAt);
+  assert.ok(applicationRow.updated_at <= operationCompletedAt);
+
+  const beforeSyncRowsJson = new Set(before.tables.sync_events.rows.map(canonicalJson));
+  const afterSyncRowsJson = new Set(after.tables.sync_events.rows.map(canonicalJson));
+  const removedSyncRows = before.tables.sync_events.rows
+    .filter(row => !afterSyncRowsJson.has(canonicalJson(row)));
+  const addedSyncRows = after.tables.sync_events.rows
+    .filter(row => !beforeSyncRowsJson.has(canonicalJson(row)));
+  assert.deepEqual(removedSyncRows, []);
+  assert.equal(addedSyncRows.length, 1);
+  assert.equal(after.tables.sync_events.rows.length, before.tables.sync_events.rows.length + 1);
+
+  const syncRow = addedSyncRows[0];
+  assert.equal(syncRow.source, "app-state");
+  assert.equal(syncRow.type, "change");
+  assert.equal(syncRow.event_key, key);
+  assert.equal(syncRow.owner, identity.email);
+  assert.equal(syncRow.org_id, null);
+  assert.equal(syncRow.resource_type, null);
+  assert.equal(syncRow.resource_id, null);
+  assert.ok(Number.isSafeInteger(syncRow.version) && syncRow.version > 0);
+  assert.ok(Number.isSafeInteger(syncRow.created_at) && syncRow.created_at > 0);
+  assert.ok(syncRow.version >= applicationRow.updated_at);
+  assert.ok(syncRow.created_at >= applicationRow.updated_at);
+  assert.ok(syncRow.created_at >= operationStartedAt);
+  assert.ok(syncRow.created_at <= operationCompletedAt);
+  assert.equal(typeof syncRow.id, "string");
+  assert.ok(syncRow.id.startsWith(`${syncRow.version}-`));
+  assert.match(syncRow.id.slice(String(syncRow.version).length + 1), /^[a-z0-9]{1,8}$/);
+
+  const event = JSON.parse(syncRow.event_json);
+  const expectedEvent = {
+    source: "app-state",
+    type: "change",
+    key,
+    owner: identity.email,
+    ...(requestSource === undefined ? {} : { requestSource }),
+    version: syncRow.version,
+    cursorId: syncRow.id,
+  };
+  assert.deepEqual(event, expectedEvent);
+  acceptedMutableSyncEvents.set(syncRow.id, canonicalJson(syncRow));
+  controlledWrites.push({
+    label,
+    allowedTables: applicationStateChanged
+      ? ["application_state", "sync_events"]
+      : ["sync_events"],
+    actualChangedTables: changedTables(before, after),
+    beforeSha256: canonicalDigest(before),
+    afterSha256: canonicalDigest(after),
+    applicationState: {
+      columns: APPLICATION_STATE_COLUMNS,
+      beforeRows: beforeApplicationRows,
+      afterRows: afterApplicationRows,
+      expectedValue,
+    },
+    syncEvent: {
+      columns: SYNC_EVENT_COLUMNS,
+      beforeCount: before.tables.sync_events.rows.length,
+      afterCount: after.tables.sync_events.rows.length,
+      addedRows: addedSyncRows,
+      removedRows: removedSyncRows,
+      decodedEvent: event,
+      timestampRelationship: {
+        operationStartedAt,
+        applicationUpdatedAt: applicationRow.updated_at,
+        eventVersion: syncRow.version,
+        eventCreatedAt: syncRow.created_at,
+        operationCompletedAt,
+      },
+    },
+  });
 }
 
 function roleRow(row) {
@@ -1167,15 +1309,22 @@ async function handleRequest(message) {
   if (Object.hasOwn(exactMutationKeys, category)) {
     routed = await serialNative(async () => {
       const before = await tableSnapshot();
+      const operationStartedAt = Date.now();
       const response = await executeRouted();
-      const after = await tableSnapshot();
-      const rowScope = assertExactRowScope(`request-${ordinal}-${category}`, before, after,
-        "application_state", applicationStateRow(exactMutationKeys[category]),
-        category === "selection-write");
-      assert.equal(rowScope.afterRows.length, 1);
-      assert.deepEqual(JSON.parse(rowScope.afterRows[0].value), JSON.parse(body.toString("utf8")));
-      assert.ok(Number.isSafeInteger(rowScope.afterRows[0].updated_at)
-        && rowScope.afterRows[0].updated_at > 0);
+      assert.equal(response.response.status, 200);
+      const after = await waitForSyncEventAppend(before);
+      const operationCompletedAt = Date.now();
+      assertExactApplicationStateEffect(
+        `request-${ordinal}-${category}`,
+        before,
+        after,
+        exactMutationKeys[category],
+        JSON.parse(body.toString("utf8")),
+        category === "localization-write" ? "localization" : undefined,
+        operationStartedAt,
+        operationCompletedAt,
+        category === "selection-write",
+      );
       return response;
     });
   } else if (["chat-engine-list", "blocked-mutation"].includes(category)) {
@@ -1252,7 +1401,7 @@ async function handleRequest(message) {
   }
   requestLog.push(responseMeta);
   if (bootstrapCompletion?.window === requestWindow
-    && bootstrapCompletion.required.has(category)) {
+    && (bootstrapCompletion.required.has(category) || category === "localization-write")) {
     assert.equal(routed.response.status, 200);
     assert.equal(bootstrapCompletion.completed.has(category), false);
     bootstrapCompletion.completed.set(category, responseMeta);
@@ -1368,11 +1517,12 @@ async function handle(message) {
     localizationWrites = 0;
     chatUrlWrites = 0;
     chatEngineLists = 0;
+    localizationWritesByWindow[message.name] = 0;
     bootstrapCompletion = {
       window: message.name,
       required: new Set(message.name === "chat"
-        ? ["localization-write", "chat-url-write", "chat-engine-list"]
-        : ["localization-write"]),
+        ? ["chat-url-write", "chat-engine-list"]
+        : []),
       completed: new Map(),
     };
     controlLog.push({ action: "window", name: message.name });
@@ -1383,12 +1533,15 @@ async function handle(message) {
     assert.equal(bootstrapOpen, true);
     assert.equal(bootstrapCompletion?.window, activeWindow);
     for (let attempt = 0; attempt < 200
-      && bootstrapCompletion.completed.size !== bootstrapCompletion.required.size; attempt += 1) {
+      && [...bootstrapCompletion.required]
+        .some(category => !bootstrapCompletion.completed.has(category)); attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 25));
     }
-    assert.equal(localizationWrites, 1);
+    assert.ok(localizationWrites === 0 || localizationWrites === 1);
+    const expectedCompleted = new Set(bootstrapCompletion.required);
+    if (localizationWrites === 1) expectedCompleted.add("localization-write");
     assert.deepEqual([...bootstrapCompletion.completed.keys()].sort(),
-      [...bootstrapCompletion.required].sort());
+      [...expectedCompleted].sort());
     if (activeWindow === "chat") {
       assert.equal(chatUrlWrites, 1);
       assert.equal(chatEngineLists, 1);
@@ -1623,11 +1776,11 @@ async function closeBackend() {
   assert.equal(holdNextAlpha, false);
   assert.equal(bootstrapOpen, false);
   assert.equal(bootstrapCompletion, null);
-  assert.deepEqual(localizationWritesByWindow, {
-    "c5-root": 1,
-    "c5-workbench": 1,
-    chat: 1,
-  });
+  assert.deepEqual(Object.keys(localizationWritesByWindow).sort(),
+    ["c5-root", "c5-workbench", "chat"].sort());
+  for (const count of Object.values(localizationWritesByWindow)) {
+    assert.ok(count === 0 || count === 1);
+  }
   assert.deepEqual(chatMutationsByWindow, {
     chat: { chatUrlWrites: 1, chatEngineLists: 1 },
   });

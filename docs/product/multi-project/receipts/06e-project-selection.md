@@ -973,3 +973,74 @@ admission passed against 363 physical files and fresh resources. Do not repeat
 preparation. The fixture uses private disposable tmpfs roots. It does not prove
 custody on Zo's persistent
 workspace filesystem or default production action mounting/authentication.
+
+## C5 Browser03 bootstrap failure, 2026-09-12
+
+Browser03 launched sandboxed Chromium and reached the first `/` bootstrap. Its
+85 requests settled: 84 GETs and one localization PUT. Native persisted the
+localization application-state row and its normal sync-event row. The fixture
+allowed only the first table, so its write witness rejected the completed handler.
+The localization call swallowed that 502, and measurement initialization then
+rejected an empty completion audit. No scenario checks, screenshots, or delayed
+response probes completed.
+
+The attempt charged 45.64586168799724 seconds. Combined use is
+119.5092389969941 of the original 365 seconds, leaving 245.4907610030059 seconds.
+Independent Verify checked all 24 owned PID/start identities and the supervisor
+identity absent. The runner SIGKILLed backend Node and Xvfb during failure
+containment. The browser reported natural closure false. The supervisor used no
+signals. No final state, counter, provider, database, or SSR-close witness exists,
+so this failure proves neither clean lifecycle completion nor zero model calls.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Supervisor result | `ac7929e7653b27f6854308a1856f06f9e724ef89b407ac82e621eed52501c0c3` |
+| Browser03 ledger | `0187e8028ff6f12a0cfcf749c1b0ae299415323ec0b6aeb33b05b99e3c0629b6` |
+| Raw backend stderr | `16f78ad60f6327d6fad23ddcbe79b32c5163ba63cd5bd340d9f2eb2dd72484ca` |
+| Failure archive | `b1b45eb1c7864c1bd48267041c6cc39881ffbf7e7cdec74104a6b9c4b9ccde65` |
+
+The archive is 775,228 bytes, with 37 payload members totaling 4,748,680 bytes
+plus its manifest. CRC, exact members, and all hashes passed independent readback.
+It retains source commit `f7f833d`, both earlier archives, the frozen inputs,
+and raw failure evidence. That source commit is verified on private Entire.
+The three earlier ledgers remain unchanged. Revision04 may allocate 245 seconds
+from the original remainder only after source review, one preparation, and fresh
+admission.
+
+## C5 revision04 source freeze, 2026-09-12
+
+Independent QA accepted all five corrected source files. The paired write
+witness matches Native's application-state store, emitter, and sync persistence
+code. It records each exact state row and corresponding event, preserves all
+prior sync rows, and rechecks accepted event bytes at every immutable snapshot.
+The browser drains bootstrap responses and rejects swallowed HTTP failures
+before closing that window. Existing request and product boundaries remain.
+
+Preparation completed once with 355 source entries and 11 tool entries, including
+80 accepted app inputs, 212 exact build outputs, and 43 Core Python files. The
+accepted dependency and Chromium trees remain unchanged.
+
+| Source | SHA-256 |
+| --- | --- |
+| c5_browser_backend.mjs | `5eaa51d407ab22ee0e04a62d4f814023a99adf0a739600894205e9aef97084d5` |
+| c5_browser.mjs | `87b353369d1e47cd040d429c4d26ffdc3a169069ea439557582a4da972a45824` |
+| c5_browser_runner.mjs | `ecb15cc51c0f3afd64ce4c38a10c9821b684c08cd6d32b466b04a6183ebf2c46` |
+| prepare_zo_browser.py | `3511a803e3aa7692e70e51d323336dc964dc82dc95a63d9032e4ad40534d2385` |
+| zo_browser_supervisor.py | `b0f8dc5ebddb178476242c7cd430a8a0bdac50dff63a703cefbba3852ef0af50` |
+
+| Frozen authority | SHA-256 |
+| --- | --- |
+| Source manifest | `4395bf923316185d77f10c7fa7ff1a8359a53852c0bddbafd96eb67088e5f90e` |
+| Source binding | `c4735a28ff6ca97c0779e29340e7864307d97247db96eb645ee421be210824c7` |
+| Profile | `f8a6e7136ed93f7ab8bb947737a998edc154818b84a2a07783d363056b6c67ec` |
+| Budget authority | `f8b507242907509c94b21946eb2ae55932edd35903d65c7006c2845a467d774b` |
+
+The authority binds all three prior charges and all nine retained evidence
+artifacts. One `browser-04` attempt in `.tmp/06e/zo-browser-r4` may use
+240 execution seconds and five cleanup seconds. Maximum combined use is
+364.5092389969941 of the original 365 seconds. Fresh independent admission remains
+required at this source checkpoint. Do not repeat preparation.
+
+This source acceptance does not establish browser acceptance, default production
+action mounting/authentication, or custody on Zo's persistent workspace
+filesystem. The fixture's physical roots remain private disposable tmpfs.
