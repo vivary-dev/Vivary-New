@@ -3,11 +3,11 @@ Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/9
 Parent: 17
 Status: needs-info
-Depends-on: [04a]
+Depends-on: [04a, 06g]
 Owner: Root-assigned Workbench continuity integrator
 Scope: Persist project/session selection and unsent text through Native state across desktop origins.
 Verification-kind: runtime
-Needs: 04a accepted with stable project/session keys and a defined unassigned-history location.
+Needs: 04a supplies stable project/session keys and an unassigned-history location. 06g supplies accepted selection persistence across local and hosted access.
 Timebox: One restart-continuity increment with focused state checks and the real desktop journey.
 
 ## Goal

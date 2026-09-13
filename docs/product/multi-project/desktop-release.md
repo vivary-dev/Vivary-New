@@ -39,7 +39,9 @@ accessible during migration. Do not silently attach them to an arbitrary project
 
 Project files stay where the user puts them. Preserve the original five-file
 workspace contract and editable starter patterns. Ordinary memory uses configured
-project files, with `.vivary/memory/` as the planned default for new workspaces.
+project files, with `.vivary/knowledge/` as the planned default for new workspaces.
+The existing `.vivary/memory/` directory belongs to disposable semantic-provider
+state. Authored notes must never share its cleanup or ignore rules.
 Resolve the exact path through `workspace.toml` roles. Do not require a rigid role
 layout, language pack, Brain service, Git, Jujutsu, Beads, or Entire to remember work.
 
@@ -101,7 +103,7 @@ runtime job active on Zo and one writer per shared file.
 | 2 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Ready |
 | 3 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Ready |
 | 4 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
-| 5 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a |
+| 5 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a, 06g |
 | 6 | Native session logs | [04c: Retain provider sessions outside project folders](packets/04c-native-provider-session-logs.md) · [#10](https://github.com/vivary-dev/Vivary-New/issues/10) | After 04a |
 | 7 | Searchable chats | [04b: Search the contents of project chat sessions](packets/04b-search-chat-content.md) · [#11](https://github.com/vivary-dev/Vivary-New/issues/11) | After 04a |
 | 8 | Project files | [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) · [#12](https://github.com/vivary-dev/Vivary-New/issues/12) | Ready |

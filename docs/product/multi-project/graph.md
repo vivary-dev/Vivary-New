@@ -45,7 +45,7 @@ In progress: none.
 | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) | 11 | needs-info | [11c] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
-| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | needs-info | [04a] |
+| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | needs-info | [04a, 06g] |
 | [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) | 18 | needs-info | [04a, 11a, 09b] |
 | [19a: Connect an approved external pattern catalog after its hold is lifted](packets/19a-held-external-pattern-catalog.md) | 19 | needs-info | [07c, 08a] |
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |
