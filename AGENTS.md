@@ -92,7 +92,11 @@ Do not promote this work into the original repository or its release branches.
 Make small, coherent, reviewed commits. Preserve unrelated work, accepted
 evidence, and historical budgets. Keep private handoffs, credentials, transcripts,
 and machine-specific continuity notes outside public source and Git history.
-Private source hosting does not establish agent-session capture.
+Private source hosting does not establish agent-session capture. Follow
+[the Entire contributor setup](docs/ENTIRE.md) before supported agent work.
+Verify enabled hooks and the private checkpoint destination. Use Entire session
+and checkpoint commands to confirm capture, then search prior checkpoints when
+past decisions matter. Never claim MCP controller edits were captured locally.
 
 Use the user's existing authorization. Complete reversible preparation before
 requesting any missing approval for pushes, PR creation, merges, publication,

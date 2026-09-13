@@ -30,6 +30,13 @@ once this configuration reaches `main`. GitHub security updates still target
 promotion. Do not merge a security update that leaves the integration branch
 unfixed. See [GitHub's target-branch behavior](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
 
+### Entire session capture
+
+[Enable Entire](docs/ENTIRE.md) in your working checkout before supported agent
+work. The guide covers agent hooks, worktree discovery, private checkpoint
+routing, and checking that a session was actually recorded. Source mirroring
+alone does not provide this record. Keep local settings and transcripts untracked.
+
 ### Checkout and worktree lifecycle
 
 Fetch `origin/dev` before starting a topic branch. Reuse the assigned checkout
