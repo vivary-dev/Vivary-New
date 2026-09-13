@@ -15,11 +15,12 @@ this development target. Publication, releases, and changes to the public produc
 still require Jeff's explicit acceptance. A working component does not establish
 a finished product.
 
-Vivary is a local desktop product. Zo is the development and private preview
-host. Users must be able to open Vivary, use local files and CLI models, and
-configure providers without a Vivary account or cloud control plane. Preserve
-existing preview evidence and original Vivary contracts. Reuse Native execution
-and connectors instead of creating another agent system.
+Vivary is a desktop and self-hosted web product. One instance runs on a
+user-controlled computer or suitable server. The desktop and responsive browser
+clients use that host's agents, files, credentials, and history. Local desktop
+opens without a Vivary account. Remote browser access is explicit and authenticated.
+Zo is the development and private preview host. Preserve existing preview evidence
+and original Vivary contracts. Reuse Native execution and connectors.
 
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
@@ -43,29 +44,40 @@ tool results. Fix a failure and repeat the affected journey. Then continue the
 product work. Do not turn visual testing into new verification infrastructure,
 repeat unrelated checks, or change historical evidence and budgets.
 
-Self-hosted Vivary does not require login or signup. Local access stays on loopback.
-The private Zo service uses Zo's existing owner-login boundary and must stay
-private. Internal Native session identity still scopes actions and records.
-Model-provider login remains separate from access to Vivary.
+Local desktop use requires no Vivary account or signup and stays on loopback by
+default. Remote browser access to the same host requires explicit setup and owner
+authentication. The private Zo service keeps its existing owner-login boundary.
+Internal Native session identity still scopes actions and records. Model-provider
+login remains separate from access to Vivary.
 
 ## Start with the product
 
 Jeff's 2026-09-13 target is a working `Vivary.exe` with project workspaces,
 searchable persistent sessions, file memory, fast project search, and the original
-Vivary operations. Follow [the desktop release queue](docs/product/multi-project/desktop-release.md).
-The first executable row owns primary work. Up to two helpers may take independent
-packaging or search work. Keep the existing 36 outcomes as coverage, not parallel
+Vivary operations, plus responsive browser access and live project preview/debugging. Follow [the desktop release queue](docs/product/multi-project/desktop-release.md).
+Keep at most two independent implementation issues active. Start with reliable
+project/chat state and desktop runtime packaging, then claim the next ready issues. Keep the existing 36 outcomes as coverage, not parallel
 workstreams. Do not mark the desktop finished from packaging or CI alone.
 
-GitHub milestone issues are the contributor queue. Versioned packets own scope,
-dependencies, and acceptance. Update the packet and issue together, then regenerate
-the frontier. A new active task must advance this release or fix a demonstrated
-blocker. Broader product outcomes retain their later milestones and evidence.
+Jeff approved GitHub issues as the execution ledger on 2026-09-13. Issues in
+`vivary-dev/Vivary-New` own task goals, acceptance, dependencies, ownership,
+priority, and lifecycle. Documents own architecture, code contracts,
+implementation guidance, and retained evidence. Packets and the generated
+frontier are synchronized references; refresh them when a linked issue changes,
+but a routine issue needs no packet before it starts. Read the live issue before
+work. Issue [#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this
+alignment, [#5](https://github.com/vivary-dev/Vivary-New/issues/5) is the first
+state repair, and [#7](https://github.com/vivary-dev/Vivary-New/issues/7) is the
+independent packaging lane. Follow
+[the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
+task must advance this release or fix a demonstrated blocker. Broader product
+outcomes retain their later milestones and evidence.
 
-Read [the current frontier](docs/product/multi-project/index.md) and the owning
-packet. [The execution contract](docs/product/multi-project/execution-contract.md)
-owns program metadata and delivery details. Choose the next observable user
-capability and implement one coherent slice through the real application.
+Read the claimed issue, then [the current frontier](docs/product/multi-project/index.md)
+and any linked packet for implementation guidance and evidence.
+[The execution contract](docs/product/multi-project/execution-contract.md)
+owns program metadata and delivery details. Implement one coherent slice
+through the real application.
 
 Use the workspace and execution environment authorized for the task. Reuse the
 current checkout and handoff when provided. Inspect live Git and preserve dirty

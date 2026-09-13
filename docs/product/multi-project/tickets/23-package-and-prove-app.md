@@ -74,3 +74,12 @@ The [desktop release queue](../desktop-release.md) assigns bounded work for this
 outcome and preserves the broader completion contract. A successful Windows
 artifact requires its specified sessions, memory, search, and original-tool
 journeys. Earlier source and Linux evidence retain their recorded scope.
+
+## Shared desktop and self-hosted browser delivery
+
+Jeff clarified on 2026-09-13 that phone users connect through a responsive web
+client to their own Vivary instance, including a suitable server host. Agents,
+files, credentials and history remain on that host. Packet 23d supplies explicit
+authenticated access and client behavior. Packet 23c accepts it alongside the
+Windows artifact and packet 11e live preview. Mac distribution remains optional
+later work and is not a dependency of this release. Existing evidence is unchanged.

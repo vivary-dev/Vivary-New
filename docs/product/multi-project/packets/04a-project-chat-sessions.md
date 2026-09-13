@@ -62,3 +62,7 @@ or weaken project authorization to make the history list populate.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. No implementation or acceptance claimed.
+
+## Shared desktop and web behavior
+
+Both chat surfaces and project/session navigation must remain usable at narrow phone widths. Project identity and Stop remain reachable. All sessions belong to the selected backend host.

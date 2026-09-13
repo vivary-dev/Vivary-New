@@ -78,3 +78,7 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: Included in the desktop release after 07d. Existing preset aliases remain compatible.
+
+## Shared desktop and web behavior
+
+The existing built-in pattern selection and preview/apply workflow must be usable in desktop and narrow browser layouts against the same host-side operations.

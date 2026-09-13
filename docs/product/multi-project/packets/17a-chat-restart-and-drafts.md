@@ -63,3 +63,7 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
 ## Log
 
 - 2026-09-13: Drafted. Cross-origin draft restoration is not accepted.
+
+## Shared desktop and web behavior
+
+Include browser refresh, navigation away and back, interrupted connection, and an on-screen keyboard. Restore drafts through the existing host-owned Native state without automatic sending or a second synchronization system.

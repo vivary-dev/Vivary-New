@@ -88,3 +88,7 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: The desktop target selects configurable project-file memory, fresh-session recall, and external transcript storage. Basic memory is required. Optional semantic services are not.
+
+## Shared desktop and web behavior
+
+Memory save, recall, correction, and removal controls must work through desktop and narrow browser sessions. Memory remains in files on the connected host, with existing project and agent identity boundaries.

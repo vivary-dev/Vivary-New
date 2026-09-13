@@ -11,19 +11,20 @@ Their process preferences do not override the engineering policy.
 
 ## One current frontier
 
-[The desktop release target](desktop-release.md) orders active work. GitHub
-milestone issues point to these same packets. They do not introduce another set
-of requirements. Keep packet status and issue lifecycle aligned in each PR.
-The first executable row in the release queue has priority over numeric order
-in the full graph. Record remaining work as a packet before starting it.
+GitHub `vivary-dev/Vivary-New` issues own the queue: task goals, acceptance,
+dependencies, ownership, priority, and lifecycle. Jeff approved this migration
+on 2026-09-13; [the authority map](issue-authority.md) records it and the
+historical issue mapping. Read the live issue before work.
+[The desktop release target](desktop-release.md), [the frontier](index.md),
+packets, and the generated graph are synchronized references to those issues,
+not an independent dispatch queue. Refresh them when a linked issue changes.
+A routine issue does not need a packet before it starts. Outcome and packet
+files still own their own metadata; the graph is generated from them.
 
-Read [the frontier](index.md) and the owning packet. Outcome and packet files own
-their metadata; the graph is generated from them.
-[The authority map](issue-authority.md) relates historical issues to the program.
-
-Outcome dependencies gate completion. Packet `Depends-on` fields gate starting
-that packet. Independent preparation may proceed without claiming that an
-unfinished integration works. A retired proof workflow is not a product dependency.
+Outcome dependencies and packet `Depends-on` fields remain retained guidance
+and evidence; the live issue's dependencies gate starting work. Independent
+preparation may proceed without claiming that an unfinished integration works.
+A retired proof workflow is not a product dependency.
 
 ## One reviewable iteration
 
@@ -47,7 +48,9 @@ agent may inspect, test, fix, and retest its own work.
 - `done` requires `Verification-result: passed`, a verification log, and a linked
   receipt whose `Evidence-record` matches the packet or outcome ID.
 
-Keep the existing metadata format. Runtime claims need runtime evidence;
+Keep the existing metadata format as a derived reference. When a packet status
+and its linked issue differ, the issue is correct; refresh the packet rather
+than maintaining both. Runtime claims need runtime evidence;
 `Verification-kind: inspection` describes source review.
 A concise command and result are enough for ordinary verification.
 Document checks establish consistency, not application behavior.
@@ -92,8 +95,9 @@ establish production readiness or publication.
 ## Reconcile documentation
 
 Update durable claims when behavior, architecture, contracts, or lasting
-constraints change. Keep current scope in its packet, useful verification in
-its receipt, and the next starting point in the existing handoff.
+constraints change. Keep current scope and acceptance in the issue,
+implementation guidance in its packet or owning document, useful verification
+in its receipt, and the next starting point in the existing handoff.
 Do not narrate every test attempt or create parallel handoffs.
 
 Refresh generated views when their inputs change. Ordinary edits do not need

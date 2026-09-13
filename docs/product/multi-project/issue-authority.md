@@ -1,19 +1,29 @@
 # GitHub issue and document authority
 
-The [program design](design.md) owns the approved product. The 36 outcome
-contracts preserve scope; bounded packets own execution briefs. The generated
-[graph](graph.md) owns no independent state and must match those records.
-PR [#328](https://github.com/vivary-dev/vivary/pull/328) carries the tracked plan.
+The [program design](design.md) owns the approved product. Jeff approved the
+tracker migration on 2026-09-13: GitHub `vivary-dev/Vivary-New` issues own task
+goals, acceptance, dependencies, ownership, priority, and lifecycle. Documents
+own architecture, code contracts, implementation guidance, and retained
+evidence. The 36 outcome contracts, bounded packets, and the generated
+[graph](graph.md) are synchronized references that must match the live issues;
+they are not an independent dispatch queue. PR
+[#328](https://github.com/vivary-dev/vivary/pull/328) carries the historical
+tracked plan.
 
-Until an explicit tracker migration is recorded, the tracked Markdown records
-are the execution ledger. GitHub's older `priority:now` labels are not permission
-to dispatch another product plan. Do not create a second independent queue or
-copy issue bodies back and forth without a declared synchronization owner.
+Always read the live issue before work. Issue
+[#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this alignment,
+[#5](https://github.com/vivary-dev/Vivary-New/issues/5) is the first reliable
+project/chat state repair, and
+[#7](https://github.com/vivary-dev/Vivary-New/issues/7) is the independent
+desktop packaging lane. The public repository's older `priority:now` labels are
+not permission to dispatch another product plan. Do not copy issue bodies back
+and forth without a declared synchronization owner.
 
 ## Existing issues retained as inputs
 
-Read live issue state before working on a linked requirement. This map does not
-close, erase, or waive any accepted evidence requirement.
+These public `vivary-dev/vivary` issues remain historical inputs. Read live
+issue state before working on a linked requirement. This map does not close,
+erase, or waive any accepted evidence requirement.
 
 | Existing issue | Role in the current program | Current dispatch rule |
 | --- | --- | --- |
@@ -30,13 +40,16 @@ close, erase, or waive any accepted evidence requirement.
 | [140](https://github.com/vivary-dev/vivary/issues/140), [20](https://github.com/vivary-dev/vivary/issues/20) | Local typed-vector communities | Reviewed implementation and CLI evidence are on the private GUI branch. Public integration/release remains pending product acceptance; these issues stay open until that delivery is available |
 | [159](https://github.com/vivary-dev/vivary/issues/159) | Repository health findings | Keep findings separate from product completion; act only on relevant current evidence |
 
-## When GitHub Issues become the execution ledger
+## GitHub Issues as the execution ledger: approved 2026-09-13
 
-Preserve the stable outcome/packet IDs in issue titles and record a one-to-one
-mapping. Detailed requirements remain linked canonical documents. Issue status,
-assignee, dependencies, and evidence become authoritative; generated graph
-snapshots must record the source revision and be refreshed after each unit.
-No agent may silently maintain conflicting Markdown and issue statuses.
+Where an issue maps to an outcome or packet, keep the stable ID in its title
+and record the mapping. Architecture, contracts, and implementation guidance
+remain linked canonical documents. Issue status, assignee, dependencies, and
+evidence links are authoritative. Refresh the existing generated graph after
+linked packet metadata changes, keeping its current format as a derived reference. No agent may silently maintain conflicting
+Markdown and issue statuses. A routine issue needs no packet ceremony before it
+starts. Update active implementation guidance when its issue changes. Preserve
+retired packets and historical evidence.
 
 2026-09-05 live reconciliation: issues 151 and 214 now point to this program and
 no longer carry `priority:now`. Issue 148 explicitly excludes WSL for this work.

@@ -60,3 +60,7 @@ dependencies. A rejected auth change does not authorize an equivalent workaround
 
 - 2026-09-13: Named the observed selection-save failure as the first product
   repair. No auth change or new persistence acceptance is claimed.
+
+## Shared desktop and web behavior
+
+Verify authorized saves and reloads in desktop and narrow browsers connected to the same host. Preserve denied remote access checks. New remote connection setup belongs to #30 and must not expand this save repair.

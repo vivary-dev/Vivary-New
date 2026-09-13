@@ -65,3 +65,7 @@ indexes in user folders, or require a paid embedding service for basic text sear
 ## Log
 
 - 2026-09-13: App-owned project search is absent. 11d owns the optional semantic engine.
+
+## Shared desktop and web behavior
+
+Verify touch-accessible results, cancellation, and navigation to the matching file at narrow widths. Search executes inside the authorized project on the connected host.

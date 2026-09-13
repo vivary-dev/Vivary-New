@@ -35,6 +35,8 @@ they do not prove the behavior above.
 - [11b: Generated project views](../packets/11b-generated-project-views.md): derive map/state views while preserving authored STATE.md until a migration is resolved.
 - [18a: Scoped file memory](../packets/18a-scoped-file-memory.md): reuse file editing and Native context loading for cross-session continuity.
 
+- [11e: Live project preview](../packets/11e-live-project-preview.md): inspect and repair running pages with supported agent browser tools.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.

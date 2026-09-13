@@ -1,13 +1,17 @@
-# Vivary.exe local workspace release
+# Vivary desktop and self-hosted web release
 
 Decision: Jeff, 2026-09-13. This is the active product delivery target.
 
-Vivary is one local desktop application for working with an agent in durable
-project workspaces. The release delivers a working `Vivary.exe`, its required
-runtime files, and an installation or extraction path a new user can follow.
-The app opens without a Vivary account. Users connect their own model access.
-Zo is the development and hosted preview environment. It is not required on the
-user's computer.
+Vivary is one agent workspace application, available through a local desktop
+window and a responsive browser client. The instance runs on a user-controlled
+computer or suitable self-hosted server. Agents, provider credentials, files,
+history, and memory stay on that host. A phone connects as a client.
+
+The first installed release targets Windows with a working `Vivary.exe` and its
+required runtime files. Local desktop opens without a Vivary account. Remote
+browser access is explicitly enabled and authenticated. Zo is the development
+and private preview host, not a required service for users. Mac distribution is
+optional later roadmap work, outside this active milestone.
 
 ## The finished experience
 
@@ -17,8 +21,8 @@ changes, and use the original Vivary operations. Return tomorrow, reopen the sam
 session, search an older conversation, or start a fresh chat that recalls the
 project's saved decisions. Switching projects switches the agent's context.
 
-A working Windows release must demonstrate this complete journey. An executable
-that opens an unfinished web page does not meet the target.
+The Windows distribution and responsive self-hosted client must demonstrate their
+complete journeys. A working window or iframe alone does not meet the target.
 
 ## One understandable model
 
@@ -80,6 +84,7 @@ Store derived indexes in private application data, keyed by stable project ident
 | History | Native Code transcripts and Native Full chat storage/search | One project/session presentation, Code pagination and content search |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
 | Files | Small Markdown/text/JSON inspector | Source-file navigation, exact search, conflict-aware editing |
+| Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
 | Original Vivary | All ten CLI verbs and the recovered shared content preview | Package and connect them through deterministic Native actions |
 
 The old Windows artifact is an unsigned portable preview from earlier source.
@@ -87,15 +92,21 @@ It does not establish a working Windows release. The repo has passed CI, but
 specific broad-suite and hosted persistence failures remain in the
 [salvage receipt](receipts/salvage-handoff-2026-09-12.md).
 
-## Delivery order
+## GitHub delivery order
 
-[Open the Windows release milestone](https://github.com/vivary-dev/Vivary-New/milestone/1).
+[Open the desktop and self-hosted web milestone](https://github.com/vivary-dev/Vivary-New/milestone/1).
 The linked issues track these same packets.
 
-The table below is the release queue. Dependencies in the owning packets decide
-when work can start. The coordinating writer takes the first unfinished executable
-row. A helper may work on an independent packaging or search task. Keep one heavy
-runtime job active on Zo and one writer per shared file.
+GitHub issues are authoritative for task goals, acceptance, dependencies, ownership,
+priority, and lifecycle. This table is a synchronized navigation snapshot. Read the
+live issue before dispatch. Packets provide implementation guidance and evidence,
+not a second task contract. Preserve approved product and access constraints.
+
+Use two implementation lanes: reliable state and project-session restoration,
+and independent desktop runtime packaging. Keep one integration writer, one owner
+per shared file, a reviewer for completed slices, and one heavy runtime job at a
+time. Independent source work can continue during CI. Close each issue only after
+its accepted behavior is verified and its reviewed PR is merged.
 
 | Order | Deliverable | Owning ticket | Readiness |
 | --- | --- | --- | --- |
@@ -108,17 +119,19 @@ runtime job active on Zo and one writer per shared file.
 | 7 | Searchable chats | [04b: Search the contents of project chat sessions](packets/04b-search-chat-content.md) · [#11](https://github.com/vivary-dev/Vivary-New/issues/11) | After 04a |
 | 8 | Project files | [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) · [#12](https://github.com/vivary-dev/Vivary-New/issues/12) | Ready |
 | 9 | Fast file search | [11c: Search large project trees from the application](packets/11c-fast-project-search.md) · [#13](https://github.com/vivary-dev/Vivary-New/issues/13) | Ready |
-| 10 | Shared workspace operations | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) · [#14](https://github.com/vivary-dev/Vivary-New/issues/14) | Ready |
-| 11 | GUI workspace setup | [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) · [#15](https://github.com/vivary-dev/Vivary-New/issues/15) | After 07b, 06g |
-| 12 | Starter patterns | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) · [#16](https://github.com/vivary-dev/Vivary-New/issues/16) | After 07d |
-| 13 | Existing folders | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) · [#17](https://github.com/vivary-dev/Vivary-New/issues/17) | After 07b |
-| 14 | Original context | [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) · [#18](https://github.com/vivary-dev/Vivary-New/issues/18) | Ready |
-| 15 | Original read tools | [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) · [#19](https://github.com/vivary-dev/Vivary-New/issues/19) | After 09a, 23a |
-| 16 | Original review/control | [09c: Expose original review and control tools in Native](packets/09c-original-review-control-tools.md) · [#20](https://github.com/vivary-dev/Vivary-New/issues/20) | After 09b, 07d |
-| 17 | File memory | [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) · [#21](https://github.com/vivary-dev/Vivary-New/issues/21) | After 04a, 11a, 09b |
-| 18 | Release regressions | [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md) · [#22](https://github.com/vivary-dev/Vivary-New/issues/22) | Ready |
-| 19 | Windows release acceptance | [23c: Deliver and accept the complete Windows product journey](packets/23c-windows-product-acceptance.md) · [#23](https://github.com/vivary-dev/Vivary-New/issues/23) | After 06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b |
-| 20 | Optional semantic search | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) · [#24](https://github.com/vivary-dev/Vivary-New/issues/24) | After 11c |
+| 10 | Live preview and agent debugging | [11e: Preview and debug a running project](packets/11e-live-project-preview.md) · [#31](https://github.com/vivary-dev/Vivary-New/issues/31) | After 04a |
+| 11 | Shared workspace operations | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) · [#14](https://github.com/vivary-dev/Vivary-New/issues/14) | Ready |
+| 12 | GUI workspace setup | [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) · [#15](https://github.com/vivary-dev/Vivary-New/issues/15) | After 07b, 06g |
+| 13 | Starter patterns | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) · [#16](https://github.com/vivary-dev/Vivary-New/issues/16) | After 07d |
+| 14 | Existing folders | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) · [#17](https://github.com/vivary-dev/Vivary-New/issues/17) | After 07b |
+| 15 | Original context | [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) · [#18](https://github.com/vivary-dev/Vivary-New/issues/18) | Ready |
+| 16 | Original read tools | [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) · [#19](https://github.com/vivary-dev/Vivary-New/issues/19) | After 09a, 23a |
+| 17 | Original review/control | [09c: Expose original review and control tools in Native](packets/09c-original-review-control-tools.md) · [#20](https://github.com/vivary-dev/Vivary-New/issues/20) | After 09b, 07d |
+| 18 | File memory | [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) · [#21](https://github.com/vivary-dev/Vivary-New/issues/21) | After 04a, 11a, 09b |
+| 19 | Release regressions | [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md) · [#22](https://github.com/vivary-dev/Vivary-New/issues/22) | Ready |
+| 20 | Self-hosted browser access | [23d: Connect a responsive browser](packets/23d-self-hosted-browser-access.md) · [#30](https://github.com/vivary-dev/Vivary-New/issues/30) | After 06g, 04a, 17a |
+| 21 | Desktop and web acceptance | [23c: Deliver and accept the desktop and web product](packets/23c-windows-product-acceptance.md) · [#23](https://github.com/vivary-dev/Vivary-New/issues/23) | After 06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e |
+| 22 | Optional semantic search | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) · [#24](https://github.com/vivary-dev/Vivary-New/issues/24) | After 11c |
 
 The first Windows launch check happens before final acceptance, so platform
 failures are discovered while product implementation continues. The final release
@@ -129,12 +142,16 @@ flowchart LR
   A[Consolidated source and reliable state] --> B[Project sessions and native logs]
   B --> C[Searchable history and file memory]
   A --> D[Workspace setup, files, original tools]
-  P[Bundled runtimes and early Windows launch] --> E[Complete Windows acceptance]
+  P[Bundled runtimes and early Windows launch] --> E[Complete desktop and web acceptance]
   C --> E
   D --> E
+  B --> W[Responsive browser connection]
+  W --> E
+  D --> V[Live project preview and debugging]
+  V --> E
 ```
 
-There are 19 required implementation/acceptance tickets and one optional semantic
+There are 21 required implementation/acceptance tickets and one optional semantic
 search evaluation. Several extend existing code. This is substantial integration
 work, not one packaging command. Do not publish a percentage or a completion date
 from historical packet counts. Reassess the remaining work after the first Windows
@@ -161,6 +178,12 @@ launch and the project-session checks expose their actual compatibility limits.
    after an interrupted run and show an accurate recoverable state.
 9. Verify the distribution's version, licenses, runtime closure, checksum, and
    upgrade/removal behavior. Preserve user projects and private application data.
+10. Connect desktop and phone browsers to the same explicitly selected private
+    instance. Verify authentication, revocation, reconnect, responsive controls,
+    and host-side project/session identity. Phone use does not run agents locally.
+11. Open a project's live page, inspect a visible or console-reported error through
+    supported agent browser tools, make an authorized repair, and confirm the
+    corrected preview. Keep preview content isolated from privileged app state.
 
 Use completed hosted flows before the corresponding laptop checks. A hosted
 access failure does not justify weakening authentication or blocking unrelated
@@ -169,9 +192,10 @@ Keep the final Windows result separate from cross-packaging and Linux evidence.
 
 ## One backlog and one integration branch
 
-GitHub's desktop milestone is the contributor work queue. Each issue links one
-versioned packet, which owns the technical scope, dependencies, and done condition.
-Update the packet, generated frontier, and issue together when completing work.
+GitHub milestone issues own the work and its acceptance. Documents explain the
+implementation and preserve evidence. Update the live issue first when Jeff changes
+task scope, then reconcile its supporting packet and generated views. Do not keep
+conflicting task status in Markdown or derive a new queue from historical labels.
 The existing 36 outcomes remain the coverage map. They are not 36 simultaneous
 workstreams and are not a second active desktop backlog.
 

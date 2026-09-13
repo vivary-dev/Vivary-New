@@ -75,3 +75,7 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: Required by the desktop release. Use the original adoption plan and journals through the same packaged Native action and project identity.
+
+## Shared desktop and web behavior
+
+Browser adoption selects an authorized folder on the connected host. Narrow layouts must preserve the complete file-change and conflict preview before apply.

@@ -67,3 +67,7 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. The Native actions are not implemented.
+
+## Shared desktop and web behavior
+
+Expose the same deterministic read actions through desktop and mobile-friendly web sessions. File and context results remain scoped to the selected host and project.
