@@ -1,17 +1,25 @@
 # Vivary
 
-The active target is a usable local `Vivary.exe`: project workspaces, persistent
-and searchable chat sessions, file memory, fast search, and the original Vivary
-tools. Start with the [desktop delivery plan](docs/product/multi-project/desktop-release.md)
-for the ordered tickets, existing implementation, and Windows acceptance journey.
+The active target is one usable Vivary instance on a user-controlled computer or
+server, with a Windows desktop app and responsive desktop/phone browser access.
+It combines project workspaces, persistent searchable chats, file memory, fast
+search, original Vivary tools, and live project preview with agent debugging.
+Agents, credentials, files, and history stay on the selected host. Local desktop
+use needs no Vivary account. Remote browser access is explicit and authenticated.
+Mac distribution remains optional later work.
 
-This is **Vivary-New**, the private development repository for the local desktop
-product. Topic branches integrate through PRs into `dev`, with reviewed promotion
-to `main`. Start with [contributor guidance](CONTRIBUTING.md), the
+Start with the [GitHub delivery queue](https://github.com/vivary-dev/Vivary-New/milestone/1)
+for authoritative tasks and the [delivery reference](docs/product/multi-project/desktop-release.md)
+for existing implementation and desktop/web acceptance. These are product targets,
+not claims that the complete application is already delivered.
+
+This is **Vivary-New**, the private development repository for that shared desktop
+and self-hosted web product. Topic branches integrate through PRs into `dev`, with
+reviewed promotion to `main`. Start with [contributor guidance](CONTRIBUTING.md), the
 [current program](docs/product/multi-project/index.md), and the
 [product design](docs/product/multi-project/design.md). The registry versions
 and release history below describe the original published packages, not a release
-of this desktop application.
+of the complete desktop and web application.
 
 [![CI](https://github.com/vivary-dev/Vivary-New/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/vivary-dev/Vivary-New/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/vivary-dev/vivary?style=flat-square&label=release)](https://github.com/vivary-dev/vivary/releases/latest)

@@ -77,18 +77,21 @@ its existing system contracts. Reuse working packages and Native integrations
 before adding new orchestration. Check existing Paperclip use and retain a useful
 integration if one exists; this does not make Paperclip mandatory.
 
-Jeff clarified later on 2026-09-12 that self-hosted Vivary must open without
-login or signup, including the private Zo instance. Local access stays on loopback. Zo's
-existing owner-login boundary controls remote access; the service must remain
-private. Internal Native identity and action scoping remain active without a
-second user account. Coding-provider sign-in is separate and reuses the user's
-existing CLI subscription. A paid authentication service is not required.
+Jeff requested account-free self-hosted use on 2026-09-12. The 2026-09-13
+[host and browser decision](#host-and-browser-access-decision-2026-09-13) clarifies
+the access boundary: local desktop use requires no Vivary account or signup and
+stays on loopback by default. Remote browser access is explicit and authenticated.
+The private Zo instance retains Zo's existing owner-login boundary. Internal
+Native identity and action scoping stay active without a second user account.
+Coding-provider sign-in is separate and reuses the user's existing CLI subscription.
+A paid authentication service is not required.
 
 Use up to three subagents as needed and make broad real visual/UI testing part
 of normal delivery. Repair failures, repeat the affected journey, and continue
 implementation without expanding verification machinery. The private Zo preview
-is the active development surface. Promotion to dev still requires Jeff's
-explicit product acceptance.
+is the active development surface. For private Vivary-New, reviewed topic PRs
+merge into dev under [the contributor rules](../../../CONTRIBUTING.md). Promotion
+to main and public release retain their separate product-acceptance requirements.
 
 ## Execution decision: 2026-09-05
 
