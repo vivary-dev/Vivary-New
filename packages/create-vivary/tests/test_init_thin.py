@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import sys
+import tomllib
 import unittest
 import uuid
 from pathlib import Path
@@ -227,6 +228,15 @@ class ThinInitTests(unittest.TestCase):
                     expected_roles = {"patterns": ["thin-context"], "roles": DEFAULT_ROLES}
                     self.assertEqual(report["workspace_roles"], expected_roles)
                     config = target / ".vivary" / "workspace.toml"
+                    # The public one-argument call must match Doctor's metadata.
+                    tropo = create_vivary._load_tropo(ROOT)
+                    workspace_table = tomllib.loads(config.read_text())["workspace"]
+                    self.assertEqual(
+                        tropo.resolve_workspace_roles({})["roles"]["boundary"], [".gitignore"]
+                    )
+                    self.assertEqual(
+                        tropo.resolve_workspace_roles(workspace_table), expected_roles
+                    )
                     state_before = (target / "STATE.md").read_bytes()
                     config.write_text(replace_role_metadata(config.read_text(), ""))
                     legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
@@ -530,6 +540,11 @@ class ThinInitTests(unittest.TestCase):
             ]
             self.assertEqual(healthy["workspace_roles"]["roles"]["boundary"], expected_boundary)
             config = target / ".vivary" / "workspace.toml"
+            tropo = create_vivary._load_tropo(ROOT)
+            workspace_table = tomllib.loads(config.read_text())["workspace"]
+            self.assertEqual(
+                tropo.resolve_workspace_roles(workspace_table), healthy["workspace_roles"]
+            )
             config.write_text(replace_role_metadata(config.read_text(), ""))
             legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
             self.assertTrue(legacy["ok"], legacy["errors"])

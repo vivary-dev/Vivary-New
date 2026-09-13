@@ -547,9 +547,10 @@ MCP SDK dependency.
 - **Scaffold (npm):** `npm create @vivary@latest my-workspace` / `npx @vivary/create@latest my-workspace`
 - **From a repo checkout:** `python packages/tropo/tropo.py check`, etc.
 
-Every command on this page is available from the published PyPI and npm packages
-listed in the [root release status](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status), except the front-door
-task verbs, which ship in `vivary` 0.2.0 from source until this train publishes.
+The front-door task verbs are available in PyPI `vivary` 0.2.0. The staged
+source adds workspace-role repairs with newer dependency floors. The
+[root release status](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status) separates available registry
+versions, dated installation evidence, and unpublished source.
 Governed paths stay behind an explicit `--governed` flag and are opt-in, not default
 behavior.
 
@@ -633,8 +634,8 @@ task verbs to them, and adds a local helper for the receipt files they emit.
 A verb runs the component operation in the same process. Arguments pass through
 unchanged and the operation's output is the component's, while the program name, the
 usage line, and the hidden command list are the front door's. `vivary --help` groups
-the verbs the same way this table does. These verbs ship in `vivary` 0.2.0 from source.
-The published 0.1.10 on PyPI does not have them until the next release publishes.
+the verbs the same way this table does. These verbs are available in PyPI
+`vivary` 0.2.0. Version 0.1.10 predates them.
 
 | Group | Verb | Standalone equivalent | Job |
 |---|---|---|---|
@@ -6738,18 +6739,19 @@ so the metaphor nests cleanly: the world (Vivary) and its layers (the strata).
 # Vivary migration status
 
 This page is the canonical classification of public and development surfaces. The
-[root release status](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) owns exact source and registry
-versions; [DECISIONS.md](https://vivary.vercel.app/decisions/) routes durable choices. Status was reconciled
-against the linked manifests, contracts, and registry pages on **2026-08-15**.
+[root release status](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status) owns exact source and registry
+versions. [DECISIONS.md](https://vivary.vercel.app/decisions/) routes durable choices. Baseline acceptance
+retains the **2026-08-15** evidence. The **2026-09-13** registry availability check
+and staged-source status do not add fresh installation acceptance.
 
 ## Classification
 
 | Status | Meaning | Current surfaces | Evidence or next gate |
 |---|---|---|---|
-| **Stable** | Published and supported; this is not a promise of post-1.0 API stability. | The registry versions and their baseline CLI/workspace behavior listed in the [release-status table](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status). | Registry links live in that table; baseline regressions live with [Tropo](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py), [Ozone](https://github.com/vivary-dev/vivary/blob/dev/packages/ozone/tests/test_ozone.py), [Exo](https://github.com/vivary-dev/vivary/blob/dev/packages/exo/tests/test_exo.py), and [create-vivary](https://github.com/vivary-dev/vivary/blob/dev/packages/create-vivary/tests/test_create_vivary.py). |
+| **Stable** | Published and supported; this is not a promise of post-1.0 API stability. | The registry versions and their baseline CLI/workspace behavior listed in the [release-status table](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status). | Registry links live in that table; baseline regressions live with [Tropo](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py), [Ozone](https://github.com/vivary-dev/vivary/blob/dev/packages/ozone/tests/test_ozone.py), [Exo](https://github.com/vivary-dev/vivary/blob/dev/packages/exo/tests/test_exo.py), and [create-vivary](https://github.com/vivary-dev/vivary/blob/dev/packages/create-vivary/tests/test_create_vivary.py). |
 | **Optional** | Installed, configured, or invoked only by explicit choice; optional is independent of maturity. | Ozone and Exo beyond the Tropo + Strato baseline; storage and semantic-memory capabilities including `vivary-memory-cognee`; Obsidian and active-context integrations; and the published but experimental `vivary-mcp`. | [Architecture boundaries](https://vivary.vercel.app/architecture/#2-the-first-principles-baseline), [semantic-memory gates](https://vivary.vercel.app/semantic-memory/#non-negotiables), [active-context gates](https://vivary.vercel.app/active-context/), and the [MCP install boundary](https://vivary.vercel.app/mcp/#install-boundary). |
 | **Experimental** | Published and opt-in where callable, with contracts that may still change before 1.0. | The `thin-v0.3` init/adoption contract in `create-vivary`; `vivary-core`; governed Tropo, Strato, Ozone, and Exo paths; the provider-neutral recall firewall; and the optional read-only `vivary-mcp` adapter. | [Thin adoption regressions](https://github.com/vivary-dev/vivary/tree/dev/packages/create-vivary/tests), [Core contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/core/tests), [role envelopes](https://vivary.vercel.app/commands/#governed-machine-readable-envelopes), and [MCP contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/mcp/tests). |
-| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The staged, unpublished train: the five component patches `create-vivary` / `@vivary/create` 0.4.3, `vivary-tropo` 0.5.4, `vivary-strato` 0.1.3, `vivary-ozone` 0.3.2, and `vivary-exo` 0.3.1, plus the front-door meta-package `vivary` 0.2.0. The **Vivary Governed Context** train published and was verified on 2026-08-15, so every version in the root release status is still registry truth. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
+| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The unpublished workspace-role repairs and local desktop product described in the [source release status](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status) and [desktop release plan](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md). The earlier Front Door PyPI components are available, but npm 0.4.3 is absent and the coordinated train is incomplete. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
 | **Deprecated** | Formally discouraged with a documented replacement and removal policy. | **None.** Legacy full workspace layouts and legacy Exo graph commands remain read-compatible surfaces, not deprecations. New init/adopt no longer generate the full layout. | [Doctor compatibility contract](https://vivary.vercel.app/commands/#doctor-compatibility-and-declared-configuration) and [legacy Exo commands](https://vivary.vercel.app/commands/#legacy-graph-coordination). |
 | **Planned** | Described intent with no shipped behavior claim. | Cloud storage adapters and non-file/cloud migration targets; any broader MCP transport or named-client compatibility. | [Data-layer future work](https://github.com/vivary-dev/vivary/blob/dev/docs/SPEC-data-layer.md#future--cloud-adapters-03x); MCP external conformance remains explicitly [unproven](https://vivary.vercel.app/mcp/#contract). These are plans or hypotheses until implementation evidence exists. |
 
