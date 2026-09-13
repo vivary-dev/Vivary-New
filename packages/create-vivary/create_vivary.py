@@ -1240,9 +1240,11 @@ def doctor_workspace(
             errors.extend(_module_index_errors(target))
 
     graph = {"nodes": 0, "edges": 0, "broken": 0}
+    workspace_roles = None
     if not errors:
         try:
             _tropo, _resolver, docs, nodes, edges = _doctor_graph_context(target, root)
+            workspace_roles = getattr(_resolver.base, "workspace_roles", None)
             findings = [f.render() for doc in docs for f in doc.findings]
             graph = {
                 "nodes": len(nodes),
@@ -1279,6 +1281,7 @@ def doctor_workspace(
         "memory": memory_report,
         "compatibility": compatibility,
         "capabilities": capability_summary,
+        "workspace_roles": workspace_roles,
     }
 
 
@@ -5067,6 +5070,17 @@ private = [".vivary/private"]
 runtime = [".vivary/runtime"]
 adapters = [{adapter_list}]
 capabilities = [{capability_list}]
+patterns = ["thin-context"]
+
+# Descriptions only: these paths grant no access and need not exist.
+# The context Routes section is a map, not a generated inventory.
+# STATE.md remains the user or orchestrator's current-state document.
+[workspace.roles]
+law = ["AGENTS.md", ".vivary/context.md"]
+map = [".vivary/context.md"]
+record = []
+memory = []
+boundary = [".gitignore", ".vivary/private", ".vivary/runtime"]
 
 [base]
 derive = ["id", "title"]

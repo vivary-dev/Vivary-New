@@ -1,6 +1,14 @@
 # Vivary
 
-[![CI](https://github.com/vivary-dev/vivary/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/vivary-dev/vivary/actions/workflows/ci.yml)
+This is **Vivary-New**, the private development repository for the local desktop
+product. Topic branches integrate through PRs into `dev`, with reviewed promotion
+to `main`. Start with [contributor guidance](CONTRIBUTING.md), the
+[current program](docs/product/multi-project/index.md), and the
+[product design](docs/product/multi-project/design.md). The registry versions
+and release history below describe the original published packages, not a release
+of this desktop application.
+
+[![CI](https://github.com/vivary-dev/Vivary-New/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/vivary-dev/Vivary-New/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/vivary-dev/vivary?style=flat-square&label=release)](https://github.com/vivary-dev/vivary/releases/latest)
 [![npm](https://img.shields.io/npm/v/%40vivary%2Fcreate?style=flat-square&color=1f9d72&label=npm)](https://www.npmjs.com/package/@vivary/create)
 [![npm downloads](https://img.shields.io/npm/dw/%40vivary%2Fcreate?style=flat-square&color=1f9d72&label=npm%20downloads)](https://www.npmjs.com/package/@vivary/create)

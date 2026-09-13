@@ -20,6 +20,30 @@ Implementation proceeds through the bounded packets in the generated graph. Harn
 
 No model, storage vendor, hosting plan, default runtime, or payment service is selected by this document. Earlier Littleagent implementation authority remains relevant to compatible work after the changed contracts are reconciled. Planning authority does not establish implementation or publication evidence.
 
+## Vivary-New repository decision: 2026-09-13
+
+Jeff requested one complete new repository named `Vivary-New` in the Vivary
+organization, connected to GitHub and Entire. His later branching correction
+selects typed topic branches from `dev`, PRs into `dev`, and reviewed promotion
+to `main`. `main` is the default branch. The repository remains private.
+Keep the existing checkout and history. This supersedes the earlier Entire-only
+feature-branch delivery restriction. The original public repository remains separate.
+[CONTRIBUTING.md](../../../CONTRIBUTING.md) owns the workflow and its enforcement limit.
+
+Jeff also confirmed that another contributor is joining. Keep code modular and
+readable, document module ownership, and remove unnecessary layers and comments.
+
+Jeff also asked to combine the research into one plan and follow it. Extend the
+existing outcome graph with bounded packets. Treat supplied research as evidence
+and proposals. Its embedded decision block is not a record of Jeff's answers.
+Keep compatible file-role metadata as the first source increment. Preserve
+existing authored state while a later packet defines generated-view inputs and
+migration. Deliver GUI acceptance with useful setup and memory slices. Merge and
+split support do not block the first working workspace setup flow.
+
+The [research reconciliation](research/workspace-research-reconciliation.md) records
+source corrections and maps the combined work to its owning packets.
+
 ## Local desktop delivery decision: 2026-09-12
 
 Jeff reiterated that Vivary must run on people's own computers and asked to move

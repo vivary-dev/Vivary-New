@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -20,6 +21,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/site"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -42,6 +44,7 @@ updates:
       - "/packages/tropo"
       - "/packages/ozone"
       - "/packages/exo"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
