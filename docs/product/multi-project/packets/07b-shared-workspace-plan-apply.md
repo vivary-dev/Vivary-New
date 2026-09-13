@@ -1,5 +1,6 @@
 # 07b: Share a file-content plan and apply path between GUI and CLI
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/14
 Parent: 07
 Status: ready-for-agent
 Depends-on: [07a]

@@ -1,5 +1,6 @@
 # 17a: Restore project chats and drafts after restart
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/9
 Parent: 17
 Status: needs-info
 Depends-on: [04a]

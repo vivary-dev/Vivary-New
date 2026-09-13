@@ -1,5 +1,6 @@
 # 09c: Expose original review and control tools in Native
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/20
 Parent: 09
 Status: needs-info
 Depends-on: [09b, 07d]

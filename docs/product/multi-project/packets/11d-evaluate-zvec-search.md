@@ -1,5 +1,6 @@
 # 11d: Evaluate optional local semantic search
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/24
 Parent: 11
 Status: needs-info
 Depends-on: [11c]

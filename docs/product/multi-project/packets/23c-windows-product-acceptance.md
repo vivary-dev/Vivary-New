@@ -1,5 +1,6 @@
 # 23c: Deliver and accept the complete Windows product journey
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/23
 Parent: 23
 Status: needs-info
 Depends-on: [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b]

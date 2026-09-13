@@ -1,5 +1,6 @@
 # 23a: Bundle the original Vivary command runtime
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/7
 Parent: 23
 Status: ready-for-agent
 Depends-on: []

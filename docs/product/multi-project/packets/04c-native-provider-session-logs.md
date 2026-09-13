@@ -1,5 +1,6 @@
 # 04c: Retain provider sessions outside project folders
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/10
 Parent: 04
 Status: needs-info
 Depends-on: [04a]

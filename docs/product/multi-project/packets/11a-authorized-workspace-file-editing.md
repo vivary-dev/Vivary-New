@@ -1,5 +1,6 @@
 # 11a: Read and edit authorized project files through the GUI
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/12
 Parent: 11
 Status: ready-for-agent
 Depends-on: [03c]

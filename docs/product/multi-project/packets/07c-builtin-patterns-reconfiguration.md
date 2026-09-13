@@ -1,5 +1,6 @@
 # 07c: Compose built-in workspace patterns and reconfigure an existing project
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/16
 Parent: 07
 Status: needs-info
 Depends-on: [07d]

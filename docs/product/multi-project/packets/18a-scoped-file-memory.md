@@ -1,5 +1,6 @@
 # 18a: Reload scoped file memory across conversations and restarts
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/21
 Parent: 18
 Status: needs-info
 Depends-on: [04a, 11a, 09b]

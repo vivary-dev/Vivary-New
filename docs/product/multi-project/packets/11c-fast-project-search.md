@@ -1,5 +1,6 @@
 # 11c: Search large project trees from the application
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/13
 Parent: 11
 Status: ready-for-agent
 Depends-on: [03c]

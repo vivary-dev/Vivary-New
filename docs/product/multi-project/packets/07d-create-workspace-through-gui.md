@@ -1,5 +1,6 @@
 # 07d: Create and open a Vivary workspace through the GUI
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/15
 Parent: 07
 Status: needs-info
 Depends-on: [07b, 06g]

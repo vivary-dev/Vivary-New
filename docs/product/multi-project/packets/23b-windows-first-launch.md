@@ -1,5 +1,6 @@
 # 23b: Make the packaged application start on Windows
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/8
 Parent: 23
 Status: needs-info
 Depends-on: [23a]

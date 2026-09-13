@@ -1,5 +1,6 @@
 # 06h: Make the maintained application regression checks reliable
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/22
 Parent: 06
 Status: ready-for-agent
 Depends-on: [03c]

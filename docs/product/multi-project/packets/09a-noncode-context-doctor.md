@@ -1,5 +1,6 @@
 # 09a: Verify and repair narrow non-code context and Doctor behavior
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/18
 Parent: 09
 Status: ready-for-agent
 Depends-on: []

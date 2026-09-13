@@ -1,5 +1,6 @@
 # 09b: Expose original project read tools in Native
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/19
 Parent: 09
 Status: needs-info
 Depends-on: [09a, 23a]

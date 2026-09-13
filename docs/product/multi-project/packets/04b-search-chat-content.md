@@ -1,5 +1,6 @@
 # 04b: Search the contents of project chat sessions
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/11
 Parent: 04
 Status: needs-info
 Depends-on: [04a]

@@ -1,5 +1,6 @@
 # 08a: Adopt populated folders with truthful type and conflict preflight
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/17
 Parent: 08
 Status: needs-info
 Depends-on: [07b]

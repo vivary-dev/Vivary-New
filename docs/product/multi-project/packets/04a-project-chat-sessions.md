@@ -1,5 +1,6 @@
 # 04a: Bind every chat session to its project
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/6
 Parent: 04
 Status: ready-for-agent
 Depends-on: [03c]

@@ -1,5 +1,6 @@
 # 06g: Save project and conversation selections reliably
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/5
 Parent: 06
 Status: ready-for-agent
 Depends-on: [03c]
