@@ -124,3 +124,10 @@ operation whose actual prerequisite is missing and continue independent work.
   runtime acceptance or changes to the external template hold.
 - 2026-09-13: Jeff selected the hosted Zo app for testing latest changes,
   followed by Electron builds for further local testing on his laptop.
+- 2026-09-13: Repaired hosted project loading on filesystems without creation
+  times. Added a regression covering reopen, edits, replacement, and symlink
+  redirection. The hosted catalog returns successfully. Restored layered dark
+  surfaces and bright green actions, with light and alternate Native palettes
+  checked in Chrome. Hosted preference and selection writes still fail because
+  the proxy omits Native session cookies. An unapplied scoped auth patch awaits
+  explicit user approval after automatic approval review rejected that change.
