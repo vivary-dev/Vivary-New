@@ -2,11 +2,11 @@
 Type: packet
 Parent: 07
 Status: needs-info
-Depends-on: [07b]
+Depends-on: [07d]
 Owner: Root-assigned creator and setup UI writer
 Scope: Use the shared plan for useful built-in starter content and explicit pattern/role reconfiguration without replacing the workspace.
 Verification-kind: runtime
-Needs: Root accepts 07b and selects the first built-in pattern files, managed-content ownership, and reconfiguration conflict policy.
+Needs: 07d supplies the working create UI over the shared plan. This packet adds reconfiguration. Preserve authored content in built-in pattern changes.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -75,3 +75,5 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+
+- 2026-09-13: Included in the desktop release after 07d. Existing preset aliases remain compatible.

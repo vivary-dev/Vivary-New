@@ -40,3 +40,10 @@ they do not prove the behavior above.
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
 
 - 2026-09-13: Added editor and derived-view packets. Generated state requires an explicit writer/input/migration contract, not automatic replacement of authored state.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.

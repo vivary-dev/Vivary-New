@@ -67,3 +67,10 @@ they do not prove the behavior above.
 
 - 2026-09-13: Jeff confirmed hosted Zo testing before Electron delivery and
   further local laptop testing. Existing platform evidence keeps its scope.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.

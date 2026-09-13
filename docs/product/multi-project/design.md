@@ -462,3 +462,13 @@ experience as already implemented.
 When owner statements genuinely conflict, name the conflicting requirements and
 the decision they affect. Discuss that conflict before choosing a consequential
 interpretation. An explicit correction updates the existing decision.
+
+## Coherent desktop release decision, 2026-09-13
+
+Jeff specified the end state as a working Vivary.exe with project workspaces,
+persistent and searchable chat sessions, useful memory, native external logs,
+and fast file/code search. He also authorized consolidating useful work.
+[The desktop release target](desktop-release.md) owns the ordered delivery queue,
+storage model, complete original CLI coverage, and actual Windows finish line.
+PRs #3 and #4 are integrated into dev. Prior standalone experiment plans do not
+override this queue. The broader outcomes remain covered in later milestones.

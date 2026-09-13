@@ -2,11 +2,11 @@
 Type: packet
 Parent: 18
 Status: needs-info
-Depends-on: [11a]
+Depends-on: [04a, 11a, 09b]
 Owner: Root-assigned Native context and file-memory integrator
 Scope: Wire compact project guidance and sourced durable notes into existing Native runs, with visible correction and active-memory removal.
 Verification-kind: runtime
-Needs: Root accepts 11a and selects the authoritative project-memory paths, context loading boundary, and conflict behavior.
+Needs: 04a supplies project session identity, 11a supplies visible correction, and 09b supplies original scoped retrieval actions.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -30,15 +30,16 @@ or mark it as an expected failure. This packet proves the actual application pat
 
 ## Owned files
 
-- Native Code context preparation and related actions in `packages/workbench/server/`.
+- Native Code and Full chat context preparation through their supported public
+  seams and related actions in `packages/workbench/server/`.
 - The file-editing/memory presentation from 11a and the selected guidance files.
 - Existing Tropo context integration only where project-scoped retrieval needs it.
 - Focused loading/correction/scope tests and the real memory GUI journey.
 
 ## Done condition
 
-A run resolves its current authorized project, reads compact instructions/state,
-and retrieves relevant durable facts from their owning files. A fresh conversation
+Both Code and Full chat resolve the current authorized project at each run,
+read compact instructions/state, and retrieve relevant durable facts from their owning files. A fresh conversation
 and application restart recover the confirmed fact without replaying an old chat.
 The UI shows where memory is stored and when changed context becomes effective.
 
@@ -56,7 +57,8 @@ Existing reviewed learning rules still govern those changes.
 ## Verify
 
 Use the GUI to save, restart, recall, correct, and forget one sourced fact.
-Exercise two projects with distinct facts and verify isolation, including missing
+Run this journey in both Code and Full chat. Exercise two projects with
+distinct facts and verify isolation, including missing
 or revoked access. Repeat the small continuity case with optional providers and
 VCS disabled. File existence or a manually supplied prompt is not proof of loading.
 Use existing model-call authority and budgets only for the necessary real-agent check.
@@ -77,3 +79,5 @@ source exclusions, authorize cross-project promotion, or claim complete historic
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+
+- 2026-09-13: The desktop target selects configurable project-file memory, fresh-session recall, and external transcript storage. Basic memory is required. Optional semantic services are not.

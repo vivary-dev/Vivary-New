@@ -1,12 +1,11 @@
 # 09a: Verify and repair narrow non-code context and Doctor behavior
 Type: packet
 Parent: 09
-Status: needs-info
+Status: ready-for-agent
 Depends-on: []
-Owner: Root-assigned Core/Tropo context writer coordinated with the adoption writer
+Owner: Coordinating Codex, sole original context and Doctor behavior writer
 Scope: Characterize supported non-code work, fix demonstrated context/schema/Doctor mismatches, and preserve valid behavior and existing budgets.
 Verification-kind: runtime
-Needs: Root confirms the exact current S6/S7 failure cases with runtime_setup and assigns non-overlapping Core/Tropo source ownership.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -78,3 +77,5 @@ capability choice, not permission for a broad parser or runtime rewrite.
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+
+- 2026-09-13: Root selected code, Markdown notes, and writing fixtures. Reproduce the documented claims first and fix only actual mismatches.

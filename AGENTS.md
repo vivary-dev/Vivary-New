@@ -50,6 +50,18 @@ Model-provider login remains separate from access to Vivary.
 
 ## Start with the product
 
+Jeff's 2026-09-13 target is a working `Vivary.exe` with project workspaces,
+searchable persistent sessions, file memory, fast project search, and the original
+Vivary operations. Follow [the desktop release queue](docs/product/multi-project/desktop-release.md).
+The first executable row owns primary work. Up to two helpers may take independent
+packaging or search work. Keep the existing 36 outcomes as coverage, not parallel
+workstreams. Do not mark the desktop finished from packaging or CI alone.
+
+GitHub milestone issues are the contributor queue. Versioned packets own scope,
+dependencies, and acceptance. Update the packet and issue together, then regenerate
+the frontier. A new active task must advance this release or fix a demonstrated
+blocker. Broader product outcomes retain their later milestones and evidence.
+
 Read [the current frontier](docs/product/multi-project/index.md) and the owning
 packet. [The execution contract](docs/product/multi-project/execution-contract.md)
 owns program metadata and delivery details. Choose the next observable user
