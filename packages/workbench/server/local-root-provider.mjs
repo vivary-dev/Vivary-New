@@ -32,9 +32,10 @@ const actorId = (email, orgId) => "actor_" + createHash("sha256")
   .update(orgId + "\0" + email.trim().toLowerCase()).digest("hex");
 
 function stamp(info) {
-  if (!info.isDirectory() || info.ino <= 0n || info.birthtimeNs <= 0n) {
+  if (!info.isDirectory() || info.ino <= 0n || info.birthtimeNs < 0n) {
     throw new Error("This folder does not provide a reusable local filesystem identity.");
   }
+  // Zero means this filesystem does not supply creation times. Keep it exact.
   return { platform: process.platform, dev: String(info.dev), ino: String(info.ino),
     birthtimeNs: String(info.birthtimeNs) };
 }
@@ -59,6 +60,7 @@ async function capture(folder) {
 /**
  * Local directory access uses a saved grant and fresh filesystem metadata.
  * It supplies no content snapshot, VCS identity, or destructive-operation authority.
+ * Without creation times, inode reuse during downtime can hide folder replacement.
  */
 export async function createLocalRootProvider({ ownerEmail, defaultFolder = null }) {
   if (typeof ownerEmail !== "string" || !ownerEmail.trim()) throw new TypeError("A local owner is required.");

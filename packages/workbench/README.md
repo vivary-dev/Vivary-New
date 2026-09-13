@@ -73,10 +73,12 @@ port does not yet restore those unsent text drafts. Completed transcripts
 remain in Native's persistent run store.
 
 Local folder grants persist in server-only Native settings. Startup reopens
-and rechecks directory metadata. Missing or replaced folders remain unavailable
-without deleting their project records. This local access mode does not claim
-content snapshots, VCS custody, or strict mutation evidence. Existing Core
-provider installations remain separate and unchanged.
+and rechecks the canonical path, device, inode, and creation time. Filesystems
+that omit creation time retain its zero value. Exact saved stamps still apply.
+Detected missing or replaced folders remain unavailable without deleting records.
+Without creation times, inode reuse during downtime can hide a replacement.
+This mode supplies ordinary local access. Content snapshots, VCS custody, and
+strict mutation evidence belong to the existing Core providers.
 
 Each Code invocation uses a separate ordinary Node worker around Native's
 executor. A two-minute work deadline requests cancellation, followed by forced

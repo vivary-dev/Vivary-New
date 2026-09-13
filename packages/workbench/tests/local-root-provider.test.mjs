@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from "node:fs/promises";
+import filesystem from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -67,6 +69,59 @@ test("local project grants register real folders and reopen without content snap
   let betaResult;
   try {
     await reopen();
+    await suite.test("folders without creation times reopen and reject replacement or redirection", async check => {
+      const missingOrgId = "local-no-birthtime-org";
+      const missingContext = { ...context, orgId: missingOrgId };
+      await getDb().insert(organizations).values({ id: missingOrgId, name: "No creation time", createdBy: email, createdAt: Date.now() });
+      await getDb().insert(orgMembers).values({ id: "local-no-birthtime-member", orgId: missingOrgId, email, role: "owner", joinedAt: Date.now() });
+      const folder = path.join(directory, "NoBirthtime");
+      const originalFolder = path.join(directory, "OriginalNoBirthtime");
+      await mkdir(folder);
+      const originalStat = filesystem.stat;
+      const originalOpen = filesystem.open;
+      check.mock.method(filesystem, "stat", async (...args) => {
+        const info = await originalStat(...args);
+        if (typeof info.birthtimeNs === "bigint") info.birthtimeNs = 0n;
+        return info;
+      });
+      check.mock.method(filesystem, "open", async (...args) => {
+        const handle = await originalOpen(...args);
+        const statHandle = handle.stat.bind(handle);
+        check.mock.method(handle, "stat", async (...statArgs) => {
+          const info = await statHandle(...statArgs);
+          if (typeof info.birthtimeNs === "bigint") info.birthtimeNs = 0n;
+          return info;
+        });
+        return handle;
+      });
+      syncBuiltinESMExports();
+      let missingProvider;
+      try {
+        missingProvider = await createLocalRootProvider({ ownerEmail: email, defaultFolder: folder });
+        const grant = await missingProvider.resolveGrant(missingContext);
+        assert.equal(grant.locationRefs.length, 1);
+        const ref = grant.locationRefs[0];
+        assert.equal((await missingProvider.inspect(ref)).code, "available");
+        await writeFile(path.join(folder, "note.md"), "A normal edit must preserve folder access.");
+        assert.equal((await missingProvider.inspect(ref)).code, "available");
+        await missingProvider.close();
+        missingProvider = await createLocalRootProvider({ ownerEmail: email, defaultFolder: folder });
+        assert.deepEqual(await missingProvider.resolveGrant(missingContext), grant);
+        assert.equal((await missingProvider.inspect(ref)).code, "available");
+        await rename(folder, originalFolder);
+        await mkdir(folder);
+        assert.equal((await missingProvider.inspect(ref)).code, "identity-unverified");
+        await assert.rejects(missingProvider.addGrantedFolder(missingContext, folder), /different folder/);
+        await rm(folder, { recursive: true });
+        await symlink(originalFolder, folder, "junction");
+        assert.equal((await missingProvider.inspect(ref)).code, "identity-unverified");
+        assert.deepEqual(await missingProvider.resolveGrant(missingContext), grant);
+      } finally {
+        await missingProvider?.close();
+        check.mock.restoreAll();
+        syncBuiltinESMExports();
+      }
+    });
     await suite.test("first authenticated owner gets a scoped folder grant and registrar role", async () => {
       const current = await catalog.run({}, context);
       assert.equal(current.code, "catalog");
