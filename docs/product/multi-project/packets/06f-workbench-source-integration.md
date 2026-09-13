@@ -131,3 +131,11 @@ operation whose actual prerequisite is missing and continue independent work.
   checked in Chrome. Hosted preference and selection writes still fail because
   the proxy omits Native session cookies. An unapplied scoped auth patch awaits
   explicit user approval after automatic approval review rejected that change.
+- 2026-09-13: Fixed duplicate composer focus outlines caused by the global
+  focus rule overriding Native's inner editor. The hosted build and Chrome
+  checks passed for text entry, one outer focus border, and keyboard traversal.
+  No model call ran. The separate hosted-auth patch remains unapplied.
+- 2026-09-13: Recorded useful workspace setup with composable starter content
+  and independent agent guidance, runtime, and tools. Added a primary-source
+  Letta Code comparison. Create/Adopt and the full workspace editor remain
+  unfinished. The external template catalog hold remains unchanged.

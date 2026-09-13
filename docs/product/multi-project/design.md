@@ -224,15 +224,57 @@ Repository creation is an optional wizard step, never the definition of a projec
 
 ## Template composition
 
-Resume and extend the existing [held template-installer program](external-dependencies.md#held-template-installer-program) as the one implementation source for template semantics, verified transport, combined plans, and transactional apply. Its earlier implementation hold is not silently lifted by this planning request.
+Resume and extend the existing [held template-installer program](external-dependencies.md#held-template-installer-program) as the implementation source for external catalog template semantics, verified transport, combined plans, and transactional apply. Its earlier implementation hold is not silently lifted by this planning request.
 
-The catalog continues to own template content, manifests, versions, archives, and distribution. Vivary owns composition, adoption, verification, receipts, and conformance. Agent-Native app scaffolding and integration blueprints are different mechanisms. They must not become hidden substitutes for Vivary workspace templates.
+The external catalog continues to own its template content, manifests, versions, archives, and distribution. Built-in starter guidance stays with the original creator and outcome 07. Vivary owns composition, adoption, verification, receipts, and conformance. Agent-Native app scaffolding and integration blueprints are different mechanisms. They must not become hidden substitutes for Vivary workspace templates.
 
 A project created from a template remains a normal standalone Vivary workspace. The collection references it and routes sessions to it. Installing a template does not install another coordinator server, copy the whole collection, create a remote repository, or start another agent.
 
 Bind each installation to the project ID, canonical target, template version and digest, selected options, target fingerprint, and authority. Recover across both filesystem changes and registry updates. Repeated requests must not create duplicate projects or lose an already completed install after a crash.
 
 Allow project-contained workspace templates, including knowledge workspaces. First delivery supports a single collection of explicitly registered roots. Recursive collection coordination requires an explicit future contract for cycles, ownership, and authority inheritance. It is not implied by ordinary template nesting.
+
+### Workspace setup direction: 2026-09-13
+
+Jeff asked Vivary to create a useful workspace with folders, files, and prefilled
+agent guidance. His examples include second brains, knowledge bases, LLM wikis,
+and other projects. He questioned fixed packs tied to a language or project
+stack and suggested studying Letta Code's agent patterns. The
+[Letta Code study](research/letta-code-workspace-patterns.md) supplies the source
+comparison. Its findings inform the proposal below, not a runtime replacement.
+
+Setup must produce usable guidance and an understandable file structure. The
+existing five-file initializer is a compatible base, but it does not complete
+this requirement. Folder registration alone does not initialize a workspace.
+
+The proposed composition separates three choices:
+
+- **Workspace structure:** a portable base plus useful patterns for capture,
+  research, knowledge organization, writing, or project work. Patterns can be
+  combined and adapted to the user's existing layout. Language and build tools
+  remain optional project choices.
+- **Agent guidance:** editable responsibilities, working instructions, memory
+  scope, and reusable skills. Start with one capable workspace agent. Add roles
+  such as researcher, reviewer, or knowledge curator when the workflow needs
+  them. A role does not require its own model or a running background worker.
+- **Execution and connections:** the selected Native runtime, its tools, and
+  existing connectors. A template or instruction file grants no extra access
+  and activates no provider, schedule, or paid service.
+
+For example, a knowledge workspace could combine an inbox, source references,
+linked notes, an index, and instructions for citing and updating knowledge.
+A project workspace could combine goals, current tasks, decisions, and review
+guidance. These are proposed starting patterns, not a fixed catalog or invented
+personal knowledge. Keep detailed folder names and profile defaults editable.
+
+Use the original creator/adopter for a visible file plan, deliberate apply, and
+registration. Prefill general guidance and known user inputs. Mark unanswered
+questions clearly. Preserve existing files and let the user review additions.
+[Outcome 07](tickets/07-create-new-projects.md) owns built-in creation,
+[08](tickets/08-adopt-existing-projects.md) owns adoption, and
+[11](tickets/11-finish-workspace-editor.md) owns editing the resulting files.
+The external catalog and transport remain under the separate
+[held template program](tickets/19-integrate-template-program.md).
 
 ## GUI and agent parity
 

@@ -160,10 +160,14 @@ Code owners: [project navigation](../../../../packages/workbench/app/components/
 
 ## Recommended next integration
 
-Connect Create and Adopt to the original implementations, with the four presets,
-a visible file plan, result checks, and registration through the existing Native
-project registry. Resolve the local package dependency closure as part of that
-slice so it also works outside the source checkout.
+Connect Create and Adopt to the original implementations, with a visible file
+plan, result checks, and registration through the existing Native project
+registry. The four presets are the compatibility base. Follow the later
+[workspace setup direction](../design.md#workspace-setup-direction-2026-09-13)
+for useful starter content and independent agent guidance. The current preset
+names do not define mandatory GUI categories. Resolve the local package
+dependency closure as part of that slice so it also works outside the source
+checkout.
 
 Then finish file navigation/editing and connect context selection and recorded
 outcomes around Native execution. Present real plan and evidence records through

@@ -17,6 +17,8 @@ Program context: [design](../design.md), [migration](../migration.md), [release]
 
 Own only the workbench wrapper, capability detection, project binding, UI, and wrapper tests. Read [the held template-installer contract](../external-dependencies.md#held-template-installer-program). The external program must finish tickets 01-06. The repository owner must explicitly lift its hold and provide a canonical approved source packet. A compatible template API must exist in an installed artifact.
 
+Follow the [workspace setup direction](../design.md#workspace-setup-direction-2026-09-13) for composable content and independent agent/runtime choices. Built-in workspace creation under outcome 07 does not depend on this external catalog.
+
 ## Done condition
 
 The wrapper discovers the installed capability and shows the template plan and receipt. It binds the target project, handles recovery, and leaves the workspace usable without the workbench. It contains no copied catalog or template implementation.
