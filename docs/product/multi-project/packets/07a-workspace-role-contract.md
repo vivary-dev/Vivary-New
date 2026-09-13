@@ -1,11 +1,13 @@
 # 07a: Describe workspace roles and patterns without changing files
 Type: packet
 Parent: 07
-Status: in-progress
+Status: done
 Depends-on: []
-Owner: runtime_setup, coordinated by root, sole source writer
+Owner: Root integration writer, runtime_setup implementation, independent source reviewer
 Scope: Add optional descriptive role and pattern metadata to the existing workspace contract. Preserve the four preset aliases and the actual five-file base.
 Verification-kind: inspection
+Evidence: [Role contract verification](../receipts/07a-workspace-role-contract.md)
+Verification-result: passed
 Timebox: One additive source increment with focused compatibility checks and independent review.
 
 ## Goal
@@ -83,3 +85,6 @@ the writer and reviewer within this scope.
 
 - 2026-09-13: Opened as the first bounded increment of the combined plan.
   Implementation is assigned to runtime_setup. Verification remains pending.
+- 2026-09-13: Accepted after the existing source suites and independent review.
+  The review correction preserves literal bracketed filenames. The receipt records
+  compatibility and unchanged privacy/state behavior. No GUI acceptance is claimed.

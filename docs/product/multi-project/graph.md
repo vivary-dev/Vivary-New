@@ -9,8 +9,8 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate completion. Agents execute bounded packets; a future feature or release
 decision does not block an independent packet. Packet dependencies gate starts.
 
-Frontier: none.
-In progress: 06f, 07a.
+Frontier: 07b.
+In progress: 06f.
 
 ## Execution packets
 
@@ -22,8 +22,8 @@ In progress: 06f, 07a.
 | [03b: Execute the portable registry contract against a deterministic model](packets/03b-registry-contract-model.md) | 03 | done | [03a, 10c] |
 | [03c: Map registry transactions to native application seams](packets/03c-registry-transaction-mapping.md) | 03 | done | [03b] |
 | [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md) | 06 | in-progress | [03c, 12h] |
-| [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | in-progress | [] |
-| [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | needs-info | [07a] |
+| [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | done | [] |
+| [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | ready-for-agent | [07a] |
 | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | needs-info | [07b] |
 | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | needs-info | [07b] |
 | [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |

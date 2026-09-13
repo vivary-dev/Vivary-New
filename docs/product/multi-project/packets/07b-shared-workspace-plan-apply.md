@@ -1,12 +1,11 @@
 # 07b: Share a file-content plan and apply path between GUI and CLI
 Type: packet
 Parent: 07
-Status: needs-info
+Status: ready-for-agent
 Depends-on: [07a]
-Owner: Root-assigned setup integrator, sole writer
+Owner: Coordinating Codex, sole creator and Workbench adapter writer
 Scope: Repair the existing creator adapter and expose one deterministic content plan/apply contract through the CLI and Native GUI.
 Verification-kind: runtime
-Needs: Root accepts 07a, selects the missing public plan API in the original creator, and assigns the adapter/package dependency closure.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -74,3 +73,7 @@ A hosted-auth blocker prevents only its dependent hosted mutation proof.
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+- 2026-09-13: 07a accepted. Root owns the creator/adapter closure. Begin with
+  a shared `plan_thin_workspace` operation over the existing renderer, then wire
+  the retained adapter to the real apply path. Hosted mutation proof retains
+  its separate unresolved auth prerequisite. Source preparation can proceed.
