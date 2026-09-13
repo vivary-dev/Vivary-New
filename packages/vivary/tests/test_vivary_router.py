@@ -48,15 +48,15 @@ STAND_IN_VERB = "check"
 SEAM_VERBS = ("create", "check", "decide", "review", "control")
 UNKNOWN_FLAG = "--definitely-not-a-flag"
 
-# Each installed version paired with whether the tropo floor of 0.5.4 accepts it.
+# Each installed version paired with whether the Tropo floor of 0.5.5 accepts it.
 FLOOR_CASES = (
-    ("0.5.3", False),
-    ("0.5.4rc1", False),
-    ("0.5.4.dev1", False),
-    ("0.5.4", True),
-    ("0.5.4+d20260902", True),
-    ("0.5.4.post1", True),
-    ("0.5.5rc1", True),
+    ("0.5.4", False),
+    ("0.5.5rc1", False),
+    ("0.5.5.dev1", False),
+    ("0.5.5", True),
+    ("0.5.5+d20260913", True),
+    ("0.5.5.post1", True),
+    ("0.5.6rc1", True),
     ("0.6", True),
 )
 
@@ -749,7 +749,7 @@ class ReleaseOrderingTests(unittest.TestCase):
         for installed, accepted in FLOOR_CASES:
             with self.subTest(installed=installed):
                 self.assertEqual(
-                    vivary_cli._below_floor(installed, "0.5.4"), not accepted
+                    vivary_cli._below_floor(installed, "0.5.5"), not accepted
                 )
 
 

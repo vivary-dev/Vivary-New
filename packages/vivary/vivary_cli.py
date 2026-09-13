@@ -24,7 +24,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, NamedTuple
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 DEFAULT_RECEIPT_LOG = ".vivary/receipts.jsonl"
 RECEIPT_ENV = "VIVARY_RECEIPT_LOG"
 HELP_WIDTH = 79
@@ -56,9 +56,9 @@ class Component(NamedTuple):
 
 COMPONENTS = {
     "create_vivary": Component(
-        "create_vivary", "create-vivary", "create-vivary", "Workspace", "0.4.3"),
+        "create_vivary", "create-vivary", "create-vivary", "Workspace", "0.4.4"),
     "tropo": Component(
-        "tropo", "vivary-tropo", "tropo", "Graph and retrieval", "0.5.4"),
+        "tropo", "vivary-tropo", "tropo", "Graph and retrieval", "0.5.5"),
     "strato": Component("strato", "vivary-strato", "strato", "Policy", "0.1.3"),
     "ozone": Component("ozone", "vivary-ozone", "ozone", "Review", "0.3.2"),
     "exo": Component("exo", "vivary-exo", "exo", "Coordination", "0.3.1"),

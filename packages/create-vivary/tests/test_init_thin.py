@@ -29,11 +29,21 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
     return rc, output.getvalue()
 
 
+VIVARY_METADATA_HEADER = '[workspace.vivary]\nversion = 1\n'
+DEFAULT_ROLES = {
+    "law": ["AGENTS.md", ".vivary/context.md"],
+    "map": [".vivary/context.md"],
+    "record": [],
+    "memory": [],
+    "boundary": [".gitignore", ".vivary/private", ".vivary/runtime"],
+}
+
+
 def replace_role_metadata(config: str, metadata: str) -> str:
-    before, remaining = config.split("[workspace.roles]\n", 1)
-    _roles, after = remaining.split("\n[base]\n", 1)
-    before = before.replace('patterns = ["thin-context"]\n', "")
-    return before + metadata + "\n[base]\n" + after
+    """Replace the generated Vivary metadata tables. An empty string removes them."""
+    before, remaining = config.split("\n# Optional Vivary metadata.", 1)
+    _generated, after = remaining.split("\n[base]\n", 1)
+    return before + "\n" + metadata + "\n[base]\n" + after
 
 
 class ThinInitTests(unittest.TestCase):
@@ -214,16 +224,7 @@ class ThinInitTests(unittest.TestCase):
                     self.assertIn("separately installed", context)
                     report = create_vivary.doctor_workspace(target, repo_root=ROOT)
                     self.assertTrue(report["ok"], report["errors"])
-                    expected_roles = {
-                        "patterns": ["thin-context"],
-                        "roles": {
-                            "law": ["AGENTS.md", ".vivary/context.md"],
-                            "map": [".vivary/context.md"],
-                            "record": [],
-                            "memory": [],
-                            "boundary": [".gitignore", ".vivary/private", ".vivary/runtime"],
-                        },
-                    }
+                    expected_roles = {"patterns": ["thin-context"], "roles": DEFAULT_ROLES}
                     self.assertEqual(report["workspace_roles"], expected_roles)
                     config = target / ".vivary" / "workspace.toml"
                     state_before = (target / "STATE.md").read_bytes()
@@ -236,14 +237,92 @@ class ThinInitTests(unittest.TestCase):
                     if target.exists():
                         shutil.rmtree(target)
 
+    def test_workspaces_without_vivary_metadata_keep_ignoring_unrelated_workspace_values(self):
+        # Before [workspace.vivary] existed, thin-v0.3 ignored these extension keys.
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            config.write_text(replace_role_metadata(config.read_text(), (
+                'patterns = ["custom"]\n'
+                '[workspace.roles]\nstate = "STATE.md"\n'
+            )))
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(report["ok"], report["errors"])
+            self.assertEqual(
+                report["workspace_roles"], {"patterns": ["thin-context"], "roles": DEFAULT_ROLES}
+            )
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
+    def test_doctor_reports_roles_and_metadata_errors_alongside_unrelated_failures(self):
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            original = config.read_text()
+            (target / "STATE.md").unlink()
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertFalse(report["ok"])
+            self.assertIn("missing required file: STATE.md", report["errors"])
+            self.assertEqual(
+                report["workspace_roles"], {"patterns": ["thin-context"], "roles": DEFAULT_ROLES}
+            )
+            self.assertEqual(report["graph"], {"nodes": 0, "edges": 0, "broken": 0})
+
+            config.write_text(replace_role_metadata(original, (
+                VIVARY_METADATA_HEADER + '[workspace.vivary.roles]\nlaw = "AGENTS.md"\n'
+            )))
+            invalid = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertIsNone(invalid["workspace_roles"])
+            self.assertIn("missing required file: STATE.md", invalid["errors"])
+            self.assertTrue(
+                any(
+                    "workspace.vivary.roles.law must be a list" in error
+                    for error in invalid["errors"]
+                ),
+                invalid["errors"],
+            )
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
+    def test_roles_remain_visible_while_adoption_recovery_is_required(self):
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            journal = target / ".vivary" / "runtime" / "adopt-journal.json"
+            journal.parent.mkdir(parents=True)
+            journal.write_text("{}")
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("unfinished adoption journal" in error for error in report["errors"]))
+            self.assertEqual(report["workspace_roles"]["roles"], DEFAULT_ROLES)
+            self.assertEqual(report["graph"], {"nodes": 0, "edges": 0, "broken": 0})
+            self.assertEqual(journal.read_text(), "{}")
+
+            journal.unlink()
+            gitignore = target / ".gitignore"
+            before = gitignore.read_text() + "# vivary-adopt-prejournal invalid\n"
+            gitignore.write_text(before)
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertFalse(report["ok"])
+            self.assertIn("malformed pre-journal adoption marker exists in .gitignore", report["errors"])
+            self.assertEqual(report["workspace_roles"]["roles"], DEFAULT_ROLES)
+            self.assertEqual(gitignore.read_text(), before)
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
     def test_adoption_preserves_custom_roles_unknown_config_and_authored_state(self):
         target = temp_target()
         try:
             create_vivary.scaffold_thin_workspace(target, preset="writing", repo_root=ROOT)
             config = target / ".vivary" / "workspace.toml"
             custom = replace_role_metadata(config.read_text(), (
-                'patterns = ["thin-context"]\n'
-                '[workspace.roles]\n'
+                VIVARY_METADATA_HEADER + 'patterns = ["thin-context"]\n'
+                '[workspace.vivary.roles]\n'
                 'law = ["handbook.md"]\n'
                 'map = []\n'
                 'memory = ["notes/[Q3] review.md"]\n'
@@ -282,20 +361,26 @@ class ThinInitTests(unittest.TestCase):
             original = config.read_text()
             tropo = create_vivary._load_tropo(ROOT)
             invalid = {
+                "metadata type": 'vivary = []\n',
+                "missing version": '[workspace.vivary]\npatterns = ["thin-context"]\n',
+                "wrong version": '[workspace.vivary]\nversion = 2\n',
+                "bool version": '[workspace.vivary]\nversion = true\n',
                 "patterns type": 'patterns = "thin-context"\n',
                 "unsupported pattern": 'patterns = ["memory-maintenance"]\n',
                 "repeated pattern": 'patterns = ["thin-context", "thin-context"]\n',
                 "roles type": 'roles = []\n',
-                "unknown role": '[workspace.roles]\nstate = []\n',
-                "path list": '[workspace.roles]\nlaw = "AGENTS.md"\n',
-                "escape": '[workspace.roles]\nmemory = ["../outside.md"]\n',
-                "absolute": '[workspace.roles]\nmemory = ["/outside.md"]\n',
-                "drive": "[workspace.roles]\nmemory = ['C:\\outside.md']\n",
-                "glob": '[workspace.roles]\nmemory = ["notes/*.md"]\n',
-                "duplicate": '[workspace.roles]\nlaw = ["AGENTS.md", "AGENTS.md"]\n',
+                "unknown role": '[workspace.vivary.roles]\nstate = []\n',
+                "path list": '[workspace.vivary.roles]\nlaw = "AGENTS.md"\n',
+                "escape": '[workspace.vivary.roles]\nmemory = ["../outside.md"]\n',
+                "absolute": '[workspace.vivary.roles]\nmemory = ["/outside.md"]\n',
+                "drive": "[workspace.vivary.roles]\nmemory = ['C:\\outside.md']\n",
+                "glob": '[workspace.vivary.roles]\nmemory = ["notes/*.md"]\n',
+                "duplicate": '[workspace.vivary.roles]\nlaw = ["AGENTS.md", "AGENTS.md"]\n',
             }
             for name, metadata in invalid.items():
                 with self.subTest(name=name):
+                    if "version" not in name and name != "metadata type":
+                        metadata = VIVARY_METADATA_HEADER + metadata
                     config.write_text(replace_role_metadata(original, metadata))
                     with self.assertRaises(tropo.ConfigError):
                         tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
@@ -309,7 +394,7 @@ class ThinInitTests(unittest.TestCase):
             create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
             config = target / ".vivary" / "workspace.toml"
             empty = replace_role_metadata(config.read_text(), (
-                'patterns = []\n[workspace.roles]\nboundary = []\n'
+                VIVARY_METADATA_HEADER + 'patterns = []\n[workspace.vivary.roles]\nboundary = []\n'
             ))
             config.write_text(empty)
             report = create_vivary.doctor_workspace(target, repo_root=ROOT)
@@ -377,9 +462,17 @@ class ThinInitTests(unittest.TestCase):
                 '".cocoindex_code"',
                 (target / ".vivary" / "workspace.toml").read_text(encoding="utf-8"),
             )
-            self.assertTrue(
-                create_vivary.doctor_workspace(target, repo_root=ROOT)["ok"]
-            )
+            healthy = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(healthy["ok"], healthy["errors"])
+            expected_boundary = [
+                ".gitignore", ".vivary/private", ".vivary/runtime", ".cocoindex_code",
+            ]
+            self.assertEqual(healthy["workspace_roles"]["roles"]["boundary"], expected_boundary)
+            config = target / ".vivary" / "workspace.toml"
+            config.write_text(replace_role_metadata(config.read_text(), ""))
+            legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(legacy["ok"], legacy["errors"])
+            self.assertEqual(legacy["workspace_roles"]["roles"]["boundary"], expected_boundary)
 
             gitignore = target / ".gitignore"
             generated_gitignore = gitignore.read_text(encoding="utf-8")
@@ -396,6 +489,7 @@ class ThinInitTests(unittest.TestCase):
                 "privacy ignore missing: .cocoindex_code/",
                 report["errors"],
             )
+            self.assertEqual(report["workspace_roles"]["roles"]["boundary"], expected_boundary)
 
             gitignore.write_text(
                 generated_gitignore + "!.cocoindex_code/\n",

@@ -114,7 +114,7 @@ if os.name == "nt":
     _PUBLIC_FILE_SHARE_ALL = 0x00000001 | 0x00000002 | 0x00000004
     _PUBLIC_OPEN_EXISTING = 3
 
-__version__ = "0.5.4"
+__version__ = "0.5.5"
 RECEIPT_ENV = "VIVARY_RECEIPT_LOG"
 RECEIPT_SCHEMA = "vivary.run_receipt.v1"
 COMMANDS = (
@@ -631,7 +631,9 @@ def _read_pack(name, root, script_dir):
 THIN_CONFIG_REL = os.path.join(".vivary", "workspace.toml")
 THIN_WORKSPACE_CONTRACT = "thin-v0.3"
 THIN_ADAPTERS = {"agents", "claude"}
-THIN_CAPABILITIES = {"cocoindex-code"}
+# Declared capability -> the workspace-relative storage it must keep private.
+THIN_CAPABILITY_STORAGE = {"cocoindex-code": ".cocoindex_code"}
+THIN_CAPABILITIES = set(THIN_CAPABILITY_STORAGE)
 
 
 def _workspace_relative_path(value, field):
@@ -648,42 +650,62 @@ def _workspace_relative_path(value, field):
 
 
 WORKSPACE_FILE_ROLES = ("law", "map", "record", "memory", "boundary")
+# Optional, versioned Vivary metadata lives under [workspace.vivary]. Unchanged
+# thin-v0.3 workspaces omit it and keep thin-context defaults. Unrelated
+# workspace.patterns or workspace.roles values stay ignored as they were before.
+WORKSPACE_VIVARY_METADATA_VERSION = 1
 
 
-def resolve_workspace_roles(workspace):
+def resolve_workspace_roles(workspace, protected_paths):
     """Describe exact relative paths without discovering files or granting access.
 
+    `protected_paths` are the validated private, runtime, and capability storage
+    paths. The thin-context boundary describes them without widening privacy.
     The thin-context map is the existing context Routes section, not a generated
     inventory. STATE ownership remains in workspace.state, outside these roles.
     """
-    patterns = workspace.get("patterns", ["thin-context"])
+    metadata = workspace.get("vivary")
+    if metadata is None:
+        return _describe_workspace_roles(["thin-context"], {}, protected_paths)
+    if not isinstance(metadata, dict):
+        raise ConfigError("workspace.vivary must be a table")
+    version = metadata.get("version")
+    if isinstance(version, bool) or version != WORKSPACE_VIVARY_METADATA_VERSION:
+        raise ConfigError(
+            f"workspace.vivary.version must be {WORKSPACE_VIVARY_METADATA_VERSION}"
+        )
+    patterns = metadata.get("patterns", ["thin-context"])
     if (
         not isinstance(patterns, list)
         or any(pattern != "thin-context" for pattern in patterns)
         or len(patterns) != len(set(patterns))
     ):
-        raise ConfigError("workspace.patterns may contain thin-context once")
+        raise ConfigError("workspace.vivary.patterns may contain thin-context once")
+    overrides = metadata.get("roles", {})
+    if not isinstance(overrides, dict) or any(
+        role not in WORKSPACE_FILE_ROLES for role in overrides
+    ):
+        raise ConfigError(
+            "workspace.vivary.roles may assign law, map, record, memory, and boundary"
+        )
+    return _describe_workspace_roles(patterns, overrides, protected_paths)
+
+
+def _describe_workspace_roles(patterns, overrides, protected_paths):
     roles = {role: [] for role in WORKSPACE_FILE_ROLES}
     if "thin-context" in patterns:
-        boundary_paths = [".gitignore"]
-        for field in ("private", "runtime"):
-            boundary_paths.extend(
-                _workspace_relative_path(value, field) for value in workspace.get(field, [])
-            )
         roles["law"] = ["AGENTS.md", ".vivary/context.md"]
         roles["map"] = [".vivary/context.md"]
-        roles["boundary"] = list(dict.fromkeys(boundary_paths))
-    overrides = workspace.get("roles", {})
-    if not isinstance(overrides, dict) or any(role not in roles for role in overrides):
-        raise ConfigError("workspace.roles may assign law, map, record, memory, and boundary")
+        roles["boundary"] = list(dict.fromkeys([".gitignore", *protected_paths]))
     for role, values in overrides.items():
+        field = f"workspace.vivary.roles.{role}"
         if not isinstance(values, list):
-            raise ConfigError(f"workspace.roles.{role} must be a list of relative paths")
-        paths = [_workspace_relative_path(value, f"roles.{role}") for value in values]
+            raise ConfigError(f"{field} must be a list of relative paths")
+        paths = [_workspace_relative_path(value, f"vivary.roles.{role}") for value in values]
         if any(any(char in value for char in "*?\x00") for value in paths):
-            raise ConfigError(f"workspace.roles.{role} requires exact paths, not glob patterns")
+            raise ConfigError(f"{field} requires exact paths, not glob patterns")
         if len(paths) != len(set(paths)):
-            raise ConfigError(f"workspace.roles.{role} cannot repeat a path")
+            raise ConfigError(f"{field} cannot repeat a path")
         roles[role] = paths
     return {"patterns": list(patterns), "roles": roles}
 
@@ -740,8 +762,7 @@ def _validate_thin_workspace(raw, thin_path, root):
         raise ConfigError(
             f"{thin_path}: workspace.capabilities may contain cocoindex-code once"
         )
-    if "cocoindex-code" in capabilities:
-        protected.append(".cocoindex_code")
+    protected.extend(THIN_CAPABILITY_STORAGE[capability] for capability in capabilities)
 
     excludes = raw.get("exclude")
     if not isinstance(excludes, list) or any(not isinstance(item, str) for item in excludes):
@@ -753,7 +774,7 @@ def _validate_thin_workspace(raw, thin_path, root):
             f"{thin_path}: exclude must protect workspace private/runtime/capability paths: "
             + ", ".join(missing)
         )
-    return resolve_workspace_roles(workspace)
+    return resolve_workspace_roles(workspace, protected)
 
 
 def _competing_thin_ancestor(root):

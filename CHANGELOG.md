@@ -11,14 +11,46 @@ the `v0.1.0` line.
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
 
+## [Unreleased: Workspace role repair] - 2026-09-13
+
+Staged source versions are `vivary-tropo` **0.5.5**, `create-vivary` and
+`@vivary/create` **0.4.4**, and `vivary` **0.2.1**. Publishing remains a manual
+human gate. These patches do not change any registry artifact.
+
+- Version optional role metadata under `workspace.vivary`, preserving previously
+  ignored custom `workspace.patterns` and `workspace.roles` values.
+- Include declared capability storage in boundary descriptions. Role descriptions
+  still grant no access and do not replace privacy exclusions.
+- Report valid roles when Doctor finds other errors, including pending adoption
+  recovery. Keep recovery errors and skip graph analysis while they remain.
+- Require a Tropo package that contains the role API. Add an installed-package
+  check to the existing Linux and Windows wheel verification.
+
+### Verification
+
+The 19 thin-init tests, 7 creation-preview tests, 203 Tropo tests, 51 meta-package
+CLI tests, and 5 focused version/Doctor tests passed on Zo. Local wheels built
+and installed without registry dependencies. `pip check` and the isolated
+`scripts/check_installed_workspace_roles.py` check passed against those packages.
+No historical runtime campaign, hosted deployment, or release publication is included.
+
+### Registry correction
+
+The September 13 registry check found the September 3 PyPI releases of the
+Front Door components. npm still exposes `@vivary/create` 0.4.2 and has no 0.4.3.
+The inspected Tropo 0.5.4 wheel does not contain the role API. These observations
+supersede the older "none published" source-status claim. They do not add fresh
+installation acceptance to the dated August results.
+
 ## [Unreleased: Vivary Front Door] — 2026-09-02
 
-This slice advances the unpublished `vivary` meta-package to **0.2.0** and takes each
+The September 2 staging checkpoint advanced `vivary` to **0.2.0** and each
 routed component to its next patch: `create-vivary` / `@vivary/create` **0.4.3**,
 `vivary-tropo` **0.5.4**, `vivary-strato` **0.1.3**, `vivary-ozone` **0.3.2**, and
 `vivary-exo` **0.3.1**. Ten user-visible verbs are new, so the meta-package takes a
 minor bump. Each component gains one optional keyword and nothing else, so each takes a
-patch. Published registry versions remain unchanged.
+patch. This paragraph records that staging checkpoint. The registry correction
+above records the later partial publication.
 
 ### Added
 
