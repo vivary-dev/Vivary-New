@@ -23,11 +23,11 @@ close, erase, or waive any accepted evidence requirement.
 | [211](https://github.com/vivary-dev/vivary/issues/211) | Governed-loop dogfood and graduation evidence | Carry the unresolved proof into outcomes 23 and 36; check existing receipts before repeating it |
 | [212](https://github.com/vivary-dev/vivary/issues/212) | Repository/worktree/release hygiene | Maintenance only with ownership and preservation proof. No bulk deletion or distraction from product packets |
 | [213](https://github.com/vivary-dev/vivary/issues/213) | Restartable continuation and handoffs | Reconcile with outcomes 17 and 29; preserve native state owners |
-| [222](https://github.com/vivary-dev/vivary/issues/222) | Canonical tutorial source | Current repository rules already put prose in docs and generated guides under site. Recheck whether an interactive-shell choice remains; outcomes 24/25 own it |
+| [222](https://github.com/vivary-dev/vivary/issues/222) | Canonical tutorial source | Resolved and closed 2026-09-12: canonical prose stays in docs; generated site content is output-only; any interactive shell uses a distinct route under site/src/pages. Outcomes 24/25 own implementation |
 | [226](https://github.com/vivary-dev/vivary/issues/226) | Required token-savings benchmark definition | Outcome 36 must define corpus, comparator, units, and reproducible results before token-savings claims. It is distinct from cost-per-task pilot metrics |
 | [150](https://github.com/vivary-dev/vivary/issues/150) | Guides, screenshots, and evidence-backed workflows | Preserve in outcomes 24/25/36 |
 | [146](https://github.com/vivary-dev/vivary/issues/146) | Optional integration proof matrix | Preserve supported/skip/unavailable paths; outcomes 18/23/24 own any included capabilities |
-| [140](https://github.com/vivary-dev/vivary/issues/140), [20](https://github.com/vivary-dev/vivary/issues/20) | Future graph/embedding exploration | Not the first execution frontier; no implicit scope addition or deletion |
+| [140](https://github.com/vivary-dev/vivary/issues/140), [20](https://github.com/vivary-dev/vivary/issues/20) | Local typed-vector communities | Reviewed implementation and CLI evidence are on the private GUI branch. Public integration/release remains pending product acceptance; these issues stay open until that delivery is available |
 | [159](https://github.com/vivary-dev/vivary/issues/159) | Repository health findings | Keep findings separate from product completion; act only on relevant current evidence |
 
 ## When GitHub Issues become the execution ledger
