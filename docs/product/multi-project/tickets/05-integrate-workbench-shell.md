@@ -20,6 +20,18 @@ Own only the new app package, its provenance record, and package-local tests. Re
 
 The app opens with project navigation, task and session regions, conversation, and expandable work panels. It labels planned or unsupported controls accurately. The provenance receipt maps imported files to source hashes.
 
+## Planned chat titles
+
+Jeff requested this roadmap item on 2026-09-12; implementation is deferred.
+Use DeepSeek Flash (`deepseek-flash`) for concise titles across Full chat and
+coding conversations, independently of the model doing the work. Preserve
+user-renamed titles and keep a local fallback when the provider is unavailable.
+
+Reuse the existing title adapter in `packages/workbench/server/chat-title.mjs`
+and Native's scoped provider connection. Full chat already has that adapter;
+coding conversations still use the first message as their initial title.
+Do not add another title service or credential store.
+
 ## Verify
 
 Run the package build, unit tests, and a browser smoke from an isolated project environment. Compare the shell against the accepted S-01 layout and accessibility contract.
@@ -32,3 +44,5 @@ they do not prove the behavior above.
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-12: Added the roadmap-only DeepSeek Flash title-generation request for both chat surfaces.
