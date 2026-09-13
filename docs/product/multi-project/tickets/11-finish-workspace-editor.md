@@ -29,6 +29,14 @@ Run the [canonical common planning checks](../execution-contract.md#maintaining-
 after changing this outcome's metadata. These checks validate planning documents;
 they do not prove the behavior above.
 
+## Next packets
+
+- [11a: Authorized file editing](../packets/11a-authorized-workspace-file-editing.md): finish real file access, drafts, and conflict handling.
+- [11b: Generated project views](../packets/11b-generated-project-views.md): derive map/state views while preserving authored STATE.md until a migration is resolved.
+- [18a: Scoped file memory](../packets/18a-scoped-file-memory.md): reuse file editing and Native context loading for cross-session continuity.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-13: Added editor and derived-view packets. Generated state requires an explicit writer/input/migration contract, not automatic replacement of authored state.

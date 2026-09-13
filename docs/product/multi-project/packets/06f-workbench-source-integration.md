@@ -4,15 +4,15 @@ Parent: 06
 Status: in-progress
 Depends-on: [03c, 12h]
 Owner: Coordinating Codex, sole integration writer; independent boundary reviewer
-Scope: Finish the Workbench on feat/vivary-gui. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Dev promotion requires Jeff's explicit product acceptance.
+Scope: Finish the Workbench in private Vivary-New through typed topic PRs into dev. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Main promotion requires Jeff's explicit product acceptance.
 Verification-kind: runtime
 Timebox: One coherent application increment per reviewed PR; use existing checks and the real application.
 
 ## Current increment
 
 The current source-recovery task runs in private Vivary-New on
-`feat/salvage-reconcile`, with a review PR to unchanged `main` under Jeff's
-2026-09-13 instruction. The existing GUI remains the application surface.
+`feat/salvage-reconcile`, with a review PR into `dev` under Jeff's later
+2026-09-13 instruction to consolidate useful work toward the desktop product. The existing GUI remains the application surface.
 The [50-commit salvage receipt](../receipts/salvage-handoff-2026-09-12.md)
 records the recovered thin-workspace preview API, skipped guarded-creation
 provider, and remaining acceptance failures. This does not promote outcome 06
@@ -39,8 +39,8 @@ trials, relocated-folder recovery, and the governed multi-stage workflow remain
 open. A Windows portable artifact does not establish Windows execution.
 
 Zo remains the authorized development and private-preview host. The product is
-local and requires no Vivary signup or login. No further merge into `dev` is
-authorized until Jeff explicitly accepts the product.
+local and requires no Vivary signup or login. Jeff authorized consolidation
+into `dev`. Promotion to `main` requires acceptance of the delivered milestone.
 
 For later increments, follow the [2026-09-13 testing decision](../design.md#hosted-and-desktop-testing-decision-2026-09-13):
 implement and test the latest changes on the private hosted Zo app first. Then
@@ -159,3 +159,7 @@ operation whose actual prerequisite is missing and continue independent work.
   after two custody failures. Build and hosted read/navigation checks passed,
   but full suites and hosted selection persistence remain incomplete. See the
   salvage receipt for the complete ruling table. Main remains unchanged.
+- 2026-09-13: Jeff moved active development to private vivary-dev/Vivary-New
+  with GitHub and Entire connected. His later correction selects typed topic
+  PRs into dev and reviewed promotion to main. The existing outcome graph owns
+  the combined workspace plan. Public promotion and release remain unapproved.

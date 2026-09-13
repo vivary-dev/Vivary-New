@@ -29,6 +29,13 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
     return rc, output.getvalue()
 
 
+def replace_role_metadata(config: str, metadata: str) -> str:
+    before, remaining = config.split("[workspace.roles]\n", 1)
+    _roles, after = remaining.split("\n[base]\n", 1)
+    before = before.replace('patterns = ["thin-context"]\n', "")
+    return before + metadata + "\n[base]\n" + after
+
+
 class ThinInitTests(unittest.TestCase):
     def test_public_init_help_does_not_advertise_legacy_obsidian_scaffolding(self):
         parser = create_vivary.build_parser()
@@ -205,12 +212,124 @@ class ThinInitTests(unittest.TestCase):
                     self.assertIn("vivary-mcp --workspace project .", context)
                     self.assertIn("create-vivary record", context)
                     self.assertIn("separately installed", context)
-                    self.assertTrue(
-                        create_vivary.doctor_workspace(target, repo_root=ROOT)["ok"]
-                    )
+                    report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+                    self.assertTrue(report["ok"], report["errors"])
+                    expected_roles = {
+                        "patterns": ["thin-context"],
+                        "roles": {
+                            "law": ["AGENTS.md", ".vivary/context.md"],
+                            "map": [".vivary/context.md"],
+                            "record": [],
+                            "memory": [],
+                            "boundary": [".gitignore", ".vivary/private", ".vivary/runtime"],
+                        },
+                    }
+                    self.assertEqual(report["workspace_roles"], expected_roles)
+                    config = target / ".vivary" / "workspace.toml"
+                    state_before = (target / "STATE.md").read_bytes()
+                    config.write_text(replace_role_metadata(config.read_text(), ""))
+                    legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
+                    self.assertTrue(legacy["ok"], legacy["errors"])
+                    self.assertEqual(legacy["workspace_roles"], expected_roles)
+                    self.assertEqual((target / "STATE.md").read_bytes(), state_before)
                 finally:
                     if target.exists():
                         shutil.rmtree(target)
+
+    def test_adoption_preserves_custom_roles_unknown_config_and_authored_state(self):
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="writing", repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            custom = replace_role_metadata(config.read_text(), (
+                'patterns = ["thin-context"]\n'
+                '[workspace.roles]\n'
+                'law = ["handbook.md"]\n'
+                'map = []\n'
+                'memory = ["notes/[Q3] review.md"]\n'
+            )) + '\n[user_options]\nkeep = "unchanged"\n'
+            config.write_text(custom)
+            state = target / "STATE.md"
+            state.write_bytes(b"# My state\n\nNext: keep the user's plan.\n")
+            state_before = state.read_bytes()
+            plan = create_vivary.adopt_workspace(target, preset="writing", repo_root=ROOT)
+            self.assertEqual(plan["conflicts"], [])
+            applied = create_vivary.adopt_workspace(
+                target, preset="writing", repo_root=ROOT,
+                yes=True, plan_hash=plan["plan_hash"],
+            )
+            self.assertTrue(applied["applied"])
+            report = applied["doctor"]
+            self.assertTrue(report["ok"], report["errors"])
+            self.assertEqual(report["workspace_roles"]["roles"]["law"], ["handbook.md"])
+            self.assertEqual(report["workspace_roles"]["roles"]["map"], [])
+            self.assertEqual(report["workspace_roles"]["roles"]["memory"], ["notes/[Q3] review.md"])
+            self.assertEqual(report["workspace_roles"]["roles"]["record"], [])
+            self.assertEqual(config.read_text(), custom)
+            self.assertEqual(state.read_bytes(), state_before)
+            self.assertFalse((target / "handbook.md").exists())
+            self.assertFalse((target / "notes").exists())
+            self.assertFalse((target / ".vivary" / "records").exists())
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
+    def test_role_metadata_is_validated_by_the_existing_config_reader(self):
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            original = config.read_text()
+            tropo = create_vivary._load_tropo(ROOT)
+            invalid = {
+                "patterns type": 'patterns = "thin-context"\n',
+                "unsupported pattern": 'patterns = ["memory-maintenance"]\n',
+                "repeated pattern": 'patterns = ["thin-context", "thin-context"]\n',
+                "roles type": 'roles = []\n',
+                "unknown role": '[workspace.roles]\nstate = []\n',
+                "path list": '[workspace.roles]\nlaw = "AGENTS.md"\n',
+                "escape": '[workspace.roles]\nmemory = ["../outside.md"]\n',
+                "absolute": '[workspace.roles]\nmemory = ["/outside.md"]\n',
+                "drive": "[workspace.roles]\nmemory = ['C:\\outside.md']\n",
+                "glob": '[workspace.roles]\nmemory = ["notes/*.md"]\n',
+                "duplicate": '[workspace.roles]\nlaw = ["AGENTS.md", "AGENTS.md"]\n',
+            }
+            for name, metadata in invalid.items():
+                with self.subTest(name=name):
+                    config.write_text(replace_role_metadata(original, metadata))
+                    with self.assertRaises(tropo.ConfigError):
+                        tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
+    def test_empty_assignments_never_disable_privacy_or_required_thin_files(self):
+        target = temp_target()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            empty = replace_role_metadata(config.read_text(), (
+                'patterns = []\n[workspace.roles]\nboundary = []\n'
+            ))
+            config.write_text(empty)
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(report["ok"], report["errors"])
+            self.assertEqual(report["workspace_roles"], {
+                "patterns": [], "roles": {role: [] for role in ("law", "map", "record", "memory", "boundary")},
+            })
+            tropo = create_vivary._load_tropo(ROOT)
+            config.write_text(empty.replace(
+                'exclude = [".git", ".agents", ".vivary/private", ".vivary/runtime"]',
+                'exclude = [".git", ".agents", ".vivary/runtime"]',
+            ))
+            with self.assertRaisesRegex(tropo.ConfigError, "exclude must protect"):
+                tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+            config.write_text(empty)
+            (target / "STATE.md").unlink()
+            self.assertFalse(create_vivary.doctor_workspace(target, repo_root=ROOT)["ok"])
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
 
     def test_selected_adapter_is_one_bounded_declared_projection(self):
         target = temp_target()

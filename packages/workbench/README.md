@@ -4,10 +4,11 @@ Vivary is a local desktop product. It opens without a Vivary account, signup,
 Zo account, or remote database. The app uses the pinned Agent-Native shell,
 conversation components, settings, actions, provider storage, and run records.
 
-Development stays on the private `feat/vivary-gui` branch until Jeff accepts
-the product. The [program frontier](../../docs/product/multi-project/index.md)
-owns remaining work. A working agent conversation does not complete the
-factory workflow or the installed-platform matrix.
+Follow the root [contributor workflow](../../CONTRIBUTING.md) for branches,
+review, and integration in private Vivary-New. The
+[program frontier](../../docs/product/multi-project/index.md) owns remaining work.
+A working agent conversation does not complete the factory workflow or the
+installed-platform matrix.
 
 ## Run from source
 
@@ -124,7 +125,7 @@ pnpm test:project-services
 node --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
 node node_modules/tsx/dist/cli.mjs --test tests/local-code-agent.test.ts tests/local-runtime-setup.test.ts tests/code-execution-host.test.ts
 pnpm build
-pnpm doctor
+pnpm run doctor
 ```
 
 Exercise changed flows through normal startup. The private handoff preserves
