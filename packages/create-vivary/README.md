@@ -5,8 +5,8 @@ It gives agents one visible state surface, a bounded context capsule, provenance
 verification hooks, and deliberate human gates without copying a framework into the
 workspace.
 
-Published version truth lives in the
-[root release status](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status).
+Published versions are listed on [PyPI](https://pypi.org/project/create-vivary/)
+and [npm](https://www.npmjs.com/package/@vivary/create).
 Source versions `create-vivary 0.4.4` and `@vivary/create 0.4.4` are staged and
 unpublished. They require `vivary-tropo>=0.5.5` for workspace-role metadata.
 Registry installation does not include these unreleased fixes.

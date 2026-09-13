@@ -19,10 +19,11 @@ MCP SDK dependency.
 - **Scaffold (npm):** `npm create @vivary@latest my-workspace` / `npx @vivary/create@latest my-workspace`
 - **From a repo checkout:** `python packages/tropo/tropo.py check`, etc.
 
-The front-door task verbs are available in PyPI `vivary` 0.2.0. The staged
-source adds workspace-role repairs with newer dependency floors. The
-[root release status](https://github.com/vivary-dev/Vivary-New/blob/dev/README.md#release-status) separates available registry
-versions, dated installation evidence, and unpublished source.
+The front-door task verbs are available in [PyPI `vivary` 0.2.0](https://pypi.org/project/vivary/0.2.0/).
+The staged source adds unpublished workspace-role repairs with newer dependency
+floors. Published versions are listed in the [Python](https://pypi.org/project/vivary/)
+and [npm](https://www.npmjs.com/package/@vivary/create) registries. Registry
+availability does not establish fresh installation acceptance.
 Governed paths stay behind an explicit `--governed` flag and are opt-in, not default
 behavior.
 

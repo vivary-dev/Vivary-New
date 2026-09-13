@@ -697,9 +697,13 @@ def _declared_protected_paths(workspace):
             raise ConfigError(f"workspace.{field} must be a list")
         protected.extend(_workspace_relative_path(value, field) for value in values)
     capabilities = workspace.get("capabilities", [])
-    if not isinstance(capabilities, list) or any(
-        not isinstance(capability, str) or capability not in THIN_CAPABILITIES
-        for capability in capabilities
+    if (
+        not isinstance(capabilities, list)
+        or any(
+            not isinstance(capability, str) or capability not in THIN_CAPABILITIES
+            for capability in capabilities
+        )
+        or len(set(capabilities)) != len(capabilities)
     ):
         raise ConfigError("workspace.capabilities may contain cocoindex-code once")
     protected.extend(THIN_CAPABILITY_STORAGE[capability] for capability in capabilities)

@@ -545,7 +545,20 @@ class ThinInitTests(unittest.TestCase):
             self.assertEqual(
                 tropo.resolve_workspace_roles(workspace_table), healthy["workspace_roles"]
             )
-            config.write_text(replace_role_metadata(config.read_text(), ""))
+            duplicate_capabilities = ["cocoindex-code", "cocoindex-code"]
+            with self.assertRaisesRegex(tropo.ConfigError, "capabilities may contain"):
+                tropo.resolve_workspace_roles({
+                    **workspace_table, "capabilities": duplicate_capabilities,
+                })
+            generated_config = config.read_text()
+            config.write_text(generated_config.replace(
+                'capabilities = ["cocoindex-code"]',
+                'capabilities = ["cocoindex-code", "cocoindex-code"]',
+            ))
+            invalid = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertFalse(invalid["ok"])
+            self.assertTrue(any("capabilities may contain" in error for error in invalid["errors"]))
+            config.write_text(replace_role_metadata(generated_config, ""))
             legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
             self.assertTrue(legacy["ok"], legacy["errors"])
             self.assertEqual(legacy["workspace_roles"]["roles"]["boundary"], expected_boundary)
