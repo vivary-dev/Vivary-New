@@ -68,7 +68,7 @@ repair loop plus the affected project, process, isolation, and responsive UI cas
 Repeat failed journeys after repair. Preserve the existing test runners and limits.
 
 ```console
-pnpm --dir packages/workbench exec tsx --test tests/workbench-preview.test.ts
+pnpm --dir packages/workbench test:shell
 pnpm --dir packages/workbench typecheck
 ```
 

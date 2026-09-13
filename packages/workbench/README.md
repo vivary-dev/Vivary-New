@@ -1,12 +1,15 @@
 # Vivary Workbench
 
-Vivary is a local desktop product. It opens without a Vivary account, signup,
-Zo account, or remote database. The app uses the pinned Agent-Native shell,
+Vivary's local desktop opens without a Vivary account, signup, Zo account, or
+remote database. The app uses the pinned Agent-Native shell,
 conversation components, settings, actions, provider storage, and run records.
 
 Follow the root [contributor workflow](../../CONTRIBUTING.md) for branches,
-review, and integration in private Vivary-New. The
-[program frontier](../../docs/product/multi-project/index.md) owns remaining work.
+review, and integration in private Vivary-New. Live
+[GitHub issues](https://github.com/vivary-dev/Vivary-New/milestone/1) own task scope,
+acceptance, dependencies, and status, including the planned self-hosted browser
+experience. The [program frontier](../../docs/product/multi-project/index.md)
+provides synchronized implementation and evidence references.
 A working agent conversation does not complete the factory workflow or the
 installed-platform matrix.
 
