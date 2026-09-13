@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2EGDCSWPSFHFX2XC298E2XN",
+  "strategy": "manual-commit",
+  "branch": "docs/issue-led-delivery",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "ENGINEERING.md",
+    "docs/product/multi-project/design.md",
+    "docs/product/multi-project/execution-contract.md",
+    "docs/product/multi-project/issue-authority.md",
+    "docs/product/multi-project/packets/04a-project-chat-sessions.md",
+    "docs/product/multi-project/packets/04b-search-chat-content.md",
+    "docs/product/multi-project/packets/04c-native-provider-session-logs.md",
+    "docs/product/multi-project/packets/06g-reliable-local-and-hosted-state.md",
+    "docs/product/multi-project/packets/06h-maintained-application-regressions.md",
+    "docs/product/multi-project/packets/07c-builtin-patterns-reconfiguration.md",
+    "docs/product/multi-project/packets/07d-create-workspace-through-gui.md",
+    "docs/product/multi-project/packets/08a-populated-folder-adoption.md",
+    "docs/product/multi-project/packets/09b-original-read-tools.md",
+    "docs/product/multi-project/packets/09c-original-review-control-tools.md",
+    "docs/product/multi-project/packets/11a-authorized-workspace-file-editing.md",
+    "docs/product/multi-project/packets/11c-fast-project-search.md",
+    "docs/product/multi-project/packets/17a-chat-restart-and-drafts.md",
+    "docs/product/multi-project/packets/18a-scoped-file-memory.md",
+    "docs/product/multi-project/packets/23c-windows-product-acceptance.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 44142,
+    "cache_read_tokens": 485240,
+    "output_tokens": 11200,
+    "api_call_count": 15
+  }
+}
