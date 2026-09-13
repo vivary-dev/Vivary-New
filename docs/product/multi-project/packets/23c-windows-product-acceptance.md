@@ -1,11 +1,11 @@
-# 23c: Deliver and accept the complete Windows product journey
+# 23c: Deliver and accept the desktop and self-hosted web product
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/23
 Parent: 23
 Status: needs-info
-Depends-on: [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b]
+Depends-on: [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e]
 Owner: Coordinating Codex, release integrator with an independent source reviewer
-Scope: Produce a versioned Windows distributable and exercise the complete agreed product journey.
+Scope: Prove the complete Windows artifact and responsive self-hosted browser product journeys.
 Verification-kind: runtime
 Needs: Every named dependency accepted, current hosted behavior exercised, and the matching Windows candidate prepared.
 Timebox: One release-candidate acceptance pass. Repair only concrete failures in their owning slices.
@@ -13,7 +13,8 @@ Timebox: One release-candidate acceptance pass. Repair only concrete failures in
 ## Goal
 
 Deliver a versioned distributable containing Vivary.exe and its required siblings,
-with checksums and licenses, that completes the desktop release journey on Windows.
+with checksums and licenses, that completes the Windows journey, plus the
+responsive browser journey against the same selected self-hosted instance.
 
 ## Context
 
@@ -64,3 +65,7 @@ evidence, or publish/sign without the specific authority. Preserve user files an
 ## Log
 
 - 2026-09-13: Drafted. No current artifact satisfies the complete Windows release target.
+
+## Shared desktop and web behavior
+
+Complete the real Windows artifact journey and the responsive browser journey, including a real phone connected to the selected private host. The integrated live project preview and supported agent debugging tools must work in the same project session. Keep platform results separate and preserve every original Windows acceptance requirement. Mac distribution is later work.

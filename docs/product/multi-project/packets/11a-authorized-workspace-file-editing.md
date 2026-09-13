@@ -73,3 +73,7 @@ folders, change authentication, or add a new runtime.
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: Root selected the existing Native actions and project binding. Begin with the current inspector, expected-content revisions, and a recoverable conflict response.
+
+## Shared desktop and web behavior
+
+Make host-file navigation, editing, save/conflict dialogs, and draft recovery usable at phone widths. Clearly identify the files as belonging to the connected host.

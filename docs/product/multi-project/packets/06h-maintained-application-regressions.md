@@ -62,3 +62,7 @@ Do not build a new verifier, evidence archive system, or test runner product.
 
 - 2026-09-13: Converted named recovery-test failures into bounded maintenance.
   Existing application checks and historical evidence remain unchanged.
+
+## Shared desktop and web behavior
+
+Use the existing runners for focused shared-UI checks at desktop and phone widths. Add connection interruption cases only where behavior is affected. Keep one heavy runtime job at a time and avoid another verification framework.

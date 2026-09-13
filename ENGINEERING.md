@@ -226,10 +226,32 @@ Before creating any new harness, verifier, manifest, ledger, preparer, superviso
 
 If the answer to #4 or #5 is yes, use the simpler method.
 
+## Issue-led delivery
+
+Approved by Jeff on 2026-09-13. GitHub `vivary-dev/Vivary-New` issues own task
+goals, acceptance, dependencies, ownership, priority, and lifecycle. Documents
+own architecture, code contracts, implementation guidance, and retained
+evidence. Packets and the generated graph are synchronized references, not an
+independent dispatch queue. Always read the live issue before work.
+
+Claim one ready issue and finish it: implementation, focused tests, the
+affected real UI, review, fixes, merge, and issue closure. Keep at most two
+independent implementation issues active. The current pair is reliable project/chat
+state and desktop runtime packaging. After a slice closes, claim the next ready
+issue from the live milestone. Keep one coordinating integration writer, one owner per
+file, a shared reviewer when useful, and one heavy runtime job at a time.
+Independent source work may continue while CI or review runs. After a failed
+check, fix and repeat the affected check, then resume delivery.
+
+Measure progress by completed issue acceptance and working user workflows, not
+by commits, PRs, or review counts. Existing access, budget, publication, and
+preservation constraints stay as recorded. This rule adds no second status or
+verification system.
+
 ## Current Vivary focus
 
-Use [the program frontier](docs/product/multi-project/index.md) to find the
-current packet. The product goal is:
+Claim the current ready GitHub issue. [The program frontier](docs/product/multi-project/index.md)
+is a synchronized reference to the same work. The product goal is:
 
 **Make multi-project Vivary genuinely usable through the real application.**
 

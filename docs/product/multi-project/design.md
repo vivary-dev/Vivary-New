@@ -1,6 +1,6 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-13. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Updated: 2026-09-13. Status: documented program; GitHub issues own task lifecycle and the ticket graph is a synchronized reference (see [issue authority](issue-authority.md)). The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the issue owner; explicit unresolved product, account, security, and release decisions retain their stated owners.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -472,3 +472,25 @@ and fast file/code search. He also authorized consolidating useful work.
 storage model, complete original CLI coverage, and actual Windows finish line.
 PRs #3 and #4 are integrated into dev. Prior standalone experiment plans do not
 override this queue. The broader outcomes remain covered in later milestones.
+
+## Host and browser access decision: 2026-09-13
+
+Jeff decided that the same Vivary instance runs on a user-controlled computer
+or a suitable self-hosted server, with a responsive browser client for phone
+and desktop. Runtime agents, credentials, projects, and history remain on the
+host. The local desktop needs no Vivary account and stays on loopback by
+default. Remote browser access is explicit and authenticated and does not
+expose the private Zo preview. Issue
+[#30](https://github.com/vivary-dev/Vivary-New/issues/30) owns remote/browser
+access. Issue [#31](https://github.com/vivary-dev/Vivary-New/issues/31) owns
+live project preview plus supported agent browser debugging. The existing
+Electron build includes Chromium; no separate Google Chrome distribution is
+presumed.
+
+Letta Code is a major design reference for persistence. Reuse the existing
+[Letta Code study](research/letta-code-workspace-patterns.md), the
+[persistence study](research/file-memory-and-persistence.md), and
+[Native owners](native-owners.md) rather than adding a new agent system.
+Mac distribution is optional later roadmap work outside the active
+Windows/shared-web milestone. Native phone apps and a managed cloud service are
+not in scope.

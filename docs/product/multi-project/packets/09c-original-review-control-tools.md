@@ -64,3 +64,7 @@ roots, bypass a source policy, launch workers, or create another executor/store.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. No new tool or authority is activated.
+
+## Shared desktop and web behavior
+
+The same review/control flows and explicit approvals must remain usable at narrow browser widths. Browser access does not widen execution authority.

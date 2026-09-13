@@ -64,3 +64,7 @@ claim provider continuity from a matching title. Escalate a missing supported Na
 ## Log
 
 - 2026-09-13: Drafted. Provider-session persistence remains unimplemented.
+
+## Shared desktop and web behavior
+
+Provider processes, credentials, and log files remain on the connected backend host. Browser users inspect authorized log details through existing actions without requiring a local filesystem opener.

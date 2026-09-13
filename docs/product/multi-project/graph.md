@@ -43,6 +43,7 @@ In progress: none.
 | [11b: Generate a project map and state view without losing authored state](packets/11b-generated-project-views.md) | 11 | needs-info | [07b, 11a] |
 | [11c: Search large project trees from the application](packets/11c-fast-project-search.md) | 11 | ready-for-agent | [03c] |
 | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) | 11 | needs-info | [11c] |
+| [11e: Preview and debug a running project with the agent](packets/11e-live-project-preview.md) | 11 | needs-info | [04a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
 | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | needs-info | [04a, 06g] |
@@ -53,7 +54,8 @@ In progress: none.
 | [20d: Repair the environment and simplify the development process](packets/20d-process-environment-maintenance.md) | 20 | done | [10c] |
 | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) | 23 | ready-for-agent | [] |
 | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) | 23 | needs-info | [23a] |
-| [23c: Deliver and accept the complete Windows product journey](packets/23c-windows-product-acceptance.md) | 23 | needs-info | [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b] |
+| [23c: Deliver and accept the desktop and self-hosted web product](packets/23c-windows-product-acceptance.md) | 23 | needs-info | [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e] |
+| [23d: Connect a responsive browser to a self-hosted Vivary instance](packets/23d-self-hosted-browser-access.md) | 23 | needs-info | [06g, 04a, 17a] |
 | [24a: Index canonical sources and module ownership](packets/24a-source-module-navigation.md) | 24 | done | [12a] |
 
 ## Product outcomes

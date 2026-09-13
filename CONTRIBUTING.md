@@ -52,10 +52,14 @@ approval for each `git worktree remove`, local or remote branch deletion, and
 
 ## Find the implementation owner
 
-Start at [the program frontier](docs/product/multi-project/index.md) for the
-next task and [the source map](docs/product/multi-project/source-map/index.md)
-when a change crosses ownership boundaries. A packet is a bounded implementation
-task. An outcome describes the user capability that several packets deliver.
+Start with the ready GitHub issue you claim in `vivary-dev/Vivary-New`; since
+2026-09-13 issues own task goals, acceptance, dependencies, ownership, and
+lifecycle. Use [the program frontier](docs/product/multi-project/index.md) and
+any linked packet for implementation guidance and retained evidence, and
+[the source map](docs/product/multi-project/source-map/index.md) when a change
+crosses ownership boundaries. A packet is a synchronized implementation brief.
+An outcome describes the user capability that several issues deliver. A routine
+issue needs no packet before it starts.
 
 | Module | Responsibility | Start here |
 | --- | --- | --- |
@@ -63,7 +67,7 @@ task. An outcome describes the user capability that several packets deliver.
 | `packages/tropo` | File configuration, indexing, relationships, and context retrieval | `tropo.py` and `tests/test_tropo.py` |
 | `packages/core` | Shared filesystem and root-observation contracts | The [root source map](docs/product/multi-project/source-map/modules/root-observation/index.md) |
 | `packages/workbench` | GUI, Native actions, and adapters into the Python suite | The [root instructions](AGENTS.md) and [Native owners](docs/product/multi-project/native-owners.md) |
-| `docs/product/multi-project` | Product decisions, task dependencies, and accepted evidence | `design.md` and the generated `index.md` |
+| `docs/product/multi-project` | Product decisions, architecture, implementation guidance, and accepted evidence; GitHub issues own task dependencies | `design.md` and the generated `index.md` |
 
 Agent-Native owns runs, conversations, actions, and connectors. Reuse those
 owners when connecting product behavior. The creator writes workspace files,
@@ -94,6 +98,9 @@ Every open PR carries exactly one stewardship lifecycle label:
 
 The final four classifications remain repository-health findings until their named
 disposition occurs. Age alone never makes a PR stale or safe to close.
+
+Every PR links its owning GitHub issue. Close the issue after its acceptance
+passes and the reviewed change merges into `dev`.
 
 Every PR should include:
 

@@ -67,3 +67,7 @@ or bypass Native access rules. Do not require an embedding service for text sear
 ## Log
 
 - 2026-09-13: Drafted. Depends on accepted project-session bindings from 04a.
+
+## Shared desktop and web behavior
+
+Verify touch-accessible search results at narrow widths and opening the exact retained message without losing project context.

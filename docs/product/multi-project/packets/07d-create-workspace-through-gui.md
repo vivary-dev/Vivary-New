@@ -62,3 +62,7 @@ installed toolkit before writing setup widgets. Do not introduce a conductor.
 
 - 2026-09-13: Split visible setup from shared creator work so each can be
   implemented and verified in one bounded change.
+
+## Shared desktop and web behavior
+
+Distinguish native desktop folder selection from browser selection of an authorized folder on the connected host. File previews and apply controls must work at phone widths. Phone access does not grant phone filesystem access.
