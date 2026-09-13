@@ -9,7 +9,8 @@ Status: inventory and bounded recovery complete, full acceptance remains blocked
 - Immutable salvage branch: [salvage/handoff-2026-09-12](https://github.com/vivary-dev/Vivary-New/tree/salvage/handoff-2026-09-12).
 - Salvage tip: `1d1018c7375d2a979d40b73eec686305da76fcf9` on GitHub and Entire.
 - Base: `aa5f9c850f2219f3d195d8dbfe458b25eeebeb3c`. All 50 salvage commits are absent from `main`.
-- Untouched main: `36e1ebf670395de2b0996344182476b99275290f`.
+- Main snapshot for this recovery: `36e1ebf670395de2b0996344182476b99275290f`.
+  PR #3 and the later recovery merge target `dev`, not `main`.
 - Both `2e714f5` and `1d1018c` are ancestors of the remote salvage tip.
 - [Handoff PR #4](https://github.com/vivary-dev/vivary-workbench-handoff/pull/4) closed unmerged at 2026-09-13T17:56:01Z.
 
@@ -22,8 +23,8 @@ The handoff repository changed only through that PR closure.
 
 The earlier contributor and workspace-role work is separate in
 [PR #3](https://github.com/vivary-dev/Vivary-New/pull/3), branch `feat/workspace-foundations` at `e3fc1f8`.
-Its contributor docs and module map are committed. Pending auth diagnostics and
-a regression remain in a named stash plus an ignored patch. Both worktrees are clean.
+Its contributor docs and module map are committed. The subsequent-consolidation
+section records the later merge state.
 
 ## One product centered on the GUI
 
@@ -107,8 +108,9 @@ after its isolated custody tests failed, following the instruction not to rewrit
 ## Recovery details and retained evidence
 
 - `86ce5dd`: applied as `21c601f`. Recovered `plan_thin_workspace`, its shared
-  renderer, package guide, and seven preview tests. Thirteen existing thin-init
-  tests passed before and after. The retained server adapter calls this API.
+  renderer, package guide, and seven preview tests. The `21c601f` parent and
+  recovered tree each contain 13 thin-init tests, all of which passed. The later
+  combined tree has 16, as recorded below. The retained server adapter calls this API.
 - `faf1d40`, needs rewrite: attempted only the six missing Python modules/tests.
   Five add/add conflicts retained main's existing Workbench files. All six added
   blobs matched the original source. Of 45 creation tests, 43 passed and two
@@ -211,10 +213,10 @@ or project registered. No existing project was available for a creation or
 project-switching journey. The Workbench page still reports its file-editing
 panel is not connected. The Agent file inspector is the working read surface.
 
-Full command output and per-suite results remain in the ignored Zo integration
-folder `.tmp/salvage-reconcile-20260913/`. Its `workbench-summary.json` names each
-suite, command, result, and log. Source recovery and baseline corrections received
-independent review. Only a stale failure-message count was found and corrected.
+The per-suite outcomes above summarize the retained execution evidence. Private
+continuation storage retains full command output and the log index. Source
+recovery and baseline corrections received independent review. A stale
+failure-message count was found and corrected.
 
 ## Remaining implementation
 

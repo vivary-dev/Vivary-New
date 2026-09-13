@@ -10,8 +10,6 @@ references below are relative to that root. Line numbers are from this SHA.
 
 Several verdicts below were confirmed by running the code against synthetic workspaces
 in `/tmp/vv-probe` on the same box (now deleted). Those runs are labeled "observed".
-The repo working tree was not modified; `git status --porcelain` still shows only the
-two `packages/workbench/` files owned by another agent.
 
 ## The thin contract as the code writes it
 

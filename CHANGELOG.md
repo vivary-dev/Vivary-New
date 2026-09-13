@@ -5,7 +5,7 @@ packages, so each entry names the package(s) it affects. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the initial suite release is
 the `v0.1.0` line.
 
-**Current release line:** `create-vivary` / `@vivary/create` **0.4.2** · `vivary-core`
+**Last verified coordinated release line:** `create-vivary` / `@vivary/create` **0.4.2** · `vivary-core`
 **0.2.7** · `vivary-tropo` **0.5.3** · `vivary-strato` **0.1.2** · `vivary-ozone`
 **0.3.1** · `vivary-exo` **0.3.0** · `vivary` **0.1.10** · optional
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
