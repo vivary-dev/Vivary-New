@@ -2264,7 +2264,7 @@ role overrides. Overrides replace that role's list. Doctor JSON exposes the
 effective result as `workspace_roles`, including empty lists.
 
 These fields do not change presets, generate starter content, or load memory
-into conversations. Follow [the program frontier](../product/multi-project/index.md)
+into conversations. Follow [the program frontier](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/index.md)
 for the setup and persistence work that consumes this metadata.
 
 
