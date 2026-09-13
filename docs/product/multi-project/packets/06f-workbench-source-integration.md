@@ -37,6 +37,12 @@ authorized until Jeff explicitly accepts the product.
 This increment does not accept shell execution, multi-user access, full factory
 orchestration, persistent project-root recovery, or the remaining outcomes.
 
+The [original Vivary study](../research/original-vivary-product-map.md) identifies
+the next integration work: built-in presets, creation/adoption, full file access,
+and the original context/review contracts. Folder registration does not create
+or adopt a Vivary project. The desktop package also needs the original Python
+package closure for those capabilities to work outside the source checkout.
+
 ## Goal
 
 Run the Workbench from canonical Vivary source, register two disposable projects,
@@ -107,3 +113,7 @@ operation whose actual prerequisite is missing and continue independent work.
   Claude file tools, global Stop during missing-folder recovery, and reopen
   persistence passed on Linux. Native Code remains the execution/record owner;
   the factory workflow and other platform execution remain unfinished.
+- 2026-09-13: Studied the original CLI, thin and legacy templates, adoption,
+  context, review, and coordination. Recorded the source map and missing GUI
+  connections against existing outcomes. Source review only, with no additional
+  runtime acceptance or changes to the external template hold.

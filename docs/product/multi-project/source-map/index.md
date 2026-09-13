@@ -13,5 +13,8 @@ tests, and evidence without copying those sources.
 - [Native runtime](modules/native-runtime/index.md) owns coding-runtime execution boundaries.
 - [Project write-back](modules/project-writeback/index.md) owns authorized project effects.
 
+Read the [original Vivary product map](../research/original-vivary-product-map.md)
+when connecting templates, project files, context, or review to the Native GUI.
+
 Run `python -B scripts/check-source-navigation.py --check` from the repository root
 to verify the selected identities, edges, and repository-relative locators.

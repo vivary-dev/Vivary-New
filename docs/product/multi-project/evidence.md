@@ -9,6 +9,7 @@ This brief records public code and source-safe constraints for the proposed mult
 - [Migration plan](migration.md)
 - [Release plan](release.md)
 - [External dependencies](external-dependencies.md)
+- [Original Vivary and GUI integration study](research/original-vivary-product-map.md)
 
 ## Public source identities
 
@@ -56,9 +57,10 @@ storage, a storage provider, memory, size, and privacy for one workspace.
 
 ## Current context and control behavior
 
-Core is a pure library shared by the role packages. The
-[architecture](../../ARCHITECTURE.md) lines 62-67 and 108-143 assigns distinct
-authority to Tropo, Strato, Ozone, and Exo while keeping common validation in Core.
+Core is a contract and policy kernel shared by the role packages, with explicit
+I/O adapters for source observation, evidence storage, and Git evidence sync. The
+[architecture](../../ARCHITECTURE.md) assigns distinct authority to Tropo,
+Strato, Ozone, and Exo while keeping common validation in Core.
 
 The following functions can support read-only project views:
 
