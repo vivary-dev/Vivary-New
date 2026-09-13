@@ -145,7 +145,7 @@ journeys remain recorded in 06f. These source gaps remain:
 
 | Capability | Source finding | Existing outcome |
 | --- | --- | --- |
-| Create from a preset | Folder selection only registers a root. The existing creator composition is not mounted in normal startup. | [07: Create projects](../tickets/07-create-new-projects.md) |
+| Create from a preset | Folder selection only registers a root. The retained creator adapter references APIs missing from this checkout and is not mounted in normal startup. | [07: Create projects](../tickets/07-create-new-projects.md) |
 | Adopt an existing folder | No GUI adoption plan/apply flow calls the original adopter. | [08: Adopt projects](../tickets/08-adopt-existing-projects.md) |
 | Navigate and edit files | The inspector reads only JSON, Markdown, and text with size/count/depth limits. It cannot show `workspace.toml`. Workbench Files remains a placeholder. | [11: Workspace editor](../tickets/11-finish-workspace-editor.md) |
 | Use original governed context | The Code send path submits the prompt/history to Native without an explicit Tropo, Strato, Ozone, or Exo sequence. | [06f: App integration](../packets/06f-workbench-source-integration.md) |
@@ -168,6 +168,15 @@ for useful starter content and independent agent guidance. The current preset
 names do not define mandatory GUI categories. Resolve the local package
 dependency closure as part of that slice so it also works outside the source
 checkout.
+
+The 2026-09-13 integration check found two stale references in
+`server/creation_workspace.py`: `create_vivary.plan_thin_workspace` and
+`vivary_core.creation_provider_stdio` are absent. The actual new-workspace API
+is `scaffold_thin_workspace`, whose dry run returns paths rather than a full
+file-content plan. Expose its existing renderer through one shared plan/apply
+contract before connecting GUI actions. Adoption already exposes `plan_adopt`
+and `adopt_workspace` with exact-plan checks. The Code send path also needs to
+load project guidance and relevant file context before dispatch and follow-up.
 
 Then finish file navigation/editing and connect context selection and recorded
 outcomes around Native execution. Present real plan and evidence records through

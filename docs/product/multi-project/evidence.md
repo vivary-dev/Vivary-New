@@ -11,6 +11,7 @@ This brief records public code and source-safe constraints for the proposed mult
 - [External dependencies](external-dependencies.md)
 - [Original Vivary and GUI integration study](research/original-vivary-product-map.md)
 - [Letta Code workspace and agent pattern study](research/letta-code-workspace-patterns.md)
+- [File memory, persistence, and versioning comparison](research/file-memory-and-persistence.md)
 
 ## Public source identities
 

@@ -139,3 +139,9 @@ operation whose actual prerequisite is missing and continue independent work.
   and independent agent guidance, runtime, and tools. Added a primary-source
   Letta Code comparison. Create/Adopt and the full workspace editor remain
   unfinished. The external template catalog hold remains unchanged.
+- 2026-09-13: Compared file persistence in Letta, Claude Code, and Hermes,
+  plus Git, Jujutsu, Entire, and Beads. The recommendation keeps project files
+  authoritative and uses the existing Native agent with one shared GUI/CLI
+  setup contract. Source review found missing APIs in the retained creation
+  adapter and no explicit project-memory reload in Code follow-ups. These are
+  implementation gaps, not accepted runtime behavior. No runtime or auth changed.

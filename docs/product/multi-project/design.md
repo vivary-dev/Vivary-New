@@ -276,6 +276,46 @@ questions clearly. Preserve existing files and let the user review additions.
 The external catalog and transport remain under the separate
 [held template program](tickets/19-integrate-template-program.md).
 
+### File memory and setup direction: 2026-09-13
+
+Jeff asked for a simple memory system built from workspace files, with Git,
+Entire, Jujutsu, or Beads where useful. Persistence across sessions is a product
+goal. He requested a comparison with other agents and questioned whether a
+conductor or automatic CLI installation would add unnecessary complexity.
+The [persistence study](research/file-memory-and-persistence.md) informs this
+implementation proposal. No additional backend or service is selected.
+
+Keep project knowledge in editable files. Reuse `AGENTS.md`, `STATE.md`, the
+`.vivary/context.md` contract, and existing typed records. Load compact guidance
+and current state when a run begins, then retrieve relevant project knowledge
+through the existing context owner. Keep large source files and transcripts out
+of the always-loaded context. Preserve the user's existing folder names.
+
+The agent can update progress and sourced project notes within its authorized
+file scope. Keep the source and date of a remembered decision, update corrections
+in the owning record, and check changed source before relying on an old claim.
+A new chat or application restart must recover this context without replaying
+the previous transcript. Removing a fact from active memory must exclude it from
+later active-memory retrieval. Explicit history searches can still find older
+copies. Removal does not purge version history, backups, or captured sessions.
+
+Version control records file revisions. Entire adds optional session provenance
+and remote hosting. Beads owns only the issues and insights selected for it.
+Enabling it does not transfer existing task ownership or replace Native runtime
+records. Select one owner for each fact or task and reference it from other
+views. Do not create competing writable copies. Basic file continuity must work with
+VCS, Brain, semantic indexes, and external memory providers disabled. The
+[optional Brain and learning contract](tickets/18-add-scoped-brain-learning.md)
+still governs automatic proposals to change instructions or skills.
+
+Use the existing Native workspace agent as the proposed setup conductor. It
+turns the user's purpose and selected guidance into a visible workspace plan.
+The GUI and existing Vivary CLI should call the same deterministic creator and
+adopter operations. This needs no separate conductor daemon or new package
+installer. Native retains execution and conversations. Initial delivery must
+repair the existing adapter and package its actual dependencies, then prove
+create, reopen, recall, correction, and project separation through the real app.
+
 ## GUI and agent parity
 
 Keep the familiar little-agent shape: project navigation, task/session list, conversation, and expandable work panels for files, plans, board, preview, and evidence. The active project and runtime remain visible. Switching projects preserves drafts and never silently retargets an active session.

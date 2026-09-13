@@ -16,6 +16,11 @@ Program context: [design](../design.md), [migration](../migration.md), [release]
 
 Own new-project service and UI. Reuse `scaffold_thin_workspace`, dry-run output, Doctor, and Tropo checks from `packages/create-vivary`. Read `design.md`, `evidence.md`, and the creation guide. Do not duplicate init rules. Follow the [workspace setup direction](../design.md#workspace-setup-direction-2026-09-13) when extending the built-in guidance. The four existing preset names remain a compatibility input, not mandatory GUI categories.
 
+The retained Workbench creation adapter is incomplete: its plan function and
+Core stdio import are missing from the integrated source. Expose a reviewable
+file-content plan from the original thin renderer, then share it between CLI
+and GUI apply paths. See the [source gap](../research/original-vivary-product-map.md#recommended-next-integration).
+
 ## Done condition
 
 A user previews the exact target and files, applies a bound plan, verifies the workspace, and registers it. A crash or repeated request does not create a duplicate project. VCS and hosting can remain `none`. Selected built-in guidance and starter files appear in the plan and remain editable afterward. A folder registration or the five-file base alone does not establish completion of the useful-workspace setup requirement.

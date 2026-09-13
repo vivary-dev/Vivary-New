@@ -14,7 +14,10 @@ Keep existing Vivary commands and structured project operations usable without t
 
 Program context: [design](../design.md), [migration](../migration.md), [release](../release.md), and [evidence](../evidence.md).
 
-Own headless application entry points, parity fixtures, and command docs. Read the static router in `packages/vivary/vivary_cli.py`, `design.md`, and tickets 04, 07, and 08. Avoid changing existing command meanings to fit the GUI.
+Own headless application entry points, parity fixtures, and command docs. Read the static router in `packages/vivary/vivary_cli.py`, `design.md`, and tickets 04, 07, and 08. Avoid changing existing command meanings to fit the GUI. Follow the
+[file memory and setup direction](../design.md#file-memory-and-setup-direction-2026-09-13):
+one creator/adopter implementation serves GUI and CLI setup. A setup conductor
+is an existing agent role, not another runtime or installer.
 
 ## Done condition
 

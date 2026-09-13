@@ -14,7 +14,10 @@ Offer an optional Brain and a sourced project-scoped learning loop with review, 
 
 Program context: [design](../design.md), [migration](../migration.md), [release](../release.md), and [evidence](../evidence.md).
 
-Own Brain setup, project bindings, learning proposals, review UI, and tests. Read `design.md`, current second-brain and semantic-memory docs, and migration privacy constraints. Default scope is the originating project.
+Own Brain setup, project bindings, learning proposals, review UI, and tests. Read `design.md`, current second-brain and semantic-memory docs, and migration privacy constraints. Default scope is the originating project. Keep
+[basic file continuity](../design.md#file-memory-and-setup-direction-2026-09-13)
+independent of optional Brain, semantic providers, and the autonomous learning
+pipeline. Reuse existing file and retrieval owners.
 
 ## Done condition
 
@@ -25,6 +28,12 @@ Project evidence continuity works with Brain disabled. Brain adds optional retri
 ## Verify
 
 Complete a project evidence-to-next-plan handoff with Brain disabled and verify no Brain connection or permission is requested.
+
+The basic memory journey records one sourced project fact, closes the app, and
+retrieves it in a fresh conversation from files. Correct the fact and verify
+that later recall uses the correction. Switch projects and verify the other
+project does not receive the first project's private context. Repeat with VCS
+and optional memory providers disabled. File presence alone is not acceptance.
 
 Run tests for skipped setup, project-scoped retrieval, private-source exclusion, conflicting lesson, reject, accept, rollback, export, and deletion-limit disclosure.
 
