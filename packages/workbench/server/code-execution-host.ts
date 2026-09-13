@@ -45,6 +45,7 @@ export async function executeVivaryCodeWorker(input: {
   return new Promise((resolve, reject) => {
     const environment = { ...process.env };
     delete environment.VIVARY_DESKTOP_HOST;
+    delete environment.VIVARY_STANDALONE_HOST;
     const forkOptions: ForkOptions & Pick<SpawnOptions, "windowsHide"> = {
       cwd: process.cwd(), execPath: process.execPath,
       execArgv: ["--max-old-space-size=512"],

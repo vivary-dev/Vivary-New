@@ -96,7 +96,8 @@ through the existing private Zo proxy and requires `PORT`,
 `VIVARY_DATA_DIR`, the exact external HTTPS `APP_URL`, and
 `VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private.
 
-Use one supervised Node process. Shutdown stops active runs; startup marks
+Use one supervised Node process. Terminal shutdown awaits Code cleanup and Native
+close hooks before exiting. Shutdown stops active runs; startup marks
 interrupted Native records before accepting another message. SQLite and files
 stay in local persistent storage. Multi-instance deployment is unsupported.
 

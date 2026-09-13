@@ -144,6 +144,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (options.help) {
       console.log("Usage: vivary-gui [--port 5173] [--data-dir DIR] [--workspace DIR]\n       vivary-gui --private-proxy --url https://your-host --data-dir DIR [--port PORT]\n\nLocal mode opens without login or signup and listens only on this computer.\nPrivate proxy mode requires the configured private Zo access boundary.\nUse --hosted only for a deployment that requires Native authentication.");
     } else {
+      // guard:allow-env-credential - Nonsecret CLI process marker, set before loading the server.
+      process.env.VIVARY_STANDALONE_HOST = "1"; // guard:allow-env-mutation - Direct process startup only; never a request handler.
       await startVivary(options);
     }
   } catch (error) {
