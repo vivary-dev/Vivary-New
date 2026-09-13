@@ -1,4 +1,5 @@
 import { readFile, realpath, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, normalize } from "node:path";
 import { defineEventHandler } from "h3";
 import { z } from "zod";
@@ -55,6 +56,8 @@ export const PROJECT_ACTION_PATHS = Object.freeze([
 ]);
 
 const controllers = new WeakMap();
+const LOCAL_SERVICE = Symbol.for("vivary.local-project-services.v1");
+const LOCAL_VERIFICATION = "local-stat-revalidated-v1";
 const deepFreeze = value => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -128,6 +131,7 @@ export async function loadProductionRuntime() {
     catalog,
     readiness,
     activity,
+    localProvider,
   ] = await Promise.all([
     import("@agent-native/core/db"),
     import("./db/migrations.mjs"),
@@ -137,12 +141,14 @@ export async function loadProductionRuntime() {
     import("./project-catalog.mjs"),
     import("./project-runtime-readiness.mjs"),
     import("./project-runtime-activity.mjs"),
+    import("./local-root-provider.mjs"),
   ]);
   return Object.freeze({
     migrateRegistry: () => database.withMigrationRuntime(() => migrations.migrateRegistry()),
     createNativeRegistry: registry.createNativeRegistry,
     createNativeRegistryAuth: registry.createNativeRegistryAuth,
     startRootProvider: provider.startRootProvider,
+    createLocalRootProvider: localProvider.createLocalRootProvider,
     createProjectCatalog: catalog.createProjectCatalog,
     mountProjectCatalog: catalog.mountProjectCatalog,
     mountRegistryHttp: registryHttp.mountRegistryHttp,
@@ -217,6 +223,7 @@ export function startProjectServices(nitroApp, dependencies) {
         await ready;
         await waitForRequests();
         await closeProvider();
+        if (globalThis[LOCAL_SERVICE]?.controller === controller) delete globalThis[LOCAL_SERVICE];
         status = "closed";
         failure = null;
         return snapshot();
@@ -266,7 +273,9 @@ export function startProjectServices(nitroApp, dependencies) {
       const installation = await (dependencies.loadInstallation ?? loadProjectInstallation)(
         dependencies.installationFile ?? process.env.VIVARY_PROJECT_INSTALLATION_FILE, // guard:allow-env-credential - Trusted server configuration path; no credential value.
       );
-      if (installation === null) {
+      const environment = dependencies.environment ?? process.env;
+      const local = installation === null && ["local", "private-proxy"].includes(environment.VIVARY_ACCESS_MODE);
+      if (installation === null && !local) {
         status = closing ? "closed" : "unconfigured";
         return snapshot();
       }
@@ -278,17 +287,22 @@ export function startProjectServices(nitroApp, dependencies) {
       await runtime.migrateRegistry();
       if (closing) return snapshot();
 
-      provider = await runtime.startRootProvider({
-        python: installation.python,
-        entryFile: installation.entryFile,
-        config: installation.provider,
-        parseStrictJson,
-      });
+      provider = local
+        ? await runtime.createLocalRootProvider({
+          ownerEmail: "owner@local.vivary.test",
+          defaultFolder: environment.VIVARY_LOCAL_AGENT_WORKSPACE ?? null,
+        })
+        : await runtime.startRootProvider({
+          python: installation.python,
+          entryFile: installation.entryFile,
+          config: installation.provider,
+          parseStrictJson,
+        });
       if (closing) return snapshot();
 
       const registry = runtime.createNativeRegistry({
         provider,
-        grant: installation.grant,
+        ...(local ? { resolveGrant: provider.resolveGrant } : { grant: installation.grant }),
         evaluate: evaluateRegistryOperation,
         deriveMutationKeys,
       });
@@ -296,7 +310,7 @@ export function startProjectServices(nitroApp, dependencies) {
       const catalog = runtime.createProjectCatalog({
         readScope: registry.readScope,
         provider,
-        locationLabels: installation.locationLabels,
+        locationLabels: local ? provider.locationLabels : installation.locationLabels,
       });
       const readiness = runtime.createProjectRuntimeReadiness({
         readScope: registry.readScope,
@@ -314,6 +328,7 @@ export function startProjectServices(nitroApp, dependencies) {
       runtime.mountProjectCatalog(nitroApp, { catalog, auth });
       runtime.mountProjectRuntimeReadiness(nitroApp, { readiness, auth });
       runtime.mountProjectRuntimeActivity(nitroApp, { activity, auth });
+      if (local) globalThis[LOCAL_SERVICE] = { controller, provider, registry, catalog };
       status = "open";
       return snapshot();
     } catch (error) {
@@ -331,4 +346,74 @@ export function startProjectServices(nitroApp, dependencies) {
   })();
 
   return controller;
+}
+
+
+function localService(context) {
+  const service = globalThis[LOCAL_SERVICE];
+  if (!service || service.controller.snapshot().status !== "open") {
+    throw Object.assign(new Error("Local project folders are not ready."), { statusCode: 503 });
+  }
+  if (!context || !["vivary", "workbench"].includes(context.appId)
+    || !["frontend", "http"].includes(context.caller)
+    || context.userEmail?.trim().toLowerCase() !== "owner@local.vivary.test"
+    || !identifier.safeParse(context.orgId).success) {
+    throw Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
+  }
+  // Both names belong to this app. Workbench retains its existing role namespace.
+  return { service, owner: Object.freeze({ userEmail: context.userEmail, orgId: context.orgId,
+    appId: "workbench", caller: context.caller }) };
+}
+
+export async function getLocalProjectAccess(context) {
+  const { service, owner } = localService(context);
+  return service.catalog.run({}, owner);
+}
+
+/** The desktop picker or trusted launcher supplies folder. No public action accepts a path. */
+export async function connectLocalProjectFolder(context, folder, displayName) {
+  const { service, owner } = localService(context);
+  if (!await service.registry.readScope(owner)) {
+    throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+  }
+  const selected = await service.provider.addGrantedFolder(owner, folder);
+  const catalog = await service.catalog.run({}, owner);
+  if (catalog.code !== "catalog") throw new Error("The project list could not be refreshed.");
+  const name = label.parse(displayName ?? selected.displayName);
+  const result = await service.registry.registration.run({
+    operationId: randomUUID().replaceAll("-", ""),
+    expectedPolicyRevision: catalog.policyRevision, expectedRegistryRevision: catalog.registryRevision,
+    locationRef: selected.locationRef, displayName: name, contentIdentity: null, attachProjectId: null,
+  }, owner);
+  return Object.freeze({ ...result, locationRef: selected.locationRef, displayName: name });
+}
+
+/** Resolves local access for Native execution. This is not a held-custody execution grant. */
+export async function resolveLocalProjectWorkspace(context, projectId) {
+  const { service, owner } = localService(context);
+  if (!identifier.safeParse(projectId).success) throw new Error("Choose a registered project.");
+  const scope = await service.registry.readScope(owner);
+  if (!scope) throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+  const [{ getDb }, { bindings, projects }, { and, eq, inArray }] = await Promise.all([
+    import("./db/index.mjs"), import("./db/schema.mjs"), import("@agent-native/core/db/schema"),
+  ]);
+  const rows = await getDb().select({ bindingId: bindings.bindingId, bindingRevision: bindings.bindingRevision,
+    rootId: bindings.rootId, locationRef: bindings.locationRef, verificationKind: bindings.verificationKind,
+    label: projects.displayName }).from(bindings).innerJoin(projects, eq(bindings.projectId, projects.projectId))
+    .where(and(eq(bindings.projectId, projectId), eq(bindings.actorId, scope.actorId),
+      eq(bindings.collectionId, scope.collectionId), eq(bindings.deviceId, scope.deviceId),
+      inArray(bindings.locationRef, scope.locationRefs))).limit(2);
+  const binding = rows[0];
+  if (rows.length !== 1 || binding.verificationKind !== LOCAL_VERIFICATION) {
+    throw new Error("This project does not have one connected local folder.");
+  }
+  const resolved = await service.provider.resolvePath(owner, binding.rootId, binding.locationRef);
+  const current = await service.registry.readScope(owner);
+  if (!resolved || JSON.stringify(current) !== JSON.stringify(scope)) {
+    throw new Error("The project folder is missing or changed. Reconnect it before running an agent.");
+  }
+  return Object.freeze({ root: resolved.path, label: binding.label, projectId,
+    bindingId: binding.bindingId, bindingRevision: binding.bindingRevision,
+    policyRevision: scope.policyRevision, rootId: binding.rootId, locationRef: binding.locationRef,
+    verificationKind: LOCAL_VERIFICATION });
 }

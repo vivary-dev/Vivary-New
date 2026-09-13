@@ -137,7 +137,8 @@ async function inspectBindings(provider, records) {
   for (const record of records) {
     try {
       const root = await provider.inspect(record.locationRef);
-      const available = root?.code === "available" && root.locationRef === record.locationRef
+      const available = root?.code === "available" && root.verificationKind !== "local-stat-revalidated-v1"
+        && root.locationRef === record.locationRef
         && trustedValue.safeParse(root.rootId).success && root.rootId === record.rootId
         && trustedValue.safeParse(root.contentRevision).success;
       observations.set(record.bindingId, available

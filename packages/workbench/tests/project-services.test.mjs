@@ -343,3 +343,24 @@ test("process termination uses the same owned cleanup and removes its signal lis
   assert.equal(fixture.signals.listenerCount("SIGTERM"), 0);
   assert.equal(fixture.signals.listenerCount("SIGINT"), 0);
 });
+
+
+test("default local startup installs the Node provider without Python configuration", async () => {
+  const fixture = fakeNitro();
+  const runtime = fakeRuntime({ getH3App: fixture.getH3App });
+  runtime.createLocalRootProvider = async options => {
+    runtime.calls.push(["createLocalRootProvider", options]);
+    return Object.assign(runtime.provider, { verificationKind: "local-stat-revalidated-v1",
+      resolveGrant: async () => validInstallation().grant,
+      locationLabels: () => ({ alpha: "Alpha", beta: "Beta" }) });
+  };
+  const controller = startProjectServices(fixture.nitro, pluginDependencies(fixture, runtime, {
+    loadInstallation: async () => null,
+    environment: { VIVARY_ACCESS_MODE: "local", VIVARY_LOCAL_AGENT_WORKSPACE: "/srv/projects/alpha" },
+  }));
+  assert.deepEqual(await controller.ready, { status: "open", failure: null });
+  assert.equal(runtime.calls.some(([name]) => name === "startRootProvider"), false);
+  const setup = runtime.calls.find(([name]) => name === "createLocalRootProvider")[1];
+  assert.deepEqual(setup, { ownerEmail: "owner@local.vivary.test", defaultFolder: "/srv/projects/alpha" });
+  await controller.close();
+});

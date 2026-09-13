@@ -29,12 +29,13 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
   if (typeof readScope !== "function" || typeof provider?.inspect !== "function") {
     throw new TypeError("project catalog requires the current native scope and trusted root provider");
   }
-  const labels = Object.freeze(labelsSchema.parse(locationLabels));
+  const fixedLabels = typeof locationLabels === "function" ? null : Object.freeze(labelsSchema.parse(locationLabels));
 
   async function read(context) {
     const owner = contextSnapshot(context);
     const scope = await readScope(owner);
     if (!scope) return refused("denied");
+    const labels = fixedLabels ?? labelsSchema.parse(await locationLabels());
     if (!scope.locationRefs.every(ref => Object.hasOwn(labels, ref))) return refused("unavailable");
 
     const snapshot = await getDb().transaction(async tx => {
@@ -43,6 +44,7 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
       ));
       const records = await tx.select({ projectId: projects.projectId, displayName: projects.displayName,
         bindingRevision: bindings.bindingRevision, locationRef: bindings.locationRef, rootId: bindings.rootId,
+        verificationKind: bindings.verificationKind,
       }).from(bindings).innerJoin(projects, eq(projects.projectId, bindings.projectId)).where(and(
         eq(bindings.actorId, scope.actorId), eq(bindings.collectionId, scope.collectionId),
         eq(bindings.deviceId, scope.deviceId), inArray(bindings.locationRef, scope.locationRefs),
@@ -63,6 +65,7 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
     for (const record of snapshot.records) {
       const root = observed.get(record.locationRef);
       const status = root?.code === "available" && root.rootId !== null && root.rootId === record.rootId
+        && (root.verificationKind ?? "held-custody-v1") === record.verificationKind
         ? "available" : "unavailable";
       const previous = byProject.get(record.projectId);
       // A same-scope multi-binding record can select an available binding, but
@@ -72,7 +75,8 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
         bindingRevision: record.bindingRevision, status,
       });
     }
-    return { code: "catalog", scopeKey: fingerprint(scope), policyRevision: scope.policyRevision,
+    return { code: "catalog", scopeKey: fingerprint({ actorId: scope.actorId,
+      collectionId: scope.collectionId, deviceId: scope.deviceId }), policyRevision: scope.policyRevision,
       registryRevision: snapshot.registryRevision,
       locations: scope.locationRefs.map(locationRef => ({ locationRef, displayName: labels[locationRef],
         status: observed.get(locationRef)?.code === "available" ? "available" : "unavailable" })),

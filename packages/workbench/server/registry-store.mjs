@@ -56,8 +56,8 @@ function portable(row) {
 function binding(row) {
   if (!row) return null;
   const { vcsKind, repositoryId, checkoutId, mutationOwner, jjRepositoryId, jjWorkspaceId,
-    ...record } = row;
-  return { ...record, vcs: {
+    verificationKind, ...record } = row;
+  return { ...record, ...(verificationKind === "local-stat-revalidated-v1" ? { verificationKind } : {}), vcs: {
     kind: vcsKind, repositoryId, checkoutId, mutationOwner,
     ...(vcsKind === "jj-git" ? { jjRepositoryId, jjWorkspaceId } : {}),
   } };

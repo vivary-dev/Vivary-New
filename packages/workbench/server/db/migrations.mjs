@@ -92,4 +92,8 @@ export const migrateRegistry = runMigrations([{
       fence INTEGER NOT NULL CHECK (fence >= 1 AND fence <= 9007199254740991)
     );
   `,
+}, {
+  version: 4,
+  name: "vivary-local-folder-verification-v1",
+  sql: `ALTER TABLE vivary_registry_bindings ADD COLUMN verification_kind TEXT NOT NULL DEFAULT 'held-custody-v1';`,
 }], { table: "vivary_workbench_registry_migrations" });

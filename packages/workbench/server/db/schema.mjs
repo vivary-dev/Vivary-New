@@ -15,6 +15,7 @@ export const bindings = table("vivary_registry_bindings", {
   actorId: text("actor_id").notNull(),
   deviceId: text("device_id").notNull(),
   rootId: text("root_id").notNull(),
+  verificationKind: text("verification_kind").notNull().default("held-custody-v1"),
   locationRef: text("location_ref").notNull(),
   bindingRevision: integer("binding_revision").notNull(),
   policyRevision: integer("policy_revision").notNull(),

@@ -249,13 +249,16 @@ const contentIdentity = (value, label) => {
   }
 };
 
+export const LOCAL_ROOT_VERIFICATION = "local-stat-revalidated-v1";
+const isLocalRoot = value => value?.verificationKind === LOCAL_ROOT_VERIFICATION;
+
 const vcs = (value, label) => {
   if (!isObject(value)) invalid(`${label} must be an object`);
-  if (!["none", "git", "jj-git", "unsupported"].includes(value.kind)) invalid(`${label}.kind is unsupported`);
+  if (!["none", "git", "jj-git", "unsupported", "unobserved"].includes(value.kind)) invalid(`${label}.kind is unsupported`);
   const keys = ["kind", "repositoryId", "checkoutId", "mutationOwner"];
   if (value.kind === "jj-git") keys.splice(3, 0, "jjRepositoryId", "jjWorkspaceId");
   exactKeys(value, keys, label);
-  if (value.kind === "none" || value.kind === "unsupported") {
+  if (value.kind === "none" || value.kind === "unsupported" || value.kind === "unobserved") {
     if (value.repositoryId !== null || value.checkoutId !== null || value.mutationOwner !== null) {
       invalid(`${label} must not name VCS resources`);
     }
@@ -292,6 +295,7 @@ const binding = (value, label) => {
   exactKeys(value, [
     "bindingId", "projectId", "collectionId", "actorId", "deviceId", "rootId",
     "locationRef", "bindingRevision", "policyRevision", "vcs",
+    ...(isLocalRoot(value) ? ["verificationKind"] : []),
   ], label);
   for (const field of ["bindingId", "projectId", "collectionId", "actorId", "deviceId", "rootId", "locationRef"]) {
     id(value[field], `${label}.${field}`);
@@ -299,11 +303,19 @@ const binding = (value, label) => {
   safeInteger(value.bindingRevision, 1, `${label}.bindingRevision`);
   safeInteger(value.policyRevision, 1, `${label}.policyRevision`);
   vcs(value.vcs, `${label}.vcs`);
+  if (isLocalRoot(value) !== (value.vcs.kind === "unobserved")) invalid(`${label} verification and VCS kind disagree`);
 };
 
 const root = (value, label) => {
-  exactKeys(value, ["rootId", "locationRef", "exists", "isDirectory", "identityVerified", "contentRevision", "vcs"], label);
-  for (const field of ["rootId", "locationRef", "contentRevision"]) id(value[field], `${label}.${field}`);
+  exactKeys(value, ["rootId", "locationRef", "exists", "isDirectory", "identityVerified", "contentRevision", "vcs",
+    ...(isLocalRoot(value) ? ["verificationKind"] : [])], label);
+  for (const field of ["rootId", "locationRef"]) id(value[field], `${label}.${field}`);
+  if (isLocalRoot(value)) {
+    if (value.contentRevision !== null || value.vcs?.kind !== "unobserved") invalid(`${label} local access has no content or VCS proof`);
+  } else {
+    id(value.contentRevision, `${label}.contentRevision`);
+    if (value.vcs?.kind === "unobserved") invalid(`${label} requires a declared verification kind`);
+  }
   for (const field of ["exists", "isDirectory", "identityVerified"]) boolean(value[field], `${label}.${field}`);
   vcs(value.vcs, `${label}.vcs`);
 };
@@ -533,11 +545,12 @@ const requiredCapability = {
 };
 
 export const deriveMutationKeys = (trusted, requestedOwner) => {
+  if (isLocalRoot(trusted.root) || isLocalRoot(trusted.binding)) return null;
   const observed = trusted.root.vcs;
   if (observed.kind === "none") {
     return requestedOwner === null ? [`${trusted.deviceId}:root:${trusted.root.rootId}`] : null;
   }
-  if (observed.kind === "unsupported") return null;
+  if (observed.kind === "unsupported" || observed.kind === "unobserved") return null;
   if (observed.kind === "git" && requestedOwner !== "git") return null;
   if (observed.kind === "jj-git" && (observed.mutationOwner !== "jj" || requestedOwner !== "jj")) return null;
   return [
@@ -711,6 +724,9 @@ export function evaluateRegistryOperation(input) {
   const { operation, request, trusted } = input;
   if (!authorize(operation, trusted) || !scopedRecordsAreAuthorized(operation, trusted)) return refusal("denied");
   if (request.expectedPolicyRevision !== trusted.policyRevision) return refusal("stale-policy");
+  // Local folder checks never admit or reconcile destructive operations.
+  if ((isLocalRoot(trusted.root) || isLocalRoot(trusted.binding) || trusted.receipt?.vcs.kind === "unobserved")
+    && !["register", "export"].includes(operation)) return refusal("denied");
 
   if (operation === "quarantine-mutation") return quarantine(request, trusted);
 
@@ -785,6 +801,7 @@ export function evaluateRegistryOperation(input) {
       actorId: trusted.actorId,
       deviceId: trusted.deviceId,
       rootId: trusted.root.rootId,
+      ...(isLocalRoot(trusted.root) ? { verificationKind: LOCAL_ROOT_VERIFICATION } : {}),
       locationRef: request.locationRef,
       bindingRevision: 1,
       policyRevision: trusted.policyRevision,

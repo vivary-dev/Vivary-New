@@ -1,0 +1,25 @@
+import type { ActionRunContext } from "@agent-native/core/action";
+import type { CatalogResult, RegistrationResult } from "../app/lib/project-catalog-schema";
+
+export type LocalProjectWorkspace = Readonly<{
+  root: string;
+  label: string;
+  projectId: string;
+  bindingId: string;
+  bindingRevision: number;
+  policyRevision: number;
+  rootId: string;
+  locationRef: string;
+  verificationKind: "local-stat-revalidated-v1";
+}>;
+
+export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
+export function connectLocalProjectFolder(
+  context: ActionRunContext | undefined,
+  folder: string,
+  displayName?: string,
+): Promise<RegistrationResult & { locationRef: string; displayName: string }>;
+export function resolveLocalProjectWorkspace(
+  context: ActionRunContext | undefined,
+  projectId: string,
+): Promise<LocalProjectWorkspace>;
