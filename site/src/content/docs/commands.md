@@ -19,9 +19,11 @@ MCP SDK dependency.
 - **Scaffold (npm):** `npm create @vivary@latest my-workspace` / `npx @vivary/create@latest my-workspace`
 - **From a repo checkout:** `python packages/tropo/tropo.py check`, etc.
 
-Every command on this page is available from the published PyPI and npm packages
-listed in the [root release status](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status), except the front-door
-task verbs, which ship in `vivary` 0.2.0 from source until this train publishes.
+The front-door task verbs are available in [PyPI `vivary` 0.2.0](https://pypi.org/project/vivary/0.2.0/).
+The staged source adds unpublished workspace-role repairs with newer dependency
+floors. Published versions are listed in the [Python](https://pypi.org/project/vivary/)
+and [npm](https://www.npmjs.com/package/@vivary/create) registries. Registry
+availability does not establish fresh installation acceptance.
 Governed paths stay behind an explicit `--governed` flag and are opt-in, not default
 behavior.
 
@@ -105,8 +107,8 @@ task verbs to them, and adds a local helper for the receipt files they emit.
 A verb runs the component operation in the same process. Arguments pass through
 unchanged and the operation's output is the component's, while the program name, the
 usage line, and the hidden command list are the front door's. `vivary --help` groups
-the verbs the same way this table does. These verbs ship in `vivary` 0.2.0 from source.
-The published 0.1.10 on PyPI does not have them until the next release publishes.
+the verbs the same way this table does. These verbs are available in PyPI
+`vivary` 0.2.0. Version 0.1.10 predates them.
 
 | Group | Verb | Standalone equivalent | Job |
 |---|---|---|---|

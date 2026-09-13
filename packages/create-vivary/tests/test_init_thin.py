@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import sys
+import tomllib
 import unittest
 import uuid
 from pathlib import Path
@@ -227,6 +228,15 @@ class ThinInitTests(unittest.TestCase):
                     expected_roles = {"patterns": ["thin-context"], "roles": DEFAULT_ROLES}
                     self.assertEqual(report["workspace_roles"], expected_roles)
                     config = target / ".vivary" / "workspace.toml"
+                    # The public one-argument call must match Doctor's metadata.
+                    tropo = create_vivary._load_tropo(ROOT)
+                    workspace_table = tomllib.loads(config.read_text())["workspace"]
+                    self.assertEqual(
+                        tropo.resolve_workspace_roles({})["roles"]["boundary"], [".gitignore"]
+                    )
+                    self.assertEqual(
+                        tropo.resolve_workspace_roles(workspace_table), expected_roles
+                    )
                     state_before = (target / "STATE.md").read_bytes()
                     config.write_text(replace_role_metadata(config.read_text(), ""))
                     legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
@@ -530,7 +540,25 @@ class ThinInitTests(unittest.TestCase):
             ]
             self.assertEqual(healthy["workspace_roles"]["roles"]["boundary"], expected_boundary)
             config = target / ".vivary" / "workspace.toml"
-            config.write_text(replace_role_metadata(config.read_text(), ""))
+            tropo = create_vivary._load_tropo(ROOT)
+            workspace_table = tomllib.loads(config.read_text())["workspace"]
+            self.assertEqual(
+                tropo.resolve_workspace_roles(workspace_table), healthy["workspace_roles"]
+            )
+            duplicate_capabilities = ["cocoindex-code", "cocoindex-code"]
+            with self.assertRaisesRegex(tropo.ConfigError, "capabilities may contain"):
+                tropo.resolve_workspace_roles({
+                    **workspace_table, "capabilities": duplicate_capabilities,
+                })
+            generated_config = config.read_text()
+            config.write_text(generated_config.replace(
+                'capabilities = ["cocoindex-code"]',
+                'capabilities = ["cocoindex-code", "cocoindex-code"]',
+            ))
+            invalid = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertFalse(invalid["ok"])
+            self.assertTrue(any("capabilities may contain" in error for error in invalid["errors"]))
+            config.write_text(replace_role_metadata(generated_config, ""))
             legacy = create_vivary.doctor_workspace(target, repo_root=ROOT)
             self.assertTrue(legacy["ok"], legacy["errors"])
             self.assertEqual(legacy["workspace_roles"]["roles"]["boundary"], expected_boundary)

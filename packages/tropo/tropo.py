@@ -658,14 +658,18 @@ WORKSPACE_FILE_ROLES = ("law", "map", "record", "memory", "boundary")
 WORKSPACE_VIVARY_METADATA_VERSION = 1
 
 
-def resolve_workspace_roles(workspace, protected_paths):
+def resolve_workspace_roles(workspace, protected_paths=None):
     """Describe exact relative paths without discovering files or granting access.
 
     `protected_paths` are the validated private, runtime, and capability storage
-    paths. The thin-context boundary describes them without widening privacy.
+    paths. Omit them to derive the same boundary from the `[workspace]` table,
+    which is the public one-argument call shape installed packages rely on.
+    The thin-context boundary describes them without widening privacy.
     The thin-context map is the existing context Routes section, not a generated
     inventory. STATE ownership remains in workspace.state, outside these roles.
     """
+    if protected_paths is None:
+        protected_paths = _declared_protected_paths(workspace)
     metadata = workspace.get("vivary")
     if metadata is None:
         return _legacy_workspace_roles(workspace, protected_paths)
@@ -678,6 +682,32 @@ def resolve_workspace_roles(workspace, protected_paths):
         )
     patterns, overrides = _workspace_role_assignments(metadata, "workspace.vivary")
     return _describe_workspace_roles(patterns, overrides, protected_paths, "vivary.roles")
+
+
+def _declared_protected_paths(workspace):
+    """Boundary paths from workspace.private, workspace.runtime, and capabilities.
+
+    Mirrors the thin config reader's order so the public call matches Doctor.
+    Shape errors are reported without the config path the reader knows.
+    """
+    protected = []
+    for field in ("private", "runtime"):
+        values = workspace.get(field, [])
+        if not isinstance(values, list):
+            raise ConfigError(f"workspace.{field} must be a list")
+        protected.extend(_workspace_relative_path(value, field) for value in values)
+    capabilities = workspace.get("capabilities", [])
+    if (
+        not isinstance(capabilities, list)
+        or any(
+            not isinstance(capability, str) or capability not in THIN_CAPABILITIES
+            for capability in capabilities
+        )
+        or len(set(capabilities)) != len(capabilities)
+    ):
+        raise ConfigError("workspace.capabilities may contain cocoindex-code once")
+    protected.extend(THIN_CAPABILITY_STORAGE[capability] for capability in capabilities)
+    return protected
 
 
 def _legacy_workspace_roles(workspace, protected_paths):
