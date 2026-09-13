@@ -43,7 +43,10 @@ npm --prefix packages/desktop start
 The desktop uses `~/.vivary/workbench` for its database, run history, and workspace.
 Electron stores its window/browser state in the operating system's normal Vivary
 application-data directory. The user installs and signs into their model CLI
-separately.
+separately. Native Settings shows provider configuration and installed CLI
+status. Open folder uses the system directory chooser to connect a project;
+Vivary keeps the selected folder and its conversations separate from other
+projects.
 
 ## Package
 
@@ -58,7 +61,8 @@ the development preview service.
 
 The default command builds for the current operating system and architecture,
 using that host's Node executable and Workbench native modules.
-Linux requires the usual Electron desktop libraries, including GTK 3.
+Linux requires the usual Electron desktop libraries, including GTK 3 and its
+GSettings schemas.
 
 There is one application instance per user. The window starts its own local
 server, waits for the actual app route, and uses parent-child IPC for graceful

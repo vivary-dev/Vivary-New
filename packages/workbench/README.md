@@ -1,15 +1,15 @@
 # Vivary Workbench
 
-Vivary is a local desktop product. The working GUI runs in a browser or the private
-[desktop package](../desktop/README.md). The Linux desktop preview has passed
-a real file-tool run and reopening check. [Outcome 23](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
-owns Windows/macOS installers and the remaining platform proof.
-Zo is the current development and preview host, not a product dependency.
+Vivary is a local desktop product. It opens without a Vivary account, signup,
+Zo account, or remote database. The app uses the pinned Agent-Native shell,
+conversation components, settings, actions, provider storage, and run records.
 
-Work stays on `feat/vivary-gui` until Jeff uses the product and approves promotion.
-The [program frontier](../../docs/product/multi-project/index.md) owns remaining work.
+Development stays on the private `feat/vivary-gui` branch until Jeff accepts
+the product. The [program frontier](../../docs/product/multi-project/index.md)
+owns remaining work. A working agent conversation does not complete the
+factory workflow or the installed-platform matrix.
 
-## Run locally from source
+## Run from source
 
 Build with the pinned dependencies, then start the application:
 
@@ -18,92 +18,113 @@ pnpm --dir packages/workbench build
 pnpm --dir packages/workbench start
 ```
 
-Open the URL printed by the launcher. Local mode requires no Vivary login,
-signup, Zo account, paid auth service, or remote database. The server listens
-only on the numeric loopback address. A Native session is created internally so
-actions and saved runs retain their existing identity boundary.
+Open the URL printed by the launcher. The server listens on numeric loopback.
+Native creates an internal local owner so actions and saved records retain
+their existing identity boundary.
 
-The default data directory is `~/.vivary/workbench`. It contains the local
-SQLite database, saved runs, workspace files, and a generated private session
-secret. The launcher preserves that secret across restarts. Keep this directory
-out of source control.
+The default data directory is `~/.vivary/workbench`. It contains the SQLite
+database, saved runs, personal workspace, and generated private session secret.
+Keep this directory out of source control and preserve its secret on restart.
 
 ```console
 node packages/workbench/bin/start.mjs --port 5173 --data-dir /path/to/data
 node packages/workbench/bin/start.mjs --workspace /path/to/workspace
 ```
 
-The application uses the user's existing Claude Code installation and CLI login
-on the same computer. Model access is separate from opening Vivary. The current
-source launcher still requires Node 22.22.0 or newer and the built dependencies;
-it is not yet a standalone desktop installer.
+Source startup requires Node 22.22.0 or newer and built dependencies. The
+[private desktop package](../desktop/README.md) bundles its own Node runtime.
 
-## Working agent surface
+## Settings and models
 
-The `/agent` route uses Agent-Native's Claude Code executor and conversation
-renderer. It supports messages, bounded follow-ups, Sonnet/Opus/Fable selection,
-real tool events, Stop, saved run history, and a workspace file inspector.
-The installed driver provides Read, Glob, Grep, Edit, and Write. Each invocation
-is a fresh CLI process with bounded prior user and assistant context.
+Settings provides Native appearance, provider keys, integrations, resources,
+and model controls. Appearance is saved through Native application state.
+Coding runtimes shows installed CLI account status and links to official
+installation and sign-in instructions.
 
-On Zo on 2026-09-12, the real production app passed Sonnet file creation/readback,
-a Fable follow-up on that file, Opus cancellation after a tool result, and both
-idle and active-run restart checks. Native records and file bytes persisted.
-The private handoff preserves those results and earlier failed checks.
+Agent uses the user's local Claude Code or Codex installation and account.
+Full chat uses Native's configured model providers. Model access is separate
+from opening Vivary; changing providers does not require a Vivary login.
 
-Runs are limited to two minutes. The inspector lists Markdown, text, and JSON
-files up to 64 KiB. Shell execution, selected-project agent work, the multi-agent
-factory workflow, and the full installed-platform matrix remain unfinished.
-The current GUI has one local owner.
+Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
+workspace-write permission policy and can run commands. Runtime permissions
+belong to the installed CLI; choosing a project is not an operating-system
+sandbox.
+
+[DeepSeek Flash titles for both chat surfaces](../../docs/product/multi-project/tickets/05-integrate-workbench-shell.md#planned-chat-titles)
+are planned. The existing Full chat adapter remains; this increment does not
+extend it to coding conversations.
+
+## Projects and conversations
+
+The desktop's Open folder action uses the system directory chooser. The server
+connects that folder through the existing Native-backed project registry.
+Browser startup can connect its initial folder with `--workspace`.
+
+Selecting a project selects its working directory, Code history, and file
+inspector. Personal workspace opens the app's default folder. Native owns the
+actual runs and transcripts. The app supports a rich composer, model choice,
+tool output, follow-ups, visible history, and Stop. The active-run control stays
+available in Settings and when a project folder becomes unavailable.
+
+Project selection and conversation pointers use Native application state.
+Native's composer keeps unsent text in browser storage, so drafts survive
+project switching and navigation. A desktop restart that changes the loopback
+port does not yet restore those unsent text drafts. Completed transcripts
+remain in Native's persistent run store.
+
+Local folder grants persist in server-only Native settings. Startup reopens
+and rechecks directory metadata. Missing or replaced folders remain unavailable
+without deleting their project records. This local access mode does not claim
+content snapshots, VCS custody, or strict mutation evidence. Existing Core
+provider installations remain separate and unchanged.
+
+Each Code invocation uses a separate ordinary Node worker around Native's
+executor. A two-minute work deadline requests cancellation, followed by forced
+cleanup of the owned worker processes. Unverified cleanup blocks further
+admission, including after restart. Native CLI permission and containment
+capabilities still apply to its tools.
+
+The current inspector displays Markdown, text, and JSON files up to 64 KiB.
+A complete editor, recovery for relocated folders, factory orchestration, and
+the full installed-platform matrix remain unfinished.
 
 ## Development preview
 
-The optional `bin/serve-preview.sh` launcher serves the same app through the
-existing private Zo proxy. It requires `PORT`, a persistent `VIVARY_DATA_DIR`,
-the exact external HTTPS `APP_URL`, and
-`VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private. This mode also
-opens without a Vivary login or signup; Zo's existing access boundary applies
-only to that development preview.
+Zo is the current implementation and private preview host. It is not a product
+dependency. The optional `bin/serve-preview.sh` launcher serves the same app
+through the existing private Zo proxy and requires `PORT`,
+`VIVARY_DATA_DIR`, the exact external HTTPS `APP_URL`, and
+`VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private.
 
-Run one supervised production Node process with process-group termination.
-Shutdown stops active runs; startup reconciles interrupted records before
-accepting another message. SQLite and workspace files stay in persistent local
-storage. The supported configuration declares that a remote database is not
-required. Multi-instance deployment and project-root recovery are unfinished.
+Use one supervised Node process. Shutdown stops active runs; startup marks
+interrupted Native records before accepting another message. SQLite and files
+stay in local persistent storage. Multi-instance deployment is unsupported.
 
-## Existing project services
-
-The preserved Workbench implementation is included beside the agent surface.
-Normal startup mounts its registry, catalog, readiness, and activity services
-through `server/plugins/01-project-services.mjs`.
-
-A server-owned `VIVARY_PROJECT_INSTALLATION_FILE` configures the Python executable,
-Core stdio provider, allowed location references, and an existing Native
-organization grant. Browser requests supply location references, never executable
-paths or installation authority. Missing configuration returns an unavailable
-state. This setup is not yet connected to the agent's workspace selection.
-
-Reuse Core, Tropo, Strato, Ozone, Exo, and create-vivary when connecting the GUI.
-Agent-Native retains session, transcript, action, and connection ownership.
-Paperclip is not a required dependency merely because its former service slot
-was reused for development.
+Codex 0.153.4 cannot start its default restricted-network sandbox on the current
+Zo host. A bounded diagnostic confirmed that its network-enabled profile retains
+filesystem and PID containment, but Native 0.176.5 exposes no per-run profile
+override. No global CLI configuration or sandbox bypass was applied.
+This is a development-host compatibility gap, not a requirement to run Vivary
+on Zo.
 
 ## Source and checks
 
 `source-provenance.json` records the historical Littleagent shell capture.
-Later changes are recorded in Git. Private history and evidence remain separate
-from public publication review.
+Git records later changes. Private history, local evidence, and public delivery
+remain separate.
 
-From this package directory:
+Use the existing relevant checks:
 
 ```console
 pnpm typecheck
-node --test tests/local-code-agent.test.ts tests/code-host-lifecycle.test.ts
-node --test tests/local-access.test.ts tests/startup.test.mjs
 pnpm test:project-services
+node --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
+node node_modules/tsx/dist/cli.mjs --test tests/local-code-agent.test.ts tests/local-runtime-setup.test.ts tests/code-execution-host.test.ts
 pnpm build
 pnpm doctor
 ```
 
-The retained `/workbench` and `/chat` routes are unfinished project integration
-surfaces. Navigation exposes the working agent route.
+Exercise changed flows through normal startup. The private handoff preserves
+actual browser and desktop results, including failed attempts. These checks do
+not establish completion of the remaining roadmap or Windows/macOS runtime
+acceptance.

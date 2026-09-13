@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, session } from "electron";
+import { app, BrowserWindow, dialog, session, shell } from "electron";
 
 const START_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 15_000;
@@ -15,6 +15,7 @@ let mainWindow = null;
 let serverChild = null;
 let allowQuit = false;
 let shutdownPromise = null;
+let disposeProjectChooser = () => undefined;
 
 app.setName("Vivary");
 process.once("exit", () => {
@@ -71,6 +72,7 @@ function localChildEnvironment() {
   ]) {
     delete environment[key];
   }
+  environment.VIVARY_DESKTOP_HOST = "1";
   return environment;
 }
 
@@ -92,6 +94,7 @@ async function startServer() {
     windowsHide: true,
   });
   serverChild = child;
+  disposeProjectChooser = attachProjectFolderChooser(child, () => mainWindow);
 
   await new Promise((resolve, reject) => {
     let settled = false;
@@ -161,6 +164,7 @@ function forceServerTree(child) {
 }
 
 async function stopServer() {
+  disposeProjectChooser();
   const child = serverChild;
   if (!child) return;
   if (child.exitCode !== null || child.signalCode !== null) {
@@ -217,6 +221,7 @@ async function createWindow(origin) {
     },
     width: 1440,
   });
+  mainWindow = window;
   const allow = (target) => {
     try {
       return new URL(target).origin === origin;
@@ -225,13 +230,19 @@ async function createWindow(origin) {
     }
   };
   window.webContents.on("will-navigate", (event, target) => {
-    if (!allow(target)) event.preventDefault();
+    if (!allow(target)) {
+      event.preventDefault();
+      openExternalSetupLink(target);
+    }
   });
   window.webContents.on("will-redirect", (event, target) => {
     if (!allow(target)) event.preventDefault();
   });
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalSetupLink(url);
+    return { action: "deny" };
+  });
   window.on("close", (event) => {
     if (!allowQuit) {
       event.preventDefault();
@@ -242,10 +253,110 @@ async function createWindow(origin) {
   try {
     await window.loadURL(`${origin}/agent`);
   } catch (error) {
+    if (mainWindow === window) mainWindow = null;
     window.destroy();
     throw error;
   }
   return window;
+}
+
+const EXTERNAL_SETUP_URLS = new Set([
+  "https://code.claude.com/docs/en/setup",
+  "https://code.claude.com/docs/en/cli-usage",
+  "https://developers.openai.com/codex/cli",
+  "https://developers.openai.com/codex/auth",
+  "https://console.anthropic.com/settings/keys",
+  "https://platform.openai.com/api-keys",
+  "https://openrouter.ai/keys",
+  "https://aistudio.google.com/apikey",
+  "https://console.groq.com/keys",
+  "https://console.mistral.ai/api-keys/",
+  "https://dashboard.cohere.com/api-keys",
+]);
+
+export function isExternalSetupUrl(target) {
+  return typeof target === "string" && EXTERNAL_SETUP_URLS.has(target);
+}
+
+function openExternalSetupLink(target) {
+  if (!isExternalSetupUrl(target)) return;
+  void shell.openExternal(target, { activate: true }).catch(() => {
+    dialog.showErrorBox("Browser could not open", "Copy the setup link and open it in your browser.");
+  });
+}
+
+export function isProjectFolderRequest(message) {
+  return message !== null && typeof message === "object"
+    && Object.keys(message).length === 2
+    && (message.type === "vivary:project-folder:choose" || message.type === "vivary:project-folder:cancel")
+    && typeof message.requestId === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.requestId);
+}
+
+export function attachProjectFolderChooser(child, getWindow, showOpenDialog = (window, options) => dialog.showOpenDialog(window, options)) {
+  let disposed = false;
+  let pending = null;
+
+  const reply = (requestId, result) => {
+    if (!child.connected) return;
+    try {
+      child.send({ type: "vivary:project-folder:result", requestId, ...result }, () => undefined);
+    } catch {
+      // The server may disconnect while a native dialog is closing.
+    }
+  };
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    child.off("message", onMessage);
+    child.off("disconnect", dispose);
+    child.off("error", dispose);
+    child.off("exit", dispose);
+    if (pending) {
+      pending.canceled = true;
+      reply(pending.requestId, { path: null });
+      pending = null;
+    }
+  };
+  const onMessage = (message) => {
+    if (disposed || !isProjectFolderRequest(message)) return;
+    if (message.type === "vivary:project-folder:cancel") {
+      if (pending?.requestId === message.requestId) pending.canceled = true;
+      return;
+    }
+    const window = getWindow();
+    if (pending || !window || window.isDestroyed()) {
+      reply(message.requestId, { error: "chooser-unavailable" });
+      return;
+    }
+    const request = { requestId: message.requestId, canceled: false };
+    pending = request;
+    Promise.resolve().then(() => showOpenDialog(window, {
+      title: "Open project folder",
+      buttonLabel: "Open project",
+      properties: ["openDirectory"],
+    })).then(result => {
+      if (disposed || request.canceled) return;
+      if (result.canceled) {
+        reply(request.requestId, { path: null });
+        return;
+      }
+      const selected = result.filePaths.length === 1 ? result.filePaths[0] : null;
+      const valid = typeof selected === "string" && selected.length > 0 && selected.length <= 32_768
+        && !selected.includes("\0") && path.isAbsolute(selected);
+      reply(request.requestId, valid ? { path: selected } : { error: "chooser-unavailable" });
+    }).catch(() => {
+      if (!disposed && !request.canceled) reply(request.requestId, { error: "chooser-unavailable" });
+    }).finally(() => {
+      if (pending === request) pending = null;
+    });
+  };
+
+  child.on("message", onMessage);
+  child.once("disconnect", dispose);
+  child.once("error", dispose);
+  child.once("exit", dispose);
+  return dispose;
 }
 
 export async function runDesktop() {
@@ -269,7 +380,7 @@ export async function runDesktop() {
   hardenSession();
   try {
     const origin = await startServer();
-    mainWindow = await createWindow(origin);
+    await createWindow(origin);
   } catch (error) {
     await stopServer();
     dialog.showErrorBox("Vivary could not start", error instanceof Error ? error.message : "Unknown error.");

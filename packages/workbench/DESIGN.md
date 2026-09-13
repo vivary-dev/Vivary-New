@@ -1,29 +1,40 @@
 # Vivary workbench
 
-The workbench puts a project, its conversation, and its output in one view.
-It serves people who move between documents, research, and code. Project type,
-version control, runtime choice, and optional Brain remain independent choices.
+Vivary is a local desktop workspace for conversations, project files, and agent
+work. It opens without a Vivary account. Model accounts and provider keys are
+configured separately in Settings.
 
 ## Visual direction
 
-Use Vivary's dark field and chartreuse accent. Preserve the Littleagent S-01
-composition: navigation, conversation on the left, output on the right, and
-explicit pane switching on small screens. The output pane can collapse so the
-conversation has more room.
+Compose the pinned Agent-Native shell, chat, settings, and Toolkit components.
+Use a neutral application surface with the user's selected light, dark, or
+system theme and Native color palette. Inter carries controls and prose;
+source previews may use monospace.
 
-- Field: #17191C. Panel: #1C1E21. Text: #EBECE6.
-- Secondary text: #9FA5AD. Divider: #3B3E44. Focus/accent: #C8ED5F.
-- Inter Variable carries controls and prose. Source previews may use monospace.
-- Use flat panes and dividing rules. A project list is a list, not a card grid.
-- Keep labels in sentence case and controls left aligned.
+Keep navigation, project choice, conversation history, and Settings visible.
+Use the Native rich composer and tool transcript. The files pane opens beside
+the conversation and closes with its Close button or Escape. Narrow layouts
+use the Native navigation drawer and explicit pane controls.
 
-The native query, session, theme, and chat providers own shared behavior.
-No synthetic usage figures, task records, or runtime readiness appear in the
-product. Unsupported work has a short explanation in the relevant panel.
+Keep one primary action per view. Use short labels, visible focus, matching
+loading skeletons, and clear unavailable states. Preserve focus and drafts
+through queries and navigation. Do not replace Native setup with a decorative
+provider selector or duplicate its credential storage.
 
-## Local acceptance
+## Application behavior
 
-Check the real signed-out boundary before using a labeled test-only session
-fixture. Inspect desktop and mobile widths, pane switching, collapse/expand,
-keyboard focus, native conversation state, and base-path navigation. Browser
-fixtures do not establish configured authentication or a runnable project.
+Native owns sessions, runs, conversations, provider secrets, resources, and
+preferences. Vivary connects those records to its existing project registry.
+Choosing a project changes the agent's working directory and the history and
+files displayed for that project.
+
+Show actual runtime status and actual tool results. Project identity checks
+do not imply an operating-system sandbox. The CLI's permission policy governs
+its tools. Do not present the unfinished factory workflow as available.
+
+## Visual acceptance
+
+Exercise normal local startup, provider and runtime settings, project selection,
+conversation restoration, tool output, file inspection, keyboard focus, saved
+appearance, and narrow layouts. Test a completed flow, fix its failures, and
+repeat the affected journey. Keep screenshots that show meaningful results.
