@@ -10,6 +10,14 @@ Timebox: One coherent application increment per reviewed PR; use existing checks
 
 ## Current increment
 
+The current source-recovery task runs in private Vivary-New on
+`feat/salvage-reconcile`, with a review PR to unchanged `main` under Jeff's
+2026-09-13 instruction. The existing GUI remains the application surface.
+The [50-commit salvage receipt](../receipts/salvage-handoff-2026-09-12.md)
+records the recovered thin-workspace preview API, skipped guarded-creation
+provider, and remaining acceptance failures. This does not promote outcome 06
+or complete GUI workspace creation. Earlier application evidence follows.
+
 Jeff corrected delivery on 2026-09-12: show the GUI on its own branch, then
 returned execution to Zo and requested a private web service with model trials.
 The working private branch now composes Native's shell, rich composer, history,
@@ -145,3 +153,9 @@ operation whose actual prerequisite is missing and continue independent work.
   setup contract. Source review found missing APIs in the retained creation
   adapter and no explicit project-memory reload in Code follow-ups. These are
   implementation gaps, not accepted runtime behavior. No runtime or auth changed.
+
+- 2026-09-13: Reconciled the preserved handoff line by feature in Vivary-New.
+  Recovered the shared thin-workspace preview API. Skipped guarded creation
+  after two custody failures. Build and hosted read/navigation checks passed,
+  but full suites and hosted selection persistence remain incomplete. See the
+  salvage receipt for the complete ruling table. Main remains unchanged.
