@@ -1,6 +1,6 @@
 # vivary-exo
 
-> Release status: [root release status](../../README.md#release-status).
+> Published versions are listed on [PyPI](https://pypi.org/project/vivary-exo/).
 > `exo control` is published and stays behind the explicit `--governed` flag.
 
 `exo` is the optional outer coordination layer. It has two separate surfaces:

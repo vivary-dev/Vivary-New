@@ -5,7 +5,7 @@ Each recipe assumes that the basic workspace checks pass.
 
 Registry `latest` installs the published 0.4.2 line.
 Install it with the public launchers from [Getting started](GETTING-STARTED.md).
-The [README release table](../README.md#release-status) owns publication truth.
+The [original CLI release table](ORIGINAL-CLI.md#release-status) owns publication truth.
 
 Run commands inside a workspace unless you use `--root`.
 

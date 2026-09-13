@@ -9,7 +9,7 @@ Each recipe assumes that the basic workspace checks pass.
 
 Registry `latest` installs the published 0.4.2 line.
 Install it with the public launchers from [Getting started](/getting-started/).
-The [README release table](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) owns publication truth.
+The [original CLI release table](/original-cli/#release-status) owns publication truth.
 
 Run commands inside a workspace unless you use `--root`.
 

@@ -14,8 +14,7 @@ consulting a registry:
 python -m pip install --no-index --find-links <wheelhouse> vivary
 ```
 
-Published versions live in the
-[root release status](../../README.md#release-status). Pin an exact version when you
+Published versions are listed on [PyPI](https://pypi.org/project/vivary/). Pin an exact version when you
 need to reproduce a specific composition.
 
 The staged source composition requires:

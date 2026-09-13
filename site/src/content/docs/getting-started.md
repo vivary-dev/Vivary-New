@@ -11,7 +11,7 @@ editor, agent runtime, database, memory provider, or MCP client.
 
 > **Release truth:** the five-file workflow on this page is published 0.4.2
 > behavior, verified on the public registries on 2026-08-15. The
-> [README release table](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) is the publication authority.
+> [original CLI release table](/original-cli/#release-status) is the publication authority.
 > Pin `create-vivary==0.3.1` or `@vivary/create@0.3.1` only to get the historical
 > full layout.
 

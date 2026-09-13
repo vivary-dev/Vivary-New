@@ -13,7 +13,7 @@ The command reference keeps exhaustive flags, schemas, limits, and exit codes.
 
 The guide library describes published 0.4.2.
 Registry `latest` installs it.
-Use the [release-status table](../README.md#release-status) as the publication authority.
+Use the [release-status table](ORIGINAL-CLI.md#release-status) as the publication authority.
 
 The [historical proof](WALKTHROUGH.md) records the published 0.3.1 full layout.
 Do not use that 38-file fixture as the thin-workspace expectation.
