@@ -1,10 +1,10 @@
 name: ci
 
-# GitHub Actions is free for public repos, so this runs at no cost.
+# Validate topic PRs, integration commits, and reviewed promotions.
 on:
   pull_request:
   push:
-    branches: [dev]
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
       head_sha:

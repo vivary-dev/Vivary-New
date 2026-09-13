@@ -4,7 +4,7 @@ Parent: 06
 Status: in-progress
 Depends-on: [03c, 12h]
 Owner: Coordinating Codex, sole integration writer; independent boundary reviewer
-Scope: Finish the Workbench on feat/vivary-gui. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Dev promotion requires Jeff's explicit product acceptance.
+Scope: Finish the Workbench in private Vivary-New through typed topic PRs into dev. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Main promotion requires Jeff's explicit product acceptance.
 Verification-kind: runtime
 Timebox: One coherent application increment per reviewed PR; use existing checks and the real application.
 
@@ -145,3 +145,7 @@ operation whose actual prerequisite is missing and continue independent work.
   setup contract. Source review found missing APIs in the retained creation
   adapter and no explicit project-memory reload in Code follow-ups. These are
   implementation gaps, not accepted runtime behavior. No runtime or auth changed.
+- 2026-09-13: Jeff moved active development to private vivary-dev/Vivary-New
+  with GitHub and Entire connected. His later correction selects typed topic
+  PRs into dev and reviewed promotion to main. The existing outcome graph owns
+  the combined workspace plan. Public promotion and release remain unapproved.

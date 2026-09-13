@@ -647,6 +647,47 @@ def _workspace_relative_path(value, field):
     return normalized.rstrip("/")
 
 
+WORKSPACE_FILE_ROLES = ("law", "map", "record", "memory", "boundary")
+
+
+def resolve_workspace_roles(workspace):
+    """Describe exact relative paths without discovering files or granting access.
+
+    The thin-context map is the existing context Routes section, not a generated
+    inventory. STATE ownership remains in workspace.state, outside these roles.
+    """
+    patterns = workspace.get("patterns", ["thin-context"])
+    if (
+        not isinstance(patterns, list)
+        or any(pattern != "thin-context" for pattern in patterns)
+        or len(patterns) != len(set(patterns))
+    ):
+        raise ConfigError("workspace.patterns may contain thin-context once")
+    roles = {role: [] for role in WORKSPACE_FILE_ROLES}
+    if "thin-context" in patterns:
+        boundary_paths = [".gitignore"]
+        for field in ("private", "runtime"):
+            boundary_paths.extend(
+                _workspace_relative_path(value, field) for value in workspace.get(field, [])
+            )
+        roles["law"] = ["AGENTS.md", ".vivary/context.md"]
+        roles["map"] = [".vivary/context.md"]
+        roles["boundary"] = list(dict.fromkeys(boundary_paths))
+    overrides = workspace.get("roles", {})
+    if not isinstance(overrides, dict) or any(role not in roles for role in overrides):
+        raise ConfigError("workspace.roles may assign law, map, record, memory, and boundary")
+    for role, values in overrides.items():
+        if not isinstance(values, list):
+            raise ConfigError(f"workspace.roles.{role} must be a list of relative paths")
+        paths = [_workspace_relative_path(value, f"roles.{role}") for value in values]
+        if any(any(char in value for char in "*?\x00") for value in paths):
+            raise ConfigError(f"workspace.roles.{role} requires exact paths, not glob patterns")
+        if len(paths) != len(set(paths)):
+            raise ConfigError(f"workspace.roles.{role} cannot repeat a path")
+        roles[role] = paths
+    return {"patterns": list(patterns), "roles": roles}
+
+
 def _validate_thin_workspace(raw, thin_path, root):
     if os.path.islink(thin_path):
         raise ConfigError(f"{thin_path}: thin workspace config cannot be a symlink")
@@ -712,6 +753,7 @@ def _validate_thin_workspace(raw, thin_path, root):
             f"{thin_path}: exclude must protect workspace private/runtime/capability paths: "
             + ", ".join(missing)
         )
+    return resolve_workspace_roles(workspace)
 
 
 def _competing_thin_ancestor(root):
@@ -754,6 +796,7 @@ def find_root(start):
 class Config:
     def __init__(self, data, root):
         self.root = root
+        self.workspace_roles = copy.deepcopy(data.get("workspace_roles"))
         base = data.get("base", {})
         self.derive = base.get("derive", [])
         self.base_required = base.get("required", {})
@@ -793,6 +836,7 @@ def _compose(root, script_dir, config_path=None):
         thin_path if os.path.isfile(thin_path) else os.path.join(root, CONFIG_NAME)
     )
     raw = _read_toml(selected_path)
+    workspace_roles = None
     if (
         config_path is None
         and os.path.normcase(os.path.abspath(selected_path))
@@ -803,8 +847,8 @@ def _compose(root, script_dir, config_path=None):
             raise ConfigError(
                 f"competing thin-v0.3 roots: {os.path.abspath(root)}, {ancestor}"
             )
-        _validate_thin_workspace(raw, thin_path, root)
-    composed = {"base": {}, "types": {}, "exclude": []}
+        workspace_roles = _validate_thin_workspace(raw, thin_path, root)
+    composed = {"base": {}, "types": {}, "exclude": [], "workspace_roles": workspace_roles}
     for pack in raw.get("packs", []):
         _merge_config(composed, _read_pack(pack, root, script_dir))
     _merge_config(composed, raw)  # _merge_config normalizes each type's raw `folder`

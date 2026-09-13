@@ -1,23 +1,25 @@
 # Vivary agent instructions
 
-## GUI branch acceptance
+## Active repository and product acceptance
 
-Jeff corrected delivery on 2026-09-12: keep new Vivary product work on
-`feat/vivary-gui`. Do not merge it into `dev` until Jeff has used the GUI,
-seen the real agent loop and tool results, and explicitly approved promotion.
-The local preview was shown. Jeff then returned execution to Zo and authorized
-a private hosted GUI service and model trials on 2026-09-12. Preserve the local
-preview, Zo source, and existing evidence.
-Working components and passing tests do not establish a finished product.
-Vivary is a local desktop product. Zo is the current development and preview
-host, not a product dependency or a required deployment destination. Prioritize
-the installable desktop path from outcome 23 alongside the working agent slice.
-Users must be able to open Vivary and use their own local files and CLI models
-without a Vivary account, Zo account, or cloud control plane.
-Jeff confirmed self-hosted installation must not require login or signup. Private hosted
-access and model sign-in must work reliably. Reuse the original Vivary contracts
-and any relevant existing Paperclip integration; do not create a replacement
-agent system merely to connect the GUI.
+Jeff selected a complete new private repository on 2026-09-13:
+`vivary-dev/Vivary-New`. His later branching correction selects typed topic
+branches from `dev`, PRs into `dev`, and reviewed promotion from `dev` to `main`.
+Do not commit directly to either long-lived branch. `main` is the default branch.
+The `origin` remote is that GitHub repository. The `entire` remote is its Entire
+mirror. Push reviewed source to both. Preserve the previous repositories and
+history. This supersedes the earlier Entire-only `feat/vivary-gui` restriction.
+
+The original public `vivary-dev/vivary` repository and its `dev` branch are not
+this development target. Publication, releases, and changes to the public product
+still require Jeff's explicit acceptance. A working component does not establish
+a finished product.
+
+Vivary is a local desktop product. Zo is the development and private preview
+host. Users must be able to open Vivary, use local files and CLI models, and
+configure providers without a Vivary account or cloud control plane. Preserve
+existing preview evidence and original Vivary contracts. Reuse Native execution
+and connectors instead of creating another agent system.
 
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
@@ -70,9 +72,10 @@ named dangerous failure. Select controls for that risk.
 
 ## Delivery and authority
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md). Branch from current remote `dev`,
-use a typed topic branch, and integrate through a PR with the required CI and
-review gates. Never push directly to protected `dev` or legacy `prod`.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). Branch from current `origin/dev`,
+use a typed topic branch, and open a PR into `dev`. Review and verify each
+increment before committing and pushing to GitHub and Entire.
+Do not promote this work into the original repository or its release branches.
 
 Make small, coherent, reviewed commits. Preserve unrelated work, accepted
 evidence, and historical budgets. Keep private handoffs, credentials, transcripts,
@@ -90,6 +93,16 @@ or flywheel.
 Follow [the release workflow](docs/RELEASE-WORKFLOW.md) when release operations
 apply. Source implementation and passing tests do not establish publication.
 [README.md](README.md#release-status) owns shipped behavior.
+
+## Contributor readability
+
+Jeff confirmed on 2026-09-13 that another contributor is joining. Write code that
+someone new can follow. Keep responsibilities in their existing owner modules,
+use names that explain purpose, and keep functions focused. Add comments for
+non-obvious decisions and contracts. Avoid narration, speculative abstractions,
+duplicate checks, and wrappers that only pass arguments. Explain unfamiliar
+primitives in the contributor guide when they affect implementation choices.
+Review the diff for readability before committing.
 
 ## Keep knowledge useful
 
