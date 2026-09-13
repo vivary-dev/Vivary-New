@@ -22,8 +22,8 @@ const fixture = parseStrictJson(await readFile(fixturePath, "utf8"));
 const base = (name) => structuredClone(fixture.inputs[name]);
 const decision = (input) => evaluateRegistryOperation(structuredClone(input));
 
-test("the generic fixture DSL evaluates all 63 exact outputs, effects, and record changes", () => {
-  assert.equal(fixture.cases.length, 63);
+test("the generic fixture DSL evaluates all 83 exact outputs, effects, and record changes", () => {
+  assert.equal(fixture.cases.length, 83);
   const results = checkFixture(fixture);
   assert.deepEqual(results.filter((result) => !result.pass), []);
   for (const fixtureCase of fixture.cases) {
@@ -738,7 +738,7 @@ test("deliberate contract mutants are killed by the fixture oracle", async (cont
       await writeFile(mutantPath, mutantSource, "utf8");
       const mutant = await import(`${pathToFileURL(mutantPath).href}?run=${Date.now()}-${name}`);
       const results = mutant.checkFixture(fixture);
-      assert.ok(results.some((result) => !result.pass), `${name} survived all 63 fixture cases`);
+      assert.ok(results.some((result) => !result.pass), `${name} survived all ${fixture.cases.length} fixture cases`);
       if (name === "ignore-checkout-identity") {
         assert.deepEqual(
           results.filter((result) => !result.pass).map((result) => result.id),
