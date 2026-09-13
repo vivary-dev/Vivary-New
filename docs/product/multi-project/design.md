@@ -1,6 +1,6 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-05. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Updated: 2026-09-13. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -28,7 +28,23 @@ preview environment; it is not the product's required host. Deliver a local
 desktop window, local runtime and files, and existing local CLI model access
 without a Vivary or Zo account. Outcome 23 owns packaging and platform acceptance.
 Its broader release dependencies do not block a bounded desktop increment for
-the already working agent surface. Hosted preview work must not delay that path.
+the already working agent surface. Follow the testing sequence below for later
+application increments.
+
+## Hosted and desktop testing decision: 2026-09-13
+
+Jeff confirmed that Zo is the development host. Implement changes on Zo and test
+the latest application through the existing private hosted Zo version first.
+Then build Electron packages for further local testing on his laptop.
+
+Hosted checks cover the application workflows. Desktop checks cover installation,
+local file access, native dialogs, persistence, and process lifecycle on the
+laptop. Record the tested source and platform for each result. Existing Linux
+evidence does not establish Windows acceptance.
+
+This sequence replaces the earlier blanket Zo-only runtime restriction. The
+product remains local, opens without a Vivary account, and uses local files.
+The hosted development service retains its private access boundary.
 
 ## Local access and original-system decision: 2026-09-12
 

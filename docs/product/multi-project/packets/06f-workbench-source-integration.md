@@ -34,6 +34,11 @@ Zo remains the authorized development and private-preview host. The product is
 local and requires no Vivary signup or login. No further merge into `dev` is
 authorized until Jeff explicitly accepts the product.
 
+For later increments, follow the [2026-09-13 testing decision](../design.md#hosted-and-desktop-testing-decision-2026-09-13):
+implement and test the latest changes on the private hosted Zo app first. Then
+build Electron packages for further local testing on Jeff's laptop. Keep hosted
+workflow results separate from desktop platform acceptance.
+
 This increment does not accept shell execution, multi-user access, full factory
 orchestration, persistent project-root recovery, or the remaining outcomes.
 
@@ -117,3 +122,5 @@ operation whose actual prerequisite is missing and continue independent work.
   context, review, and coordination. Recorded the source map and missing GUI
   connections against existing outcomes. Source review only, with no additional
   runtime acceptance or changes to the external template hold.
+- 2026-09-13: Jeff selected the hosted Zo app for testing latest changes,
+  followed by Electron builds for further local testing on his laptop.

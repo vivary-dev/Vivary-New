@@ -26,8 +26,14 @@ Older packet and runtime instructions cannot restore heavier process defaults.
 
 Jeff clarified on 2026-09-12: use up to three concurrent subagents as useful for
 implementation, research, independent review, and documentation. Keep one owner
-per shared file and coordinate through the primary agent. All implementation and
-runtime remain on Zo. Keep one heavy build, browser, or model job active at a time.
+per shared file and coordinate through the primary agent. Keep one heavy build,
+browser, or model job active at a time.
+
+Jeff clarified the testing sequence on 2026-09-13: implement on Zo and test the
+latest application changes through the existing private hosted Zo version first.
+Then build Electron packages for further local testing on his laptop. This
+replaces the earlier blanket restriction of all runtime testing to Zo. See the
+[testing decision](docs/product/multi-project/design.md#hosted-and-desktop-testing-decision-2026-09-13).
 
 Exercise completed UI flows extensively: real desktop and narrow layouts,
 keyboard interactions, empty/error states, navigation, persistence, and actual

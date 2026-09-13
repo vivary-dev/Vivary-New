@@ -33,6 +33,11 @@ assets. Its structure and metadata pass inspection; Windows runtime behavior
 remains unverified. See [desktop package](../../../../packages/desktop/README.md).
 Windows/macOS installers and the full release matrix remain unaccepted.
 
+Follow the [2026-09-13 testing decision](../design.md#hosted-and-desktop-testing-decision-2026-09-13):
+test the latest application changes on the private hosted Zo version first, then
+build Electron packages for further local testing on Jeff's laptop. Include
+local files, native dialogs, persistence, and shutdown in the desktop journey.
+
 ## Done condition
 
 Clean environments can install, open, upgrade, and remove the app as documented. Installed GUI and headless operations use the same contracts. Artifacts carry versions, licenses, and provenance.
@@ -59,3 +64,6 @@ they do not prove the behavior above.
 - 2026-09-12: Added Windows x64 portable cross-packaging and checked target binary
   types, pinned Node, ABI metadata, and preservation of source native modules.
   This is artifact assembly evidence only; Windows execution remains unverified.
+
+- 2026-09-13: Jeff confirmed hosted Zo testing before Electron delivery and
+  further local laptop testing. Existing platform evidence keeps its scope.
