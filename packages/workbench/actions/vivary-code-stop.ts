@@ -7,17 +7,19 @@ import {
 } from "../server/local-code-agent.ts";
 
 export default defineAction({
-  description: "Stop the signed-in user's active local Vivary code run.",
+  description: "Stop the local workspace owner's active local Vivary code run.",
   schema: z.object({
+    projectId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     runId: z.string().trim().min(1).max(128),
   }),
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,
-  run: async ({ runId }, ctx?: ActionRunContext) =>
+  run: async ({ runId, projectId }, ctx?: ActionRunContext) =>
     stopVivaryCodeRun({
       ownerEmail: requireVivaryCodeUser(ctx),
+      projectId,
       runId,
     }),
 });

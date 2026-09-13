@@ -1,28 +1,36 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
+import { resolveVivaryCodeProject } from "../server/code-project";
 
 import {
   requireVivaryCodeUser,
   sendVivaryCodeMessage,
   VIVARY_CODE_MODELS,
+  VIVARY_CODE_ENGINES,
 } from "../server/local-code-agent.ts";
 
 export default defineAction({
-  description: "Start or continue the signed-in user's local Vivary code run.",
+  description: "Start or continue the local workspace owner's local Vivary code run.",
   schema: z.object({
+    projectId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     message: z.string().trim().min(1).max(8_000),
-    model: z.enum(VIVARY_CODE_MODELS).optional(),
+    model: z.enum([...VIVARY_CODE_MODELS, "default"]).optional(),
+    engine: z.enum(VIVARY_CODE_ENGINES).optional(),
     runId: z.string().trim().min(1).max(128).optional(),
   }),
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,
-  run: async ({ message, model, runId }, ctx?: ActionRunContext) =>
+  run: async ({ message, model, engine, runId, projectId }, ctx?: ActionRunContext) =>
     sendVivaryCodeMessage({
       ownerEmail: requireVivaryCodeUser(ctx),
+      orgId: ctx?.orgId ?? undefined,
+      workspace: await resolveVivaryCodeProject(ctx, projectId),
+      revalidateWorkspace: projectId ? () => resolveVivaryCodeProject(ctx, projectId) : undefined,
       message,
       model,
+      engine,
       runId,
     }),
 });
