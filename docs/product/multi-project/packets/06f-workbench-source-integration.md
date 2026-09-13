@@ -12,19 +12,27 @@ Timebox: One coherent application increment per reviewed PR; use existing checks
 
 Jeff corrected delivery on 2026-09-12: show the GUI on its own branch, then
 returned execution to Zo and requested a private web service with model trials.
-The local layout was shown; a working tool loop was not established there.
-The private Zo preview now passes actual Sonnet file creation/readback, a Fable
-follow-up, Opus cancellation, idle restart persistence, and active-run shutdown. It uses Native's
-Claude file tools, model selection, transcript history, and file inspection.
-Self-hosted access opens without login or signup. Jeff explicitly prioritized
-local desktop delivery: Zo is the development/preview host, not a product
-dependency. The private Linux desktop entry point now opens the same agent surface and
-has passed a real file-tool run and reopening check. The next increments are
-Windows desktop execution checks and selected-project agent work. A Windows x64
-portable folder has been assembled but has not yet run on Windows. Reuse the original Vivary context and authority owners.
-Test each completed capability through the normal app, fix failures, then move
-to the next product gap. Preserve prior failed evidence and budgets. No further
-merge into `dev` is authorized until Jeff explicitly accepts the product.
+The working private branch now composes Native's shell, rich composer, history,
+Settings, provider controls, CLI readiness, and Code executor. The Linux desktop
+has passed system-folder registration, project switching, separate drafts and
+history, a real selected-project Claude file change, file inspection, and
+reopening with the selected project, transcript, and appearance intact.
+
+The active-run control remains available in Settings and when a selected folder
+disappears. An actual cancellation check passed with that folder missing, then
+restored its paused Native conversation when the folder returned. Missing access
+does not silently select the Personal workspace. Source review, focused tests,
+typechecking, build, Native Doctor, and program/navigation checks passed.
+
+Native's unsent text draft cache uses browser storage. Project switches and
+navigation preserve drafts; a desktop restart with a different loopback port
+does not yet restore them. Windows/macOS execution, provider-backed Full chat
+trials, relocated-folder recovery, and the governed multi-stage workflow remain
+open. A Windows portable artifact does not establish Windows execution.
+
+Zo remains the authorized development and private-preview host. The product is
+local and requires no Vivary signup or login. No further merge into `dev` is
+authorized until Jeff explicitly accepts the product.
 
 This increment does not accept shell execution, multi-user access, full factory
 orchestration, persistent project-root recovery, or the remaining outcomes.
@@ -94,3 +102,8 @@ operation whose actual prerequisite is missing and continue independent work.
 - 2026-09-12: Prepared the next canonical application increment after the reviewed
   Core custody import. Existing private application behavior is the implementation
   source; its history and retained evidence remain private.
+- 2026-09-13: Accepted the private Native UI and selected-project desktop
+  increment. System folder selection, Alpha/Beta drafts and history, actual
+  Claude file tools, global Stop during missing-folder recovery, and reopen
+  persistence passed on Linux. Native Code remains the execution/record owner;
+  the factory workflow and other platform execution remain unfinished.

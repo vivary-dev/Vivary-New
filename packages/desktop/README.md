@@ -19,6 +19,13 @@ A real Sonnet request through the packaged window performed Read, Write, and
 Read, with the resulting file visible in the GUI. It reused the existing Claude
 Code CLI login. Model credentials are not included in the application.
 
+The restored Native UI also passed system-folder selection for two projects,
+separate drafts and history, a selected-project file change, Settings navigation,
+and reopening with the project, completed transcript, and appearance intact.
+Stop remained available while the selected folder was missing and preserved the
+paused conversation when that folder returned. Unsent text drafts still need
+recovery across a changed local port.
+
 A Windows x64 portable folder has also been assembled and its target binaries
 and metadata checked. It has not been executed on Windows. Windows and macOS
 installers, signing, upgrades, and installed smoke tests remain unfinished. The current package is a private preview, not a release.
