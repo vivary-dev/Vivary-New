@@ -1,12 +1,12 @@
 # 11a: Read and edit authorized project files through the GUI
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/12
 Parent: 11
-Status: needs-info
-Depends-on: []
-Owner: Root-assigned workspace editor writer
+Status: ready-for-agent
+Depends-on: [03c]
+Owner: Coordinating Codex, sole workspace editor and conflict-action writer
 Scope: Complete the existing Files panel using Native actions and root-bound file access, with drafts and external-change conflicts.
 Verification-kind: runtime
-Needs: Root assigns the source writer and confirms the existing Native file primitives and app-owned conflict contract before editing.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -71,3 +71,5 @@ folders, change authentication, or add a new runtime.
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+
+- 2026-09-13: Root selected the existing Native actions and project binding. Begin with the current inspector, expected-content revisions, and a recoverable conflict response.

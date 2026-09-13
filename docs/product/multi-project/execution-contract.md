@@ -11,6 +11,12 @@ Their process preferences do not override the engineering policy.
 
 ## One current frontier
 
+[The desktop release target](desktop-release.md) orders active work. GitHub
+milestone issues point to these same packets. They do not introduce another set
+of requirements. Keep packet status and issue lifecycle aligned in each PR.
+The first executable row in the release queue has priority over numeric order
+in the full graph. Record remaining work as a packet before starting it.
+
 Read [the frontier](index.md) and the owning packet. Outcome and packet files own
 their metadata; the graph is generated from them.
 [The authority map](issue-authority.md) relates historical issues to the program.

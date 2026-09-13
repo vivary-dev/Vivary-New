@@ -1,12 +1,13 @@
 # 08a: Adopt populated folders with truthful type and conflict preflight
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/17
 Parent: 08
 Status: needs-info
 Depends-on: [07b]
 Owner: Root-assigned adoption integrator, sole writer
 Scope: Fix verified folder-name/type collisions and plan/apply disagreement, then expose preservation-focused adoption in the GUI.
 Verification-kind: runtime
-Needs: Root accepts 07b and confirms the minimal S2 reproduction plus compatibility rules for explicit existing type declarations.
+Needs: 07b provides the shared plan/apply operation. Start by reproducing the named type-collision cases and preserve explicit existing declarations.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -72,3 +73,5 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
 
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
+
+- 2026-09-13: Required by the desktop release. Use the original adoption plan and journals through the same packaged Native action and project identity.

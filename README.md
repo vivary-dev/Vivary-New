@@ -1,5 +1,10 @@
 # Vivary
 
+The active target is a usable local `Vivary.exe`: project workspaces, persistent
+and searchable chat sessions, file memory, fast search, and the original Vivary
+tools. Start with the [desktop delivery plan](docs/product/multi-project/desktop-release.md)
+for the ordered tickets, existing implementation, and Windows acceptance journey.
+
 This is **Vivary-New**, the private development repository for the local desktop
 product. Topic branches integrate through PRs into `dev`, with reviewed promotion
 to `main`. Start with [contributor guidance](CONTRIBUTING.md), the

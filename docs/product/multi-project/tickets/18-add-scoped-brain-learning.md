@@ -56,3 +56,10 @@ they do not prove the behavior above.
 - 2026-09-06: Owner decision: the learning loop is WikiSkill-shaped, per [the direction decision](../design.md#direction-decision-2026-09-06) and [the alignment brief](../research/hoh-direction-brief.md). Acceptance adds four record kinds with distinct write rules (trace write-once, pattern patch-only with a rejection counter and quarantine, proposal as one atomic diff naming its check, impact ledger append-only with the verbatim diff and verdict), working agents receive skills and a short index rather than the pattern corpus, cross-project promotion carries procedures and checks only, a bounded active set with outcome-driven retirement, and revocation of a lesson that fresh evidence contradicts. Unimplemented and unverified.
 
 - 2026-09-13: Scoped basic file continuity separately from optional Brain and autonomous instruction/skill learning. Existing review, privacy, and cross-project promotion requirements remain.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.

@@ -232,3 +232,17 @@ independent review. Only a stale failure-message count was found and corrected.
 The salvage branch and main are unchanged. The recovery PR stays draft. The
 50-row table above is the complete disposition of this source line, not a claim
 that the entire Vivary product is finished.
+
+## Subsequent consolidation, 2026-09-13
+
+Jeff later authorized merging useful work toward one desktop product. PR #3
+merged into dev at `8a13a5d`. PR #4 was updated against that baseline and
+retargeted to dev. The combined renderer passed 16 thin-init tests, 7 preview
+tests, and 203 Tropo tests. Independent source review approved the integration.
+All applicable PR checks passed before PR #4 merged at `7a86a86`.
+
+The draft/blocked statements above describe the earlier recovery checkpoint.
+They are not the active merge state. The [desktop release target](../desktop-release.md)
+now assigns the remaining acceptance gaps to concrete packets. Integration does
+not establish a finished Windows application. Main and the salvage tip were
+unchanged by these merges.

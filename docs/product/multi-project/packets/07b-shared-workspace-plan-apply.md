@@ -1,17 +1,18 @@
 # 07b: Share a file-content plan and apply path between GUI and CLI
 Type: packet
+GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/14
 Parent: 07
 Status: ready-for-agent
 Depends-on: [07a]
 Owner: Coordinating Codex, sole creator and Workbench adapter writer
-Scope: Repair the existing creator adapter and expose one deterministic content plan/apply contract through the CLI and Native GUI.
+Scope: Complete the shared portable creator plan/apply operation. The separate 07d packet owns its visible GUI flow.
 Verification-kind: runtime
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
 
-Preview the exact files and content of a new workspace, apply that plan, and
-open the registered result through the normal GUI and existing CLI.
+Preview the exact files and content of a new workspace and apply that plan
+through one deterministic Native action and the equivalent existing CLI operation.
 
 ## Context
 
@@ -22,19 +23,21 @@ creator owns setup operations, and Tropo owns project retrieval. The coordinatin
 agent (`root`) assigns one source writer before activation. Follow the live
 repository delivery rules.
 
-The retained `creation_workspace.py` refers to unavailable APIs. Repair the real
-source closure rather than adding a replacement renderer or trusting the adapter
-as ready to mount. Built-in setup does not depend on the external catalog.
+The shared content-preview API was recovered in PR #4. Reuse that renderer.
+The guarded Python provider remains missing after its strict symlink tests failed
+on Zo. Select a portable supported write path through the original creator and
+existing project authority. Do not reintroduce the failed provider unchanged.
 
 ## Owned files
 
 - Original thin renderer and apply helpers in `packages/create-vivary/create_vivary.py`.
 - `packages/workbench/server/creation_workspace.py`, `creation-provider.mjs`,
   and the required existing project-services/registry integration.
-- Setup actions and project navigation under `packages/workbench/`.
+- Deterministic setup actions under `packages/workbench/`. The 07d packet owns
+  project navigation and visible setup.
 - The minimum packaging changes needed to call the same operations outside this
   source checkout, coordinated with outcome 23.
-- Existing creator and creation-provider tests, plus a narrow GUI journey.
+- Existing creator and creation-provider tests, plus shared action/CLI parity.
 
 ## Done condition
 
@@ -43,16 +46,17 @@ content, and conflicts. Approval binds the exact reviewed content and target.
 Changed inputs invalidate apply. Original creator operations own writes, recovery,
 and repeated-request handling. The registry uses the existing project identity.
 
-GUI and CLI consume the same contract. The GUI shows the plan, applies it, opens
-the folder's files, and reports recovery errors. Reopen retains the registered
-project. VCS and hosting can remain none. This first setup journey ships before
+The existing CLI and deterministic Native actions consume the same contract.
+Packet 07d owns the visible preview/apply/register/reopen journey. VCS and
+hosting can remain none. This first setup journey ships before
 merge/split and does not require a conductor daemon or global CLI installation.
 
 ## Verify
 
 Use temporary targets with the normal application composition. Check plan bytes
 against applied bytes, refusal after changed input, retry/recovery, and no writes
-from preview. Exercise Create through the GUI and equivalent headless operations.
+from preview. Exercise the shared Native action and equivalent headless operations. The 07d
+journey validates their GUI caller.
 Test hosted workflow first, then the packaged desktop path under existing authority.
 The commands below are starting suites, not substitutes for the actual journey.
 
@@ -77,3 +81,5 @@ A hosted-auth blocker prevents only its dependent hosted mutation proof.
   a shared `plan_thin_workspace` operation over the existing renderer, then wire
   the retained adapter to the real apply path. Hosted mutation proof retains
   its separate unresolved auth prerequisite. Source preparation can proceed.
+
+- 2026-09-13: Recovered preview and role metadata are integrated. This packet owns portable apply, with visible setup in 07d.

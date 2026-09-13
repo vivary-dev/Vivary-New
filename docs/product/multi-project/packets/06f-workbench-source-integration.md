@@ -1,14 +1,18 @@
 # 06f: Integrate the working Workbench into canonical Vivary
 Type: packet
 Parent: 06
-Status: in-progress
-Depends-on: [03c, 12h]
+Status: needs-info
+Depends-on: [06g, 04a, 07d]
 Owner: Coordinating Codex, sole integration writer; independent boundary reviewer
 Scope: Finish the Workbench in private Vivary-New through typed topic PRs into dev. Make the working agent surface locally usable, begin desktop packaging under outcome 23, then connect the remaining project workflows. Zo is the development/preview host only. Main promotion requires Jeff's explicit product acceptance.
 Verification-kind: runtime
+Needs: 06g, 04a, and 07d complete the remaining application integration. Follow the desktop release queue rather than this umbrella packet.
 Timebox: One coherent application increment per reviewed PR; use existing checks and the real application.
 
 ## Current increment
+
+Follow the [desktop release queue](../desktop-release.md) for executable work.
+This packet retains the integration acceptance contract and earlier evidence.
 
 The current source-recovery task runs in private Vivary-New on
 `feat/salvage-reconcile`, with a review PR into `dev` under Jeff's later
@@ -85,7 +89,9 @@ verification infrastructure at their existing private locations.
 The canonical source boots through normal startup with disposable Native identity,
 SQLite, supported temporary project roots, and disabled model providers. Two
 projects can register and switch; refresh restores the current selection. Missing
-or revoked access clears stale project state. Shutdown cleans up the owned provider.
+or revoked access clears cached authorization and file access while preserving
+the blocked project/session selection, history, and drafts. Shutdown cleans up
+the owned provider.
 Relevant tests, actual application checks, source review, and PR CI pass.
 
 ## Verify
@@ -163,3 +169,5 @@ operation whose actual prerequisite is missing and continue independent work.
   with GitHub and Entire connected. His later correction selects typed topic
   PRs into dev and reviewed promotion to main. The existing outcome graph owns
   the combined workspace plan. Public promotion and release remain unapproved.
+
+- 2026-09-13: Jeff authorized useful-work consolidation and selected the Windows product target. PRs #3 and #4 are integrated into dev. Scoped desktop packets now own the next work.

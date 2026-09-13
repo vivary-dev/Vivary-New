@@ -32,3 +32,10 @@ they do not prove the behavior above.
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.
