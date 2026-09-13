@@ -1,7 +1,7 @@
 ---
 title: "Command reference"
 description: "Every CLI across Vivary: tropo, strato, ozone, exo, create-vivary, and optional adapters."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/COMMANDS.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/COMMANDS.md"
 ---
 
 This is the full, technical list of every command. If you're just starting, you only
@@ -121,12 +121,12 @@ The published 0.1.10 on PyPI does not have them until the next release publishes
 | Review | `vivary impact` | `ozone impact` | Show what one node affects. |
 | Coordination | `vivary control` | `exo control` | Dispatch one governed Core control request. |
 
-Each route declares the component version floor that shipped the verb:
-`create-vivary>=0.4.3` for the workspace verbs, `vivary-tropo>=0.5.4` for `check` and
+The staged source routes require these component versions:
+`create-vivary>=0.4.4` for the workspace verbs, `vivary-tropo>=0.5.5` for `check` and
 `find`, `vivary-strato>=0.1.3` for `decide`, `vivary-ozone>=0.3.2` for `review` and
 `impact`, and `vivary-exo>=0.3.1` for `control`. A component below its floor is refused
 with exit code `2` and a message naming the required version. The floors match the
-[meta-package manifest](https://github.com/vivary-dev/vivary/blob/dev/packages/vivary/pyproject.toml).
+[meta-package manifest](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/vivary/pyproject.toml).
 A missing component, or one below its floor, is refused with exit code `2` and a `pip
 install` hint naming the distribution.
 

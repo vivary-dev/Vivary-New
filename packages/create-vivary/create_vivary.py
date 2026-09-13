@@ -129,7 +129,7 @@ if os.name == "nt":
     _WINDOWS_FILE_DISPOSITION_INFO_CLASS = 4
 
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
 
 PRESETS = ("coding", "second-brain", "knowledge-work", "writing")
 
@@ -1293,10 +1293,21 @@ def doctor_workspace(
 
     graph = {"nodes": 0, "edges": 0, "broken": 0}
     workspace_roles = None
+    resolver = None
+    if target.is_dir() and _workspace_contract(target)[0] == THIN_WORKSPACE_CONTRACT:
+        # Role metadata is config-only, so report it even when file or privacy
+        # checks fail. The resolver keeps every root/config safety check and is
+        # reused below so the graph is still walked once.
+        try:
+            tropo, resolver = _doctor_config_context(target, root)
+            workspace_roles = resolver.base.workspace_roles
+        except Exception as exc:  # keep doctor a report, not a traceback
+            errors.append(f"tropo validation failed: {exc}")
     if not errors:
         try:
-            _tropo, _resolver, docs, nodes, edges = _doctor_graph_context(target, root)
-            workspace_roles = getattr(_resolver.base, "workspace_roles", None)
+            if resolver is None:
+                tropo, resolver = _doctor_config_context(target, root)
+            docs, nodes, edges = _doctor_graph_context(tropo, resolver, target)
             findings = [f.render() for doc in docs for f in doc.findings]
             graph = {
                 "nodes": len(nodes),
@@ -1416,12 +1427,17 @@ def _doctor_repair_error_report(target: str | Path, *, yes: bool, error: Excepti
     }
 
 
-def _doctor_graph_context(target: Path, root: Path):
+def _doctor_config_context(target: Path, root: Path):
+    """Resolve the workspace config through tropo's own root and safety checks."""
     tropo = _load_tropo(root)
     resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+    return tropo, resolver
+
+
+def _doctor_graph_context(tropo, resolver, target: Path):
     docs = tropo.analyze(str(target), [], resolver)
     nodes, edges = tropo.build_graph(docs)
-    return tropo, resolver, docs, nodes, edges
+    return docs, nodes, edges
 
 
 def _repair_action(
@@ -1470,7 +1486,8 @@ def _doctor_repair_actions(target: Path, root: Path) -> list[dict]:
     actions.extend(_privacy_gitignore_repair_actions(target))
 
     try:
-        _tropo, resolver, docs, _nodes, edges = _doctor_graph_context(target, root)
+        tropo, resolver = _doctor_config_context(target, root)
+        docs, _nodes, edges = _doctor_graph_context(tropo, resolver, target)
     except Exception:
         return actions
 
@@ -5107,10 +5124,12 @@ def _thin_workspace_toml(
 ) -> str:
     adapter_list = ", ".join(json.dumps(adapter) for adapter in sorted(adapters))
     capability_list = json.dumps(active_context) if active_context is not None else ""
-    excludes = [".git", ".agents", ".vivary/private", ".vivary/runtime"]
-    if active_context == "cocoindex-code":
-        excludes.append(".cocoindex_code")
+    # Declared capability storage stays private, so it is both excluded and a boundary.
+    capability_storage = [".cocoindex_code"] if active_context == "cocoindex-code" else []
+    excludes = [".git", ".agents", ".vivary/private", ".vivary/runtime", *capability_storage]
     exclude_list = ", ".join(json.dumps(path) for path in excludes)
+    boundary = [".gitignore", ".vivary/private", ".vivary/runtime", *capability_storage]
+    boundary_list = ", ".join(json.dumps(path) for path in boundary)
     return f'''version = 1
 exclude = [{exclude_list}]
 
@@ -5122,17 +5141,22 @@ private = [".vivary/private"]
 runtime = [".vivary/runtime"]
 adapters = [{adapter_list}]
 capabilities = [{capability_list}]
+
+# Optional Vivary metadata. Older thin workspaces omit this table and keep the
+# same thin-context defaults.
+[workspace.vivary]
+version = 1
 patterns = ["thin-context"]
 
 # Descriptions only: these paths grant no access and need not exist.
 # The context Routes section is a map, not a generated inventory.
 # STATE.md remains the user or orchestrator's current-state document.
-[workspace.roles]
+[workspace.vivary.roles]
 law = ["AGENTS.md", ".vivary/context.md"]
 map = [".vivary/context.md"]
 record = []
 memory = []
-boundary = [".gitignore", ".vivary/private", ".vivary/runtime"]
+boundary = [{boundary_list}]
 
 [base]
 derive = ["id", "title"]

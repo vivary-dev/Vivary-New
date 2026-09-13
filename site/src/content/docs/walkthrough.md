@@ -1,7 +1,7 @@
 ---
 title: "Getting started proof"
 description: "A public, generic product walkthrough showing Vivary scaffold, health, review, coordination, and impact checks."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/WALKTHROUGH.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/WALKTHROUGH.md"
 ---
 
 > **Historical published-line fixture.** This page records the public 0.3.1 full

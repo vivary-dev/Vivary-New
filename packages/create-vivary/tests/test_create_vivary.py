@@ -3820,7 +3820,7 @@ class VersionParityTests(unittest.TestCase):
         manifest = tomllib.loads(
             (root / "pyproject.toml").read_text(encoding="utf-8")
         )["project"]
-        self.assertIn("vivary-tropo>=0.5.3", manifest["dependencies"])
+        self.assertIn("vivary-tropo>=0.5.5", manifest["dependencies"])
 
     def test_governed_install_hints_match_role_manifests(self):
         import tomllib

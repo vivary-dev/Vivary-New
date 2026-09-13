@@ -1,7 +1,7 @@
 ---
 title: "Optional semantic memory"
 description: "Implemented contract for Tropo-backed semantic-memory adapters and their boundary from independent agent LTM."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/SEMANTIC-MEMORY.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/SEMANTIC-MEMORY.md"
 ---
 
 Status: architecture note plus first optional Cognee adapter slice

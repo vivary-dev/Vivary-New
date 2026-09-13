@@ -43,6 +43,10 @@ Both Code and Full chat resolve the current authorized project at each run,
 read compact instructions/state, and retrieve relevant durable facts from their owning files. A fresh conversation
 and application restart recover the confirmed fact without replaying an old chat.
 The UI shows where memory is stored and when changed context becomes effective.
+New authored memory defaults to `.vivary/knowledge/`, with configurable file
+locations and visible role assignments. Keep it eligible for versioning and
+separate from `.vivary/memory/`, which already belongs to disposable semantic
+provider state. Do not move or reinterpret existing provider data automatically.
 
 Correcting a fact updates its owner instead of adding a competing statement.
 Forgetting removes it from active memory retrieval, with explicit disclosure that
@@ -61,7 +65,9 @@ Use the GUI to save, restart, recall, correct, and forget one sourced fact.
 Run this journey in both Code and Full chat. Exercise two projects with
 distinct facts and verify isolation, including missing
 or revoked access. Repeat the small continuity case with optional providers and
-VCS disabled. File existence or a manually supplied prompt is not proof of loading.
+VCS disabled. Confirm default ignore rules and semantic-index cleanup cannot
+exclude or remove authored notes. File existence or a manually supplied prompt
+is not proof of loading.
 Use existing model-call authority and budgets only for the necessary real-agent check.
 
 ```console

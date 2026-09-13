@@ -1,7 +1,7 @@
 ---
 title: "Release workflow"
 description: "End-of-update checklist for Vivary release truth, docs, publishing, and post copy."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/RELEASE-WORKFLOW.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/RELEASE-WORKFLOW.md"
 ---
 
 Use this at the end of every Vivary update that changes behavior, packaging,

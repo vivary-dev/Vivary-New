@@ -41,8 +41,8 @@ independent semvers. The only numeric lockstep is the same scaffolder distribute
 [#149](https://github.com/vivary-dev/vivary/issues/149); its lifecycle lives in the
 [release workflow](docs/RELEASE-WORKFLOW.md#train-and-version-lifecycle).
 
-The registry table below is published install truth. Registry status was verified
-**2026-08-15**.
+The table below preserves the package installation checks from **2026-08-15**.
+The later registry availability check follows it.
 
 | Surface | Published version | Link |
 |---|---:|---|
@@ -60,16 +60,31 @@ The registry table below is published install truth. Registry status was verifie
 Every version in the table is live on its registry and passed a cache-resistant
 install smoke on 2026-08-15. The package manifests own role-to-Core floors. The
 [meta-package manifest](packages/vivary/pyproject.toml) owns its component floors,
-including `create-vivary>=0.4.3`, `vivary-tropo>=0.5.4`, and `vivary-strato>=0.1.3`.
+including `create-vivary>=0.4.4`, `vivary-tropo>=0.5.5`, and `vivary-strato>=0.1.3`.
 It receives Core transitively. `vivary-memory-cognee` and `vivary-mcp` ride the same
 train as optional packages and are not meta-package dependencies.
 
-Source leads the registry for six packages. The `vivary` meta package is staged at
-**0.2.0** for the front-door task verbs, and `create-vivary` / `@vivary/create`
-**0.4.3**, `vivary-tropo` **0.5.4**, `vivary-strato` **0.1.3**, `vivary-ozone`
-**0.3.2**, and `vivary-exo` **0.3.1** are staged for the routed-help program-name
-seam. None of them has published. Installing any of them from PyPI or npm still
-gives the version in the table above.
+Registry metadata checked on **2026-09-13** reports these later versions:
+
+| Registry package | Available version |
+| --- | ---: |
+| PyPI `vivary` | 0.2.0 |
+| PyPI `create-vivary` | 0.4.3 |
+| PyPI `vivary-tropo` | 0.5.4 |
+| PyPI `vivary-strato` | 0.1.3 |
+| PyPI `vivary-ozone` | 0.3.2 |
+| PyPI `vivary-exo` | 0.3.1 |
+| npm `@vivary/create` | 0.4.2 |
+
+This is registry availability, not fresh installation verification. The inspected
+Tropo 0.5.4 wheel lacks workspace-role metadata. npm 0.4.3 is absent, so the
+previous Front Door train was not completely published across both registries.
+
+Development source stages **Tropo 0.5.5**, **create-vivary and @vivary/create 0.4.4**,
+and **vivary 0.2.1** for the workspace-role repairs. Those versions are unpublished.
+The creator requires Tropo 0.5.5, and the meta-package requires the matching
+creator and Tropo versions. Build the local wheel set to exercise this composition.
+Registry installation does not provide these source-only repairs.
 
 [CHANGELOG.md](CHANGELOG.md) records the train and the exact smokes that verified it,
 without rewriting earlier independent-version history.

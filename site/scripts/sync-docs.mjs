@@ -245,7 +245,7 @@ for (const slug of retiredGeneratedSlugs) {
 }
 for (const [src, slug, title, desc] of pages) {
   const raw = readCanonicalMarkdown(docsDir, `${src}.md`, `docs/${src}.md`);
-  const editUrl = `https://github.com/vivary-dev/vivary/edit/dev/docs/${src}.md`;
+  const editUrl = `https://github.com/vivary-dev/Vivary-New/edit/dev/docs/${src}.md`;
   const output = path.join(outDir, `${slug}.md`);
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, render(raw, title, desc, editUrl));
@@ -261,7 +261,7 @@ fs.writeFileSync(
     changelog,
     'Changelog',
     'Release history for the Vivary packages.',
-    'https://github.com/vivary-dev/vivary/edit/dev/CHANGELOG.md',
+    'https://github.com/vivary-dev/Vivary-New/edit/dev/CHANGELOG.md',
   ),
 );
 console.log('  synced CHANGELOG.md -> changelog.md');

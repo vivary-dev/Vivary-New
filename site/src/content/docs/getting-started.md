@@ -1,7 +1,7 @@
 ---
 title: "Getting started"
 description: "Install Vivary and run your first agent workspace."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/GETTING-STARTED.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/GETTING-STARTED.md"
 ---
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
