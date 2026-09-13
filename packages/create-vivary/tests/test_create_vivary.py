@@ -3883,7 +3883,7 @@ class VersionParityTests(unittest.TestCase):
         self.assertEqual(manifest["readme"], "README.md")
 
         release_status_url = (
-            "https://github.com/vivary-dev/vivary/blob/dev/"
+            "https://github.com/vivary-dev/Vivary-New/blob/dev/"
             "README.md#release-status"
         )
         for relative_path in (
