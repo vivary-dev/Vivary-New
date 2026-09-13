@@ -38,7 +38,12 @@ Preserve create, adopt, doctor, capabilities, find, check, decide, review, impac
 and control through their existing router and owners. Do not replace them with stubs.
 A bounded server adapter invokes allowlisted verbs using the selected project grant.
 GUI actions and bundled CLI can share this runtime without another daemon.
-Private runtime state belongs in app data. Templates and source files remain portable.
+Private runtime state belongs in app data. Use the supported VIVARY_RECEIPT_LOG
+setting for app-invoked CLI execution receipts, which otherwise default inside
+.vivary. Preserve standalone CLI defaults and intentional project evidence records.
+Keep the existing logs and email-draft helpers available in the bundled CLI.
+Email-draft verification creates a local draft only. It does not send email.
+Templates and source files remain portable.
 Build metadata records source and component versions. No credentials or live data ship.
 Unavailable optional providers stay optional and produce existing actionable errors.
 

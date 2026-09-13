@@ -46,8 +46,10 @@ layout, language pack, Brain service, Git, Jujutsu, Beads, or Entire to remember
 Native owns its application database, transcripts, and run records in private
 application data outside project folders. Model CLIs keep credentials and their
 native logs in their supported locations. A Vivary session records the native
-session reference needed to reopen or inspect that history. Never import all
-personal provider history into a project automatically.
+session reference needed to reopen or inspect that history. App-invoked original
+CLI execution receipts also use private application data through VIVARY_RECEIPT_LOG.
+Keep deliberate project decision/evidence records distinct from execution logs.
+Never import all personal provider history into a project automatically.
 
 Load compact project instructions and current state at each run. Retrieve relevant
 memory and context when needed instead of replaying unlimited chat text. Retain full chat history until the user archives or deletes it under an explicit

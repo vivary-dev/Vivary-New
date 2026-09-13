@@ -19,7 +19,7 @@ health through the same deterministic actions and original Vivary operations.
 
 Read [the desktop release plan](../desktop-release.md), [ENGINEERING.md](../../../../ENGINEERING.md),
 and [Native ownership](../native-owners.md). The original command router remains
-`packages/vivary/vivary_cli.py`; GUI integration does not change command meanings.
+`packages/vivary/vivary_cli.py`. GUI integration does not change command meanings.
 Native owns tool discovery and execution. These actions make no model calls.
 
 ## Owned files
@@ -41,6 +41,9 @@ The GUI and agent consume the same action result, including findings, source pat
 limits, unsupported capabilities, and meaningful command failures. Context remains
 project-scoped and excludes private sources. Source links resolve within that grant.
 Check and Doctor findings are observations, not permission to repair or execute work.
+Read sanitized execution receipts through the original logs helper using the
+application's configured private receipt location. Do not turn arbitrary log
+paths or provider credentials into project-search inputs.
 An unavailable package or root is a clear error rather than an empty success.
 
 ## Verify
