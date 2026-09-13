@@ -649,12 +649,12 @@ The published 0.1.10 on PyPI does not have them until the next release publishes
 | Review | `vivary impact` | `ozone impact` | Show what one node affects. |
 | Coordination | `vivary control` | `exo control` | Dispatch one governed Core control request. |
 
-Each route declares the component version floor that shipped the verb:
-`create-vivary>=0.4.3` for the workspace verbs, `vivary-tropo>=0.5.4` for `check` and
+The staged source routes require these component versions:
+`create-vivary>=0.4.4` for the workspace verbs, `vivary-tropo>=0.5.5` for `check` and
 `find`, `vivary-strato>=0.1.3` for `decide`, `vivary-ozone>=0.3.2` for `review` and
 `impact`, and `vivary-exo>=0.3.1` for `control`. A component below its floor is refused
 with exit code `2` and a message naming the required version. The floors match the
-[meta-package manifest](https://github.com/vivary-dev/vivary/blob/dev/packages/vivary/pyproject.toml).
+[meta-package manifest](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/vivary/pyproject.toml).
 A missing component, or one below its floor, is refused with exit code `2` and a `pip
 install` hint naming the distribution.
 
@@ -2258,9 +2258,10 @@ Assignments describe paths without opening them, creating files, or granting
 access. Existing privacy exclusions and required thin files remain mandatory,
 even when a role is empty. `STATE.md` remains authored state.
 
-Old configurations infer `thin-context` when `workspace.vivary` is absent.
-Unrelated `workspace.patterns` and `workspace.roles` extensions stay ignored.
-Only the versioned Vivary table defines these assignments. The default boundary
+Without `workspace.vivary`, valid assignments from the previous
+`workspace.patterns` and `workspace.roles` schema remain readable. Unrecognized
+generic extensions stay ignored and use the `thin-context` defaults. The
+versioned Vivary table validates its metadata strictly. The default boundary
 also includes declared capability storage, such as `.cocoindex_code`.
 Doctor reports valid roles even when unrelated workspace health checks fail.
 Set `patterns = []` to omit its default assignments, then provide any desired
@@ -6661,7 +6662,7 @@ anything unproven is reported `unknown` rather than guessed.
 declares its own floor in the same commit. The `vivary` meta-package receives Core
 transitively through the role packages instead of declaring a duplicate Core edge.
 Tropo, Strato, Ozone, and Exo own their Core floors. The meta-package owns its five
-component floors, including `create-vivary>=0.4.3`, `vivary-tropo>=0.5.4`, and
+component floors, including `create-vivary>=0.4.4`, `vivary-tropo>=0.5.5`, and
 `vivary-strato>=0.1.3`. One owner per edge avoids version-pinning fights.
 
 **Optional MCP boundary:** `vivary-mcp` is an interoperability adapter, not a layer
@@ -6887,7 +6888,8 @@ Staged source versions are `vivary-tropo` **0.5.5**, `create-vivary` and
 human gate. These patches do not change any registry artifact.
 
 - Version optional role metadata under `workspace.vivary`, preserving previously
-  ignored custom `workspace.patterns` and `workspace.roles` values.
+  unrecognized generic extension values. Keep recognized assignments from the
+  previous `workspace.patterns` and `workspace.roles` schema readable.
 - Include declared capability storage in boundary descriptions. Role descriptions
   still grant no access and do not replace privacy exclusions.
 - Report valid roles when Doctor finds other errors, including pending adoption
@@ -6897,7 +6899,7 @@ human gate. These patches do not change any registry artifact.
 
 ### Verification
 
-The 19 thin-init tests, 7 creation-preview tests, 203 Tropo tests, 51 meta-package
+The 20 thin-init tests, 7 creation-preview tests, 203 Tropo tests, 51 meta-package
 CLI tests, and 5 focused version/Doctor tests passed on Zo. Local wheels built
 and installed without registry dependencies. `pip check` and the isolated
 `scripts/check_installed_workspace_roles.py` check passed against those packages.

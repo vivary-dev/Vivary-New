@@ -1,7 +1,7 @@
 ---
 title: "Create a Vivary workspace"
 description: "Create and verify the five-file Vivary governed-context workspace for a new project without adding starter content."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/guides/create-workspace.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/guides/create-workspace.md"
 ---
 
 Use this guide for a new project or an empty directory.
@@ -179,9 +179,10 @@ Assignments describe paths without opening them, creating files, or granting
 access. Existing privacy exclusions and required thin files remain mandatory,
 even when a role is empty. `STATE.md` remains authored state.
 
-Old configurations infer `thin-context` when `workspace.vivary` is absent.
-Unrelated `workspace.patterns` and `workspace.roles` extensions stay ignored.
-Only the versioned Vivary table defines these assignments. The default boundary
+Without `workspace.vivary`, valid assignments from the previous
+`workspace.patterns` and `workspace.roles` schema remain readable. Unrecognized
+generic extensions stay ignored and use the `thin-context` defaults. The
+versioned Vivary table validates its metadata strictly. The default boundary
 also includes declared capability storage, such as `.cocoindex_code`.
 Doctor reports valid roles even when unrelated workspace health checks fail.
 Set `patterns = []` to omit its default assignments, then provide any desired

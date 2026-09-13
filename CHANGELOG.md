@@ -18,7 +18,8 @@ Staged source versions are `vivary-tropo` **0.5.5**, `create-vivary` and
 human gate. These patches do not change any registry artifact.
 
 - Version optional role metadata under `workspace.vivary`, preserving previously
-  ignored custom `workspace.patterns` and `workspace.roles` values.
+  unrecognized generic extension values. Keep recognized assignments from the
+  previous `workspace.patterns` and `workspace.roles` schema readable.
 - Include declared capability storage in boundary descriptions. Role descriptions
   still grant no access and do not replace privacy exclusions.
 - Report valid roles when Doctor finds other errors, including pending adoption
@@ -28,7 +29,7 @@ human gate. These patches do not change any registry artifact.
 
 ### Verification
 
-The 19 thin-init tests, 7 creation-preview tests, 203 Tropo tests, 51 meta-package
+The 20 thin-init tests, 7 creation-preview tests, 203 Tropo tests, 51 meta-package
 CLI tests, and 5 focused version/Doctor tests passed on Zo. Local wheels built
 and installed without registry dependencies. `pip check` and the isolated
 `scripts/check_installed_workspace_roles.py` check passed against those packages.
