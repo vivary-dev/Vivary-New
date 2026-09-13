@@ -32,6 +32,13 @@ Run the [canonical common planning checks](../execution-contract.md#maintaining-
 after changing this outcome's metadata. These checks validate planning documents;
 they do not prove the behavior above.
 
+## Next packets
+
+- [09a: Non-code context and Doctor](../packets/09a-noncode-context-doctor.md): verify narrow S6/S7 requirements and fix only demonstrated mismatches.
+- [07b: Shared GUI/CLI creator](../packets/07b-shared-workspace-plan-apply.md): one content plan and apply implementation for both entry points.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-13: Recorded shared setup parity and targeted non-code characterization. The disproved blanket S5 non-Git block and invalid assumption that every graph needs edges are not acceptance requirements.

@@ -136,3 +136,50 @@ Stop when provider installation needs approval.
 Stop when privacy policy is missing or invalid.
 
 Use the [command reference](../COMMANDS.md#create-vivary--the-scaffolder) for all flags and output fields.
+
+## File roles in Vivary-New source
+
+The Vivary-New source adds optional metadata to `.vivary/workspace.toml`.
+This section describes the development source, not the published 0.4.2 command.
+A role names a file's purpose. A pattern supplies a set of default assignments.
+
+| Role | Purpose |
+| --- | --- |
+| `law` | Instructions and policy |
+| `map` | Navigation to relevant files |
+| `record` | Durable decisions or completed-work records |
+| `memory` | Reusable knowledge |
+| `boundary` | Paths that describe privacy and runtime separation |
+
+The only supported pattern is `thin-context`. All four presets use this base:
+
+```toml
+[workspace]
+# Keep the existing contract, preset, state, and privacy fields here.
+patterns = ["thin-context"]
+
+[workspace.roles]
+law = ["AGENTS.md", ".vivary/context.md"]
+map = [".vivary/context.md"]
+record = []
+memory = []
+boundary = [".gitignore", ".vivary/private", ".vivary/runtime"]
+```
+
+The map assignment refers to the context file's existing Routes section.
+It does not introduce a generated inventory. Empty lists explicitly describe
+absent roles. Multiple roles can reference the same file.
+
+Assign exact workspace-relative paths, such as `notes/[Q3] review.md`.
+Assignments describe paths without opening them, creating files, or granting
+access. Existing privacy exclusions and required thin files remain mandatory,
+even when a role is empty. `STATE.md` remains authored state.
+
+Old configurations infer `thin-context` when the metadata is absent.
+Set `patterns = []` to omit its default assignments, then provide any desired
+role overrides. Overrides replace that role's list. Doctor JSON exposes the
+effective result as `workspace_roles`, including empty lists.
+
+These fields do not change presets, generate starter content, or load memory
+into conversations. Follow [the program frontier](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/index.md)
+for the setup and persistence work that consumes this metadata.

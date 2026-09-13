@@ -42,6 +42,11 @@ Run the [canonical common planning checks](../execution-contract.md#maintaining-
 after changing this outcome's metadata. These checks validate planning documents;
 they do not prove the behavior above.
 
+## Next packets
+
+- [18a: Scoped file memory](../packets/18a-scoped-file-memory.md): prove S5 through save, restart, recall, correction, and active-memory removal.
+- [11a: Authorized file editing](../packets/11a-authorized-workspace-file-editing.md): shared prerequisite for visible note edits and conflicts.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
@@ -49,3 +54,5 @@ they do not prove the behavior above.
 - 2026-09-05: Refined acceptance after the owner-requested [HoH comparison](../research/hoh-alignment.md). These criteria remain unimplemented and unverified.
 
 - 2026-09-06: Owner decision: the learning loop is WikiSkill-shaped, per [the direction decision](../design.md#direction-decision-2026-09-06) and [the alignment brief](../research/hoh-direction-brief.md). Acceptance adds four record kinds with distinct write rules (trace write-once, pattern patch-only with a rejection counter and quarantine, proposal as one atomic diff naming its check, impact ledger append-only with the verbatim diff and verdict), working agents receive skills and a short index rather than the pattern corpus, cross-project promotion carries procedures and checks only, a bounded active set with outcome-driven retirement, and revocation of a lesson that fresh evidence contradicts. Unimplemented and unverified.
+
+- 2026-09-13: Scoped basic file continuity separately from optional Brain and autonomous instruction/skill learning. Existing review, privacy, and cross-project promotion requirements remain.
