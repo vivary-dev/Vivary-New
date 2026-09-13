@@ -19,8 +19,9 @@ A real Sonnet request through the packaged window performed Read, Write, and
 Read, with the resulting file visible in the GUI. It reused the existing Claude
 Code CLI login. Model credentials are not included in the application.
 
-Windows and macOS installers, signing, upgrades, and their installed smoke tests
-remain unfinished. The current package is a private preview, not a release.
+A Windows x64 portable folder has also been assembled and its target binaries
+and metadata checked. It has not been executed on Windows. Windows and macOS
+installers, signing, upgrades, and installed smoke tests remain unfinished. The current package is a private preview, not a release.
 The [installation outcome](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
 owns that remaining work.
 
@@ -55,9 +56,8 @@ entry, compiled Workbench output, startup scripts, ordinary Node, licenses, and
 build metadata. It does not copy source checkouts, runtime data, credentials, or
 the development preview service.
 
-Build on the target operating system and architecture. The script uses that
-host's Node executable and the native modules from its Workbench build. It does
-not cross-compile SQLite or imply that another platform has passed testing.
+The default command builds for the current operating system and architecture,
+using that host's Node executable and Workbench native modules.
 Linux requires the usual Electron desktop libraries, including GTK 3.
 
 There is one application instance per user. The window starts its own local
@@ -65,3 +65,29 @@ server, waits for the actual app route, and uses parent-child IPC for graceful
 shutdown. POSIX also cleans the owned process group if the server exits.
 Windows has a live-process tree fallback; crash cleanup on Windows still needs
 an actual platform test.
+
+## Windows x64 portable preview
+
+A Linux build host can also assemble the unsigned Windows x64 folder:
+
+```console
+npm --prefix packages/desktop run package -- --windows-x64
+```
+
+This mode requires Workbench output built with Node 24.15.0 (ABI 137) and
+`better-sqlite3` 12.11.1. It verifies pinned official Windows Node and SQLite
+assets, replaces the binding only in the staged copy, and asks Electron Packager
+for Windows x64. It uses the build host's `tar` command for the one SQLite entry.
+The source checkout and its installed native modules stay intact.
+
+[Node checksums](https://nodejs.org/dist/v24.15.0/SHASUMS256.txt) and the
+[SQLite release](https://github.com/WiseLibs/better-sqlite3/releases/tag/v12.11.1)
+are the asset authorities. [Electron Packager](https://github.com/electron/packager/blob/v20.3.0/README.md)
+supports cross-platform packaging. A successful package build establishes an
+artifact, not Windows runtime acceptance.
+
+The folder must stay together: `vivary.exe` uses its sibling `resources` files.
+Windows users need their own installed Claude Code CLI and subscription login.
+The package does not include credentials. Explorer launch, CLI discovery/login,
+file tools, restart persistence, and cleanup during an active run still need
+actual Windows checks before this becomes a supported release.

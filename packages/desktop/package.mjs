@@ -2,7 +2,11 @@ import { execFileSync } from "node:child_process";
 import { access, chmod, copyFile, cp, glob, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { packager } from "@electron/packager";
+import { prepareWindowsX64Target } from "./windows-target.mjs";
+
+const { values } = parseArgs({ options: { "windows-x64": { type: "boolean" } } });
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const workbench = path.resolve(root, "../workbench");
@@ -32,12 +36,20 @@ try {
     name: "@vivary/workbench", version: manifest.version, private: true, type: "module",
   }, null, 2));
   await copyFile(path.join(repository, "LICENSE"), path.join(appDir, "LICENSE"));
-  const nodeName = process.platform === "win32" ? "node.exe" : "node";
-  await copyFile(process.execPath, path.join(nodeDir, nodeName));
-  if (process.platform !== "win32") await chmod(path.join(nodeDir, nodeName), 0o755);
+  const target = values["windows-x64"]
+    ? await prepareWindowsX64Target({ runtimeDir, nodeDir })
+    : {
+      platform: process.platform, arch: process.arch, nodeVersion: process.version,
+      nodeAbi: process.versions.modules,
+      nodeExecutable: process.platform === "win32" ? "node.exe" : "node",
+    };
+  if (!values["windows-x64"]) {
+    await copyFile(process.execPath, path.join(nodeDir, target.nodeExecutable));
+    if (target.platform !== "win32") await chmod(path.join(nodeDir, target.nodeExecutable), 0o755);
+  }
 
   const nodeLicense = await fetch(
-    `https://raw.githubusercontent.com/nodejs/node/${process.version}/LICENSE`,
+    `https://raw.githubusercontent.com/nodejs/node/${target.nodeVersion}/LICENSE`,
     { signal: AbortSignal.timeout(15000) },
   );
   if (!nodeLicense.ok) throw new Error("Could not retrieve the bundled Node version's license.");
@@ -59,16 +71,18 @@ try {
   const sourceDirty = execFileSync("git", ["status", "--porcelain"], { cwd: repository, encoding: "utf8" }).trim().length > 0;
   await writeFile(path.join(runtimeDir, "build.json"), JSON.stringify({
     product: "Vivary", version: manifest.version, sourceCommit, sourceDirty,
-    platform: process.platform, architecture: process.arch, node: process.version,
-    nodeAbi: process.versions.modules, electron: manifest.devDependencies.electron,
+    platform: target.platform, architecture: target.arch, node: target.nodeVersion,
+    nodeAbi: target.nodeAbi, electron: manifest.devDependencies.electron,
+    buildHost: { platform: process.platform, architecture: process.arch },
     channel: "private-preview",
   }, null, 2));
 
   const built = await packager({
     dir: appDir, out: output, name: "Vivary", executableName: "vivary",
     appBundleId: "com.vivary.desktop", appVersion: manifest.version,
+    win32metadata: { CompanyName: "Vivary", ProductName: "Vivary", FileDescription: "Vivary local desktop" },
     electronVersion: manifest.devDependencies.electron,
-    platform: process.platform, arch: process.arch, asar: true,
+    platform: target.platform, arch: target.arch, asar: true,
     extraResource: [runtimeDir, nodeDir], overwrite: false,
   });
   for (const directory of built) console.log(directory);

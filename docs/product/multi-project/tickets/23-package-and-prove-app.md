@@ -28,8 +28,10 @@ The private Linux x64 desktop preview now bundles Electron, ordinary Node, and
 Workbench. Actual package checks proved no-login startup, a Sonnet Read/Write/Read
 file task, local state restoration after reopening, healthy local configuration,
 and server shutdown on quit.
-See [desktop package](../../../../packages/desktop/README.md). Windows/macOS
-installers and the full release matrix remain unaccepted.
+The Windows x64 portable folder also builds with verified target Node/SQLite
+assets. Its structure and metadata pass inspection; Windows runtime behavior
+remains unverified. See [desktop package](../../../../packages/desktop/README.md).
+Windows/macOS installers and the full release matrix remain unaccepted.
 
 ## Done condition
 
@@ -53,3 +55,7 @@ they do not prove the behavior above.
 - 2026-09-12: The first private Linux x64 desktop package passed startup, actual
   Sonnet file tools, reopen persistence, local configuration, and shutdown checks.
   Windows/macOS packaging and installed platform acceptance remain open.
+
+- 2026-09-12: Added Windows x64 portable cross-packaging and checked target binary
+  types, pinned Node, ABI metadata, and preservation of source native modules.
+  This is artifact assembly evidence only; Windows execution remains unverified.
