@@ -9,6 +9,7 @@ None.
 ## In-progress packets
 
 - [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md)
+- [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md)
 
 Read the [execution rules](execution-contract.md) before claiming a packet.
 Open the [full graph](graph.md) for dependencies and the [design](design.md)

@@ -10,7 +10,7 @@ gate completion. Agents execute bounded packets; a future feature or release
 decision does not block an independent packet. Packet dependencies gate starts.
 
 Frontier: none.
-In progress: 06f.
+In progress: 06f, 07a.
 
 ## Execution packets
 
@@ -22,11 +22,21 @@ In progress: 06f.
 | [03b: Execute the portable registry contract against a deterministic model](packets/03b-registry-contract-model.md) | 03 | done | [03a, 10c] |
 | [03c: Map registry transactions to native application seams](packets/03c-registry-transaction-mapping.md) | 03 | done | [03b] |
 | [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md) | 06 | in-progress | [03c, 12h] |
+| [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | in-progress | [] |
+| [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | needs-info | [07a] |
+| [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | needs-info | [07b] |
+| [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | needs-info | [07b] |
+| [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |
+| [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) | 09 | needs-info | [] |
 | [10a: Establish the BrowserPod compatibility boundary](packets/10a-browserpod-compatibility-preflight.md) | 10 | done | [] |
 | [10b: Prove the first BrowserPod toolchain on a disposable fixture](packets/10b-browserpod-toolchain-proof.md) | 10 | needs-info | [10a] |
 | [10c: Prove the authorized Habitat fallback toolchain](packets/10c-habitat-fallback-proof.md) | 10 | done | [10a] |
+| [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) | 11 | needs-info | [] |
+| [11b: Generate a project map and state view without losing authored state](packets/11b-generated-project-views.md) | 11 | needs-info | [07b, 11a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
+| [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) | 18 | needs-info | [11a] |
+| [19a: Connect an approved external pattern catalog after its hold is lifted](packets/19a-held-external-pattern-catalog.md) | 19 | needs-info | [07c, 08a] |
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |
 | [20c: Prepare the deterministic headless loop proof](packets/20c-headless-loop-preparation.md) | 20 | done | [10c] |
 | [20d: Repair the environment and simplify the development process](packets/20d-process-environment-maintenance.md) | 20 | done | [10c] |
