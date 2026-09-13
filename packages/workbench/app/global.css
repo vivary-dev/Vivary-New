@@ -71,6 +71,40 @@
   --sidebar-ring: 0 0% 60%;
 }
 
+/* Vivary's default palette leaves Native's other appearances in control. */
+:root:not([data-appearance]) {
+  --primary: 111.69 43.05% 29.61%;
+  --ring: 109.74 43.68% 34.12%;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-ring: var(--ring);
+}
+
+.dark:not([data-appearance]) {
+  --background: 156 12.2% 8.04%;
+  --foreground: 137.14 24.14% 94.31%;
+  --card: 150 12.5% 12.55%;
+  --card-foreground: var(--foreground);
+  --popover: 144 12.2% 16.08%;
+  --popover-foreground: var(--foreground);
+  --primary: 84.34 84.62% 66.86%;
+  --primary-foreground: 120 23.08% 10.2%;
+  --secondary: 144 12.2% 16.08%;
+  --secondary-foreground: var(--foreground);
+  --muted: 150 12.5% 12.55%;
+  --muted-foreground: 141.43 8.54% 67.84%;
+  --accent: 144 12.2% 16.08%;
+  --accent-foreground: var(--foreground);
+  --border: 147.69 10.92% 23.33%;
+  --input: 142.86 9.59% 42.94%;
+  --ring: 84.34 84.62% 66.86%;
+  --sidebar-background: 150 14.29% 5.49%;
+  --sidebar-foreground: var(--muted-foreground);
+  --sidebar-accent: 150 12.5% 12.55%;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+}
+
 html, body { margin: 0; height: 100%; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: "Inter Variable", sans-serif; }
 button, a, input, summary { outline-offset: 3px; }
 :focus-visible { outline: 2px solid hsl(var(--ring)); }
@@ -150,7 +184,7 @@ button, a, input, summary { outline-offset: 3px; }
 .vivary-history-skeleton > span:not(.sr-only) { display: block; height: 28px; border-radius: 5px; background: hsl(var(--sidebar-accent)); }
 .vivary-sidebar-utility { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 5px; color: hsl(var(--sidebar-foreground)); }
 .vivary-sidebar-utility:hover { background: hsl(var(--sidebar-accent)); color: hsl(var(--sidebar-accent-foreground)); }
-.vivary-app-header, .vivary-mobile-header { display: flex; height: 52px; flex-shrink: 0; align-items: center; gap: 10px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--background)); padding: 0 20px; }
+.vivary-app-header, .vivary-mobile-header { display: flex; height: 52px; flex-shrink: 0; align-items: center; gap: 10px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--card)); padding: 0 20px; }
 .vivary-mobile-header { display: none; padding-inline: 8px; }
 .vivary-settings-link { display: inline-flex; white-space: nowrap; align-items: center; justify-content: center; min-height: 34px; padding: 6px 11px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 12px; font-weight: 500; }
 .vivary-settings-link:hover { background: hsl(var(--accent)); }

@@ -7,9 +7,31 @@ configured separately in Settings.
 ## Visual direction
 
 Compose the pinned Agent-Native shell, chat, settings, and Toolkit components.
-Use a neutral application surface with the user's selected light, dark, or
-system theme and Native color palette. Inter carries controls and prose;
-source previews may use monospace.
+The default palette uses layered charcoal surfaces and a bright green primary
+action. Keep the user's selected light, dark, or system theme and Native
+appearance. Inter carries controls and prose. Source previews may use monospace.
+
+Use these colors for the default dark appearance through semantic tokens:
+
+| Role | Color |
+| --- | --- |
+| Navigation | `#0C100E` |
+| Workspace | `#121715` |
+| Raised surfaces | `#1C2420` |
+| Quiet borders | `#35423B` |
+| Main text | `#EDF4EF` |
+| Primary action | `#B8F263` |
+
+Primary actions use a dark `#142014` label. Muted text stays readable at
+`#A6B4AB`, and input borders are stronger than panel dividers. Reserve bright
+green for the primary action, links, selection, and keyboard focus. Use surface
+depth to separate navigation, the workspace, and the composer or file panel.
+
+Light mode uses a deeper `#346C2B` primary with a white label so controls and
+links stay readable on pale surfaces. Scope the Vivary palette to Native's
+default appearance. The other appearance presets keep their own colors.
+Configure tokens in `app/global.css` and use them in app panels. Preserve Native
+component behavior, spacing, and appearance persistence.
 
 Keep navigation, project choice, conversation history, and Settings visible.
 Use the Native rich composer and tool transcript. The files pane opens beside
@@ -36,5 +58,7 @@ its tools. Do not present the unfinished factory workflow as available.
 
 Exercise normal local startup, provider and runtime settings, project selection,
 conversation restoration, tool output, file inspection, keyboard focus, saved
-appearance, and narrow layouts. Test a completed flow, fix its failures, and
-repeat the affected journey. Keep screenshots that show meaningful results.
+appearance, and narrow layouts. Check default dark and light contrast, visible
+focus, and an alternate Native appearance. Test a completed flow, fix its
+failures, and repeat the affected journey. Keep screenshots that show meaningful
+results.
