@@ -4,7 +4,7 @@ Status: planned
 Blocked-by: [02, 03]
 Unlocks: [09, 10, 16, 17, 20, 21, 22, 29, 30]
 
-Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+Execution: Read and claim the live [GitHub issue](https://github.com/vivary-dev/Vivary-New/issues). Its dependencies govern starting work. Use [the graph](../graph.md) for supporting references. Parent dependencies still gate outcome completion, not independent preparation.
 
 ## Goal
 

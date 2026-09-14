@@ -521,8 +521,8 @@ Files touched by the setup slice and likely files for the Cognee adapter PR:
 - `site/scripts/sync-docs.mjs` and generated `site/src/content/docs/*` - website docs.
 - `site/src/pages/index.astro` - homepage copy if semantic memory becomes a named
   public capability.
-- `README.md` and package READMEs - release truth and quickstart
-  surfaces.
+- [Original CLI release status](ORIGINAL-CLI.md#release-status) and package READMEs:
+  package release status and CLI quickstarts.
 - `packages/create-vivary/create_vivary.py` - `--memory`, capability discovery JSON,
   `knowledge-work` preset, wizard choices, scaffold writes, stale cleanup, and doctor
   reporting.

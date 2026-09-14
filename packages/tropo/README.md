@@ -18,8 +18,8 @@ frontmatter** and still be fully typed and valid.
 > migration). Cloud adapters are future work. An agent can drive the whole thing
 > via [.claude/skills/tropo/SKILL.md](.claude/skills/tropo/SKILL.md).
 >
-> Source: [`pyproject.toml`](pyproject.toml). The root release status separates
-> published artifacts from development source.
+> Source: [`pyproject.toml`](pyproject.toml). Published versions are listed on
+> [PyPI](https://pypi.org/project/vivary-tropo/).
 > See [SPEC.md](SPEC.md).
 
 ## Quickstart

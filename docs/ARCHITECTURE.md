@@ -145,7 +145,7 @@ flowchart BT
 
 Exact floors and source versions live only in the
 [package manifests](https://github.com/vivary-dev/vivary/tree/dev/packages); the
-[root release status](../README.md#release-status) distinguishes those source versions
+[original CLI release status](ORIGINAL-CLI.md#release-status) distinguishes those source versions
 from registry truth. The map was checked against those manifests on **2026-09-02**.
 
 The meta-package also owns a front door. `vivary` holds a static table of ten task
@@ -255,7 +255,7 @@ behind explicit `--governed` flags. The optional read-only MCP adapter is publis
 as `vivary-mcp` and remains disabled by default. Plain Tropo retrieval, Ozone review
 and impact, and legacy Exo graph coordination remain unchanged. Current versions and
 publication status live in
-[the root release status](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status).
+[the original CLI release status](ORIGINAL-CLI.md#release-status).
 
 ## 4. The moat
 

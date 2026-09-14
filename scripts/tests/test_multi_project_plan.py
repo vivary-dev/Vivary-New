@@ -79,7 +79,7 @@ class PlanCheckTests(unittest.TestCase):
         self.assert_error('dependency cycle')
 
     def test_frontier_drift_fails(self):
-        self.replace(self.plan / 'graph.md', 'Frontier: 02a.', 'Frontier: none.')
+        self.replace(self.plan / 'graph.md', 'Frontier snapshot: 02a.', 'Frontier snapshot: none.')
         self.assert_error('graph/frontier drift')
 
     def test_mermaid_drift_fails(self):
@@ -95,19 +95,19 @@ class PlanCheckTests(unittest.TestCase):
         self.render()
         self.assert_error('waiting status requires exact Needs')
 
-    def test_ready_packet_cannot_hide_unfinished_start_dependency(self):
+    def test_ready_packet_snapshot_cannot_hide_unfinished_dependency(self):
         self.replace(self.packet, 'Depends-on: []', 'Depends-on: [01]')
         self.render()
-        self.assert_error('unfinished start dependency 01')
+        self.assert_error('unfinished dependency 01')
 
-    def test_human_gated_packet_cannot_hide_unfinished_start_dependency(self):
+    def test_human_gated_packet_snapshot_cannot_hide_unfinished_dependency(self):
         self.replace(self.packet, 'Status: ready-for-agent', 'Status: ready-for-human')
         self.replace(self.packet, 'Depends-on: []', 'Depends-on: [01]')
         self.replace(self.packet, 'Owner: fixture agent', 'Needs: Human approval of the prepared operation.\nOwner: fixture agent')
         self.render()
-        self.assert_error('unfinished start dependency 01')
+        self.assert_error('unfinished dependency 01')
 
-    def test_independent_packet_can_start_before_parent_completes(self):
+    def test_ready_snapshot_does_not_require_parent_completion(self):
         self.assertEqual(module.frontier(module.read_records(self.plan)), ['02a'])
         self.assertEqual(module.check(self.root), [])
 

@@ -145,8 +145,8 @@ The dependency remains held. Its six outcomes cover semantic and transport contr
 ## Website, documentation, and release evidence
 
 Canonical prose lives in `docs/`. The repository contract lines 91-103 says the site
-copies are generated and must not be edited directly. The root `README.md` owns
-publication truth, and `CHANGELOG.md` records each development line.
+copies are generated and must not be edited directly. The [original CLI reference](../../ORIGINAL-CLI.md#release-status) owns
+package publication truth, and `CHANGELOG.md` records each development line.
 
 [`sync-docs.mjs`](../../../site/scripts/sync-docs.mjs) owns the canonical-doc to site-doc
 mapping and the generated LLM files. The

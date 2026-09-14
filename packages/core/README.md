@@ -186,8 +186,7 @@ remains independently installable and disabled by default.
 
 Zero runtime dependencies. Python 3.11+.
 
-This package is published on PyPI. [The root release status](../../README.md#release-status)
-owns version and publication truth.
+Published versions are listed on [PyPI](https://pypi.org/project/vivary-core/).
 
 ## Provenance and proof
 

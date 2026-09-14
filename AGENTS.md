@@ -120,7 +120,7 @@ or flywheel.
 
 Follow [the release workflow](docs/RELEASE-WORKFLOW.md) when release operations
 apply. Source implementation and passing tests do not establish publication.
-[README.md](README.md#release-status) owns shipped behavior.
+[The original CLI reference](docs/ORIGINAL-CLI.md#release-status) owns package release status.
 
 ## Contributor readability
 

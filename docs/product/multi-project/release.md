@@ -29,7 +29,7 @@ Use real UI screenshots and verified outputs. Never describe a pending native ru
 
 ## Website ownership
 
-`docs/`, root README release status, and CHANGELOG are canonical. `site/scripts/sync-docs.mjs` generates doc mirrors and `llms.txt`/`llms-full.txt`. The Astro `site/` is the public website, not the GUI runtime.
+`docs/ORIGINAL-CLI.md` owns package release status. Other `docs/` prose and `CHANGELOG.md` are canonical. `site/scripts/sync-docs.mjs` generates doc mirrors and `llms.txt`/`llms-full.txt`. The Astro `site/` is the public website, not the GUI runtime.
 
 Update homepage positioning, getting started, architecture, command reference, feature/maturity matrix, template and Brain guides, runtime support, screenshots, download links, and compatibility notices. Preserve useful existing URLs or redirect them intentionally. Align public claims with the actual package and app versions.
 

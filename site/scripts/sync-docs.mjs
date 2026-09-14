@@ -24,6 +24,7 @@ const normalizeForCompare = (p) => {
 const pages = [
   ['CONCEPTS', 'concepts', 'What is Vivary?', 'Plain-language intro: what Vivary is, the core ideas, and a glossary. Start here.'],
   ['GETTING-STARTED', 'getting-started', 'Getting started', 'Install Vivary and run your first agent workspace.'],
+  ['ORIGINAL-CLI', 'original-cli', 'Original Vivary CLI', 'Package release history, verified versions, setup commands, and workspace contracts for the original Vivary command-line tools.'],
   ['WALKTHROUGH', 'walkthrough', 'Getting started proof', 'A public, generic product walkthrough showing Vivary scaffold, health, review, coordination, and impact checks.'],
   ['COMMANDS', 'commands', 'Command reference', 'Every CLI across Vivary: tropo, strato, ozone, exo, create-vivary, and optional adapters.'],
   ['LEARN-BY-DOING', 'learn-by-doing', 'Vivary guides', 'Task-based Vivary guides for creating or adopting a workspace, connecting agents, retrieving context, writing records, and recovering safely.'],
@@ -55,6 +56,10 @@ const rewrite = (s) =>
   s.replaceAll('](CONCEPTS.md)', '](/concepts/)')
    .replaceAll('](GETTING-STARTED.md)', '](/getting-started/)')
    .replaceAll('](GETTING-STARTED.md#', '](/getting-started/#')
+   .replaceAll('](ORIGINAL-CLI.md)', '](/original-cli/)')
+   .replaceAll('](ORIGINAL-CLI.md#', '](/original-cli/#')
+   .replaceAll('](../ORIGINAL-CLI.md)', '](/original-cli/)')
+   .replaceAll('](../ORIGINAL-CLI.md#', '](/original-cli/#')
    .replaceAll('](WALKTHROUGH.md)', '](/walkthrough/)')
    .replaceAll('](WALKTHROUGH.md#', '](/walkthrough/#')
    .replaceAll('](LEARN-BY-DOING.md)', '](/learn-by-doing/)')
@@ -117,7 +122,10 @@ const rewrite = (s) =>
    .replaceAll('](SPEC-data-layer.md)', `](${GH}/docs/SPEC-data-layer.md)`)
    .replaceAll('](SPEC-data-layer.md#', `](${GH}/docs/SPEC-data-layer.md#`)
    .replaceAll('](bellamente-memory/', `](${GH}/docs/bellamente-memory/`)
-   .replaceAll('](../packages/tropo/SPEC.md)', `](${GH}/packages/tropo/SPEC.md)`)
+   .replaceAll('](../packages/', `](${GH}/packages/`)
+   .replaceAll('](../LICENSE)', `](${GH}/LICENSE)`)
+   .replaceAll('](PORTFOLIO.md)', `](${GH}/docs/PORTFOLIO.md)`)
+   .replaceAll('](./)', `](${GH.replace('/blob/', '/tree/')}/docs/)`)
    .replaceAll('](../HANDOFF.md)', `](${GH}/HANDOFF.md)`);
 
 const assertRegularFileInside = (root, filePath, label) => {
@@ -270,21 +278,20 @@ console.log('site docs synced from docs/ (+ CHANGELOG.md).');
 
 // --- Generate llms.txt & llms-full.txt ---
 
-const rootReadme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+const cliReference = readCanonicalMarkdown(docsDir, 'ORIGINAL-CLI.md', 'docs/ORIGINAL-CLI.md');
 
 const readPublishedVersion = (surface) => {
   const prefix = `| \`${surface}\``;
-  const row = rootReadme.split(/\r?\n/).find((line) => line.startsWith(prefix));
+  const row = cliReference.split(/\r?\n/).find((line) => line.startsWith(prefix));
   const version = row?.split('|')[2]?.trim();
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(`Could not find published version for ${surface} in README.md`);
+    throw new Error(`Could not find published version for ${surface} in docs/ORIGINAL-CLI.md`);
   }
   return version;
 };
 
-// Every version below is registry truth read from the root release table. The manifests
-// are source truth and can lead the registry between trains, so they are not the right
-// input for an agent-facing install surface.
+// Preserve the dated verified package table in docs/ORIGINAL-CLI.md. Source
+// manifests can lead published versions and must not supply install examples.
 const createVivaryPyPI = readPublishedVersion('create-vivary');
 const createVivaryNpm = readPublishedVersion('@vivary/create');
 const coreVersion = readPublishedVersion('vivary-core');
@@ -321,7 +328,7 @@ private/runtime ignores. It seeds no starter records, template pack, or second b
 Website: https://vivary.vercel.app/
 Repository: https://github.com/vivary-dev/vivary
 License: MIT
-Release Status: https://github.com/vivary-dev/vivary#release-status
+Release Status: https://vivary.vercel.app/original-cli/#release-status
 Full Documentation: https://vivary.vercel.app/llms-full.txt
 
 ## Published package surfaces
