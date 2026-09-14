@@ -23,7 +23,7 @@ The interface stays stable when the chosen harness changes. A registered adapter
 | Inspect the selected workspace layout | [Unified workspace interaction contract](../unified-workspace.md) |
 | Review the research behind the interface | [Agent workspace ergonomics](../research/agent-workspace-ergonomics.md) |
 
-The interactive [drawing room](atlas.html) is a generated companion view of [feature-map.json](feature-map.json). It lets a reviewer select a module and inspect its connected modules and actions. The Markdown diagrams remain readable without that viewer. The JSON owns only this specification's module/action inventory. It does not own task status or replace GitHub issues. Regenerate it with `node docs/product/multi-project/specification/render-atlas.mjs`.
+The interactive [drawing room](atlas.html) is a generated companion view of [feature-map.json](feature-map.json). It lets a reviewer select a module and inspect its connected modules and actions. The generated atlas.html opens directly in a browser without a server or network dependency. atlas.fragment.html supplies the in-conversation view. The Markdown diagrams remain readable without either viewer. The JSON owns only this specification's module/action inventory. It does not own task status or replace GitHub issues. Regenerate it with `node docs/product/multi-project/specification/render-atlas.mjs`.
 
 ## Completeness boundary
 
