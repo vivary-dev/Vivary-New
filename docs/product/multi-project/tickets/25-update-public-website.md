@@ -32,3 +32,5 @@ they do not prove the behavior above.
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
+
+- 2026-09-13: The new public site is its own repository, `vivary-dev/vivary-site`, with the home page locked in by Jeff. See [website-repo.md](../research/website-repo.md). The Astro `site/` here is the old site and is inspiration only. This outcome now owns the handover of URLs and the retirement of `site/`, not a rebuild.
