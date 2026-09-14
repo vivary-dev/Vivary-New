@@ -42,11 +42,15 @@ capability owners without copying preserved implementation paths. The
 [registry receipt](../../sources/registry-receipt.md) establish authorization
 prerequisites only; neither is a project-file behavior contract or effect receipt.
 
-## Gaps
+## Current integration and remaining gaps
 
-The project-file behavior contract and adapter required by
-[Outcome 11](../../../tickets/11-finish-workspace-editor.md) remain planned and
-unimplemented. The registry model and receipt prove identity and transaction rules,
-not production file mutation. No canonical end-to-end write-back implementation or
-effect test exists in this checkout, so this record deliberately has no contract,
-test, or evidence edge.
+The canonical project-file adapter is implemented in
+`packages/workbench/server/project-files.ts`, with scoped save/rename actions and
+recoverable drafts. [The issue 12 receipt](../../../receipts/11a-project-file-surface.md)
+records the accepted file slice. The [module catalog](../../../specification/modules.md)
+routes to those source owners.
+
+That evidence does not establish general isolated-worker write-back, atomic
+integration, every remote-edit provider, or the full outcomes 16/17/29 pipeline.
+The no-overwrite file rename is an optimistic copy-and-remove operation, not an
+atomic rename guarantee. Preserve these limits when replacing the editor.

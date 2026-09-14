@@ -13,6 +13,11 @@ tests, and evidence without copying those sources.
 - [Native runtime](modules/native-runtime/index.md) owns coding-runtime execution boundaries.
 - [Project write-back](modules/project-writeback/index.md) owns authorized project effects.
 
+For the full product, use the [visual specification module catalog](../specification/modules.md)
+and [contributor operating manual](../specification/operating-manual.md). They
+map current Workbench source and planned responsibilities without replacing
+the bounded typed graph below.
+
 Read the [original Vivary product map](../research/original-vivary-product-map.md)
 when connecting templates, project files, context, or review to the Native GUI.
 

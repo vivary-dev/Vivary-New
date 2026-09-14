@@ -36,7 +36,8 @@ A versioned archive or installer includes Vivary.exe, required runtimes/resource
 licenses, checksum and exact source version. It excludes credentials and live user data.
 Windows launch requires no Vivary account, Zo account, source tree or first-run dependency download.
 Create a project, adopt an existing folder, choose built-in patterns and edit a source file.
-Use both chat surfaces with project-organized history. Find an old session by message content.
+Use existing conversation types within one project workspace, preserving Native
+thread and coding-session identities with project-organized history. Find an old session by message content.
 Record a sourced fact, restart, recall it in a fresh chat, correct it and remove it from active memory.
 Search a large codebase, open a match and verify private exclusions and project isolation.
 Provider sessions/log references stay outside project files. Drafts and chats survive restart.

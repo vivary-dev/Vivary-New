@@ -1,0 +1,103 @@
+<div id="vivary-spec-atlas" data-doc-base="./">
+  <style>
+    #vivary-spec-atlas .atlas-map{position:relative;margin:16px 0}
+    #vivary-spec-atlas .atlas-nodes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px 18px;position:relative}
+    #vivary-spec-atlas .atlas-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+    #vivary-spec-atlas .atlas-node{display:grid;gap:4px;min-width:0;text-align:center}
+    #vivary-spec-atlas .atlas-node small{min-height:18px}
+    #vivary-spec-atlas .atlas-selection{display:grid;gap:12px}
+    #vivary-spec-atlas .atlas-details{margin:0}
+    #vivary-spec-atlas .atlas-details>div{display:grid;grid-template-columns:minmax(110px,22%) minmax(0,1fr);gap:14px;padding:8px 0}
+    #vivary-spec-atlas .atlas-details dt{font-weight:500}
+    #vivary-spec-atlas .atlas-details dd{margin:0;overflow-wrap:break-word}
+    #vivary-spec-atlas .atlas-caption{min-height:24px}
+    @media(max-width:560px){#vivary-spec-atlas .atlas-nodes{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 16px}#vivary-spec-atlas .atlas-details>div{grid-template-columns:1fr;gap:4px}}
+  </style>
+  <h2>Vivary module map</h2>
+  <div class="viz-row text-small"><span>Proposed specification</span><span>__MODULE_COUNT__ modules</span><span>__ACTION_COUNT__ actions</span><span>__OUTCOME_COUNT__ outcomes</span></div>
+  <div class="atlas-map">
+    <svg class="atlas-lines" aria-hidden="true"></svg>
+    <div class="atlas-nodes" aria-label="Select a module"></div>
+  </div>
+  <div class="atlas-selection" aria-live="polite">
+    <h3 data-heading></h3>
+    <div class="atlas-caption" data-purpose></div>
+    <div class="viz-row" data-related></div>
+    <dl class="atlas-details">
+      <div><dt>Owns</dt><dd data-owns></dd></div>
+      <div><dt>Replaceable boundary</dt><dd data-swap></dd></div>
+      <div><dt>Outcome references</dt><dd data-outcomes></dd></div>
+    </dl>
+    <label class="form-label">Action in this module<select class="form-select" data-action></select></label>
+    <dl class="atlas-details">
+      <div><dt>Scope / mode</dt><dd data-phase></dd></div>
+      <div><dt>Result</dt><dd data-result></dd></div>
+      <div><dt>Failure / recovery</dt><dd data-recovery></dd></div>
+    </dl>
+    <div class="viz-row"><a data-contract target="_blank" rel="noreferrer">Read module contract</a><a data-manual target="_blank" rel="noreferrer">Contributor operating manual</a></div>
+  </div>
+  <script type="application/json" data-atlas-data>__VIVARY_SPEC_DATA__</script>
+  <script>
+  (()=>{
+    const root=document.getElementById('vivary-spec-atlas');
+    const data=JSON.parse(root.querySelector('[data-atlas-data]').textContent);
+    const nodes=root.querySelector('.atlas-nodes');
+    const svg=root.querySelector('.atlas-lines');
+    const map=root.querySelector('.atlas-map');
+    const select=root.querySelector('[data-action]');
+    const base=root.dataset.docBase;
+    let selected='M04';
+    const titleId=m=>m.id.toLowerCase()+'-'+m.name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replaceAll(' ','-');
+    for(const m of data.modules){
+      const wrap=document.createElement('div');wrap.className='atlas-node';
+      const button=document.createElement('button');button.type='button';button.className='btn';button.dataset.module=m.id;
+      button.textContent=m.id+' '+m.name;button.setAttribute('aria-pressed','false');
+      button.addEventListener('click',()=>show(m.id));
+      const label=document.createElement('small');label.dataset.relation=m.id;
+      wrap.append(button,label);nodes.append(wrap);
+    }
+    function action(){
+      const a=data.actions.find(x=>x.id===select.value);if(!a)return;
+      root.querySelector('[data-phase]').textContent=a.phase+' / '+a.mode;
+      root.querySelector('[data-result]').textContent=a.result;
+      root.querySelector('[data-recovery]').textContent=a.recovery;
+    }
+    function show(id){
+      selected=id;const m=data.modules.find(x=>x.id===id);
+      const consumers=data.modules.filter(x=>x.dependsOn.includes(id));
+      for(const b of nodes.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.module===id));
+      for(const label of nodes.querySelectorAll('small'))label.textContent=label.dataset.relation===id?'Selected':m.dependsOn.includes(label.dataset.relation)?'Required by selected':consumers.some(x=>x.id===label.dataset.relation)?'Uses selected':'';
+      root.querySelector('[data-heading]').textContent=m.id+' '+m.name;
+      root.querySelector('[data-purpose]').textContent=m.purpose;
+      root.querySelector('[data-owns]').textContent=m.owns;
+      root.querySelector('[data-swap]').textContent=m.swap;
+      root.querySelector('[data-outcomes]').textContent=m.outcomes.map(x=>'Outcome '+String(x).padStart(2,'0')).join(', ');
+      root.querySelector('[data-related]').textContent='Requires: '+(m.dependsOn.join(', ')||'none')+' · Used by: '+(consumers.map(x=>x.id).join(', ')||'none');
+      select.replaceChildren();
+      for(const a of data.actions.filter(x=>x.module===id)){const option=document.createElement('option');option.value=a.id;option.textContent=a.id+' '+a.name;select.append(option);}
+      root.querySelector('[data-contract]').href=base+'modules.md#'+titleId(m);
+      root.querySelector('[data-manual]').href=base+'operating-manual.md';
+      action();requestAnimationFrame(draw);
+    }
+    function draw(){
+      const bounds=map.getBoundingClientRect();svg.setAttribute('viewBox','0 0 '+bounds.width+' '+bounds.height);svg.replaceChildren();
+      const m=data.modules.find(x=>x.id===selected);
+      const links=[...m.dependsOn.map(id=>[selected,id]),...data.modules.filter(x=>x.dependsOn.includes(selected)).map(x=>[x.id,selected])];
+      for(const [from,to] of links){
+        const a=nodes.querySelector('[data-module="'+from+'"]').getBoundingClientRect();
+        const b=nodes.querySelector('[data-module="'+to+'"]').getBoundingClientRect();
+        const leftSide=a.right-bounds.left>bounds.width-20;
+        const x1=(leftSide?a.left:a.right)-bounds.left;
+        const y1=a.top+a.height/2-bounds.top;
+        const lane=x1+(leftSide?-9:9);
+        const x2=b.left+b.width/2-bounds.left;
+        const y2=b.top-bounds.top;
+        const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d','M '+x1+' '+y1+' H '+lane+' V '+(y2-10)+' H '+x2+' V '+y2);
+        path.setAttribute('fill','none');path.setAttribute('stroke','var(--border)');path.setAttribute('stroke-width','1.5');svg.append(path);
+      }
+    }
+    select.addEventListener('change',action);new ResizeObserver(draw).observe(map);show(selected);
+  })();
+  </script>
+</div>
