@@ -6,7 +6,9 @@ The dependency list describes the target direction of capability calls, not issu
 
 ## M01: Workspace shell
 
-One conversation with optional panels.
+One selected project conversation with optional panels.
+
+Implementation status: implemented on `feat/unified-project-workspace` and verified in the private hosted candidate on 2026-09-14. The final source review approved the code. The linked PR in issue #38 owns CI and merge status. This acceptance covers the first shell and integrated panels, not every issue #38 capability.
 
 - Owns: Layout, focus, panel selection and visibility. Durable data stays with its owner.
 - Calls: M02, M03, M05, M06, M09, M14.
@@ -20,8 +22,9 @@ Current source or design entry points:
 - [packages/workbench/app/root.tsx](../../../../packages/workbench/app/root.tsx)
 - [packages/workbench/app/components/layout/Layout.tsx](../../../../packages/workbench/app/components/layout/Layout.tsx)
 - [packages/workbench/app/components/layout/Sidebar.tsx](../../../../packages/workbench/app/components/layout/Sidebar.tsx)
-- [packages/workbench/app/routes/agent.tsx](../../../../packages/workbench/app/routes/agent.tsx)
-- [packages/workbench/app/routes/files.tsx](../../../../packages/workbench/app/routes/files.tsx)
+- [packages/workbench/app/components/workspace/Workspace.tsx](../../../../packages/workbench/app/components/workspace/Workspace.tsx)
+- [packages/workbench/app/routes.ts](../../../../packages/workbench/app/routes.ts)
+- Compatibility redirects: [agent.tsx](../../../../packages/workbench/app/routes/agent.tsx), [workbench.tsx](../../../../packages/workbench/app/routes/workbench.tsx), [files-redirect.tsx](../../../../packages/workbench/app/routes/files-redirect.tsx), and [chat.tsx](../../../../packages/workbench/app/routes/chat.tsx)
 
 ## M02: Projects and roots
 
@@ -44,7 +47,9 @@ Current source or design entry points:
 
 ## M03: Conversations and continuity
 
-Reopen work and link history across harnesses.
+Reopen several project conversations and link history across harnesses.
+
+Implementation status: the verified first shell composes existing Code and Native conversation owners in one workspace. The private hosted journey created two real conversation requests, denied both before model or tool execution, reopened the first from history, preserved authorized history for an unavailable project, and restored the selected conversation after returning. The supported harness catalog, linked cross-harness conversation flow, and concurrent runtime remain unimplemented. The current runtime permits one active run at a time. No model execution was proved in this slice.
 
 - Owns: References to Native threads, Code runs and harness sessions, plus proposed linkage metadata.
 - Calls: M02, M04, M05.
@@ -55,7 +60,10 @@ Reopen work and link history across harnesses.
 
 Current source or design entry points:
 
-- [packages/workbench/app/routes/chat.tsx](../../../../packages/workbench/app/routes/chat.tsx)
+- [packages/workbench/app/components/workspace/CodeConversation.tsx](../../../../packages/workbench/app/components/workspace/CodeConversation.tsx)
+- [packages/workbench/app/components/workspace/NativeConversation.tsx](../../../../packages/workbench/app/components/workspace/NativeConversation.tsx)
+- [packages/workbench/app/components/layout/CodeHistory.tsx](../../../../packages/workbench/app/components/layout/CodeHistory.tsx)
+- [packages/workbench/app/components/layout/ChatHistory.tsx](../../../../packages/workbench/app/components/layout/ChatHistory.tsx)
 - [packages/workbench/app/lib/local-code-chat-adapter.ts](../../../../packages/workbench/app/lib/local-code-chat-adapter.ts)
 - [packages/workbench/actions/vivary-code-state.ts](../../../../packages/workbench/actions/vivary-code-state.ts)
 - [packages/workbench/server/local-code-agent.ts](../../../../packages/workbench/server/local-code-agent.ts)
@@ -80,6 +88,8 @@ Current source or design entry points:
 - [packages/workbench/server/code-execution-host.ts](../../../../packages/workbench/server/code-execution-host.ts)
 - [packages/workbench/server/code-execution-worker.ts](../../../../packages/workbench/server/code-execution-worker.ts)
 
+The grouped supported-harness catalog, adapter-backed model discovery, manual catalog refresh, and linked cross-harness conversation behavior remain unimplemented.
+
 ## M05: Authority and approvals
 
 Make effects explicit, scoped and revocable.
@@ -103,6 +113,8 @@ Current source or design entry points:
 
 Browse, read, edit, save and reconcile real files.
 
+Implementation status: the verified workspace opens the existing file browser and document view as an optional panel. In the private hosted journey, a document opened in read mode, explicit Edit and Save wrote the file, the selected conversation draft remained intact, and a refresh reread the saved content. Delayed rename with the panel closed also passed the isolated production-composition checks. Windows artifact proof remains pending.
+
 - Owns: Project files own bytes. Existing draft state owns unsaved edits and base versions.
 - Calls: M02, M05.
 - Replacement contract: Replace the editor or Markdown renderer without replacing save/conflict rules.
@@ -112,6 +124,8 @@ Browse, read, edit, save and reconcile real files.
 
 Current source or design entry points:
 
+- [packages/workbench/app/components/projects/ProjectFiles.tsx](../../../../packages/workbench/app/components/projects/ProjectFiles.tsx)
+- [packages/workbench/app/routes/files.tsx](../../../../packages/workbench/app/routes/files.tsx)
 - [packages/workbench/server/project-files.ts](../../../../packages/workbench/server/project-files.ts)
 - [packages/workbench/actions/vivary-project-files.ts](../../../../packages/workbench/actions/vivary-project-files.ts)
 - [packages/workbench/actions/vivary-project-file-save.ts](../../../../packages/workbench/actions/vivary-project-file-save.ts)

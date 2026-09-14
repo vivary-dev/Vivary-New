@@ -127,11 +127,12 @@ export async function startVivary(options) {
     BETTER_AUTH_SECRET: secret,
     AUTH_DISABLED: "false",
     AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT: "1",
+    AGENT_NATIVE_SSR_CACHE: "off",
     AGENT_NATIVE_DISABLED_PLUGINS: "terminal",
     AUTH_MAGIC_LINK: "0",
   });
   process.chdir(packageRoot);
-  console.log(`Vivary: ${options.appUrl}/agent`);
+  console.log(`Vivary: ${options.appUrl}/`);
   console.log(options.mode === "hosted"
     ? "Hosted access: Native authentication is enabled."
     : "Self-hosted access: no Vivary login or signup. Model access uses your existing CLI login.");

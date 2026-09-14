@@ -5,8 +5,10 @@ import { Link, useSearchParams } from "react-router";
 import { useProjects } from "./ProjectContext";
 import type { ProjectFilesResult } from "@/lib/project-file-schema";
 
-export function projectFileHref(projectId: string, path: string) {
-  return "/files?" + new URLSearchParams({ project: projectId, path }).toString();
+export function projectFileHref(projectId: string, path: string, search = "") {
+  const params = new URLSearchParams(search);
+  params.set("panel", "files"); params.set("project", projectId); params.set("path", path);
+  return "/?" + params.toString();
 }
 
 export function ProjectFiles() {
@@ -28,7 +30,7 @@ export function ProjectFiles() {
     groups.set(directory, [...(groups.get(directory) ?? []), file]);
   }
   const rows = (files: typeof query.data.files) => files.map(file =>
-    <Link key={file.path} to={projectFileHref(projectId, file.path)}
+    <Link key={file.path} to={projectFileHref(projectId, file.path, params.toString())}
       className={"project-file-link" + (params.get("project") === projectId && params.get("path") === file.path ? " is-active" : "")}
       aria-current={params.get("project") === projectId && params.get("path") === file.path ? "page" : undefined}
       title={file.path}>

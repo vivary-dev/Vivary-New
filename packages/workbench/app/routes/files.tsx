@@ -3,10 +3,9 @@ import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { Button, Skeleton } from "@agent-native/toolkit/ui";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useProjects } from "@/components/projects/ProjectContext";
 import { fileDraftKey, useFileDraft } from "@/components/projects/FileDrafts";
-import { projectFileHref } from "@/components/projects/ProjectFiles";
 import { restoreFileLineEndings } from "@/lib/file-draft-state";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import type { ProjectFile, ProjectFilesResult, ProjectFileSaveResult, ProjectFileRenameResult } from "@/lib/project-file-schema";
@@ -24,7 +23,7 @@ export default function FilesRoute() {
   if (checking) return <FileSkeleton />;
   if (!workspaceAvailable) return <div className="file-page-empty" role="alert"><h2>Project folder unavailable</h2><p>Your files and drafts stay with this project.</p><Button onClick={() => void refresh()}>Refresh projects</Button></div>;
   if (!activeProject || !catalog) return <div className="file-page-empty"><h2>Open a project to see its files</h2><p>Choose or create a project from the sidebar.</p></div>;
-  if (!path) return <div className="file-page-empty"><h2>{activeProject.displayName}</h2><p>Choose a file from the sidebar to read it here.</p><p className="text-sm text-muted-foreground">On a phone, open navigation to browse files.</p></div>;
+  if (!path) return <div className="file-page-empty"><h2>{activeProject.displayName}</h2><p>Choose a file from the file list to read it here.</p><p className="text-sm text-muted-foreground">Use Show file list if the list is closed.</p></div>;
   return <OpenFile key={catalog.scopeKey + ":" + activeProject.projectId + ":" + path}
     scope={catalog.scopeKey} projectId={activeProject.projectId} projectLabel={activeProject.displayName} path={path} />;
 }
@@ -42,6 +41,9 @@ function OpenFile({ scope, projectId, projectLabel, path }: { scope: string; pro
 
 function FileDocument({ projectId, projectLabel, path, draftKey }: { projectId: string; projectLabel: string; path: string; draftKey: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentLocation = useRef(location);
+  currentLocation.current = location;
   const cache = useQueryClient();
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -100,7 +102,12 @@ function FileDocument({ projectId, projectLabel, path, draftKey }: { projectId: 
       if (result.code === "renamed") {
         draft.put(null);
         void cache.invalidateQueries({ queryKey: ["action", "vivary-project-files"] });
-        if (mounted.current) navigate(projectFileHref(projectId, result.file.path), { replace: true });
+        const current = currentLocation.current;
+        const params = new URLSearchParams(current.search);
+        if (mounted.current && current.pathname === "/" && params.get("project") === projectId && params.get("path") === path) {
+          params.set("path", result.file.path);
+          navigate({ pathname: current.pathname, search: "?" + params.toString() }, { replace: true });
+        }
       } else {
         setNotice(result.reason === "target-exists" ? "That filename already exists. Choose another name."
           : "The file changed before it could be renamed. Refresh and try again.");
@@ -180,6 +187,6 @@ function FileDocument({ projectId, projectLabel, path, draftKey }: { projectId: 
         editable={false} interactive={false} dragHandle={false} dialect="gfm" features={readonlyFeatures}
         ariaLabel={path} /> : <pre tabIndex={0}>{file.content}</pre>}
     </div> : draft.data ? <div className="file-page-empty"><h3>Your draft is retained</h3><p>Use Resume edit to view or copy it while the file is unavailable.</p></div> : null}
-    <footer className="file-document-footer"><Link to="/agent">Back to agent</Link><span>Opening a file does not change it.</span></footer>
+    <footer className="file-document-footer"><span>Conversation stays open beside this document.</span><span>Opening a file does not change it.</span></footer>
   </article>;
 }

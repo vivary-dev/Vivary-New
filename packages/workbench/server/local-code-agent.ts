@@ -76,6 +76,14 @@ export type VivaryCodeRunState = VivaryCodeRunSummary & {
   events: CodeAgentTranscriptEvent[];
 };
 
+export type VivaryCodeProjectHistory = Readonly<{
+  label: string;
+  projectId: string;
+  bindingId: string;
+  rootId: string;
+  bindingRevision: number;
+}>;
+
 export type VivaryCodeWorkspace = Readonly<{
   root: string;
   label: string;
@@ -84,6 +92,8 @@ export type VivaryCodeWorkspace = Readonly<{
   rootId?: string;
   bindingRevision?: number;
 }>;
+
+type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
 
 export type VivaryCodePendingApproval = {
   runId: string;
@@ -273,7 +283,7 @@ export async function getVivaryCodeHostState(
 export async function getVivaryCodeState(
   ownerEmail: string,
   runId?: string,
-  selectedWorkspace?: VivaryCodeWorkspace,
+  selectedWorkspace?: VivaryCodeReadScope,
   orgId?: string,
 ): Promise<VivaryCodeState> {
   const workspace = selectedWorkspace ?? await resolveWorkspace();
@@ -710,9 +720,9 @@ export async function getVivaryCodeFiles(
   };
 }
 
-function ownedRuns(ownerEmail: string, orgId: string | undefined, workspace: VivaryCodeWorkspace) {
+function ownedRuns(ownerEmail: string, orgId: string | undefined, scope: VivaryCodeReadScope) {
   return listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).filter(
-    (run) => isOwnedRun(run, ownerEmail, orgId, workspace),
+    (run) => isOwnedRun(run, ownerEmail, orgId, scope),
   );
 }
 
@@ -720,11 +730,11 @@ function requireOwnedRun(
   runId: string,
   ownerEmail: string,
   orgId: string | undefined,
-  workspace: VivaryCodeWorkspace,
+  scope: VivaryCodeReadScope,
 ): CodeAgentRunRecord {
   const run = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(
     (candidate) =>
-      candidate.id === runId && isOwnedRun(candidate, ownerEmail, orgId, workspace),
+      candidate.id === runId && isOwnedRun(candidate, ownerEmail, orgId, scope),
   );
   if (!run) {
     fail("Local Vivary code run not found.", {
@@ -751,13 +761,28 @@ export function isVivaryAppRun(
   );
 }
 
+function isVivaryProjectHistoryRun(
+  run: Pick<CodeAgentRunRecord, "goalId" | "metadata">,
+  project: VivaryCodeProjectHistory,
+): boolean {
+  return run.goalId === VIVARY_CODE_GOAL_ID
+    && metadataString(run, "app") === VIVARY_CODE_APP_MARKER
+    && metadataString(run, "projectId") === project.projectId
+    && metadataString(run, "bindingId") === project.bindingId
+    && metadataString(run, "rootId") === project.rootId
+    && metadataNumber(run, "bindingRevision") === project.bindingRevision;
+}
+
 function isOwnedRun(
   run: CodeAgentRunRecord,
   ownerEmail: string,
   orgId: string | undefined,
-  workspace: VivaryCodeWorkspace,
+  scope: VivaryCodeReadScope,
 ): boolean {
-  return isVivaryAppRun(run, workspace) && isOwnedIdentity(run, ownerEmail, orgId);
+  const belongsToScope = "root" in scope
+    ? isVivaryAppRun(run, scope)
+    : isVivaryProjectHistoryRun(run, scope);
+  return belongsToScope && isOwnedIdentity(run, ownerEmail, orgId);
 }
 
 function isOwnedIdentity(

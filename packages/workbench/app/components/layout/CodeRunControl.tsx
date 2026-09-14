@@ -18,7 +18,7 @@ export function CodeRunControl() {
   const active = status.data?.activeRun;
   const pending = status.data?.pendingApproval;
   const recent = status.data?.recentRun;
-  const current = pending ?? active ?? recent;
+  const current = pending ?? active;
   const currentRunId = pending?.runId ?? active?.id ?? recent?.id;
   const projectLabel = current?.projectId
     ? catalog?.projects.find(project => project.projectId === current.projectId)?.displayName ?? "Unavailable project"
@@ -50,7 +50,7 @@ export function CodeRunControl() {
       setError(pending || active ? "The project is unavailable. You can still deny or stop its work here." : "The project is unavailable. Its conversation history is retained.");
       return;
     }
-    navigate("/agent?run=" + encodeURIComponent(currentRunId));
+    navigate("/?run=" + encodeURIComponent(currentRunId));
   }
 
   if (!current && !status.error) return null;

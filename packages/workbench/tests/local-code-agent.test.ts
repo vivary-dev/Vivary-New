@@ -18,6 +18,7 @@ import {
   denyVivaryCodeMessage,
   getVivaryCodeFiles,
   getVivaryCodeHostState,
+  getVivaryCodeState,
   requireVivaryCodeUser,
   VIVARY_CODE_DEFAULT_MODEL,
   VIVARY_CODE_MODELS,
@@ -99,6 +100,62 @@ describe("local Vivary code agent boundaries", () => {
     assert.equal(isVivaryAppRun(run, { ...workspace, rootId: "root_replaced" }), false);
     assert.equal(isVivaryAppRun(run, { root: workspace.root, label: "Default workspace" }), false);
     assert.equal(isVivaryAppRun(run, { ...workspace, root: "/workspace/beta" }), false);
+  });
+
+  it("reads retained project history from stable binding identity without opening the folder", async () => {
+    const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-history-test-"));
+    temporaryRoots.push(store);
+    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic Native record store.
+    const history = {
+      label: "Unavailable project",
+      projectId: "project_history",
+      bindingId: "binding_history",
+      rootId: "root_history",
+      bindingRevision: 4,
+    };
+    const runId = "retained-history";
+    try {
+      createCodeAgentRunRecord({
+        id: runId,
+        goalId: "vivary-local-code",
+        title: "Retained conversation",
+        status: "completed",
+        cwd: path.join(store, "missing-project"),
+        metadata: {
+          app: "vivary-workbench-local-code",
+          ownerEmail: "owner@example.com",
+          orgId: "org-history",
+          workspaceRoot: path.join(store, "missing-project"),
+          projectId: history.projectId,
+          bindingId: history.bindingId,
+          rootId: history.rootId,
+          bindingRevision: history.bindingRevision,
+          engine: "claude-cli",
+          model: "sonnet",
+        },
+      });
+      const state = await getVivaryCodeState("owner@example.com", runId, history, "org-history");
+      assert.equal(state.projectId, history.projectId);
+      assert.equal(state.workspaceLabel, history.label);
+      assert.deepEqual(state.runs.map(run => run.id), [runId]);
+      assert.equal(state.run?.id, runId);
+      await assert.rejects(
+        getVivaryCodeState("other@example.com", runId, history, "org-history"),
+        { errorCode: "vivary_code_run_not_found" },
+      );
+      await assert.rejects(
+        getVivaryCodeState("owner@example.com", runId, history, "other-org"),
+        { errorCode: "vivary_code_run_not_found" },
+      );
+      await assert.rejects(
+        getVivaryCodeState("owner@example.com", runId, { ...history, bindingRevision: 5 }, "org-history"),
+        { errorCode: "vivary_code_run_not_found" },
+      );
+    } finally {
+      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore; // guard:allow-env-credential - Restore prior nonsecret record path.
+    }
   });
 
   it("keeps host status separate from project and transcript requests", () => {

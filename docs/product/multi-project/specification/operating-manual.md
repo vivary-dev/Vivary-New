@@ -1,6 +1,6 @@
 # Contributor operating manual
 
-Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Application implementation waits for Jeff's review of the full specification. Documentation review can continue.
+Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Jeff accepted the design direction on 2026-09-14. The first workspace shell is implemented and verified in the private hosted candidate. The linked PR in issue #38 owns CI and merge status. Model execution, Windows proof, and the remaining issue #38 capabilities are still incomplete.
 
 ## One feature, one bounded context
 
@@ -17,11 +17,11 @@ Use this manual to give an LLM the exact context for one change. It is a reading
 
 | Change | Read first | Concrete implementation entry | Verify before acceptance |
 | --- | --- | --- | --- |
-| Navigation, panel or composer layout | M01, J01, unified-workspace.md, packages/workbench/DESIGN.md | root providers. Layout. Sidebar. Agent/files routes | Same conversation/run/draft across close, resize, project switch, 390 px and keyboard |
+| Navigation, panel or composer layout | M01, J01, unified-workspace.md, packages/workbench/DESIGN.md | `app/root.tsx`. `Layout.tsx`. `Sidebar.tsx`. `workspace/Workspace.tsx`. Compatibility redirects in `app/routes/` | Same selected conversation/run/draft across close, resize, project switch, 390 px and keyboard |
 | Project selection or missing folder | M02/M05, J02, project registry contract | ProjectContext. Project-services. Code-project. Vivary-code-state | No fallback, current grant checks, retained authorized history, Stop after folder loss |
 | Harness/model picker or new CLI | M03/M04/M05, J03, harness-adapters.md | readiness service. Runtime setup. Native harness docs and declarations | Catalog truth, approval, no auto-send, failure preservation and real supported lifecycle |
-| Saved conversation and resume | M03, J03/J05, issues #6/#9/#10 | Native thread/Code/harness owners and existing chat adapter | Distinct owner identity, exact history, truthful replay/native resume and restart |
-| Document editor or save | M06, J04, issue #12 receipt | project-files. File save/rename actions. File-draft-state | External changes, draft recovery, byte/newline preservation and current root checks |
+| Saved conversation and resume | M03, J03/J05, issues #6/#9/#10 | `workspace/CodeConversation.tsx`. `workspace/NativeConversation.tsx`. Code and Chat history owners. Existing chat adapter | Several independent project conversations, distinct owner identity, exact history, truthful replay/native resume and restart |
+| Document editor or save | M06, J04, issue #12 receipt | `ProjectFiles.tsx`. `routes/files.tsx`. File save/rename actions. File-draft state | Read mode first, explicit edit, external changes, draft recovery, byte/newline preservation and current root checks |
 | Setup, adoption or original verbs | M07, J06, original CLI reference and issue | create-vivary. Original package contracts. Shared plan/apply owner | GUI/agent/CLI parity, stale plan, conflicts, no accidental VCS/host/Brain |
 | Search or memory | M08, J09, issues #11/#13/#21 | file/history owners and Tropo | Private exclusions, cancellation, stale match, correction/forget and Brain-off |
 | Plans, task source or board | M09, J07, outcomes 14/15 | Native Plan/task docs and chosen external owner | Source IDs, revision changes, cycles, stale approval and no fake Done |

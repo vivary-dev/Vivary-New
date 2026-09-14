@@ -1,6 +1,6 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
-import { resolveVivaryCodeProject } from "../server/code-project";
+import { resolveVivaryCodeProjectHistory } from "../server/code-project";
 
 import {
   getVivaryCodeHostState,
@@ -30,7 +30,7 @@ export default defineAction({
     return getVivaryCodeState(
       ownerEmail,
       input.runId,
-      await resolveVivaryCodeProject(ctx, input.projectId),
+      await resolveVivaryCodeProjectHistory(ctx, input.projectId),
       orgId,
     );
   },

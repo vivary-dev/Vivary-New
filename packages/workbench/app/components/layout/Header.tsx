@@ -12,7 +12,7 @@ export function Header({
   onOpenMobileSidebar,
   showAgentToggle = false,
 }: {
-  onOpenMobileSidebar: () => void;
+  onOpenMobileSidebar?: () => void;
   showAgentToggle?: boolean;
 }) {
   const location = useLocation();
@@ -20,7 +20,7 @@ export function Header({
   const actions = useHeaderActions();
   return (
     <header className="vivary-app-header">
-      <Button
+      {onOpenMobileSidebar && <Button
         type="button"
         variant="ghost"
         size="icon"
@@ -29,7 +29,7 @@ export function Header({
         aria-label="Open navigation"
       >
         <IconMenu2 className="size-4" aria-hidden />
-      </Button>
+      </Button>}
       <div className="min-w-0 flex-1">
         {title ?? (
           <h1 className="truncate text-base font-semibold tracking-tight">

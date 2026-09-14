@@ -13,12 +13,21 @@ export type LocalProjectWorkspace = Readonly<{
   verificationKind: "local-stat-revalidated-v1";
 }>;
 
+export type LocalProjectHistory = Readonly<Pick<
+  LocalProjectWorkspace,
+  "label" | "projectId" | "bindingId" | "rootId" | "bindingRevision"
+>>;
+
 export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
 export function connectLocalProjectFolder(
   context: ActionRunContext | undefined,
   folder: string,
   displayName?: string,
 ): Promise<RegistrationResult & { locationRef: string; displayName: string }>;
+export function resolveLocalProjectHistory(
+  context: ActionRunContext | undefined,
+  projectId: string,
+): Promise<LocalProjectHistory>;
 export function resolveLocalProjectWorkspace(
   context: ActionRunContext | undefined,
   projectId: string,

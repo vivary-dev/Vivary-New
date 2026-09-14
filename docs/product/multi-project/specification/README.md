@@ -1,18 +1,20 @@
 # Vivary visual specification
 
-Status: proposed architecture and operating manual for Jeff's review, 2026-09-14. This specification does not claim that its features are implemented. Application implementation waits for this review under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
+Status: accepted design direction and maintained contributor guide, 2026-09-14. Jeff accepted guide snapshot `e86d06ed592a2d3c` in his submitted product-conversation review. He later clarified that each project needs multiple independent conversations and potentially concurrent threads. The first shell and multiple-conversation navigation are implemented and verified in the private hosted candidate. Concurrent execution and the remaining issue #38 capabilities are still incomplete. Application work proceeds under the live acceptance and lifecycle in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
 
 ## Start with the work
 
-Vivary is one visual workspace over the projects and supported agent tools on a user-controlled host. Select a project, continue its conversation, and open files, plans or previews when needed. A person can write, research, plan or code through the same workspace. A project does not need Git, a Brain, a preset persona or a Vivary account for local use.
+Vivary is one visual workspace over the projects and supported agent tools on a user-controlled host. Select a project, then continue one of its conversations or start another. Each conversation has independent history and bounded model context. The center shows one selected conversation at a time. It does not limit the project to one chat or promise unlimited context. A person can write, research, plan or code through the same workspace. A project does not need Git, a Brain, a preset persona or a Vivary account for local use.
 
 The interface stays stable when the chosen harness changes. A registered adapter translates that harness's supported lifecycle and events through Agent-Native. A future CLI needs an adapter and compatibility evidence. Installation alone never establishes support.
 
 ## Open the guided reader
 
-Open [Vivary, step by step](guide.html) for a walkthrough, connected module map, searchable actions, design review and the full reading library. It is one offline HTML file. It embeds the 12 core chapters, the walkthrough content source, all 36 outcome contracts and rendered diagrams. External citations and code links need a connection; the guide itself does not. Local review drafts stay in the browser until you copy them into the conversation. They are not submitted or approved by this page.
+Open [Vivary, step by step](guide.html) for a walkthrough, connected module map, searchable actions, recorded decisions, revision proposals, and the full reading library. It is one offline HTML file. It embeds the 12 core chapters, the walkthrough content source, all 36 outcome contracts, and rendered diagrams. External citations and code links need a connection. The guide itself does not. It is a maintained companion to the owned specifications, not a hosted product or a separate task authority.
 
-[The guided review](guided-review.md) separates settled decisions, the one immediate layout choice, later decisions and engineering defaults. [guide-content.json](guide-content.json) owns the plain-language walkthrough; it does not replace the module/action contracts or GitHub issue lifecycle.
+The guide shows accepted requirements and choices with their recommendations, options, consequences, and implementation impacts. It records the multiple-conversation requirement separately because no additional design vote is needed. Draft revision notes stay in the browser until you copy them into the product conversation. The page does not submit a decision, write Git, or change GitHub.
+
+[The guided review](guided-review.md) separates the accepted review record, later proposals, and engineering defaults. [guide-content.json](guide-content.json) owns the plain-language walkthrough and structured decision record. It does not replace the module/action contracts or GitHub issue lifecycle.
 
 ### Regenerate the reader
 
@@ -20,7 +22,7 @@ Run `python docs/product/multi-project/specification/render-guide.py`, then run 
 
 Diagram source and SVG hashes are checked against the committed manifest. When Mermaid source changes, use `--refresh-diagrams` with the existing Playwright/Chromium authoring environment. This fetches Mermaid 11.12.0 only during generation and verifies its fixed SHA-256 before execution. The bundle hash was checked against the [published npm package](https://registry.npmjs.org/mermaid/11.12.0) and its registry integrity value. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` if the environment uses a separately managed Chromium. Review the resulting diagrams and reader before committing. The reader never loads Mermaid or other remote scripts.
 
-The generated reader records a fingerprint of its source inputs. Draft storage uses a stable key: notes and unchanged choices survive a new fingerprint with a visible review notice; changed options need a fresh choice. Its external code and nonembedded contract links use the specification baseline commit `3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5`. Update that locator when changing those source references. Do not put review notes or browser storage in Git.
+The generated reader records a fingerprint of its source inputs. The accepted review remains bound to snapshot `e86d06ed592a2d3c`, even after later source changes produce a new fingerprint. Draft storage uses a stable key. Notes and unchanged option drafts survive a new fingerprint with a visible notice. Choices that match the accepted snapshot become recorded decisions instead of new proposals. Changed option definitions need a fresh proposal. Current `packages/workbench` implementation links from the overview, module catalog, operating manual, and workspace contract use the retained branch `feat/unified-project-workspace`. These paths exist after root pushes that branch. Historical research and other nonembedded contract links remain pinned to specification baseline commit `3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5`. Update the matching locator when its source role changes. Do not put review notes or browser storage in Git.
 
 ## Read this specification
 
@@ -47,9 +49,9 @@ Each action inherits the shared preconditions and failure rules in the action ca
 
 ## Source and authority
 
-- User decisions: one conversation workspace, optional panels, exact linked history, separate handoff workflow, supported installed harnesses and live models, and complete specification before application building resumes.
+- User decisions: one visual workspace with multiple independent conversations per project, optional panels, exact linked history, separate handoff workflow, supported installed harnesses and live models, header-first project details on wide desktop, and manual handoff updates by default. Jeff accepted the last two choices on 2026-09-14 through his submitted review of guide snapshot `e86d06ed592a2d3c`. He clarified the multiple-conversation and potential concurrency requirement later that day in the product conversation.
 - Product architecture and constraints: [design.md](../design.md), [capability-matrix.md](../capability-matrix.md), [native-owners.md](../native-owners.md) and the 36 linked outcomes.
-- Current implementation: the source owners in the module catalog. The research baseline is dev tree ea5e5da, with Native Core 0.176.5 and Toolkit 0.19.3. Documentation changes do not update the running application.
+- Current implementation: the first workspace shell is implemented on `feat/unified-project-workspace` and verified in the private hosted candidate. `Workspace.tsx` composes `CodeConversation.tsx`, `NativeConversation.tsx`, and optional project details, files, and preview panels. The old `/agent`, `/files`, `/workbench`, and `/chat` routes are compatibility redirects to `/`. Files remain read-first with explicit editing. The [first shell acceptance evidence](../unified-workspace.md#first-shell-acceptance-evidence-2026-09-14) records the tested behaviors and limits. The linked PR in issue #38 owns CI and merge status. The supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, and Windows proof remain incomplete. The module catalog owns exact paths. The research baseline remains dev tree ea5e5da, with Native Core 0.176.5 and Toolkit 0.19.3.
 - Delivery: live GitHub issues own goals, acceptance, dependencies, assignment and lifecycle. Issue numbers and outcome numbers are separate namespaces. Always write "issue #35" or "outcome 35".
 - Product acceptance: actual hosted application checks precede Windows artifact checks. A diagram, mockup, package build or CI pass is not product acceptance.
 
@@ -61,6 +63,10 @@ Two independent candidates were compared. Candidate A emphasized the workspace a
 
 The independent same-family review agreed with that choice. The synthesis rejects a universal replacement runtime, a plug-in-defined permission system, a second transcript store, and a plan service that competes with the selected task/plan owner. Native references remain opaque. Link metadata uses an existing suitable owner where possible. Client layout preferences are distinct from shared project records. Uncertain effects are explicit, and linking never starts a run.
 
-## Review gate
+## Review record and later changes
 
-The specification is ready for implementation planning when Jeff can follow an action from its visible control through its module, data owner, authorization, result and recovery. Module replacement must have an example that preserves these contracts. Every retained outcome needs a mapped action or an explicitly nonvisual acceptance contract. Review findings must be resolved before calling this specification complete. Jeff's design acceptance is separate from merging reviewed documentation.
+Jeff accepted guide snapshot `e86d06ed592a2d3c` on 2026-09-14. He selected header-first project details on wide desktop and manual handoff updates by default, with no additional notes. Later that day, he explicitly clarified that a project must support multiple independent chats and potentially concurrent threads. One selected conversation in the center does not mean one total project conversation or unlimited model context.
+
+The concurrency direction is settled. Implementation must expose per-thread activity and approvals and control conflicting writes to shared files. The current runtime permits one active run at a time. This remains a known limitation until concurrency support lands. This clarification creates no new design blocker and does not merge documentation or application code.
+
+Keep the guide useful during implementation. A future design proposal should explain the observed problem, options, consequences, implementation impact, and recommendation. Drafting or copying a proposal creates no authority. Jeff must explicitly accept a later change before the owning specification records it.

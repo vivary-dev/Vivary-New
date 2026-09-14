@@ -36,7 +36,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
     )
     .slice(0, 15);
   const routeThread =
-    location.pathname === "/chat"
+    new URLSearchParams(location.search).get("runtime") === "native"
       ? new URLSearchParams(location.search).get("thread")
       : null;
 
@@ -53,7 +53,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
 
   function openThread(threadId: string) {
     switchThread(threadId);
-    navigate(`/chat?thread=${encodeURIComponent(threadId)}`);
+    navigate(`/?runtime=native&thread=${encodeURIComponent(threadId)}`);
   }
 
   async function newChat() {
