@@ -315,6 +315,8 @@ export async function readClientAppState(_key: string, _options: { signal?: Abor
   return structuredClone(selection);
 }
 
+export function useAppStateWriter() { return { ready: true, retrySession() {}, sessionStatus: "authenticated", writeAppState: writeClientAppState }; }
+
 export async function writeClientAppState(_key: string, value: unknown): Promise<void> {
   const parsed = value === null ? null : selectionSchema.parse(value);
   metrics.selectionWrites.push(parsed?.projectId ?? null);
@@ -626,8 +628,14 @@ async function invalidAndRevokedTargetsStayFailClosed(): Promise<void> {
     assert.equal(retried, true);
     assert.equal(currentState().workspaceAvailable, true);
     assert.equal(currentState().retrySelection, null);
-    assert.equal(nativeProofControl.snapshot().selection, null);
+    assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: null });
     assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [null, null]);
+
+    await mounted.dispose();
+    mounted = await mount();
+    await waitFor(() => currentState().workspaceAvailable, "Personal selection reload");
+    assert.equal(currentState().activeProject, null);
+    assert.equal(currentState().error, null);
   } finally { await mounted.dispose(); }
 
   configure({
@@ -863,6 +871,7 @@ async function worker() {
       external: ["shiki/*"],
       plugins: [{ name: "runtime-activity-component-proof", setup(build) {
         build.onResolve({ filter: /^@proof\/native-hooks$/ }, () => ({ path: "native-hooks", namespace: "proof" }));
+        build.onResolve({ filter: /^@\/lib\/native-state$/ }, () => ({ path: "native-hooks", namespace: "proof" }));
         build.onResolve({ filter: /^@agent-native\/core\/client\/hooks$/ }, () => (
           { path: "native-hooks", namespace: "proof" }));
         build.onResolve({ filter: /^@agent-native\/toolkit\/ui$/ }, () => ({ path: "toolkit", namespace: "proof" }));

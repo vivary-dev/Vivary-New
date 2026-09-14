@@ -14,7 +14,7 @@ Publish accurate product positioning, GUI pages, screenshots, compatibility, dow
 
 Program context: [design](../design.md), [migration](../migration.md), [release](../release.md), and [evidence](../evidence.md).
 
-Own `site/`, source assets, redirects, and website tests. Use `site/scripts/sync-docs.mjs` for generated docs and LLM files. Preserve useful URLs. Reconcile pre-existing website changes before publication work.
+Implement and test the public site in `vivary-dev/vivary-site` under that repository's `AGENTS.md`. This outcome coordinates delivery, preserves or redirects existing URLs, and retires the legacy `site/` after replacement. Reconcile pre-existing website changes before publication work.
 
 ## Done condition
 
@@ -22,7 +22,7 @@ The built site presents the verified GUI and standalone paths, current versions,
 
 ## Verify
 
-Run site sync, zero-diff generated parity, site tests, link checks, production build, and browser checks at desktop and narrow viewports. Review all changed screenshots.
+Run the target repository's checks for generated documentation, tests, links, production build, and browser behavior at desktop and narrow viewports. Verify the legacy URL handover and review all changed screenshots.
 
 
 Run the [canonical common planning checks](../execution-contract.md#maintaining-the-graph)

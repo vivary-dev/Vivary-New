@@ -61,7 +61,7 @@ export type VivaryLocalAccessSessionDependencies = {
   createToken: () => string;
   getSessionEmail: (token: string) => Promise<string | null>;
   readRequest: (event: H3Event) => VivaryLocalAccessRequest;
-  readSessionTokens: (event: H3Event) => string[];
+  readSessionTokens: (event: H3Event, config: VivaryLocalAccessConfig) => string[];
   setSessionCookie: (event: H3Event, token: string) => void;
 };
 
@@ -200,7 +200,7 @@ export function createVivaryLocalSessionResolver(
 
     let tokens: string[];
     try {
-      tokens = dependencies.readSessionTokens(event);
+      tokens = dependencies.readSessionTokens(event, config);
     } catch {
       return null;
     }
@@ -334,6 +334,32 @@ function readForbiddenProxyHeader(event: H3Event): string | undefined {
   return FORBIDDEN_PROXY_HEADERS.find((name) => getHeader(event, name) !== undefined);
 }
 
+export function readVivarySessionTokens(
+  event: H3Event,
+  config: VivaryLocalAccessConfig,
+): string[] {
+  const tokens = getFrameworkSessionCookieValues(event);
+  if (config.mode !== "private-proxy" || getMethod(event) !== "PUT"
+    || getHeader(event, "origin") !== config.origin
+    || getHeader(event, "sec-fetch-site") !== "same-origin") return tokens;
+
+  // req.url stays absolute while Native middleware changes the mount-relative URL.
+  const path = new URL(event.req.url, config.origin).pathname;
+  const prefix = "/_agent-native/application-state/";
+  if (!path.startsWith(prefix)) return tokens;
+  let key: string;
+  try {
+    key = decodeURIComponent(path.slice(prefix.length));
+  } catch {
+    return tokens;
+  }
+  if (key === "compose" || !/^[a-zA-Z0-9_:-]+$/.test(key)) return tokens;
+
+  const token = getHeader(event, "x-vivary-session");
+  if (token && token.length <= 4096 && !tokens.includes(token)) tokens.push(token);
+  return tokens;
+}
+
 const defaultDependencies: VivaryLocalAccessSessionDependencies = {
   addSession,
   createToken: () => randomBytes(32).toString("base64url"),
@@ -351,9 +377,9 @@ const defaultDependencies: VivaryLocalAccessSessionDependencies = {
     realIp: getHeader(event, "x-real-ip"),
     secFetchSite: getHeader(event, "sec-fetch-site"),
   }),
-  readSessionTokens: (event) => {
-    const tokens = getFrameworkSessionCookieValues(event);
-    if (process.env.VIVARY_SESSION_DIAGNOSTICS === "1") {
+  readSessionTokens: (event, config) => {
+    const tokens = readVivarySessionTokens(event, config);
+    if (process.env.VIVARY_SESSION_DIAGNOSTICS === "1") { // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
       const cookie = getHeader(event, "cookie");
       try {
         process.stderr.write(`${JSON.stringify({

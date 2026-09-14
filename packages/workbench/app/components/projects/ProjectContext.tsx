@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { readClientAppState, useActionQuery, writeClientAppState } from "@agent-native/core/client/hooks";
+import { readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
+import { useAppStateWriter } from "@/lib/native-state";
 import {
   selectionSchema,
   type CatalogProject,
@@ -36,6 +37,7 @@ const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const { ready: stateWriterReady, retrySession, sessionStatus, writeAppState } = useAppStateWriter();
   const catalogQuery = useActionQuery<CatalogResult>("vivary-project-catalog", {}, {
     retry: false, refetchOnWindowFocus: "always", refetchInterval: 30000,
   });
@@ -57,27 +59,42 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       return parsed.data;
     },
   });
-  const checking = catalogQuery.isPending || (verified !== null && selectionQuery.isPending);
+  const checking = catalogQuery.isPending || (verified !== null && selectionQuery.isPending)
+    || sessionStatus === "loading";
   const issueTarget = selectionIssue && "target" in selectionIssue ? selectionIssue.target : null;
   const saved = issueTarget
-    ? issueTarget.projectId === null ? null : { scopeKey: issueTarget.scopeKey, projectId: issueTarget.projectId }
+    ? { scopeKey: issueTarget.scopeKey, projectId: issueTarget.projectId }
     : selectionQuery.data;
   const issueScopeMatches = issueTarget === null || issueTarget.scopeKey === catalog?.scopeKey;
   const activeProject = catalog && selectionQuery.isSuccess && issueScopeMatches
-    && saved?.scopeKey === catalog.scopeKey
+    && saved != null && saved.scopeKey === catalog.scopeKey && saved.projectId !== null
     ? catalog.projects.find(project => project.projectId === saved.projectId) ?? null
     : null;
 
   const workspaceAvailable = catalog !== null && selectionQuery.isSuccess && issueScopeMatches
-    && (saved === null || (saved?.scopeKey === catalog.scopeKey && activeProject?.status === "available"));
+    && (saved == null || (saved.scopeKey === catalog.scopeKey
+      && (saved.projectId === null || activeProject?.status === "available")));
 
   async function refresh() {
+    retrySession();
     await catalogQuery.refetch();
     if (selectionQuery.isError) await selectionQuery.refetch();
   }
 
   async function requestSelection(target: SelectionTarget, retainRequestedSelection = false) {
     const attempt = ++latestSelection.current;
+    if (!stateWriterReady) {
+      setSelecting(false);
+      retrySession();
+      setSelectionIssue({
+        kind: "save",
+        message: sessionStatus === "unavailable"
+          ? "Your Native session could not be verified. Retry the project selection."
+          : "Project selection cannot be saved until you are signed in.",
+        target,
+      });
+      return false;
+    }
     setSelecting(true);
     if (!retainRequestedSelection) setSelectionIssue(null);
     try {
@@ -94,16 +111,17 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
-      const next: ProjectSelection | null = target.projectId === null
-        ? null
-        : { scopeKey: target.scopeKey, projectId: target.projectId };
+      const next: ProjectSelection = {
+        scopeKey: target.scopeKey,
+        projectId: target.projectId,
+      };
       setSelectionIssue({ kind: "pending", target });
       await queryClient.cancelQueries({ queryKey: [SELECTION_KEY, target.scopeKey], exact: true });
       if (latestSelection.current !== attempt) return false;
       queryClient.setQueryData([SELECTION_KEY, target.scopeKey], next);
       const queuedWrite = selectionWrites.current.then(async () => {
         if (latestSelection.current !== attempt) return false;
-        await writeClientAppState(SELECTION_KEY, next);
+        await writeAppState(SELECTION_KEY, next);
         return latestSelection.current === attempt;
       });
       selectionWrites.current = queuedWrite.then(() => undefined, () => undefined);

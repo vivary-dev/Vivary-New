@@ -42,6 +42,8 @@ Source startup requires Node 22.22.0 or newer and built dependencies. The
 
 Settings provides Native appearance, provider keys, integrations, resources,
 and model controls. Appearance is saved through Native application state.
+If an appearance save fails, Settings keeps the visible choice and provides
+Retry. Theme and palette retries remain independent when both saves fail.
 Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
@@ -71,9 +73,20 @@ tool output, follow-ups, visible history, and Stop. The active-run control stays
 available in Settings and when a project folder becomes unavailable.
 
 Project selection and conversation pointers use Native application state.
+Personal workspace is stored as the scoped value
+`{ scopeKey, projectId: null }`. The reader still accepts a missing value or
+the older `null` value as Personal workspace.
 If a selection save fails, the page keeps the requested project visible and
 shows Retry. Retry rechecks project availability and owner scope before saving.
 The choice remains unsaved until that write succeeds.
+
+State writes reuse Native's public in-memory session. A Native session may omit
+its token. In that case, the app uses Native's standard cookie-backed state
+writer. When Native supplies a token, the client sends it only on an exact
+same-origin application-state PUT. The preview bridge accepts that header
+only after its existing request and owner checks pass. A rejected token is not
+replayed while Native refreshes the session. The app does not store or log
+session tokens.
 Native's composer keeps unsent text in browser storage, so drafts survive
 project switching and navigation. A desktop restart that changes the loopback
 port does not yet restore those unsent text drafts. Completed transcripts
@@ -107,9 +120,11 @@ through the existing private Zo proxy and requires `PORT`,
 
 For a session-cookie investigation, set `VIVARY_SESSION_DIAGNOSTICS=1` in the
 server environment. The default is off. Each checked request logs only Cookie
-header presence, expected cookie-name presence, and the parsed token count.
-The count does not establish owner authentication. Raw cookies and tokens are
-never logged. Disable the flag when the investigation ends.
+header presence, expected cookie-name presence, and the candidate token count.
+The count includes candidate cookies and an eligible private-preview header.
+It does not count authenticated owners or establish owner authentication.
+Raw cookies and tokens are never logged. Disable the flag when the
+investigation ends.
 
 Use one supervised Node process. Terminal shutdown awaits Code cleanup and Native
 close hooks before exiting. Shutdown stops active runs; startup marks

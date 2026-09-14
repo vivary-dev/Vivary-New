@@ -6,7 +6,7 @@ the site inside this repository or starts a second one.
 ## Where
 
 - Repository: `vivary-dev/vivary-site`, private, default branch `dev`.
-- Checkout on Zo: `/home/workspace/Projects/vivary-site`.
+- The existing `vivary-site` checkout is on Zo. Reuse it; do not create a second site checkout.
 - The Astro site under `site/` in this repository is the old public site at
   vivary.vercel.app. It is inspiration only for the new one. Its URLs matter:
   the new site preserves or redirects every path it served when it replaces it.

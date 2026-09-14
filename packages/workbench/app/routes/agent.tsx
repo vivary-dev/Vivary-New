@@ -10,7 +10,8 @@ import {
   type AssistantChatHandle,
   type AssistantChatProps,
 } from "@agent-native/core/client/agent-chat";
-import { actionErrorMessage, readClientAppState, useActionMutation, useActionQuery, writeClientAppState } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, readClientAppState, useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
+import { useAppStateWriter } from "@/lib/native-state";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconFileText, IconHistory, IconLayoutSidebarRight, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
 import type { VivaryCodeFileState, VivaryCodeRunState, VivaryCodeState } from "../../server/local-code-agent";
@@ -37,6 +38,7 @@ export default function LocalAgentRoute() {
   const { activeProject, catalog, checking, workspaceAvailable, refresh, selectProject } = useProjects();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { ready: stateWriterReady, retrySession, sessionStatus, writeAppState } = useAppStateWriter();
   const previousScope = useRef<string | null>(null);
   const mounted = useRef(false);
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function LocalAgentRoute() {
   const saveSelection = useMutation({
     scope: { id: SELECTION_PREFIX },
     mutationFn: ({ key, value }: { key: string; value: ConversationSelection | null }) =>
-      writeClientAppState(key, value, { keepalive: true }),
+      writeAppState(key, value, { keepalive: true }),
   });
   const save = saveSelection.mutate;
   const changingScope = previousScope.current !== null && previousScope.current !== projectScope;
@@ -81,8 +83,8 @@ export default function LocalAgentRoute() {
     const next = typeof update === "function" ? update(previous) : update;
     if (next === previous) return;
     queryClient.setQueryData([selectionKey], next);
-    save({ key: selectionKey, value: next });
-  }, [queryClient, selectionKey, save]);
+    if (stateWriterReady) save({ key: selectionKey, value: next });
+  }, [queryClient, selectionKey, save, stateWriterReady]);
 
   async function openActiveConversation(active: NonNullable<VivaryCodeState["activeRun"]>) {
     if (active.projectId !== projectId && !await selectProject(active.projectId)) return false;
@@ -90,17 +92,28 @@ export default function LocalAgentRoute() {
     const next = { key: active.id, runId: active.id };
     await queryClient.cancelQueries({ queryKey: [key], exact: true });
     queryClient.setQueryData([key], next);
-    save({ key, value: next });
+    if (stateWriterReady) save({ key, value: next });
     if (mounted.current) setSearchParams({ run: active.id }, { replace: true });
     return true;
   }
 
-  if (checking || departingUrl || (workspaceAvailable && selection.isPending)) {
+  if (checking || sessionStatus === "loading" || departingUrl || (workspaceAvailable && selection.isPending)) {
     return <div className="local-agent-chat-skeleton" aria-busy="true">
       <Skeleton className="h-8 w-48" /><Skeleton className="h-5 w-3/4" />
       <Skeleton className="mt-auto h-28 w-full" />
     </div>;
   }
+  if (!stateWriterReady) return <section className="local-agent-page" aria-label="Vivary agent">
+    <div className="local-agent-notice" role="alert">
+      <span>{sessionStatus === "signing-out"
+        ? "Signing out. Conversation selection is no longer being saved."
+        : sessionStatus === "unauthenticated"
+          ? "Sign in before using the Vivary agent."
+          : "Your Native session could not be verified."}</span>
+      {(sessionStatus === "unavailable" || sessionStatus === "authenticated")
+        && <Button variant="ghost" size="sm" onClick={retrySession}>Retry session</Button>}
+    </div>
+  </section>;
   if (!workspaceAvailable) return <section className="local-agent-page" aria-label="Vivary agent">
     <div className="local-agent-notice" role="alert">
       <span>This workspace is unavailable. Refresh the project list or choose another project.</span>

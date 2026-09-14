@@ -22,7 +22,7 @@ export type CatalogResult = z.infer<typeof catalogSchema>;
 export type ProjectCatalog = Extract<CatalogResult, { code: "catalog" }>;
 export type CatalogProject = ProjectCatalog["projects"][number];
 
-export const selectionSchema = z.strictObject({ scopeKey: identifier, projectId: identifier });
+export const selectionSchema = z.strictObject({ scopeKey: identifier, projectId: identifier.nullable() });
 export type ProjectSelection = z.infer<typeof selectionSchema>;
 
 export type RegistrationAttempt = {
