@@ -273,7 +273,7 @@ the same five-file governed-context contract with preset-specific configuration.
 ## Documentation
 
 **Website: [vivary.vercel.app](https://vivary.vercel.app/)** — or browse the source in
-[docs/](https://github.com/vivary-dev/vivary/blob/dev/docs/):
+[docs/](https://github.com/vivary-dev/vivary/tree/dev/docs/):
 
 - [Getting started](/getting-started/) — install → workspace → loop
 - [Guide library](/learn-by-doing/) — concise STE100 style procedures for people and agents

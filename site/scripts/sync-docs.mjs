@@ -125,7 +125,7 @@ const rewrite = (s) =>
    .replaceAll('](../packages/', `](${GH}/packages/`)
    .replaceAll('](../LICENSE)', `](${GH}/LICENSE)`)
    .replaceAll('](PORTFOLIO.md)', `](${GH}/docs/PORTFOLIO.md)`)
-   .replaceAll('](./)', `](${GH}/docs/)`)
+   .replaceAll('](./)', `](${GH.replace('/blob/', '/tree/')}/docs/)`)
    .replaceAll('](../HANDOFF.md)', `](${GH}/HANDOFF.md)`);
 
 const assertRegularFileInside = (root, filePath, label) => {
