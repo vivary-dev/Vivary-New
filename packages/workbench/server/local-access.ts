@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import type { AuthOptions, AuthSession } from "@agent-native/core/server";
 import {
   addSession,
+  COOKIE_NAME,
   getFrameworkSessionCookieValues,
   getSessionEmail,
   setFrameworkSessionCookie,
@@ -350,6 +351,23 @@ const defaultDependencies: VivaryLocalAccessSessionDependencies = {
     realIp: getHeader(event, "x-real-ip"),
     secFetchSite: getHeader(event, "sec-fetch-site"),
   }),
-  readSessionTokens: getFrameworkSessionCookieValues,
+  readSessionTokens: (event) => {
+    const tokens = getFrameworkSessionCookieValues(event);
+    if (process.env.VIVARY_SESSION_DIAGNOSTICS === "1") {
+      const cookie = getHeader(event, "cookie");
+      try {
+        process.stderr.write(`${JSON.stringify({
+          cookieHeaderPresent: cookie !== undefined,
+          expectedCookieNamePresent: (cookie ?? "").split(";").some(
+            (part) => part.includes("=") && part.slice(0, part.indexOf("=")).trim() === COOKIE_NAME,
+          ),
+          recognizedTokenCount: tokens.length,
+        })}\n`);
+      } catch {
+        // Diagnostic output must not change session resolution.
+      }
+    }
+    return tokens;
+  },
   setSessionCookie: setFrameworkSessionCookie,
 };

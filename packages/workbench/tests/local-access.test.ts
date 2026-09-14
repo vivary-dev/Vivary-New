@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { H3Event } from "h3";
+import { H3Event } from "h3";
+import { COOKIE_NAME } from "@agent-native/core/server";
 
 import {
   createVivaryLocalAuthOptions,
@@ -419,5 +420,51 @@ describe("Vivary private proxy session provider", () => {
     assert.deepEqual(fixture.persisted, [
       { email: VIVARY_LOCAL_OWNER_EMAIL, token: fixture.cookies[0] },
     ]);
+  });
+});
+
+
+describe("Vivary session diagnostics", () => {
+  it("is opt-in and reports only cookie presence and token counts", async (t) => {
+    const config = resolveVivaryLocalAccessConfig(localEnvironment());
+    assert.ok(config);
+    const resolveSession = createVivaryLocalSessionResolver(config);
+    const output: string[] = [];
+    t.mock.method(process.stderr, "write", (chunk: string) => {
+      output.push(chunk);
+      return true;
+    });
+    const previous = process.env.VIVARY_SESSION_DIAGNOSTICS;
+    const makeRequest = (cookie?: string) => new H3Event(Object.assign(
+      new Request(`${ORIGIN}/_agent-native/application-state/selection`, {
+        method: "PUT",
+        headers: { host: "127.0.0.1:4317", origin: ORIGIN, ...(cookie === undefined ? {} : { cookie }) },
+      }),
+      { context: { clientAddress: "127.0.0.1" } },
+    ));
+    try {
+      delete process.env.VIVARY_SESSION_DIAGNOSTICS;
+      assert.equal(await resolveSession(makeRequest()), null);
+      assert.equal(output.length, 0);
+      process.env.VIVARY_SESSION_DIAGNOSTICS = "1";
+      for (const [cookie, expectedCookieNamePresent] of [
+        [undefined, false],
+        ["other=private-value", false],
+        [`${COOKIE_NAME}x`, false],
+        [`${COOKIE_NAME}=`, true],
+      ] as const) {
+        assert.equal(await resolveSession(makeRequest(cookie)), null);
+        assert.deepEqual(JSON.parse(output.at(-1) ?? ""), {
+          cookieHeaderPresent: cookie !== undefined,
+          expectedCookieNamePresent,
+          recognizedTokenCount: 0,
+        });
+      }
+      assert.equal(output.length, 4);
+      assert.ok(output.every(line => !line.includes("private-value")));
+    } finally {
+      if (previous === undefined) delete process.env.VIVARY_SESSION_DIAGNOSTICS;
+      else process.env.VIVARY_SESSION_DIAGNOSTICS = previous;
+    }
   });
 });

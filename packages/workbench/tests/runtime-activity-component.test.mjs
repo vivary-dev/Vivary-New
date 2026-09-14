@@ -17,6 +17,9 @@ const DEPENDENCY_MANIFEST_ENV = "VIVARY_TEST_COMPONENT_DEPENDENCY_MANIFEST";
 const CORE_MANIFEST_ENV = "VIVARY_TEST_CORE_PACKAGE_JSON";
 const TARGET_CASE_ENV = "VIVARY_RUNTIME_ACTIVITY_COMPONENT_TARGET_CASE";
 const REMOUNT_CASE = "replaced reference remounts the Native renderer";
+const FAILED_WRITE_CASE = "failed write keeps requested project and retries";
+const INVALID_TARGET_CASE = "invalid and revoked targets stay fail closed";
+const TARGET_CASES = new Set([REMOUNT_CASE, FAILED_WRITE_CASE, INVALID_TARGET_CASE]);
 const MAX_BUNDLE_INPUTS = 16_384;
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 const esbuildPlatforms = Object.freeze({
@@ -232,15 +235,19 @@ let selection: ProjectSelection | null = null;
 let readiness = new Map<string, unknown>();
 let activity = new Map<string, unknown>();
 let activityUnavailable = false;
+let selectionWriteFailures = 0;
+let selectionWriteGate: Gate | null = null;
 let activityGates = new Map<string, Gate>();
 type Metrics = { catalogReads: number; readinessReads: string[]; activityReads: string[];
-  activityInputs: Array<Record<string, unknown>>; selectionWrites: string[] };
+  activityInputs: Array<Record<string, unknown>>; selectionWrites: Array<string | null> };
 let metrics: Metrics = { catalogReads: 0, readinessReads: [], activityReads: [], activityInputs: [],
   selectionWrites: [] };
 
 function releaseAll(): void {
   for (const held of activityGates.values()) held.release();
   activityGates.clear();
+  selectionWriteGate?.release();
+  selectionWriteGate = null;
 }
 
 export const nativeProofControl = {
@@ -252,11 +259,19 @@ export const nativeProofControl = {
     readiness = new Map(Object.entries(value.readiness));
     activity = new Map(Object.entries(value.activity));
     activityUnavailable = false;
+    selectionWriteFailures = 0;
+    selectionWriteGate = null;
     metrics = { catalogReads: 0, readinessReads: [], activityReads: [], activityInputs: [], selectionWrites: [] };
   },
   setCatalog(value: unknown): void { catalog = catalogSchema.parse(value); },
   setActivity(projectId: string, value: unknown): void { activity.set(projectId, value); },
   setActivityUnavailable(value: boolean): void { activityUnavailable = value; },
+  failNextSelectionWrite(): void { selectionWriteFailures += 1; },
+  holdNextSelectionWrite(): () => void {
+    if (selectionWriteGate) throw new Error("selection write already held");
+    selectionWriteGate = gate();
+    return selectionWriteGate.release;
+  },
   holdActivity(projectId: string): () => void {
     if (activityGates.has(projectId)) throw new Error("activity read already held");
     const held = gate();
@@ -264,7 +279,10 @@ export const nativeProofControl = {
     return held.release;
   },
   releaseAll,
-  snapshot() { return { metrics: structuredClone(metrics), pending: activityGates.size }; },
+  snapshot() {
+    return { metrics: structuredClone(metrics), pending: activityGates.size + (selectionWriteGate ? 1 : 0),
+      selection: structuredClone(selection) };
+  },
 };
 
 async function readAction(action: string, input: Record<string, unknown>): Promise<unknown> {
@@ -298,9 +316,16 @@ export async function readClientAppState(_key: string, _options: { signal?: Abor
 }
 
 export async function writeClientAppState(_key: string, value: unknown): Promise<void> {
-  const parsed = selectionSchema.parse(value);
+  const parsed = value === null ? null : selectionSchema.parse(value);
+  metrics.selectionWrites.push(parsed?.projectId ?? null);
+  const held = selectionWriteGate;
+  if (held) await held.promise;
+  if (selectionWriteGate === held) selectionWriteGate = null;
+  if (selectionWriteFailures > 0) {
+    selectionWriteFailures -= 1;
+    throw new Error("synthetic selection write failure");
+  }
   selection = parsed;
-  metrics.selectionWrites.push(parsed.projectId);
 }
 `;
 
@@ -446,7 +471,7 @@ async function mount(fullPage = false): Promise<Mounted> {
   } };
 }
 
-async function selectProject(projectId: string): Promise<boolean> {
+async function selectProject(projectId: string | null): Promise<boolean> {
   let operation = Promise.resolve(false);
   act(() => { operation = currentState().selectProject(projectId); });
   let selected = false;
@@ -521,6 +546,140 @@ async function lateOldResultCannotCrossSelection(): Promise<void> {
     assert.equal(mounted.container.querySelector(".conversation-unavailable-shell")
       ?.getAttribute("data-project-scope"), PROJECT_B);
   } finally { await mounted.dispose(); }
+}
+
+async function failedWriteKeepsRequestedProjectAndRetries(): Promise<void> {
+  configure({
+    [PROJECT_A]: activity(PROJECT_A, 4, "alpha"),
+    [PROJECT_B]: activity(PROJECT_B, 5, "beta"),
+  });
+  nativeProofControl.failNextSelectionWrite();
+  const releaseFailedWrite = nativeProofControl.holdNextSelectionWrite();
+  const mounted = await mount();
+  try {
+    await waitFor(() => (mounted.container.textContent ?? "").includes("alpha text"), "alpha activity");
+    let selectionOperation = Promise.resolve(true);
+    act(() => { selectionOperation = currentState().selectProject(PROJECT_B); });
+    await waitFor(() => nativeProofControl.snapshot().metrics.selectionWrites.length === 1, "pending write");
+    await act(async () => { await mounted.queryClient.refetchQueries({
+      queryKey: ["vivary-project-selection-v1", SCOPE], exact: true,
+    }); });
+    assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+    releaseFailedWrite();
+    let selected = true;
+    await act(async () => { selected = await selectionOperation; });
+    assert.equal(selected, false);
+    await waitFor(() => currentState().activeProject?.projectId === PROJECT_B, "requested project retained");
+    await waitFor(() => (mounted.container.textContent ?? "").includes("beta text"), "beta activity");
+    assert.equal(currentState().error, "Project selection could not be saved.");
+    assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: PROJECT_A });
+    assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [PROJECT_B]);
+
+    await act(async () => { await mounted.queryClient.refetchQueries({
+      queryKey: ["vivary-project-selection-v1", SCOPE], exact: true,
+    }); });
+    assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+    assert.equal(currentState().error, "Project selection could not be saved.");
+
+    const catalogReadsBeforeRetry = nativeProofControl.snapshot().metrics.catalogReads;
+    const retry = currentState().retrySelection;
+    assert.ok(retry, "failed selection exposes a retry");
+    const releaseWrite = nativeProofControl.holdNextSelectionWrite();
+    let retryOperation = Promise.resolve(false);
+    act(() => { retryOperation = retry(); });
+    await waitFor(() => nativeProofControl.snapshot().metrics.selectionWrites.length === 2, "retry write");
+    await act(async () => { await mounted.queryClient.refetchQueries({
+      queryKey: ["vivary-project-selection-v1", SCOPE], exact: true,
+    }); });
+    assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+    releaseWrite();
+    let retried = false;
+    await act(async () => { retried = await retryOperation; });
+    assert.equal(retried, true);
+    assert.equal(nativeProofControl.snapshot().metrics.catalogReads, catalogReadsBeforeRetry + 1);
+    assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+    assert.equal(currentState().error, null);
+    assert.equal(currentState().retrySelection, null);
+    assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: PROJECT_B });
+    assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [PROJECT_B, PROJECT_B]);
+  } finally { await mounted.dispose(); }
+}
+
+async function invalidAndRevokedTargetsStayFailClosed(): Promise<void> {
+  configure({
+    [PROJECT_A]: activity(PROJECT_A, 4, "alpha"),
+    [PROJECT_B]: activity(PROJECT_B, 5, "beta"),
+  });
+  nativeProofControl.failNextSelectionWrite();
+  let mounted = await mount();
+  try {
+    await waitFor(() => (mounted.container.textContent ?? "").includes("alpha text"), "alpha activity");
+    assert.equal(await selectProject(null), false);
+    assert.equal(currentState().activeProject, null);
+    assert.equal(currentState().workspaceAvailable, true);
+    assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: PROJECT_A });
+    assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [null]);
+    const retry = currentState().retrySelection;
+    assert.ok(retry);
+    let retried = false;
+    await act(async () => { retried = await retry(); });
+    assert.equal(retried, true);
+    assert.equal(currentState().workspaceAvailable, true);
+    assert.equal(currentState().retrySelection, null);
+    assert.equal(nativeProofControl.snapshot().selection, null);
+    assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [null, null]);
+  } finally { await mounted.dispose(); }
+
+  configure({
+    [PROJECT_A]: activity(PROJECT_A, 4, "alpha"),
+    [PROJECT_B]: activity(PROJECT_B, 5, "beta"),
+  });
+  mounted = await mount();
+  try {
+    await waitFor(() => (mounted.container.textContent ?? "").includes("alpha text"), "alpha activity");
+    assert.equal(await selectProject("project-missing"), false);
+    assert.equal(currentState().activeProject, null);
+    assert.equal(currentState().workspaceAvailable, false);
+    assert.equal(currentState().retrySelection, null);
+    assert.equal(currentState().error, "This project is no longer available. Refresh the project list.");
+    assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: PROJECT_A });
+    assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, []);
+  } finally { await mounted.dispose(); }
+
+  for (const changedCatalog of [
+    { ...catalog(), projects: catalog().projects.map(project =>
+      project.projectId === PROJECT_B ? { ...project, status: "unavailable" as const } : project) },
+    { ...catalog(), scopeKey: "scope-replaced" },
+  ]) {
+    configure({
+      [PROJECT_A]: activity(PROJECT_A, 4, "alpha"),
+      [PROJECT_B]: activity(PROJECT_B, 5, "beta"),
+    });
+    nativeProofControl.failNextSelectionWrite();
+    mounted = await mount();
+    try {
+      await waitFor(() => (mounted.container.textContent ?? "").includes("alpha text"), "alpha activity");
+      assert.equal(await selectProject(PROJECT_B), false);
+      assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+      nativeProofControl.setCatalog(changedCatalog);
+      const retry = currentState().retrySelection;
+      assert.ok(retry);
+      let retried = true;
+      await act(async () => { retried = await retry(); });
+      assert.equal(retried, false);
+      assert.equal(currentState().workspaceAvailable, false);
+      assert.equal(currentState().retrySelection, null);
+      assert.equal(currentState().error, "This project is no longer available. Refresh the project list.");
+      assert.deepEqual(nativeProofControl.snapshot().selection, { scopeKey: SCOPE, projectId: PROJECT_A });
+      assert.deepEqual(nativeProofControl.snapshot().metrics.selectionWrites, [PROJECT_B]);
+      if (changedCatalog.scopeKey === SCOPE) {
+        assert.equal(currentState().activeProject?.projectId, PROJECT_B);
+        assert.equal(currentState().activeProject?.status, "unavailable");
+      } else {
+        assert.equal(currentState().activeProject, null);
+      }
+    } finally { await mounted.dispose(); }
+  }
 }
 
 async function replacedReferenceRemountsRenderer(): Promise<void> {
@@ -615,18 +774,20 @@ export async function runComponentProof(): Promise<void> {
     ["Native text and tool render without a composer", rendersNativeTextAndToolWithoutComposer],
     ["selection change hides old activity immediately", selectionChangeHidesOldActivity],
     ["late old activity cannot cross selection", lateOldResultCannotCrossSelection],
+    ["failed write keeps requested project and retries", failedWriteKeepsRequestedProjectAndRetries],
+    ["invalid and revoked targets stay fail closed", invalidAndRevokedTargetsStayFailClosed],
     ["replaced reference remounts the Native renderer", replacedReferenceRemountsRenderer],
     ["revocation clears rendered activity", revocationClearsActivity],
     ["malformed mismatched and oversize responses fail closed", malformedMismatchAndOversizeFailClosed],
     ["unavailable transport uses the renderer error state", unavailableTransportUsesRendererErrorState],
   ];
   const targetCase = process.env.${TARGET_CASE_ENV};
-  assert.ok(targetCase === undefined || targetCase === "${REMOUNT_CASE}",
+  assert.ok(targetCase === undefined || cases.some(([name]) => name === targetCase),
     "unknown runtime activity component target case: " + targetCase);
   const selectedCases = targetCase === undefined
     ? cases
     : cases.filter(([name]) => name === targetCase);
-  assert.equal(selectedCases.length, targetCase === undefined ? 7 : 1);
+  assert.equal(selectedCases.length, targetCase === undefined ? 9 : 1);
   try {
     for (const [name, run] of selectedCases) {
       process.stdout.write("START " + name + "\n");
@@ -899,7 +1060,7 @@ if (process.env.VIVARY_RUNTIME_ACTIVITY_COMPONENT_WORKER === "1") { // guard:all
     const env = Object.fromEntries(retained.filter(key => process.env[key]) // guard:allow-env-credential - Fixed OS launch paths.
       .map(key => [key, process.env[key]])); // guard:allow-env-credential - Fixed OS launch paths.
     const targetCase = process.env[TARGET_CASE_ENV]; // guard:allow-env-credential - Exact reviewed component case selector.
-    assert.ok(targetCase === undefined || targetCase === REMOUNT_CASE,
+    assert.ok(targetCase === undefined || TARGET_CASES.has(targetCase),
       "unknown runtime activity component target case: " + targetCase);
     Object.assign(env, { VIVARY_RUNTIME_ACTIVITY_COMPONENT_WORKER: "1",
       [DEPENDENCY_MANIFEST_ENV]: process.env[DEPENDENCY_MANIFEST_ENV], // guard:allow-env-credential - Reviewed manifest path.
@@ -920,6 +1081,6 @@ if (process.env.VIVARY_RUNTIME_ACTIVITY_COMPONENT_WORKER === "1") { // guard:all
       assert.fail("replaced reference remount");
     }
     assert.equal(result.status, 0, stderrTail);
-    assertWorkerEvidence(result.stdout, targetCase === undefined ? 7 : 1);
+    assertWorkerEvidence(result.stdout, targetCase === undefined ? 9 : 1);
   });
 }

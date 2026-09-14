@@ -71,6 +71,9 @@ tool output, follow-ups, visible history, and Stop. The active-run control stays
 available in Settings and when a project folder becomes unavailable.
 
 Project selection and conversation pointers use Native application state.
+If a selection save fails, the page keeps the requested project visible and
+shows Retry. Retry rechecks project availability and owner scope before saving.
+The choice remains unsaved until that write succeeds.
 Native's composer keeps unsent text in browser storage, so drafts survive
 project switching and navigation. A desktop restart that changes the loopback
 port does not yet restore those unsent text drafts. Completed transcripts
@@ -101,6 +104,12 @@ dependency. The optional `bin/serve-preview.sh` launcher serves the same app
 through the existing private Zo proxy and requires `PORT`,
 `VIVARY_DATA_DIR`, the exact external HTTPS `APP_URL`, and
 `VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private.
+
+For a session-cookie investigation, set `VIVARY_SESSION_DIAGNOSTICS=1` in the
+server environment. The default is off. Each checked request logs only Cookie
+header presence, expected cookie-name presence, and the parsed token count.
+The count does not establish owner authentication. Raw cookies and tokens are
+never logged. Disable the flag when the investigation ends.
 
 Use one supervised Node process. Terminal shutdown awaits Code cleanup and Native
 close hooks before exiting. Shutdown stops active runs; startup marks
