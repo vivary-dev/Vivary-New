@@ -4,6 +4,21 @@ Vivary is a local desktop workspace for conversations, project files, and agent
 work. It opens without a Vivary account. Model accounts and provider keys are
 configured separately in Settings.
 
+## Target workspace, decided 2026-09-14
+
+Jeff rejected the four peer Agent, Files, Workbench and Full chat destinations.
+Follow the [unified workspace contract](../../docs/product/multi-project/unified-workspace.md)
+and its [research](../../docs/product/multi-project/research/agent-workspace-ergonomics.md).
+One project conversation owns the center. Project context is compact; files and
+other surfaces open on request in resizable, closable panels. Keep explicit file
+reading/editing and existing drafts. A grouped harness/model picker uses supported
+installed CLIs and their available models. Switching harness creates a linked
+conversation; preparing a handoff is a separate agent workflow.
+
+This is the target design under issue #38. The current application still has the
+older routes. Do not treat earlier component acceptance as acceptance of that
+navigation or claim the consolidation is already running in the preview.
+
 ## Visual direction
 
 Compose the pinned Agent-Native shell, chat, settings, and Toolkit components.
@@ -33,15 +48,16 @@ default appearance. The other appearance presets keep their own colors.
 Configure tokens in `app/global.css` and use them in app panels. Preserve Native
 component behavior, spacing, and appearance persistence.
 
-Keep navigation, project choice, conversation history, and Settings visible.
-Use the Native rich composer and tool transcript. Project files appear in the Files sidebar. Clicking a file opens a full-page
-reading surface. Markdown renders as a document; Edit opens the source editor
-with explicit Save. Rename changes one filename in its current folder. Native
-app state retains drafts across navigation and reload. A changed file requires
-review before another save. Narrow layouts use the Native navigation drawer
-to select files. This interaction was clarified by Jeff on 2026-09-14 in issue #12.
-Personal workspace retains its existing read-only file drawer until connected
-as a project.
+Keep project choice and conversation history in the workspace navigation, with
+Settings available as a secondary utility. Use the Native composer and transcript.
+Project files open explicitly in the optional surface host. Markdown renders as
+a document; Edit opens source with explicit Save. Rename changes one filename in
+its current folder. Native app state retains drafts across panel closure,
+navigation and reload. A changed file requires review before another save.
+A requested document can maximize and restore. Narrow layouts use a focused
+surface with a clear return to the same conversation. The existing routes are
+transitional implementation, not the target navigation. Personal workspace's
+existing file limitations remain until it is connected as a project.
 
 Keep one primary action per view. Use short labels, visible focus, matching
 loading skeletons, and clear unavailable states. Preserve focus and drafts

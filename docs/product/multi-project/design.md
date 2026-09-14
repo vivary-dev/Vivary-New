@@ -55,6 +55,28 @@ Its broader release dependencies do not block a bounded desktop increment for
 the already working agent surface. Follow the testing sequence below for later
 application increments.
 
+## Unified workspace decision: 2026-09-14
+
+Jeff selected one conversation-centered project workspace after reviewing the
+private application beside Codex and T3 Code. Agent, Files, Workbench and Full
+chat must not remain competing top-level destinations. Files, plans, documents,
+changes and supported previews are optional resizable and closable surfaces.
+Project metadata stays compact; selecting a project does not open a file.
+
+Harness/model choice comes from supported, registered and installed CLIs on the
+selected host. The picker groups models under harness names with small brand
+marks. Cross-harness selection opens a linked conversation with exact recorded
+history available. Model context capacity remains explicit. A separate agent
+handoff workflow maintains project documents and continuation evidence through
+deterministic tools. Vivary does not impose predefined agent personas.
+
+[Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) owns delivery.
+The [interaction contract](unified-workspace.md) distinguishes these decisions
+from proposed dimensions and implementation details. The [research](research/agent-workspace-ergonomics.md)
+records primary sources and evidence limits. Existing file/runtime proofs remain
+valid for their components; the unified user experience is not yet implemented
+or accepted. The testing sequence below continues to apply.
+
 ## Hosted and desktop testing decision: 2026-09-13
 
 Jeff confirmed that Zo is the development host. Implement changes on Zo and test
