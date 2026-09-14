@@ -13,6 +13,7 @@ export const navigationItems = [
     icon: IconTerminal2,
     keywords: ["code", "files", "local"],
   },
+  { href: "/files", label: "Files", icon: IconFolder, keywords: ["read", "edit", "rename"] },
   {
     href: "/workbench",
     label: "Workbench",

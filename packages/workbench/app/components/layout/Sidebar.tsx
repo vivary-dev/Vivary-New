@@ -7,6 +7,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectNavigation } from "@/components/projects/ProjectNavigation";
 import {
   Tooltip,
@@ -149,7 +150,7 @@ export function Sidebar({
           .map(navigationLink)}
       </nav>
       <div className={cn("vivary-sidebar-content", collapsed && "hidden")}>
-        {codingRoute ? (
+        {location.pathname === "/files" ? <ProjectFiles /> : codingRoute ? (
           <CodeHistory />
         ) : identity && (
           <ChatHistory key={identity.storageKey} identity={identity} />

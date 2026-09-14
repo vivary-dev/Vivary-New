@@ -310,7 +310,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, selection, setSelection
           disabled={!codeState || (streaming && !selection?.runId)}><IconPlus size={18} /></Button>
         <Button variant="ghost" size="icon" aria-label="Runtime settings" onClick={() => navigate("/settings/runtimes")}><IconSettings size={18} /></Button>
         <Button ref={filesToggle} variant={showFiles ? "secondary" : "ghost"} size="icon" aria-label="Workspace files"
-          aria-pressed={showFiles} onClick={() => setShowFiles(value => !value)}><IconLayoutSidebarRight size={18} /></Button>
+          aria-pressed={showFiles} onClick={() => projectId ? navigate("/files") : setShowFiles(value => !value)}><IconLayoutSidebarRight size={18} /></Button>
       </div>
     </header>
     {error && <div className="local-agent-notice" role="alert">

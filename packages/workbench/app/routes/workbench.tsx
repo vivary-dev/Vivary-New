@@ -19,6 +19,7 @@ function PendingPanel({ panel }: { panel: Exclude<Panel, "web"> }) {
     plan: ["No project plan connected", "A project plan will connect tasks, dependencies, and acceptance checks to the selected project."],
     evidence: ["No project evidence connected", "Completed work will show what changed, the checks that ran, and any decision still needed."],
   }[panel];
+  if (panel === "files") return <div className="panel-empty"><h2>Project files</h2><p>Read, edit, and rename files in the full-page file view.</p><Link to="/files">Open files</Link></div>;
   return <div className="panel-empty"><h2>{content[0]}</h2><p>{content[1]}</p></div>;
 }
 
