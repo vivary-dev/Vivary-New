@@ -73,7 +73,6 @@ Every applicable action has a text label, keyboard operation, visible focus, and
 | A026 | Inspect context supplied to a turn | release / read | Show exact sources, summaries and omissions actually supplied | Unknown harness compaction is labeled |
 | A027 | Rename or archive conversation | later / local | Change reference metadata. Preserve history and active work | Archive does not approve, stop or delete |
 | A028 | Export or import a handoff | later / local | Preview included data and validate format, scope and provenance | No credentials or opaque cross-harness state transfer |
-
 | A117 | Create or edit an optional agent profile | optional / local | Use the existing Native resource/settings owner or intentionally authored project instructions | No mandatory persona. Profile instructions cannot grant tool permissions |
 | A118 | Select an optional profile | optional / local | Bind the chosen profile reference and revision to future requested context | No auto-send, session retargeting or approval transfer |
 | A119 | Clear an optional profile | optional / local | Remove future profile selection while preserving existing history and drafts | Previously supplied instructions are not claimed erased |
@@ -217,7 +216,7 @@ Every applicable action has a text label, keyboard operation, visible focus, and
 
 | ID | Action | Scope / mode | Required result and precondition | Failure or recovery |
 | --- | --- | --- | --- | --- |
-| A108 | Prepare distributable | release / read | Bundle required runtimes, licenses, versions and checksums | Packaging alone never proves Windows execution |
+| A108 | Prepare distributable | release / local | Bundle required runtimes, licenses, versions and checksums | Packaging alone never proves Windows execution |
 | A109 | Publish accepted artifact or website | later / external | Require exact release evidence and owner acceptance | No preview/stub claimed installable |
 | A110 | Expose implemented local protocol action | later / read | Project same deterministic action through supported transport | Transport cannot bypass auth or exact scope |
 | A111 | Publish protocol or discovery metadata | later / external | Use verified OpenAPI/MCP/A2A/WebMCP/auth/DNS behavior | No public endpoint/resource without authority |

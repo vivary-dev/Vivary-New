@@ -118,7 +118,6 @@
       ],
       "issues": [
         6,
-        7,
         38
       ],
       "owns": "Capability and readiness observations. Native owns sessions, events and opaque resume state.",
@@ -1432,7 +1431,7 @@
       "id": "A108",
       "module": "M15",
       "phase": "release",
-      "mode": "read",
+      "mode": "local",
       "name": "Prepare distributable",
       "result": "Bundle required runtimes, licenses, versions and checksums",
       "recovery": "Packaging alone never proves Windows execution"

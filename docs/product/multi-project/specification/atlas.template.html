@@ -1,4 +1,4 @@
-<div id="vivary-spec-atlas">
+<div id="vivary-spec-atlas" data-doc-base="./">
   <style>
     #vivary-spec-atlas .atlas-map{position:relative;margin:16px 0}
     #vivary-spec-atlas .atlas-nodes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px 18px;position:relative}
@@ -45,7 +45,7 @@
     const svg=root.querySelector('.atlas-lines');
     const map=root.querySelector('.atlas-map');
     const select=root.querySelector('[data-action]');
-    const base='https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/';
+    const base=root.dataset.docBase;
     let selected='M04';
     const titleId=m=>m.id.toLowerCase()+'-'+m.name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replaceAll(' ','-');
     for(const m of data.modules){
