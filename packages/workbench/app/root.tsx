@@ -25,6 +25,8 @@ import {
 } from "./components/layout/AppearancePreferences";
 import { useVivaryChatIdentity } from "./components/layout/use-vivary-chat-identity";
 import { Layout as AppLayout } from "./components/layout/Layout";
+import { FileDraftProvider } from "./components/projects/FileDrafts";
+import "./project-files.css";
 import { ProjectProvider } from "./components/projects/ProjectContext";
 import { designSystem } from "./design-system";
 import { fullChatHref, navigationItems, settingsItems } from "./lib/navigation";
@@ -139,7 +141,7 @@ export default function Root() {
       >
         <AppearancePreferencesProvider>
           <ProjectProvider>
-            <AppContent />
+            <FileDraftProvider><AppContent /></FileDraftProvider>
           </ProjectProvider>
         </AppearancePreferencesProvider>
       </AppProviders>

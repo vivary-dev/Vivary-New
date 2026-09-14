@@ -34,9 +34,14 @@ Configure tokens in `app/global.css` and use them in app panels. Preserve Native
 component behavior, spacing, and appearance persistence.
 
 Keep navigation, project choice, conversation history, and Settings visible.
-Use the Native rich composer and tool transcript. The files pane opens beside
-the conversation and closes with its Close button or Escape. Narrow layouts
-use the Native navigation drawer and explicit pane controls.
+Use the Native rich composer and tool transcript. Project files appear in the Files sidebar. Clicking a file opens a full-page
+reading surface. Markdown renders as a document; Edit opens the source editor
+with explicit Save. Rename changes one filename in its current folder. Native
+app state retains drafts across navigation and reload. A changed file requires
+review before another save. Narrow layouts use the Native navigation drawer
+to select files. This interaction was clarified by Jeff on 2026-09-14 in issue #12.
+Personal workspace retains its existing read-only file drawer until connected
+as a project.
 
 Keep one primary action per view. Use short labels, visible focus, matching
 loading skeletons, and clear unavailable states. Preserve focus and drafts

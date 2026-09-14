@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/12
 Parent: 11
-Status: ready-for-agent
+Status: done
 Depends-on: [03c]
 Owner: Coordinating Codex, sole workspace editor and conflict-action writer
-Scope: Complete the existing Files panel using Native actions and root-bound file access, with drafts and external-change conflicts.
+Scope: Full-page project file reading with sidebar navigation, explicit source editing and Save, same-folder Rename, retained Native drafts, and external-change conflicts.
 Verification-kind: runtime
+Evidence: [Project file surface verification](../receipts/11a-project-file-surface.md)
+Verification-result: passed
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -29,7 +31,7 @@ resources. Reuse public Native UI/actions before composing a small app-owned sea
 
 ## Owned files
 
-- `packages/workbench/app/routes/workbench.tsx` and the smallest file-panel components.
+- `packages/workbench/app/routes/files.tsx`, project-file sidebar and Native draft components, and existing navigation entry points.
 - Relevant file actions and existing root resolution in `packages/workbench/server/`.
 - Existing project-selection integration only where drafts need stable project scope.
 - Focused file-conflict tests and a real GUI edit journey.
@@ -69,6 +71,8 @@ folders, change authentication, or add a new runtime.
 
 ## Log
 
+- 2026-09-14: Implemented and verified sidebar file reading, explicit editing/Save, Rename, Native drafts and conflict recovery. Independent review approved the corrections. Evidence is linked in the receipt; PR #37 owns CI and integration.
+
 - 2026-09-13: Added to the combined implementation plan. Prerequisites are
   unresolved. No implementation or runtime acceptance is claimed.
 
@@ -77,3 +81,15 @@ folders, change authentication, or add a new runtime.
 ## Shared desktop and web behavior
 
 Make host-file navigation, editing, save/conflict dialogs, and draft recovery usable at phone widths. Clearly identify the files as belonging to the connected host.
+
+## Implementation and evidence
+
+The Files route composes the existing Toolkit Markdown surface, a source editor,
+and Native app state for drafts. Project-bound actions use ordinary optimistic
+version checks, serialize Vivary writes, and preserve destination collisions.
+Read the [verification receipt](../receipts/11a-project-file-surface.md) for the
+observed behavior, fixed findings, file limits and retained evidence.
+
+The source and hosted file acceptance is complete. PR #37 owns final-head CI
+and integration; issue #12 owns closure. Windows artifact acceptance remains
+under #8 and #23.

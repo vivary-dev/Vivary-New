@@ -12,7 +12,6 @@ The packet lists below are snapshots of recorded metadata.
 - [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md)
 - [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md)
 - [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md)
-- [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md)
 - [11c: Search large project trees from the application](packets/11c-fast-project-search.md)
 - [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md)
 
