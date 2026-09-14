@@ -8,6 +8,20 @@ Vivary is one visual workspace over the projects and supported agent tools on a 
 
 The interface stays stable when the chosen harness changes. A registered adapter translates that harness's supported lifecycle and events through Agent-Native. A future CLI needs an adapter and compatibility evidence. Installation alone never establishes support.
 
+## Open the guided reader
+
+Open [Vivary, step by step](guide.html) for a walkthrough, connected module map, searchable actions, design review and the full reading library. It is one offline HTML file. It embeds the 12 core chapters, the walkthrough content source, all 36 outcome contracts and rendered diagrams. External citations and code links need a connection; the guide itself does not. Local review drafts stay in the browser until you copy them into the conversation. They are not submitted or approved by this page.
+
+[The guided review](guided-review.md) separates settled decisions, the one immediate layout choice, later decisions and engineering defaults. [guide-content.json](guide-content.json) owns the plain-language walkthrough; it does not replace the module/action contracts or GitHub issue lifecycle.
+
+### Regenerate the reader
+
+Run `python docs/product/multi-project/specification/render-guide.py`, then run the same command with `--check`. The authoring tools used for this revision are Python-Markdown 3.10.3 and Beautiful Soup 4.14.3. These are authoring tools only; the generated reader needs no packages. Use the existing reviewed authoring environment.
+
+Diagram source and SVG hashes are checked against the committed manifest. When Mermaid source changes, use `--refresh-diagrams` with the existing Playwright/Chromium authoring environment. This fetches Mermaid 11.12.0 only during generation and verifies its fixed SHA-256 before execution. The bundle hash was checked against the [published npm package](https://registry.npmjs.org/mermaid/11.12.0) and its registry integrity value. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` if the environment uses a separately managed Chromium. Review the resulting diagrams and reader before committing. The reader never loads Mermaid or other remote scripts.
+
+The generated reader records a fingerprint of its source inputs. Draft storage uses a stable key: notes and unchanged choices survive a new fingerprint with a visible review notice; changed options need a fresh choice. Its external code and nonembedded contract links use the specification baseline commit `3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5`. Update that locator when changing those source references. Do not put review notes or browser storage in Git.
+
 ## Read this specification
 
 | Need | Read |

@@ -1,0 +1,162 @@
+{
+  "title": "Vivary, step by step",
+  "introduction": "A place to understand the product, explore how the parts connect, and review one decision at a time.",
+  "tour": [
+    {
+      "title": "Choose your project",
+      "plain": "Open the project you want to work on. Its conversation and files belong to that project, even if the folder later moves.",
+      "why": "You should not have to remember which window or agent owns your work.",
+      "module": "M02",
+      "scene": "project",
+      "detail": "Stable project identity is separate from the current authorized root. Registration does not modify or adopt the folder."
+    },
+    {
+      "title": "Return to the conversation",
+      "plain": "Recorded history returns. On the same client, any saved unsent draft stays with this conversation.",
+      "why": "Continuing work should feel like returning to the same workspace.",
+      "module": "M03",
+      "scene": "conversation",
+      "detail": "Existing Native thread, Code and harness records retain their own identities. A unified screen does not merge their stores. Unsent drafts belong to the current client and profile; this does not promise draft transfer to another device."
+    },
+    {
+      "title": "Choose a harness and model",
+      "plain": "Choose from supported agent tools connected on this host. The picker groups their available models under the harness names.",
+      "why": "You choose the tool for the work, without configuring a predefined persona.",
+      "module": "M04",
+      "scene": "harness",
+      "detail": "A different harness creates a linked conversation. The source history stays available, while the material supplied to the new model is shown separately. Linking sends nothing. An installed CLI needs a registered, compatible adapter and readiness checks before it can run."
+    },
+    {
+      "title": "Approve or decline work",
+      "plain": "See the request and its project before it runs. Approval, denial and Stop stay reachable when side panels are closed.",
+      "why": "Background work must be visible and understandable.",
+      "module": "M05",
+      "scene": "approval",
+      "detail": "Approval remains bound to the originating request and Native owner. A changed request or scope needs revalidation. Runtime completion is separate from verified acceptance."
+    },
+    {
+      "title": "Open a file when you need it",
+      "plain": "Read the formatted document beside the conversation. Choose Edit to change it, or expand it for focused work.",
+      "why": "Inspecting a file should not interrupt the conversation or lose a draft.",
+      "module": "M06",
+      "scene": "file",
+      "detail": "The editor uses existing scoped read/save/rename actions. A changed disk version produces a recoverable conflict. Viewing a file does not send it to a model."
+    },
+    {
+      "title": "Leave a useful continuation record",
+      "plain": "Ask the agent to update the handoff when you need a written account of the work, evidence and next step.",
+      "why": "A future conversation should have a useful starting point.",
+      "module": "M10",
+      "scene": "handoff",
+      "detail": "Code can detect stale coverage without a model call. Writing a fresh narrative is separate agent work. Preparing a handoff never auto-cleans, commits, merges or deletes files."
+    }
+  ],
+  "plainModules": {
+    "M01": [
+      "The workspace you see",
+      "Keeps the conversation central and lets you open or close supporting panels."
+    ],
+    "M02": [
+      "Which project is this?",
+      "Keeps projects distinct and checks which folder is available and authorized."
+    ],
+    "M03": [
+      "Your ongoing conversations",
+      "Lets you return to work and follow links between conversations without rewriting history."
+    ],
+    "M04": [
+      "Your installed agent tools",
+      "Connects supported harnesses and their models through replaceable integrations."
+    ],
+    "M05": [
+      "What is allowed to happen?",
+      "Checks permissions and keeps approval, denial and Stop attached to the correct work."
+    ],
+    "M06": [
+      "Your real files",
+      "Reads and edits project documents while preserving drafts and handling changed files."
+    ],
+    "M07": [
+      "Set up and operate a workspace",
+      "Uses the original Vivary operations to create, adopt, inspect and maintain project structure."
+    ],
+    "M08": [
+      "Find and remember",
+      "Finds files, conversation content and sourced facts within the right project."
+    ],
+    "M09": [
+      "Plans and tasks",
+      "Shows intended work and dependencies while respecting the selected task source."
+    ],
+    "M10": [
+      "Do, check and hand over work",
+      "Coordinates bounded work, reviews actual results and prepares continuation records."
+    ],
+    "M11": [
+      "Version control and repository hosts",
+      "Connects supported Git or other workflows without requiring them for every project."
+    ],
+    "M12": [
+      "Research and learn from work",
+      "Produces sourced material and keeps suggested lessons separate from accepted changes."
+    ],
+    "M13": [
+      "Inputs and scheduled work",
+      "Handles later inbox and maintenance flows with explicit routing, limits and authority."
+    ],
+    "M14": [
+      "The computer running Vivary",
+      "Coordinates the desktop, private browser connection and supported project preview."
+    ],
+    "M15": [
+      "Package and publish",
+      "Prepares verified releases and later public integrations through their approval gates."
+    ],
+    "M16": [
+      "Understand and verify",
+      "Makes actual evidence, limitations and contributor instructions easy to find."
+    ]
+  },
+  "decisions": [
+    {
+      "id": "context",
+      "title": "Project details on a wide desktop",
+      "timing": "Before the first interface slice",
+      "recommendation": "Header first",
+      "explanation": "Keep the conversation spacious. Project identity, activity and urgent recovery stay in the header. Open details when you want them.",
+      "options": [
+        {
+          "value": "header",
+          "label": "Header first",
+          "tradeoff": "More conversation space. One click to inspect full project details."
+        },
+        {
+          "value": "panel",
+          "label": "Compact details panel open",
+          "tradeoff": "More information immediately visible. Uses some horizontal space."
+        }
+      ],
+      "blocksFirstSlice": true
+    },
+    {
+      "id": "handoff",
+      "title": "Handoff-update timing",
+      "timing": "Later, when we implement handoffs",
+      "recommendation": "Manual by default",
+      "explanation": "Show when the handoff is out of date. Updating its narrative is agent work, with the applicable approval policy.",
+      "options": [
+        {
+          "value": "manual",
+          "label": "Manual by default",
+          "tradeoff": "You request each update. The stale indicator updates without a model call."
+        },
+        {
+          "value": "checkpoint",
+          "label": "Optional named checkpoints",
+          "tradeoff": "Explicit project opt-in to defined updates inside an authorized workflow."
+        }
+      ],
+      "blocksFirstSlice": false
+    }
+  ]
+}
