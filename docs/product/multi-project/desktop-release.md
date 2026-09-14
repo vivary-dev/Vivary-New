@@ -114,7 +114,7 @@ its accepted behavior is verified and its reviewed PR is merged.
 | --- | --- | --- | --- |
 | 1 | Reliable state | [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md) · [#5](https://github.com/vivary-dev/Vivary-New/issues/5) | Done |
 | 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | First shell merged; remaining integrations follow the accepted specification |
-| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Ready |
+| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | PR #43 held for Native persistence and composer fixes |
 | 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Ready |
 | 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
 | 6 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a, 06g |

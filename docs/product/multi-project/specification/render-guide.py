@@ -19,6 +19,7 @@ BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
 CURRENT_IMPLEMENTATION_REVISION = "feat/project-chat-sessions"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
+CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
 MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.min.js"
 MERMAID_SHA256 = "07e37dfa97b337ccc85365d57eddf99b9706f09db3b59b260d0333b23b343c4b"
 DIAGRAMS = HERE / "guide-diagrams"
@@ -185,7 +186,9 @@ def build():
                         raise ValueError(str(path.relative_to(ROOT)) + ": missing target " + value)
                     kind = "tree" if target.is_dir() else "blob"
                     revision = (CURRENT_IMPLEMENTATION_REVISION
-                                if slug in CURRENT_IMPLEMENTATION_CHAPTERS and relative.parts[:2] == ("packages", "workbench")
+                                if slug in CURRENT_IMPLEMENTATION_CHAPTERS and (
+                                    relative.parts[:2] == ("packages", "workbench")
+                                    or target in CURRENT_IMPLEMENTATION_DOCS)
                                 else SOURCE_REVISION)
                     tag[attr] = "https://github.com/vivary-dev/Vivary-New/" + kind + "/" + revision + "/" + quote(relative.as_posix()) + ("#" + url.fragment if url.fragment else "")
                     tag["target"] = "_blank"

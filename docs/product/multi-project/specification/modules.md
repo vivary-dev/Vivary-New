@@ -49,7 +49,7 @@ Current source or design entry points:
 
 Reopen several project conversations and link history across harnesses.
 
-Implementation status: the verified first shell composes existing Code and Native conversation owners in one workspace. The private hosted journey created two real conversation requests, denied both before model or tool execution, reopened the first from history, preserved authorized history for an unavailable project, and restored the selected conversation after returning. The supported harness catalog, linked cross-harness conversation flow, and concurrent runtime remain unimplemented. The current runtime permits one active run at a time. No model execution was proved in this slice.
+Implementation status: the verified first shell composes existing Code and Native conversation owners in one workspace. The private hosted journey created two real conversation requests, denied both before model or tool execution, reopened the first from history, preserved authorized history for an unavailable project, and restored the selected conversation after returning. The supported harness catalog, linked cross-harness conversation flow, and concurrent runtime remain unimplemented. The current runtime permits one active run at a time. The shell proof did not execute a model. [PR #43](https://github.com/vivary-dev/Vivary-New/pull/43) subsequently completed six real Code turns across two projects and Personal. Its Native fixture exposed unresolved saved-head and composer-gating defects, so project-session acceptance remains open.
 
 - Owns: References to Native threads, Code runs and harness sessions, plus proposed linkage metadata.
 - Calls: M02, M04, M05.

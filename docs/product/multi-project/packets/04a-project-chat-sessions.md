@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/6
 Parent: 04
-Status: ready-for-agent
+Status: needs-info
 Depends-on: [03c]
 Owner: Root-assigned Workbench session integrator, sole writer of shared chat identity
 Scope: Give Code and Full chat stable project-scoped session references using existing Native records.
 Verification-kind: runtime
+Needs: Native must prevent stale snapshot heads and preserve the host composerDisabled setting. No supported repair is exposed by installed Core 0.176.5.
+Evidence: [Project conversation verification](../receipts/04a-project-chat-sessions.md)
 Timebox: One project-session increment with focused checks and a two-project GUI journey.
 
 ## Goal
@@ -66,6 +68,9 @@ or weaken project authorization to make the history list populate.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. No implementation or acceptance claimed.
+- 2026-09-14: Implemented project identity and shared history in PR #43. Code
+  runtime journeys passed. Native isolation and unavailable history passed, but
+  saved-head regression and ignored composer gating block acceptance.
 
 ## Shared desktop and web behavior
 

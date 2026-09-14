@@ -1,6 +1,6 @@
 # Unified project workspace
 
-[Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) owns acceptance and lifecycle. The [research report](research/agent-workspace-ergonomics.md) supplies evidence and limitations. Jeff selected this direction on 2026-09-14 after inspecting the private application. He then accepted guide snapshot `e86d06ed592a2d3c` through his submitted product-conversation review. This is the target interaction contract. The existing four-route shell has not yet been consolidated.
+[Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) owns acceptance and lifecycle. The [research report](research/agent-workspace-ergonomics.md) supplies evidence and limitations. Jeff selected this direction on 2026-09-14 after inspecting the private application. He then accepted guide snapshot `e86d06ed592a2d3c` through his submitted product-conversation review. This is the target interaction contract. The first unified shell merged in [PR #42](https://github.com/vivary-dev/Vivary-New/pull/42).
 
 ## Product decisions
 
@@ -93,7 +93,7 @@ Show one scoped recovery message in the workspace, with the actual selected proj
 
 ## Existing implementation owners
 
-Implementation status: the first shell is implemented on `feat/unified-project-workspace` and verified in the private hosted candidate. The final source review approved the code. The linked PR in issue #38 owns CI and merge status. This status covers the shell and integrated project, conversation, details, and file journeys. It does not complete the supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, or Windows proof. Paths are relative to `packages/workbench`.
+Implementation status: the first shell merged in [PR #42](https://github.com/vivary-dev/Vivary-New/pull/42) after independent review, CI, and private hosted verification. [PR #43](https://github.com/vivary-dev/Vivary-New/pull/43) adds project-bound Native conversations and shared project history. The PR owns its final acceptance and merge status. Its [Native persistence and composer blockers](receipts/04a-project-chat-sessions.md) keep it in draft. This status covers the shell and integrated project, conversation, details, and file journeys. It does not complete the supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, or Windows proof. Paths are relative to `packages/workbench`.
 
 | Owner | Reuse and change boundary |
 | --- | --- |
