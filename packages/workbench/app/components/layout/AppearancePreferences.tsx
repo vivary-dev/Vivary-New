@@ -1,7 +1,7 @@
 import {
   readClientAppStateMany,
-  writeClientAppState,
 } from "@agent-native/core/client/hooks";
+import { useAppStateWriter } from "@/lib/native-state";
 import {
   APPEARANCE_PRESETS,
   applyAppearance,
@@ -39,9 +39,16 @@ function savedAppearance(value: unknown) {
   );
 }
 
+type PreferenceWrites = {
+  theme: { theme: ThemePreference };
+  appearance: { preset: AppearancePresetId };
+};
+
 type AppearancePreferencesValue = {
   ready: boolean;
   error: string | null;
+  retryAppearance: (() => void) | null;
+  retrySession: (() => void) | null;
   setTheme: (theme: ThemePreference) => void;
   setAppearance: (preset: AppearancePresetId) => void;
 };
@@ -56,8 +63,13 @@ export function AppearancePreferencesProvider({
   children: ReactNode;
 }) {
   const { setTheme: applyTheme } = useTheme();
+  const applyThemeRef = useRef(applyTheme);
+  applyThemeRef.current = applyTheme;
+  const { ready: stateWriterReady, retrySession, sessionStatus, writeAppState } = useAppStateWriter();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failedWrites, setFailedWrites] = useState<Partial<PreferenceWrites>>({});
+  const latestWrites = useRef<Partial<PreferenceWrites>>({});
   const writes = useRef(Promise.resolve());
   const alive = useRef(true);
 
@@ -71,7 +83,7 @@ export function AppearancePreferencesProvider({
         if (controller.signal.aborted) return;
         const theme = savedTheme(state.values.theme);
         const appearance = savedAppearance(state.values.appearance);
-        if (theme) applyTheme(theme);
+        if (theme) applyThemeRef.current(theme);
         if (appearance) applyAppearance(appearance);
         setReady(true);
       })
@@ -86,49 +98,98 @@ export function AppearancePreferencesProvider({
       alive.current = false;
       controller.abort();
     };
-  }, [applyTheme]);
+  }, []);
 
   const persist = useCallback(
-    (
-      key: string,
-      value: { theme: ThemePreference } | { preset: AppearancePresetId },
+    <Key extends keyof PreferenceWrites>(
+      key: Key,
+      value: PreferenceWrites[Key],
     ) => {
+      latestWrites.current = { ...latestWrites.current, [key]: value };
+      setFailedWrites((current) => {
+        if (!(key in current)) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
       setError(null);
       writes.current = writes.current.then(async () => {
         try {
-          await writeClientAppState(key, value);
+          await writeAppState(key, value);
+          if (!alive.current || latestWrites.current[key] !== value) return;
+          setFailedWrites((current) => {
+            if (current[key] !== value) return current;
+            const next = { ...current };
+            delete next[key];
+            return next;
+          });
         } catch {
-          if (alive.current)
-            setError(
-              "Appearance could not be saved. Choose it again to retry.",
-            );
+          if (!alive.current || latestWrites.current[key] !== value) return;
+          setFailedWrites((current) => ({ ...current, [key]: value }));
+          setError("Appearance could not be saved. Use Retry to save the visible choice.");
         }
       });
     },
-    [],
+    [writeAppState],
   );
-
   const setTheme = useCallback(
     (theme: ThemePreference) => {
-      if (!ready) return;
+      if (!ready || !stateWriterReady) {
+        if (sessionStatus === "unavailable") retrySession();
+        if (ready) setError(
+          sessionStatus === "unavailable"
+            ? "Your Native session could not be verified. Choose the theme again after retrying."
+            : "The theme cannot be saved until your Native session is ready.",
+        );
+        return;
+      }
       applyTheme(theme);
       persist("theme", { theme });
     },
-    [applyTheme, persist, ready],
+    [applyTheme, persist, ready, retrySession, sessionStatus, stateWriterReady],
   );
-
   const setAppearance = useCallback(
     (preset: AppearancePresetId) => {
-      if (!ready) return;
+      if (!ready || !stateWriterReady) {
+        if (sessionStatus === "unavailable") retrySession();
+        if (ready) setError(
+          sessionStatus === "unavailable"
+            ? "Your Native session could not be verified. Choose the appearance again after retrying."
+            : "The appearance cannot be saved until your Native session is ready.",
+        );
+        return;
+      }
       applyAppearance(preset);
       persist("appearance", { preset });
     },
-    [persist, ready],
+    [persist, ready, retrySession, sessionStatus, stateWriterReady],
   );
+  const retryAppearance = useCallback(() => {
+    if (failedWrites.theme) persist("theme", failedWrites.theme);
+    if (failedWrites.appearance) persist("appearance", failedWrites.appearance);
+  }, [failedWrites, persist]);
+  const hasFailedWrites = failedWrites.theme !== undefined
+    || failedWrites.appearance !== undefined;
+
+  const sessionUnavailable = sessionStatus === "unavailable"
+    || (sessionStatus === "authenticated" && !stateWriterReady);
+  const effectiveReady = ready && stateWriterReady;
+  const effectiveError = hasFailedWrites
+    ? "Appearance could not be saved. Use Retry to save the visible choice."
+    : error ?? (sessionUnavailable
+      ? "Your Native session could not be verified. Retry before saving appearance changes."
+      : null);
 
   return (
     <AppearancePreferences.Provider
-      value={{ ready, error, setTheme, setAppearance }}
+      value={{
+        ready: effectiveReady,
+        error: effectiveError,
+        retryAppearance: hasFailedWrites ? retryAppearance : null,
+        retrySession: sessionUnavailable ? retrySession : null,
+        setTheme,
+        setAppearance,
+      }}
     >
       {children}
     </AppearancePreferences.Provider>

@@ -75,7 +75,10 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
 }
 
 export function ProjectNavigation() {
-  const { catalog, activeProject, checking, workspaceAvailable, selecting, error, refresh, selectProject } = useProjects();
+  const {
+    catalog, activeProject, checking, workspaceAvailable, selecting, error,
+    refresh, selectProject, retrySelection,
+  } = useProjects();
   const [registering, setRegistering] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [folderError, setFolderError] = useState<string>();
@@ -133,6 +136,10 @@ export function ProjectNavigation() {
       <RegistrationForm key={lastCatalog.current.scopeKey}
         catalog={lastCatalog.current} disabled={checking || !catalog} onClose={() => setRegistering(false)} />
     </div>}
-    {error && <p role="status">{error}</p>}
+    {error && <div className="flex items-center gap-2" role="status">
+      <span className="min-w-0 flex-1">{error}</span>
+      {retrySelection && <Button size="sm" variant="ghost" disabled={selecting}
+        onClick={() => void retrySelection()}>Retry</Button>}
+    </div>}
   </section>;
 }

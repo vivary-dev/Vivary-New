@@ -1,7 +1,14 @@
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { readClientAppState, useActionQuery, writeClientAppState } from "@agent-native/core/client/hooks";
-import { selectionSchema, type CatalogProject, type CatalogResult, type ProjectCatalog } from "@/lib/project-catalog-schema";
+import { readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
+import { useAppStateWriter } from "@/lib/native-state";
+import {
+  selectionSchema,
+  type CatalogProject,
+  type CatalogResult,
+  type ProjectCatalog,
+  type ProjectSelection,
+} from "@/lib/project-catalog-schema";
 
 const SELECTION_KEY = "vivary-project-selection-v1";
 
@@ -14,17 +21,28 @@ type ProjectContextValue = {
   error: string | null;
   refresh: () => Promise<void>;
   selectProject: (projectId: string | null) => Promise<boolean>;
+  retrySelection: (() => Promise<boolean>) | null;
 };
+
+type SelectionTarget = { scopeKey: string; projectId: string | null };
+
+type SelectionIssue =
+  | { kind: "unavailable"; message: string }
+  | { kind: "pending"; target: SelectionTarget }
+  | { kind: "requested-unavailable"; message: string; target: SelectionTarget }
+  | { kind: "save"; message: string; target: SelectionTarget }
+  | null;
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const { ready: stateWriterReady, retrySession, sessionStatus, writeAppState } = useAppStateWriter();
   const catalogQuery = useActionQuery<CatalogResult>("vivary-project-catalog", {}, {
     retry: false, refetchOnWindowFocus: "always", refetchInterval: 30000,
   });
   const [selecting, setSelecting] = useState(false);
-  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [selectionIssue, setSelectionIssue] = useState<SelectionIssue>(null);
   const latestSelection = useRef(0);
   const selectionWrites = useRef<Promise<void>>(Promise.resolve());
   const verified = catalogQuery.isSuccess && catalogQuery.data.code === "catalog"
@@ -41,50 +59,85 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       return parsed.data;
     },
   });
-  const checking = catalogQuery.isPending || (verified !== null && selectionQuery.isPending);
-  const saved = selectionQuery.data;
-  const activeProject = catalog && selectionQuery.isSuccess && saved?.scopeKey === catalog.scopeKey
+  const checking = catalogQuery.isPending || (verified !== null && selectionQuery.isPending)
+    || sessionStatus === "loading";
+  const issueTarget = selectionIssue && "target" in selectionIssue ? selectionIssue.target : null;
+  const saved = issueTarget
+    ? { scopeKey: issueTarget.scopeKey, projectId: issueTarget.projectId }
+    : selectionQuery.data;
+  const issueScopeMatches = issueTarget === null || issueTarget.scopeKey === catalog?.scopeKey;
+  const activeProject = catalog && selectionQuery.isSuccess && issueScopeMatches
+    && saved != null && saved.scopeKey === catalog.scopeKey && saved.projectId !== null
     ? catalog.projects.find(project => project.projectId === saved.projectId) ?? null
     : null;
 
-  const workspaceAvailable = catalog !== null && selectionQuery.isSuccess
-    && (saved === null || (saved?.scopeKey === catalog.scopeKey && activeProject?.status === "available"));
+  const workspaceAvailable = catalog !== null && selectionQuery.isSuccess && issueScopeMatches
+    && (saved == null || (saved.scopeKey === catalog.scopeKey
+      && (saved.projectId === null || activeProject?.status === "available")));
 
   async function refresh() {
+    retrySession();
     await catalogQuery.refetch();
     if (selectionQuery.isError) await selectionQuery.refetch();
   }
 
-  async function selectProject(projectId: string | null) {
+  async function requestSelection(target: SelectionTarget, retainRequestedSelection = false) {
     const attempt = ++latestSelection.current;
+    if (!stateWriterReady) {
+      setSelecting(false);
+      retrySession();
+      setSelectionIssue({
+        kind: "save",
+        message: sessionStatus === "unavailable"
+          ? "Your Native session could not be verified. Retry the project selection."
+          : "Project selection cannot be saved until you are signed in.",
+        target,
+      });
+      return false;
+    }
     setSelecting(true);
-    setSelectionError(null);
+    if (!retainRequestedSelection) setSelectionIssue(null);
     try {
       const checked = await catalogQuery.refetch();
       if (latestSelection.current !== attempt) return false;
       if (!checked.isSuccess || checked.data?.code !== "catalog"
-        || (projectId !== null && !checked.data.projects.some(project => project.projectId === projectId && project.status === "available"))) {
-        setSelectionError("This project is no longer available. Refresh the project list.");
+        || checked.data.scopeKey !== target.scopeKey
+        || (target.projectId !== null && !checked.data.projects.some(project =>
+          project.projectId === target.projectId && project.status === "available"))) {
+        setSelectionIssue({
+          kind: "requested-unavailable",
+          message: "This project is no longer available. Refresh the project list.",
+          target,
+        });
         return false;
       }
-      const scopeKey = checked.data.scopeKey;
-      const next = projectId === null ? null : { scopeKey, projectId };
-      await queryClient.cancelQueries({ queryKey: [SELECTION_KEY, scopeKey], exact: true });
+      const next: ProjectSelection = {
+        scopeKey: target.scopeKey,
+        projectId: target.projectId,
+      };
+      setSelectionIssue({ kind: "pending", target });
+      await queryClient.cancelQueries({ queryKey: [SELECTION_KEY, target.scopeKey], exact: true });
       if (latestSelection.current !== attempt) return false;
+      queryClient.setQueryData([SELECTION_KEY, target.scopeKey], next);
       const queuedWrite = selectionWrites.current.then(async () => {
         if (latestSelection.current !== attempt) return false;
-        await writeClientAppState(SELECTION_KEY, next);
+        await writeAppState(SELECTION_KEY, next);
         return latestSelection.current === attempt;
       });
       selectionWrites.current = queuedWrite.then(() => undefined, () => undefined);
       if (!await queuedWrite) return false;
-      await queryClient.cancelQueries({ queryKey: [SELECTION_KEY, scopeKey], exact: true });
+      await queryClient.cancelQueries({ queryKey: [SELECTION_KEY, target.scopeKey], exact: true });
       if (latestSelection.current !== attempt) return false;
-      queryClient.setQueryData([SELECTION_KEY, scopeKey], next);
+      queryClient.setQueryData([SELECTION_KEY, target.scopeKey], next);
+      setSelectionIssue(null);
       return true;
     } catch {
       if (latestSelection.current === attempt) {
-        setSelectionError("Project selection could not be saved. Try again.");
+        setSelectionIssue({
+          kind: "save",
+          message: "Project selection could not be saved.",
+          target,
+        });
       }
       return false;
     } finally {
@@ -92,12 +145,25 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const error = selectionError ?? (catalogQuery.isError || (!checking && !catalog)
+  async function selectProject(projectId: string | null) {
+    if (!catalog) {
+      setSelectionIssue({ kind: "unavailable", message: "Project folders could not be loaded. Refresh the list to retry." });
+      return false;
+    }
+    return requestSelection({ scopeKey: catalog.scopeKey, projectId });
+  }
+
+  const selectionMessage = selectionIssue?.kind === "pending" ? null : selectionIssue?.message ?? null;
+  const error = selectionMessage ?? (catalogQuery.isError || (!checking && !catalog)
     ? "Project folders could not be loaded. Refresh the list to retry."
     : selectionQuery.isError ? "The saved project selection could not be read. Choose a project again."
       : !checking && !workspaceAvailable ? "The selected project is unavailable. Choose another project or Personal workspace." : null);
+  const retrySelection = selectionIssue?.kind === "save"
+    ? () => requestSelection(selectionIssue.target, true)
+    : null;
   const value = useMemo(() => ({ catalog, activeProject, checking, workspaceAvailable, selecting, error,
-    refresh, selectProject }), [catalog, activeProject, checking, workspaceAvailable, selecting, error]);
+    refresh, selectProject, retrySelection }),
+  [catalog, activeProject, checking, workspaceAvailable, selecting, error, retrySelection]);
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }
 

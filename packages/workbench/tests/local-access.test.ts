@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { H3Event } from "h3";
+import { H3Event } from "h3";
+import { COOKIE_NAME } from "@agent-native/core/server";
 
 import {
   createVivaryLocalAuthOptions,
   createVivaryLocalSessionResolver,
   localAccessRequestRejection,
+  readVivarySessionTokens,
   resolveVivaryLocalAccessConfig,
   VIVARY_LOCAL_OWNER_EMAIL,
   type VivaryLocalAccessRequest,
@@ -419,5 +421,162 @@ describe("Vivary private proxy session provider", () => {
     assert.deepEqual(fixture.persisted, [
       { email: VIVARY_LOCAL_OWNER_EMAIL, token: fixture.cookies[0] },
     ]);
+  });
+});
+
+
+describe("Vivary session diagnostics", () => {
+  it("is opt-in and reports only cookie presence and token counts", async (t) => {
+    const config = resolveVivaryLocalAccessConfig(localEnvironment());
+    assert.ok(config);
+    const resolveSession = createVivaryLocalSessionResolver(config);
+    const output: string[] = [];
+    t.mock.method(process.stderr, "write", (chunk: string) => {
+      output.push(chunk);
+      return true;
+    });
+    const previous = process.env.VIVARY_SESSION_DIAGNOSTICS; // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
+    const makeRequest = (cookie?: string) => new H3Event(Object.assign(
+      new Request(`${ORIGIN}/_agent-native/application-state/selection`, {
+        method: "PUT",
+        headers: { host: "127.0.0.1:4317", origin: ORIGIN, ...(cookie === undefined ? {} : { cookie }) },
+      }),
+      { context: { clientAddress: "127.0.0.1" } },
+    ));
+    try {
+      delete process.env.VIVARY_SESSION_DIAGNOSTICS; // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
+      assert.equal(await resolveSession(makeRequest()), null);
+      assert.equal(output.length, 0);
+      process.env.VIVARY_SESSION_DIAGNOSTICS = "1"; // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
+      for (const [cookie, expectedCookieNamePresent] of [
+        [undefined, false],
+        ["other=private-value", false],
+        [`${COOKIE_NAME}x`, false],
+        [`${COOKIE_NAME}=`, true],
+      ] as const) {
+        assert.equal(await resolveSession(makeRequest(cookie)), null);
+        assert.deepEqual(JSON.parse(output.at(-1) ?? ""), {
+          cookieHeaderPresent: cookie !== undefined,
+          expectedCookieNamePresent,
+          recognizedTokenCount: 0,
+        });
+      }
+      assert.equal(output.length, 4);
+      assert.ok(output.every(line => !line.includes("private-value")));
+    } finally {
+      if (previous === undefined) delete process.env.VIVARY_SESSION_DIAGNOSTICS; // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
+      else process.env.VIVARY_SESSION_DIAGNOSTICS = previous; // guard:allow-env-credential - Deployment diagnostic toggle, not a credential.
+    }
+  });
+});
+
+describe("Vivary private state session header", () => {
+  const config = resolveVivaryLocalAccessConfig(privateProxyEnvironment());
+  const localConfig = resolveVivaryLocalAccessConfig(localEnvironment());
+  assert.ok(config);
+  assert.ok(localConfig);
+
+  function stateEvent(
+    path = "/_agent-native/application-state/project-selection",
+    method = "PUT",
+    patch: Record<string, string | undefined> = {},
+  ): H3Event {
+    const headers = new Headers({
+      origin: PRIVATE_ORIGIN,
+      "sec-fetch-site": "same-origin",
+      "x-vivary-session": "owner-token",
+    });
+    for (const [name, value] of Object.entries(patch)) {
+      if (value === undefined) headers.delete(name);
+      else headers.set(name, value);
+    }
+    return new H3Event(new Request(PRIVATE_ORIGIN + path, { method, headers }));
+  }
+
+  it("reads the header only on same-origin private state writes", () => {
+    assert.deepEqual(readVivarySessionTokens(stateEvent(), config), ["owner-token"]);
+    assert.deepEqual(readVivarySessionTokens(stateEvent(), localConfig), []);
+    for (const method of ["GET", "POST", "PATCH", "DELETE", "HEAD"]) {
+      assert.deepEqual(readVivarySessionTokens(stateEvent(undefined, method), config), []);
+    }
+    for (const path of [
+      "/_agent-native/actions/run",
+      "/_agent-native/application-state",
+      "/_agent-native/application-state/",
+      "/_agent-native/application-state/compose",
+      "/_agent-native/application-state/nested/key",
+      "/_agent-native/application-state/nested%2Fkey",
+      "/_agent-native/application-state/%",
+      "/_agent-native/application-state/has%20space",
+    ]) {
+      assert.deepEqual(readVivarySessionTokens(stateEvent(path), config), []);
+    }
+    for (const patch of [
+      { origin: undefined },
+      { origin: "https://other.example.test" },
+      { "sec-fetch-site": undefined },
+      { "sec-fetch-site": "none" },
+      { "sec-fetch-site": "cross-site" },
+      { "x-vivary-session": "" },
+      { "x-vivary-session": "x".repeat(4097) },
+    ]) {
+      assert.deepEqual(readVivarySessionTokens(stateEvent(undefined, undefined, patch), config), []);
+    }
+  });
+
+  it("preserves cookie sessions and deduplicates matching header tokens", () => {
+    const value = stateEvent(undefined, undefined, { cookie: `${COOKIE_NAME}=owner-token` });
+    assert.deepEqual(readVivarySessionTokens(value, config), ["owner-token"]);
+    assert.deepEqual(readVivarySessionTokens(value, localConfig), ["owner-token"]);
+  });
+
+  it("requires an existing reserved-owner session and never mints on a write", async () => {
+    for (const email of [VIVARY_LOCAL_OWNER_EMAIL, "foreign@example.test", null]) {
+      const fixture = sessionFixture(email ? [["owner-token", email]] : []);
+      const resolver = createVivaryLocalSessionResolver(config, {
+        ...fixture.dependencies,
+        readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN }),
+        readSessionTokens: readVivarySessionTokens,
+      });
+      const result = await resolver(stateEvent());
+      assert.equal(result?.email ?? null, email === VIVARY_LOCAL_OWNER_EMAIL ? email : null);
+      assert.deepEqual(fixture.persisted, []);
+      assert.deepEqual(fixture.cookies, []);
+    }
+  });
+
+  it("rejects before token lookup when the request boundary fails", async () => {
+    for (const patch of [
+      { peerAddress: "192.0.2.20" },
+      { host: "attacker.example.test" },
+      { forwardedHost: "attacker.example.test" },
+      { origin: "https://attacker.example.test" },
+      { secFetchSite: "cross-site" },
+    ]) {
+      let lookups = 0;
+      const fixture = sessionFixture();
+      const resolver = createVivaryLocalSessionResolver(config, {
+        ...fixture.dependencies,
+        readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN, ...patch }),
+        readSessionTokens: readVivarySessionTokens,
+        getSessionEmail: async () => { lookups++; return VIVARY_LOCAL_OWNER_EMAIL; },
+      });
+      assert.equal(await resolver(stateEvent()), null);
+      assert.equal(lookups, 0);
+      assert.deepEqual(fixture.persisted, []);
+    }
+  });
+
+  it("fails closed when a header token lookup fails", async () => {
+    const fixture = sessionFixture();
+    const resolver = createVivaryLocalSessionResolver(config, {
+      ...fixture.dependencies,
+      readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN }),
+      readSessionTokens: readVivarySessionTokens,
+      getSessionEmail: async () => { throw new Error("unavailable"); },
+    });
+    assert.equal(await resolver(stateEvent()), null);
+    assert.deepEqual(fixture.persisted, []);
+    assert.deepEqual(fixture.cookies, []);
   });
 });

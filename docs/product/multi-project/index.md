@@ -9,7 +9,6 @@ The packet lists below are snapshots of recorded metadata.
 ## Ready packet snapshot
 
 - [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md)
-- [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md)
 - [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md)
 - [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md)
 - [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md)
