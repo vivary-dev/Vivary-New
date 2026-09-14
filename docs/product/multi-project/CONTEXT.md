@@ -35,3 +35,35 @@ Vivary helps people and their agents work in portable filesystem workspaces. The
 **Task source**: The system that owns a project's tasks, such as native framework tasks, files, or Beads. Workbench views reference that owner instead of maintaining competing task truth.
 
 **Workbench**: Vivary's primary graphical work environment for projects, sessions, plans, files, previews, and evidence. Agent-Native is its application foundation, not the user's required project framework.
+
+## Conversation workspace language
+
+**Conversation**: A user-visible sequence of messages and results in one project, referenced through its actual Native owner. It is not a new universal transcript store.
+
+**Harness**: The agent tool that owns its reasoning loop, tools and native session behavior, such as Claude Code or Codex. A model is a choice within a harness, not the harness itself.
+
+**Harness adapter**: A supported integration that connects a harness to the existing Native lifecycle and declares its capabilities. Installation and registration alone do not establish runnable support.
+
+**Model choice**: An identified model exposed through a selected harness and account on a particular host. A displayed name does not establish entitlement or readiness.
+
+**Host**: The user-controlled computer or server that owns Vivary's execution, files and authoritative application state. A connected browser is a client of that host.
+
+**Panel**: A requested, closable view beside or below the conversation, such as files, plans or preview. Panel visibility does not own or change an agent's execution.
+
+**History link**: A reference from one conversation to authorized source history at a declared completed-event boundary. It does not copy a transcript or transfer native resume state.
+
+**Supplied context**: The bounded material actually sent to a model for one turn, with its sources, summaries and omissions. It is distinct from all recorded history available to the application.
+
+**Native resume**: Continuation through the originating harness's supported session state. Reconstructing a prompt from prior messages is replay, not native resume.
+
+**Handoff**: A reviewed continuation record describing the goal, actual state, decisions, evidence, unfinished work and next action. Preparing it is a separate workflow from linking conversations.
+
+**Candidate**: A particular version of proposed changes and its evidence, awaiting acceptance or rejection. A later version is a different candidate.
+
+**Approval**: An authorization for a specific request and applicable scope or revisions. A linked conversation, model response or completed run does not grant approval.
+
+**Acceptance**: A decision that a declared outcome meets its verification conditions. It is separate from runtime completion and from permission to execute.
+
+**Uncertain effect**: An operation whose effect may have occurred but has not been reconciled. It must not be represented as failure-with-no-effect or automatically repeated.
+
+**Agent profile**: Optional user-authored instructions or configuration selected for agent work. A profile is separate from the harness, model and deterministic authority.

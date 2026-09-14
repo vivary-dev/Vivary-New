@@ -36,5 +36,8 @@ are linked as typed graph edges.
 
 ## Gaps
 
-The JavaScript model proves the contract but is not production registry storage.
-No durable storage adapter is implemented or claimed here.
+The JavaScript model proves its contract fixtures. Canonical Workbench registry
+services and database bindings now exist in `packages/workbench/server/native-registry.mjs`,
+`registry-store.mjs` and `project-services.mjs`. See the
+[module catalog](../../../specification/modules.md) for current entry points.
+The model receipt alone does not prove every production root, VCS or grant case.

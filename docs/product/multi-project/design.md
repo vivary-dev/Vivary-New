@@ -1,6 +1,6 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-13. Status: documented program; GitHub issues own task lifecycle and the ticket graph is a synchronized reference (see [issue authority](issue-authority.md)). The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the issue owner; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Updated: 2026-09-14. Status: documented program; GitHub issues own task lifecycle and the ticket graph is a synchronized reference (see [issue authority](issue-authority.md)). The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the issue owner; explicit unresolved product, account, security, and release decisions retain their stated owners.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -76,6 +76,20 @@ from proposed dimensions and implementation details. The [research](research/age
 records primary sources and evidence limits. Existing file/runtime proofs remain
 valid for their components; the unified user experience is not yet implemented
 or accepted. The testing sequence below continues to apply.
+
+## Visual product specification decision: 2026-09-14
+
+Jeff requested a complete visual specification and codebase operating manual
+before returning to application implementation. It must cover the existing full
+product scope, shared vocabulary, interconnected actions, modular boundaries,
+replaceable harness integrations, state and failure paths, and diagrams that
+route a contributor to the exact relevant context.
+
+The [visual specification](specification/README.md) organizes the 36 retained
+outcomes and issue #38 without creating a second task ledger. Its interface and
+adapter details are proposals for Jeff's review. Application implementation waits
+for that review. A new CLI still needs a supported adapter and compatibility
+evidence. No universal automatic CLI compatibility is claimed.
 
 ## Hosted and desktop testing decision: 2026-09-13
 
