@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://shieldcn.dev/header/glow.svg?title=Vivary&amp;subtitle=Your+projects.+Your+agents.+Your+machine.&amp;mode=dark&amp;font=geist&amp;width=1100&amp;height=240&amp;align=left&amp;bg=101713&amp;accent=b5ef4a&amp;glow=b5ef4a&amp;titleColor=eaf3e7&amp;subtitleColor=a7b5a5&amp;radius=16&amp;watermark=false" alt="Vivary. Your projects, agents, and workspace on your own machine." width="1100">
+  <img src="https://shieldcn.dev/header/glow.svg?title=Vivary&amp;subtitle=Your+projects.+Your+agents.+Your+machine.&amp;mode=dark&amp;font=geist&amp;width=500&amp;height=140&amp;align=center&amp;bg=101713&amp;accent=b5ef4a&amp;glow=b5ef4a&amp;titleColor=eaf3e7&amp;subtitleColor=bdc9bb&amp;radius=12&amp;watermark=false" alt="Vivary. Your projects, agents, and workspace on your own machine." width="1100">
 </p>
 
 <p align="center">
@@ -15,14 +15,19 @@
   <a href="docs/ORIGINAL-CLI.md">Original CLI reference</a>
 </p>
 
-# Vivary
+<h1 align="center">Vivary</h1>
 
-A workspace for working with agents on your own projects. Vivary brings agent
-chat, project files, tools, and memory into one desktop app.
+<h3 align="center">A workspace for working with agents on your own projects.</h3>
 
+<p align="center">
+Vivary brings agent chat, project files, tools, and memory into one desktop app.
+</p>
+
+<p align="center">
 The product target is a Windows desktop app and a responsive web client connected
 to the same Vivary instance. That instance can run on your computer or a suitable
 server. Your agents, credentials, files, and history stay on the host.
+</p>
 
 ## The experience we are building
 
