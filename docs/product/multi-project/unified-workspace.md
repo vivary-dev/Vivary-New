@@ -100,7 +100,9 @@ Source baseline: `ea5e5da838c9ceb44b71c8ea58bda5913aabd775` in `vivary-dev/Vivar
 | `app/components/layout/Sidebar.tsx:147-160` | Replace route-dependent history/file swaps with stable projects and conversations plus explicit surface controls. |
 | `app/components/projects/ProjectContext.tsx:38-167` | Keep the existing project selection owner. Separate unavailable-folder execution state from authorized history visibility. |
 | `app/components/layout/CodeHistory.tsx:21-31`, `77` | Remove the blanket folder-availability history gate without weakening authorization. |
-| `server/local-code-agent.ts:286-304` | Replace hardcoded engine/model choices with a supported host-derived catalog. |
+| `actions/vivary-code-state.ts:30-34`; `server/code-project.ts:11-17` | Separate authenticated project metadata/history reads from live folder resolution. The current read action fails with 409 before loading history when the folder is absent. Keep owner, organization and current project-grant checks on reads. File access and execution still require an available authorized root. |
+| `server/project-runtime-readiness.mjs:5-9`, `71-81`; `server/project-services.mjs:142-158` | Extend the existing project-scoped readiness owner with supported adapter model discovery. Preserve binding and policy revision checks. Installation, authentication, authorization and runnable state remain distinct. |
+| `server/local-code-agent.ts:286-304` | Replace hardcoded engine/model choices by consuming the existing readiness owner and its supported catalog. Do not create a competing readiness service. |
 | `server/local-code-agent.ts:66-77`, `366-388` | Add only necessary linked-conversation references; retain Native as transcript/run/session owner. |
 | Toolkit public UI exports | Compose `ResizablePanelGroup`, `ResizablePanel`, and `ResizableHandle`; do not add another panel library. |
 
@@ -114,7 +116,7 @@ The installed Native registry includes harness registration and package detectio
 4. Add the explicit handoff workflow and freshness checks over existing files and Native history references. Connect #9 restart/drafts and #21 scoped memory where they own the behavior.
 5. Complete surface integrations under their owners: #13 search, #31 supported preview/debugging, #30 responsive browser use, then #7/#8 packaged local acceptance. Do not wait for every future surface before testing the coherent shell.
 
-Each unit ends with focused checks, real hosted use, independent review, applicable CI, sequential merge and a refreshed private preview. No public release or main promotion follows from this design. Research does not close #38 or reopen completed #12 backend work merely to rename its acceptance.
+Each implementation unit gets focused checks and affected real hosted verification. Use independent review when its risk or complexity warrants it. Each PR still requires applicable CI and an independent approval under CONTRIBUTING.md before sequential merge. Refresh the private preview for completed application changes. No public release or main promotion follows from this design. Research does not close #38 or reopen completed #12 backend work merely to rename its acceptance.
 
 ## Acceptance journeys
 
