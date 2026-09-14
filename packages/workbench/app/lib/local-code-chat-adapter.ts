@@ -4,6 +4,7 @@ import {
   type CodeAgentChatController,
 } from "@agent-native/core/client/agent-chat";
 import { actionErrorMessage, callAction } from "@agent-native/core/client/hooks";
+import type { NativeActionCaller } from "./native-actions";
 import type {
   VivaryCodeModel,
   VivaryCodeState,
@@ -11,6 +12,7 @@ import type {
 
 type LocalCodeChatOptions = {
   context: AssistantChatAdapterContext;
+  call: NativeActionCaller;
   projectId: string | null;
   runIdRef: { current: string | null };
   engines: () => VivaryCodeState["engines"];
@@ -51,7 +53,7 @@ export function createLocalCodeChatAdapter(
       try {
         const starting = options.runIdRef.current === null;
         if (starting) {
-          const state = scopedState(await callAction<VivaryCodeState>("vivary-code-send", { projectId, message, model, engine: engine.engine }));
+          const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, message, model, engine: engine.engine }));
           if (state.error) throw new Error(state.error);
           if (!state.run) throw new Error("The agent did not return a conversation.");
           options.runIdRef.current = state.run.id;
@@ -78,12 +80,12 @@ export function createLocalCodeChatAdapter(
           },
           sendFollowUp: async ({ runId, prompt, mode }) => {
             if (mode === "queued") return { ok: false, error: "Wait for the current response or stop it before sending another message." };
-            const state = scopedState(await callAction<VivaryCodeState>("vivary-code-send", { projectId, runId, message: prompt, model, engine: engine.engine }));
+            const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, runId, message: prompt, model, engine: engine.engine }));
             return { ok: !state.error && !!state.run, run: state.run, error: state.error };
           },
           control: async ({ runId, command }) => {
             if (command !== "stop") return { ok: false, error: "This runtime does not support approval requests." };
-            const state = scopedState(await callAction<VivaryCodeState>("vivary-code-stop", { projectId, runId }));
+            const state = scopedState(await options.call<VivaryCodeState>("vivary-code-stop", { projectId, runId }));
             return { ok: !state.error, run: state.run, error: state.error };
           },
         };

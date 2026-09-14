@@ -1,3 +1,5 @@
+import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
+
 import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 
@@ -339,21 +341,21 @@ export function readVivarySessionTokens(
   config: VivaryLocalAccessConfig,
 ): string[] {
   const tokens = getFrameworkSessionCookieValues(event);
-  if (config.mode !== "private-proxy" || getMethod(event) !== "PUT"
+  if (config.mode !== "private-proxy" || !["PUT", "POST"].includes(getMethod(event))
     || getHeader(event, "origin") !== config.origin
     || getHeader(event, "sec-fetch-site") !== "same-origin") return tokens;
 
   // req.url stays absolute while Native middleware changes the mount-relative URL.
   const path = new URL(event.req.url, config.origin).pathname;
-  const prefix = "/_agent-native/application-state/";
-  if (!path.startsWith(prefix)) return tokens;
-  let key: string;
-  try {
-    key = decodeURIComponent(path.slice(prefix.length));
-  } catch {
-    return tokens;
+  if (getMethod(event) === "POST") {
+    if (!VIVARY_OWNER_ACTIONS.some(name => path === "/_agent-native/actions/" + name)) return tokens;
+  } else {
+    const prefix = "/_agent-native/application-state/";
+    if (!path.startsWith(prefix)) return tokens;
+    let key: string;
+    try { key = decodeURIComponent(path.slice(prefix.length)); } catch { return tokens; }
+    if (key === "compose" || !/^[a-zA-Z0-9_:-]+$/.test(key)) return tokens;
   }
-  if (key === "compose" || !/^[a-zA-Z0-9_:-]+$/.test(key)) return tokens;
 
   const token = getHeader(event, "x-vivary-session");
   if (token && token.length <= 4096 && !tokens.includes(token)) tokens.push(token);

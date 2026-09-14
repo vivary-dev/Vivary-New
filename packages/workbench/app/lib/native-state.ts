@@ -7,6 +7,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 
+import { isRejectedSessionToken, rejectSessionToken } from "./native-session-rejections";
+
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const SESSION_TOKEN_PATTERN = /^[^\s\u0000-\u001f\u007f]+$/;
 const MAX_SESSION_TOKEN_LENGTH = 4096;
@@ -36,21 +38,21 @@ export type AppStateWriterHandle = {
   writeAppState: AppStateWriter;
 };
 
-function isValidSessionToken(token: unknown): token is string {
+export function isValidSessionToken(token: unknown): token is string {
   return typeof token === "string"
     && token.length > 0
     && token.length <= MAX_SESSION_TOKEN_LENGTH
     && SESSION_TOKEN_PATTERN.test(token);
 }
 
-function sessionToken(snapshot: Pick<SessionSnapshot, "session" | "status">) {
+export function sessionToken(snapshot: Pick<SessionSnapshot, "session" | "status">) {
   if (snapshot.status !== "authenticated") {
     const message = snapshot.status === "loading"
       ? "The Native session is still loading."
       : snapshot.status === "signing-out"
-        ? "Application state cannot be saved while signing out."
+        ? "Wait until signing out finishes before making changes."
         : snapshot.status === "unauthenticated"
-          ? "Sign in before saving application state."
+          ? "Sign in before making changes."
           : "The Native session could not be verified. Retry the session, then save again.";
     throw new Error(message);
   }
@@ -184,15 +186,7 @@ export function createAppStateWriter(dependencies: WriterDependencies): AppState
 export function useAppStateWriter(): AppStateWriterHandle {
   const nativeSession = useSession();
   const latestSession = useRef(nativeSession);
-  const rejectedToken = useRef<string | null>(null);
   latestSession.current = nativeSession;
-  if (
-    nativeSession.status === "authenticated"
-    && isValidSessionToken(nativeSession.session?.token)
-    && nativeSession.session.token !== rejectedToken.current
-  ) {
-    rejectedToken.current = null;
-  }
 
   const writeAppState = useCallback(
     createAppStateWriter({
@@ -200,8 +194,8 @@ export function useAppStateWriter(): AppStateWriterHandle {
       cookieWriter: writeClientAppState,
       fetch: (input, init) => fetch(input, init),
       invalidateSession: notifySessionInvalidated,
-      isRejectedToken: token => rejectedToken.current === token,
-      rejectToken: token => { rejectedToken.current = token; },
+      isRejectedToken: isRejectedSessionToken,
+      rejectToken: rejectSessionToken,
       locationHref: () => window.location.href,
       nativePath: agentNativePath,
     }),
@@ -211,7 +205,8 @@ export function useAppStateWriter(): AppStateWriterHandle {
   return useMemo(() => ({
     ready: nativeSession.status === "authenticated"
       && (nativeSession.session?.token === undefined
-        || isValidSessionToken(nativeSession.session.token)),
+        || (isValidSessionToken(nativeSession.session.token)
+          && !isRejectedSessionToken(nativeSession.session.token))),
     retrySession: nativeSession.retry,
     sessionStatus: nativeSession.status,
     writeAppState,

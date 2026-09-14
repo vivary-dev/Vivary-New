@@ -1,3 +1,4 @@
+import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -522,6 +523,23 @@ describe("Vivary private state session header", () => {
     ]) {
       assert.deepEqual(readVivarySessionTokens(stateEvent(undefined, undefined, patch), config), []);
     }
+  });
+
+  it("accepts only named owner action POSTs through the same-origin boundary", () => {
+    for (const name of VIVARY_OWNER_ACTIONS) {
+      const route = "/_agent-native/actions/" + name;
+      assert.deepEqual(readVivarySessionTokens(stateEvent(route, "POST"), config), ["owner-token"]);
+      assert.deepEqual(readVivarySessionTokens(stateEvent(route, "POST"), localConfig), []);
+      for (const method of ["GET", "PUT", "DELETE"]) {
+        assert.deepEqual(readVivarySessionTokens(stateEvent(route, method), config), []);
+      }
+      for (const patch of [{ origin: undefined }, { origin: "https://other.example.test" },
+        { "sec-fetch-site": "cross-site" }, { "sec-fetch-site": undefined }]) {
+        assert.deepEqual(readVivarySessionTokens(stateEvent(route, "POST", patch), config), []);
+      }
+      assert.deepEqual(readVivarySessionTokens(stateEvent(route + "/extra", "POST"), config), []);
+    }
+    assert.deepEqual(readVivarySessionTokens(stateEvent("/_agent-native/actions/unrelated-action", "POST"), config), []);
   });
 
   it("preserves cookie sessions and deduplicates matching header tokens", () => {

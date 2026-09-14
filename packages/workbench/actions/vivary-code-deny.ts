@@ -2,25 +2,27 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  denyVivaryCodeMessage,
   requireVivaryCodeUser,
-  stopVivaryCodeRun,
 } from "../server/local-code-agent.ts";
 
 export default defineAction({
-  description: "Stop the local workspace owner's active local Vivary code run.",
+  description: "Deny one exact pending Vivary coding request without starting a model or tools.",
   schema: z.object({
     projectId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     runId: z.string().trim().min(1).max(128),
-  }),
+    requestId: z.string().uuid(),
+  }).strict(),
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,
-  run: async ({ runId, projectId }, ctx?: ActionRunContext) =>
-    stopVivaryCodeRun({
+  run: ({ runId, requestId, projectId }, ctx?: ActionRunContext) =>
+    denyVivaryCodeMessage({
       ownerEmail: requireVivaryCodeUser(ctx),
       orgId: ctx?.orgId ?? undefined,
-      projectId,
       runId,
+      requestId,
+      projectId,
     }),
 });

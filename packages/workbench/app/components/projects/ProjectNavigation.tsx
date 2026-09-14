@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
-import { actionErrorMessage, callAction, useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
 import { Skeleton } from "@agent-native/toolkit/ui";
 import { IconFolderPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useNativeActionCaller } from "@/lib/native-actions";
+import { CreateProjectForm } from "./CreateProjectForm";
 import { useProjects } from "./ProjectContext";
 import type { ProjectCatalog, RegistrationAttempt, RegistrationResult } from "@/lib/project-catalog-schema";
 
@@ -22,9 +24,8 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
   const [locationRef, setLocationRef] = useState(catalog.locations.find(location => location.status === "available")?.locationRef ?? "");
   const [attempt, setAttempt] = useState<RegistrationAttempt | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const mutation = useActionMutation<RegistrationResult, RegistrationAttempt>("vivary-register-project", {
-    retry: false, skipActionQueryInvalidation: true,
-  });
+  const { call, ready } = useNativeActionCaller();
+  const [pending, setPending] = useState(false);
   const available = catalog.locations.some(location => location.locationRef === locationRef && location.status === "available");
 
   async function submit(event: React.FormEvent) {
@@ -38,8 +39,9 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
       locationRef, displayName, contentIdentity: null, attachProjectId: null };
     setAttempt(request);
     setMessage(null);
+    setPending(true);
     try {
-      const result = await mutation.mutateAsync(request);
+      const result = await call<RegistrationResult>("vivary-register-project", request);
       setAttempt(null);
       if (result.code === "registered" || result.code === "already-registered") {
         if (await selectProject(result.projectId)) onClose();
@@ -50,15 +52,17 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
       }
     } catch {
       setMessage("The result is uncertain. Retry this same registration to check it safely.");
+    } finally {
+      setPending(false);
     }
   }
 
   return <form className="project-registration" onSubmit={submit} aria-label="Register project">
     <label htmlFor="project-name">Project name</label>
-    <Input id="project-name" value={displayName} maxLength={400} disabled={disabled || mutation.isPending}
+    <Input id="project-name" value={displayName} maxLength={400} disabled={disabled || pending}
       onChange={event => { setDisplayName(event.target.value); setAttempt(null); setMessage(null); }} autoComplete="off" />
     <label htmlFor="project-folder">Connected folder</label>
-    <select id="project-folder" value={locationRef} disabled={disabled || mutation.isPending}
+    <select id="project-folder" value={locationRef} disabled={disabled || pending}
       onChange={event => { setLocationRef(event.target.value); setAttempt(null); setMessage(null); }}>
       {catalog.locations.map(location => <option key={location.locationRef} value={location.locationRef}
         disabled={location.status !== "available"}>{location.displayName}{location.status !== "available" ? " — unavailable" : ""}</option>)}
@@ -66,10 +70,10 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
     <p>Registration keeps the folder's files as they are.</p>
     {message && <p role="status">{message}</p>}
     <div className="project-form-actions">
-      <Button size="sm" type="submit" disabled={disabled || mutation.isPending || !available}>
-        {mutation.isPending ? "Registering…" : attempt ? "Retry registration" : "Register"}
+      <Button size="sm" type="submit" disabled={disabled || !ready || pending || !available}>
+        {pending ? "Registering…" : attempt ? "Retry registration" : "Register"}
       </Button>
-      <Button size="sm" variant="ghost" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</Button>
+      <Button size="sm" variant="ghost" type="button" disabled={pending} onClick={onClose}>Cancel</Button>
     </div>
   </form>;
 }
@@ -80,6 +84,8 @@ export function ProjectNavigation() {
     refresh, selectProject, retrySelection,
   } = useProjects();
   const [registering, setRegistering] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const { call } = useNativeActionCaller();
   const [choosing, setChoosing] = useState(false);
   const [folderError, setFolderError] = useState<string>();
   const desktop = useActionQuery<{ folderPicker: boolean }>("vivary-desktop-status", {}, {
@@ -89,8 +95,8 @@ export function ProjectNavigation() {
     setChoosing(true);
     setFolderError(undefined);
     try {
-      const result = await callAction<RegistrationResult | { code: "cancelled" }>(
-        "vivary-connect-project-folder", {}, { timeoutMs: 130_000 },
+      const result = await call<RegistrationResult | { code: "cancelled" }>(
+        "vivary-connect-project-folder", {},
       );
       if (result.code === "cancelled") return;
       await refresh();
@@ -128,10 +134,25 @@ export function ProjectNavigation() {
             <span>{project.displayName}</span>{project.status !== "available" && <span className="project-unavailable-label">Unavailable</span>}
           </Button>
         </li>)}</ul>}
-      {!desktop.data?.folderPicker && !registering && <Button size="sm" className="register-project-button" onClick={() => setRegistering(true)}
-        disabled={!catalog.locations.some(location => location.status === "available")}>Register project</Button>}
-      {!catalog.locations.some(location => location.status === "available") && <p>No connected folder is available. Open a folder in the desktop app.</p>}
+      {!creating && <Button size="sm" className="register-project-button" onClick={() => {
+        setRegistering(false);
+        setCreating(true);
+      }}>New project</Button>}
+      {!desktop.data?.folderPicker && !registering
+        && catalog.locations.some(location => location.status === "available")
+        && <Button size="sm" variant="outline" className="register-project-button" onClick={() => {
+          setCreating(false);
+          setRegistering(true);
+        }}>Register existing folder</Button>}
+      {!catalog.locations.some(location => location.status === "available")
+        && <p>No connected existing folder is available. Create a managed project here, or reconnect the folder from the desktop app.</p>}
     </>}
+    {creating && <CreateProjectForm disabled={checking || selecting}
+      onClose={() => setCreating(false)}
+      onCreated={async projectId => {
+        await refresh();
+        return selectProject(projectId);
+      }} />}
     {registering && lastCatalog.current && <div hidden={!catalog}>
       <RegistrationForm key={lastCatalog.current.scopeKey}
         catalog={lastCatalog.current} disabled={checking || !catalog} onClose={() => setRegistering(false)} />

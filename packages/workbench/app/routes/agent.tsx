@@ -10,7 +10,8 @@ import {
   type AssistantChatHandle,
   type AssistantChatProps,
 } from "@agent-native/core/client/agent-chat";
-import { actionErrorMessage, readClientAppState, useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
+import { useNativeActionCaller } from "@/lib/native-actions";
 import { useAppStateWriter } from "@/lib/native-state";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconFileText, IconHistory, IconLayoutSidebarRight, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
@@ -177,7 +178,8 @@ function ProjectCodeWorkspace({ projectId, projectLabel, selection, setSelection
   });
   const selectedRun = selectedState.data?.projectId === projectId ? selectedState.data.run : null;
   const files = useActionQuery<VivaryCodeFileState>("vivary-code-files", { projectId: projectId ?? undefined, path: selectedFile }, { refetchInterval: 1500, placeholderData: previous => previous });
-  const stop = useActionMutation<VivaryCodeState>("vivary-code-stop");
+  const { call } = useNativeActionCaller();
+  const stop = useMutation({ mutationFn: (params: {runId: string; projectId?: string}) => call<VivaryCodeState>("vivary-code-stop", params) });
   const run = selection?.runId === codeState?.run?.id ? codeState?.run
     : selection?.runId === selectedRun?.id ? selectedRun : null;
   const activeRun = codeState?.activeRun;
@@ -201,6 +203,11 @@ function ProjectCodeWorkspace({ projectId, projectLabel, selection, setSelection
 
   useEffect(() => {
     if (!codeState) return;
+    // Promote only the draft that created this run after its selection commits.
+    if (requestedRun === "new" && selection?.runId && selection.key === requestedDraft) {
+      showInUrl(selection);
+      return;
+    }
     if (requestKey && handledRequest.current !== requestKey) {
       if (requestedRun === "new") {
         handledRequest.current = requestKey;
@@ -383,6 +390,7 @@ type LocalCodeConversationProps = {
 
 function LocalCodeConversation(props: LocalCodeConversationProps) {
   const chatRef = useRef<AssistantChatHandle>(null);
+  const { call } = useNativeActionCaller();
   const latest = useRef(props);
   latest.current = props;
   const runIdRef = useRef(props.selection.runId);
@@ -398,15 +406,18 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
 
   const createAdapter = useCallback<NonNullable<AssistantChatProps["createAdapter"]>>(context =>
     createLocalCodeChatAdapter({
-      context, runIdRef, projectId: props.projectId,
+      context, call, runIdRef, projectId: props.projectId,
       engines: () => latest.current.state.engines,
       onStarted: runId => latest.current.onStarted(runId),
       onStreaming: value => {
         if (value) adapterOwnsMessages.current = true;
         latest.current.onStreaming(value);
       },
-      onSettled: () => latest.current.onSettled(),
-    }), [props.projectId]);
+      onSettled: () => {
+        adapterOwnsMessages.current = false;
+        latest.current.onSettled();
+      },
+    }), [props.projectId, call]);
   const loadHistoryRepository = useCallback<NonNullable<AssistantChatProps["loadHistoryRepository"]>>(async () => {
     // Canonical replay uses different message IDs. Import only while history owns
     // this view; replacing live IDs invalidates mounted assistant-ui bindings.
@@ -431,7 +442,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}
     isThreadStateLoading={!!props.selection.runId && !props.run && !props.streaming}
     historyReloadKey={events.length + ":" + (events.at(-1)?.id ?? "") + ":" + (props.run?.status ?? "")}
-    externalStreaming={!!props.run && isCodeAgentRunActive(props.run)}
+    externalStreaming={!!props.run && props.run.status !== "needs-approval" && isCodeAgentRunActive(props.run)}
     externalUserStopped={stoppedByUser}
     onStop={async () => {
       await props.onStop();
@@ -439,7 +450,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       return false;
     }}
     composerDisabled={disabled}
-    composerDisabledPlaceholder={!runtimeReady ? "Connect a runtime in Settings to start." : "The agent is working. Stop it before sending another message."}
+    composerDisabledPlaceholder={props.state.pendingApproval ? "Review the pending request above. Approve or deny before sending another message." : !runtimeReady ? "Connect a runtime in Settings to start." : "The agent is working. Stop it before sending another message."}
     selectedEngine={choice.engine} selectedModel={choice.model} defaultModel={props.state.defaultModel}
     availableModels={availableModels} onModelChange={(model, engine) => {
       const selected = props.state.engines.find(item => item.engine === engine);
@@ -466,6 +477,6 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       <Button variant="outline" size="sm" disabled={props.stopping} onClick={() => void props.onStop()} aria-label="Stop response">
         <IconSquare size={14} /> Stop
       </Button> : undefined}
-    threadFooterSlot={<p className="local-agent-limits">{choice.engine === "codex-cli" ? "Codex can run commands and edit files." : "Claude Code uses file tools."} Each run has a two-minute work limit.</p>}
+    threadFooterSlot={<p className="local-agent-limits">{choice.engine === "codex-cli" ? "Codex can run commands and edit files." : "Claude Code uses file tools."} Each turn needs your approval before it starts. Approved work continues after you leave, for up to two minutes.</p>}
   />;
 }

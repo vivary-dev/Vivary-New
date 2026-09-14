@@ -66,7 +66,11 @@ extend it to coding conversations.
 
 The desktop's Open folder action uses the system directory chooser. The server
 connects that folder through the existing Native-backed project registry.
-Browser startup can connect its initial folder with `--workspace`.
+New project previews the original creator's five guidance files before creating
+a separate folder under the app data directory's `projects` folder. It then
+registers and selects that project. Cancel writes nothing. Existing files and
+unavailable folder grants are preserved. Browser startup can also connect its
+initial folder with `--workspace`.
 
 Selecting a project selects its working directory, Code history, and file
 inspector. Personal workspace opens the app's default folder. Native owns the
@@ -85,10 +89,11 @@ The choice remains unsaved until that write succeeds.
 State writes reuse Native's public in-memory session. A Native session may omit
 its token. In that case, the app uses Native's standard cookie-backed state
 writer. When Native supplies a token, the client sends it only on an exact
-same-origin application-state PUT. The preview bridge accepts that header
+same-origin application-state PUT or a named project/agent action POST. The
+preview bridge accepts that header
 only after its existing request and owner checks pass. A rejected token is not
-replayed while Native refreshes the session. The app does not store or log
-session tokens.
+replayed while Native refreshes the session. Rejected tokens stay only in page memory so every action and state control
+blocks stale retries. Tokens are never written to disk, browser storage, or logs.
 Native's composer keeps unsent text in browser storage, so drafts survive
 project switching and navigation. A desktop restart that changes the loopback
 port does not yet restore those unsent text drafts. Completed transcripts
@@ -101,6 +106,19 @@ Detected missing or replaced folders remain unavailable without deleting records
 Without creation times, inode reuse during downtime can hide a replacement.
 This mode supplies ordinary local access. Content snapshots, VCS custody, and
 strict mutation evidence belong to the existing Core providers.
+
+Each Code message first becomes a pending request in Native's run store.
+The approval card shows the exact instruction, project, runtime, and two-minute
+limit. Approve background work starts that turn on the host, where it can
+continue after navigation or browser closure. Deny starts no model or tools.
+Every follow-up needs a new decision. Denied instructions do not enter later
+agent context.
+
+The global control shows pending requests, running work, and the latest outcome.
+Open conversation returns to the same run and transcript. Deny and Stop remain
+available if its folder becomes unavailable. Host restart preserves pending
+requests and history, marks interrupted execution honestly, and never starts
+work automatically.
 
 Each Code invocation uses a separate ordinary Node worker around Native's
 executor. A two-minute work deadline requests cancellation, followed by forced
