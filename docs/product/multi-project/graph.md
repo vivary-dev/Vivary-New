@@ -13,7 +13,7 @@ This graph is a snapshot of recorded metadata and retained evidence.
 The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
-Frontier snapshot: 04a, 06h, 07b, 09a, 11a, 11c, 23a.
+Frontier snapshot: 04a, 06h, 07b, 09a, 11c, 23a.
 In-progress snapshot: none.
 
 ## Packet references
@@ -43,7 +43,7 @@ In-progress snapshot: none.
 | [10a: Establish the BrowserPod compatibility boundary](packets/10a-browserpod-compatibility-preflight.md) | 10 | done | [] |
 | [10b: Prove the first BrowserPod toolchain on a disposable fixture](packets/10b-browserpod-toolchain-proof.md) | 10 | needs-info | [10a] |
 | [10c: Prove the authorized Habitat fallback toolchain](packets/10c-habitat-fallback-proof.md) | 10 | done | [10a] |
-| [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) | 11 | ready-for-agent | [03c] |
+| [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) | 11 | done | [03c] |
 | [11b: Generate a project map and state view without losing authored state](packets/11b-generated-project-views.md) | 11 | needs-info | [07b, 11a] |
 | [11c: Search large project trees from the application](packets/11c-fast-project-search.md) | 11 | ready-for-agent | [03c] |
 | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) | 11 | needs-info | [11c] |
