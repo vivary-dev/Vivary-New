@@ -16,7 +16,8 @@ You do not need to understand every internal module before reviewing that experi
 - Projects and their conversations organize navigation.
 - Files open only when requested, with formatted reading and explicit editing/saving.
 - Panels resize, close and reopen without losing work.
-- Supported installed harnesses supply the available model choices. Groups use harness names such as Claude Code and Codex.
+- The selected supported installed harness owns its tools, MCP configuration, models and native permission semantics. Vivary displays observed availability and keeps unknown states unknown. It does not add a second general tool picker.
+- Vivary keeps project and host authorization plus approval, denial and Stop for each exact request.
 - Switching harnesses creates a linked conversation and preserves access to exact recorded source history. It does not automatically send a message.
 - Preparing a handoff is a separate agent workflow.
 - Agent profiles are optional and user-authored.
@@ -24,6 +25,8 @@ You do not need to understand every internal module before reviewing that experi
 - A local desktop instance uses that computer's projects. A remote browser connects to the explicitly selected, authenticated host.
 - Project details start closed on a wide desktop. The header keeps essential project state and controls visible.
 - Handoff narratives update when the user requests them. A stale indicator can update without a model call.
+- Vivary provides its original engine and narrow deterministic workspace operations. Explain the capability or permission boundary before proposing another tool.
+- Templates start offline. A later optional community collection can use the existing vivary-site to link to source GitHub repositories and downloads, with preview before apply and no implied execution.
 
 These decisions do not need another vote. The first shell and integrated project, conversation, file, and panel journeys passed in the private hosted candidate. The later harness, handoff, concurrency, model, and Windows capabilities remain incomplete.
 
@@ -36,6 +39,18 @@ Jeff accepted guide snapshot `e86d06ed592a2d3c` on 2026-09-14 through his submit
 Later on 2026-09-14, Jeff explicitly clarified that one central conversation does not mean one total conversation for a project. Projects must allow multiple chats with independent history and context. Several threads may eventually run at the same time.
 
 This intent is settled and needs no additional design vote. The workspace must show activity and approvals for each thread and protect shared files from conflicting writes. The current runtime still permits one active run at a time, so concurrent execution remains an implementation gap. The product must show that limit accurately until runtime support changes.
+
+### Accepted clarification: harness capabilities and permission boundaries
+
+Later on 2026-09-14, Jeff explicitly clarified that the selected supported installed harness owns its tools, MCP configuration, models and native permission semantics. Vivary discovers and displays actual observed availability, keeps unknown states unknown and does not add a second general tool picker.
+
+Vivary still owns project and host authorization plus approval, denial and Stop for each exact request. Its original engine and narrow deterministic workspace operations remain available. When a user capability is missing, the product must explain whether the boundary is the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
+
+### Accepted clarification: template distribution
+
+Later on 2026-09-14, Jeff explicitly clarified that templates start as an offline baseline. A later optional community collection can use the existing vivary-site to point at source GitHub repositories and downloads. The user previews a template before applying it. A download stays inert until a separately authorized operation applies it. This does not create a marketplace or a separate template site.
+
+These clarifications are settled requirements and need no additional design vote.
 
 ### D1: Project details on a wide desktop
 
@@ -87,7 +102,7 @@ An agent can propose work. Approval authorizes the stated request. Execution per
 
 ### Make replacement happen at a clear boundary
 
-A harness is the installed agent tool, such as Claude Code. A model is a choice available through that tool. An adapter is the integration that connects a supported harness to the existing lifecycle. A new CLI needs that integration and compatibility evidence. It does not get to redefine project identity or permissions.
+A harness is the installed agent tool, such as Claude Code. It owns its tools, MCP configuration, models and native permission semantics. An adapter connects a supported harness to the existing lifecycle and reports what Vivary can actually observe. A new CLI needs that integration and compatibility evidence. Unknown stays unknown. Harness-native permissions do not replace Vivary project and host authorization or its approval, denial and Stop controls.
 
 ### Keep history, context and resume distinct
 

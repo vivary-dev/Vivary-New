@@ -10,7 +10,7 @@ Jeff explicitly clarified this requirement on 2026-09-14 in the product conversa
 
 Vivary is a visual workspace over supported user-selected harnesses. A conversation runtime is either a coding harness session or an existing Native agent thread. The grouped harness picker governs new coding conversations; it does not convert or relabel preserved Native history. Agent profiles are optional user-authored resources. The application must not require choosing a predefined researcher, planner or coder persona. Planning, documentation, research and creative artifacts belong alongside code in the same project.
 
-A single model picker groups choices by harness name, such as Claude Code, Codex and OpenCode, with appropriately sized brand marks and accessible text. Its catalog comes from supported registered CLIs and their available models on the selected execution host. A cross-harness selection starts a linked conversation without a handoff wizard. Preparing and maintaining a handoff is a separate agent workflow.
+The harness control groups choices by harness name, such as Claude Code, Codex and OpenCode, with appropriately sized brand marks and accessible text. The selected supported installed harness owns its tools, MCP configuration, models and native permission semantics. Vivary shows actual observed availability from the selected execution host, keeps unknown states unknown and does not add a second general tool picker. A cross-harness selection starts a linked conversation without a handoff wizard. Preparing and maintaining a handoff is a separate agent workflow.
 
 ## Workspace composition
 
@@ -59,11 +59,13 @@ Use the installed Toolkit resizable components. Proposed desktop starting dimens
 
 The [W3C splitter pattern](https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/) informs keyboard and accessibility behavior; validate the actual component and its caveats. Do not treat a splitter role or a passing typecheck as accessibility proof.
 
-## Model picker and switching
+## Harness choice and observed availability
 
-The picker presents a grouped list, not two separate setup forms. Group headings identify the harness, use a small reviewed logo or a neutral fallback, and expose readiness when it affects selection. Rows show the models available through that harness. Different registered instances remain distinguishable by a short account/endpoint label when needed, without exposing credentials.
+The control presents a grouped list. Group headings identify the harness, use a small reviewed logo or a neutral fallback, and expose readiness when it affects selection. Rows show models actually observed through that harness. Different registered instances remain distinguishable by a short account/endpoint label when needed, without exposing credentials. The selected harness owns its tools, MCP configuration, models and native permission semantics. Vivary does not provide a second general tool picker.
 
-The server catalog must distinguish registered, installed, authenticated, supported and ready. Reuse the runtime registry and documented harness APIs. A package being installed is not proof that its CLI can launch, its account is authenticated or its model list is current. Unknown model enumeration is a visible unsupported capability, not permission to invent a universal catalog. Refresh after installation/login/configuration changes and make a manual refresh available.
+The server catalog must distinguish registered, installed, authenticated, supported and ready. Reuse the runtime registry and documented harness APIs. A package being installed is not proof that its CLI can launch, its account is authenticated or its model list is current. Unknown model, tool, MCP or permission availability stays unknown. Refresh after installation/login/configuration changes and make a manual refresh available.
+
+Vivary retains project and host authorization plus approval, denial and Stop for the exact request. It provides its original engine and narrow deterministic workspace operations. When a user capability is missing, explain whether the boundary is the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
 
 Same-harness selection changes the model in the existing conversation only when the harness supports that operation. A cross-harness selection creates a new conversation under the same project and links the exact recorded source history through its last completed event. The original remains accessible. Preserve the unsent draft without silently submitting it. A failed switch leaves the original selection and draft usable with Retry.
 
@@ -78,6 +80,10 @@ This action submits a named workflow to the existing agent conversation. It does
 Proposed handoff fields: goal, current source/file versions, decisions, changes, checks with actual outcomes, unfinished work, risks, linked source conversation/event boundary, and the next concrete action. A dirty working tree is a legitimate reported state. No automatic clean, discard, commit, merge or deletion is part of preparing a handoff.
 
 Freshness is explicit. A reviewed handoff records the project version and completed-event boundary it covers. Later changes can mark it Out of date deterministically. Jeff accepted **Manual by default** on 2026-09-14 through his submitted review of guide snapshot `e86d06ed592a2d3c`. The agent updates the narrative when the user requests it, and the work follows normal authorization. A failed update retains the previous readable version and shows Retry. It does not report a fresh handoff. A future project may propose named completion checkpoints through a separate explicit opt-in.
+
+## Template distribution
+
+Templates start as an offline baseline. A later optional community collection can use the existing vivary-site to point at source GitHub repositories and downloads. Show a preview before apply. A download remains inert until a separately authorized operation applies it. This is not a marketplace or a separate template site.
 
 ## Unavailable folders and activity
 
@@ -94,12 +100,13 @@ Implementation status: the first shell is implemented on `feat/unified-project-w
 | `app/root.tsx`, `app/components/layout/Layout.tsx` | Preserve Native, query, appearance, project, and file-draft providers. `Layout` now mounts the canonical `Workspace` below those owners while settings keep their separate utility view. |
 | `app/components/workspace/Workspace.tsx` | Own the selected conversation area, header-first Details control, optional Files and Preview panels, responsive single-surface behavior, and panel focus/width preferences. |
 | `app/components/workspace/CodeConversation.tsx` | Compose existing Code history, selected run, approval, Stop, model control, and draft behavior in the canonical workspace. The current runtime still permits one active run. |
-| `app/components/workspace/NativeConversation.tsx` | Compose the existing Native `AgentChatSurface` with its original scoped storage and thread URL synchronization. It does not merge Native and Code history. |
+| `app/components/workspace/NativeConversation.tsx` | Compose Native `AgentChatSurface` with server-derived actor/organization/project scope and thread URL synchronization. Legacy v1 chats use their unchanged identity under Unassigned. |
 | `app/components/projects/ProjectFiles.tsx`, `app/routes/files.tsx` | Open the real project file browser and document view inside the optional panel. Documents remain read-first. Edit, Save, Rename, conflict recovery, and drafts retain their existing owners. |
-| `app/routes.ts`, `app/routes/agent.tsx`, `app/routes/workbench.tsx`, `app/routes/files-redirect.tsx`, `app/routes/chat.tsx` | Make `/` canonical. Preserve old entry URLs as compatibility redirects. `/files` opens the Files panel and `/chat` selects the Native conversation view. |
-| `app/components/layout/Sidebar.tsx` | Show projects, Code conversations, preserved Native conversations, settings, and search without restoring the old competing destinations. |
+| `app/routes.ts`, `app/routes/agent.tsx`, `app/routes/workbench.tsx`, `app/routes/files-redirect.tsx`, `app/routes/chat.tsx` | Make `/` canonical. Preserve old entry URLs as compatibility redirects. `/files` opens the Files panel and `/chat` selects the unassigned Native conversation view. |
+| `app/components/layout/Sidebar.tsx` | Show projects, a shared Code/Native project conversation list, unassigned legacy chats, settings, and search. |
 | `app/components/projects/ProjectContext.tsx` | Keep the existing project selection owner. Separate unavailable-folder execution state from authorized history visibility. |
-| `app/components/layout/CodeHistory.tsx` | Keep Code conversation selection available when folder-dependent execution is unavailable, without weakening authorization. |
+| `app/components/layout/ProjectHistory.tsx`, `CodeHistory.tsx` | Compose authorized Native thread and Code run references with runtime labels. Code history remains available if Native identity loading fails. |
+| `actions/vivary-chat-identity.ts`, `server/chat-identity.ts`, `server/native-chat-project.ts` | Derive stable actor/organization/project identity, preserve legacy scope, and revalidate project access before Native sends. Native owns threads and messages; no second transcript store is added. |
 | `actions/vivary-code-state.ts`, `server/code-project.ts` | Separate authenticated project metadata and history reads from live folder resolution. Keep owner, organization, and current project-grant checks on reads. File access and execution still require an available authorized root. |
 | `server/project-runtime-readiness.mjs`, `server/project-services.mjs` | Extend the existing project-scoped readiness owner with supported adapter model discovery. Preserve binding and policy revision checks. Installation, authentication, authorization, and runnable state remain distinct. |
 | `server/local-code-agent.ts` | Retain Native as the transcript, run, and session owner. Future catalog and linked-conversation work must consume the existing readiness and history owners instead of adding competing services. |

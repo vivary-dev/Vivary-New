@@ -72,9 +72,11 @@ Optional profile authoring remains with existing Native resource/settings or int
 
 ## M04: Harness adapters
 
-Discover supported installed CLIs and their models.
+Discover observed availability for supported installed harnesses.
 
-- Owns: Capability and readiness observations. Native owns sessions, events and opaque resume state.
+The selected harness owns its tools, MCP configuration, models and native permission semantics. Vivary displays only observed availability, preserves unknown states and does not add a second general tool picker.
+
+- Owns: Capability and readiness observations. The selected harness owns its tools, MCP configuration, models and native permissions. Native owns sessions, events and opaque resume state.
 - Calls: M02, M05, M14.
 - Replacement contract: Add a registered adapter, model probe and compatibility evidence. No UI engine-name switch.
 - Conceptual request/result: ListCatalog / ResolveChoice -> adapter identity, model observation and readiness. New native-harness sessions use the Native harness lifecycle. Preserved native-code sessions use the Code executor and controls. Dispatch by owner kind.
@@ -96,7 +98,7 @@ Make effects explicit, scoped and revocable.
 
 - Owns: Actor/project grant validation, deterministic policy and Vivary pre-launch request binding. Native retains originating approval state and lifecycle.
 - Calls: no product module. Validates supplied identity and authoritative policy through existing framework/registry seams.
-- Replacement contract: Adapters cannot widen permissions or turn unknown capability into approval.
+- Replacement contract: Adapters cannot widen permissions or turn unknown capability into approval. Harness-native permissions do not replace Vivary project and host authorization or its approval, denial and Stop controls.
 - Conceptual request/result: ValidateScope / ApproveExactRequest / Deny / Stop -> policy decision or observed lifecycle result. Approval state stays with the originating Native owner. The facade delegates using its approval reference. Stop is an ownership-checked Native control.
 - Acceptance: Deny one request, change an approved request, revoke a grant, and Stop an owned run after its folder disappears.
 - Actions: A034, A035, A036, A037, A038, A039, A040. See [the action catalog](actions.md#m05-authority-and-approvals).
@@ -135,6 +137,8 @@ Current source or design entry points:
 ## M07: Workspace operations
 
 Create, adopt and run the original Vivary commands.
+
+Vivary provides its original engine and narrow deterministic workspace operations. Explain whether a missing user capability is blocked by the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
 
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.
@@ -269,6 +273,8 @@ Current source or design entry points:
 ## M15: Distribution and discovery
 
 Publish truthful artifacts and supported protocols.
+
+Workspace templates remain an offline baseline. A later optional community collection can use the existing vivary-site to point at source GitHub repositories and downloads. Show a preview before apply. A download remains inert until a separately authorized operation applies it. This is not a marketplace or a separate template site.
 
 - Owns: Release manifests and implemented protocol contracts. Website is a separate repository.
 - Calls: M05, M07, M14, M16.

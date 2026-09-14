@@ -369,17 +369,21 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   const selectedEngine = props.state.engines.find(engine => engine.engine === choice.engine);
   const runtime = selectedEngine?.runtime;
   const events = props.run?.events ?? [];
+  const snapshotKey = events.length + ":" + (events.at(-1)?.id ?? "") + ":" + (props.run?.status ?? "");
+  const viewKey = useRef(snapshotKey);
+  // A live turn and its canonical transcript use different message IDs. Replace
+  // the view at that ownership boundary, never the repository beneath mounted rows.
+  if (!adapterOwnsMessages.current) viewKey.current = snapshotKey;
   const stoppedByUser = props.run?.status === "paused"
     && events.findLast(event => event.kind === "status")?.metadata?.reason === "user";
   const runtimeReady = runtime?.status === "ready";
   const disabled = !props.workspaceAvailable || props.active || props.streaming || !runtimeReady;
 
-  return <AssistantChat ref={chatRef}
+  return <AssistantChat key={viewKey.current} ref={chatRef}
     tabId={"vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key}
     showHeader={false} className="local-agent-transcript"
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}
     isThreadStateLoading={!!props.selection.runId && !props.run && !props.streaming}
-    historyReloadKey={events.length + ":" + (events.at(-1)?.id ?? "") + ":" + (props.run?.status ?? "")}
     externalStreaming={!!props.run && props.run.status !== "needs-approval" && isCodeAgentRunActive(props.run)}
     externalUserStopped={stoppedByUser}
     onStop={async () => {

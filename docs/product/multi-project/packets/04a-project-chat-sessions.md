@@ -18,14 +18,16 @@ same project after navigation and reopening.
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
-Code runs already bind project, root, binding and owner. Full chat currently
-uses an organization-only scope. Native owns runs, threads, messages and tools.
+Code runs bind project, root, binding and owner. The issue #6 implementation
+derives new Native chat identity from actor, organization and project. Older
+organization-only chats keep their original scope under Unassigned. Native owns
+runs, threads, messages and tools.
 Project scope labels do not grant filesystem access. Resolve the current grant.
 
 ## Owned files
 
 - `packages/workbench/app/lib/chat-scope.ts` and `components/layout/use-vivary-chat-identity.ts`.
-- `packages/workbench/app/routes/agent.tsx`, `chat.tsx`, and shared session navigation.
+- `packages/workbench/app/components/workspace/CodeConversation.tsx`, `NativeConversation.tsx`, and shared session navigation.
 - `packages/workbench/server/local-code-agent.ts` and related scoped actions where needed.
 - `packages/workbench/tests/chat-scope.test.ts` and `local-code-agent.test.ts`.
 - Coordinate changes to `components/projects/ProjectContext.tsx` with its current owner.
@@ -46,11 +48,13 @@ No Vivary signup is introduced. Provider authentication remains separate.
 Exercise two projects and Personal workspace through both chat surfaces. Create,
 reopen and follow up in each. Verify cross-project queries refuse mismatched IDs.
 Use the installed TypeScript runner for the named existing Code boundary tests.
-Run the normal hosted GUI first. Leave draft-restart acceptance to 17a.
+Run the normal hosted GUI first. An isolated normal-app instance may use a deterministic
+local provider when Native provider credentials are unavailable. Keep that proof
+separate from an actual hosted model run. Leave draft-restart acceptance to 17a.
 
 ```console
-node --experimental-strip-types --test packages/workbench/tests/chat-scope.test.ts
-pnpm --dir packages/workbench typecheck
+pnpm --dir packages/workbench exec tsx --test tests/chat-scope.test.ts tests/native-chat-project.test.ts tests/local-code-agent.test.ts
+pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
 git diff --check
 ```
 

@@ -27,3 +27,28 @@ test("bounds the scope and rejects invalid organization IDs", () => {
     assert.equal(vivaryChatScope(orgId), null);
   }
 });
+
+
+test("project identities keep actor, organization and Personal separate", async () => {
+  const { createVivaryChatIdentity } = await import("../server/chat-identity.ts");
+  const identity = (owner: string, org: string, projectId: string | null) =>
+    createVivaryChatIdentity(owner, org, { kind: "project", projectId, label: "A project" });
+  const a = identity("owner@example.test", "org-a", "project-a");
+  assert.deepEqual(a, identity(" OWNER@example.test ", "org-a", "project-a"));
+  const alternatives = [identity("owner@example.test", "org-a", "project-b"),
+    identity("owner@example.test", "org-a", null), identity("owner@example.test", "org-b", "project-a"),
+    identity("other@example.test", "org-a", "project-a")];
+  assert.equal(new Set([a, ...alternatives].map(value => value.scope.id)).size, 5);
+  assert.equal(a.scope.id.includes("owner@example.test"), false);
+  assert.equal(a.scope.id.length, 87);
+  const renamed = createVivaryChatIdentity("owner@example.test", "org-a",
+    { kind: "project", projectId: "project-a", label: "Renamed project" });
+  assert.equal(renamed.scope.id, a.scope.id);
+  assert.equal(renamed.storageKey, a.storageKey);
+  const legacy = createVivaryChatIdentity("owner@example.test", "org-a", { kind: "unassigned" });
+  assert.deepEqual(legacy.scope, vivaryChatScope("org-a"));
+  assert.equal(legacy.storageKey, `vivary-workbench-chat-v1:${encodeURIComponent(JSON.stringify(["owner@example.test", "org-a"]))}`);
+  for (const projectId of ["", "a:b", "a".repeat(129)]) {
+    assert.throws(() => identity("owner@example.test", "org-a", projectId));
+  }
+});

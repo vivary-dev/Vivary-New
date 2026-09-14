@@ -80,7 +80,7 @@ Store derived indexes in private application data, keyed by stable project ident
 | --- | --- | --- |
 | Desktop | Electron, bundled Node, loopback launcher, native folder chooser, old Windows portable artifact | Bundle the original Python suite and prove the current app on Windows |
 | Agent loop | Native Code execution, file tools, Stop, stored normalized transcripts | Supported provider session persistence/resume and external log references |
-| Projects | Folder registration, Code project binding, selected-project state | Reliable saves, Full chat project scope, Create and Adopt workflows |
+| Projects | Folder registration, Code project binding, selected-project state | Reliable saves, Project session acceptance, Create and Adopt workflows |
 | History | Native Code transcripts and Native Full chat storage/search | One project/session presentation, Code pagination and content search |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
 | Files | Small Markdown/text/JSON inspector | Source-file navigation, exact search, conflict-aware editing |
@@ -102,10 +102,9 @@ priority, and lifecycle. This table is a synchronized navigation snapshot. Read 
 live issue before dispatch. Packets provide implementation guidance and evidence,
 not a second task contract. Preserve approved product and access constraints.
 
-Jeff selected the unified workspace design in issue #38 on 2026-09-14. Complete
-its research, interaction contract and complete visual product specification
-before resuming application changes. Jeff reviews that specification first.
-The product lane then consolidates the workspace and project-session restoration.
+Jeff selected the unified workspace design in issue #38 on 2026-09-14. The specification was reviewed and accepted on 2026-09-14, and the first unified
+workspace slice merged in PR #42. The product lane now finishes project-session
+binding and restoration.
 Independent desktop runtime packaging remains the second lane when work resumes.
 Keep one integration writer, one owner per shared file, a reviewer for completed slices, and one heavy runtime job at a
 time. Independent source work can continue during CI. Close each issue only after
@@ -114,7 +113,7 @@ its accepted behavior is verified and its reviewed PR is merged.
 | Order | Deliverable | Owning ticket | Readiness |
 | --- | --- | --- | --- |
 | 1 | Reliable state | [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md) · [#5](https://github.com/vivary-dev/Vivary-New/issues/5) | Done |
-| 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | Visual product specification next; application implementation waits |
+| 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | First shell merged; remaining integrations follow the accepted specification |
 | 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Ready |
 | 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Ready |
 | 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
