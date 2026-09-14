@@ -133,6 +133,11 @@ its accepted behavior is verified and its reviewed PR is merged.
 | 21 | Desktop and web acceptance | [23c: Deliver and accept the desktop and web product](packets/23c-windows-product-acceptance.md) · [#23](https://github.com/vivary-dev/Vivary-New/issues/23) | After 06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e |
 | 22 | Optional semantic search | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) · [#24](https://github.com/vivary-dev/Vivary-New/issues/24) | After 11c |
 
+[Issue #35](https://github.com/vivary-dev/Vivary-New/issues/35) adds explicit
+approval and denial for background agent work to final product acceptance.
+It is required in the desktop and self-hosted web milestone. Each approved turn
+must remain visible and reopenable after browser navigation.
+
 The first Windows launch check happens before final acceptance, so platform
 failures are discovered while product implementation continues. The final release
 ticket is not complete until its whole user journey passes on the exact artifact.

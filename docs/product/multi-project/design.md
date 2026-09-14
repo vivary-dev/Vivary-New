@@ -497,3 +497,19 @@ Letta Code is a major design reference for persistence. Reuse the existing
 Mac distribution is optional later roadmap work outside the active
 Windows/shared-web milestone. Native phone apps and a managed cloud service are
 not in scope.
+
+
+## Background work approval decision, 2026-09-14
+
+Jeff selected both reopening the same agent conversation and work that continues
+after leaving the browser. Background work must be obvious and provide approval
+and denial. Issue [#35](https://github.com/vivary-dev/Vivary-New/issues/35) owns
+this requirement.
+
+Each local coding turn requires a visible, server-enforced decision before
+execution. Show its exact task, project, runtime, capabilities, and existing
+two-minute limit. Approval applies to that turn only. Denial starts no model or
+tools. Pending, running, and terminal outcomes remain visible with a conversation
+link and denial or Stop as appropriate. Host restart never grants approval or
+automatically resumes interrupted work. Native retains the conversation and
+approval records. This decision adds no scheduler or second run store.

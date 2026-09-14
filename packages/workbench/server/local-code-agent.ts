@@ -50,6 +50,19 @@ type ActiveRun = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type PendingLaunch = {
+  requestId: string;
+  message: string;
+  engine: VivaryCodeEngine;
+  model: string;
+  ownerEmail: string;
+  orgId?: string;
+  isFollowUp: boolean;
+  workspace: VivaryCodeWorkspace;
+  timeoutMs: typeof RUN_TIMEOUT_MS;
+  continuesAfterBrowserClose: true;
+};
+
 export type VivaryCodeRunSummary = Pick<
   CodeAgentRunRecord,
   "id" | "status" | "title"
@@ -72,8 +85,28 @@ export type VivaryCodeWorkspace = Readonly<{
   bindingRevision?: number;
 }>;
 
+export type VivaryCodePendingApproval = {
+  runId: string;
+  requestId: string;
+  title: string;
+  message: string;
+  projectId: string | null;
+  workspaceLabel: string;
+  engine: VivaryCodeEngine;
+  engineLabel: string;
+  model: string;
+  timeoutMs: typeof RUN_TIMEOUT_MS;
+  continuesAfterBrowserClose: true;
+};
+
+export type VivaryCodeRecentRun = Pick<CodeAgentRunRecord, "id" | "status" | "title" | "phase"> & {
+  projectId: string | null;
+};
+
 export type VivaryCodeHostState = {
   activeRun: { id: string; title: string; projectId: string | null } | null;
+  pendingApproval: VivaryCodePendingApproval | null;
+  recentRun: VivaryCodeRecentRun | null;
   busy: boolean;
 };
 
@@ -142,6 +175,7 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
     for (const run of listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID)) {
       if (metadataString(run, "app") !== VIVARY_CODE_APP_MARKER) continue;
       if (run.metadata?.cleanupUnverified === true) hostState.closing = true;
+      if (run.phase === "launch-approval" && pendingLaunchFromRun(run)) continue;
       if (!isActiveCodeAgentRun(run)) continue;
       appendCodeAgentTranscriptEvent({
         runId: run.id,
@@ -212,14 +246,27 @@ export function requireVivaryCodeUser(ctx?: ActionRunContext): string {
   return userEmail;
 }
 
-export async function getVivaryCodeHostState(ownerEmail: string): Promise<VivaryCodeHostState> {
+export async function getVivaryCodeHostState(
+  ownerEmail: string,
+  orgId?: string,
+): Promise<VivaryCodeHostState> {
   await ensureVivaryCodeHostInitialized();
-  const active = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(run =>
-    activeRuns.has(run.id) && metadataString(run, "app") === VIVARY_CODE_APP_MARKER
-    && metadataString(run, "ownerEmail") === ownerEmail);
+  const runs = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID);
+  const owned = runs.filter(run => isOwnedIdentity(run, ownerEmail, orgId));
+  const active = owned.find(run => activeRuns.has(run.id));
+  const pending = owned.find(run => run.phase === "launch-approval" && pendingLaunchFromRun(run));
+  const recent = owned.find(run => !activeRuns.has(run.id) && !isPendingVivaryLaunch(run));
   return {
     activeRun: active ? { id: active.id, title: active.title, projectId: metadataString(active, "projectId") } : null,
-    busy: activeRuns.size > 0,
+    pendingApproval: pending ? toPendingApproval(pending) : null,
+    recentRun: recent ? {
+      id: recent.id,
+      title: recent.title,
+      status: recent.status,
+      phase: recent.phase,
+      projectId: metadataString(recent, "projectId"),
+    } : null,
+    busy: activeRuns.size > 0 || runs.some(isPendingVivaryLaunch),
   };
 }
 
@@ -227,12 +274,13 @@ export async function getVivaryCodeState(
   ownerEmail: string,
   runId?: string,
   selectedWorkspace?: VivaryCodeWorkspace,
+  orgId?: string,
 ): Promise<VivaryCodeState> {
   const workspace = selectedWorkspace ?? await resolveWorkspace();
   await ensureVivaryCodeHostInitialized();
-  const runs = ownedRuns(ownerEmail, workspace);
+  const runs = ownedRuns(ownerEmail, orgId, workspace);
   const selected = runId
-    ? requireOwnedRun(runId, ownerEmail, workspace)
+    ? requireOwnedRun(runId, ownerEmail, orgId, workspace)
     : runs[0] ?? null;
 
   const engines = await Promise.all(VIVARY_CODE_ENGINES.map(async engine => {
@@ -245,7 +293,7 @@ export async function getVivaryCodeState(
   const runtime = await getVivaryRuntimeStatus(selectedEngine);
 
   return {
-    ...await getVivaryCodeHostState(ownerEmail),
+    ...await getVivaryCodeHostState(ownerEmail, orgId),
     projectId: workspace.projectId ?? null,
     workspaceLabel: workspace.label,
     defaultEngine: VIVARY_CODE_DEFAULT_ENGINE,
@@ -278,19 +326,9 @@ export async function sendVivaryCodeMessage(input: {
 }): Promise<VivaryCodeState> {
   const workspace = input.workspace ?? await resolveWorkspace();
   await ensureVivaryCodeHostInitialized();
-  if (hostState.closing) {
-    fail("The coding host is stopping or requires process cleanup. Check the latest run before continuing.", {
-      errorCode: "vivary_code_host_closing",
-      statusCode: 503,
-    });
-  }
-  if (activeRuns.size > 0) {
-    fail("A local Vivary code run is already active. Wait for it or stop it.", {
-      errorCode: "vivary_code_run_active",
-      statusCode: 409,
-    });
-  }
-  const existing = input.runId ? requireOwnedRun(input.runId, input.ownerEmail, workspace) : null;
+  assertCodeHostAvailable();
+
+  const existing = input.runId ? requireOwnedRun(input.runId, input.ownerEmail, input.orgId, workspace) : null;
   const selectedEngine = existing ? engineFromRun(existing) : input.engine ?? VIVARY_CODE_DEFAULT_ENGINE;
   if (input.engine && input.engine !== selectedEngine) {
     fail("Start a new conversation to change coding runtimes.", { errorCode: "vivary_code_engine_changed", statusCode: 409 });
@@ -302,61 +340,217 @@ export async function sendVivaryCodeMessage(input: {
   }
   if (input.revalidateWorkspace) {
     const current = await input.revalidateWorkspace();
-    const fields = ["root", "projectId", "bindingId", "rootId", "bindingRevision"] as const;
-    if (!current || fields.some(field => current[field] !== workspace[field])) {
+    if (!current || !sameWorkspace(current, workspace)) {
       fail("The selected project changed while its runtime was checked. Select it again.", {
         errorCode: "vivary_code_project_changed", statusCode: 409,
       });
     }
   }
-  // Readiness is asynchronous. Recheck admission before creating a run.
+
+  // Runtime and project checks await external state. Recheck the single host slot
+  // immediately before persisting this exact request for approval.
+  assertCodeHostAvailable();
+  const requestId = crypto.randomUUID();
+  const pendingLaunch: PendingLaunch = {
+    requestId,
+    message: input.message,
+    engine: selectedEngine,
+    model: selectedModel,
+    ownerEmail: input.ownerEmail,
+    orgId: input.orgId,
+    isFollowUp: existing !== null,
+    workspace,
+    timeoutMs: RUN_TIMEOUT_MS,
+    continuesAfterBrowserClose: true,
+  };
+  const run = existing ?? createCodeAgentRunRecord({
+    goalId: VIVARY_CODE_GOAL_ID,
+    title: titleFromMessage(input.message),
+    status: "needs-approval",
+    phase: "launch-approval",
+    needsApproval: true,
+    permissionMode: "auto-edit",
+    cwd: workspace.root,
+    metadata: {
+      app: VIVARY_CODE_APP_MARKER,
+      engine: selectedEngine,
+      model: selectedEngine === "claude-cli" ? selectedModel : null,
+      ownerEmail: input.ownerEmail,
+      orgId: input.orgId,
+      workspaceRoot: workspace.root,
+      ...(workspace.projectId ? {
+        projectId: workspace.projectId,
+        bindingId: workspace.bindingId,
+        rootId: workspace.rootId,
+        bindingRevision: workspace.bindingRevision,
+      } : {}),
+      pendingLaunch,
+    },
+  });
+
+  if (existing) {
+    updateCodeAgentRunRecord(run.id, {
+      status: "needs-approval",
+      phase: "launch-approval",
+      needsApproval: true,
+      progress: { label: "Approval required", completed: 0, total: 1, percent: 0 },
+      metadata: {
+        model: selectedEngine === "claude-cli" ? selectedModel : null,
+        pendingLaunch,
+      },
+    });
+  }
+  appendCodeAgentTranscriptEvent({
+    runId: run.id,
+    kind: "status",
+    message: "Approval is required before this coding request starts.",
+    metadata: {
+      status: "needs-approval",
+      phase: "launch-approval",
+      requestId,
+      continuesAfterBrowserClose: true,
+      timeoutMs: RUN_TIMEOUT_MS,
+    },
+  });
+
+  return getVivaryCodeState(input.ownerEmail, run.id, workspace, input.orgId);
+}
+
+export async function approveVivaryCodeMessage(input: {
+  ownerEmail: string;
+  orgId?: string;
+  runId: string;
+  requestId: string;
+  workspace?: VivaryCodeWorkspace;
+  revalidateWorkspace?: () => Promise<VivaryCodeWorkspace | undefined>;
+}): Promise<VivaryCodeState> {
+  const workspace = input.workspace ?? await resolveWorkspace();
+  await ensureVivaryCodeHostInitialized();
+  const run = requireOwnedRun(input.runId, input.ownerEmail, input.orgId, workspace);
+  const pending = requirePendingLaunch(run, input.requestId, input.ownerEmail, input.orgId);
+  if (!sameWorkspace(pending.workspace, workspace)) {
+    fail("The selected project no longer matches this approval request.", {
+      errorCode: "vivary_code_approval_project_changed", statusCode: 409,
+    });
+  }
+
+  const runtime = await getVivaryRuntimeStatus(pending.engine, { refresh: true });
+  if (runtime.status !== "ready") {
+    fail(runtime.message, { errorCode: "vivary_code_runtime_unavailable", statusCode: 503 });
+  }
+  const current = input.revalidateWorkspace
+    ? await input.revalidateWorkspace()
+    : await resolveWorkspace();
+  if (!current || !sameWorkspace(current, pending.workspace)) {
+    fail("The selected project changed before this request was approved. Review it again.", {
+      errorCode: "vivary_code_approval_project_changed", statusCode: 409,
+    });
+  }
+
+  // No awaits after this point until the process-local slot is claimed. This
+  // prevents two approvals from launching the same request.
   if (hostState.closing || activeRuns.size > 0) {
     fail("The coding runtime is busy or shutting down. Wait for it or stop the active run.", {
       errorCode: "vivary_code_run_active", statusCode: 409,
     });
   }
-  const run = existing ?? createCodeAgentRunRecord({
-        goalId: VIVARY_CODE_GOAL_ID,
-        title: titleFromMessage(input.message),
-        status: "queued",
-        phase: "queued",
-        permissionMode: "auto-edit",
-        cwd: workspace.root,
-        metadata: {
-          app: VIVARY_CODE_APP_MARKER,
-          engine: selectedEngine,
-          model: selectedEngine === "claude-cli" ? selectedModel : null,
-          ownerEmail: input.ownerEmail,
-          orgId: input.orgId,
-          workspaceRoot: workspace.root,
-          ...(workspace.projectId ? {
-            projectId: workspace.projectId,
-            bindingId: workspace.bindingId,
-            rootId: workspace.rootId,
-            bindingRevision: workspace.bindingRevision,
-          } : {}),
-        },
-      });
-
-  if (existing) {
-    updateCodeAgentRunRecord(run.id, { status: "queued", phase: "queued",
-      metadata: { model: selectedEngine === "claude-cli" ? selectedModel : null } });
+  const currentRun = requireOwnedRun(input.runId, input.ownerEmail, input.orgId, pending.workspace);
+  const currentPending = requirePendingLaunch(currentRun, input.requestId, input.ownerEmail, input.orgId);
+  const otherPending = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(candidate =>
+    candidate.id !== currentRun.id && isPendingVivaryLaunch(candidate));
+  if (otherPending) {
+    fail("Another coding request is waiting for approval.", {
+      errorCode: "vivary_code_run_active", statusCode: 409,
+    });
   }
 
-  const executionMessage = input.runId
+  const executionMessage = currentPending.isFollowUp
     ? buildVivaryCodeFollowUpPrompt(
-        listCodeAgentTranscriptEvents(run.id),
-        input.message,
+        listCodeAgentTranscriptEvents(currentRun.id),
+        currentPending.message,
       )
-    : input.message;
+    : currentPending.message;
+  appendCodeAgentTranscriptEvent({
+    runId: currentRun.id,
+    kind: "user",
+    message: currentPending.message,
+    metadata: {
+      source: "vivary-workbench",
+      requestId: currentPending.requestId,
+      approved: true,
+    },
+  });
+  updateCodeAgentRunRecord(currentRun.id, {
+    status: "queued",
+    phase: "queued",
+    needsApproval: false,
+    progress: { label: "Queued", completed: 0, total: 1, percent: 0 },
+    metadata: {
+      pendingLaunch: undefined,
+      approvedRequestId: currentPending.requestId,
+    },
+  });
+  startVivaryCodeRun({
+    runId: currentRun.id,
+    message: executionMessage,
+    engine: currentPending.engine,
+    model: currentPending.model,
+    ownerEmail: currentPending.ownerEmail,
+    orgId: currentPending.orgId,
+  });
+  return getVivaryCodeState(input.ownerEmail, currentRun.id, pending.workspace, input.orgId);
+}
 
+export async function denyVivaryCodeMessage(input: {
+  ownerEmail: string;
+  orgId?: string;
+  runId: string;
+  requestId: string;
+  projectId?: string;
+}): Promise<VivaryCodeState> {
+  await ensureVivaryCodeHostInitialized();
+  const run = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(candidate =>
+    candidate.id === input.runId
+    && metadataString(candidate, "app") === VIVARY_CODE_APP_MARKER
+    && metadataString(candidate, "ownerEmail") === input.ownerEmail
+    && metadataString(candidate, "orgId") === (input.orgId ?? null)
+    && metadataString(candidate, "projectId") === (input.projectId ?? null));
+  if (!run) fail("Local Vivary code run not found.", {
+    errorCode: "vivary_code_run_not_found", statusCode: 404,
+  });
+  const pending = requirePendingLaunch(run, input.requestId, input.ownerEmail, input.orgId);
   appendCodeAgentTranscriptEvent({
     runId: run.id,
-    kind: "user",
-    message: input.message,
-    metadata: { source: "vivary-workbench" },
+    kind: "note",
+    message: "Coding request denied. No model or tools were started.",
+    metadata: {
+      status: "paused",
+      phase: "approval-denied",
+      requestId: pending.requestId,
+      denied: true,
+    },
   });
+  updateCodeAgentRunRecord(run.id, {
+    status: "paused",
+    phase: "approval-denied",
+    needsApproval: false,
+    progress: { label: "Not started", completed: 0, total: 1, percent: 0 },
+    metadata: {
+      pendingLaunch: undefined,
+      deniedRequestId: pending.requestId,
+    },
+  });
+  return getVivaryCodeState(input.ownerEmail, run.id, pending.workspace, input.orgId);
+}
 
+function startVivaryCodeRun(input: {
+  runId: string;
+  message: string;
+  engine: VivaryCodeEngine;
+  model: string;
+  ownerEmail: string;
+  orgId?: string;
+}): void {
   const controller = new AbortController();
   const activeRun: ActiveRun = {
     controller,
@@ -368,24 +562,21 @@ export async function sendVivaryCodeMessage(input: {
       if (activeRun.stopReason !== null) return;
       activeRun.stopReason = "timeout";
       recordStoppingRun(
-        run.id,
+        input.runId,
         "The local code run reached its 120 second limit and is stopping.",
         "timeout",
       );
       controller.abort();
     }, RUN_TIMEOUT_MS),
   };
-  activeRuns.set(run.id, activeRun);
-
+  activeRuns.set(input.runId, activeRun);
   activeRun.execution = executeVivaryCodeRun({
     activeRun,
-    message: executionMessage,
-    model: selectedEngine === "claude-cli" ? selectedModel : undefined,
-    runId: run.id,
+    message: input.message,
+    model: input.engine === "claude-cli" ? input.model : undefined,
+    runId: input.runId,
   });
   void activeRun.execution.catch(() => undefined);
-
-  return getVivaryCodeState(input.ownerEmail, run.id, workspace);
 }
 
 async function executeVivaryCodeRun(input: {
@@ -454,6 +645,7 @@ async function executeVivaryCodeRun(input: {
 
 export async function stopVivaryCodeRun(input: {
   ownerEmail: string;
+  orgId?: string;
   runId: string;
   projectId?: string;
 }): Promise<VivaryCodeState> {
@@ -461,6 +653,7 @@ export async function stopVivaryCodeRun(input: {
   const record = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(run =>
     run.id === input.runId && metadataString(run, "app") === VIVARY_CODE_APP_MARKER
     && metadataString(run, "ownerEmail") === input.ownerEmail
+    && metadataString(run, "orgId") === (input.orgId ?? null)
     && metadataString(run, "projectId") === (input.projectId ?? null));
   if (!record) fail("Local Vivary code run not found.", { statusCode: 404 });
   // Cancellation uses the recorded owner and project. A missing folder must not prevent Stop.
@@ -469,6 +662,7 @@ export async function stopVivaryCodeRun(input: {
     projectId: metadataString(record, "projectId") ?? undefined,
     bindingId: metadataString(record, "bindingId") ?? undefined,
     rootId: metadataString(record, "rootId") ?? undefined,
+    bindingRevision: metadataNumber(record, "bindingRevision") ?? undefined,
   };
 
   const activeRun = activeRuns.get(input.runId);
@@ -489,7 +683,7 @@ export async function stopVivaryCodeRun(input: {
     activeRun.controller.abort();
   }
 
-  return getVivaryCodeState(input.ownerEmail, input.runId, workspace);
+  return getVivaryCodeState(input.ownerEmail, input.runId, workspace, input.orgId);
 }
 
 export async function getVivaryCodeFiles(
@@ -516,20 +710,21 @@ export async function getVivaryCodeFiles(
   };
 }
 
-function ownedRuns(ownerEmail: string, workspace: VivaryCodeWorkspace) {
+function ownedRuns(ownerEmail: string, orgId: string | undefined, workspace: VivaryCodeWorkspace) {
   return listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).filter(
-    (run) => isOwnedRun(run, ownerEmail, workspace),
+    (run) => isOwnedRun(run, ownerEmail, orgId, workspace),
   );
 }
 
 function requireOwnedRun(
   runId: string,
   ownerEmail: string,
+  orgId: string | undefined,
   workspace: VivaryCodeWorkspace,
 ): CodeAgentRunRecord {
   const run = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).find(
     (candidate) =>
-      candidate.id === runId && isOwnedRun(candidate, ownerEmail, workspace),
+      candidate.id === runId && isOwnedRun(candidate, ownerEmail, orgId, workspace),
   );
   if (!run) {
     fail("Local Vivary code run not found.", {
@@ -551,24 +746,147 @@ export function isVivaryAppRun(
     metadataString(run, "workspaceRoot") === workspace.root &&
     metadataString(run, "projectId") === (workspace.projectId ?? null) &&
     metadataString(run, "bindingId") === (workspace.bindingId ?? null) &&
-    metadataString(run, "rootId") === (workspace.rootId ?? null)
+    metadataString(run, "rootId") === (workspace.rootId ?? null) &&
+    metadataNumber(run, "bindingRevision") === (workspace.bindingRevision ?? null)
   );
 }
 
 function isOwnedRun(
   run: CodeAgentRunRecord,
   ownerEmail: string,
+  orgId: string | undefined,
   workspace: VivaryCodeWorkspace,
 ): boolean {
-  return (
-    isVivaryAppRun(run, workspace) &&
-    metadataString(run, "ownerEmail") === ownerEmail
-  );
+  return isVivaryAppRun(run, workspace) && isOwnedIdentity(run, ownerEmail, orgId);
+}
+
+function isOwnedIdentity(
+  run: CodeAgentRunRecord,
+  ownerEmail: string,
+  orgId?: string,
+): boolean {
+  return metadataString(run, "app") === VIVARY_CODE_APP_MARKER
+    && metadataString(run, "ownerEmail") === ownerEmail
+    && metadataString(run, "orgId") === (orgId ?? null);
+}
+
+function assertCodeHostAvailable(): void {
+  if (hostState.closing) {
+    fail("The coding host is stopping or requires process cleanup. Check the latest run before continuing.", {
+      errorCode: "vivary_code_host_closing",
+      statusCode: 503,
+    });
+  }
+  const pending = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).some(isPendingVivaryLaunch);
+  if (activeRuns.size > 0 || pending) {
+    fail("A Vivary coding request is active or waiting for approval. Open it, deny it, or stop it.", {
+      errorCode: "vivary_code_run_active",
+      statusCode: 409,
+    });
+  }
+}
+
+function isPendingVivaryLaunch(run: CodeAgentRunRecord): boolean {
+  return metadataString(run, "app") === VIVARY_CODE_APP_MARKER
+    && run.status === "needs-approval"
+    && run.phase === "launch-approval"
+    && pendingLaunchFromRun(run) !== null;
+}
+
+function requirePendingLaunch(
+  run: CodeAgentRunRecord,
+  requestId: string,
+  ownerEmail: string,
+  orgId?: string,
+): PendingLaunch {
+  const pending = pendingLaunchFromRun(run);
+  if (!pending || run.status !== "needs-approval" || run.phase !== "launch-approval"
+      || pending.requestId !== requestId || pending.ownerEmail !== ownerEmail
+      || (pending.orgId ?? null) !== (orgId ?? null)) {
+    fail("This approval request is no longer current.", {
+      errorCode: "vivary_code_approval_stale",
+      statusCode: 409,
+    });
+  }
+  return pending;
+}
+
+function pendingLaunchFromRun(run: Pick<CodeAgentRunRecord, "metadata">): PendingLaunch | null {
+  const value = run.metadata?.pendingLaunch;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const pending = value as Record<string, unknown>;
+  const workspaceValue = pending.workspace;
+  if (!workspaceValue || typeof workspaceValue !== "object" || Array.isArray(workspaceValue)) return null;
+  const workspace = workspaceValue as Record<string, unknown>;
+  if (typeof pending.requestId !== "string" || !pending.requestId
+      || typeof pending.message !== "string" || !pending.message
+      || (pending.engine !== "claude-cli" && pending.engine !== "codex-cli")
+      || typeof pending.model !== "string" || !pending.model
+      || typeof pending.ownerEmail !== "string" || !pending.ownerEmail
+      || typeof pending.isFollowUp !== "boolean"
+      || pending.timeoutMs !== RUN_TIMEOUT_MS
+      || pending.continuesAfterBrowserClose !== true
+      || typeof workspace.root !== "string" || !workspace.root
+      || typeof workspace.label !== "string" || !workspace.label) {
+    return null;
+  }
+  const optionalStrings = ["projectId", "bindingId", "rootId"] as const;
+  if (optionalStrings.some(key => workspace[key] !== undefined && typeof workspace[key] !== "string")) return null;
+  if (workspace.bindingRevision !== undefined
+      && (!Number.isInteger(workspace.bindingRevision) || (workspace.bindingRevision as number) < 0)) return null;
+  if (pending.orgId !== undefined && typeof pending.orgId !== "string") return null;
+  return {
+    requestId: pending.requestId,
+    message: pending.message,
+    engine: pending.engine,
+    model: pending.model,
+    ownerEmail: pending.ownerEmail,
+    orgId: pending.orgId as string | undefined,
+    isFollowUp: pending.isFollowUp,
+    workspace: {
+      root: workspace.root,
+      label: workspace.label,
+      projectId: workspace.projectId as string | undefined,
+      bindingId: workspace.bindingId as string | undefined,
+      rootId: workspace.rootId as string | undefined,
+      bindingRevision: workspace.bindingRevision as number | undefined,
+    },
+    timeoutMs: RUN_TIMEOUT_MS,
+    continuesAfterBrowserClose: true,
+  };
+}
+
+function toPendingApproval(run: CodeAgentRunRecord): VivaryCodePendingApproval {
+  const pending = pendingLaunchFromRun(run);
+  if (!pending) throw new Error("Pending Vivary approval metadata is invalid.");
+  return {
+    runId: run.id,
+    requestId: pending.requestId,
+    title: run.title,
+    message: pending.message,
+    projectId: pending.workspace.projectId ?? null,
+    workspaceLabel: pending.workspace.label,
+    engine: pending.engine,
+    engineLabel: pending.engine === "claude-cli" ? "Claude Code" : "Codex CLI",
+    model: pending.model,
+    timeoutMs: RUN_TIMEOUT_MS,
+    continuesAfterBrowserClose: true,
+  };
+}
+
+function sameWorkspace(left: VivaryCodeWorkspace, right: VivaryCodeWorkspace): boolean {
+  const fields = ["root", "projectId", "bindingId", "rootId", "bindingRevision"] as const;
+  return fields.every(field => left[field] === right[field]);
 }
 
 function metadataString(run: Pick<CodeAgentRunRecord, "metadata">, key: string): string | null {
   const value = run.metadata?.[key];
   return typeof value === "string" ? value : null;
+}
+
+function metadataNumber(run: Pick<CodeAgentRunRecord, "metadata">, key: string): number | null {
+  const value = run.metadata?.[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {

@@ -100,7 +100,9 @@ jobs:
           pnpm --dir packages/workbench install --frozen-lockfile
       - name: workbench state transport
         run: |
-          pnpm --dir packages/workbench exec tsx --test tests/local-access.test.ts tests/native-state.test.ts
+          pnpm --dir packages/workbench exec tsx --test tests/local-access.test.ts tests/native-state.test.ts tests/native-actions.test.ts
+          pnpm --dir packages/workbench exec tsx --test tests/local-code-agent.test.ts tests/local-code-approval-restart.test.ts tests/code-host-lifecycle.test.ts tests/managed-projects.test.mjs
+          python packages/workbench/tests/managed-projects-python.test.py
           pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
       - name: install Python test runner
         run: python -m pip install pytest packaging

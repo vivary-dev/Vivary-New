@@ -25,7 +25,13 @@ export default defineAction({
   toolCallable: false,
   run: async (input, ctx?: ActionRunContext) => {
     const ownerEmail = requireVivaryCodeUser(ctx);
-    if ("scope" in input) return getVivaryCodeHostState(ownerEmail);
-    return getVivaryCodeState(ownerEmail, input.runId, await resolveVivaryCodeProject(ctx, input.projectId));
+    const orgId = ctx?.orgId ?? undefined;
+    if ("scope" in input) return getVivaryCodeHostState(ownerEmail, orgId);
+    return getVivaryCodeState(
+      ownerEmail,
+      input.runId,
+      await resolveVivaryCodeProject(ctx, input.projectId),
+      orgId,
+    );
   },
 });
