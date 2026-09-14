@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/5
 Parent: 06
-Status: in-progress
+Status: done
 Depends-on: [03c]
 Owner: Coordinating Codex, sole local-access and application-state writer
 Scope: Repair the observed selection-save failure through the existing local owner and Native application-state boundary.
 Verification-kind: runtime
+Evidence: [Reliable state verification](../receipts/06g-reliable-state.md)
+Verification-result: passed
 Timebox: One focused state-persistence fix and its affected GUI journey.
 
 ## Goal
@@ -59,35 +61,27 @@ fix expands access, present the exact reviewed change and obtain its specific
 authority before deployment. Do not pop unrelated parked work or edit Native
 dependencies. A rejected auth change does not authorize an equivalent workaround.
 
+## Implementation guidance
+
+Use the shared client state writer for app-owned selections and appearance.
+It reuses Native's public session and standard cookie transport. The private
+preview accepts an additional existing-session header only for exact same-origin
+application-state PUT requests, after the existing request and owner checks.
+The client rejects redirects and does not replay a rejected token.
+
+Persist Personal as `{ scopeKey, projectId: null }`; older missing/null values
+remain readable. Keep failed requested selections visible. Retry must recheck
+the original catalog scope and project availability. Retain failed theme and
+palette values independently and load saved appearance once per provider mount.
+
 ## Verification state
 
-Implementation and source checks have passed. Packet acceptance remains open
-until the full hosted and desktop journeys complete.
-
-- The client reuses Native's public `useSession()` result. If the authenticated
-  session has no token, it uses Native's standard cookie-backed state writer.
-- If Native supplies a valid token, the client sends it only as
-  `X-Vivary-Session` on an exact same-origin application-state PUT. The
-  request rejects redirects. A 401 invalidates the Native session and blocks
-  replay of the rejected token.
-- The private preview accepts the header only for an exact application-state
-  PUT after the existing request guard, same-origin checks, and stored-owner
-  lookup succeed. Local desktop requests continue to use the Native cookie.
-- The app does not add a token store, log token values, patch global fetch, add
-  a route, or accept a tokenless mutation.
-- Personal workspace persists as `{ scopeKey, projectId: null }`. The reader
-  remains compatible with a missing value and the older raw `null` value.
-- Project selection and appearance keep failed choices visible. Project Retry
-  revalidates the catalog and scope. Appearance Retry retains theme and palette
-  failures independently.
-- A hosted JavaScript request using the eligible header returned 200 for PUT
-  and 200 for GET, and the saved value matched exactly.
-- The focused checks passed: 23 server tests, 9 client transport tests, the
-  Personal-selection component remount, direct typecheck, and the production
-  build.
-- Project-journey verification uses normal shared temporary app data. The old
-  Zo9p grant points to a folder whose inode changed, so the registry correctly
-  reports that grant unavailable.
+Focused checks, independent review, hosted GUI persistence, loopback restart,
+and narrow-screen keyboard acceptance passed. The [verification receipt](../receipts/06g-reliable-state.md)
+owns the observed results and limits. The PR owns final-head CI status.
+Windows product acceptance remains under issue #8; draft-text continuity remains
+under issue #9. The stale Zo folder grant was preserved for explicit recovery
+under issue #15.
 
 ## Log
 
@@ -95,7 +89,8 @@ until the full hosted and desktop journeys complete.
   repair. No auth change or new persistence acceptance is claimed.
 - 2026-09-14: Added the bounded private-preview state bridge, scoped Personal
   representation, and explicit project and appearance retries. Source and
-  focused runtime checks pass. Full packet acceptance remains pending.
+  focused runtime checks pass. Hosted and loopback GUI acceptance, including
+  failed writes, restart, and narrow-screen keyboard focus, passed after fixes.
 
 ## Shared desktop and web behavior
 

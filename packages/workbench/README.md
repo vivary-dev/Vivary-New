@@ -44,6 +44,8 @@ Settings provides Native appearance, provider keys, integrations, resources,
 and model controls. Appearance is saved through Native application state.
 If an appearance save fails, Settings keeps the visible choice and provides
 Retry. Theme and palette retries remain independent when both saves fail.
+Saved appearance loads once when the app opens, so changing the theme cannot
+restore an older saved value over an unsaved choice.
 Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 

@@ -63,6 +63,8 @@ export function AppearancePreferencesProvider({
   children: ReactNode;
 }) {
   const { setTheme: applyTheme } = useTheme();
+  const applyThemeRef = useRef(applyTheme);
+  applyThemeRef.current = applyTheme;
   const { ready: stateWriterReady, retrySession, sessionStatus, writeAppState } = useAppStateWriter();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function AppearancePreferencesProvider({
         if (controller.signal.aborted) return;
         const theme = savedTheme(state.values.theme);
         const appearance = savedAppearance(state.values.appearance);
-        if (theme) applyTheme(theme);
+        if (theme) applyThemeRef.current(theme);
         if (appearance) applyAppearance(appearance);
         setReady(true);
       })
@@ -96,7 +98,7 @@ export function AppearancePreferencesProvider({
       alive.current = false;
       controller.abort();
     };
-  }, [applyTheme]);
+  }, []);
 
   const persist = useCallback(
     <Key extends keyof PreferenceWrites>(
@@ -146,7 +148,6 @@ export function AppearancePreferencesProvider({
     },
     [applyTheme, persist, ready, retrySession, sessionStatus, stateWriterReady],
   );
-
   const setAppearance = useCallback(
     (preset: AppearancePresetId) => {
       if (!ready || !stateWriterReady) {
@@ -163,8 +164,6 @@ export function AppearancePreferencesProvider({
     },
     [persist, ready, retrySession, sessionStatus, stateWriterReady],
   );
-
-
   const retryAppearance = useCallback(() => {
     if (failedWrites.theme) persist("theme", failedWrites.theme);
     if (failedWrites.appearance) persist("appearance", failedWrites.appearance);

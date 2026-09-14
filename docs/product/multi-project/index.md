@@ -18,7 +18,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## In-progress packet snapshot
 
-- [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.

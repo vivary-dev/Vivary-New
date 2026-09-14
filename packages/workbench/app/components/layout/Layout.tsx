@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const identity = useVivaryChatIdentity();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileNavigationTrigger = useRef<HTMLElement | null>(null);
   const [collapsed, setCollapsed] = useState(readCollapsedPreference);
   const ownsConversation = isConversationRoute(location.pathname);
   const receivesHandoff = useAgentChatHomeHandoff({
@@ -64,6 +65,12 @@ export function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("agent-chat:open-thread", close);
   }, []);
 
+  function openMobileNavigation() {
+    const active = document.activeElement;
+    mobileNavigationTrigger.current = active instanceof HTMLElement ? active : null;
+    setMobileOpen(true);
+  }
+
   function changeCollapsed(next: boolean) {
     setCollapsed(next);
     try {
@@ -81,7 +88,7 @@ export function Layout({ children }: { children: ReactNode }) {
             type="button"
             variant="ghost"
             size="icon"
-            onClick={() => setMobileOpen(true)}
+            onClick={openMobileNavigation}
             aria-label="Open navigation"
           >
             <IconMenu2 className="size-4" aria-hidden />
@@ -92,7 +99,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </header>
       ) : (
         <Header
-          onOpenMobileSidebar={() => setMobileOpen(true)}
+          onOpenMobileSidebar={openMobileNavigation}
           showAgentToggle={Boolean(identity)}
         />
       )}
@@ -120,7 +127,16 @@ export function Layout({ children }: { children: ReactNode }) {
           <Sidebar collapsed={collapsed} onCollapsedChange={changeCollapsed} />
         </div>
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] max-w-[85vw] p-0">
+          <SheetContent
+            side="left"
+            className="w-[280px] max-w-[85vw] p-0"
+            onCloseAutoFocus={(event) => {
+              const trigger = mobileNavigationTrigger.current;
+              if (!trigger?.isConnected) return;
+              event.preventDefault();
+              trigger.focus();
+            }}
+          >
             <SheetTitle className="sr-only">Vivary navigation</SheetTitle>
             <SheetDescription className="sr-only">
               Open your agent, projects, conversations, and settings.
