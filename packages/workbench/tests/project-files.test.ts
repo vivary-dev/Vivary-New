@@ -5,6 +5,11 @@ import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import { createProjectFileService } from "../server/project-files.ts";
+import {
+  projectFileRenameInputSchema,
+  projectFileSaveInputSchema,
+  projectFilesInputSchema,
+} from "../app/lib/project-file-schema.ts";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
@@ -166,5 +171,87 @@ describe("project file boundary", () => {
     if (collision.code === "conflict") assert.equal(collision.reason, "target-exists");
     assert.equal(await readFile(path.join(f.root, "renamed.md"), "utf8"), "hello\n");
     assert.equal(await readFile(path.join(f.root, "other.md"), "utf8"), "other\n");
+  });
+
+  it("normalizes denied directories and reports a same-directory file cap", async () => {
+    const f = await fixture();
+    await mkdir(path.join(f.root, "NODE_MODULES"));
+    await writeFile(path.join(f.root, "NODE_MODULES", "hidden.ts"), "hidden\n");
+    await Promise.all(Array.from({ length: 401 }, (_, index) =>
+      writeFile(path.join(f.root, `visible-${String(index).padStart(3, "0")}.txt`), "visible\n")));
+    const listing = await f.service.get(undefined, "project_a");
+    assert.equal(listing.code, "listing");
+    if (listing.code !== "listing") return;
+    assert.equal(listing.files.length, 400);
+    assert.equal(listing.truncated, true);
+    assert.equal(listing.files.some(file => file.path.includes("NODE_MODULES")), false);
+    await assert.rejects(f.service.get(undefined, "project_a", "NODE_MODULES/hidden.ts"), /not available/);
+  });
+
+  it("keeps spaced filenames distinct through read, save, and rename", async () => {
+    const f = await fixture();
+    await writeFile(path.join(f.root, " note.md"), "spaced\n");
+    await writeFile(path.join(f.root, "note.md"), "plain\n");
+    const readInput = projectFilesInputSchema.parse({ projectId: "project_a", path: " note.md" });
+    assert.equal(readInput.path, " note.md");
+    const opened = await f.service.get(undefined, readInput.projectId, readInput.path);
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    const saveInput = projectFileSaveInputSchema.parse({ projectId: "project_a", path: " note.md",
+      expectedVersion: opened.file.version, content: "changed\n" });
+    assert.equal(saveInput.path, " note.md");
+    const saved = await f.service.save(undefined, saveInput);
+    assert.equal(saved.code, "saved");
+    assert.equal(await readFile(path.join(f.root, "note.md"), "utf8"), "plain\n");
+    if (saved.code !== "saved") return;
+    const renameInput = projectFileRenameInputSchema.parse({ projectId: "project_a", path: " note.md",
+      name: " moved.md", expectedVersion: saved.file.version });
+    assert.deepEqual({ path: renameInput.path, name: renameInput.name }, { path: " note.md", name: " moved.md" });
+    const renamed = await f.service.rename(undefined, renameInput);
+    assert.equal(renamed.code, "renamed");
+    assert.equal(await readFile(path.join(f.root, " moved.md"), "utf8"), "changed\n");
+    assert.equal(await readFile(path.join(f.root, "note.md"), "utf8"), "plain\n");
+  });
+
+  it("bounds oversized files and preserves permissions during rename", async () => {
+    const f = await fixture();
+    await writeFile(path.join(f.root, "large.txt"), Buffer.alloc(256 * 1024 + 1, 65));
+    await writeFile(path.join(f.root, "script.sh"), "echo hello\n");
+    await chmod(path.join(f.root, "script.sh"), 0o754);
+    const listing = await f.service.get(undefined, "project_a");
+    assert.equal(listing.code, "listing");
+    if (listing.code !== "listing") return;
+    assert.equal(listing.files.find(file => file.path === "large.txt")?.access, "blocked");
+    assert.deepEqual(await f.service.get(undefined, "project_a", "large.txt"),
+      { code: "blocked", path: "large.txt", reason: "too-large" });
+    const opened = await f.service.get(undefined, "project_a", "script.sh");
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    const renamed = await f.service.rename(undefined, { projectId: "project_a", path: "script.sh",
+      name: "moved.sh", expectedVersion: opened.file.version });
+    assert.equal(renamed.code, "renamed");
+    assert.equal((await stat(path.join(f.root, "moved.sh"))).mode & 0o777, 0o754);
+  });
+
+  it("renames UTF-8 BOM files without changing their bytes", async () => {
+    const f = await fixture();
+    const original = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("# Note\n")]);
+    await writeFile(path.join(f.root, "bom.md"), original);
+    const opened = await f.service.get(undefined, "project_a", "bom.md");
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    const renamed = await f.service.rename(undefined, { projectId: "project_a", path: "bom.md",
+      name: "moved.md", expectedVersion: opened.file.version });
+    assert.equal(renamed.code, "renamed");
+    assert.deepEqual(await readFile(path.join(f.root, "moved.md")), original);
+  });
+
+  it("rejects reads when the project binding changes before return", async () => {
+    const f = await fixture();
+    await writeFile(path.join(f.root, "note.md"), "private\n");
+    let call = 0;
+    const changing = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+      bindingId: "binding_a", rootId: "root_a", bindingRevision: ++call, policyRevision: 1 }));
+    await assert.rejects(changing.get(undefined, "project_a", "note.md"), /changed while its files were being read/);
   });
 });

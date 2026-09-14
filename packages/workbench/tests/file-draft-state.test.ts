@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFileDraft, storedFileDraft } from "../app/lib/file-draft-state.ts";
+import { parseFileDraft, storedFileDraft, restoreFileLineEndings } from "../app/lib/file-draft-state.ts";
 
 test("a cleared draft survives Native's null-body normalization", () => {
   const nativeBody = (body: string) => JSON.parse(body) ?? {};
@@ -23,4 +23,11 @@ test("a damaged or unknown stored draft is not silently discarded", () => {
   assert.throws(() => parseFileDraft({ version: 2, draft: null }));
   assert.throws(() => parseFileDraft({ content: "retain me" }));
   assert.throws(() => parseFileDraft([]));
+});
+
+test("source editing retains CRLF, LF, and CR newline conventions", () => {
+  assert.equal(restoreFileLineEndings("one\ntwo changed\n", "one\r\ntwo\r\n"), "one\r\ntwo changed\r\n");
+  assert.equal(restoreFileLineEndings("one\ntwo changed\n", "one\ntwo\n"), "one\ntwo changed\n");
+  assert.equal(restoreFileLineEndings("one\ntwo changed\n", "one\rtwo\r"), "one\rtwo changed\r");
+  assert.equal(restoreFileLineEndings("new\nline", ""), "new\nline");
 });

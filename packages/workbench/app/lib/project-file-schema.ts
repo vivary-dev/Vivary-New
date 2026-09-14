@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const projectFileIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-export const projectFilePathSchema = z.string().trim().min(1).max(1_000);
+export const projectFilePathSchema = z.string().min(1).max(1_000);
 export const projectFileVersionSchema = z.string().regex(/^pf_[0-9a-f]{64}$/);
 
 export const projectFileKindSchema = z.enum(["markdown", "text", "toml", "source"]);
@@ -101,6 +101,6 @@ export const projectFileSaveInputSchema = z.strictObject({
 export const projectFileRenameInputSchema = z.strictObject({
   projectId: projectFileIdSchema,
   path: projectFilePathSchema,
-  name: z.string().trim().min(1).max(255),
+  name: z.string().min(1).max(255),
   expectedVersion: projectFileVersionSchema,
 });

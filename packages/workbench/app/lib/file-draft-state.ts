@@ -18,3 +18,8 @@ export function parseFileDraft(value: unknown): FileDraft | null {
   if (typeof value === "object" && "version" in value) return storedSchema.parse(value).draft;
   return draftSchema.parse(value);
 }
+
+export function restoreFileLineEndings(content: string, baseContent: string): string {
+  const newline = baseContent.match(/\r\n|\r|\n/)?.[0] ?? "\n";
+  return content.replace(/\r\n|\r|\n/g, newline);
+}

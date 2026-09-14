@@ -29,7 +29,7 @@ added. Supported UTF-8 text files are limited to 256 KiB. Binary, oversized,
 unsupported and multiply linked files have explicit blocked states. Secret,
 dependency, generated and Git paths are excluded; symlink paths are rejected.
 
-Validation on Zo: 8 file-boundary tests, 4 draft-state tests, 39 existing action/session checks,
+Validation on Zo: 13 file-boundary tests, 5 draft-state tests, 39 existing action/session checks,
 direct TypeScript checking, the CI workflow contract, and production builds
 passed. Independent review found a permission-mode bug; the corrected save
 preserves 0664 even under umask 0022. Final review approved the corrections.
@@ -65,3 +65,21 @@ and preserves older drafts; malformed or unknown values still block editing.
 Save followed by full-page reload passed against the real local Native store
 and the existing private hosted instance, with Edit restored and no old draft.
 The final dark render also passed selected-file and keyboard-focus checks.
+
+The final PR review corrections preserve exact filename whitespace through the
+input schemas and retain the base file's first newline convention during source
+editing. Reads stop after 256 KiB plus one byte, then reject oversize content.
+Listings apply case-insensitive directory exclusions, report an incomplete capped
+list, and tolerate individual entries disappearing during a scan. Both reads and
+listings revalidate project access before returning.
+
+Rename reserves the destination exclusively and writes bounded raw bytes, so it
+does not require hard-link support. It preserves permissions and BOM bytes,
+checks the source version and project access before removing the original, and
+cleans up an owned partial destination on write failure. It is not an atomic
+filesystem rename or a guarantee against external writers racing the final check.
+The source and destination may both exist if the process stops during the copy.
+
+The 57 focused checks and direct TypeScript check pass with these corrections.
+Independent source review approved the frontend and backend fixes. Build and
+real browser results are recorded with the PR acceptance evidence.

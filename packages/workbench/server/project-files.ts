@@ -1,10 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
-  link,
   lstat,
   open,
-  readFile,
   readdir,
   realpath,
   rename,
@@ -99,7 +97,7 @@ function relativeParts(requestedPath: string): string[] {
   }
   const parts = requestedPath.split("/");
   if (parts.some(part => !part || part === "." || part === ".." || isSecretName(part))
-    || parts.some(part => SKIPPED_DIRECTORIES.has(part))) {
+    || parts.some(part => SKIPPED_DIRECTORIES.has(part.toLowerCase()))) {
     throw new ProjectFileBoundaryError("blocked-path");
   }
   return parts;
@@ -158,6 +156,37 @@ function decodeText(bytes: Buffer): string | null {
   }
 }
 
+async function readBoundedFile(absolute: string): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
+  const handle = await open(absolute, "r");
+  let offset = 0;
+  try {
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, null);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+  } finally {
+    await handle.close();
+  }
+  return buffer.subarray(0, offset);
+}
+
+async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number): Promise<void> {
+  if (bytes.length > MAX_FILE_BYTES) throw new Error("Project files are limited to 256 KB.");
+  const handle = await open(target, "wx", mode & 0o777);
+  try {
+    await handle.chmod(mode & 0o777);
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch (error) {
+    await handle.close();
+    await unlink(target).catch(() => undefined);
+    throw error;
+  }
+  await handle.close();
+}
+
 async function readEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity): Promise<ProjectFile | null> {
   let absolute: string;
   try {
@@ -171,7 +200,8 @@ async function readEditableFile(root: string, requestedPath: string, project: Pr
   if (info.nlink !== 1) return null;
   const kind = kindFor(absolute);
   if (!kind || info.size > MAX_FILE_BYTES) return null;
-  const bytes = await readFile(absolute);
+  const bytes = await readBoundedFile(absolute);
+  if (bytes.length > MAX_FILE_BYTES) return null;
   const content = decodeText(bytes);
   if (content === null) return null;
   return {
@@ -192,7 +222,8 @@ async function blockedReason(root: string, requestedPath: string): Promise<Proje
   if (!info.isFile() || info.nlink !== 1) return "linked";
   if (!kindFor(absolute)) return "unsupported";
   if (info.size > MAX_FILE_BYTES) return "too-large";
-  const bytes = await readFile(absolute);
+  const bytes = await readBoundedFile(absolute);
+  if (bytes.length > MAX_FILE_BYTES) return "too-large";
   return decodeText(bytes) === null ? "binary" : "unsupported";
 }
 
@@ -200,42 +231,58 @@ async function listFiles(root: string): Promise<{ files: ProjectFileSummary[]; t
   const files: ProjectFileSummary[] = [];
   const pending = [{ directory: root, depth: 0 }];
   let scanned = 0;
-  while (pending.length && files.length < MAX_LISTED_FILES) {
+  let truncated = false;
+  scan: while (pending.length && files.length < MAX_LISTED_FILES) {
     const next = pending.shift();
     if (!next) break;
-    const entries = await readdir(next.directory, { withFileTypes: true });
-    for (const entry of entries) {
+    let entries;
+    try {
+      entries = await readdir(next.directory, { withFileTypes: true });
+    } catch (error) {
+      if (next.directory === root) throw error;
+      continue;
+    }
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
       scanned += 1;
-      if (scanned > MAX_SCANNED_ENTRIES) return { files, truncated: true };
+      if (scanned > MAX_SCANNED_ENTRIES) { truncated = true; break scan; }
       if (entry.isSymbolicLink() || isSecretName(entry.name)) continue;
-      if (entry.isDirectory()) {
-        if (next.depth < MAX_SCAN_DEPTH && !SKIPPED_DIRECTORIES.has(entry.name)) {
-          const child = path.join(next.directory, entry.name);
-          const canonical = await realpath(child);
-          if (contained(root, canonical)) pending.push({ directory: canonical, depth: next.depth + 1 });
+      try {
+        if (entry.isDirectory()) {
+          if (next.depth < MAX_SCAN_DEPTH && !SKIPPED_DIRECTORIES.has(entry.name.toLowerCase())) {
+            const child = path.join(next.directory, entry.name);
+            const canonical = await realpath(child);
+            if (contained(root, canonical)) pending.push({ directory: canonical, depth: next.depth + 1 });
+          }
+          continue;
         }
-        continue;
+        if (!entry.isFile()) continue;
+        const absolute = path.join(next.directory, entry.name);
+        const info = await lstat(absolute);
+        const common = { path: portablePath(root, absolute), name: entry.name,
+          sizeBytes: info.size, updatedAt: info.mtime.toISOString() };
+        const kind = kindFor(absolute);
+        if (info.nlink !== 1) files.push({ ...common, access: "blocked", kind: "unknown", reason: "linked" });
+        else if (!kind) files.push({ ...common, access: "blocked", kind: "unknown", reason: "unsupported" });
+        else if (info.size > MAX_FILE_BYTES) files.push({ ...common, access: "blocked", kind: "unknown", reason: "too-large" });
+        else {
+          const bytes = await readBoundedFile(absolute);
+          const content = bytes.length > MAX_FILE_BYTES ? null : decodeText(bytes);
+          files.push(bytes.length > MAX_FILE_BYTES
+            ? { ...common, sizeBytes: bytes.length, access: "blocked", kind: "unknown", reason: "too-large" }
+            : content === null
+              ? { ...common, access: "blocked", kind: "unknown", reason: "binary" }
+              : { ...common, access: "editable", kind });
+        }
+      } catch { continue; }
+      if (files.length >= MAX_LISTED_FILES) {
+        truncated = entryIndex < entries.length - 1 || pending.length > 0;
+        break scan;
       }
-      if (!entry.isFile()) continue;
-      const absolute = path.join(next.directory, entry.name);
-      const info = await lstat(absolute);
-      const common = { path: portablePath(root, absolute), name: entry.name,
-        sizeBytes: info.size, updatedAt: info.mtime.toISOString() };
-      const kind = kindFor(absolute);
-      if (info.nlink !== 1) files.push({ ...common, access: "blocked", kind: "unknown", reason: "linked" });
-      else if (!kind) files.push({ ...common, access: "blocked", kind: "unknown", reason: "unsupported" });
-      else if (info.size > MAX_FILE_BYTES) files.push({ ...common, access: "blocked", kind: "unknown", reason: "too-large" });
-      else {
-        const content = decodeText(await readFile(absolute));
-        files.push(content === null
-          ? { ...common, access: "blocked", kind: "unknown", reason: "binary" }
-          : { ...common, access: "editable", kind });
-      }
-      if (files.length >= MAX_LISTED_FILES) break;
     }
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
-  return { files, truncated: pending.length > 0 };
+  return { files, truncated: truncated || pending.length > 0 };
 }
 
 async function writeTemporarySibling(target: string, content: string, mode: number): Promise<string> {
@@ -284,14 +331,17 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
   return {
     async get(context: ActionRunContext | undefined, projectId: string, requestedPath?: string): Promise<ProjectFilesResult> {
       const { workspace, project } = await resolve(context, projectId);
-      if (!requestedPath) {
-        const listing = await listFiles(workspace.root);
-        return { code: "listing", project, ...listing };
-      }
       try {
-        const file = await readEditableFile(workspace.root, requestedPath, project);
-        if (file) return { code: "file", project, file };
-        return { code: "blocked", path: requestedPath, reason: await blockedReason(workspace.root, requestedPath) };
+        let result: ProjectFilesResult;
+        if (!requestedPath) result = { code: "listing", project, ...await listFiles(workspace.root) };
+        else {
+          const file = await readEditableFile(workspace.root, requestedPath, project);
+          result = file ? { code: "file", project, file }
+            : { code: "blocked", path: requestedPath, reason: await blockedReason(workspace.root, requestedPath) };
+        }
+        const finalScope = await resolve(context, projectId);
+        if (!sameProject(project, finalScope.project)) throw new Error("The selected project changed while its files were being read.");
+        return result;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           throw Object.assign(new Error("The requested project file was not found."), { statusCode: 404 });
@@ -369,7 +419,13 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           return { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: finalCurrent };
         }
         try {
-          await link(source, target);
+          const sourceInfo = await lstat(source);
+          const sourceBytes = await readBoundedFile(source);
+          if (sourceBytes.length > MAX_FILE_BYTES
+            || versionFor(finalScope.project, input.path, sourceInfo, sourceBytes) !== input.expectedVersion) {
+            return { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: finalCurrent };
+          }
+          await writeExclusiveBounded(target, sourceBytes, sourceInfo.mode);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "EEXIST") {
             return { code: "conflict", operation: "rename", reason: "target-exists", path: input.path, targetPath };
@@ -377,13 +433,27 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           throw error;
         }
         try {
+          const copied = await readBoundedFile(target);
+          const sourceInfo = await lstat(source);
+          if (copied.length > MAX_FILE_BYTES
+            || versionFor(finalScope.project, input.path, sourceInfo, copied) !== input.expectedVersion) {
+            throw new Error("The renamed project file copy could not be verified.");
+          }
+          const latestScope = await resolve(context, input.projectId);
+          if (!sameProject(finalScope.project, latestScope.project)) {
+            await unlink(target);
+            return { code: "conflict", operation: "rename", reason: "project-changed", path: input.path, targetPath };
+          }
+          const latestCurrent = await readEditableFile(latestScope.workspace.root, input.path, latestScope.project);
+          if (!latestCurrent || latestCurrent.version !== input.expectedVersion) {
+            await unlink(target);
+            return latestCurrent
+              ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: latestCurrent }
+              : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
+          }
           await unlink(source);
         } catch (error) {
-          try {
-            await unlink(target);
-          } catch {
-            throw new AggregateError([error], "The exclusive rename could not restore its source.");
-          }
+          await unlink(target).catch(() => undefined);
           throw error;
         }
         const renamed = await readEditableFile(finalScope.workspace.root, targetPath, finalScope.project);

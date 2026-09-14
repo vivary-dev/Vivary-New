@@ -7,6 +7,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useProjects } from "@/components/projects/ProjectContext";
 import { fileDraftKey, useFileDraft } from "@/components/projects/FileDrafts";
 import { projectFileHref } from "@/components/projects/ProjectFiles";
+import { restoreFileLineEndings } from "@/lib/file-draft-state";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import type { ProjectFile, ProjectFilesResult, ProjectFileSaveResult, ProjectFileRenameResult } from "@/lib/project-file-schema";
 import "@agent-native/toolkit/editor.css";
@@ -166,7 +167,7 @@ function FileDocument({ projectId, projectLabel, path, draftKey }: { projectId: 
       <textarea id="file-source" ref={textarea} value={text} spellCheck={false} disabled={busy}
         onChange={event => {
           const base = draft.data ?? (file ? { content: file.content, baseContent: file.content, baseVersion: file.version } : null);
-          if (base) draft.put({ ...base, content: event.target.value });
+          if (base) draft.put({ ...base, content: restoreFileLineEndings(event.target.value, base.baseContent) });
         }}
         onKeyDown={event => {
           if ((event.ctrlKey || event.metaKey) && event.key === "s") {
