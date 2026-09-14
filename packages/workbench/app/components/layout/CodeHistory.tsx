@@ -12,7 +12,7 @@ import { useProjects } from "@/components/projects/ProjectContext";
 import { Button } from "@/components/ui/button";
 
 export function CodeHistory() {
-  const { activeProject, checking, workspaceAvailable } = useProjects();
+  const { activeProject, checking, workspaceAvailable, historyAvailable } = useProjects();
   const location = useLocation();
   const navigate = useNavigate();
   const projectId = activeProject?.projectId ?? null;
@@ -22,17 +22,17 @@ export function CodeHistory() {
     "vivary-code-state",
     { projectId: projectId ?? undefined },
     {
-      enabled: workspaceAvailable,
+      enabled: historyAvailable,
       refetchInterval: 1000,
       placeholderData: previous =>
         previous?.projectId === projectId ? previous : undefined,
     },
   );
-  const codeState = workspaceAvailable && state.data?.projectId === projectId ? state.data : undefined;
+  const codeState = historyAvailable && state.data?.projectId === projectId ? state.data : undefined;
   const selectedRun = routeRun === "new" ? null : requestedRun
     ?? codeState?.runs.find(isCodeAgentRunActive)?.id
     ?? codeState?.run?.id;
-  const activeId = codeState?.runs.some(run => run.id === selectedRun)
+  const activeId = !new URLSearchParams(location.search).has("runtime") && codeState?.runs.some(run => run.id === selectedRun)
     ? selectedRun
     : null;
   const history = useChatHistoryRailController({
@@ -42,24 +42,24 @@ export function CodeHistory() {
       timestamp: isCodeAgentRunActive(run) ? "Working" : undefined,
     })),
     onNewChat: () =>
-      navigate("/agent?run=new&draft=" + crypto.randomUUID()),
+      navigate("/?run=new&draft=" + crypto.randomUUID()),
     labels: {
       newChat: "New conversation",
       showMore: "More conversations",
       showLess: "Fewer conversations",
     },
   });
-  const failed = workspaceAvailable && (state.error || codeState?.error || (state.data && !codeState));
+  const failed = historyAvailable && (state.error || codeState?.error || (state.data && !codeState));
 
   return (
     <section className="vivary-chat-history" aria-label="Code conversations">
       <ChatHistoryList
         items={history.visibleItems}
         activeId={activeId}
-        onSelect={id => navigate("/agent?run=" + encodeURIComponent(id))}
+        onSelect={id => navigate("/?run=" + encodeURIComponent(id))}
         variant="rail"
         className="an-chat-history-rail"
-        loading={checking || (workspaceAvailable && state.isLoading)}
+        loading={checking || (historyAvailable && state.isLoading)}
         loadingLabel={
           <div className="vivary-history-skeleton" role="status">
             <span className="sr-only">Opening conversations</span>
@@ -74,7 +74,7 @@ export function CodeHistory() {
             </Button>
           </div>
         ) : undefined}
-        emptyLabel={workspaceAvailable ? "No conversations yet." : "Choose an available project to open conversations."}
+        emptyLabel={historyAvailable ? "No conversations yet." : "Choose a project to open its conversations."}
         footer={
           <div className="an-chat-history-rail__footer">
             <ActionButton

@@ -1,6 +1,6 @@
 # Coverage and delivery map
 
-This specification retains all 36 product outcomes. The table maps scope, not current lifecycle. Live GitHub issues remain authoritative. Always qualify outcome numbers and GitHub issue numbers. The generated program graph remains a supporting snapshot.
+This specification retains all 36 product outcomes. The table maps scope, not current lifecycle. Live GitHub issues remain authoritative. Always qualify outcome numbers and GitHub issue numbers. The generated program graph remains a supporting snapshot. Issue #38's first workspace shell is implemented and verified in the private hosted candidate. The linked PR in issue #38 owns CI and merge status. The supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, and Windows proof remain incomplete.
 
 ## Complete outcome coverage
 
@@ -47,7 +47,7 @@ Each linked outcome contains its original goal, done condition and verification 
 
 ## Release issue map
 
-The current desktop/self-hosted release issue set is #5-#23, #30, #31, #35 and #38. The two closed component issues #5 and #12 and closed background-control issue #35 retain their evidence. The consolidated experience still needs real acceptance. Read current status before work. This document creates no bulk issue queue.
+The current desktop/self-hosted release issue set is #5-#23, #30, #31, #35 and #38. The two closed component issues #5 and #12 and closed background-control issue #35 retain their evidence. The first issue #38 shell slice has private hosted acceptance. The remaining issue #38 capabilities and full release journey still need their own evidence. Read current status before work. This document creates no bulk issue queue.
 
 | Issues | Specification owners | What must connect |
 | --- | --- | --- |
@@ -93,7 +93,7 @@ This proposal orders work within the existing issue owners. It does not replace 
 
 | Brief | Owning issue | Context boundary | Observable acceptance before next brief |
 | --- | --- | --- | --- |
-| Workspace composition | #38 | M01, J01, existing providers and routes | One conversation, requested panels, no remount/draft loss, keyboard/narrow checks |
+| Workspace composition | #38 | M01, J01, existing providers, `workspace/Workspace.tsx`, and compatibility redirects | One selected conversation from a multi-conversation project, requested panels, no remount/draft loss, keyboard/narrow checks |
 | History under missing folder | #6/#38, one issue selected before work | M02/M03/M05, J02, metadata versus root read path | Authorized history survives missing folder while revocation still blocks it |
 | Runtime identity and continuity | #6/#9 | M03/M04, Native owner contracts | Saved owner identity, supported resume or truthful replay, restart reconciliation |
 | Catalog and linked choice | #38 | M03/M04/M05, J03 | Actual supported model catalog. Idempotent link. No auto-send. Preserved draft |
@@ -105,4 +105,4 @@ A brief is not a second ticket. Before implementation, reconcile its acceptance 
 
 ## Design review questions
 
-Jeff's review should assess whether the vocabulary, module boundaries, workspace flow and capability scope describe the product he intends. Exact panel dimensions and the compact inspector's initial visibility are proposals. Accepting the specification selects no account, provider, hosting, public release or automatic background activation.
+Jeff accepted the design direction on 2026-09-14, including header-first project details and manual handoff updates. He later clarified that each project needs multiple independent conversations and potentially concurrent threads. Future reviews should assess observed implementation tradeoffs without reopening those settled requirements. Exact panel dimensions remain adjustable engineering values. The accepted specification selects no account, provider, hosting, public release, or automatic background activation.

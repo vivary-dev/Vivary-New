@@ -388,8 +388,7 @@ export async function connectLocalProjectFolder(context, folder, displayName) {
   return Object.freeze({ ...result, locationRef: selected.locationRef, displayName: name });
 }
 
-/** Resolves local access for Native execution. This is not a held-custody execution grant. */
-export async function resolveLocalProjectWorkspace(context, projectId) {
+async function resolveLocalProjectBinding(context, projectId) {
   const { service, owner } = localService(context);
   if (!identifier.safeParse(projectId).success) throw new Error("Choose a registered project.");
   const scope = await service.registry.readScope(owner);
@@ -407,9 +406,31 @@ export async function resolveLocalProjectWorkspace(context, projectId) {
   if (rows.length !== 1 || binding.verificationKind !== LOCAL_VERIFICATION) {
     throw new Error("This project does not have one connected local folder.");
   }
-  const resolved = await service.provider.resolvePath(owner, binding.rootId, binding.locationRef);
+  return { service, owner, scope, binding };
+}
+
+async function requireCurrentProjectScope(service, owner, scope) {
   const current = await service.registry.readScope(owner);
-  if (!resolved || JSON.stringify(current) !== JSON.stringify(scope)) {
+  if (!current || JSON.stringify(current) !== JSON.stringify(scope)) {
+    throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+  }
+}
+
+/** Read registered project identity without requiring its local folder to exist. */
+export async function resolveLocalProjectHistory(context, projectId) {
+  const { service, owner, scope, binding } = await resolveLocalProjectBinding(context, projectId);
+  await requireCurrentProjectScope(service, owner, scope);
+  return Object.freeze({ label: binding.label, projectId,
+    bindingId: binding.bindingId, rootId: binding.rootId,
+    bindingRevision: binding.bindingRevision });
+}
+
+/** Resolves local access for Native execution. This is not a held-custody execution grant. */
+export async function resolveLocalProjectWorkspace(context, projectId) {
+  const { service, owner, scope, binding } = await resolveLocalProjectBinding(context, projectId);
+  const resolved = await service.provider.resolvePath(owner, binding.rootId, binding.locationRef);
+  await requireCurrentProjectScope(service, owner, scope);
+  if (!resolved) {
     throw new Error("The project folder is missing or changed. Reconnect it before running an agent.");
   }
   return Object.freeze({ root: resolved.path, label: binding.label, projectId,

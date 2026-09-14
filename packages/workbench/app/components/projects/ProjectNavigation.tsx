@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router";
 import { useRef, useState } from "react";
 import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
 import { Skeleton } from "@agent-native/toolkit/ui";
@@ -79,10 +80,14 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
 }
 
 export function ProjectNavigation() {
+  const navigate = useNavigate();
   const {
     catalog, activeProject, checking, workspaceAvailable, selecting, error,
     refresh, selectProject, retrySelection,
   } = useProjects();
+  async function chooseProject(projectId: string | null) {
+    if (await selectProject(projectId)) navigate("/");
+  }
   const [registering, setRegistering] = useState(false);
   const [creating, setCreating] = useState(false);
   const { call } = useNativeActionCaller();
@@ -126,11 +131,11 @@ export function ProjectNavigation() {
       <Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div> : null}
     {!checking && catalog && <>
       <Button variant="ghost" className="project-choice" disabled={selecting}
-        aria-pressed={workspaceAvailable && !activeProject} onClick={() => void selectProject(null)}>Personal workspace</Button>
+        aria-pressed={workspaceAvailable && !activeProject} onClick={() => void chooseProject(null)}>Personal workspace</Button>
       {catalog.projects.length === 0 ? <p>{desktop.data?.folderPicker ? "Open a folder to start a project." : "No projects yet. Register a connected folder to begin."}</p>
         : <ul className="registered-projects">{catalog.projects.map(project => <li key={project.projectId}>
-          <Button variant="ghost" className="project-choice" disabled={project.status !== "available" || selecting}
-            aria-pressed={activeProject?.projectId === project.projectId} onClick={() => void selectProject(project.projectId)}>
+          <Button variant="ghost" className="project-choice" disabled={selecting}
+            aria-pressed={activeProject?.projectId === project.projectId} onClick={() => void chooseProject(project.projectId)}>
             <span>{project.displayName}</span>{project.status !== "available" && <span className="project-unavailable-label">Unavailable</span>}
           </Button>
         </li>)}</ul>}

@@ -1,19 +1,23 @@
 {
   "schemaVersion": 1,
-  "status": "Design proposal for review; not implementation or current issue lifecycle",
+  "status": "Accepted design. The first workspace shell is implemented and verified in the private hosted candidate. This map does not report CI, merge, full issue 38 or release status",
   "date": "2026-09-14",
   "issue": 38,
   "modules": [
     {
       "id": "M01",
       "name": "Workspace shell",
-      "purpose": "One conversation with optional panels",
+      "purpose": "One selected project conversation with optional panels",
       "sourcePaths": [
         "packages/workbench/app/root.tsx",
         "packages/workbench/app/components/layout/Layout.tsx",
         "packages/workbench/app/components/layout/Sidebar.tsx",
+        "packages/workbench/app/components/workspace/Workspace.tsx",
+        "packages/workbench/app/routes.ts",
         "packages/workbench/app/routes/agent.tsx",
-        "packages/workbench/app/routes/files.tsx"
+        "packages/workbench/app/routes/workbench.tsx",
+        "packages/workbench/app/routes/files-redirect.tsx",
+        "packages/workbench/app/routes/chat.tsx"
       ],
       "dependsOn": [
         "M02",
@@ -69,9 +73,12 @@
     {
       "id": "M03",
       "name": "Conversations and continuity",
-      "purpose": "Reopen work and link history across harnesses",
+      "purpose": "Reopen several project conversations and link history across harnesses",
       "sourcePaths": [
-        "packages/workbench/app/routes/chat.tsx",
+        "packages/workbench/app/components/workspace/CodeConversation.tsx",
+        "packages/workbench/app/components/workspace/NativeConversation.tsx",
+        "packages/workbench/app/components/layout/CodeHistory.tsx",
+        "packages/workbench/app/components/layout/ChatHistory.tsx",
         "packages/workbench/app/lib/local-code-chat-adapter.ts",
         "packages/workbench/actions/vivary-code-state.ts",
         "packages/workbench/server/local-code-agent.ts"
@@ -155,6 +162,8 @@
       "name": "Files and documents",
       "purpose": "Browse, read, edit, save and reconcile real files",
       "sourcePaths": [
+        "packages/workbench/app/components/projects/ProjectFiles.tsx",
+        "packages/workbench/app/routes/files.tsx",
         "packages/workbench/server/project-files.ts",
         "packages/workbench/actions/vivary-project-files.ts",
         "packages/workbench/actions/vivary-project-file-save.ts",

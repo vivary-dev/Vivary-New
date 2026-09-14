@@ -212,13 +212,13 @@ describe("Vivary local access configuration", () => {
     }
   });
 
-  it("replaces Native credential pages with the agent route in both self-hosted modes", () => {
+  it("replaces Native credential pages with the unified workspace route in both self-hosted modes", () => {
     for (const environment of [localEnvironment(), privateProxyEnvironment()]) {
       const options = createVivaryLocalAuthOptions(environment);
       assert.ok(options);
       assert.equal(options.rootAuth, false);
-      assert.match(options.loginHtml ?? "", /url=\/agent/);
-      assert.match(options.loginHtml ?? "", /location\.replace\("\/agent"\)/);
+      assert.match(options.loginHtml ?? "", /url=\/"/);
+      assert.match(options.loginHtml ?? "", /location\.replace\("\/"\)/);
       assert.doesNotMatch(options.loginHtml ?? "", /email|password|signup/i);
     }
   });

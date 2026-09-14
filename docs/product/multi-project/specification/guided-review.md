@@ -1,16 +1,18 @@
 # A guided design review
 
-This guide helps Jeff review the proposed Vivary experience before application implementation. It presents the existing specification in smaller pieces. The full contracts remain available in the same HTML document. It does not turn a diagram or a browser selection into an accepted product decision.
+This maintained offline guide helps contributors understand the accepted Vivary experience and review later design proposals. It presents the owned specification in smaller pieces, with the full contracts in the same HTML document. The guide does not host the product or create product authority.
 
 ## Start with a real task
 
-Imagine returning to a project tomorrow. You open its conversation, see where the work stopped, inspect a file and ask the agent to continue. Vivary keeps those activities in one workspace. You choose when to open extra information.
+Imagine returning to a project tomorrow. You choose the conversation you want, see where that work stopped, inspect a file, and ask the agent to continue. You can start another chat when the current context is full or the work deserves a separate thread. Vivary keeps those conversations and files in one project workspace.
 
 You do not need to understand every internal module before reviewing that experience. Start with the walkthrough. Decide whether the proposed flow matches how you want to work. Then inspect one module or source document when a detail matters.
 
 ## What you have already decided
 
-- One project conversation workspace replaces the competing Agent, Files, Workbench and Full chat destinations.
+- One project workspace replaces the competing Agent, Files, Workbench and Full chat destinations.
+- Each project can hold multiple independent conversations. The center shows one selected conversation at a time.
+- Each conversation has bounded model context. Starting another chat provides a separate context rather than extending the old one without limit.
 - Projects and their conversations organize navigation.
 - Files open only when requested, with formatted reading and explicit editing/saving.
 - Panels resize, close and reopen without losing work.
@@ -20,30 +22,48 @@ You do not need to understand every internal module before reviewing that experi
 - Agent profiles are optional and user-authored.
 - Background work, approvals, denial and Stop must remain visible and understandable.
 - A local desktop instance uses that computer's projects. A remote browser connects to the explicitly selected, authenticated host.
+- Project details start closed on a wide desktop. The header keeps essential project state and controls visible.
+- Handoff narratives update when the user requests them. A stale indicator can update without a model call.
 
-These decisions do not need another vote. The application has not yet implemented the unified experience.
+These decisions do not need another vote. The first shell and integrated project, conversation, file, and panel journeys passed in the private hosted candidate. The later harness, handoff, concurrency, model, and Windows capabilities remain incomplete.
 
-## One choice before the first interface slice
+## Accepted review record
 
-### D1: Should project details start open on a wide desktop?
+Jeff accepted guide snapshot `e86d06ed592a2d3c` on 2026-09-14 through his submitted product-conversation review. He chose **Header first** for wide desktop project details and **Manual by default** for handoff updates. He submitted no additional notes. This explicit product-owner review authorizes implementation planning under the live issue. It does not merge code, update GitHub, or publish the product.
 
-**Recommendation: header first.** Show project name, host/root state, selected harness/model and activity in the conversation header. Keep the details panel closed until requested. Remember the choice separately on each client.
+### Accepted clarification: several conversations and potential concurrency
 
-This gives the conversation more room. It adds one click when you want the full project details. Missing-folder recovery, pending approval and Stop remain visible even with the panel closed.
+Later on 2026-09-14, Jeff explicitly clarified that one central conversation does not mean one total conversation for a project. Projects must allow multiple chats with independent history and context. Several threads may eventually run at the same time.
 
-**Alternative: compact details panel open.** Show the same header plus a narrow project details panel on a wide desktop. This makes supporting information immediately visible but uses horizontal space. It is still closable, and it never opens a file automatically.
+This intent is settled and needs no additional design vote. The workspace must show activity and approvals for each thread and protect shared files from conflicting writes. The current runtime still permits one active run at a time, so concurrent execution remains an implementation gap. The product must show that limit accurately until runtime support changes.
 
-Both options preserve the decisions above. On phones, panels start closed. Exact widths and breakpoints are adjustable engineering defaults, not a decision Jeff must make now.
+### D1: Project details on a wide desktop
 
-## A decision for the later handoff slice
+**Accepted choice and recommendation: header first.** Show the project name, host/root state, selected harness/model, and activity in the conversation header. Keep the details panel closed until requested. Remember the layout choice separately on each client.
 
-### D2: When should an agent update the handoff document?
+Options considered:
 
-**Recommendation: manual by default, with a stale indicator.** Code marks the record out of date when its covered work changes. Updating the narrative happens when you request it.
+- **Header first.** The conversation gets more room. Opening the full project details takes one action.
+- **Compact details panel open.** Supporting information appears immediately and uses horizontal space. The panel remains closable and never opens a file automatically.
 
-**Optional later choice: named completion checkpoints.** A project can opt into an update at a stated checkpoint within an authorized workflow. The interface must show that behavior and preserve the applicable approval policy. A new follow-up still needs its required decision.
+Implementation impact: the first workspace slice starts with the project details panel closed on wide desktop. Missing-folder recovery, pending approval, and Stop remain visible in the header. On phones, panels also start closed. Exact widths and breakpoints remain adjustable engineering defaults.
 
-This choice does not block the first workspace-layout implementation. It must not create unbounded background model calls or silently turn a plan into standing authority.
+### D2: Handoff-update timing
+
+**Accepted choice and recommendation: manual by default, with a stale indicator.** Code marks the record out of date when its covered work changes. The agent updates the narrative when the user requests it.
+
+Options considered:
+
+- **Manual by default.** The user requests each narrative update. The stale indicator changes without a model call.
+- **Optional named checkpoints.** A project explicitly opts into updates at stated checkpoints within an authorized workflow.
+
+Implementation impact: handoff freshness detection stays deterministic. Narrative updates do not run in the background by default. A later project-specific checkpoint proposal must show its behavior and preserve the applicable approval policy.
+
+## Future design proposals
+
+Keep this guide with the specification as contributors test and build Vivary. The multiple-conversation requirement is settled, so implementation details should not reopen it as a vote. A proposed revision is useful only when a real user-facing choice remains. It must explain the observed problem, list the available options, state each consequence, describe the implementation impact, and recommend one choice. Keep the recorded acceptance intact until Jeff explicitly accepts a later proposal.
+
+The HTML can store draft proposal notes and unchanged option definitions in the browser. Those drafts have no authority. Copy a prepared proposal into the product conversation, then update the owning specification and live issue only after the explicit decision.
 
 ## Decisions the engineer should handle
 
@@ -71,7 +91,7 @@ A harness is the installed agent tool, such as Claude Code. A model is a choice 
 
 ### Keep history, context and resume distinct
 
-History is the recorded conversation. Context is the material actually supplied to a model for one turn. Native resume continues a supported harness session using its own state. Linking history does not guarantee that a smaller model receives all of it.
+History is the record of one conversation. Context is the material actually supplied to a model for one turn. Each conversation has its own bounded context and can reach a model limit. Starting another project conversation creates a separate context without deleting the old history. Native resume continues a supported harness session using its own state. Linking history does not guarantee that another model receives all of it.
 
 ### Preserve work when something fails
 
@@ -85,12 +105,12 @@ The [W3C window-splitter pattern](https://www.w3.org/WAI/ARIA/apg/patterns/windo
 
 [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/) provides security-verification requirements. Relevant controls can inform authenticated remote access, authorization, input handling and error behavior. Applicability and verification belong to the implementation issue. No ASVS assessment or compliance claim is made here.
 
-Clear ownership, explicit effects and replaceable adapters are engineering principles supported by the existing architecture and source review. They are not a claim that one industry standard prescribes every Vivary design choice. We will test the actual behavior through the private hosted build, then the intended Windows artifact.
+Clear ownership, explicit effects and replaceable adapters are engineering principles supported by the existing architecture and source review. They are not a claim that one industry standard prescribes every Vivary design choice. The first shell passed its private hosted checks. The remaining capabilities still need their own hosted evidence, followed by the intended Windows artifact checks.
 
 ## How we review together
 
-Start with the walkthrough and D1. Tell me what feels confusing, missing or awkward in that flow. I will connect your feedback to the relevant source contract and explain the consequence in ordinary language.
+Start with the walkthrough and the recorded decisions. During implementation, note anything confusing, missing, or awkward. Connect the observation to its source contract and explain the consequence in ordinary language.
 
-Choices and notes inside the HTML guide are only local drafts. Use Prepare reply, then copy the text into our conversation. The guide does not submit approval, start agents, change GitHub issues or update project files. Browser storage may be unavailable, so the copyable reply remains the reliable way to share your review.
+Revision choices and notes inside the HTML guide are local drafts. Use **Prepare proposed revision**, then copy the text into the product conversation. The guide does not submit approval, start agents, change GitHub issues, update project files, or write to Git. Browser storage may be unavailable, so the copyable proposal remains the reliable sharing path.
 
-An answer to D1 selects a layout default. It does not automatically approve all 120 actions or start application work. We will confirm the implementation slice from the reviewed design and live issue.
+A later proposal does not replace the accepted choice until Jeff responds with explicit authority. The live issue still owns implementation acceptance and lifecycle.

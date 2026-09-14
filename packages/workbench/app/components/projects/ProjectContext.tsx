@@ -17,6 +17,7 @@ type ProjectContextValue = {
   activeProject: CatalogProject | null;
   checking: boolean;
   workspaceAvailable: boolean;
+  historyAvailable: boolean;
   selecting: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -45,8 +46,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [selectionIssue, setSelectionIssue] = useState<SelectionIssue>(null);
   const latestSelection = useRef(0);
   const selectionWrites = useRef<Promise<void>>(Promise.resolve());
-  const verified = catalogQuery.isSuccess && catalogQuery.data.code === "catalog"
-    ? catalogQuery.data : null;
+  const response: CatalogResult | undefined = catalogQuery.data;
+  const verified = response?.code === "catalog" ? response : null;
   const catalog = verified;
   const selectionQuery = useQuery({
     queryKey: [SELECTION_KEY, verified?.scopeKey], enabled: verified !== null,
@@ -71,9 +72,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     ? catalog.projects.find(project => project.projectId === saved.projectId) ?? null
     : null;
 
-  const workspaceAvailable = catalog !== null && selectionQuery.isSuccess && issueScopeMatches
+  const workspaceAvailable = catalog !== null && catalogQuery.isSuccess && selectionQuery.isSuccess && issueScopeMatches
     && (saved == null || (saved.scopeKey === catalog.scopeKey
       && (saved.projectId === null || activeProject?.status === "available")));
+
+  const historyAvailable = catalog !== null && selectionQuery.isSuccess && issueScopeMatches
+    && (saved == null || (saved.scopeKey === catalog.scopeKey
+      && (saved.projectId === null || activeProject !== null)));
 
   async function refresh() {
     retrySession();
@@ -103,7 +108,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       if (!checked.isSuccess || checked.data?.code !== "catalog"
         || checked.data.scopeKey !== target.scopeKey
         || (target.projectId !== null && !checked.data.projects.some(project =>
-          project.projectId === target.projectId && project.status === "available"))) {
+          project.projectId === target.projectId))) {
         setSelectionIssue({
           kind: "requested-unavailable",
           message: "This project is no longer available. Refresh the project list.",
@@ -158,12 +163,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     ? "Project folders could not be loaded. Refresh the list to retry."
     : selectionQuery.isError ? "The saved project selection could not be read. Choose a project again."
       : !checking && !workspaceAvailable ? "The selected project is unavailable. Choose another project or Personal workspace." : null);
-  const retrySelection = selectionIssue?.kind === "save"
+  const retrySelection = (selectionIssue?.kind === "save" || selectionIssue?.kind === "requested-unavailable")
     ? () => requestSelection(selectionIssue.target, true)
     : null;
-  const value = useMemo(() => ({ catalog, activeProject, checking, workspaceAvailable, selecting, error,
+  const value = useMemo(() => ({ catalog, activeProject, checking, workspaceAvailable, historyAvailable, selecting, error,
     refresh, selectProject, retrySelection }),
-  [catalog, activeProject, checking, workspaceAvailable, selecting, error, retrySelection]);
+  [catalog, activeProject, checking, workspaceAvailable, historyAvailable, selecting, error, retrySelection]);
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }
 
