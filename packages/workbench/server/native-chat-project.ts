@@ -1,8 +1,8 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import type { AgentChatPluginOptions } from "@agent-native/core/server";
+import type { AgentChatPluginOptions, RequestRunContext } from "@agent-native/core/server";
 import {
   getRequestOrgId,
-  readBodyWithSizeLimit,
+  getRequestRunContext,
 } from "@agent-native/core/server";
 import { createError } from "h3";
 import { createVivaryChatIdentity } from "./chat-identity";
@@ -23,7 +23,7 @@ type ProjectCatalogRecord = {
 };
 
 type NativeChatProjectDependencies = {
-  readBody: (event: unknown) => Promise<unknown>;
+  getScope: () => RequestRunContext["chatScope"];
   getOrgId: () => string | undefined;
   getProjectAccess: (context: ActionRunContext) => Promise<unknown>;
   resolveProjectWorkspace: (
@@ -33,7 +33,7 @@ type NativeChatProjectDependencies = {
 };
 
 const defaultDependencies: NativeChatProjectDependencies = {
-  readBody: event => readBodyWithSizeLimit(event as Parameters<typeof readBodyWithSizeLimit>[0]),
+  getScope: () => getRequestRunContext()?.chatScope,
   getOrgId: getRequestOrgId,
   getProjectAccess: getLocalProjectAccess,
   resolveProjectWorkspace: resolveLocalProjectWorkspace,
@@ -43,17 +43,12 @@ function projectConversationError(statusCode: number, statusMessage: string): Er
   return createError({ statusCode, statusMessage });
 }
 
-function projectScopeId(body: unknown): string | null {
-  if (!body || typeof body !== "object" || !("scope" in body)) return null;
-  const scope = body.scope;
-  if (!scope || typeof scope !== "object") return null;
-  const id = "id" in scope && typeof scope.id === "string" ? scope.id.trim() : "";
-  if (!id.startsWith(PROJECT_SCOPE_PREFIX)) return null;
-  const type = "type" in scope && typeof scope.type === "string" ? scope.type.trim() : "";
-  if (type !== "workspace-app") {
+function projectScopeId(scope: RequestRunContext["chatScope"]): string | null {
+  if (!scope?.id.startsWith(PROJECT_SCOPE_PREFIX)) return null;
+  if (scope.type !== "workspace-app") {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
-  return id;
+  return scope.id;
 }
 
 function catalogProjects(value: unknown): ProjectCatalogRecord[] | null {
@@ -88,8 +83,8 @@ export function createVivaryNativeChatProjectGuard(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
 ): (details: PrepareRequestDetails) => Promise<void> {
   return async details => {
-    const body = await dependencies.readBody(details.event);
-    const requestedScopeId = projectScopeId(body);
+    // Native consumed the body before this hook and already normalized its scope.
+    const requestedScopeId = projectScopeId(dependencies.getScope());
     if (!requestedScopeId) return;
 
     const ownerEmail = details.ownerEmail?.trim().toLowerCase();

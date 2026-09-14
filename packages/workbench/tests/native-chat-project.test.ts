@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
-import type { AgentChatPluginOptions } from "@agent-native/core/server";
+import { runWithRequestContext, type AgentChatPluginOptions, type RequestRunContext } from "@agent-native/core/server";
 import { createVivaryChatIdentity } from "../server/chat-identity";
-import { createVivaryNativeChatProjectGuard } from "../server/native-chat-project";
+import { createVivaryNativeChatProjectGuard, prepareVivaryNativeChatProject } from "../server/native-chat-project";
 
 type PrepareDetails = Parameters<
   NonNullable<AgentChatPluginOptions["prepareRequest"]>
@@ -38,7 +38,7 @@ function projectScope(projectId: string | null, label = "Project A") {
 }
 
 function guardFor(
-  scope: unknown,
+  scope: RequestRunContext["chatScope"],
   overrides: Partial<{
     getOrgId: () => string | undefined;
     getProjectAccess: (context: ActionRunContext) => Promise<unknown>;
@@ -49,7 +49,7 @@ function guardFor(
   }> = {},
 ) {
   return createVivaryNativeChatProjectGuard({
-    readBody: async () => ({ scope }),
+    getScope: () => scope,
     getOrgId: overrides.getOrgId ?? (() => orgId),
     getProjectAccess: overrides.getProjectAccess
       ?? (async () => ({ code: "catalog", projects: [project] })),
@@ -60,7 +60,7 @@ function guardFor(
 
 test("preserves legacy, unscoped, and unrelated Native chat behavior", async () => {
   let projectReads = 0;
-  const passThrough = async (scope: unknown) => {
+  const passThrough = async (scope: RequestRunContext["chatScope"]) => {
     const guard = guardFor(scope, {
       getProjectAccess: async () => {
         projectReads += 1;
@@ -166,4 +166,13 @@ test("fails closed when project access is revoked or its folder is missing", asy
       statusMessage: "This project folder is unavailable. Reconnect it from Projects.",
     },
   );
+});
+
+
+test("uses Native's parsed scope after its HTTP body has been consumed", async () => {
+  let bodyReads = 0;
+  const event = { get req() { bodyReads += 1; throw new Error("The request body was already consumed."); } };
+  await runWithRequestContext({ userEmail: ownerEmail, orgId, run: { chatScope: projectScope(null) } },
+    () => prepareVivaryNativeChatProject({ ...details(), event }));
+  assert.equal(bodyReads, 0);
 });
