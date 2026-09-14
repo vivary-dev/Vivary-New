@@ -203,11 +203,6 @@ function ProjectCodeWorkspace({ projectId, projectLabel, selection, setSelection
 
   useEffect(() => {
     if (!codeState) return;
-    // Promote only the draft that created this run after its selection commits.
-    if (requestedRun === "new" && selection?.runId && selection.key === requestedDraft) {
-      showInUrl(selection);
-      return;
-    }
     if (requestKey && handledRequest.current !== requestKey) {
       if (requestedRun === "new") {
         handledRequest.current = requestKey;
