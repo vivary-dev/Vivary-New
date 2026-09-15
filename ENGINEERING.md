@@ -236,8 +236,8 @@ independent dispatch queue. Always read the live issue before work.
 
 Claim one ready issue and finish it: implementation, focused tests, the
 affected real UI, review, fixes, merge, and issue closure. Keep at most two
-independent implementation issues active. The current pair is reliable project/chat
-state and desktop runtime packaging. After a slice closes, claim the next ready
+independent implementation issues active. Read the live milestone to distinguish
+accepted increments, remaining acceptance, and available work. After a slice closes, claim the next ready
 issue from the live milestone. Keep one coordinating integration writer, one owner per
 file, a shared reviewer when useful, and one heavy runtime job at a time.
 Independent source work may continue while CI or review runs. After a failed

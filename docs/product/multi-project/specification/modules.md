@@ -153,7 +153,7 @@ Vivary provides its original engine and narrow deterministic workspace operation
 
 The desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations. The tested `2885589` build passed hosted command checks and Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution remains issue #8. [PR #44](https://github.com/vivary-dev/Vivary-New/pull/44) merged into `dev` with all seven final-head checks passing, and issue #7 closed. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records this evidence and its limits.
 
-Issue #14 has an in-progress shared creator path. `plan_thin_workspace` previews exact target-bound file content. `apply_thin_workspace` rechecks the accepted hash, target, and options before greenfield writes. Only an exact completed inventory qualifies for a no-write retry. The managed bridge and reviewed CLI use that same plan.
+PR #47 merged the shared new-folder creator path into dev. Issue #14 remains open for existing-folder apply. `plan_thin_workspace` previews exact target-bound file content. `apply_thin_workspace` rechecks the accepted hash, target, and options before greenfield writes. Only an exact completed inventory qualifies for a no-write retry. The managed bridge and reviewed CLI use that same plan.
 
 The earlier hosted candidate passed keyboard creation at 1440x900,
 normal-size cancellation, and phone preview/Cancel controls at 390x844. That
@@ -171,8 +171,8 @@ The repeated registration kept project, binding, and policy while its attempt
 receipt advanced the registry revision. Six changed-inode saved folders
 required explicit reviewed reconnection; all 33 fixture file bytes remained
 unchanged. The cause of that host identity change is unknown. Existing-folder
-apply and full issue #14 delivery remain open under issues #14/#15. Windows
-execution is unrun, and PR #43 remains held.
+apply remains open under issues #14/#15. The later ed8812e bundled CLI passed
+Windows create/retry checks. Windows GUI execution is unrun, and PR #43 remains held.
 
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.

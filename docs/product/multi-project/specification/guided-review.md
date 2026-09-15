@@ -28,7 +28,7 @@ You do not need to understand every internal module before reviewing that experi
 - Vivary provides its original engine and narrow deterministic workspace operations. Explain the capability or permission boundary before proposing another tool.
 - Templates start offline. A later optional community collection can use the existing vivary-site to link to source GitHub repositories and downloads, with preview before apply and no implied execution.
 
-These decisions do not need another vote. The first shell and integrated project, conversation, file, and panel journeys passed in the private hosted candidate. The later harness, handoff, concurrency, model, and Windows capabilities remain incomplete.
+These decisions do not need another vote. The first shell and file/panel journeys are accepted. PR #43 adds project-bound Native history but remains held for saved-head and composer defects. The supported harness catalog, linked conversations, handoff workflow, concurrency, and Windows GUI acceptance remain incomplete. See the [implementation checkpoint](README.md#implementation-checkpoint-2026-09-15) before treating a walkthrough as available behavior.
 
 ## Accepted review record
 

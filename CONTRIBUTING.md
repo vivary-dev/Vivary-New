@@ -17,7 +17,11 @@ repository retains its release workflow and is a separate delivery target.
   (`entire`). Source mirroring does not establish agent-session capture.
 
 Before merging, resolve review findings and require passing applicable CI plus
-one independent approval. Promotion to `main` also needs Jeff's acceptance of
+one independent approval. When the CI service cannot start, record that failure
+separately from test failures. An owner-approved alternative host may run the
+applicable checks against the exact PR commit. Record executed checks, omissions,
+and review evidence under a distinct result. Do not relabel an unrun Actions or
+Windows job as successful. Promotion to `main` also needs Jeff's acceptance of
 the delivered product milestone. This does not authorize a public release.
 
 On 2026-09-13, GitHub refused branch-protection configuration for this private
@@ -46,9 +50,10 @@ isolation, use a separate worktree with a named owner and purpose.
 Before removing a worktree or branch, record its path, HEAD, upstream, tracked changes,
 untracked files, and relevant ignored evidence. Prove that every commit is reachable
 from a durable ref or bundle. Preserve dirty work as a binary patch plus an allowlisted
-archive, and verify restoration in a disposable clone. Only then request separate
-approval for each `git worktree remove`, local or remote branch deletion, and
-`git worktree prune`. Never reset or clean a checkout to make it appear disposable.
+archive, and verify restoration in a disposable clone. Use existing explicit
+approval only within its named cleanup scope. Otherwise request approval before
+worktree removal, local or remote branch deletion, or worktree pruning.
+Never reset or clean a checkout to make it appear disposable.
 
 ## Find the implementation owner
 
@@ -110,15 +115,22 @@ Every PR should include:
 - docs impact: docs, README, package READMEs, generated site sync, or "none"
 - release/package impact: versions, package metadata, install commands, or "none"
 
-Merges happen only after the written plan matches the delivered change, CI is green,
-and the review gate is satisfied.
+Merges happen only after the written plan matches the delivered change, the
+applicable CI or explicitly approved alternative gate passes, and review is complete.
 
 ## Documentation sync
 
 Docs are part of the product. If behavior, commands, flags, package names, or release
-truth changes, update the affected docs in the same PR. The website under `site/` is
-generated from `docs/`, so run the site sync/build when doc-source changes are in
-scope.
+truth changes, update the affected docs in the same PR. The legacy CLI documentation
+site under `site/` copies selected `docs/` sources. Run its existing sync/build
+when those sources change. The desktop marketing site lives in the separate
+private `vivary-dev/vivary-site` repository. Read that repository's instructions
+before editing it. Do not rebuild the desktop website inside the old Astro site.
+
+Keep the [offline guide](docs/product/multi-project/specification/README.md#regenerate-the-reader)
+aligned with its Markdown and JSON sources. Regenerate owned views after editing
+their sources. Current instructions must use retained source links. Dated receipts
+and historical logs remain evidence, not instructions to resume old branches.
 
 ## Line endings
 

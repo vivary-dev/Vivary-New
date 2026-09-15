@@ -17,9 +17,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
-PROJECT_SESSION_REVISION = "feat/project-chat-sessions"
+WORKBENCH_REVISION = "dev"
 BUNDLED_RUNTIME_REVISION = "dev"
-SHARED_PLAN_REVISION = "feat/shared-workspace-plan"
+SHARED_PLAN_REVISION = "dev"
 RECONNECTION_REVISION = "dev"
 RECONNECTION_REVIEW_REVISION = "dev"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
@@ -227,7 +227,7 @@ def build():
                     if not target.exists():
                         raise ValueError(str(path.relative_to(ROOT)) + ": missing target " + value)
                     kind = "tree" if target.is_dir() else "blob"
-                    revision = SOURCE_REVISION
+                    revision = SOURCE_REVISION if relative.parts[:4] == ("docs", "product", "multi-project", "research") else "dev"
                     if slug in CURRENT_IMPLEMENTATION_CHAPTERS:
                         if any(relative == prefix or prefix in relative.parents
                                for prefix in RECONNECTION_REVIEW_PATHS):
@@ -243,7 +243,7 @@ def build():
                             revision = BUNDLED_RUNTIME_REVISION
                         elif (relative.parts[:2] == ("packages", "workbench")
                               or target in CURRENT_IMPLEMENTATION_DOCS):
-                            revision = PROJECT_SESSION_REVISION
+                            revision = WORKBENCH_REVISION
                     tag[attr] = "https://github.com/vivary-dev/Vivary-New/" + kind + "/" + revision + "/" + quote(relative.as_posix()) + ("#" + url.fragment if url.fragment else "")
                     tag["target"] = "_blank"
                     tag["rel"] = "noopener noreferrer"
