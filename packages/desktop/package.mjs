@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { packager } from "@electron/packager";
 import { prepareWindowsX64Target } from "./windows-target.mjs";
+import { prepareOriginalRuntime } from "./original-runtime.mjs";
 
 const { values } = parseArgs({ options: { "windows-x64": { type: "boolean" } } });
 
@@ -69,12 +70,22 @@ try {
   await writeFile(path.join(runtimeDir, "THIRD-PARTY-NOTICES.txt"), notices.join(""));
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" }).trim();
   const sourceDirty = execFileSync("git", ["status", "--porcelain"], { cwd: repository, encoding: "utf8" }).trim().length > 0;
+  const originalRuntimeDir = path.join(stage, "original-runtime");
+  const originalRuntime = await prepareOriginalRuntime({
+    destination: originalRuntimeDir, platform: target.platform, arch: target.arch,
+    repository, sourceCommit, sourceDirty,
+  });
   await writeFile(path.join(runtimeDir, "build.json"), JSON.stringify({
     product: "Vivary", version: manifest.version, sourceCommit, sourceDirty,
     platform: target.platform, architecture: target.arch, node: target.nodeVersion,
     nodeAbi: target.nodeAbi, electron: manifest.devDependencies.electron,
     buildHost: { platform: process.platform, architecture: process.arch },
     channel: "private-preview",
+    originalRuntime: {
+      manifest: "../original-runtime/manifest.json",
+      python: originalRuntime.pythonVersion,
+      components: originalRuntime.components.map(({ distribution, version }) => ({ distribution, version })),
+    },
   }, null, 2));
 
   const built = await packager({
@@ -84,6 +95,10 @@ try {
     electronVersion: manifest.devDependencies.electron,
     platform: target.platform, arch: target.arch, asar: true,
     extraResource: [runtimeDir, nodeDir], overwrite: false,
+    // Packager's default resource copy makes relative symlinks point at staging.
+    // Keep Python's links relative so they survive staging cleanup and relocation.
+    afterCopyExtraResources: [({ buildPath }) => cp(originalRuntimeDir,
+      path.join(buildPath, "resources", "original-runtime"), { recursive: true, verbatimSymlinks: true })],
   });
   for (const directory of built) console.log(directory);
 } finally {

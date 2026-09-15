@@ -4,6 +4,10 @@ import {
   shutdownVivaryCodeAgent,
 } from "../local-code-agent.ts";
 
+import { shutdownOriginalCommands } from "../original-runtime.ts";
+
+const stopLocalWork = () => Promise.all([shutdownVivaryCodeAgent(), shutdownOriginalCommands()]);
+
 export default defineNitroPlugin(async (nitroApp) => {
   // guard:allow-env-credential - The direct CLI launcher owns this process's exit.
   const standalone = process.env.VIVARY_STANDALONE_HOST === "1";
@@ -11,12 +15,12 @@ export default defineNitroPlugin(async (nitroApp) => {
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
-    const cleanup = shutdownVivaryCodeAgent().then(() =>
+    const cleanup = stopLocalWork().then(() =>
       standalone ? nitroApp.hooks.callHook("close") : undefined);
     void cleanup.then(() => {
       if (standalone) process.exit(0);
     }).catch(() => {
-      console.error("[vivary-code-host] Shutdown did not settle.");
+      console.error("[vivary-local-host] Shutdown did not settle.");
       if (standalone) process.exit(1);
     });
   };
@@ -28,7 +32,7 @@ export default defineNitroPlugin(async (nitroApp) => {
   process.once("SIGINT", shutdown);
   nitroApp.hooks.hook("close", async () => {
     removeSignalHandlers();
-    await shutdownVivaryCodeAgent();
+    await stopLocalWork();
   });
   try {
     await initializeVivaryCodeAgent();
