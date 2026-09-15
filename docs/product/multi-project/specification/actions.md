@@ -134,6 +134,12 @@ Every applicable action has a text label, keyboard operation, visible focus, and
 | A063 | Run impact | release / read | Explain contract-defined affected references | Unknown impact stays unknown |
 | A064 | Run control | release / local | Apply only original supported scoped control operation | Permission/refusal semantics remain unchanged |
 
+A052 and A054 describe the release target, not a current application-adapter
+permission. The issue #7 adapter previews create and adopt only. Applying to
+an existing folder needs portable held custody and belongs to issues #14/#15.
+The bundled standalone CLI retains the original create/adopt commands; the
+existing managed New Project flow is separate.
+
 ## M08: Search and file memory
 
 | ID | Action | Scope / mode | Required result and precondition | Failure or recovery |

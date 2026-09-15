@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
-const cacheDir = path.join(packageRoot, ".tmp", "windows-assets");
+const defaultCacheDirectory = path.join(packageRoot, ".tmp", "windows-assets");
 const SQLITE_VERSION = "12.11.1";
 const SQLITE_ARCHIVE_ENTRY = "build/Release/better_sqlite3.node";
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
@@ -44,7 +44,9 @@ export const WINDOWS_X64_TARGET = Object.freeze({
   nodeExecutable: "node.exe",
 });
 
-export async function prepareWindowsX64Target({ runtimeDir, nodeDir }) {
+export async function prepareWindowsX64Target({ runtimeDir, nodeDir, cacheDirectory = defaultCacheDirectory }) {
+  requireAbsoluteDirectoryPath(cacheDirectory, "cacheDirectory");
+  const cacheDir = cacheDirectory;
   requireAbsoluteDirectoryPath(runtimeDir, "runtimeDir");
   requireAbsoluteDirectoryPath(nodeDir, "nodeDir");
   if (path.resolve(runtimeDir) === path.resolve(packageRoot, "../workbench")) {
@@ -57,8 +59,8 @@ export async function prepareWindowsX64Target({ runtimeDir, nodeDir }) {
   const sourceMarker = await verifyTracedRuntime(serverRoot, sqliteRoot, sqliteBinding);
 
   await mkdir(cacheDir, { recursive: true });
-  const nodeAsset = await cachedAsset(NODE_ASSET);
-  const sqliteAsset = await cachedAsset(SQLITE_ASSET);
+  const nodeAsset = await cachedAsset(NODE_ASSET, cacheDir);
+  const sqliteAsset = await cachedAsset(SQLITE_ASSET, cacheDir);
   await mkdir(nodeDir, { recursive: true });
   await copyFile(nodeAsset, path.join(nodeDir, WINDOWS_X64_TARGET.nodeExecutable));
 
@@ -116,7 +118,7 @@ async function verifyTracedRuntime(serverRoot, sqliteRoot, sqliteBinding) {
   return { nodeVersion: runtime.nodeVersion, nodeAbi: runtime.nodeAbi };
 }
 
-async function cachedAsset(asset) {
+async function cachedAsset(asset, cacheDir) {
   const destination = path.join(cacheDir, asset.fileName);
   try {
     if (await fileSha256(destination) === asset.sha256) return destination;

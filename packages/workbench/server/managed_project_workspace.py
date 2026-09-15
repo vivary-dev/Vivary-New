@@ -7,8 +7,13 @@ from pathlib import Path
 import sys
 import tempfile
 
+# A checkout owns development; the staged bridge uses its installed wheel.
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "packages" / "create-vivary"))
+source = ROOT / "packages" / "create-vivary"
+if (source / "create_vivary.py").is_file():
+    sys.path.insert(0, str(source))
+else:
+    ROOT = None
 import create_vivary
 
 

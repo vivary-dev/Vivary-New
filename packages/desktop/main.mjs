@@ -56,8 +56,8 @@ async function selectLoopbackPort() {
   return port;
 }
 
-function localChildEnvironment() {
-  const environment = { ...process.env };
+export function localChildEnvironment(source = process.env, packaged = app.isPackaged, resources = process.resourcesPath) {
+  const environment = { ...source };
   for (const key of [
     "APP_URL",
     "DATABASE_URL",
@@ -68,9 +68,16 @@ function localChildEnvironment() {
     "VIVARY_ACCESS_MODE",
     "VIVARY_DATA_DIR",
     "VIVARY_LOCAL_AGENT_WORKSPACE",
+    "VIVARY_ORIGINAL_RUNTIME",
+    "VIVARY_RECEIPT_LOG",
     "VIVARY_TRUSTED_PROXY",
   ]) {
     delete environment[key];
+  }
+  if (packaged) {
+    environment.VIVARY_ORIGINAL_RUNTIME = path.join(resources, "original-runtime");
+  } else if (source.VIVARY_ORIGINAL_RUNTIME && path.isAbsolute(source.VIVARY_ORIGINAL_RUNTIME)) {
+    environment.VIVARY_ORIGINAL_RUNTIME = source.VIVARY_ORIGINAL_RUNTIME;
   }
   environment.VIVARY_DESKTOP_HOST = "1";
   return environment;
@@ -251,7 +258,7 @@ async function createWindow(origin) {
   });
   window.once("ready-to-show", () => window.show());
   try {
-    await window.loadURL(`${origin}/agent`);
+    await window.loadURL(`${origin}/`);
   } catch (error) {
     if (mainWindow === window) mainWindow = null;
     window.destroy();

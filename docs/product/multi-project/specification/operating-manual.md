@@ -1,6 +1,6 @@
 # Contributor operating manual
 
-Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Jeff accepted the design direction on 2026-09-14. The first workspace shell is implemented and verified in the private hosted candidate. The linked PR in issue #38 owns CI and merge status. Model execution, Windows proof, and the remaining issue #38 capabilities are still incomplete.
+Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Jeff accepted the design direction on 2026-09-14. The first workspace shell merged in PR #42 after private hosted verification, independent review and CI. Model execution, Windows proof, and the remaining issue #38 capabilities are still incomplete.
 
 ## One feature, one bounded context
 

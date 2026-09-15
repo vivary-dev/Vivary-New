@@ -78,14 +78,14 @@ Store derived indexes in private application data, keyed by stable project ident
 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
-| Desktop | Electron, bundled Node, loopback launcher, native folder chooser, old Windows portable artifact | Bundle the original Python suite and prove the current app on Windows |
+| Desktop | Electron, bundled Node, loopback launcher, native folder chooser, and an issue #7 source candidate for the bundled Python suite | Finish relocated runtime verification and prove the current app on Windows |
 | Agent loop | Native Code execution, file tools, Stop, stored normalized transcripts | Supported provider session persistence/resume and external log references |
-| Projects | Folder registration, Code project binding, selected-project state | Reliable saves, Full chat project scope, Create and Adopt workflows |
+| Projects | Folder registration, Code project binding, selected-project state | Reliable saves, Project session acceptance, Create and Adopt workflows |
 | History | Native Code transcripts and Native Full chat storage/search | One project/session presentation, Code pagination and content search |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
 | Files | Small Markdown/text/JSON inspector | Source-file navigation, exact search, conflict-aware editing |
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
-| Original Vivary | All ten CLI verbs and the recovered shared content preview | Package and connect them through deterministic Native actions |
+| Original Vivary | All ten CLI verbs plus an issue #7 packaged-router and bounded-action candidate | Finish source-free command verification; retain original owners and receipts |
 
 The old Windows artifact is an unsigned portable preview from earlier source.
 It does not establish a working Windows release. The repo has passed CI, but
@@ -102,11 +102,10 @@ priority, and lifecycle. This table is a synchronized navigation snapshot. Read 
 live issue before dispatch. Packets provide implementation guidance and evidence,
 not a second task contract. Preserve approved product and access constraints.
 
-Jeff selected the unified workspace design in issue #38 on 2026-09-14. Complete
-its research, interaction contract and complete visual product specification
-before resuming application changes. Jeff reviews that specification first.
-The product lane then consolidates the workspace and project-session restoration.
-Independent desktop runtime packaging remains the second lane when work resumes.
+Jeff selected the unified workspace design in issue #38 on 2026-09-14. The specification was reviewed and accepted on 2026-09-14, and the first unified
+workspace slice merged in PR #42. The product lane now finishes project-session
+binding and restoration.
+Independent desktop runtime packaging is active in issue #7 as the second lane.
 Keep one integration writer, one owner per shared file, a reviewer for completed slices, and one heavy runtime job at a
 time. Independent source work can continue during CI. Close each issue only after
 its accepted behavior is verified and its reviewed PR is merged.
@@ -114,9 +113,9 @@ its accepted behavior is verified and its reviewed PR is merged.
 | Order | Deliverable | Owning ticket | Readiness |
 | --- | --- | --- | --- |
 | 1 | Reliable state | [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md) · [#5](https://github.com/vivary-dev/Vivary-New/issues/5) | Done |
-| 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | Visual product specification next; application implementation waits |
-| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Ready |
-| 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Ready |
+| 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | First shell merged; remaining integrations follow the accepted specification |
+| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | PR #43 held for Native persistence and composer fixes |
+| 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Guarded `2885589` source passed focused tests, seven CI jobs, private hosted boundary checks, rebuilt Linux CLI/Electron journeys and Windows structural checks on Linux. App create/adopt preview-only; issues #14/#15 own apply. Linked PR owns CI and merge status; actual Windows execution is #8 |
 | 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
 | 6 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a, 06g |
 | 7 | Native session logs | [04c: Retain provider sessions outside project folders](packets/04c-native-provider-session-logs.md) · [#10](https://github.com/vivary-dev/Vivary-New/issues/10) | After 04a |

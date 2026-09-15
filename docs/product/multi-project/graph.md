@@ -13,8 +13,8 @@ This graph is a snapshot of recorded metadata and retained evidence.
 The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
-Frontier snapshot: 04a, 06h, 07b, 09a, 11c, 23a.
-In-progress snapshot: none.
+Frontier snapshot: 06h, 07b, 09a, 11c.
+In-progress snapshot: 23a.
 
 ## Packet references
 
@@ -25,7 +25,7 @@ In-progress snapshot: none.
 | [03a: Define the portable registry contract and acceptance fixtures](packets/03a-project-registry-contract.md) | 03 | done | [] |
 | [03b: Execute the portable registry contract against a deterministic model](packets/03b-registry-contract-model.md) | 03 | done | [03a, 10c] |
 | [03c: Map registry transactions to native application seams](packets/03c-registry-transaction-mapping.md) | 03 | done | [03b] |
-| [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) | 04 | ready-for-agent | [03c] |
+| [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) | 04 | needs-info | [03c] |
 | [04b: Search the contents of project chat sessions](packets/04b-search-chat-content.md) | 04 | needs-info | [04a] |
 | [04c: Retain provider sessions outside project folders](packets/04c-native-provider-session-logs.md) | 04 | needs-info | [04a] |
 | [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md) | 06 | needs-info | [06g, 04a, 07d] |
@@ -56,7 +56,7 @@ In-progress snapshot: none.
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |
 | [20c: Prepare the deterministic headless loop proof](packets/20c-headless-loop-preparation.md) | 20 | done | [10c] |
 | [20d: Repair the environment and simplify the development process](packets/20d-process-environment-maintenance.md) | 20 | done | [10c] |
-| [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) | 23 | ready-for-agent | [] |
+| [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) | 23 | in-progress | [] |
 | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) | 23 | needs-info | [23a] |
 | [23c: Deliver and accept the desktop and self-hosted web product](packets/23c-windows-product-acceptance.md) | 23 | needs-info | [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e] |
 | [23d: Connect a responsive browser to a self-hosted Vivary instance](packets/23d-self-hosted-browser-access.md) | 23 | needs-info | [06g, 04a, 17a] |
