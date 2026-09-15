@@ -13,13 +13,21 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 PR #43's latest head `ff3ae49d9a51dfeeaff7735797312001c16aad4c` passed
 all seven CI checks. The recorded Native persistence and composer defects keep
-that PR in draft. The private preview has since been refreshed with issue #7's
-bundled-runtime candidate, while the earlier
+that PR in draft.
+
+For issue #7, Workbench repair
+`721735cbd03be8880662f98fbcbb74d84e4cc967` passed all seven CI jobs.
+Clean-host backend `8e0855c365dc1ae2a65be96a35d32acd9d63a436` passed
+its local proof and all seven jobs in
+[CI run 34923985842](https://github.com/vivary-dev/Vivary-New/actions/runs/34923985842).
+The refreshed private preview passed actual project creation, five-file
+reading, Doctor, control and foreign-identity
+rejection. The prior `bundled-runtime-final-20260914` project remained
+available through the latest refresh. Other older roots remain unavailable;
+[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15) owns recovery
+and reconnect or rebind. The earlier
 `53a5fcdeb8aaed3b19ccc62ccc2be146ffee599a` output remains available as a
-backup. New project, its five generated files, `STATE.md` reading and Doctor
-through a fresh project-folder binding passed. Older saved roots remain
-unavailable; [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15)
-owns restart recovery and reconnect or rebind.
+backup.
 
 The private Linux x64 package has been exercised outside the source checkout.
 It opened the GUI, created local SQLite/workspace data, restored a conversation
@@ -36,10 +44,12 @@ Stop remained available while the selected folder was missing and preserved the
 paused conversation when that folder returned. Unsent text drafts still need
 recovery across a changed local port.
 
-An earlier Windows x64 portable folder was assembled and its target binaries
-and metadata were checked. It has not been executed on Windows. Windows and
-macOS installers, signing, upgrades, and installed smoke tests remain
-unfinished. The current package is a private preview, not a release.
+The current 555 MiB Windows x64 Electron folder was assembled on Linux and
+structurally verified. Its application, Node and Python binaries are x64 PE
+files; it contains seven original components, six relative MZ launchers and 46
+runtime license files. It has not been executed on Windows. Windows and macOS
+installers, signing, upgrades, and installed smoke tests remain unfinished.
+The current package is a private preview, not a release.
 The [installation outcome](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
 owns that remaining work.
 
@@ -56,6 +66,13 @@ Packaging the original runtime also requires host Python 3.12 with `venv` and
 `ensurepip`. It does not require global setuptools. The first package build
 needs outbound HTTPS for the hash-pinned runtime and build-tool wheels; verified
 downloads are reused from the desktop package's `.tmp` cache.
+
+Packaging captures the recorded Git commit and tracked working-tree changes
+before downloads and wheel construction. Stage new source files with `git add`
+first; untracked files are excluded. Later checkout edits cannot change the
+captured inputs. `build.json` records whether that snapshot matches the commit.
+The existing Workbench `.output` is copied once and labeled `prebuilt`; its
+compilation from the recorded commit is not asserted.
 
 Set `VIVARY_DESKTOP_NODE` to the absolute path of ordinary Node, then run:
 
@@ -128,7 +145,9 @@ Its logs and email-draft helpers remain available through the bundled CLI.
 
 Linux component commands resolve the bundled sibling `python3`. Windows uses
 pip's vendored distlib 0.4.0 console launcher and its supported
-`<launcher_dir>` interpreter path. See the first-party
+`<launcher_dir>` interpreter path. Every standalone and component launcher
+passes `-I -X utf8 -B` so redirected Unicode output has the same encoding
+contract as the application adapter. See the first-party
 [distlib launcher source](https://github.com/pypa/distlib/blob/0.4.0/PC/launcher.c).
 Electron Packager copies the staged Python tree with verbatim relative symlinks.
 
@@ -153,10 +172,12 @@ The standalone bundled CLI keeps the complete original command flags and the
 original `.vivary/receipts.jsonl` default. The adapter is neither a model tool
 nor another daemon. See the
 [current in-progress verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
-The corrected Linux artifact has passed its relocated ten-command checks and
-its rebuilt packaged-Electron journey. The hosted preview passed New project,
-file reading and Doctor through a fresh project binding. Windows assembly
-remains open.
+The corrected Linux artifact passed its relocated ten-command checks and
+packaged-Electron journey. The hosted preview passed create, Doctor, control
+and foreign-identity rejection. Clean-host preparation assembled both Linux
+x64 and Windows x64 original runtimes. The full Windows x64 Electron folder
+also passed structural verification. Actual Windows execution remains open
+under issue #8.
 
 The default command builds the supported target for its host: Linux x64 or
 Windows x64. Other architectures and macOS remain later release work. The build

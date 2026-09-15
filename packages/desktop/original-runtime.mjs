@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
-const cacheDirectory = path.join(packageRoot, ".tmp", "original-runtime");
+const defaultCacheDirectory = path.join(packageRoot, ".tmp", "original-runtime");
 const buildHelper = path.join(packageRoot, "build-original-wheels.py");
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const PYTHON_RELEASE = "20260901";
@@ -114,9 +114,11 @@ export async function prepareOriginalRuntime({
   repository,
   sourceCommit,
   sourceDirty,
+  cacheDirectory = defaultCacheDirectory,
 }) {
   requireAbsolutePath(destination, "destination");
   requireAbsolutePath(repository, "repository");
+  requireAbsolutePath(cacheDirectory, "cacheDirectory");
   if (typeof sourceCommit !== "string" || !sourceCommit.trim()) {
     throw new Error("sourceCommit must be a non-empty string.");
   }
@@ -222,11 +224,11 @@ export async function writeOriginalRuntimeLauncher(destination, target) {
   const launcher = path.join(destination, ...target.cliLauncher.split("/"));
   await mkdir(path.dirname(launcher), { recursive: true });
   if (target.platform === "win32") {
-    await writeFile(launcher, "@echo off\r\nsetlocal\r\n\"%~dp0..\\python\\python.exe\" -I -B -m vivary_cli %*\r\n");
+    await writeFile(launcher, "@echo off\r\nsetlocal\r\n\"%~dp0..\\python\\python.exe\" -I -X utf8 -B -m vivary_cli %*\r\n");
   } else {
     await writeFile(
       launcher,
-      "#!/bin/sh\nset -eu\nSCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexec \"$SCRIPT_DIR/../python/bin/python3\" -I -B -m vivary_cli \"$@\"\n",
+      "#!/bin/sh\nset -eu\nSCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexec \"$SCRIPT_DIR/../python/bin/python3\" -I -X utf8 -B -m vivary_cli \"$@\"\n",
     );
     await chmod(launcher, 0o755);
   }

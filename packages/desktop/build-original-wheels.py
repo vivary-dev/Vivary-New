@@ -410,7 +410,7 @@ def _write_linux_launcher(scripts: Path, script: str, module: str, callable_name
     launcher.write_text(
         "#!/bin/sh\nset -eu\n"
         "SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
-        "exec \"$SCRIPT_DIR/python3\" -I -B -c '" + python_code + "' \"$@\"\n",
+        "exec \"$SCRIPT_DIR/python3\" -I -X utf8 -B -c '" + python_code + "' \"$@\"\n",
         encoding="utf-8",
     )
     launcher.chmod(0o755)
@@ -445,12 +445,12 @@ def _write_windows_launcher(
     maker.executable = r"<launcher_dir>\..\python.exe"
     created = maker.make(
         script + " = " + module + ":" + callable_name,
-        {"interpreter_args": ["-I", "-B"]},
+        {"interpreter_args": ["-I", "-X", "utf8", "-B"]},
     )
     launcher = scripts / (script + ".exe")
     if [Path(item) for item in created] != [launcher]:
         raise ValueError("distlib produced an unexpected Windows launcher path.")
-    expected_shebang = b"#!<launcher_dir>\\..\\python.exe -I -B\n"
+    expected_shebang = b"#!<launcher_dir>\\..\\python.exe -I -X utf8 -B\n"
     if expected_shebang not in launcher.read_bytes():
         raise ValueError("distlib produced a non-relocatable Windows launcher.")
     return launcher

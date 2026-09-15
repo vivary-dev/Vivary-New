@@ -100,7 +100,7 @@ test("relative launchers invoke the fixed bundled interpreter in isolated mode",
       await writeFile(interpreter, "fixture");
       const launcher = await writeOriginalRuntimeLauncher(destination, target);
       const text = await readFile(launcher, "utf8");
-      assert.match(text, /-I -B -m vivary_cli/);
+      assert.match(text, /-I -X utf8 -B -m vivary_cli/);
       assert.equal(text.includes(destination), false);
       if (platform === "linux") assert.equal((await stat(launcher)).mode & 0o111, 0o111);
     } finally {
@@ -301,9 +301,9 @@ test("component launchers stay relative and replace stale pip RECORD rows", asyn
         const data = await readFile(launcher);
         if (platform === "win32") {
           assert.equal(data.subarray(0, 2).toString("ascii"), "MZ");
-          assert.equal(data.includes(Buffer.from("#!<launcher_dir>\\..\\python.exe -I -B\n")), true);
+          assert.equal(data.includes(Buffer.from("#!<launcher_dir>\\..\\python.exe -I -X utf8 -B\n")), true);
         } else {
-          assert.equal(data.includes(Buffer.from('exec "$SCRIPT_DIR/python3" -I -B')), true);
+          assert.equal(data.includes(Buffer.from('exec "$SCRIPT_DIR/python3" -I -X utf8 -B')), true);
           assert.equal(data.includes(Buffer.from(fixture)), false);
           assert.equal((await stat(launcher)).mode & 0o111, 0o111);
         }
