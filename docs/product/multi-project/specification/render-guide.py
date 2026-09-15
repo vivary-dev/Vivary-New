@@ -22,6 +22,7 @@ BUNDLED_RUNTIME_REVISION = "feat/bundle-original-runtime"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
 CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
 BUNDLED_RUNTIME_PATHS = {
+    Path("docs/product/multi-project/receipts/23a-bundled-original-runtime.md"),
     Path("packages/desktop"),
     Path("packages/workbench/actions/vivary-original-command.ts"),
     Path("packages/workbench/server/managed-projects.mjs"),

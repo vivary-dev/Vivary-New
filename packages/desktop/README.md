@@ -16,36 +16,37 @@ all seven CI checks. The recorded Native persistence and composer defects keep
 that PR in draft.
 
 Issue #7 bundles the original runtime and preserves the existing command router.
-Packaging source `e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1` predates the
-reviewed preview-only adapter repair. Its artifacts are retained test candidates.
+The tested packaging source is `2885589f1757cff1ec803c777477737cbe9e7101`.
+The app adapter rejects project apply commands and linked or parent-relative
+governed scope before invoking the original runtime.
 Its relocated Linux bundle passed all ten verbs, receipt defaults, and a local
 email draft. The packaged window passed project creation, Doctor, private
 receipts, and normal shutdown. The clean-host build needs no ambient Python
 packaging tools; standalone launchers preserve redirected Unicode output.
 
-The private web preview also passed actual project creation, formatted file
-reading, Doctor, control, and foreign-identity rejection. A project created
+The private web preview passed project creation, formatted file reading, Doctor,
+control, foreign-identity rejection, and the final apply/scope refusal checks. A project created
 before its latest refresh remained available afterward. Some older roots remain
 unavailable; [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15)
 owns explicit recovery. PR #43's held session changes remain in that private
 preview composition; they have not been merged.
 
-The private Linux x64 package has been exercised outside the source checkout.
-It opened the GUI, created local SQLite/workspace data, restored a conversation
+Earlier Linux packaged UI checks ran outside the source checkout.
+They opened the GUI, created local SQLite/workspace data, restored a conversation
 and file after reopening, and stopped the local server when closed.
 
-A real Sonnet request through the packaged window performed Read, Write, and
+Those earlier checks included a real Sonnet request that performed Read, Write, and
 Read, with the resulting file visible in the GUI. It reused the existing Claude
 Code CLI login. Model credentials are not included in the application.
 
-The restored Native UI also passed system-folder selection for two projects,
+That earlier Native UI baseline also passed system-folder selection for two projects,
 separate drafts and history, a selected-project file change, Settings navigation,
 and reopening with the project, completed transcript, and appearance intact.
 Stop remained available while the selected folder was missing and preserved the
 paused conversation when that folder returned. Unsent text drafts still need
 recovery across a changed local port.
 
-The preceding e6f38f9 Windows x64 Electron folder was assembled on Linux and
+The matching 2885589 Windows x64 Electron folder was assembled on Linux and
 structurally verified. Its application, Node and Python binaries are x64 PE
 files; it contains seven original components, six relative UTF-8 MZ launchers and 46
 runtime license files. It has not been executed on Windows. Windows and macOS

@@ -12,8 +12,9 @@ Timebox: One source-free runtime packaging increment with focused command routin
 
 ## Goal
 
-Run all ten original Vivary verbs from the packaged application without a
+Ship all ten original Vivary verbs in the packaged standalone CLI without a
 source checkout, global Python installation, or installation on first launch.
+The application adapter exposes only the currently safe project-scoped subset.
 
 ## Context
 
@@ -79,8 +80,15 @@ Linux-only creation provider unchanged, or add another agent executor to run det
   The 555 MiB Windows x64 Electron folder passed structural verification,
   and all seven `8e0855c` CI jobs passed. That folder is a superseded candidate:
   reviewed `-I -X utf8 -B` launchers and a tracked-source packaging snapshot
-  now have a final Linux package with all ten verbs and a packaged-Electron
-  journey pass. The final Windows x64 folder passed assembly and structural
-  checks on Linux. Code head `e6f38f9` passed all seven CI jobs; the linked PR
-  owns documentation-head CI and merge. Actual Windows execution remains with
-  issue #8. Issue #7 stays open until delivery. See the linked receipt.
+  were followed by an e6 Linux package with all ten standalone verbs and an
+  Electron journey pass, plus a structurally checked e6 Windows x64 folder.
+  PR review then found that a project stat cannot hold existing-folder custody
+  across preview and apply. Commit `9afa1ad` makes application create/adopt
+  preview-only; apply belongs to issues #14/#15. Commit `2885589` rejects
+  governed scope paths that cross links or raw parent segments. Its focused
+  tests, seven CI jobs and actual hosted guard requests passed. The e6
+  packages precede both guards. The rebuilt `2885589` Linux folder passed all
+  ten standalone CLI verbs and the packaged-Electron New Project, Doctor and
+  apply-refusal journey. The matching Windows folder passed structural checks
+  on Linux. The linked PR owns final merge; actual Windows execution remains
+  with issue #8. See the linked receipt.

@@ -2,240 +2,149 @@
 
 Evidence-record: 23a
 Date: 2026-09-14
-Acceptance status: tested package evidence complete; PR delivery pending
+Acceptance status: tested guarded package evidence complete; issue #7 records delivery
 
 [Issue #7](https://github.com/vivary-dev/Vivary-New/issues/7) owns acceptance
-and delivery. This record covers the current source, Linux package, hosted
-preview, adapter and clean-host runtime evidence, plus reviewed packaging repairs awaiting a new artifact. It does not close the issue.
+and delivery. This receipt records the reviewed `2885589` source and tested
+private artifacts. It does not close the issue or claim a Windows launch.
 
-## Current source
+## Current boundary
 
-Workbench repair commit
-`721735cbd03be8880662f98fbcbb74d84e4cc967` binds original commands to
-the selected actor, project and scope and preserves the original governed-input
-contracts. All seven jobs passed in
-[CI run 34922890114](https://github.com/vivary-dev/Vivary-New/actions/runs/34922890114).
+The package includes pinned CPython 3.12.14, seven owned component wheels, six
+relative component launchers, runtime and component licenses, the managed
+New Project bridge, and the existing ten-verb `vivary_cli` router. The
+standalone CLI retains create, adopt, doctor, capabilities, check, find,
+decide, review, impact and control with their original flags. It also retains
+local logs and email-draft helpers. It needs no global Python, source checkout
+or first-launch download.
 
-Clean-host backend commit
-`8e0855c365dc1ae2a65be96a35d32acd9d63a436` removes ambient pip and
-setuptools assumptions from runtime assembly. All seven jobs passed in
-[CI run 34923985842](https://github.com/vivary-dev/Vivary-New/actions/runs/34923985842).
+The application original-command adapter in final source
+`2885589f1757cff1ec803c777477737cbe9e7101` is narrower. It makes create
+and adopt preview-only: an application request to apply either operation to an existing
+folder is refused before invocation. The separate managed New Project flow
+still creates its approved project. [Issues #14](https://github.com/vivary-dev/Vivary-New/issues/14)
+and [#15](https://github.com/vivary-dev/Vivary-New/issues/15) own a later
+existing-folder apply path with portable held custody; a plan digest or
+ordinary stat is not that custody.
 
-Reviewed packaging repairs landed in code commit
-`e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1` and need final delivery. Every bundled standalone and component launcher now invokes
-the relative Python interpreter with `-I -X utf8 -B`, matching the application
-adapter for redirected Unicode output. The desktop packager freezes tracked
-source into a private staging snapshot before downloads or assembly: recorded
-HEAD plus tracked working-tree overlays, with untracked files excluded. Build
-metadata reports whether overlays were included and whether the packaged source
-matches the recorded commit. The prebuilt Workbench output is captured once;
-its metadata explicitly does not claim commit verification. These source fixes
-have not been attributed to the earlier packaged artifacts.
+The same source checks the selected project root and governed decide/control
+paths before invocation and again before execution. It rejects raw `.` and `..` segments before normalization,
+symlink/junction parents and foreign resolved paths. Missing children are
+allowed only below a verified existing parent. Nested scope and capsule paths
+receive the same check. This boundary check does not grant execution or hold
+custody for a later write. Decide and control remain labeled
+`caller-provided-evidence`, not an execution grant. The adapter keeps actor,
+project, authority and host authorization, denial, approval and Stop boundaries;
+it admits one original process at a time. Its app-invoked receipts stay in
+private application data. Standalone CLI receipts retain their original
+defaults and intentional project evidence locations.
 
-An earlier packaged Linux artifact, build timestamp
-`2026-09-15T01-28-52-385Z`, remains valid evidence for the packaged Electron
-journey. Its manifest records base
-`8822145117c63c35e30154fc461700e4c4847fc3` with `source.dirty: true`.
-That artifact identity is retained as historical evidence and is not relabeled
-with either later commit.
+The desktop packager captures a tracked-source snapshot before downloads or
+assembly: recorded HEAD plus tracked working-tree overlays, excluding
+untracked files. Every bundled standalone and component launcher uses the
+relative interpreter with `-I -X utf8 -B`. The prebuilt Workbench output is
+captured once, and build metadata explicitly does not verify it against the
+source commit. The [desktop packaging contract](../../../../packages/desktop/README.md)
+records the pinned runtime, build prerequisites and license inventory.
 
-The runtime bundles pinned CPython 3.12.14, the seven owned component wheels,
-relative component launchers, the managed-project bridge, component and runtime
-licenses, and the existing ten-verb `vivary_cli` router. It needs no global
-Python, source checkout or first-launch install.
+## Hosted guard evidence
 
-## Packaged Linux behavior
+The private hosted preview on final source `2885589` accepted a direct
+governed request at HTTP 200 with exit code 0 and
+`caller-provided-evidence`. Linked and raw-parent paths returned HTTP 400
+before invocation. The selected older unavailable project remained selected,
+no model call occurred, and the owned fixture link and outside test directory
+were removed.
+Raw result: `.tmp/original-runtime-acceptance/hosted-scope-after.json`.
+The packaged-Electron proof below separately exercises create/adopt apply
+refusal on the final source.
 
-- After relocation outside the source checkout, create, adopt, doctor,
-  capabilities, check, find, decide, review, impact and control passed their
-  real command fixtures.
-- Core, Tropo, Strato, Ozone and Exo reported installed with no readiness
-  reasons.
-- The actual Node and Workbench application completed New project and opened
-  its five-file preview.
-- The rebuilt packaged Electron application opened canonical `/` with
-  `app.isPackaged` true, sandboxing and context isolation on, and Node
-  integration off.
-- Authenticated Doctor returned HTTP 200 using Python 3.12.14 with exit code 0.
-  The request produced one private application receipt and no project receipt.
-- Normal window close stopped the owned loopback server. The relocated
-  temporary directory was clean and no fixture process remained.
+## Guarded Linux package
 
-Two rejected artifacts identified real defects. Electron Packager's default
-resource copy rewrote relative Python symlinks to temporary absolute paths; the
-package now uses its supported `afterCopyExtraResources` hook with a
-verbatim-symlink copy. Desktop readiness also required HTTP 200 from `/agent`
-after that compatibility route became a redirect; readiness and the window now
-use canonical `/`.
+The Linux x64 Electron folder built at `2026-09-15T04-48-17-876Z` from source
+`2885589f1757cff1ec803c777477737cbe9e7101`. Its metadata records
+`sourceDirty: true`, six tracked overlays, untracked files excluded and
+`sourceCommitVerified: false` for the prebuilt Workbench output. It is the
+exact tested artifact identity, not a clean-commit build claim.
 
-The raw package evidence is:
+After relocation outside the checkout, all ten standalone CLI verbs passed
+real fixtures with no global Python or source imports. Core, Tropo, Strato,
+Ozone and Exo reported installed with no readiness reasons. The CLI fixtures
+recorded six intentional project receipts and two app-data receipts. The logs
+helper read both receipt locations; the email helper created a local draft and
+sent nothing. Raw result:
+`.tmp/original-runtime-acceptance/final-2885589-cli-evidence/result.json`.
 
-- `.tmp/original-runtime-acceptance/final-fixed-cli-evidence/result.json`
-- `.tmp/original-runtime-acceptance/final-fixed-app-result.json`
-- `.tmp/original-runtime-acceptance/final-routefixed-electron-evidence/result.json`
-- `.tmp/original-runtime-acceptance/final-routefixed-electron-evidence/electron-original.png`
-- `.tmp/original-runtime-acceptance/final-routefixed-electron-summary.json`
-- `~/.vivary/workbench/original-runtime/receipts.jsonl`
+The actual packaged Electron window opened with sandbox and context isolation
+on and Node integration off. Managed New Project previewed five files, created
+the project and returned it as available in the catalog. Authenticated Doctor
+returned HTTP 200 and exit code 0 using bundled Python 3.12.14. Two
+application existing-folder apply requests returned HTTP 400. Doctor wrote one
+private app receipt and no project receipt. Normal close stopped the server.
+There were no page errors; the two expected HTTP 400 console messages appeared
+before close, and post-close connection-refused probes confirmed shutdown.
+Raw result: `.tmp/original-runtime-acceptance/final-2885589-electron-evidence/result.json`.
 
-These are local inputs to this record, not tracked release artifacts.
+A separate fresh Linux runtime preparation verified literal redirected UTF-8
+output from both top-level `vivary find` and component `tropo query`, including
+`Café résumé`. Its ignored reproducible result is at
+`packages/desktop/.tmp/original-runtime/utf8-launcher-proof-result.json`.
+Clean-host Linux and Windows runtime preparation without ambient pip or
+setuptools is retained at
+`packages/desktop/.tmp/original-runtime/clean-proof-result.json`.
 
-## Final Linux package after packaging repairs
+## Guarded Windows assembly
 
-The full Linux x64 Electron folder built at timestamp
-`2026-09-15T03-54-07-393Z` from code commit
-`e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1`. Its `build.json` records
-`sourceDirty: true`, a `git-archive-with-tracked-overlays` snapshot with 16
-tracked overlays, no untracked files, and
-`commitMatchesPackagedSource: false`. The prebuilt Workbench output was
-captured once; `sourceCommitVerified: false` is explicit. The original runtime
-manifest records CPython 3.12.14 and seven owned components. This is the
-tested package identity, not a clean-commit artifact claim.
+The matching Windows x64 Electron folder built at
+`2026-09-15T04-53-20-040Z` from source `2885589`. Its metadata reports
+`sourceDirty: true`, six tracked overlays, untracked files excluded and a
+prebuilt Workbench output not verified against the commit. Structural
+inspection on Linux passed seven components, six relative UTF-8 MZ launchers,
+46 runtime license files, and x64 PE application, Node and Python binaries.
+Runtime manifest SHA-256:
+`55674adaea5688ef4dee1243283101958b724112e1a0ef19661d1cfd8be683bd`.
+The ZIP was integrity-checked at 228,534,356 bytes with SHA-256
+`e9c33d0a67d0da27be10339db80c2560a4967a5146be02d0e351791f17fa1d85`.
+Raw assembly result:
+`.tmp/original-runtime-acceptance/final-2885589-windows-assembly.json`.
+Raw archive result: `.tmp/original-runtime-acceptance/windows-archive-2885589.json`.
+The folder and ZIP have not been executed on Windows;
+[issue #8](https://github.com/vivary-dev/Vivary-New/issues/8) owns that proof.
 
-After relocation outside the source checkout, the actual packaged Electron
-window opened with sandbox and context isolation on and Node integration off.
-New Project previewed five files, created the project and returned it as
-available in the catalog. Authenticated Doctor returned HTTP 200 using the
-bundled Python 3.12.14 with exit code 0. One private application receipt was
-recorded and no project receipt. Normal close stopped the owned server. The
-raw evidence is at
-`.tmp/original-runtime-acceptance/final-e6f38f9-artifact.json` and
-`.tmp/original-runtime-acceptance/final-e6f38f9-electron-evidence/result.json`.
-There were no page errors or console errors before close. The post-close
-connection-refused probes observed the expected stopped server.
+## Checks and retained history
 
-## Adapter review
+The corrected source passed 19 focused adapter tests, nine desktop
+original-runtime tests, router and command characterization, TypeScript checks,
+normal and combined Workbench builds, and all seven jobs in
+[CI run 34929560537](https://github.com/vivary-dev/Vivary-New/actions/runs/34929560537).
+Independent and automated source review closed the reported findings with no
+new finding on `2885589`; all review threads were resolved. The linked PR owns
+final documentation-head CI and merge status.
 
-The reviewed adapter now:
-
-- Requires adoption to use the exact `sha256:` plan digest returned by preview.
-- Sends control input through a private temporary request file and removes the
-  file after success or failure.
-- Records app-owned receipts for both successful and failed decide calls,
-  without request or output content.
-- Allows one original process at a time and returns a bounded busy result for a
-  second request.
-- Rejects foreign actor, project, authority and path scope before spawning.
-- Labels decide and control results `caller-provided-evidence`. This is a pure
-  evaluation description, not an execution grant.
-- Runs Python as `-I -X utf8 -B -m vivary_cli`.
-
-The real adapter result at
-`.tmp/original-runtime-acceptance/review-adapter-result.json` passed adoption,
-decide and control. It includes a refused decision with exit code 2 and its
-failed app receipt. Five receipts stayed in private application data, no
-receipt entered the project, all temporary request files were removed and no
-model call occurred.
-
-## Refreshed private preview
-
-The final private preview combines Workbench source
-`721735cbd03be8880662f98fbcbb74d84e4cc967` with held project-session
-source `ff3ae49d9a51dfeeaff7735797312001c16aad4c`. The selected project was
-`runtime-review-20260914`.
-
-The UI produced the five-file plan, performed the actual create and displayed
-the formatted `STATE.md` view. The panel closed cleanly with the new project
-still selected. The public Native session returned HTTP 200 with its token.
-Authenticated Doctor returned HTTP 200 using Python 3.12.14, and control
-returned HTTP 200 with evaluation
-kind `caller-provided-evidence`. A foreign identity returned HTTP 400 before
-runtime work. The two read-only probes produced four private receipts, no
-project receipt, no model calls and no remaining request files. The first
-browser developer probe timed out after Doctor and control had completed;
-receipt inspection confirmed completion before the same safe calls were
-repeated with an adequate timeout.
-
-The raw result is
-`.tmp/original-runtime-acceptance/hosted-review-result.json`.
-
-The previously created `bundled-runtime-final-20260914` project remained
-available through the latest refresh. Other older saved roots remain
-unavailable, and reconnect or rebind is not implemented.
-[Issue #15](https://github.com/vivary-dev/Vivary-New/issues/15) owns that
-recovery. This issue #7 slice does not weaken root identity checks or claim that
-every old root survives a host refresh.
-
-## Clean-host runtime assembly
-
-The ignored reproducible proof at
-`packages/desktop/.tmp/original-runtime/clean-proof-result.json` ran with
-ambient pip and setuptools unavailable. It used SHA-256-verified pip 26.0.1 and
-setuptools 84.0.0 in one temporary build environment, verified pip's vendored
-distlib 0.4.0, then built, installed and wrote launchers before deleting that
-environment.
-
-Linux x64 and Windows x64 original runtimes each assembled seven components and
-six relative component launchers. The Windows launchers had an MZ executable
-stub and resolved the sibling bundled Python. Runtime destinations,
-wheelhouses and build environments were removed after the proof, with no
-lingering process.
-
-The reviewed launcher change passed all nine focused desktop original-runtime
-tests. One fresh Linux x64 runtime preparation used Python 3.12.14 and seven
-pinned components. Both the top-level `bin/vivary find` and component
-`python/bin/tropo query` wrote redirected output that decoded strictly as UTF-8
-and retained literal `Café résumé`. All seven emitted Linux launcher paths
-contained `-I -X utf8 -B`. The temporary runtime was removed. The ignored
-reproducible script and result are at
-`packages/desktop/.tmp/original-runtime/utf8-launcher-proof.mjs` and
-`packages/desktop/.tmp/original-runtime/utf8-launcher-proof-result.json`. This
-proves Linux runtime preparation and redirected output, not a final packaged
-Electron artifact or Windows execution.
-
-## Windows Electron folder
-
-The earlier Windows x64 Electron folder was assembled at build timestamp
-`2026-09-15T03-16-36-306Z`. It is 555 MiB. It is a superseded candidate after
-the reviewed launcher and source-snapshot repairs; a new final folder must be
-assembled and inspected. Its manifest records source
-`8e0855c365dc1ae2a65be96a35d32acd9d63a436` with `source.dirty: true`,
-seven components, six relative MZ x64 component launchers and 46 runtime
-license files. The Electron application, bundled Node and bundled Python are
-all x64 PE files. The manifest SHA-256 is
-`c7b73c0df7aa047271369eeb208579c97541710069bb599c7e6494d66f82f8d4`.
-
-The raw result is
-`.tmp/original-runtime-acceptance/final-windows-assembly.json`. The folder was
-assembled and structurally verified on Linux. It has not been executed on
-Windows; issue #8 owns that first-launch and runtime evidence.
-
-## Checks
-
-The focused source checks include:
-
-- 42 original-router and command-characterization tests.
-- 15 desktop packaging and lifecycle tests.
-- 5 startup tests, including a real HTTP redirect case.
-- 11 original-runtime adapter tests before the final review repairs.
-- 9 desktop original-runtime tests after clean-host backend preparation.
-- 4 managed-project and lifecycle tests.
-- 3 managed-project Python tests.
-- 42 Native-action and original-command tests after owner-action registration.
-- 24 CI-workflow tests and 8 launcher tests.
-- TypeScript checking and the production build.
-- Source-navigation, graph, guide, line-ending and diff checks.
-- Independent source review with all findings closed.
-
-The earlier failed
-[CI run 34917863599](https://github.com/vivary-dev/Vivary-New/actions/runs/34917863599)
-identified the pip-vendored-distlib mismatch. The corrected `721735c` source
-passed all seven jobs in run 34922890114. Clean-host backend `8e0855c` passed
-all seven jobs in run 34923985842. The reviewed code commit `e6f38f9` passed
-all seven jobs in
-[CI run 34926748026](https://github.com/vivary-dev/Vivary-New/actions/runs/34926748026).
-Automated review found no new issue, and the two reviewed launcher/snapshot
-threads were resolved. This is code-head CI and review evidence; the linked PR
-owns final documentation-head delivery status.
+Earlier candidate results remain as historical inputs, not claims about the
+corrected application boundary. The packaged Linux symlink-copy and canonical
+route repairs are retained at
+`.tmp/original-runtime-acceptance/final-routefixed-electron-evidence/result.json`.
+The `8e0855c` Windows assembly and the `e6f38f9` CLI/Electron/Windows checks
+are retained at `.tmp/original-runtime-acceptance/final-windows-assembly.json`,
+`.tmp/original-runtime-acceptance/final-e6f38f9-cli-evidence/result.json`,
+`.tmp/original-runtime-acceptance/final-e6f38f9-electron-evidence/result.json`
+and `.tmp/original-runtime-acceptance/final-e6f38f9-windows-assembly.json`.
+The earlier hosted write-guard and scope regression results are retained at
+`.tmp/original-runtime-acceptance/hosted-write-guard-result.json` and
+`.tmp/original-runtime-acceptance/hosted-scope-before.json`. The earlier
+application adoption/apply observation at
+`.tmp/original-runtime-acceptance/review-adapter-result.json` is superseded by
+the held-custody finding. These ignored files and the reviewed Git commits
+preserve the evidence without assigning old behavior to the final artifact.
 
 ## Remaining acceptance
 
-Issue #7 acceptance evidence is complete for the tested source and artifacts.
-The earlier Windows Electron folder is a superseded candidate. The final Linux
-package passed relocated all-ten-verb and packaged-Electron journeys after the
-reviewed launcher and source-snapshot repairs. The final Windows folder passed
-assembly and structural checks on Linux. Actual Windows execution remains
-unrun and belongs to issue #8. Recovery of unavailable roots and reconnect or
-rebind remain with issue #15. The linked PR in issue #7 owns final CI and merge
-status; issue #7 remains open until delivery completes. This evidence does not
-establish merge, signing, upgrade behavior, release readiness or publication.
-Record those results only after their owning checks finish.
+The tested `2885589` source and Linux package passed the recorded hosted,
+standalone CLI and packaged-Electron journeys. The matching Windows folder
+passed structural checks on Linux. Actual Windows execution remains unrun
+under issue #8. Recovery and reconnect/rebind for unavailable saved roots
+remain with issue #15. Existing-folder apply in the application remains
+deferred to issues #14/#15. The linked PR in issue #7 owns final CI and merge
+and closure status. This evidence does not
+establish signing, upgrade behavior, release readiness or publication.
