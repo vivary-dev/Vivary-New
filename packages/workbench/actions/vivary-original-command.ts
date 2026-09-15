@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { originalCommandSchema, runOriginalCommand } from "../server/original-runtime";
 
 export default defineAction({
-  description: "Run one bounded original Vivary command in an authorized registered project. Decide and control evaluate submitted evidence; they do not authorize or start agent work.",
+  description: "Preview or evaluate one bounded original Vivary command in an authorized registered project. Create is always dry-run and adopt is preview-only; decide and control evaluate submitted evidence without authorizing agent work.",
   schema: originalCommandSchema,
   requiresAuth: true,
   agentTool: false,

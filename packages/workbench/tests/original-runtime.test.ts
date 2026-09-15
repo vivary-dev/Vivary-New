@@ -19,6 +19,9 @@ test("command input has no caller-supplied executable, paths, flags or receipt t
     { ...input, command: { verb: "review", pack: "/outside" } },
     { ...input, command: { verb: "review", pack: "context-budget" } },
     { ...input, command: { verb: "adopt", approvedPlanHash: "--yes" } },
+    { ...input, command: { verb: "create", apply: true } },
+    { ...input, command: { verb: "create", apply: false } },
+    { ...input, command: { verb: "adopt", approvedPlanHash: "sha256:" + "a".repeat(64) } },
   ]) assert.equal(originalCommandSchema.safeParse(invalid).success, false);
 });
 
@@ -182,12 +185,22 @@ test("cancellation stops a real descendant even when it ignores graceful termina
   }
 });
 
-test("adoption applies the exact prefixed digest returned by the original preview", async () => {
+test("create and adopt apply requests are rejected before project resolution or execution", async () => {
   const digest = "sha256:" + "a".repeat(64);
-  assert.equal(originalCommandSchema.safeParse({ projectId: "project-a", command: { verb: "adopt", approvedPlanHash: digest.slice(7) } }).success, false);
-  const f = await fixture(async args => { assert.deepEqual(args.slice(-3), ["--yes", "--plan", digest]); });
-  try { await f.runner({ projectId: "project-a", command: { verb: "adopt", approvedPlanHash: digest } }, context); }
-  finally { await f.cleanup(); }
+  const f = await fixture();
+  try {
+    for (const command of [
+      { verb: "create", apply: true },
+      { verb: "create", apply: false },
+      { verb: "adopt", approvedPlanHash: digest },
+    ]) {
+      const request = { projectId: "project-a", command };
+      assert.equal(originalCommandSchema.safeParse(request).success, false);
+      await assert.rejects(f.runner(request, context));
+    }
+    assert.equal(f.reads(), 0);
+    assert.equal(f.calls(), 0);
+  } finally { await f.cleanup(); }
 });
 
 test("control uses a separate private request file and removes it after success or failure", async () => {

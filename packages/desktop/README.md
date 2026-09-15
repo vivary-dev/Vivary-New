@@ -16,7 +16,8 @@ all seven CI checks. The recorded Native persistence and composer defects keep
 that PR in draft.
 
 Issue #7 bundles the original runtime and preserves the existing command router.
-The final packaging source is `e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1`.
+Packaging source `e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1` predates the
+reviewed preview-only adapter repair. Its artifacts are retained test candidates.
 Its relocated Linux bundle passed all ten verbs, receipt defaults, and a local
 email draft. The packaged window passed project creation, Doctor, private
 receipts, and normal shutdown. The clean-host build needs no ambient Python
@@ -44,7 +45,7 @@ Stop remained available while the selected folder was missing and preserved the
 paused conversation when that folder returned. Unsent text drafts still need
 recovery across a changed local port.
 
-The final e6f38f9 Windows x64 Electron folder was assembled on Linux and
+The preceding e6f38f9 Windows x64 Electron folder was assembled on Linux and
 structurally verified. Its application, Node and Python binaries are x64 PE
 files; it contains seven original components, six relative UTF-8 MZ launchers and 46
 runtime license files. It has not been executed on Windows. Windows and macOS
@@ -162,6 +163,8 @@ That aggregate is 105,875 bytes with SHA-256
 Workbench reaches this runtime through a deterministic server adapter. It:
 
 - accepts one of ten typed verbs;
+- keeps Create and Adopt in preview mode because a local-stat folder grant does
+  not authorize mutation through an ordinary pathname;
 - resolves and revalidates the selected project grant;
 - invokes `python -I -X utf8 -B -m vivary_cli` without a shell;
 - bounds time, input, and output;
@@ -170,7 +173,9 @@ Workbench reaches this runtime through a deterministic server adapter. It:
 
 The standalone bundled CLI keeps the complete original command flags and the
 original `.vivary/receipts.jsonl` default. The adapter is neither a model tool
-nor another daemon. See the
+nor another daemon. Existing-folder application through the GUI remains under
+issues #14 and #15, with an identity-preserving apply path. The managed New
+Project flow uses its separate reviewed creator. See the
 [runtime verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
 The corrected Linux artifact passed its relocated ten-command checks and
 packaged-Electron journey. The hosted preview passed create, Doctor, control

@@ -12,8 +12,8 @@ import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 const preset = z.enum(["coding", "second-brain", "knowledge-work", "writing"]);
 const requestDocument = z.string().min(1).max(65_536);
 const commandSchema = z.discriminatedUnion("verb", [
-  z.object({ verb: z.literal("create"), preset: preset.default("coding"), apply: z.boolean().default(false) }).strict(),
-  z.object({ verb: z.literal("adopt"), preset: preset.optional(), approvedPlanHash: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional() }).strict(),
+  z.object({ verb: z.literal("create"), preset: preset.default("coding") }).strict(),
+  z.object({ verb: z.literal("adopt"), preset: preset.optional() }).strict(),
   z.object({ verb: z.literal("doctor") }).strict(),
   z.object({ verb: z.literal("capabilities"), preset: preset.default("coding") }).strict(),
   z.object({ verb: z.literal("check") }).strict(),
@@ -35,8 +35,8 @@ const OUTPUT_BYTES = 256 * 1024;
 
 export function originalCommandArguments(command: OriginalCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
-    case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", ...(command.apply ? [] : ["--dry-run"])], stdin: "" };
-    case "adopt": return { args: ["adopt", root, "--json", ...(command.preset ? ["--preset", command.preset] : []), ...(command.approvedPlanHash ? ["--yes", "--plan", command.approvedPlanHash] : [])], stdin: "" };
+    case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", "--dry-run"], stdin: "" };
+    case "adopt": return { args: ["adopt", root, "--json", ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
     case "doctor": return { args: ["doctor", root, "--json"], stdin: "" };
     case "capabilities": return { args: ["capabilities", "--preset", command.preset, "--json"], stdin: "" };
     case "check": return { args: ["check", "--root", root, "--json"], stdin: "" };
