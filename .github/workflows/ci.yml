@@ -135,7 +135,9 @@ jobs:
       - name: create-vivary
         run: python packages/create-vivary/tests/test_create_vivary.py
       - name: create-vivary thin init
-        run: python packages/create-vivary/tests/test_init_thin.py
+        run: |
+          python packages/create-vivary/tests/test_init_thin.py
+          python packages/create-vivary/tests/test_thin_init_preview.py
       - name: create-vivary governed record workflow
         run: python packages/create-vivary/tests/test_record_workflow.py
       - name: create-vivary adopt

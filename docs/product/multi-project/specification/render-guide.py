@@ -19,8 +19,9 @@ BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
 PROJECT_SESSION_REVISION = "feat/project-chat-sessions"
 BUNDLED_RUNTIME_REVISION = "dev"
+SHARED_PLAN_REVISION = "feat/shared-workspace-plan"
 RECONNECTION_REVISION = "dev"
-RECONNECTION_REVIEW_REVISION = "fix/reconnection-review"
+RECONNECTION_REVIEW_REVISION = "dev"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
 CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
 RECONNECTION_REVIEW_PATHS = {
@@ -46,6 +47,10 @@ RECONNECTION_PATHS = {
     Path("packages/workbench/server/managed-projects.mjs"),
     Path("packages/workbench/server/project-services.mjs"),
     Path("packages/workbench/shared/managed-project-reconnection.ts"),
+}
+SHARED_PLAN_PATHS = {
+    Path("packages/create-vivary"),
+    Path("packages/workbench/server/managed_project_workspace.py"),
 }
 BUNDLED_RUNTIME_PATHS = {
     Path("docs/product/multi-project/receipts/23a-bundled-original-runtime.md"),
@@ -230,6 +235,9 @@ def build():
                         elif any(relative == prefix or prefix in relative.parents
                                  for prefix in RECONNECTION_PATHS):
                             revision = RECONNECTION_REVISION
+                        elif any(relative == prefix or prefix in relative.parents
+                                 for prefix in SHARED_PLAN_PATHS):
+                            revision = SHARED_PLAN_REVISION
                         elif any(relative == prefix or prefix in relative.parents
                                  for prefix in BUNDLED_RUNTIME_PATHS):
                             revision = BUNDLED_RUNTIME_REVISION

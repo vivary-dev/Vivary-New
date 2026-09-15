@@ -70,6 +70,53 @@ class ThinInitPreviewTests(unittest.TestCase):
         two = cv.plan_thin_workspace(self.parent/'adapters', adapters=['claude','agents'])
         self.assertEqual(one, two)
 
+    def test_creator_apply_binds_target_options_and_exact_retry(self):
+        target = self.parent/'shared'
+        plan = cv.plan_thin_workspace(target, preset='writing')
+        wrong = cv.apply_thin_workspace(target, plan['plan_sha256'], preset='coding')
+        self.assertEqual(wrong, {'code': 'plan-changed'})
+        other = cv.apply_thin_workspace(
+            self.parent/'other', plan['plan_sha256'], preset='writing'
+        )
+        self.assertEqual(other, {'code': 'plan-changed'})
+        self.assertFalse(target.exists())
+        self.assertFalse((self.parent/'other').exists())
+
+        created = cv.apply_thin_workspace(
+            target, plan['plan_sha256'], preset='writing', repo_root=ROOT
+        )
+        self.assertEqual(created['code'], 'created')
+        reviewed = (target/'AGENTS.md').read_bytes()
+        before = (target/'AGENTS.md').stat().st_mtime_ns
+        replay = cv.apply_thin_workspace(
+            target, plan['plan_sha256'], preset='writing', repo_root=ROOT
+        )
+        self.assertEqual(replay['code'], 'already-created')
+        self.assertEqual((target/'AGENTS.md').read_bytes(), reviewed)
+        self.assertEqual((target/'AGENTS.md').stat().st_mtime_ns, before)
+
+        (target/'extra.txt').write_text('keep me\n', encoding='utf-8')
+        with self.assertRaisesRegex(cv.ScaffoldError, 'init requires a new or empty directory'):
+            cv.apply_thin_workspace(
+                target, plan['plan_sha256'], preset='writing', repo_root=ROOT
+            )
+        self.assertEqual((target/'extra.txt').read_text(), 'keep me\n')
+
+    def test_creator_rechecks_rendered_content_at_write_boundary(self):
+        target = self.parent/'drift'
+        accepted = cv.plan_thin_workspace(target)['plan_sha256']
+        render = cv._thin_context_doc
+        calls = 0
+        def change_between_checks(project, preset):
+            nonlocal calls
+            calls += 1
+            text = render(project, preset)
+            return text if calls == 1 else text + 'changed after approval\n'
+        with mock.patch.object(cv, '_thin_context_doc', side_effect=change_between_checks):
+            with self.assertRaisesRegex(cv.ScaffoldError, 'plan changed before writing'):
+                cv.apply_thin_workspace(target, accepted, repo_root=ROOT)
+        self.assertFalse(target.exists())
+
     def test_adapter_options_are_snapshotted_before_target_validation(self):
         target=self.parent/'snapshot'
         adapters=['agents']

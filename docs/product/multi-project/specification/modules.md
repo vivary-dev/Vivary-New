@@ -30,7 +30,7 @@ Current source or design entry points:
 
 Stable project identity and authorized folders.
 
-- Owns: Project IDs, root bindings and revisions. A mutable path is not identity.
+- Owns: Project IDs, root bindings and revisions. A mutable path is not identity. A target-bound creator content plan is separate from a project grant or root binding.
 - Calls: M05.
 - Replacement contract: Replace a root or VCS observation adapter while preserving IDs and current grants.
 - Conceptual request/result: RegisterRoot / ResolveProject / RebindRoot -> stable identity, revision and scoped capability result. Root observation is separate from adoption.
@@ -151,7 +151,11 @@ Create, adopt and run the original Vivary commands.
 
 Vivary provides its original engine and narrow deterministic workspace operations. Explain whether a missing user capability is blocked by the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
 
-Implementation status: the desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations; applying changes to an existing folder remains under issues #14/#15. The tested `2885589` build passed the hosted command checks and the Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution is issue #8. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records the evidence and limits. PR #44 merged into `dev` after all seven final-head checks passed, and issue #7 is closed. Actual Windows acceptance remains with issue #8.
+The desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations. The tested `2885589` build passed hosted command checks and Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution remains issue #8. [PR #44](https://github.com/vivary-dev/Vivary-New/pull/44) merged into `dev` with all seven final-head checks passing, and issue #7 closed. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records this evidence and its limits.
+
+Issue #14 has an in-progress shared creator path. `plan_thin_workspace` previews exact target-bound file content. `apply_thin_workspace` rechecks the accepted hash, target, and options before greenfield writes. Only an exact completed inventory qualifies for a no-write retry. The managed bridge and reviewed CLI use that same plan.
+
+The 2026-09-15 bundled-Python and private hosted journeys passed five-file plan parity, no preview or wrong-hash writes, exact applied bytes, and no-write file retry. Hosted keyboard creation at 1440x900, normal-size cancellation, and phone preview/Cancel controls at 390x844 passed. Reload, formatted file view, and return to an earlier conversation passed. A repeated registration advanced its receipt revision while preserving the project, binding, policy, and files. Existing-folder apply and full issue #14 delivery remain open under issues #14/#15. Windows execution is unrun, and PR #43 remains held.
 
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.
@@ -163,6 +167,7 @@ Implementation status: the desktop bundles Python and the original Vivary comman
 Current source or design entry points:
 
 - [packages/create-vivary](../../../../packages/create-vivary)
+- [packages/create-vivary/create_vivary.py](../../../../packages/create-vivary/create_vivary.py)
 - [packages/core](../../../../packages/core)
 - [packages/tropo](../../../../packages/tropo)
 - [packages/strato](../../../../packages/strato)
@@ -197,7 +202,7 @@ Current source or design entry points:
 
 Inspect plans, dependencies and approved work.
 
-- Owns: Selected task source owns tasks. Native/local plan owner retains revisions and feedback.
+- Owns: Selected task source owns tasks. Native/local plan owner retains revisions and feedback. The creator's target-bound file-content plan governs one workspace effect; it does not become the task or project plan owner.
 - Calls: M02, M05, M06.
 - Replacement contract: Swap tracker or plan view while preserving external IDs and exact revision binding.
 - Conceptual request/result: ReadPlan / ProposeRevision / WriteTaskSource -> authoritative plan/task refs. Coordination binds exact revisions to existing approval and run refs.

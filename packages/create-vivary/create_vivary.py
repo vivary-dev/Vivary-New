@@ -730,6 +730,16 @@ def plan_thin_workspace(
         target, preset=preset, adapters=adapters,
         active_context=active_context, force=False,
     )
+    return _thin_init_plan(target, writes, preset, adapters, active_context)
+
+
+def _thin_init_plan(
+    target: Path,
+    writes: list[tuple[Path, str]],
+    preset: str,
+    adapters: tuple[str, ...],
+    active_context: str | None,
+) -> dict:
     files = []
     for path, text in writes:
         relative = path.relative_to(target).as_posix()
@@ -748,6 +758,90 @@ def plan_thin_workspace(
     return {**plan, "plan_sha256": _thin_approval_hash(plan)}
 
 
+def _thin_exact_inventory(target: Path, files: list[dict]) -> bool:
+    """Accept a completed init only when every reviewed byte is still present."""
+    expected_files = {row["path"] for row in files}
+    expected_dirs = {
+        parent.as_posix()
+        for relative in expected_files
+        for parent in Path(relative).parents
+        if str(parent) != "."
+    }
+    observed_files: set[str] = set()
+    observed_dirs: set[str] = set()
+    pending = [(target, Path())]
+    while pending:
+        directory, relative = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                child = relative / entry.name
+                portable = child.as_posix()
+                info = entry.stat(follow_symlinks=False)
+                mode = info.st_mode
+                if stat.S_ISLNK(mode) or _is_symlink_or_junction(Path(entry.path)):
+                    return False
+                if stat.S_ISDIR(mode):
+                    if portable not in expected_dirs:
+                        return False
+                    observed_dirs.add(portable)
+                    pending.append((Path(entry.path), child))
+                elif stat.S_ISREG(mode):
+                    if portable not in expected_files or info.st_nlink != 1:
+                        return False
+                    observed_files.add(portable)
+                else:
+                    return False
+    if observed_files != expected_files or observed_dirs != expected_dirs:
+        return False
+    return all(
+        (target / row["path"]).read_bytes() == row["content"].encode("utf-8")
+        for row in files
+    )
+
+
+def apply_thin_workspace(
+    target: str | Path,
+    accepted_plan_sha256: str,
+    *,
+    preset: str = "coding",
+    adapters: tuple[str, ...] | list[str] = (),
+    active_context: str | None = None,
+    repo_root: str | Path | None = None,
+) -> dict:
+    """Apply only the reviewed greenfield init, or recognize its exact retry."""
+    adapters = tuple(adapters)
+    target = _resolve_scaffold_target(target)
+    if target.is_dir() and next(target.iterdir(), None) is not None:
+        with tempfile.TemporaryDirectory(prefix="vivary-thin-init-retry-") as temporary:
+            scratch = Path(temporary) / target.name
+            rendered = plan_thin_workspace(
+                scratch, preset=preset, adapters=adapters,
+                active_context=active_context,
+            )
+            plan = {**rendered, "target": str(target)}
+            plan["plan_sha256"] = _thin_approval_hash(
+                {key: value for key, value in plan.items() if key != "plan_sha256"}
+            )
+    else:
+        plan = plan_thin_workspace(
+            target, preset=preset, adapters=adapters,
+            active_context=active_context,
+        )
+    if accepted_plan_sha256 != plan["plan_sha256"]:
+        return {"code": "plan-changed"}
+    if target.is_dir() and _thin_exact_inventory(target, plan["files"]):
+        return {"code": "already-created", "target": str(target),
+                "plan_sha256": plan["plan_sha256"]}
+    # The original init path owns effect-boundary validation, writes, and rollback.
+    scaffold_thin_workspace(
+        target, preset=preset, adapters=adapters,
+        active_context=active_context, repo_root=repo_root,
+        expected_plan_sha256=accepted_plan_sha256,
+    )
+    return {"code": "created", "target": str(target),
+            "plan_sha256": plan["plan_sha256"]}
+
+
 def scaffold_thin_workspace(
     target: str | Path,
     *,
@@ -757,6 +851,7 @@ def scaffold_thin_workspace(
     force: bool = False,
     repo_root: str | Path | None = None,
     dry_run: bool = False,
+    expected_plan_sha256: str | None = None,
 ) -> list[Path]:
     """Create a greenfield thin-v0.3 governed-context workspace.
 
@@ -766,11 +861,16 @@ def scaffold_thin_workspace(
     """
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
+    adapters = tuple(adapters)
     target, writes = _prepare_thin_workspace(
         target, preset=preset, adapters=adapters,
         active_context=active_context, force=force,
     )
     paths = [path for path, _text in writes]
+    if expected_plan_sha256 is not None and _thin_init_plan(
+        target, writes, preset, adapters, active_context
+    )["plan_sha256"] != expected_plan_sha256:
+        raise ScaffoldError("init plan changed before writing; review a fresh plan")
     if dry_run:
         return paths
 
@@ -8915,6 +9015,17 @@ def build_parser(
     )
     init.add_argument("--json", action="store_true", help="machine-readable output")
     init.add_argument("--dry-run", action="store_true", help="simulate without writing")
+    init.add_argument(
+        "--reviewed", action="store_true",
+        help=(
+            "review exact thin-init file content with --dry-run --json, then apply "
+            "with --yes --plan HASH; storage, provider, and memory extras are unavailable"
+        ),
+    )
+    init.add_argument(
+        "--plan", default=None,
+        help="target-bound SHA-256 plan hash accepted after --reviewed --dry-run",
+    )
     init.add_argument("--auto", action="store_true",
                       help="skip prompts; pick best config from available signals")
     init.add_argument("--yes", action="store_true", help="auto-confirm installs and prompts")
@@ -9501,6 +9612,56 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
         return 2
 
     # --- init ---
+    if args.reviewed or args.plan is not None:
+        try:
+            if not args.reviewed:
+                raise ScaffoldError("--plan requires --reviewed")
+            if (
+                args.force or args.auto or args.storage is not None
+                or args.provider is not None or args.memory != "none"
+                or args.size is not None or args.privacy is not None
+            ):
+                raise ScaffoldError(
+                    "Reviewed init covers only the thin file plan. Remove --force, "
+                    "--auto, --storage, --provider, --memory, --size, and --privacy."
+                )
+            options = dict(
+                preset=args.preset, adapters=tuple(args.adapter),
+                active_context=args.active_context,
+            )
+            if args.dry_run:
+                if args.yes or args.plan is not None:
+                    raise ScaffoldError(
+                        "To review exact files, use --reviewed --dry-run --json "
+                        "without --yes or --plan."
+                    )
+                plan = plan_thin_workspace(args.target, **options)
+                print(json.dumps({"ok": True, "code": "preview", "plan": plan},
+                                 indent=2))
+                return 0
+            if not args.yes or args.plan is None:
+                raise ScaffoldError(
+                    "To apply reviewed files, use --reviewed --yes --plan HASH."
+                )
+            result = apply_thin_workspace(
+                args.target, args.plan, repo_root=args.repo_root, **options,
+            )
+            if result["code"] == "plan-changed":
+                raise ScaffoldError(
+                    "The reviewed init plan changed. Review the exact files again."
+                )
+        except ScaffoldError as exc:
+            if args.json:
+                print(json.dumps({"ok": False, "error": str(exc)}))
+            else:
+                print(f"create-vivary: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"ok": True, **result}, indent=2))
+        else:
+            print(f"create-vivary: {result['code']} {result['target']}")
+        return 0
+
     dry_run = getattr(args, "dry_run", False)
     # --auto means fully unattended: no prompts anywhere, including installs
     yes = getattr(args, "yes", False) or getattr(args, "auto", False)

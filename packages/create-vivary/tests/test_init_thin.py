@@ -127,6 +127,74 @@ class ThinInitTests(unittest.TestCase):
             if target.exists():
                 shutil.rmtree(target)
 
+    def test_reviewed_cli_shares_exact_plan_apply_and_no_write_retry(self):
+        target = temp_target()
+        other = temp_target()
+        try:
+            preview_args = [
+                "init", str(target), "--reviewed", "--dry-run", "--json",
+                "--preset", "writing",
+            ]
+            rc, out = run_cli(preview_args)
+            self.assertEqual(rc, 0, out)
+            plan = json.loads(out)["plan"]
+            self.assertEqual(plan, create_vivary.plan_thin_workspace(
+                target, preset="writing"
+            ))
+            self.assertFalse(target.exists())
+
+            for changed in (
+                ["--preset", "coding"],
+                ["--storage", "embedded"],
+                ["--memory", "local"],
+                ["--auto"],
+            ):
+                rc, out = run_cli(preview_args + changed)
+                if changed == ["--preset", "coding"]:
+                    self.assertEqual(rc, 0, out)
+                    self.assertNotEqual(json.loads(out)["plan"]["plan_sha256"],
+                                        plan["plan_sha256"])
+                else:
+                    self.assertEqual(rc, 1, out)
+                self.assertFalse(target.exists())
+
+            apply_args = [
+                "init", str(target), "--reviewed", "--yes", "--json",
+                "--preset", "writing", "--plan", plan["plan_sha256"],
+                "--repo-root", str(ROOT),
+            ]
+            for extra in (["--storage", "embedded"], ["--memory", "local"],
+                          ["--provider", "qdrant"], ["--auto"]):
+                rc, out = run_cli(apply_args + extra)
+                self.assertEqual(rc, 1, out)
+                self.assertFalse(target.exists())
+            rc, out = run_cli([
+                "init", str(target), "--yes", "--json",
+                "--plan", plan["plan_sha256"],
+            ])
+            self.assertEqual(rc, 1, out)
+            self.assertFalse(target.exists())
+            rc, out = run_cli([
+                "init", str(other), *apply_args[2:]
+            ])
+            self.assertEqual(rc, 1, out)
+            self.assertFalse(other.exists())
+            rc, out = run_cli(apply_args)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(json.loads(out)["code"], "created")
+            for row in plan["files"]:
+                self.assertEqual((target/row["path"]).read_bytes(),
+                                 row["content"].encode("utf-8"))
+            before = (target/"AGENTS.md").stat().st_mtime_ns
+            rc, out = run_cli(apply_args)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(json.loads(out)["code"], "already-created")
+            self.assertEqual((target/"AGENTS.md").stat().st_mtime_ns, before)
+        finally:
+            for path in (target, other):
+                if path.exists():
+                    shutil.rmtree(path)
+
     def test_interactive_defaults_create_five_file_seed_without_provider_install(self):
         target = temp_target()
         try:
