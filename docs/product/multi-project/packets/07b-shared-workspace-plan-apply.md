@@ -115,6 +115,14 @@ The corrected hosted run did not repeat the earlier viewport checks; the
 frontend output was unchanged. Existing-folder apply, Windows execution,
 and held PR #43 remain outside this increment.
 
+Windows CI on `32ef296` found that `DirEntry.stat()` reports a zero link
+count on Windows, so exact retries were refused. The creator now uses
+`os.stat(..., follow_symlinks=False)` for that metadata, as specified by the
+[Python documentation](https://docs.python.org/3.13/library/os.html#os.DirEntry.stat).
+The existing CLI, shared creator, and bridge suites each have a separate
+Windows CI step so any failing suite fails the job. This is platform test
+coverage; Windows application acceptance remains separate under issue #8.
+
 The commands below are starting suites, not substitutes for the actual journey.
 
 ```console

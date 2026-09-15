@@ -777,7 +777,7 @@ def _thin_exact_inventory(target: Path, files: list[dict]) -> bool:
             for entry in entries:
                 child = relative / entry.name
                 portable = child.as_posix()
-                info = entry.stat(follow_symlinks=False)
+                info = os.stat(entry.path, follow_symlinks=False)
                 mode = info.st_mode
                 if stat.S_ISLNK(mode) or _is_symlink_or_junction(Path(entry.path)):
                     return False
