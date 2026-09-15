@@ -41,7 +41,7 @@
       "why": "You should not have to remember which window or agent owns your work, or force unrelated work through one context window.",
       "module": "M02",
       "scene": "project",
-      "detail": "Stable project identity is separate from the current authorized root. Registration does not modify or adopt the folder. If a saved managed folder loses verified access, its project and conversation history remain attached to the same IDs. Review connection explains the recorded folder and consequences; only an explicit reviewed reconnect can restore access to that same managed folder. Canceling changes nothing, and reconnecting neither edits files nor starts an agent."
+      "detail": "Stable project identity is separate from the current authorized root. Registration does not modify or adopt the folder. If a saved managed folder loses verified access, its project and conversation history remain attached to the same IDs. Review connection explains the recorded folder and consequences; only an explicit reviewed reconnect can restore access to that same managed folder. Canceling changes nothing, and reconnecting neither edits files nor starts an agent. Only a single recorded managed-folder binding is eligible for this recovery. An uncertain result keeps the exact reviewed retry through another review. After a reload, Review connection can find a recorded but unfinished reconnection without changing files and offer Finish reconnecting. A newly changed folder gets a fresh plan. External folders or multiple bindings need a separate path."
     },
     {
       "title": "Return to the conversation",

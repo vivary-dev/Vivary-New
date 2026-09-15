@@ -25,7 +25,7 @@ function contextSnapshot(context) {
 }
 
 /** Installation-only arguments. Browser input cannot supply a resolver or root label map. */
-export function createProjectCatalog({ readScope, provider, locationLabels }) {
+export function createProjectCatalog({ readScope, provider, locationLabels, canReconnect }) {
   if (typeof readScope !== "function" || typeof provider?.inspect !== "function") {
     throw new TypeError("project catalog requires the current native scope and trusted root provider");
   }
@@ -54,13 +54,20 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
     if (snapshot.records.length > 128) return refused("unavailable");
 
     const observed = new Map();
+    const reconnectable = new Map();
     for (const ref of scope.locationRefs) {
       try { observed.set(ref, await provider.inspect(ref)); }
       catch { observed.set(ref, { code: "unavailable" }); }
+      try { reconnectable.set(ref, await canReconnect?.(ref) === true); }
+      catch { reconnectable.set(ref, false); }
     }
     const current = await readScope(owner);
     if (!current || fingerprint(current) !== fingerprint(scope)) return refused("denied");
 
+    const bindingCounts = new Map();
+    for (const record of snapshot.records) {
+      bindingCounts.set(record.projectId, (bindingCounts.get(record.projectId) ?? 0) + 1);
+    }
     const byProject = new Map();
     for (const record of snapshot.records) {
       const root = observed.get(record.locationRef);
@@ -73,6 +80,10 @@ export function createProjectCatalog({ readScope, provider, locationLabels }) {
       if (!previous || previous.status !== "available") byProject.set(record.projectId, {
         projectId: record.projectId, displayName: record.displayName,
         bindingRevision: record.bindingRevision, status,
+        managedReconnectEligible: status === "unavailable"
+          && bindingCounts.get(record.projectId) === 1
+          && record.verificationKind === "local-stat-revalidated-v1"
+          && reconnectable.get(record.locationRef) === true,
       });
     }
     return { code: "catalog", scopeKey: fingerprint({ actorId: scope.actorId,

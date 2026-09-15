@@ -42,6 +42,22 @@ adoption. This bounded recovery increment passed its hosted UI checks on
 2026-09-15; the whole packet remains `needs-info` for issue #14-dependent
 existing-folder apply and the linked issue remains open.
 
+The post-merge review correction narrows this recovery further. An uncertain
+confirmation keeps its exact reviewed operation available through successful
+and failed **Review again** attempts. After navigation or reload, a read-only
+preview can recover that original operation and plan hash from one exact current
+scoped registry receipt. It makes no mutation and returns
+`recorded: true`/`identityChanged: false`, offering **Finish reconnecting**. A
+fresh changed-folder review returns `recorded: false`/`identityChanged: true`.
+A successful keyboard reconnect keeps its completion focus and status stable.
+Only one recorded managed binding is eligible; external and multi-binding
+recovery need separate work. A post-commit path change returns an uncertain
+result with the receipt intact rather than success. The retry/focus behavior
+passed private hosted verification on `fix/reconnection-review`; eligibility
+and post-commit path change passed nine real SQLite tests. The hosted folder
+swap was not exercised because the attempted rename returned EXDEV before any
+source file changed.
+
 ## Context
 
 Read [the desktop target](../desktop-release.md), [07b](07b-shared-workspace-plan-apply.md),
@@ -106,6 +122,23 @@ installed toolkit before writing setup widgets. Do not introduce a conductor.
   automatic reconnection claim. Raw ignored results: `.tmp/15-hosted-final.json`
   and `.tmp/15-files-reconnection-result.json`. Full existing-folder apply and
   whole issue #15 remain open.
+- 2026-09-15: PR #45 merged at `5ae92c3` with four review findings still open.
+  The `fix/reconnection-review` follow-up passed two builds and a private hosted
+  lost-response test: real confirm returned HTTP 200 but its browser response
+  was withheld until timeout, leaving exact Retry and Review again. Review
+  again offered recorded **Finish reconnecting**; normal catalog refresh healed
+  availability before that button was clicked. Replaying the original request
+  through the same authenticated Native action returned HTTP 200 without another
+  catalog change. Desktop and 390px phone keyboard confirms retained completion
+  status and focus on the project; phone Cancel restored focus with no catalog
+  change, both controls visible and no horizontal overflow. Reload kept the
+  earlier BETA conversation and closed panels; no model ran. All 28 fixture
+  file hashes stayed unchanged. Nine real SQLite tests cover external/multiple
+  binding eligibility and post-commit folder change with receipt-backed retry.
+  The hosted folder rename returned EXDEV before changing source files, so it
+  is not hosted folder-swap proof. Raw ignored results: `.tmp/45-review-hosted.json`
+  and `.tmp/45-review-files-after.json`. Full #15 apply remains open under #14;
+  Windows execution is #8 and PR #43 remains held.
 
 ## Shared desktop and web behavior
 

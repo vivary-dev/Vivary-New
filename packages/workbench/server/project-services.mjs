@@ -313,6 +313,8 @@ export function startProjectServices(nitroApp, dependencies) {
         readScope: registry.readScope,
         provider,
         locationLabels: local ? provider.locationLabels : installation.locationLabels,
+        canReconnect: local
+          ? ref => provider.isManagedLocation(ref, environment.VIVARY_DATA_DIR) : undefined,
       });
       const readiness = runtime.createProjectRuntimeReadiness({
         readScope: registry.readScope,

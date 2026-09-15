@@ -19,11 +19,22 @@ BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
 PROJECT_SESSION_REVISION = "feat/project-chat-sessions"
 BUNDLED_RUNTIME_REVISION = "dev"
-RECONNECTION_REVISION = "fix/managed-project-reconnection"
+RECONNECTION_REVISION = "dev"
+RECONNECTION_REVIEW_REVISION = "fix/reconnection-review"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
 CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
+RECONNECTION_REVIEW_PATHS = {
+    Path("packages/workbench/app/components/projects/ProjectContext.tsx"),
+    Path("packages/workbench/app/components/projects/ProjectNavigation.tsx"),
+    Path("packages/workbench/app/components/projects/ReconnectProjectForm.tsx"),
+    Path("packages/workbench/app/lib/project-catalog-schema.ts"),
+    Path("packages/workbench/server/local-root-provider.mjs"),
+    Path("packages/workbench/server/managed-project-reconnection.mjs"),
+    Path("packages/workbench/server/project-catalog.mjs"),
+    Path("packages/workbench/server/project-services.mjs"),
+    Path("packages/workbench/shared/managed-project-reconnection.ts"),
+}
 RECONNECTION_PATHS = {
-    Path("docs/product/multi-project/receipts/23a-bundled-original-runtime.md"),
     Path("packages/workbench/actions/vivary-preview-managed-project-reconnection.ts"),
     Path("packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts"),
     Path("packages/workbench/app/components/projects/ProjectContext.tsx"),
@@ -214,7 +225,10 @@ def build():
                     revision = SOURCE_REVISION
                     if slug in CURRENT_IMPLEMENTATION_CHAPTERS:
                         if any(relative == prefix or prefix in relative.parents
-                               for prefix in RECONNECTION_PATHS):
+                               for prefix in RECONNECTION_REVIEW_PATHS):
+                            revision = RECONNECTION_REVIEW_REVISION
+                        elif any(relative == prefix or prefix in relative.parents
+                                 for prefix in RECONNECTION_PATHS):
                             revision = RECONNECTION_REVISION
                         elif any(relative == prefix or prefix in relative.parents
                                  for prefix in BUNDLED_RUNTIME_PATHS):

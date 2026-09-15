@@ -35,7 +35,9 @@ Stable project identity and authorized folders.
 - Replacement contract: Replace a root or VCS observation adapter while preserving IDs and current grants.
 - Conceptual request/result: RegisterRoot / ResolveProject / RebindRoot -> stable identity, revision and scoped capability result. Root observation is separate from adoption.
 - Current recovery slice: Review connection checks one already-registered managed folder; explicit confirm rechecks its reviewed inputs before changing that project's binding. Project and conversation IDs survive loss of folder access. Cancel writes nothing; changed inputs require re-review. Reconnect changes no project files or agent state and accepts no arbitrary folder path. Old Code root metadata is provenance: continuing a saved conversation needs the same current canonical path, a new grant and fresh approval; a moved path refuses. Reconnect refuses during an active or awaiting-approval Code request.
-- Verification: The bounded increment passed private hosted desktop/phone, cancel, reconnect, retained-history, fresh-approval/deny, refusal, file-hash and reload checks on 2026-09-15. The full issue #15 Create/apply goal remains open under issue #14's shared operation.
+- Verification: The bounded increment passed private hosted desktop/phone, cancel, reconnect, retained-history, fresh-approval/deny, refusal, file-hash and reload checks on 2026-09-15. That is the earlier tested candidate; the full issue #15 Create/apply goal remains open under issue #14's shared operation.
+- Follow-up contract: The mounted UI keeps exact uncertain attempts through new reviews. A read-only preview can recover the original operation/hash from one current scoped receipt (`recorded: true`, `identityChanged: false`) and offer Finish reconnecting; a changed folder gets a fresh plan. One managed binding is eligible. Keyboard completion keeps focus/status stable; post-commit path change returns uncertain with the receipt intact.
+- Follow-up evidence: Private hosted lost-response, recorded-preview, exact authenticated replay, desktop/390px keyboard and Cancel, reload, idle/model-zero and all 28 file hashes passed on 2026-09-15. Catalog refresh restored availability before Finish was clicked. External/multi-binding eligibility and post-commit path change passed nine real SQLite tests; a hosted rename returned EXDEV before files changed. Full #15 remains open, Windows execution is unrun, and PR #43 stays held.
 - Acceptance: Register two no-VCS folders, switch away and back, remove one root, then retry without falling back to the other.
 - Actions: A010, A011, A012, A013, A014, A015, A016, A017. See [the action catalog](actions.md#m02-projects-and-roots).
 
@@ -43,6 +45,7 @@ Current source or design entry points:
 
 - [packages/workbench/server/project-services.mjs](../../../../packages/workbench/server/project-services.mjs)
 - [packages/workbench/server/project-catalog.mjs](../../../../packages/workbench/server/project-catalog.mjs)
+- [packages/workbench/app/lib/project-catalog-schema.ts](../../../../packages/workbench/app/lib/project-catalog-schema.ts)
 - [packages/workbench/server/native-registry.mjs](../../../../packages/workbench/server/native-registry.mjs)
 - [packages/workbench/server/root-provider.mjs](../../../../packages/workbench/server/root-provider.mjs)
 - [packages/workbench/app/components/projects/ProjectContext.tsx](../../../../packages/workbench/app/components/projects/ProjectContext.tsx)
