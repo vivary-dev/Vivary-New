@@ -11,6 +11,16 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
+PR #43's latest head `ff3ae49d9a51dfeeaff7735797312001c16aad4c` passed
+all seven CI checks. The recorded Native persistence and composer defects keep
+that PR in draft. The private preview has since been refreshed with issue #7's
+bundled-runtime candidate, while the earlier
+`53a5fcdeb8aaed3b19ccc62ccc2be146ffee599a` output remains available as a
+backup. New project, its five generated files, `STATE.md` reading and Doctor
+through a fresh project-folder binding passed. Older saved roots remain
+unavailable; [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15)
+owns restart recovery and reconnect or rebind.
+
 The private Linux x64 package has been exercised outside the source checkout.
 It opened the GUI, created local SQLite/workspace data, restored a conversation
 and file after reopening, and stopped the local server when closed.
@@ -26,9 +36,10 @@ Stop remained available while the selected folder was missing and preserved the
 paused conversation when that folder returned. Unsent text drafts still need
 recovery across a changed local port.
 
-A Windows x64 portable folder has also been assembled and its target binaries
-and metadata checked. It has not been executed on Windows. Windows and macOS
-installers, signing, upgrades, and installed smoke tests remain unfinished. The current package is a private preview, not a release.
+An earlier Windows x64 portable folder was assembled and its target binaries
+and metadata were checked. It has not been executed on Windows. Windows and
+macOS installers, signing, upgrades, and installed smoke tests remain
+unfinished. The current package is a private preview, not a release.
 The [installation outcome](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
 owns that remaining work.
 
@@ -40,6 +51,11 @@ Build Workbench first, then install this package's locked development tools:
 pnpm --dir packages/workbench build
 npm --prefix packages/desktop ci
 ```
+
+Packaging the original runtime also requires host Python 3.12 with `venv` and
+`ensurepip`. It does not require global setuptools. The first package build
+needs outbound HTTPS for the hash-pinned runtime and build-tool wheels; verified
+downloads are reused from the desktop package's `.tmp` cache.
 
 Set `VIVARY_DESKTOP_NODE` to the absolute path of ordinary Node, then run:
 
@@ -61,15 +77,91 @@ projects.
 npm --prefix packages/desktop run package
 ```
 
-The packager writes a dated directory under `dist/`. It includes only the desktop
-entry, compiled Workbench output, startup scripts, ordinary Node, licenses, and
-build metadata. It does not copy source checkouts, runtime data, credentials, or
-the development preview service.
+The packager writes a dated directory under `dist/`. It stages the desktop
+entry, compiled Workbench output, startup scripts, ordinary Node, the original
+Vivary runtime, licenses, and build metadata. It does not copy a source
+checkout, runtime data, credentials, or the development preview service.
 
-The default command builds for the current operating system and architecture,
-using that host's Node executable and Workbench native modules.
-Linux requires the usual Electron desktop libraries, including GTK 3 and its
-GSettings schemas.
+### Bundled original runtime
+
+Issue #7's source candidate bundles CPython 3.12.14 from the
+[python-build-standalone `20260901` release](https://github.com/astral-sh/python-build-standalone/releases/tag/20260901).
+The runtime archives are fixed inputs:
+
+| Target | Archive | SHA-256 |
+| --- | --- | --- |
+| Linux x64 | `cpython-3.12.14+20260901-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz` | `72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c` |
+| Windows x64 | `cpython-3.12.14+20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz` | `7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14` |
+
+Package-time downloads stay under `packages/desktop/.tmp/original-runtime` and
+are reused only after their hashes match. This includes the following build-only
+Python tools:
+
+| Tool | Version | SHA-256 |
+| --- | --- | --- |
+| [pip](https://pypi.org/project/pip/26.0.1/) | 26.0.1 | `bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b` |
+| [setuptools](https://pypi.org/project/setuptools/84.0.0/) | 84.0.0 | `51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670` |
+
+Each build then:
+
+1. Creates a temporary isolated build environment under the same `.tmp`
+   directory, installs only the verified local pip and setuptools wheels, and
+   checks that pip vendors distlib 0.4.0.
+2. Builds fresh pure-Python wheels from the owned `vivary`, `create-vivary`,
+   `core`, `tropo`, `strato`, `ozone`, and `exo` sources without an
+   index or build isolation.
+3. Installs those wheels into the staged interpreter without an index or
+   dependency download.
+4. Writes relocatable component launchers and correct installed-wheel `RECORD`
+   entries.
+5. Removes the temporary build environment.
+6. Copies and hashes the reviewed managed-project bridge.
+7. Writes the runtime manifest and license inventory.
+
+The build tools remain package-time inputs. They do not add a first-launch
+installer or a new runtime dependency.
+
+The distributed application needs no global Python, source checkout, or
+first-launch install. The existing `vivary_cli` router continues to own create,
+adopt, doctor, capabilities, check, find, decide, review, impact, and control.
+Its logs and email-draft helpers remain available through the bundled CLI.
+
+Linux component commands resolve the bundled sibling `python3`. Windows uses
+pip's vendored distlib 0.4.0 console launcher and its supported
+`<launcher_dir>` interpreter path. See the first-party
+[distlib launcher source](https://github.com/pypa/distlib/blob/0.4.0/PC/launcher.c).
+Electron Packager copies the staged Python tree with verbatim relative symlinks.
+
+The manifest records the target, source revision, interpreter and component
+versions, wheel hashes, launchers, bridge hash, and license paths. The package
+includes each component's MIT license, the repository MIT license for the
+bridge, CPython and pip notices, and the release-pinned
+[python-build-standalone aggregate licenses](https://github.com/astral-sh/python-build-standalone/blob/20260901/python-licenses.rst).
+That aggregate is 105,875 bytes with SHA-256
+`e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab`.
+
+Workbench reaches this runtime through a deterministic server adapter. It:
+
+- accepts one of ten typed verbs;
+- resolves and revalidates the selected project grant;
+- invokes `python -I -X utf8 -B -m vivary_cli` without a shell;
+- bounds time, input, and output;
+- exposes bounded text search for Find and the structure pack for Review; and
+- derives app receipts from `VIVARY_DATA_DIR`, without accepting a caller path.
+
+The standalone bundled CLI keeps the complete original command flags and the
+original `.vivary/receipts.jsonl` default. The adapter is neither a model tool
+nor another daemon. See the
+[current in-progress verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
+The corrected Linux artifact has passed its relocated ten-command checks and
+its rebuilt packaged-Electron journey. The hosted preview passed New project,
+file reading and Doctor through a fresh project binding. Windows assembly
+remains open.
+
+The default command builds the supported target for its host: Linux x64 or
+Windows x64. Other architectures and macOS remain later release work. The build
+uses that host's Node executable and Workbench native modules. Linux requires
+the usual Electron desktop libraries, including GTK 3 and its GSettings schemas.
 
 There is one application instance per user. The window starts its own local
 server, waits for the actual app route, and uses parent-child IPC for graceful

@@ -15,11 +15,17 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+import venv
 import zipfile
 
 
 WINDOWS_DISTLIB_VERSION = "0.4.0"
 WINDOWS_CONSOLE_LAUNCHER_SHA256 = "81a618f21cb87db9076134e70388b6e9cb7c2106739011b6a51772d22cae06b7"
+BUILD_BACKEND_WHEELS = (
+    ("pip", "26.0.1", "pip-26.0.1-py3-none-any.whl"),
+    ("setuptools", "84.0.0", "setuptools-84.0.0-py3-none-any.whl"),
+)
 
 COMPONENTS = (
     ("vivary", "vivary", "0.2.1", "vivary-0.2.1-py3-none-any.whl"),
@@ -126,8 +132,16 @@ def extract_runtime(archive_path: Path, destination: Path, platform: str) -> Non
 def _wheel_identity(wheel_path: Path) -> tuple[str, str]:
     with zipfile.ZipFile(wheel_path) as archive:
         names = archive.namelist()
-        metadata_files = [name for name in names if name.endswith(".dist-info/METADATA")]
-        wheel_files = [name for name in names if name.endswith(".dist-info/WHEEL")]
+        metadata_files = [
+            name
+            for name in names
+            if name.count("/") == 1 and name.endswith(".dist-info/METADATA")
+        ]
+        wheel_files = [
+            name
+            for name in names
+            if name.count("/") == 1 and name.endswith(".dist-info/WHEEL")
+        ]
         if len(metadata_files) != 1 or len(wheel_files) != 1:
             raise ValueError("wheel metadata is incomplete: " + wheel_path.name)
         metadata = email.parser.BytesParser().parsebytes(archive.read(metadata_files[0]))
@@ -139,7 +153,67 @@ def _wheel_identity(wheel_path: Path) -> tuple[str, str]:
         return metadata["Name"], metadata["Version"]
 
 
-def build_wheels(repository: Path, wheelhouse: Path) -> None:
+def _validated_build_backend_wheels(wheel_paths: list[Path]) -> list[Path]:
+    by_name = {wheel.name: wheel for wheel in wheel_paths}
+    expected_names = {wheel_name for _, _, wheel_name in BUILD_BACKEND_WHEELS}
+    if len(by_name) != len(wheel_paths) or set(by_name) != expected_names:
+        raise ValueError(
+            "build backend wheels must be exactly " + repr(sorted(expected_names))
+        )
+    ordered = []
+    for distribution, version, wheel_name in BUILD_BACKEND_WHEELS:
+        wheel = by_name[wheel_name]
+        if not wheel.is_file():
+            raise ValueError("build backend wheel is missing: " + str(wheel))
+        identity = _wheel_identity(wheel)
+        normalized_name = identity[0].replace("_", "-").lower()
+        if (normalized_name, identity[1]) != (distribution, version):
+            raise ValueError(
+                "unexpected build backend identity for "
+                + wheel_name
+                + ": "
+                + repr(identity)
+            )
+        ordered.append(wheel)
+    return ordered
+
+
+def _venv_python(environment: Path) -> Path:
+    if os.name == "nt":
+        return environment / "Scripts" / "python.exe"
+    return environment / "bin" / "python"
+
+
+def _validate_component_wheels(wheelhouse: Path) -> None:
+    expected = {wheel for *_, wheel in COMPONENTS}
+    actual = {wheel.name for wheel in wheelhouse.glob("*.whl")}
+    if actual != expected:
+        raise ValueError(
+            "wheel build produced "
+            + repr(sorted(actual))
+            + ", expected "
+            + repr(sorted(expected))
+        )
+    for _, distribution, version, wheel_name in COMPONENTS:
+        identity = _wheel_identity(wheelhouse / wheel_name)
+        normalized_name = identity[0].replace("_", "-").lower()
+        if (normalized_name, identity[1]) != (distribution.lower(), version):
+            raise ValueError(
+                "unexpected wheel identity for "
+                + wheel_name
+                + ": "
+                + repr(identity)
+            )
+
+
+def build_wheels(
+    repository: Path,
+    wheelhouse: Path,
+    build_backend_wheels: list[Path],
+    runtime_root: Path,
+    site_packages: Path,
+    platform: str,
+) -> None:
     wheelhouse.mkdir(parents=True, exist_ok=True)
     if any(wheelhouse.iterdir()):
         raise ValueError("wheel build destination must be empty")
@@ -147,38 +221,104 @@ def build_wheels(repository: Path, wheelhouse: Path) -> None:
     for source in source_paths:
         if not (source / "pyproject.toml").is_file():
             raise ValueError("component source is missing: " + str(source))
+
+    backend_wheels = _validated_build_backend_wheels(build_backend_wheels)
     environment = {
         **os.environ,
         "PIP_DISABLE_PIP_VERSION_CHECK": "1",
         "PIP_NO_INDEX": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
     }
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--no-build-isolation",
-            "--no-index",
-            "--wheel-dir",
-            str(wheelhouse),
-            *(str(source) for source in source_paths),
-        ],
-        cwd=repository,
-        env=environment,
-        check=True,
-    )
-    expected = {wheel for *_, wheel in COMPONENTS}
-    actual = {wheel.name for wheel in wheelhouse.glob("*.whl")}
-    if actual != expected:
-        raise ValueError("wheel build produced " + repr(sorted(actual)) + ", expected " + repr(sorted(expected)))
-    for _, distribution, version, wheel_name in COMPONENTS:
-        identity = _wheel_identity(wheelhouse / wheel_name)
-        normalized_name = identity[0].replace("_", "-").lower()
-        if (normalized_name, identity[1]) != (distribution.lower(), version):
-            raise ValueError("unexpected wheel identity for " + wheel_name + ": " + repr(identity))
+    with tempfile.TemporaryDirectory(
+        prefix="build-backend-",
+        dir=wheelhouse.parent,
+    ) as temporary:
+        build_environment = Path(temporary)
+        # Match `python -m venv`: link the host executable on POSIX and use
+        # copied launchers on Windows.
+        builder = venv.EnvBuilder(with_pip=True, symlinks=os.name != "nt")
+        builder.create(build_environment)
+        build_python = _venv_python(build_environment)
+        for backend_wheel in backend_wheels:
+            subprocess.run(
+                [
+                    str(build_python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-cache-dir",
+                    "--no-deps",
+                    "--no-index",
+                    "--force-reinstall",
+                    str(backend_wheel),
+                ],
+                env=environment,
+                check=True,
+            )
+        subprocess.run(
+            [
+                str(build_python),
+                "-c",
+                (
+                    "import importlib.metadata as metadata;"
+                    "import pip._vendor.distlib as distlib;"
+                    "assert metadata.version('pip') == '26.0.1';"
+                    "assert metadata.version('setuptools') == '84.0.0';"
+                    "assert distlib.__version__ == '0.4.0'"
+                ),
+            ],
+            env=environment,
+            check=True,
+        )
+        subprocess.run(
+            [
+                str(build_python),
+                "-m",
+                "pip",
+                "wheel",
+                "--no-cache-dir",
+                "--no-deps",
+                "--no-build-isolation",
+                "--no-index",
+                "--wheel-dir",
+                str(wheelhouse),
+                *(str(source) for source in source_paths),
+            ],
+            cwd=repository,
+            env=environment,
+            check=True,
+        )
+        _validate_component_wheels(wheelhouse)
 
+        helper = Path(__file__).resolve()
+        subprocess.run(
+            [
+                str(build_python),
+                str(helper),
+                "install-wheels",
+                "--wheelhouse",
+                str(wheelhouse),
+                "--site-packages",
+                str(site_packages),
+            ],
+            env=environment,
+            check=True,
+        )
+        subprocess.run(
+            [
+                str(build_python),
+                str(helper),
+                "write-launchers",
+                "--runtime-root",
+                str(runtime_root),
+                "--site-packages",
+                str(site_packages),
+                "--platform",
+                platform,
+            ],
+            env=environment,
+            check=True,
+        )
 
 def install_wheels(wheelhouse: Path, site_packages: Path) -> None:
     site_packages.mkdir(parents=True, exist_ok=True)
@@ -279,7 +419,6 @@ def _write_linux_launcher(scripts: Path, script: str, module: str, callable_name
 
 def _write_windows_launcher(
     scripts: Path,
-    site_packages: Path,
     script: str,
     module: str,
     callable_name: str,
@@ -289,7 +428,7 @@ def _write_windows_launcher(
 
     if distlib.__version__ != WINDOWS_DISTLIB_VERSION:
         raise ValueError("Windows launchers require pip-vendored distlib " + WINDOWS_DISTLIB_VERSION)
-    stub = site_packages / "pip" / "_vendor" / "distlib" / "t64.exe"
+    stub = Path(distlib.__file__).resolve().parent / "t64.exe"
     if not stub.is_file() or hashlib.sha256(stub.read_bytes()).hexdigest() != WINDOWS_CONSOLE_LAUNCHER_SHA256:
         raise ValueError("The pinned distlib Windows console launcher is unavailable.")
 
@@ -331,7 +470,7 @@ def write_component_launchers(runtime_root: Path, site_packages: Path, platform:
 
     for wheel_name, script, module, callable_name in ENTRY_POINTS:
         if platform == "win32":
-            launcher = _write_windows_launcher(scripts, site_packages, script, module, callable_name)
+            launcher = _write_windows_launcher(scripts, script, module, callable_name)
         else:
             launcher = _write_linux_launcher(scripts, script, module, callable_name)
         _record_launcher(site_packages, wheel_name, script, launcher)
@@ -349,6 +488,15 @@ def main() -> None:
     build = commands.add_parser("build-wheels")
     build.add_argument("--repository", type=Path, required=True)
     build.add_argument("--wheelhouse", type=Path, required=True)
+    build.add_argument(
+        "--build-backend-wheel",
+        action="append",
+        type=Path,
+        required=True,
+    )
+    build.add_argument("--runtime-root", type=Path, required=True)
+    build.add_argument("--site-packages", type=Path, required=True)
+    build.add_argument("--platform", choices=("linux", "win32"), required=True)
 
     install = commands.add_parser("install-wheels")
     install.add_argument("--wheelhouse", type=Path, required=True)
@@ -363,7 +511,14 @@ def main() -> None:
     if args.command == "extract-runtime":
         extract_runtime(args.archive.resolve(), args.destination.resolve(), args.platform)
     elif args.command == "build-wheels":
-        build_wheels(args.repository.resolve(), args.wheelhouse.resolve())
+        build_wheels(
+            args.repository.resolve(),
+            args.wheelhouse.resolve(),
+            [wheel.resolve() for wheel in args.build_backend_wheel],
+            args.runtime_root.resolve(),
+            args.site_packages.resolve(),
+            args.platform,
+        )
     elif args.command == "install-wheels":
         install_wheels(args.wheelhouse.resolve(), args.site_packages.resolve())
     else:

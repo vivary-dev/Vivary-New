@@ -42,6 +42,26 @@ export const ORIGINAL_RUNTIME_LICENSE_ASSET = Object.freeze({
   sha256: "e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab",
   size: 105_875,
 });
+export const ORIGINAL_RUNTIME_BUILD_BACKEND_ASSETS = Object.freeze([
+  Object.freeze({
+    provider: "PyPI",
+    distribution: "pip",
+    version: "26.0.1",
+    fileName: "pip-26.0.1-py3-none-any.whl",
+    url: "https://files.pythonhosted.org/packages/de/f0/c81e05b613866b76d2d1066490adf1a3dbc4ee9d9c839961c3fc8a6997af/pip-26.0.1-py3-none-any.whl",
+    sha256: "bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b",
+    size: 1_787_723,
+  }),
+  Object.freeze({
+    provider: "PyPI",
+    distribution: "setuptools",
+    version: "84.0.0",
+    fileName: "setuptools-84.0.0-py3-none-any.whl",
+    url: "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl",
+    sha256: "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670",
+    size: 818_216,
+  }),
+]);
 const windowsAsset = Object.freeze({
   provider: "astral-sh/python-build-standalone",
   release: PYTHON_RELEASE,
@@ -109,6 +129,10 @@ export async function prepareOriginalRuntime({
   try {
     const archive = await cacheVerifiedAsset(target.asset, { cacheDirectory });
     const aggregateLicense = await cacheVerifiedAsset(ORIGINAL_RUNTIME_LICENSE_ASSET, { cacheDirectory });
+    const buildBackendWheels = [];
+    for (const asset of ORIGINAL_RUNTIME_BUILD_BACKEND_ASSETS) {
+      buildBackendWheels.push(await cacheVerifiedAsset(asset, { cacheDirectory }));
+    }
     await runBuildHelper([
       "extract-runtime",
       "--archive", archive,
@@ -117,24 +141,17 @@ export async function prepareOriginalRuntime({
     ], repository);
     await access(path.join(destination, ...target.pythonExecutable.split("/")));
 
+    const sitePackages = path.join(destination, ...target.sitePackages.split("/"));
     await runBuildHelper([
       "build-wheels",
       "--repository", repository,
       "--wheelhouse", wheelhouse,
-    ], repository);
-    const components = await componentManifestEntries(wheelhouse, destination, target);
-    const sitePackages = path.join(destination, ...target.sitePackages.split("/"));
-    await runBuildHelper([
-      "install-wheels",
-      "--wheelhouse", wheelhouse,
-      "--site-packages", sitePackages,
-    ], repository);
-    await runBuildHelper([
-      "write-launchers",
+      ...buildBackendWheels.flatMap(wheel => ["--build-backend-wheel", wheel]),
       "--runtime-root", destination,
       "--site-packages", sitePackages,
       "--platform", platform,
     ], repository);
+    const components = await componentManifestEntries(wheelhouse, destination, target);
     await verifyComponentLicenses(destination, components);
     await writeOriginalRuntimeLauncher(destination, target);
     const managedProjectBridge = await stageManagedProjectBridge(destination, repository);

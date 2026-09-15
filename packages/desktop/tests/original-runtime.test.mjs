@@ -11,6 +11,7 @@ import { test } from "node:test";
 import {
   cacheVerifiedAsset,
   createOriginalRuntimeManifest,
+  ORIGINAL_RUNTIME_BUILD_BACKEND_ASSETS,
   ORIGINAL_RUNTIME_COMPONENTS,
   ORIGINAL_RUNTIME_LICENSE_ASSET,
   originalRuntimeTarget,
@@ -33,7 +34,31 @@ test("runtime targets pin fixed relocated interpreter paths and archive hashes",
   assert.match(windows.asset.sha256, /^[a-f0-9]{64}$/);
   assert.equal(ORIGINAL_RUNTIME_LICENSE_ASSET.size, 105_875);
   assert.equal(ORIGINAL_RUNTIME_LICENSE_ASSET.sha256, "e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab");
+  assert.deepEqual(
+    ORIGINAL_RUNTIME_BUILD_BACKEND_ASSETS.map(asset => [asset.distribution, asset.version, asset.fileName, asset.sha256]),
+    [
+      ["pip", "26.0.1", "pip-26.0.1-py3-none-any.whl", "bdb1b08f4274833d62c1aa29e20907365a2ceb950410df15fc9521bad440122b"],
+      ["setuptools", "84.0.0", "setuptools-84.0.0-py3-none-any.whl", "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"],
+    ],
+  );
   assert.throws(() => originalRuntimeTarget("darwin", "arm64"), /does not support/);
+});
+
+test("wheel build refuses an undeclared ambient build backend", async () => {
+  const wheelhouse = await mkdtemp(path.join(os.tmpdir(), "vivary-wheel-backend-required-"));
+  try {
+    await assert.rejects(
+      execFile(python, [
+        helper,
+        "build-wheels",
+        "--repository", path.resolve(testRoot, "../../.."),
+        "--wheelhouse", wheelhouse,
+      ]),
+      error => String(error.stderr).includes("--build-backend-wheel"),
+    );
+  } finally {
+    await rm(wheelhouse, { recursive: true, force: true });
+  }
 });
 
 test("runtime cache replaces corrupt content and reuses only the verified hash", async () => {
@@ -243,15 +268,6 @@ async function launcherFixture(platform) {
   ].join("\n"));
   if (platform === "win32") {
     await writeFile(path.join(fixture, "python", "python.exe"), "fixture");
-    const copyStub = [
-      "from pathlib import Path",
-      "import pip._vendor.distlib as distlib",
-      "source = Path(distlib.__file__).parent / 't64.exe'",
-      "target = Path(__import__('sys').argv[1]) / 'pip' / '_vendor' / 'distlib' / 't64.exe'",
-      "target.parent.mkdir(parents=True, exist_ok=True)",
-      "target.write_bytes(source.read_bytes())",
-    ].join("\n");
-    await execFile(python, ["-c", copyStub, sitePackages]);
   } else {
     const interpreter = path.join(fixture, "python", "bin", "python3");
     await mkdir(path.dirname(interpreter), { recursive: true });
