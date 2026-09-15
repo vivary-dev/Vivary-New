@@ -110,3 +110,22 @@ test("independent controls cannot replay a token rejected by another control", a
   await assert.rejects(first("vivary-code-send", {}), /session refreshes/);
   assert.equal(requests, 2);
 });
+
+test("original engine commands use the same private owner-session transport", async () => {
+  const requests: Request[] = [];
+  const call = createNativeActionCaller({
+    getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", token: "original-owner-test-token" } }),
+    cookieAction: async () => { throw new Error("A private owner session must use its existing transport."); },
+    fetch: async (input, init) => { requests.push(new Request(input, init)); return Response.json({ exitCode: 0 }); },
+    locationHref: () => "https://private.example.test/",
+    nativePath: path => path,
+    invalidate: () => { throw new Error("Unexpected invalidation"); },
+  });
+  const input = { projectId: "project-test", command: { verb: "doctor" } };
+  assert.deepEqual(await call("vivary-original-command", input), { exitCode: 0 });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://private.example.test/_agent-native/actions/vivary-original-command");
+  assert.equal(requests[0].headers.get("x-vivary-session"), "original-owner-test-token");
+  assert.equal(requests[0].redirect, "error");
+  assert.deepEqual(await requests[0].json(), input);
+});

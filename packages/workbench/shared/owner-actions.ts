@@ -4,5 +4,6 @@ export const VIVARY_OWNER_ACTIONS = [
   "vivary-register-project", "vivary-connect-project-folder",
   "vivary-project-file-save", "vivary-project-file-rename",
   "vivary-preview-new-project", "vivary-create-new-project",
+  "vivary-original-command",
 ] as const;
 export type VivaryOwnerAction = typeof VIVARY_OWNER_ACTIONS[number];
