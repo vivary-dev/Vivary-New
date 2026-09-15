@@ -15,19 +15,19 @@ PR #43's latest head `ff3ae49d9a51dfeeaff7735797312001c16aad4c` passed
 all seven CI checks. The recorded Native persistence and composer defects keep
 that PR in draft.
 
-For issue #7, Workbench repair
-`721735cbd03be8880662f98fbcbb74d84e4cc967` passed all seven CI jobs.
-Clean-host backend `8e0855c365dc1ae2a65be96a35d32acd9d63a436` passed
-its local proof and all seven jobs in
-[CI run 34923985842](https://github.com/vivary-dev/Vivary-New/actions/runs/34923985842).
-The refreshed private preview passed actual project creation, five-file
-reading, Doctor, control and foreign-identity
-rejection. The prior `bundled-runtime-final-20260914` project remained
-available through the latest refresh. Other older roots remain unavailable;
-[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15) owns recovery
-and reconnect or rebind. The earlier
-`53a5fcdeb8aaed3b19ccc62ccc2be146ffee599a` output remains available as a
-backup.
+Issue #7 bundles the original runtime and preserves the existing command router.
+The final packaging source is `e6f38f9ffcd2fbcd50d49c93864924fa238a9ff1`.
+Its relocated Linux bundle passed all ten verbs, receipt defaults, and a local
+email draft. The packaged window passed project creation, Doctor, private
+receipts, and normal shutdown. The clean-host build needs no ambient Python
+packaging tools; standalone launchers preserve redirected Unicode output.
+
+The private web preview also passed actual project creation, formatted file
+reading, Doctor, control, and foreign-identity rejection. A project created
+before its latest refresh remained available afterward. Some older roots remain
+unavailable; [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15)
+owns explicit recovery. PR #43's held session changes remain in that private
+preview composition; they have not been merged.
 
 The private Linux x64 package has been exercised outside the source checkout.
 It opened the GUI, created local SQLite/workspace data, restored a conversation
@@ -44,9 +44,9 @@ Stop remained available while the selected folder was missing and preserved the
 paused conversation when that folder returned. Unsent text drafts still need
 recovery across a changed local port.
 
-The current 555 MiB Windows x64 Electron folder was assembled on Linux and
+The final e6f38f9 Windows x64 Electron folder was assembled on Linux and
 structurally verified. Its application, Node and Python binaries are x64 PE
-files; it contains seven original components, six relative MZ launchers and 46
+files; it contains seven original components, six relative UTF-8 MZ launchers and 46
 runtime license files. It has not been executed on Windows. Windows and macOS
 installers, signing, upgrades, and installed smoke tests remain unfinished.
 The current package is a private preview, not a release.
@@ -101,7 +101,7 @@ checkout, runtime data, credentials, or the development preview service.
 
 ### Bundled original runtime
 
-Issue #7's source candidate bundles CPython 3.12.14 from the
+The desktop bundles CPython 3.12.14 from the
 [python-build-standalone `20260901` release](https://github.com/astral-sh/python-build-standalone/releases/tag/20260901).
 The runtime archives are fixed inputs:
 
@@ -171,7 +171,7 @@ Workbench reaches this runtime through a deterministic server adapter. It:
 The standalone bundled CLI keeps the complete original command flags and the
 original `.vivary/receipts.jsonl` default. The adapter is neither a model tool
 nor another daemon. See the
-[current in-progress verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
+[runtime verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
 The corrected Linux artifact passed its relocated ten-command checks and
 packaged-Electron journey. The hosted preview passed create, Doctor, control
 and foreign-identity rejection. Clean-host preparation assembled both Linux

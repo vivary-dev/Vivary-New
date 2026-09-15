@@ -17,8 +17,19 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
-CURRENT_IMPLEMENTATION_REVISION = "feat/unified-project-workspace"
+PROJECT_SESSION_REVISION = "feat/project-chat-sessions"
+BUNDLED_RUNTIME_REVISION = "feat/bundle-original-runtime"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
+CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
+BUNDLED_RUNTIME_PATHS = {
+    Path("packages/desktop"),
+    Path("packages/workbench/actions/vivary-original-command.ts"),
+    Path("packages/workbench/server/managed-projects.mjs"),
+    Path("packages/workbench/server/managed_project_workspace.py"),
+    Path("packages/workbench/server/original-runtime-location.d.mts"),
+    Path("packages/workbench/server/original-runtime-location.mjs"),
+    Path("packages/workbench/server/original-runtime.ts"),
+}
 MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.min.js"
 MERMAID_SHA256 = "07e37dfa97b337ccc85365d57eddf99b9706f09db3b59b260d0333b23b343c4b"
 DIAGRAMS = HERE / "guide-diagrams"
@@ -184,9 +195,14 @@ def build():
                     if not target.exists():
                         raise ValueError(str(path.relative_to(ROOT)) + ": missing target " + value)
                     kind = "tree" if target.is_dir() else "blob"
-                    revision = (CURRENT_IMPLEMENTATION_REVISION
-                                if slug in CURRENT_IMPLEMENTATION_CHAPTERS and relative.parts[:2] == ("packages", "workbench")
-                                else SOURCE_REVISION)
+                    revision = SOURCE_REVISION
+                    if slug in CURRENT_IMPLEMENTATION_CHAPTERS:
+                        if any(relative == prefix or prefix in relative.parents
+                               for prefix in BUNDLED_RUNTIME_PATHS):
+                            revision = BUNDLED_RUNTIME_REVISION
+                        elif (relative.parts[:2] == ("packages", "workbench")
+                              or target in CURRENT_IMPLEMENTATION_DOCS):
+                            revision = PROJECT_SESSION_REVISION
                     tag[attr] = "https://github.com/vivary-dev/Vivary-New/" + kind + "/" + revision + "/" + quote(relative.as_posix()) + ("#" + url.fragment if url.fragment else "")
                     tag["target"] = "_blank"
                     tag["rel"] = "noopener noreferrer"

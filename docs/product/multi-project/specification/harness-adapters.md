@@ -4,9 +4,9 @@ This is a target integration contract, not a shipped Vivary API. It composes the
 
 ## User flow first
 
-A person opens the composer picker, sees Claude Code, Codex and other supported registered harness groups with small recognizable marks, and chooses a model reported by that harness on the selected host. The active choice reads as harness plus model. Model names, account entitlement and context limits are observations, not a universal static list.
+A person opens the composer picker, sees Claude Code, Codex and other supported registered harness groups with small recognizable marks, and chooses a model reported by that harness on the selected host. The active choice reads as harness plus model. The selected supported installed harness owns its tools, MCP configuration, models and native permission semantics. Vivary discovers and displays only what it actually observes. Unknown availability stays unknown, and Vivary does not add a second general tool picker.
 
-Supported registered entries can show an unavailable/setup state. Selection is enabled only when the requested mode is supported and authorized. An installed unknown CLI is not automatically executed or labeled supported. Discovery runs bounded probes for known registrations. Refresh rechecks the catalog after installation, login or version changes.
+Supported registered entries can show an unavailable/setup state. Selection is enabled only when the requested mode is supported and authorized. An installed unknown CLI is not automatically executed or labeled supported. Discovery runs bounded probes for known registrations. Refresh rechecks the catalog after installation, login or version changes. Vivary retains project and host authorization plus approval, denial and Stop for the exact request.
 
 A same-harness model change stays in the conversation only when the adapter confirms compatibility. A different harness creates a linked conversation in the same project. No handoff wizard is required. The existing unsent text remains unsent. Source history is accessible through its original owner. Preparing a handoff is a separate action.
 
@@ -18,6 +18,7 @@ Source basis: installed `@agent-native/core` 0.176.5, especially `docs/content/h
 | --- | --- | --- |
 | Native harness registry | Registration, lookup, built-ins and package presence | Project/host-scoped catalog with readiness and model observations |
 | Native `AgentHarnessAdapter` | Identity, capabilities and `createSession` | Binding to project, root, host and current policy |
+| Selected supported installed harness | Tools, MCP configuration, models and native permission semantics | Truthful display of observed availability without a second general tool picker |
 | Native session | `streamTurn` and supported optional continuation, approval, detach, stop and destruction | Capability-specific UI and truthful recovery |
 | Native harness lifecycle | `startAgentHarnessRun`, follow-up/approval/stop and SQL harness session state | Dispatch through the selected owner without duplicating run storage |
 | Native events | Text, activity, thinking, tools, approval, file change, compaction, usage, error and done | Scoped projection and evidence/unknown states |
@@ -28,6 +29,8 @@ Current code: [local-code-agent.ts](../../../../packages/workbench/server/local-
 
 The current Code follow-up reconstructs a bounded prompt. That is replay, not opaque native-session resume. Existing state must remain readable during migration. Never feed Claude resume state to Codex or infer a new session's authority from linked history.
 
+Vivary supplies its original engine and narrow deterministic workspace operations. When a user capability is missing, explain whether the boundary is the harness, the observed host state, project or host authorization, or an existing Vivary operation before proposing another tool.
+
 ## Conceptual boundary sketch
 
 ```text
@@ -37,7 +40,7 @@ CatalogObservation
   observation revision and time
   adapter identity, label, trusted icon key, installed runtime version
   registered/configured/installed/authenticated/authorized/bound/runnable/verified
-  models: observed list OR unavailable with stable reason
+  models, tools, MCP configuration and native permissions: observed state OR unknown
   capabilities: supported / unsupported / unknown per capability
 
 ConversationReference
@@ -76,7 +79,8 @@ This is a contract sketch, not an instruction to create these exact tables or du
 | Text turn and understood completion/error events | Required for interactive execution | Adapter remains unsupported |
 | Project/root binding | Required for project-scoped work | Refuse execution |
 | Cancellation and process outcome observation | Required for an enabled execution mode | Refuse modes where safe Stop cannot be provided |
-| Exact approval/tool permission semantics | Required when policy demands them | That mode is unavailable. No prompt-only substitute |
+| Native tool and permission semantics | Owned by the selected harness and observed when exposed | Preserve unknown. Do not invent a second permission or tool catalog |
+| Vivary host/project authorization and exact approval, denial and Stop | Required for execution | That mode is unavailable. No prompt-only substitute |
 | Native resume | Optional, explicitly advertised and proven | New linked conversation or labeled replay where accepted |
 | Structured tool and file events | Capability-specific | Display available evidence. Do not claim unseen tools or changes |
 | Usage/cost reporting | Optional unless the selected policy requires it | Show unknown. Do not infer zero or verified spending control |

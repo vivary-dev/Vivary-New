@@ -8,7 +8,7 @@ The dependency list describes the target direction of capability calls, not issu
 
 One selected project conversation with optional panels.
 
-Implementation status: implemented on `feat/unified-project-workspace` and verified in the private hosted candidate on 2026-09-14. The final source review approved the code. The linked PR in issue #38 owns CI and merge status. This acceptance covers the first shell and integrated panels, not every issue #38 capability.
+Implementation status: the first workspace shell merged in [PR #42](https://github.com/vivary-dev/Vivary-New/pull/42) after independent review, CI and private hosted verification on 2026-09-14. This acceptance covers the first shell and integrated panels, not every issue #38 capability.
 
 - Owns: Layout, focus, panel selection and visibility. Durable data stays with its owner.
 - Calls: M02, M03, M05, M06, M09, M14.
@@ -49,7 +49,7 @@ Current source or design entry points:
 
 Reopen several project conversations and link history across harnesses.
 
-Implementation status: the verified first shell composes existing Code and Native conversation owners in one workspace. The private hosted journey created two real conversation requests, denied both before model or tool execution, reopened the first from history, preserved authorized history for an unavailable project, and restored the selected conversation after returning. The supported harness catalog, linked cross-harness conversation flow, and concurrent runtime remain unimplemented. The current runtime permits one active run at a time. No model execution was proved in this slice.
+Implementation status: the verified first shell composes existing Code and Native conversation owners in one workspace. The private hosted journey created two real conversation requests, denied both before model or tool execution, reopened the first from history, preserved authorized history for an unavailable project, and restored the selected conversation after returning. The supported harness catalog, linked cross-harness conversation flow, and concurrent runtime remain unimplemented. The current runtime permits one active run at a time. The shell proof did not execute a model. [PR #43](https://github.com/vivary-dev/Vivary-New/pull/43) subsequently completed six real Code turns across two projects and Personal. Its Native fixture exposed unresolved saved-head and composer-gating defects, so project-session acceptance remains open.
 
 - Owns: References to Native threads, Code runs and harness sessions, plus proposed linkage metadata.
 - Calls: M02, M04, M05.
@@ -72,9 +72,11 @@ Optional profile authoring remains with existing Native resource/settings or int
 
 ## M04: Harness adapters
 
-Discover supported installed CLIs and their models.
+Discover observed availability for supported installed harnesses.
 
-- Owns: Capability and readiness observations. Native owns sessions, events and opaque resume state.
+The selected harness owns its tools, MCP configuration, models and native permission semantics. Vivary displays only observed availability, preserves unknown states and does not add a second general tool picker.
+
+- Owns: Capability and readiness observations. The selected harness owns its tools, MCP configuration, models and native permissions. Native owns sessions, events and opaque resume state.
 - Calls: M02, M05, M14.
 - Replacement contract: Add a registered adapter, model probe and compatibility evidence. No UI engine-name switch.
 - Conceptual request/result: ListCatalog / ResolveChoice -> adapter identity, model observation and readiness. New native-harness sessions use the Native harness lifecycle. Preserved native-code sessions use the Code executor and controls. Dispatch by owner kind.
@@ -96,7 +98,7 @@ Make effects explicit, scoped and revocable.
 
 - Owns: Actor/project grant validation, deterministic policy and Vivary pre-launch request binding. Native retains originating approval state and lifecycle.
 - Calls: no product module. Validates supplied identity and authoritative policy through existing framework/registry seams.
-- Replacement contract: Adapters cannot widen permissions or turn unknown capability into approval.
+- Replacement contract: Adapters cannot widen permissions or turn unknown capability into approval. Harness-native permissions do not replace Vivary project and host authorization or its approval, denial and Stop controls.
 - Conceptual request/result: ValidateScope / ApproveExactRequest / Deny / Stop -> policy decision or observed lifecycle result. Approval state stays with the originating Native owner. The facade delegates using its approval reference. Stop is an ownership-checked Native control.
 - Acceptance: Deny one request, change an approved request, revoke a grant, and Stop an owned run after its folder disappears.
 - Actions: A034, A035, A036, A037, A038, A039, A040. See [the action catalog](actions.md#m05-authority-and-approvals).
@@ -136,6 +138,10 @@ Current source or design entry points:
 
 Create, adopt and run the original Vivary commands.
 
+Vivary provides its original engine and narrow deterministic workspace operations. Explain whether a missing user capability is blocked by the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
+
+Implementation status: Workbench repair `721735c` binds the typed ten-verb adapter to the selected actor, project and scope, preserves exact adoption and governed input, uses private control files, records decide results and admits one original process at a time. Its seven CI jobs passed. The latest hosted preview passed create, Doctor, control and foreign-identity rejection. Clean-host backend `8e0855c` assembled the Linux x64 and Windows x64 original runtimes without ambient pip or setuptools, and all seven CI jobs passed. The earlier 555 MiB Windows x64 Electron folder was structurally verified with seven components, six relative MZ launchers and 46 runtime license files. It is superseded by reviewed `-I -X utf8 -B` standalone/component launchers and a tracked-source packaging snapshot captured before downloads. The final Linux package passed relocated all-ten-verb fixtures and a packaged-Electron New Project and Doctor journey. The final Windows x64 folder passed assembly and structural checks on Linux. Actual Windows execution belongs to issue #8. The linked PR in issue #7 owns final CI and merge status; release remains unverified.
+
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.
 - Replacement contract: Replace transport or packaging while retaining ten-verb behavior and receipt meanings.
@@ -152,6 +158,12 @@ Current source or design entry points:
 - [packages/ozone](../../../../packages/ozone)
 - [packages/exo](../../../../packages/exo)
 - [packages/vivary](../../../../packages/vivary)
+- [packages/desktop/original-runtime.mjs](../../../../packages/desktop/original-runtime.mjs)
+- [packages/desktop/build-original-wheels.py](../../../../packages/desktop/build-original-wheels.py)
+- [packages/workbench/server/original-runtime.ts](../../../../packages/workbench/server/original-runtime.ts)
+- [packages/workbench/server/original-runtime-location.mjs](../../../../packages/workbench/server/original-runtime-location.mjs)
+- [packages/workbench/actions/vivary-original-command.ts](../../../../packages/workbench/actions/vivary-original-command.ts)
+- [packages/workbench/server/managed_project_workspace.py](../../../../packages/workbench/server/managed_project_workspace.py)
 
 ## M08: Search and file memory
 
@@ -269,6 +281,8 @@ Current source or design entry points:
 ## M15: Distribution and discovery
 
 Publish truthful artifacts and supported protocols.
+
+Workspace templates remain an offline baseline. A later optional community collection can use the existing vivary-site to point at source GitHub repositories and downloads. Show a preview before apply. A download remains inert until a separately authorized operation applies it. This is not a marketplace or a separate template site.
 
 - Owns: Release manifests and implemented protocol contracts. Website is a separate repository.
 - Calls: M05, M07, M14, M16.

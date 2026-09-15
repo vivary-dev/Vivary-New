@@ -2,11 +2,12 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/7
 Parent: 23
-Status: ready-for-agent
+Status: in-progress
 Depends-on: []
 Owner: Root-assigned desktop packaging and original-CLI integrator
 Scope: Include the existing Python suite and its runtime in the desktop distribution.
 Verification-kind: runtime
+Evidence: [Bundled original runtime verification](../receipts/23a-bundled-original-runtime.md)
 Timebox: One source-free runtime packaging increment with focused command routing checks.
 
 ## Goal
@@ -57,7 +58,8 @@ Use deterministic fixtures for policy, review, impact and coordination commands.
 ```console
 python3 -B packages/vivary/tests/test_vivary_router.py
 python3 -B packages/vivary/tests/test_command_surface_characterization.py
-node --test packages/desktop/tests/main.test.mjs
+node --test packages/desktop/tests/main.test.mjs packages/desktop/tests/original-runtime.test.mjs
+pnpm --dir packages/workbench exec tsx --test tests/original-runtime.test.ts
 ```
 
 ## Stop conditions
@@ -68,3 +70,17 @@ Linux-only creation provider unchanged, or add another agent executor to run det
 ## Log
 
 - 2026-09-13: Drafted. Current desktop artifacts do not include the original Python suite.
+- 2026-09-14: Workbench repair `721735c` binds the original commands to the
+  selected actor, project and scope, preserves exact adoption and governed
+  inputs, uses private control files and decide receipts, and passed all seven
+  CI jobs. Clean-host backend `8e0855c` assembles both Linux x64 and Windows
+  x64 original runtimes without ambient pip or setuptools. The latest private
+  preview passed create, Doctor, control and foreign-identity rejection.
+  The 555 MiB Windows x64 Electron folder passed structural verification,
+  and all seven `8e0855c` CI jobs passed. That folder is a superseded candidate:
+  reviewed `-I -X utf8 -B` launchers and a tracked-source packaging snapshot
+  now have a final Linux package with all ten verbs and a packaged-Electron
+  journey pass. The final Windows x64 folder passed assembly and structural
+  checks on Linux. Code head `e6f38f9` passed all seven CI jobs; the linked PR
+  owns documentation-head CI and merge. Actual Windows execution remains with
+  issue #8. Issue #7 stays open until delivery. See the linked receipt.

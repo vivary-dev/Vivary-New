@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/6
 Parent: 04
-Status: ready-for-agent
+Status: needs-info
 Depends-on: [03c]
 Owner: Root-assigned Workbench session integrator, sole writer of shared chat identity
 Scope: Give Code and Full chat stable project-scoped session references using existing Native records.
 Verification-kind: runtime
+Needs: Native must prevent stale snapshot heads and preserve the host composerDisabled setting. No supported repair is exposed by installed Core 0.176.5.
+Evidence: [Project conversation verification](../receipts/04a-project-chat-sessions.md)
 Timebox: One project-session increment with focused checks and a two-project GUI journey.
 
 ## Goal
@@ -18,14 +20,16 @@ same project after navigation and reopening.
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
-Code runs already bind project, root, binding and owner. Full chat currently
-uses an organization-only scope. Native owns runs, threads, messages and tools.
+Code runs bind project, root, binding and owner. The issue #6 implementation
+derives new Native chat identity from actor, organization and project. Older
+organization-only chats keep their original scope under Unassigned. Native owns
+runs, threads, messages and tools.
 Project scope labels do not grant filesystem access. Resolve the current grant.
 
 ## Owned files
 
 - `packages/workbench/app/lib/chat-scope.ts` and `components/layout/use-vivary-chat-identity.ts`.
-- `packages/workbench/app/routes/agent.tsx`, `chat.tsx`, and shared session navigation.
+- `packages/workbench/app/components/workspace/CodeConversation.tsx`, `NativeConversation.tsx`, and shared session navigation.
 - `packages/workbench/server/local-code-agent.ts` and related scoped actions where needed.
 - `packages/workbench/tests/chat-scope.test.ts` and `local-code-agent.test.ts`.
 - Coordinate changes to `components/projects/ProjectContext.tsx` with its current owner.
@@ -46,11 +50,13 @@ No Vivary signup is introduced. Provider authentication remains separate.
 Exercise two projects and Personal workspace through both chat surfaces. Create,
 reopen and follow up in each. Verify cross-project queries refuse mismatched IDs.
 Use the installed TypeScript runner for the named existing Code boundary tests.
-Run the normal hosted GUI first. Leave draft-restart acceptance to 17a.
+Run the normal hosted GUI first. An isolated normal-app instance may use a deterministic
+local provider when Native provider credentials are unavailable. Keep that proof
+separate from an actual hosted model run. Leave draft-restart acceptance to 17a.
 
 ```console
-node --experimental-strip-types --test packages/workbench/tests/chat-scope.test.ts
-pnpm --dir packages/workbench typecheck
+pnpm --dir packages/workbench exec tsx --test tests/chat-scope.test.ts tests/native-chat-project.test.ts tests/local-code-agent.test.ts
+pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
 git diff --check
 ```
 
@@ -62,6 +68,9 @@ or weaken project authorization to make the history list populate.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. No implementation or acceptance claimed.
+- 2026-09-14: Implemented project identity and shared history in PR #43. Code
+  runtime journeys passed. Native isolation and unavailable history passed, but
+  saved-head regression and ignored composer gating block acceptance.
 
 ## Shared desktop and web behavior
 

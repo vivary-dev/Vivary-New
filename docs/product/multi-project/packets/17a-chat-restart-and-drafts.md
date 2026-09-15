@@ -7,7 +7,7 @@ Depends-on: [04a, 06g]
 Owner: Root-assigned Workbench continuity integrator
 Scope: Persist project/session selection and unsent text through Native state across desktop origins.
 Verification-kind: runtime
-Needs: 04a supplies stable project/session keys and an unassigned-history location. 06g supplies accepted selection persistence across local and hosted access.
+Needs: 04a acceptance and a supported per-thread draft load/clear seam on Native AgentChatSurface. Installed Core 0.176.5 exposes only a text-change callback.
 Timebox: One restart-continuity increment with focused state checks and the real desktop journey.
 
 ## Goal
@@ -19,9 +19,11 @@ unsent text draft, even when the local server uses a different port.
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
-Completed Code transcripts already persist. Native composer drafts currently use
-browser storage and do not survive an origin change. Hosted selection-save warnings
-are known. Follow the separately owned access fix rather than bypassing authentication.
+Completed Code transcripts persist. Native composer drafts use browser storage
+and do not survive an origin change. Issue #5 repaired selection saves. The
+[read-only integration findings](https://github.com/vivary-dev/Vivary-New/issues/9#issuecomment-5672430467)
+identify the public draft seam still needed. Reuse the existing authenticated state
+writer. Do not copy private browser-storage keys or replace Native history.
 
 ## Owned files
 

@@ -16,6 +16,22 @@
       "authority": "Jeff's explicit correction in the product conversation",
       "explanation": "A project can contain multiple independent chats. The workspace shows one selected conversation in the center at a time. Each conversation has its own bounded context and can reach model context limits.",
       "implementationImpact": "Navigation must let users start, select and return to several project conversations. Potentially concurrent thread activity needs visible status and approvals for each thread, plus controls for conflicting edits to shared files. The current runtime permits one active run at a time. This remains an explicit implementation limitation until concurrency support lands."
+    },
+    {
+      "id": "harness-capability-ownership",
+      "title": "Harness-owned capabilities with observed availability",
+      "acceptedOn": "2026-09-14",
+      "authority": "Jeff's explicit correction in the product conversation",
+      "explanation": "The selected supported installed harness owns its tools, MCP configuration, models and native permission semantics. Vivary displays actual observed availability, preserves unknown states and does not add a second general tool picker.",
+      "implementationImpact": "Vivary keeps project and host authorization plus approval, denial and Stop for the exact request. It provides the original engine and narrow deterministic workspace operations. Before adding another tool, explain whether a missing capability is blocked by the harness, observed host state, authorization or an existing Vivary operation."
+    },
+    {
+      "id": "template-distribution",
+      "title": "Offline templates with optional source links later",
+      "acceptedOn": "2026-09-14",
+      "authority": "Jeff's explicit correction in the product conversation",
+      "explanation": "Templates start as an offline baseline. A later optional community collection can use the existing vivary-site to point at source GitHub repositories and downloads. It is not a marketplace or a separate template site.",
+      "implementationImpact": "Show a preview before apply. Treat downloads as inert until a separately authorized operation applies them. Downloading a template never implies execution."
     }
   ],
   "tour": [
@@ -37,11 +53,11 @@
     },
     {
       "title": "Choose a harness and model",
-      "plain": "Choose from supported agent tools connected on this host. The picker groups their available models under the harness names.",
-      "why": "You choose the tool for the work, without configuring a predefined persona.",
+      "plain": "Choose a supported installed harness. It owns its tools, MCP configuration, models and native permission semantics. Vivary shows only what it observes.",
+      "why": "You can see the harness's actual available capabilities without configuring a second general tool picker or a predefined persona.",
       "module": "M04",
       "scene": "harness",
-      "detail": "A different harness creates a linked conversation. The source history stays available, while the material supplied to the new model is shown separately. Linking sends nothing. An installed CLI needs a registered, compatible adapter and readiness checks before it can run."
+      "detail": "A different harness creates a linked conversation. The source history stays available, while the material supplied to the new model is shown separately. Linking sends nothing. An installed CLI needs a registered, compatible adapter and readiness checks before it can run. Unknown availability stays unknown. Vivary retains project and host authorization plus approval, denial and Stop."
     },
     {
       "title": "Approve or decline work",
@@ -83,7 +99,7 @@
     ],
     "M04": [
       "Your installed agent tools",
-      "Connects supported harnesses and their models through replaceable integrations."
+      "Shows observed tools, MCP configuration, models and native permissions from supported installed harnesses through replaceable integrations."
     ],
     "M05": [
       "What is allowed to happen?",
@@ -95,7 +111,7 @@
     ],
     "M07": [
       "Set up and operate a workspace",
-      "Uses the original Vivary operations to create, adopt, inspect and maintain project structure."
+      "Uses the original Vivary engine and narrow deterministic operations to create, adopt, inspect and maintain project structure."
     ],
     "M08": [
       "Find and remember",
