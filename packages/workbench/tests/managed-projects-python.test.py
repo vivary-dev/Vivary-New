@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -110,6 +111,19 @@ class ManagedProjectBridgeTests(unittest.TestCase):
                 managed_request(request)
             self.assertEqual(outside.read_bytes(), before)
             self.assertEqual(planned.read_bytes(), before)
+
+    def test_unreadable_target_is_creator_refusal_for_bridge(self):
+        with tempfile.TemporaryDirectory(prefix="vivary-managed-unreadable-") as temporary:
+            target = Path(temporary) / "projects" / "sample"
+            target.mkdir(parents=True)
+            with mock.patch.object(Path, "iterdir",
+                                   side_effect=PermissionError("access denied")):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError,
+                                            "cannot inspect init target: access denied"):
+                    managed_request({
+                        "operation": "apply", "target": str(target),
+                        "acceptedPlanSha256": "sha256:" + "0" * 64,
+                    })
 
     def test_conflicting_existing_target_is_preserved(self):
         with tempfile.TemporaryDirectory(prefix="vivary-managed-conflict-") as temporary:

@@ -690,6 +690,11 @@ jobs:
         run: python -B scripts/tests/test-source-navigation.py
       - name: install test runner
         run: python -m pip install pytest packaging
+      - name: reviewed workspace creation on Windows
+        run: |
+          python packages/create-vivary/tests/test_init_thin.py
+          python packages/create-vivary/tests/test_thin_init_preview.py
+          python packages/workbench/tests/managed-projects-python.test.py
       - name: core governed-context contract
         run: python -m pytest packages/core/tests/ -q
       - name: ozone governed-verification facade

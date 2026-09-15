@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import sys
+import tempfile
 import tomllib
 import unittest
 import uuid
@@ -194,6 +195,33 @@ class ThinInitTests(unittest.TestCase):
             for path in (target, other):
                 if path.exists():
                     shutil.rmtree(path)
+
+    def test_reviewed_receipts_mark_mode_without_paths_or_plan_hash(self):
+        with tempfile.TemporaryDirectory(prefix="vivary-reviewed-receipt-") as temporary:
+            target = Path(temporary)/"project"
+            receipt = Path(temporary)/"runs.jsonl"
+            rc, out = run_cli([
+                "init", str(target), "--reviewed", "--dry-run", "--json",
+                "--receipt", str(receipt),
+            ])
+            self.assertEqual(rc, 0, out)
+            accepted = json.loads(out)["plan"]["plan_sha256"]
+            rc, out = run_cli([
+                "init", str(target), "--reviewed", "--yes", "--json",
+                "--plan", accepted, "--repo-root", str(ROOT),
+                "--receipt", str(receipt),
+            ])
+            self.assertEqual(rc, 0, out)
+            records = [json.loads(line) for line in
+                       receipt.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(records), 2)
+            for record in records:
+                self.assertIn("--reviewed", record["flags"])
+                self.assertNotIn("--receipt", record["flags"])
+                serialized = json.dumps(record)
+                self.assertNotIn(str(target), serialized)
+                self.assertNotIn(str(receipt), serialized)
+                self.assertNotIn(accepted, serialized)
 
     def test_interactive_defaults_create_five_file_seed_without_provider_install(self):
         target = temp_target()

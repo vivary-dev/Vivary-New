@@ -155,7 +155,24 @@ The desktop bundles Python and the original Vivary commands. The standalone CLI 
 
 Issue #14 has an in-progress shared creator path. `plan_thin_workspace` previews exact target-bound file content. `apply_thin_workspace` rechecks the accepted hash, target, and options before greenfield writes. Only an exact completed inventory qualifies for a no-write retry. The managed bridge and reviewed CLI use that same plan.
 
-The 2026-09-15 bundled-Python and private hosted journeys passed five-file plan parity, no preview or wrong-hash writes, exact applied bytes, and no-write file retry. Hosted keyboard creation at 1440x900, normal-size cancellation, and phone preview/Cancel controls at 390x844 passed. Reload, formatted file view, and return to an earlier conversation passed. A repeated registration advanced its receipt revision while preserving the project, binding, policy, and files. Existing-folder apply and full issue #14 delivery remain open under issues #14/#15. Windows execution is unrun, and PR #43 remains held.
+The earlier hosted candidate passed keyboard creation at 1440x900,
+normal-size cancellation, and phone preview/Cancel controls at 390x844. That
+viewport proof predates the PR #47 correction; the frontend output was
+unchanged. The correction assigns rollback ownership per attempt, runs
+read-only Doctor on exact retries, converts inspection errors to structured
+refusals, and marks `--reviewed` in sanitized receipts.
+
+The corrected bundled-Python and private hosted journeys matched five-file
+CLI/bridge/Native plans, refused wrong hashes without writes, created exact
+bytes, and repeated without changing files. Hosted Create selected the new
+project, `STATE.md` displayed formatted content and Edit/Rename controls,
+and the earlier conversation returned with panels closed and no model calls.
+The repeated registration kept project, binding, and policy while its attempt
+receipt advanced the registry revision. Six changed-inode saved folders
+required explicit reviewed reconnection; all 33 fixture file bytes remained
+unchanged. The cause of that host identity change is unknown. Existing-folder
+apply and full issue #14 delivery remain open under issues #14/#15. Windows
+execution is unrun, and PR #43 remains held.
 
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.

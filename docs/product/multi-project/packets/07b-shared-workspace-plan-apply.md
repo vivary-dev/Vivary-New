@@ -80,27 +80,40 @@ Use temporary targets with the normal application composition. Check plan bytes
 against applied bytes, refusal after changed input, retry/recovery, and no writes
 from preview. Exercise the shared Native action and equivalent headless operations. The 07d
 journey validates their GUI caller.
-The 2026-09-15 greenfield increment passed against the bundled Python runtime
-and the existing private hosted Workbench composition. The CLI and managed
-bridge returned the same five-file plan for an exact target. Preview, Cancel,
-and a wrong hash wrote nothing. Create wrote exactly the reviewed UTF-8 bytes.
-A cross-caller repeat returned `already-created` without changing file bytes or
-modification times. The hosted UI selected the new project, kept it after reload,
-and opened formatted `STATE.md` with Edit and Rename controls. Normal-size preview and Cancel passed. Keyboard Create then passed at
-1440x900. At 390x844, phone preview, Cancel, visible controls, focus, and
-no-horizontal-overflow checks passed. Returning
-to an earlier conversation preserved its closed panels. The app was idle and
-made no model calls. Focused checks passed: 34 Python, 4 JS adapter, and 3
-existing command-surface tests. The ignored evidence is
-`.tmp/47-bundled-acceptance.json`, `.tmp/47-hosted-acceptance.json`, and
-`.tmp/47-hosted-files-final.json`.
+The earlier 2026-09-15 candidate passed the hosted keyboard Create journey
+at 1440x900 and normal-size Cancel. Its unchanged frontend also passed phone
+preview/Cancel controls, focus, and no horizontal overflow at 390x844. That
+pre-fix hosted proof remains in `.tmp/47-hosted-acceptance.json` and
+`.tmp/47-hosted-files-final.json`; it is not the corrected creator receipt.
 
-An exact repeated managed registration retained its project and binding, with
-no policy change or file write. The existing registration receipt advanced
-`registryRevision` from 15 to 16. That repeat does not establish an unchanged
-whole catalog. The tested increment does not apply to an arbitrary nonempty
-folder. Full issue #14, issue #15 existing-folder apply, Windows execution
-under issue #8, and held PR #43 remain separate.
+The PR #47 review correction gives each write attempt its own file-commit
+and directory ownership, so a failed concurrent attempt cannot roll back a
+winner's files. An exact retry runs read-only Doctor before reporting success.
+Target-inspection errors become structured refusals, and sanitized CLI
+receipts include `--reviewed`. The corrected bundled-Python run in
+`.tmp/47-review-bundled-acceptance.json` passed five-file CLI/bridge plan
+parity, no preview or wrong-hash writes, exact create bytes, and no-write
+cross-caller retry. Focused shared, CLI, bridge, and adoption tests passed
+15, 22, 5, and 20 cases.
+
+The corrected hosted journey in `.tmp/47-review-hosted-acceptance.json`
+again matched all five UI plan contents to the Native response and bundled
+CLI hash. Preview and wrong-hash refusal left the target absent. Keyboard
+Create registered and selected the new project. Exact retry retained its
+project and policy, with all five file bytes and modification times unchanged
+(`.tmp/47-review-hosted-files-final.json`). The existing registration-attempt
+receipt advanced `registryRevision` from 23 to 24; a whole-catalog-unchanged
+claim does not follow. The actual `STATE.md` file view showed formatted content
+and Edit/Rename controls. Returning to the earlier conversation restored its
+history, enabled composer and New conversation, and left panels closed. The
+app was idle and made no model calls.
+
+Six saved fixture folders had changed filesystem inodes at the same paths.
+Root used the existing reviewed reconnection flow; all 33 fixture files kept
+their exact bytes. The underlying Zo identity-change cause remains unknown.
+The corrected hosted run did not repeat the earlier viewport checks; the
+frontend output was unchanged. Existing-folder apply, Windows execution,
+and held PR #43 remain outside this increment.
 
 The commands below are starting suites, not substitutes for the actual journey.
 

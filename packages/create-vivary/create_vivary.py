@@ -165,6 +165,7 @@ RECEIPT_KNOWN_FLAGS = RECEIPT_VALUE_FLAGS | {
     "--json",
     "--no-wizard",
     "--obsidian",
+    "--reviewed",
     "--repair",
     "--trend",
     "--version",
@@ -799,6 +800,18 @@ def _thin_exact_inventory(target: Path, files: list[dict]) -> bool:
     )
 
 
+def _assert_thin_init_doctor(target: Path, repo_root: str | Path | None) -> None:
+    """Use the same read-only validation for a new init and its exact retry."""
+    try:
+        doctor = doctor_workspace(target, repo_root=repo_root)
+    except Exception as exc:
+        raise ScaffoldError(f"Doctor could not validate init: {exc}") from exc
+    if not doctor["ok"]:
+        raise ScaffoldError(
+            "Doctor failed after init: " + "; ".join(doctor["errors"])
+        )
+
+
 def apply_thin_workspace(
     target: str | Path,
     accepted_plan_sha256: str,
@@ -811,7 +824,11 @@ def apply_thin_workspace(
     """Apply only the reviewed greenfield init, or recognize its exact retry."""
     adapters = tuple(adapters)
     target = _resolve_scaffold_target(target)
-    if target.is_dir() and next(target.iterdir(), None) is not None:
+    try:
+        occupied = target.is_dir() and next(target.iterdir(), None) is not None
+    except OSError as exc:
+        raise ScaffoldError(f"cannot inspect init target: {exc}") from exc
+    if occupied:
         with tempfile.TemporaryDirectory(prefix="vivary-thin-init-retry-") as temporary:
             scratch = Path(temporary) / target.name
             rendered = plan_thin_workspace(
@@ -829,7 +846,12 @@ def apply_thin_workspace(
         )
     if accepted_plan_sha256 != plan["plan_sha256"]:
         return {"code": "plan-changed"}
-    if target.is_dir() and _thin_exact_inventory(target, plan["files"]):
+    try:
+        exact = target.is_dir() and _thin_exact_inventory(target, plan["files"])
+    except OSError as exc:
+        raise ScaffoldError(f"cannot inspect reviewed init target: {exc}") from exc
+    if exact:
+        _assert_thin_init_doctor(target, repo_root)
         return {"code": "already-created", "target": str(target),
                 "plan_sha256": plan["plan_sha256"]}
     # The original init path owns effect-boundary validation, writes, and rollback.
@@ -888,6 +910,8 @@ def scaffold_thin_workspace(
             }
         )
 
+    committed_actions: list[dict] = []
+    owned_directories: set[Path] = set()
     try:
         for action in actions:
             _write_bytes_no_follow(
@@ -895,29 +919,24 @@ def scaffold_thin_workspace(
                 action["path"],
                 action["after"],
                 replace_existing=False,
+                on_commit=lambda action=action: committed_actions.append(action),
+                on_create_directory=owned_directories.add,
             )
-        doctor = doctor_workspace(target, repo_root=root)
-        if not doctor["ok"]:
-            raise ScaffoldError(
-                "Doctor failed after init: " + "; ".join(doctor["errors"])
-            )
+        _assert_thin_init_doctor(target, root)
     except Exception as exc:
         try:
-            _rollback_adopt(target, actions, backups, cleanup_journal=False)
+            if committed_actions:
+                _rollback_adopt(
+                    target, committed_actions, backups, cleanup_journal=False
+                )
         except ScaffoldError as rollback_exc:
             raise ScaffoldError(f"{exc}; {rollback_exc}") from exc
-        for path in sorted(
-            {
-                parent
-                for path in paths
-                for parent in path.parents
-                if parent != target and target in parent.parents
-            },
-            key=lambda item: len(item.parts),
-            reverse=True,
+        for directory in sorted(
+            owned_directories, key=lambda item: len(item.parts), reverse=True
         ):
             try:
-                path.rmdir()
+                if directory == target or target in directory.parents:
+                    directory.rmdir()
             except OSError:
                 pass
         if isinstance(exc, ScaffoldError):
@@ -3064,7 +3083,10 @@ def _windows_delete_open_file(file_handle: int) -> None:
 
 
 @contextmanager
-def _windows_destination_parent(target: Path, dst: Path, *, create_missing: bool = True):
+def _windows_destination_parent(
+    target: Path, dst: Path, *, create_missing: bool = True,
+    on_create_directory: Callable[[Path], None] | None = None,
+):
     anchor = Path(dst.anchor)
     if not dst.is_absolute() or not _path_within(target, dst.parent):
         raise ScaffoldError("destination parent is outside the selected workspace")
@@ -3084,6 +3106,8 @@ def _windows_destination_parent(target: Path, dst: Path, *, create_missing: bool
                     )
                 try:
                     current.mkdir()
+                    if on_create_directory is not None:
+                        on_create_directory(current)
                 except FileExistsError:
                     pass
                 except OSError as exc:
@@ -3103,7 +3127,10 @@ def _windows_destination_parent(target: Path, dst: Path, *, create_missing: bool
 
 
 @contextmanager
-def _posix_destination_parent(target: Path, dst: Path, *, create_missing: bool = True):
+def _posix_destination_parent(
+    target: Path, dst: Path, *, create_missing: bool = True,
+    on_create_directory: Callable[[Path], None] | None = None,
+):
     # CPython exposes src_dir_fd/dst_dir_fd on POSIX os.replace(), but does not
     # include os.replace in os.supports_dir_fd. Check the other required primitives;
     # the supported Python 3.11+ POSIX runtimes provide descriptor-relative replace.
@@ -3135,6 +3162,8 @@ def _posix_destination_parent(target: Path, dst: Path, *, create_missing: bool =
                     )
                 try:
                     os.mkdir(part, 0o755, dir_fd=descriptor)
+                    if on_create_directory is not None:
+                        on_create_directory(current)
                 except FileExistsError:
                     pass
                 next_descriptor = os.open(part, directory_flags, dir_fd=descriptor)
@@ -3158,13 +3187,22 @@ def _posix_destination_parent(target: Path, dst: Path, *, create_missing: bool =
 
 
 @contextmanager
-def _safe_destination_parent(target: Path, dst: Path, *, create_missing: bool = True):
+def _safe_destination_parent(
+    target: Path, dst: Path, *, create_missing: bool = True,
+    on_create_directory: Callable[[Path], None] | None = None,
+):
     _ensure_safe_destinations(target, [dst], force=True)
     if os.name == "nt":
-        with _windows_destination_parent(target, dst, create_missing=create_missing) as parent:
+        with _windows_destination_parent(
+            target, dst, create_missing=create_missing,
+            on_create_directory=on_create_directory,
+        ) as parent:
             yield parent
     else:
-        with _posix_destination_parent(target, dst, create_missing=create_missing) as parent:
+        with _posix_destination_parent(
+            target, dst, create_missing=create_missing,
+            on_create_directory=on_create_directory,
+        ) as parent:
             yield parent
 
 
@@ -3185,8 +3223,12 @@ def _atomic_write_bytes_no_follow(
     *,
     source_mode: int | None = None,
     replace_existing: bool = True,
+    on_commit: Callable[[], None] | None = None,
+    on_create_directory: Callable[[Path], None] | None = None,
 ) -> None:
-    with _safe_destination_parent(target, dst) as parent:
+    with _safe_destination_parent(
+        target, dst, on_create_directory=on_create_directory,
+    ) as parent:
         if os.name == "nt":
             parent_path, parent_handle, parent_identity = parent
             mode = source_mode if source_mode is not None else _existing_regular_file_mode(dst)
@@ -3210,8 +3252,10 @@ def _atomic_write_bytes_no_follow(
                     dst.name,
                     replace_existing=replace_existing,
                 )
-                _windows_assert_directory_identity(parent_path, parent_identity)
                 committed = True
+                if on_commit is not None:
+                    on_commit()
+                _windows_assert_directory_identity(parent_path, parent_identity)
             finally:
                 try:
                     if not committed:
@@ -3260,6 +3304,8 @@ def _atomic_write_bytes_no_follow(
                         dst_dir_fd=parent_fd,
                         follow_symlinks=False,
                     )
+                if on_commit is not None:
+                    on_commit()
             except FileExistsError as exc:
                 raise ScaffoldError(
                     f"refusing to replace a file created during init: {dst}"
@@ -3285,12 +3331,16 @@ def _write_bytes_no_follow(
     data: bytes,
     *,
     replace_existing: bool = True,
+    on_commit: Callable[[], None] | None = None,
+    on_create_directory: Callable[[Path], None] | None = None,
 ) -> None:
     _atomic_write_bytes_no_follow(
         target,
         dst,
         data,
         replace_existing=replace_existing,
+        on_commit=on_commit,
+        on_create_directory=on_create_directory,
     )
 
 
