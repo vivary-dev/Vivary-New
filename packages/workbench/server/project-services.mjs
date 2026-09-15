@@ -433,7 +433,7 @@ export async function resolveLocalProjectWorkspace(context, projectId) {
   if (!resolved) {
     throw new Error("The project folder is missing or changed. Reconnect it before running an agent.");
   }
-  return Object.freeze({ root: resolved.path, label: binding.label, projectId,
+  return Object.freeze({ root: resolved.path, label: binding.label, projectId, actorId: scope.actorId,
     bindingId: binding.bindingId, bindingRevision: binding.bindingRevision,
     policyRevision: scope.policyRevision, rootId: binding.rootId, locationRef: binding.locationRef,
     verificationKind: LOCAL_VERIFICATION });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +10,7 @@ import { createManagedProject, previewManagedProject } from "../server/managed-p
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
   const workbenchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-managed-preview-"));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-managed-préview-"));
   try {
     process.chdir(workbenchRoot);
     const result = await previewManagedProject({}, { name: "Hosted-Preview" }, {
@@ -22,6 +23,40 @@ test("production package cwd resolves the shipped creator bridge", async () => {
     assert.equal(result.plan.files.length, 5);
   } finally {
     process.chdir(originalCwd);
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("creator keeps isolated mode and explicitly enables UTF-8", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-managed-args-"));
+  let launch;
+  const spawn = (executable, args, options) => {
+    launch = { executable, args, options };
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = () => true;
+    child.stdin = { end: () => queueMicrotask(() => {
+      child.stdout.emit("data", Buffer.from(JSON.stringify({ code: "preview", plan: {
+        schema: "vivary.thin-init-plan/v1", target: path.join(dataDir, "projects", "Preview"), files: [],
+      } }), "utf8"));
+      child.emit("close", 0);
+    }) };
+    return child;
+  };
+  try {
+    const result = await previewManagedProject({}, { name: "Preview" }, {
+      dataDir,
+      getAccess: async () => ({ code: "catalog" }),
+      python: "python-test",
+      bridge: path.join(dataDir, "managed_project_workspace.py"),
+      access: async () => {},
+      spawn,
+    });
+    assert.equal(result.code, "preview");
+    assert.deepEqual(launch.args, ["-I", "-X", "utf8", "-B", path.join(dataDir, "managed_project_workspace.py")]);
+    assert.equal(launch.executable, "python-test");
+    assert.deepEqual(launch.options, { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+  } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
 });

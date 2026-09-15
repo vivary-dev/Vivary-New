@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm, link } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,12 +31,13 @@ test("arguments preserve the ten owners and put option-like text after the optio
   ];
   for (const command of examples) {
     const parsed = originalCommandSchema.parse({ projectId: "project-a", command });
-    const invocation = originalCommandArguments(parsed.command, "/granted/project");
+    const invocation = originalCommandArguments(parsed.command, "/granted/project", "/private/request.json");
     assert.equal(invocation.args[0], command.verb);
     if (command.verb === "create") assert.ok(invocation.args.includes("--dry-run"));
     if (command.verb === "adopt") assert.ok(!invocation.args.includes("--yes"));
     if (command.verb === "find" || command.verb === "impact") assert.equal(invocation.args.at(-2), "--");
-    if (command.verb === "control" || command.verb === "decide") assert.equal(invocation.stdin, "{}");
+    if (command.verb === "decide") assert.equal(invocation.stdin, "{}");
+    if (command.verb === "control") { assert.equal(invocation.stdin, ""); assert.equal(invocation.args.at(-1), "/private/request.json"); }
   }
 });
 
@@ -53,7 +54,7 @@ test("child executable search excludes the project and relative PATH entries", (
   assert.equal(env.PATH, trusted);
 });
 
-async function fixture() {
+async function fixture(inspect?: (args: string[], stdin: string) => Promise<void>) {
   const directory = await mkdtemp(path.join(tmpdir(), "vivary-original-"));
   const runtime = path.join(directory, "runtime");
   const data = path.join(directory, "data");
@@ -63,7 +64,7 @@ async function fixture() {
   await Promise.all([mkdir(path.dirname(executable), { recursive: true }), mkdir(data), mkdir(root)]);
   await writeFile(executable, "fixture interpreter; execution is injected");
   await writeFile(path.join(runtime, "manifest.json"), JSON.stringify({ schemaVersion: 1, platform: process.platform, arch: process.arch, pythonVersion: "3.12.14", pythonExecutable: relative }));
-  let workspace: LocalProjectWorkspace = { root, label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" };
+  let workspace: LocalProjectWorkspace = { root, actorId: "actor-owner", label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" };
   let reads = 0;
   let calls = 0;
   let beforeResolve = () => {};
@@ -71,17 +72,18 @@ async function fixture() {
   const runner = createOriginalCommandRunner({
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
     resolveWorkspace: async () => { reads++; beforeResolve(); return workspace; },
-    execute: async (python, args, _stdin, cwd, environment) => {
+    execute: async (python, args, stdin, cwd, environment) => {
       calls++;
       assert.equal(python, executable);
-      assert.deepEqual(args.slice(0, 4), ["-I", "-B", "-m", "vivary_cli"]);
+      assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
       assert.equal(cwd, data);
       assert.equal(environment.VIVARY_RECEIPT_LOG, path.join(data, "original-runtime", "receipts.jsonl"));
+      await inspect?.(args, stdin);
       afterExecute();
       return { exitCode: 0, stdout: "result", stderr: "", signal: null };
     },
   });
-  return { directory, runtime, data, runner, calls: () => calls, reads: () => reads,
+  return { directory, runtime, data, root, runner, calls: () => calls, reads: () => reads,
     beforeResolve: (callback: () => void) => { beforeResolve = callback; },
     afterExecute: (callback: () => void) => { afterExecute = callback; },
     revise: () => { workspace = { ...workspace, policyRevision: workspace.policyRevision + 1 }; },
@@ -178,6 +180,116 @@ test("cancellation stops a real descendant even when it ignores graceful termina
     if (pid && await running()) process.kill(pid, "SIGKILL");
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("adoption applies the exact prefixed digest returned by the original preview", async () => {
+  const digest = "sha256:" + "a".repeat(64);
+  assert.equal(originalCommandSchema.safeParse({ projectId: "project-a", command: { verb: "adopt", approvedPlanHash: digest.slice(7) } }).success, false);
+  const f = await fixture(async args => { assert.deepEqual(args.slice(-3), ["--yes", "--plan", digest]); });
+  try { await f.runner({ projectId: "project-a", command: { verb: "adopt", approvedPlanHash: digest } }, context); }
+  finally { await f.cleanup(); }
+});
+
+test("control uses a separate private request file and removes it after success or failure", async () => {
+  for (const reject of [false, true]) {
+    let requestPath = "";
+    const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
+    const f = await fixture(async (args, stdin) => {
+      requestPath = args.at(-1)!;
+      assert.ok(requestPath.startsWith(path.join(f.data, "original-runtime", "request-")));
+      assert.equal(await readFile(requestPath, "utf8"), request);
+      assert.equal(stdin, "");
+      if (reject) throw new Error("fixture execution failure");
+    });
+    try {
+      const run = f.runner({ projectId: "project-a", command: { verb: "control", request } }, context);
+      if (reject) await assert.rejects(run, /fixture execution failure/); else await run;
+      await assert.rejects(readFile(requestPath), { code: "ENOENT" });
+      assert.deepEqual(await readdir(path.join(f.data, "original-runtime")), []);
+    } finally { await f.cleanup(); }
+  }
+});
+
+test("app decisions append a compatible private receipt without request or output text", async () => {
+  const f = await fixture();
+  try {
+    await f.runner({ projectId: "project-a", command: { verb: "decide", request: JSON.stringify({ actor: { kind: "human", id: "actor-owner" }, authority_class: "contributor", scope: { project: "project-a", paths: [f.root] }, capsule: { task: { scope: [f.root] } }, privateNote: "private request content" }) } }, context);
+    const text = await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8");
+    const receipt = JSON.parse(text);
+    assert.equal(receipt.schema, "vivary.run_receipt.v1");
+    assert.equal(receipt.command, "decide");
+    assert.equal(receipt.exit_code, 0);
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.tool, "vivary-workbench");
+    assert.equal(receipt.receipt_source, "app");
+    assert.equal(text.includes("private request content"), false);
+    assert.equal(text.includes("result"), false);
+    assert.deepEqual(await readdir(path.join(f.directory, "project")), []);
+  } finally { await f.cleanup(); }
+});
+
+test("only one original process is admitted and cancellation releases the slot", async () => {
+  const controller = new AbortController();
+  const execution = runOriginalProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], "", process.cwd(), process.env, controller.signal);
+  const stopped = assert.rejects(execution, /cancelled/);
+  try {
+    assert.throws(() => runOriginalProcess(process.execPath, ["-e", "throw new Error('must not spawn')"], "", process.cwd(), process.env), /Another original Vivary command is running/);
+  } finally { controller.abort(); await stopped; }
+  assert.equal((await runOriginalProcess(process.execPath, ["-e", ""], "", process.cwd(), process.env)).exitCode, 0);
+});
+
+test("governed requests reject foreign identity, authority and scope before execution", async () => {
+  const f = await fixture();
+  const scope = { project: "project-a", paths: [f.root] };
+  const capsule = { task: { scope: [f.root] } };
+  const actor = { kind: "human", id: "actor-owner" };
+  const decision = { actor, authority_class: "contributor", scope, capsule };
+  try {
+    for (const request of [
+      { ...decision, actor: { kind: "human", id: "someone-else" } },
+      { ...decision, authority_class: "owner" },
+      { ...decision, scope: { ...scope, project: "other-project" } },
+      { ...decision, scope: { ...scope, paths: [path.dirname(f.root)] } },
+      { ...decision, scope: { ...scope, paths: ["relative"] } },
+      { ...decision, capsule: { task: { scope: [path.dirname(f.root)] } } },
+    ]) await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "decide", request: JSON.stringify(request) } }, context), /signed-in project actor/);
+    for (const request of [
+      { operation: "claim", state: { claims: [] }, input: { actor: { ...actor, id: "someone-else" }, scope } },
+      { operation: "claim", state: { claims: [] }, input: { actor, scope, authority_class: "owner" } },
+      { operation: "release", state: { claims: [] }, input: { actor: { ...actor, id: "someone-else" } } },
+      { operation: "expire_leases", state: { claims: [{ scope: { ...scope, project: "other-project" }, authority_class: "contributor" }] }, input: {} },
+      { operation: "handoff", state: { claims: [{ scope, authority_class: "owner" }] }, input: { from_actor: actor, capsule } },
+      { operation: "handoff", state: { claims: [] }, input: { from_actor: actor, capsule, to_authority_class: "owner" } },
+      { operation: "record_execution", state: {}, input: { capsule: { task: { scope: [path.dirname(f.root)] } } } },
+    ]) await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "control", request: JSON.stringify(request) } }, context), /signed-in project actor/);
+    await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "control", request: '{"input":{},"input":{},"state":{}}' } }, context), /signed-in project actor/);
+    assert.equal(f.calls(), 0);
+  } finally { await f.cleanup(); }
+});
+
+test("matching governed requests preserve submitted evidence and return no execution grant", async () => {
+  let expected = "";
+  const f = await fixture(async (args, stdin) => {
+    const actual = args[6] === "control" ? await readFile(args.at(-1)!, "utf8") : stdin;
+    assert.equal(actual, expected);
+  });
+  const actor = { kind: "human", id: "actor-owner" };
+  const scope = { project: "project-a", paths: [f.root] };
+  const capsule = { task: { scope: [f.root] }, fingerprint: "preserve-this-evidence" };
+  try {
+    const requests = [
+      { verb: "decide" as const, request: { actor, scope, capsule, authority_class: "contributor" } },
+      { verb: "control" as const, request: { operation: "claim", state: { claims: [] }, input: { actor, scope } } },
+      { verb: "control" as const, request: { operation: "release", state: { claims: [] }, input: { actor } } },
+      { verb: "control" as const, request: { operation: "handoff", state: { claims: [{ scope, authority_class: "contributor" }] }, input: { from_actor: actor, to_actor: { kind: "agent", id: "intended-recipient" }, capsule } } },
+      { verb: "control" as const, request: { operation: "expire_leases", state: { claims: [] }, input: {} } },
+    ];
+    for (const { verb, request } of requests) {
+      expected = JSON.stringify(request);
+      const result = await f.runner({ projectId: "project-a", command: { verb, request: expected } }, context);
+      assert.equal(result.evaluationKind, "caller-provided-evidence");
+    }
+  } finally { await f.cleanup(); }
 });
 
 test("shutdown waits for active commands and permanently closes admission", async () => {

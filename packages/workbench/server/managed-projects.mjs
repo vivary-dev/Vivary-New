@@ -33,7 +33,7 @@ async function runCreator(request, dependencies = {}) {
     throw new Error("The original workspace creator is unavailable in this Vivary runtime.");
   }
   return new Promise((resolve, reject) => {
-    const child = start(executable, ["-I", "-B", bridge], {
+    const child = start(executable, ["-I", "-X", "utf8", "-B", bridge], {
       stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true,
     });
