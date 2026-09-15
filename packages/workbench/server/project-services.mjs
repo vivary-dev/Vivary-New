@@ -53,6 +53,8 @@ export const PROJECT_ACTION_PATHS = Object.freeze([
   "/_agent-native/actions/vivary-project-catalog",
   "/_agent-native/actions/vivary-project-runtime-readiness",
   "/_agent-native/actions/vivary-project-runtime-activity",
+  "/_agent-native/actions/vivary-preview-managed-project-reconnection",
+  "/_agent-native/actions/vivary-confirm-managed-project-reconnection",
 ]);
 
 const controllers = new WeakMap();
@@ -363,6 +365,10 @@ function localService(context) {
   // Both names belong to this app. Workbench retains its existing role namespace.
   return { service, owner: Object.freeze({ userEmail: context.userEmail, orgId: context.orgId,
     appId: "workbench", caller: context.caller }) };
+}
+
+export function getLocalProjectReconnectionService(context) {
+  return localService(context);
 }
 
 export async function getLocalProjectAccess(context) {

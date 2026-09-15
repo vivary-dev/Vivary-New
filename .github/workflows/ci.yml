@@ -103,7 +103,7 @@ jobs:
       - name: workbench state transport
         run: |
           pnpm --dir packages/workbench exec tsx --test tests/local-access.test.ts tests/native-state.test.ts tests/native-actions.test.ts
-          pnpm --dir packages/workbench exec tsx --test tests/local-code-agent.test.ts tests/local-code-approval-restart.test.ts tests/code-host-lifecycle.test.ts tests/managed-projects.test.mjs tests/project-files.test.ts tests/file-draft-state.test.ts tests/original-runtime.test.ts
+          pnpm --dir packages/workbench exec tsx --test tests/local-code-agent.test.ts tests/local-code-approval-restart.test.ts tests/code-host-lifecycle.test.ts tests/managed-projects.test.mjs tests/managed-project-reconnection.test.mjs tests/project-files.test.ts tests/file-draft-state.test.ts tests/original-runtime.test.ts
           node --test packages/desktop/tests/main.test.mjs packages/desktop/tests/original-runtime.test.mjs packages/desktop/tests/package-snapshot.test.mjs packages/workbench/tests/startup.test.mjs
           python packages/workbench/tests/managed-projects-python.test.py
           pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json

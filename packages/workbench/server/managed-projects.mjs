@@ -75,6 +75,11 @@ async function runCreator(request, dependencies = {}) {
   });
 }
 
+export function managedProjectDataDirectory(dependencies = {}) {
+  // guard:allow-env-credential - Private application data directory from the trusted launcher, not a user credential.
+  return dependencies.dataDir ?? process.env.VIVARY_DATA_DIR;
+}
+
 async function managedTarget(context, name, createParent, dependencies = {}) {
   const childName = projectName.parse(name);
   if (WINDOWS_RESERVED_NAME.test(childName)) {
@@ -84,8 +89,7 @@ async function managedTarget(context, name, createParent, dependencies = {}) {
   if ((await getAccess(context)).code !== "catalog") {
     throw Object.assign(new Error("Project access is unavailable."), { statusCode: 403 });
   }
-  // guard:allow-env-credential - Private application data directory from the launcher.
-  const dataDir = dependencies.dataDir ?? process.env.VIVARY_DATA_DIR;
+  const dataDir = managedProjectDataDirectory(dependencies);
   if (!dataDir || !path.isAbsolute(dataDir)) {
     throw new Error("The managed project directory is not configured.");
   }
