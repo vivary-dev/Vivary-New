@@ -166,6 +166,8 @@ Workbench reaches this runtime through a deterministic server adapter. It:
 - keeps Create and Adopt in preview mode because a local-stat folder grant does
   not authorize mutation through an ordinary pathname;
 - resolves and revalidates the selected project grant;
+- checks governed scope and capsule paths against the canonical project, rejecting
+  links and raw dot segments while allowing planned files under verified parents;
 - invokes `python -I -X utf8 -B -m vivary_cli` without a shell;
 - bounds time, input, and output;
 - exposes bounded text search for Find and the structure pack for Review; and

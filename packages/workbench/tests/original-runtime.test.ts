@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -277,6 +277,57 @@ test("governed requests reject foreign identity, authority and scope before exec
     ]) await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "control", request: JSON.stringify(request) } }, context), /signed-in project actor/);
     await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "control", request: '{"input":{},"input":{},"state":{}}' } }, context), /signed-in project actor/);
     assert.equal(f.calls(), 0);
+  } finally { await f.cleanup(); }
+});
+
+test("governed scope and capsule paths refuse an existing symlink to a foreign root", async () => {
+  const f = await fixture();
+  const foreign = path.join(f.directory, "foreign");
+  const linked = path.join(f.root, "linked");
+  const actor = { kind: "human", id: "actor-owner" };
+  try {
+    await mkdir(foreign);
+    await mkdir(path.join(foreign, "child"));
+    await writeFile(path.join(foreign, "secret.txt"), "foreign marker");
+    await symlink(path.join(foreign, "child"), linked, process.platform === "win32" ? "junction" : "dir");
+    const escaped = path.join(linked, "secret.txt");
+    const escapedRaw = `${linked}${path.sep}..${path.sep}secret.txt`;
+    const escapedAlternate = `${linked}\\..\\secret.txt`;
+    const planned = path.join(linked, "planned", "child.txt");
+    const acceptedScope = { project: "project-a", paths: [f.root] };
+    for (const request of [
+      { verb: "decide" as const, value: { actor, authority_class: "contributor",
+        scope: { project: "project-a", paths: [escaped] }, capsule: { task: { scope: [f.root] } } } },
+      { verb: "decide" as const, value: { actor, authority_class: "contributor",
+        scope: { project: "project-a", paths: [escapedRaw] }, capsule: { task: { scope: [f.root] } } } },
+      { verb: "decide" as const, value: { actor, authority_class: "contributor",
+        scope: acceptedScope, capsule: { task: { scope: [escapedRaw] } } } },
+      { verb: "decide" as const, value: { actor, authority_class: "contributor",
+        scope: { project: "project-a", paths: [escapedAlternate] }, capsule: { task: { scope: [f.root] } } } },
+      { verb: "decide" as const, value: { actor, authority_class: "contributor",
+        scope: acceptedScope, capsule: { task: { scope: [planned] } } } },
+      { verb: "control" as const, value: { operation: "claim", state: { claims: [] },
+        input: { actor, scope: { project: "project-a", paths: [escaped] } } } },
+      { verb: "control" as const, value: { operation: "handoff", state: { claims: [] },
+        input: { from_actor: actor, capsule: { task: { scope: [planned] } } } } },
+    ]) {
+      await assert.rejects(f.runner({ projectId: "project-a", command: { verb: request.verb,
+        request: JSON.stringify(request.value) } }, context), /signed-in project actor/);
+    }
+    assert.equal(f.calls(), 0);
+  } finally { await f.cleanup(); }
+});
+
+test("governed plans allow a missing child below a verified project parent", async () => {
+  let raw = "";
+  const f = await fixture(async (_args, stdin) => { assert.equal(stdin, raw); });
+  try {
+    const planned = path.join(f.root, "planned", "child.txt");
+    raw = JSON.stringify({ actor: { kind: "human", id: "actor-owner" }, authority_class: "contributor",
+      scope: { project: "project-a", paths: [planned] }, capsule: { task: { scope: [planned] } } });
+    const result = await f.runner({ projectId: "project-a", command: { verb: "decide", request: raw } }, context);
+    assert.equal(result.evaluationKind, "caller-provided-evidence");
+    assert.equal(f.calls(), 1);
   } finally { await f.cleanup(); }
 });
 

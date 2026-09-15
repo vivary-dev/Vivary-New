@@ -74,53 +74,73 @@ function commandError(message: string, errorCode: string, statusCode = 409): nev
 }
 
 
-function validateGovernedRequest(command: OriginalCommand, workspace: LocalProjectWorkspace): void {
+async function validateGovernedRequest(command: OriginalCommand, workspace: LocalProjectWorkspace): Promise<void> {
   if (command.verb !== "decide" && command.verb !== "control") return;
   try {
+    if (await realpath(workspace.root) !== workspace.root) throw new Error("project root changed");
     const object = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
     const request = object(parseStrictJson(command.request));
     const actor = (value: unknown) => z.object({ kind: z.literal("human"), id: z.literal(workspace.actorId) }).strict().parse(value);
-    const paths = (value: unknown) => {
+    const paths = async (value: unknown) => {
       for (const entry of z.array(z.string()).min(1).parse(value)) {
-        if (!path.isAbsolute(entry) || !containsPath(workspace.root, entry)) throw new Error("foreign scope");
+        if (!path.isAbsolute(entry)) throw new Error("foreign scope");
+        const rawComponents = entry.slice(path.parse(entry).root.length).split(/[\\/]/);
+        if (rawComponents.some(component => component === "." || component === "..")
+          || !containsPath(workspace.root, entry)) throw new Error("foreign scope");
+        const relative = path.relative(workspace.root, entry);
+        const components = relative === "" ? [] : relative.split(path.sep);
+        let current = workspace.root;
+        for (let index = 0; index < components.length; index += 1) {
+          current = path.join(current, components[index]);
+          let info;
+          try { info = await lstat(current); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+            throw error;
+          }
+          if (info.isSymbolicLink() || (index < components.length - 1 && !info.isDirectory())) {
+            throw new Error("scope crosses a link or non-directory");
+          }
+          if (!containsPath(workspace.root, await realpath(current))) throw new Error("foreign resolved scope");
+        }
       }
     };
-    const scope = (value: unknown) => {
+    const scope = async (value: unknown) => {
       const entry = object(value);
       if (entry.project !== workspace.projectId) throw new Error("foreign project");
-      paths(entry.paths);
+      await paths(entry.paths);
     };
     const contributor = (value: unknown, optional = false) => {
       if (value !== "contributor" && !(optional && value === undefined)) throw new Error("unsupported authority");
     };
-    const capsule = (value: unknown) => paths(object(object(value).task).scope);
+    const capsule = async (value: unknown) => paths(object(object(value).task).scope);
     if (command.verb === "decide") {
       actor(request.actor);
       contributor(request.authority_class);
-      scope(request.scope);
-      capsule(request.capsule);
+      await scope(request.scope);
+      await capsule(request.capsule);
     } else {
       const input = object(request.input);
       const state = object(request.state);
       if (state.claims !== undefined) {
         for (const value of z.array(z.unknown()).parse(state.claims)) {
           const claim = object(value);
-          scope(claim.scope);
+          await scope(claim.scope);
           contributor(claim.authority_class);
         }
       }
       if (request.operation === "claim") {
-        actor(input.actor); scope(input.scope); contributor(input.authority_class, true);
+        actor(input.actor); await scope(input.scope); contributor(input.authority_class, true);
       } else if (request.operation === "release") {
         actor(input.actor);
       } else if (request.operation === "handoff") {
-        actor(input.from_actor); contributor(input.to_authority_class, true); capsule(input.capsule);
+        actor(input.from_actor); contributor(input.to_authority_class, true); await capsule(input.capsule);
       } else if (request.operation === "record_execution") {
-        capsule(input.capsule);
+        await capsule(input.capsule);
       }
     }
   } catch {
-    commandError("Use the signed-in project actor, contributor authority, and paths within the selected project in the governed request.", "vivary_original_request_identity", 400);
+    commandError("Use the signed-in project actor, contributor authority, and direct paths inside the selected project. Linked or parent-relative paths are not accepted.", "vivary_original_request_identity", 400);
   }
 }
 
@@ -247,7 +267,7 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
     if ("request" in command && Buffer.byteLength(command.request, "utf8") > 65_536) {
       commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
     }
-    validateGovernedRequest(command, workspace);
+    await validateGovernedRequest(command, workspace);
     let requestDirectory: string | undefined;
     try {
       let controlRequestPath: string | undefined;
@@ -266,6 +286,7 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
       if (!current || fields.some(field => current[field] !== workspace[field])) {
         commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
       }
+      await validateGovernedRequest(command, current);
       const started = performance.now();
       const result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
         originalChildEnvironment(environment, receiptLog, current.root), context?.signal);
