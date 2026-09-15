@@ -55,8 +55,8 @@ login remains separate from access to Vivary.
 Jeff's 2026-09-13 target is a working `Vivary.exe` with project workspaces,
 searchable persistent sessions, file memory, fast project search, and the original
 Vivary operations, plus responsive browser access and live project preview/debugging. Follow [the desktop release queue](docs/product/multi-project/desktop-release.md).
-Keep at most two independent implementation issues active. Start with reliable
-project/chat state and desktop runtime packaging, then claim the next ready issues. Keep the existing 36 outcomes as coverage, not parallel
+Keep at most two independent implementation issues active. Select the next ready
+issues from the live release milestone after checking accepted and held work. Keep the existing 36 outcomes as coverage, not parallel
 workstreams. Do not mark the desktop finished from packaging or CI alone.
 
 Jeff approved GitHub issues as the execution ledger on 2026-09-13. Issues in
@@ -66,9 +66,11 @@ implementation guidance, and retained evidence. Packets and the generated
 frontier are synchronized references; refresh them when a linked issue changes,
 but a routine issue needs no packet before it starts. Read the live issue before
 work. Issue [#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this
-alignment, [#5](https://github.com/vivary-dev/Vivary-New/issues/5) is the first
-state repair, and [#7](https://github.com/vivary-dev/Vivary-New/issues/7) is the
-independent packaging lane. Follow
+alignment. State repair [#5](https://github.com/vivary-dev/Vivary-New/issues/5) and
+runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are accepted.
+[Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) and
+[Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retain
+unmet acceptance. Follow
 [the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
 task must advance this release or fix a demonstrated blocker. Broader product
 outcomes retain their later milestones and evidence.

@@ -19,8 +19,10 @@ folder and use a configured coding runtime without installing the app's dependen
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [desktop packaging](../../../../packages/desktop/README.md).
-An older unsigned Windows folder exists at source 2b33101. Assembly was checked,
-but Windows execution was not accepted. Use a fresh artifact from the current source.
+The ed8812e Windows candidate passed bundled Python/CLI preview, five-file create,
+and exact retry on Windows on 2026-09-15. Its Electron GUI remains unverified.
+It predates the PR #48 sidebar change. Build and identify the current candidate
+before the GUI journey. Earlier unsigned archives remain historical evidence.
 Test hosted changes first, then this normal Windows package. Do not revive old proof campaigns.
 
 ## Owned files

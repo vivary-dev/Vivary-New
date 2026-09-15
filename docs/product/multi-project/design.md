@@ -16,7 +16,7 @@ The product handles new and existing projects, workspace templates installed wit
 
 The full little-agent scope survives: visual planning, research, tickets, workers, review, portable handoffs, CLI agents, factory mode, email intake, and heartbeat maintenance. Delivery order does not remove later scope.
 
-Implementation proceeds through the bounded packets in the generated graph. HarnessMax removal remains deferred. Website, UI, docs, guides, and a real 100% isitagentready.com result belong to the delivery program. This plan does not claim that the behavior is implemented, released, or published.
+Implementation proceeds through live GitHub issues, with packets and the graph as supporting references. HarnessMax removal remains deferred. Website, UI, docs, guides, and actual agent-readiness verification remain in the program. The [release checkpoint](desktop-release.md#what-exists-and-what-is-missing) identifies accepted increments and unmet acceptance. Target scope does not establish a release or publication.
 
 No model, storage vendor, hosting plan, default runtime, or payment service is selected by this document. Earlier Littleagent implementation authority remains relevant to compatible work after the changed contracts are reconciled. Planning authority does not establish implementation or publication evidence.
 
@@ -74,8 +74,9 @@ deterministic tools. Vivary does not impose predefined agent personas.
 The [interaction contract](unified-workspace.md) distinguishes these decisions
 from proposed dimensions and implementation details. The [research](research/agent-workspace-ergonomics.md)
 records primary sources and evidence limits. Existing file/runtime proofs remain
-valid for their components; the unified user experience is not yet implemented
-or accepted. The testing sequence below continues to apply.
+valid for their components. Jeff accepted the design review, and PR #42 delivered
+the first unified shell. PR #48 corrected the sidebar edge. Remaining issue #38
+integrations still need their own implementation and acceptance.
 
 ## Visual product specification decision: 2026-09-14
 
@@ -86,10 +87,11 @@ replaceable harness integrations, state and failure paths, and diagrams that
 route a contributor to the exact relevant context.
 
 The [visual specification](specification/README.md) organizes the 36 retained
-outcomes and issue #38 without creating a second task ledger. Its interface and
-adapter details are proposals for Jeff's review. Application implementation waits
-for that review. A new CLI still needs a supported adapter and compatibility
-evidence. No universal automatic CLI compatibility is claimed.
+outcomes and issue #38 without creating a second task ledger. Jeff accepted guide
+snapshot `e86d06ed592a2d3c` on 2026-09-14. Header-first project details and manual
+handoff updates are settled. The first shell is implemented. The grouped harness
+catalog, linked conversations, handoff workflow, and concurrent runtime remain
+planned. A new CLI still needs a supported adapter and compatibility evidence.
 
 ## Hosted and desktop testing decision: 2026-09-13
 
@@ -266,7 +268,9 @@ Jujutsu supports Git-backed and colocated workspaces. Detection must distinguish
 
 ## Project onboarding
 
-The GUI starts with three choices: create a project, open an existing folder, or open an existing Vivary workspace. An agent can invoke the same operations with structured inputs and receive the same plan and receipt.
+The target GUI offers three choices: create a project, open an existing folder, or open an existing Vivary workspace. Agent actions must use the same operation owners.
+
+The accepted New project increment creates a managed folder under private app data after previewing the original creator's exact five files. PR #47 merged that shared creator path. Arbitrary-target creation, populated-folder apply, template choices, VCS, and hosting steps below remain target behavior. Registering an existing folder through the desktop picker does not adopt or modify it.
 
 New project:
 

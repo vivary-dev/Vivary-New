@@ -63,7 +63,9 @@ Registry metadata checked on **2026-09-13** reports these later versions:
 | PyPI `vivary-exo` | 0.3.1 |
 | npm `@vivary/create` | 0.4.2 |
 
-This is registry availability, not fresh installation verification. The inspected
+On 2026-09-15, a metadata recheck confirmed create-vivary 0.4.3, vivary 0.2.0,
+Tropo 0.5.4, and npm @vivary/create 0.4.2. The dated table above remains the
+2026-09-13 snapshot. This is registry availability, not fresh installation verification. The inspected
 Tropo 0.5.4 wheel lacks workspace-role metadata. npm 0.4.3 is absent, so the
 previous Front Door train was not completely published across both registries.
 
@@ -129,13 +131,15 @@ by itself.
 
 ## Quickstart
 
-The five-file workflow below is the published 0.4.2 behavior. Use the public
-launchers. You need Python 3.11 or newer:
+The five-file workflow below pins the command versions verified on 2026-08-15.
+Newer registry availability is listed above. Unpinned commands can resolve those
+newer packages and are not a replay of that dated verification. You need Python
+3.11 or newer:
 
 ```bash
-uvx create-vivary init my-workspace --preset coding --no-wizard
-uvx create-vivary doctor my-workspace
-uvx --from vivary-tropo tropo check --root my-workspace
+uvx --from create-vivary==0.4.2 create-vivary init my-workspace --preset coding --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary doctor my-workspace
+uvx --from vivary-tropo==0.5.3 tropo check --root my-workspace
 ```
 
 The npm launcher installs and runs the same PyPI scaffolder:
@@ -226,9 +230,9 @@ Set up Vivary (https://vivary.vercel.app) in this project.
 
 1. Read https://vivary.vercel.app/getting-started/ and https://vivary.vercel.app/commands/ before running anything.
 2. You need Python 3.11+ and uv (or pipx). Tell me if something is missing before installing it.
-3. If this folder already has content, this is an adoption: run `uvx create-vivary adopt . --json`, show me the exact creates, managed patches, privacy result, conflicts, and `plan_hash`, and apply only after I approve with `--yes --plan <plan_hash>`.
-   If this folder is new or empty, it is a fresh workspace: ask me which preset fits (coding / second brain / knowledge work / writing), then run `uvx create-vivary init . --preset <choice>`.
-4. Stop on any conflict. A successful apply must pass `uvx create-vivary doctor .` and `uvx --from vivary-tropo tropo check --root .`; show me both results.
+3. If this folder already has content, this is an adoption: run `uvx --from create-vivary==0.4.2 create-vivary adopt . --json`, show me the exact creates, managed patches, privacy result, conflicts, and `plan_hash`, and apply only after I approve with `--yes --plan <plan_hash>`.
+   If this folder is new or empty, it is a fresh workspace: ask me which preset fits (coding / second brain / knowledge work / writing), then run `uvx --from create-vivary==0.4.2 create-vivary init . --preset <choice>`.
+4. Stop on any conflict. A successful apply must pass `uvx --from create-vivary==0.4.2 create-vivary doctor .` and `uvx --from vivary-tropo==0.5.3 tropo check --root .`; show me both results.
 5. Read the generated AGENTS.md, then follow it for all future work here.
 ```
 

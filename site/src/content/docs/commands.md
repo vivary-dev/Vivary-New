@@ -1095,7 +1095,7 @@ create-vivary record <target> <modules|changes|decisions|verification|gates>/<sl
 | `--repair` | Doctor-only. Include conservative repair diagnostics. Recognized legacy-full workspaces are always report-only. |
 | `--yes` | With `doctor --repair`, apply deterministic safe repairs only to supported non-legacy contracts. It never writes a legacy-full workspace. |
 
-The staged `init --reviewed --dry-run --json` response contains the exact
+The private source `init --reviewed --dry-run --json` response contains the exact
 `vivary.thin-init-plan/v1` ordered UTF-8 file content, byte/hash list, target
 and selected options. It writes nothing. `--reviewed --yes --plan HASH --json`
 recomputes those inputs and returns `created` or exact-inventory
@@ -1104,8 +1104,8 @@ recomputes those inputs and returns `created` or exact-inventory
 handles a greenfield target only, not arbitrary existing-folder apply or
 application registration. The 2026-09-15 bundled-Python CLI/managed-bridge and private hosted greenfield
 journeys passed exact-plan, wrong-hash, byte-match, and no-write retry checks.
-These topic-branch changes are not published registry behavior. Existing-folder
-apply remains open.
+PR #47 merged these changes into private Vivary-New `dev`. They are not
+published PyPI/npm behavior. Existing-folder apply remains open.
 
 ### Capability status
 

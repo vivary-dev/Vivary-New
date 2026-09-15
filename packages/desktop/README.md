@@ -11,49 +11,44 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-PR #43's latest head `ff3ae49d9a51dfeeaff7735797312001c16aad4c` passed
-all seven CI checks. The recorded Native persistence and composer defects keep
-that PR in draft.
+Checkpoint: 2026-09-15. Runtime packaging merged in PR #44, and the shared
+new-folder creator merged in PR #47. Issue #7 is closed. The desktop includes
+Electron, ordinary Node, pinned standalone Python, the original command router,
+and licenses. It is an unreleased private candidate.
 
-Issue #7 bundles the original runtime and preserves the existing command router.
-The tested packaging source is `2885589f1757cff1ec803c777477737cbe9e7101`.
-The app adapter rejects project apply commands and linked or parent-relative
-governed scope before invoking the original runtime.
-Its relocated Linux bundle passed all ten verbs, receipt defaults, and a local
-email draft. The packaged window passed project creation, Doctor, private
-receipts, and normal shutdown. The clean-host build needs no ambient Python
-packaging tools; standalone launchers preserve redirected Unicode output.
+The ed8812e Windows candidate's bundled Python and CLI ran on Windows without
+global dependencies. A target containing spaces and Unicode passed preview,
+exact five-file creation, and no-write retry. This proves the bundled CLI path.
+The Electron GUI has not passed Explorer launch, native folder selection,
+real agent tools, second-instance behavior, or child cleanup on Windows.
+[Issue #8](https://github.com/vivary-dev/Vivary-New/issues/8) owns those checks.
+The newer PR #48 sidebar fix is visible in the private web preview. That does
+not update or reverify the retained ed8812e Windows archive.
 
-The private web preview passed project creation, formatted file reading, Doctor,
-control, foreign-identity rejection, and the final apply/scope refusal checks. A project created
-before its latest refresh remained available afterward. Some older roots remain
-unavailable; [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15)
-owns explicit recovery. PR #43's held session changes remain in that private
-preview composition; they have not been merged.
+PR #43 remains draft at ff3ae49. Its six real Code follow-up turns passed, but
+Native saved-head and composer-gating defects keep project-session acceptance
+open. Its held changes remain in the private preview composition and are not
+merged into dev. Check the source composition before interpreting preview proof.
 
-Earlier Linux packaged UI checks ran outside the source checkout.
-They opened the GUI, created local SQLite/workspace data, restored a conversation
-and file after reopening, and stopped the local server when closed.
+PRs #45 and #46 delivered explicit managed-folder reconnection and retry
+recovery. An earlier successful reconnection does not prove a folder remains
+available. Recheck the current binding. Full existing-folder apply remains
+open under issues #14/#15.
 
-Those earlier checks included a real Sonnet request that performed Read, Write, and
-Read, with the resulting file visible in the GUI. It reused the existing Claude
-Code CLI login. Model credentials are not included in the application.
+### Earlier packaged proofs
 
-That earlier Native UI baseline also passed system-folder selection for two projects,
-separate drafts and history, a selected-project file change, Settings navigation,
-and reopening with the project, completed transcript, and appearance intact.
-Stop remained available while the selected folder was missing and preserved the
-paused conversation when that folder returned. Unsent text drafts still need
-recovery across a changed local port.
+The Linux packaged application ran outside the source checkout, created local
+SQLite/workspace data, restored completed history and a file after reopening,
+and stopped its local server on close. A real Sonnet turn performed Read,
+Write, and Read using the existing Claude Code login. Credentials are not
+bundled. Later packaging checks verified all ten original verbs, receipt
+defaults, Doctor, command refusals, and relocated runtime execution.
 
-The matching 2885589 Windows x64 Electron folder was assembled on Linux and
-structurally verified. Its application, Node and Python binaries are x64 PE
-files; it contains seven original components, six relative UTF-8 MZ launchers and 46
-runtime license files. It has not been executed on Windows. Windows and macOS
-installers, signing, upgrades, and installed smoke tests remain unfinished.
-The current package is a private preview, not a release.
-The [installation outcome](../../docs/product/multi-project/tickets/23-package-and-prove-app.md)
-owns that remaining work.
+The [bundled runtime receipt](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md)
+retains the earlier 2885589 candidate and its checks. That Windows artifact was
+assembled and structurally inspected on Linux. Later ed8812e CLI proof does
+not retroactively establish Windows GUI acceptance for either artifact.
+Signing, installers, upgrades, and public release remain unfinished.
 
 ## Development
 

@@ -207,6 +207,10 @@ are even named for the layers of the sky.
 
 # Getting started with Vivary
 
+This page installs the original command-line engine. For the unreleased desktop
+app, use [Workbench source setup](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/README.md#run-from-source)
+and the [desktop acceptance record](https://github.com/vivary-dev/vivary/blob/dev/packages/desktop/README.md#current-acceptance).
+
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and
 verification hooks, and deliberate human gates. It does not require a particular
@@ -215,6 +219,8 @@ editor, agent runtime, database, memory provider, or MCP client.
 > **Release truth:** the five-file workflow on this page is published 0.4.2
 > behavior, verified on the public registries on 2026-08-15. The
 > [original CLI release table](https://vivary.vercel.app/original-cli/#release-status) is the publication authority.
+> Commands below pin that tested creator and Tropo baseline. Newer registry
+> availability is listed separately and is not fresh installation verification.
 > Pin `create-vivary==0.3.1` or `@vivary/create@0.3.1` only to get the historical
 > full layout.
 
@@ -226,9 +232,9 @@ Paste this into Claude Code, Codex, Cursor, or another coding agent:
 Set up Vivary in this project.
 
 1. Confirm Python 3.11+ and either uv or pipx are available. Do not install anything without my approval.
-2. If this folder already has content, run `create-vivary adopt . --json`. Show me the exact creates, bounded patches, optional projections, kept files, conflicts, privacy result, and plan_hash. Stop on any conflict. Apply only the exact approved plan with `--yes --plan <plan_hash>`.
-3. If this folder is empty, ask which preset fits (coding, second-brain, knowledge-work, or writing), then run `create-vivary init . --preset <choice>`.
-4. Verify with `create-vivary doctor .` and `tropo check --root .`. Both must pass.
+2. If this folder already has content, run `uvx --from create-vivary==0.4.2 create-vivary adopt . --json`. Show me the exact creates, bounded patches, optional projections, kept files, conflicts, privacy result, and plan_hash. Stop on any conflict. Apply only the exact approved plan with `--yes --plan <plan_hash>`.
+3. If this folder is empty, ask which preset fits (coding, second-brain, knowledge-work, or writing), then run `uvx --from create-vivary==0.4.2 create-vivary init . --preset <choice>`.
+4. Verify with `uvx --from create-vivary==0.4.2 create-vivary doctor .` and `uvx --from vivary-tropo==0.5.3 tropo check --root .`. Both must pass.
 5. Read AGENTS.md and .vivary/context.md. Read STATE.md only when current state matters.
 ```
 
@@ -238,8 +244,8 @@ You need Python 3.11 or newer. Run the published scaffolder from the public inde
 with no permanent install:
 
 ```bash
-uvx create-vivary --help
-uvx --from vivary-tropo tropo --help
+uvx --from create-vivary==0.4.2 create-vivary --help
+uvx --from vivary-tropo==0.5.3 tropo --help
 ```
 
 The npm launcher runs the same PyPI scaffolder:
@@ -248,8 +254,8 @@ The npm launcher runs the same PyPI scaffolder:
 npx @vivary/create@0.4.2 --help
 ```
 
-The examples below write `create-vivary` and `tropo` as bare commands. Keep the
-`uvx` prefix if you have not installed the tools. The optional MCP package carries
+Bare commands below assume the verified package versions. Use the pinned
+`uvx` prefixes above when those versions are not installed. The optional MCP package carries
 third-party runtime dependencies, so install `vivary-mcp` explicitly before you
 check its `vivary-mcp --help` entry point. Version 0.3.1 remains available for the
 previous layout with `uvx --from create-vivary==0.3.1 create-vivary ...` or
@@ -488,7 +494,9 @@ Registry metadata checked on **2026-09-13** reports these later versions:
 | PyPI `vivary-exo` | 0.3.1 |
 | npm `@vivary/create` | 0.4.2 |
 
-This is registry availability, not fresh installation verification. The inspected
+On 2026-09-15, a metadata recheck confirmed create-vivary 0.4.3, vivary 0.2.0,
+Tropo 0.5.4, and npm @vivary/create 0.4.2. The dated table above remains the
+2026-09-13 snapshot. This is registry availability, not fresh installation verification. The inspected
 Tropo 0.5.4 wheel lacks workspace-role metadata. npm 0.4.3 is absent, so the
 previous Front Door train was not completely published across both registries.
 
@@ -554,13 +562,15 @@ by itself.
 
 ## Quickstart
 
-The five-file workflow below is the published 0.4.2 behavior. Use the public
-launchers. You need Python 3.11 or newer:
+The five-file workflow below pins the command versions verified on 2026-08-15.
+Newer registry availability is listed above. Unpinned commands can resolve those
+newer packages and are not a replay of that dated verification. You need Python
+3.11 or newer:
 
 ```bash
-uvx create-vivary init my-workspace --preset coding --no-wizard
-uvx create-vivary doctor my-workspace
-uvx --from vivary-tropo tropo check --root my-workspace
+uvx --from create-vivary==0.4.2 create-vivary init my-workspace --preset coding --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary doctor my-workspace
+uvx --from vivary-tropo==0.5.3 tropo check --root my-workspace
 ```
 
 The npm launcher installs and runs the same PyPI scaffolder:
@@ -651,9 +661,9 @@ Set up Vivary (https://vivary.vercel.app) in this project.
 
 1. Read https://vivary.vercel.app/getting-started/ and https://vivary.vercel.app/commands/ before running anything.
 2. You need Python 3.11+ and uv (or pipx). Tell me if something is missing before installing it.
-3. If this folder already has content, this is an adoption: run `uvx create-vivary adopt . --json`, show me the exact creates, managed patches, privacy result, conflicts, and `plan_hash`, and apply only after I approve with `--yes --plan <plan_hash>`.
-   If this folder is new or empty, it is a fresh workspace: ask me which preset fits (coding / second brain / knowledge work / writing), then run `uvx create-vivary init . --preset <choice>`.
-4. Stop on any conflict. A successful apply must pass `uvx create-vivary doctor .` and `uvx --from vivary-tropo tropo check --root .`; show me both results.
+3. If this folder already has content, this is an adoption: run `uvx --from create-vivary==0.4.2 create-vivary adopt . --json`, show me the exact creates, managed patches, privacy result, conflicts, and `plan_hash`, and apply only after I approve with `--yes --plan <plan_hash>`.
+   If this folder is new or empty, it is a fresh workspace: ask me which preset fits (coding / second brain / knowledge work / writing), then run `uvx --from create-vivary==0.4.2 create-vivary init . --preset <choice>`.
+4. Stop on any conflict. A successful apply must pass `uvx --from create-vivary==0.4.2 create-vivary doctor .` and `uvx --from vivary-tropo==0.5.3 tropo check --root .`; show me both results.
 5. Read the generated AGENTS.md, then follow it for all future work here.
 ```
 
@@ -1923,7 +1933,7 @@ create-vivary record <target> <modules|changes|decisions|verification|gates>/<sl
 | `--repair` | Doctor-only. Include conservative repair diagnostics. Recognized legacy-full workspaces are always report-only. |
 | `--yes` | With `doctor --repair`, apply deterministic safe repairs only to supported non-legacy contracts. It never writes a legacy-full workspace. |
 
-The staged `init --reviewed --dry-run --json` response contains the exact
+The private source `init --reviewed --dry-run --json` response contains the exact
 `vivary.thin-init-plan/v1` ordered UTF-8 file content, byte/hash list, target
 and selected options. It writes nothing. `--reviewed --yes --plan HASH --json`
 recomputes those inputs and returns `created` or exact-inventory
@@ -1932,8 +1942,8 @@ recomputes those inputs and returns `created` or exact-inventory
 handles a greenfield target only, not arbitrary existing-folder apply or
 application registration. The 2026-09-15 bundled-Python CLI/managed-bridge and private hosted greenfield
 journeys passed exact-plan, wrong-hash, byte-match, and no-write retry checks.
-These topic-branch changes are not published registry behavior. Existing-folder
-apply remains open.
+PR #47 merged these changes into private Vivary-New `dev`. They are not
+published PyPI/npm behavior. Existing-folder apply remains open.
 
 ### Capability status
 
@@ -2290,8 +2300,8 @@ Run each guide with the published launchers.
 Use these commands:
 
 ```bash
-uvx create-vivary
-uvx --from vivary-tropo tropo
+uvx --from create-vivary==0.4.2 create-vivary
+uvx --from vivary-tropo==0.5.3 tropo
 ```
 
 The guide commands use these launchers.
@@ -2411,7 +2421,7 @@ The workspace contains no starter records, templates, skills, or second-brain co
 ## Release boundary
 
 These commands describe published 0.4.2.
-Registry `latest` installs it and creates the five-file layout.
+The examples pin the verified command versions. Unpinned PyPI installs can resolve newer versions.
 Pin `create-vivary==0.3.1` only to get the historical full layout.
 
 ## Agent contract
@@ -2450,7 +2460,7 @@ The `second-brain` preset does not create notes or a pre-populated second brain.
 Run a dry-run before the first write.
 
 ```bash
-uvx create-vivary init C:/path/to/my-project --preset coding --no-wizard --dry-run --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-project --preset coding --no-wizard --dry-run --json
 ```
 
 Confirm the target, preset, contract, and five planned files.
@@ -2461,7 +2471,7 @@ Stop if the target contains work that Vivary can overwrite.
 Run the same command without `--dry-run`.
 
 ```bash
-uvx create-vivary init C:/path/to/my-project --preset coding --no-wizard --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-project --preset coding --no-wizard --json
 ```
 
 Vivary creates this tree:
@@ -2488,8 +2498,8 @@ Run Doctor.
 Then run Tropo validation.
 
 ```bash
-uvx create-vivary doctor C:/path/to/my-project
-uvx --from vivary-tropo tropo check --root C:/path/to/my-project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/my-project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/my-project
 ```
 
 Both commands must exit with code `0`.
@@ -2500,8 +2510,8 @@ Fix each error before an agent uses the workspace.
 Preview the policy before creation.
 
 ```bash
-uvx create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --dry-run --json
-uvx create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --dry-run --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --json
 ```
 
 The result is still the five-file seed.
@@ -2512,8 +2522,8 @@ Real notes must come from later work.
 Include an adapter in the initial command only when the runtime needs it.
 
 ```bash
-uvx create-vivary init C:/path/to/my-agent-project --preset coding --adapter agents --no-wizard
-uvx create-vivary init C:/path/to/my-claude-project --preset coding --adapter claude --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-agent-project --preset coding --adapter agents --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-claude-project --preset coding --adapter claude --no-wizard
 ```
 
 Each adapter adds one bounded runtime file.
@@ -2522,7 +2532,7 @@ Use `--adapter` twice when both adapters are required.
 Include active code context only after explicit selection.
 
 ```bash
-uvx create-vivary init C:/path/to/my-code-project --preset coding --active-context cocoindex-code --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-code-project --preset coding --active-context cocoindex-code --no-wizard
 ```
 
 This option keeps the five-file seed.
@@ -2618,7 +2628,7 @@ The connection does not grant write authority.
 Run Doctor before the connection.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
 ```
 
 Stop if Doctor reports an error.
@@ -2757,7 +2767,7 @@ Tell me everything.
 Run `find` for normal task context.
 
 ```bash
-uvx --from vivary-tropo tropo find "where is release truth owned" --root C:/path/to/project --budget 1200 --json
+uvx --from vivary-tropo==0.5.3 tropo find "where is release truth owned" --root C:/path/to/project --budget 1200 --json
 ```
 
 The default budget is 1,200 approximate tokens.
@@ -2779,7 +2789,7 @@ State that the result is unknown when evidence is missing.
 Use `query` when you need typed or filtered matches.
 
 ```bash
-uvx --from vivary-tropo tropo query "release status" --root C:/path/to/project --type project --json
+uvx --from vivary-tropo==0.5.3 tropo query "release status" --root C:/path/to/project --type project --json
 ```
 
 Use `--path` to limit paths.
@@ -2844,7 +2854,7 @@ A loosening or invalid overlay fails closed.
 Add `--receipt` when the operator needs a local run receipt.
 
 ```bash
-uvx --from vivary-tropo tropo find "where is release truth owned" --root C:/path/to/project --json \
+uvx --from vivary-tropo==0.5.3 tropo find "where is release truth owned" --root C:/path/to/project --json \
   --receipt C:/path/to/project/.vivary/runtime/receipts.jsonl
 ```
 
@@ -3064,7 +3074,7 @@ Use `adopt` for all nonempty targets.
 Run the default dry-run.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project --json
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project --json
 ```
 
 The command writes nothing.
@@ -3110,8 +3120,8 @@ Vivary does not rewrite an entire host file.
 Request an adapter explicitly.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project --adapter agents --json
-uvx create-vivary adopt C:/path/to/project --adapter claude --json
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project --adapter agents --json
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project --adapter claude --json
 ```
 
 Each adapter is a separate optional projection.
@@ -3132,7 +3142,7 @@ Replan after any preset or adapter changes.
 Use the exact approved hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --yes --plan sha256:<approved-plan-hash> \
   --json
 ```
@@ -3147,8 +3157,8 @@ Run Doctor after apply.
 Then run Tropo validation.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
-uvx --from vivary-tropo tropo check --root C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project
 ```
 
 Confirm that user-owned files keep their original content.
@@ -3172,7 +3182,7 @@ Use recovery only when adoption reports an interrupted transaction.
 Use the exact reported plan hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --json
 ```
@@ -3181,7 +3191,7 @@ This command is a read-only recovery plan.
 Review its `recovery_plan_hash` and actions.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --yes \
   --plan sha256:<approved-recovery-plan-hash> \
@@ -3231,7 +3241,7 @@ You can select a bounded recovery action without changing unrelated files.
 Run Doctor first.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
 ```
 
 Plain Doctor is read-only.
@@ -3242,7 +3252,7 @@ Warnings do not change the exit code.
 Use JSON when an agent must inspect fields.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --json
 ```
 
 Review the contract, privacy, capability, and recovery sections.
@@ -3252,7 +3262,7 @@ Review the contract, privacy, capability, and recovery sections.
 Run the strict graph check.
 
 ```bash
-uvx --from vivary-tropo tropo check --root C:/path/to/project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project
 ```
 
 Strict mode is the default.
@@ -3261,7 +3271,7 @@ Warnings fail the strict check.
 Use lenient mode only for an approved diagnostic reason.
 
 ```bash
-uvx --from vivary-tropo tropo check --root C:/path/to/project --lenient
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project --lenient
 ```
 
 Do not report a lenient result as strict proof.
@@ -3289,7 +3299,7 @@ Use recovery only when Doctor or adoption reports the transaction.
 Copy the exact reported hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --json
 ```
@@ -3301,7 +3311,7 @@ Review that exact plan.
 Apply the separately approved recovery hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --yes \
   --plan sha256:<approved-recovery-plan-hash> \
@@ -3329,7 +3339,7 @@ Use repair mode only for a recognized legacy full workspace.
 Request the report.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --repair --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --repair --json
 ```
 
 The report writes nothing.
@@ -3348,7 +3358,7 @@ Plain Doctor does not write runtime state.
 `doctor --trend` writes a local trend snapshot.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --trend --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --trend --json
 ```
 
 Get approval before this write.
@@ -3370,8 +3380,8 @@ Run Doctor again.
 Then run Tropo validation.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
-uvx --from vivary-tropo tropo check --root C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project
 ```
 
 Record the exact commands and results.
@@ -6751,7 +6761,10 @@ Inside the work, be fast. At the edges, leave proof.
 
 # Vivary — architecture
 
-This page explains how Vivary is put together and why. It's the deep version; for the
+This page describes the original command-line engine and its Python packages.
+For the desktop and self-hosted application, read the [product design](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md)
+and [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md).
+For the
 plain-language overview, read [Concepts](https://vivary.vercel.app/concepts/) first.
 
 ## 1. What Vivary is

@@ -29,7 +29,7 @@ the original creator's effect boundary and the existing managed-project bridge
 for the greenfield path. A plan hash is not folder custody or an app grant.
 Do not reintroduce the failed provider unchanged.
 
-## Current source candidate
+## Accepted new-folder increment and remaining work
 
 `plan_thin_workspace(target, preset, adapters, active_context)` returns the
 ordered exact UTF-8 files, content hashes, normalized target/options and a
@@ -42,14 +42,14 @@ nonempty existing folder remains refused. Changed target or options invalidate
 the reviewed hash. The managed bridge delegates to these source operations and
 keeps its existing external camel-case result fields.
 
-The source CLI candidate adds `create-vivary init TARGET --reviewed --dry-run
+The private dev CLI adds `create-vivary init TARGET --reviewed --dry-run
 --json` for the full file-content plan, followed by `--reviewed --yes --plan
 HASH --json` for its exact apply. Reviewed mode refuses wizard/provider,
 storage, memory beyond `none`, and other setup side writers. This greenfield
 content plan is separate from project registration and task plans. It does not
 enable general existing-folder apply under issue #15. The bounded runtime
-increment passed on 2026-09-15. Full issue #14 remains open for existing-folder
-apply and delivery.
+increment passed on 2026-09-15 and merged in PR #47. Full issue #14 remains open
+for existing-folder apply. These private source commands are not a registry release.
 
 ## Owned files
 

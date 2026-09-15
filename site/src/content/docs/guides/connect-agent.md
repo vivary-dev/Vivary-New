@@ -27,7 +27,7 @@ The connection does not grant write authority.
 Run Doctor before the connection.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
 ```
 
 Stop if Doctor reports an error.

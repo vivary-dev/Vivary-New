@@ -29,13 +29,13 @@ complete journeys. A working window or iframe alone does not meet the target.
 | Concept | Meaning and owner |
 | --- | --- |
 | Project | A stable identity for an authorized folder, its settings, guidance, and sessions. Native-backed project registration owns the binding. |
-| Session | One contained conversation in one project. It references an existing Native Code run or Full chat thread. It has a title, dates, model/runtime identity, and searchable retained messages. |
+| Session | One contained conversation in one project. It references an existing Native Code run or Native chat thread. It has a title, dates, model/runtime identity, and searchable retained messages. |
 | Run | One execution or follow-up inside a session. Native owns execution, cancellation, tool activity, and results. |
 | Memory | Reusable project facts and decisions in readable files, with sources and correction/removal controls. A transcript is not automatically active memory. |
 | Logs | Provider-owned CLI session logs and Native execution records stored outside the user's project files. Vivary keeps references and shows them through the session. |
 | Search index | A rebuildable local cache over authorized files or transcripts. Source files and Native records remain authoritative. |
 
-Code Agent and Full chat may use different runtimes. Both must use this project
+Code and Native conversations may use different runtimes. Both must use this project
 and session model in navigation and search. Existing unassigned chats must remain
 accessible during migration. Do not silently attach them to an arbitrary project.
 
@@ -80,17 +80,22 @@ Store derived indexes in private application data, keyed by stable project ident
 | --- | --- | --- |
 | Desktop | Electron, bundled Node and Python, loopback launcher, native folder chooser | Prove the current app on Windows |
 | Agent loop | Native Code execution, file tools, Stop, stored normalized transcripts | Supported provider session persistence/resume and external log references |
-| Projects | Folder registration, Code project binding, selected-project state | Reliable saves, Project session acceptance, Create and Adopt workflows |
-| History | Native Code transcripts and Native Full chat storage/search | One project/session presentation, Code pagination and content search |
+| Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Native project/session acceptance and existing-folder apply/adoption |
+| History | Retained Code transcripts, Native storage, and one central workspace | PR #43 Native persistence/composer repair, pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
-| Files | Small Markdown/text/JSON inspector | Source-file navigation, exact search, conflict-aware editing |
+| Files | Tree navigation, formatted reading, explicit Edit/Save/Rename, conflict recovery | Exact file search and broader file capabilities under their owning issues |
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
 | Original Vivary | Bundled ten-verb standalone CLI and bounded preview/evaluation app adapter | The shared greenfield creator path passed bundled and hosted checks in #14; existing-folder apply remains open under #14/#15 |
 
-The old Windows artifact is an unsigned portable preview from earlier source.
-It does not establish a working Windows release. The repo has passed CI, but
-specific broad-suite and hosted persistence failures remain in the
-[salvage receipt](receipts/salvage-handoff-2026-09-12.md).
+Checkpoint, 2026-09-15: the ed8812e bundled CLI passed Windows preview/create/retry
+with spaces and Unicode. The Electron GUI remains unverified. PR #48 corrected
+the hosted sidebar edge after production build, real UI checks, independent review,
+and an owner-approved Zo Linux CI run. The Windows archive predates that CSS fix.
+
+The private preview retains PR #43's held conversation composition. Its Native
+saved-head and composer failures remain open. Earlier failure receipts are dated
+evidence, not the current source or release status. Recheck folder availability
+before each hosted journey. Previous successful bindings can become unavailable.
 
 ## GitHub delivery order
 
@@ -124,7 +129,7 @@ its accepted behavior is verified and its reviewed PR is merged.
 | 9 | Project files | [11a: Read and edit authorized project files through the GUI](packets/11a-authorized-workspace-file-editing.md) · [#12](https://github.com/vivary-dev/Vivary-New/issues/12) | Done |
 | 10 | Fast file search | [11c: Search large project trees from the application](packets/11c-fast-project-search.md) · [#13](https://github.com/vivary-dev/Vivary-New/issues/13) | Ready |
 | 11 | Live preview and agent debugging | [11e: Preview and debug a running project](packets/11e-live-project-preview.md) · [#31](https://github.com/vivary-dev/Vivary-New/issues/31) | After 04a |
-| 12 | Shared workspace operations | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) · [#14](https://github.com/vivary-dev/Vivary-New/issues/14) | In progress: corrected bundled Python and private hosted greenfield preview/Create/retry checks passed 2026-09-15. Earlier desktop/phone controls passed with unchanged frontend. Existing-folder apply and issue delivery remain open |
+| 12 | Shared workspace operations | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) · [#14](https://github.com/vivary-dev/Vivary-New/issues/14) | In progress: corrected bundled Python and private hosted greenfield preview/Create/retry checks passed 2026-09-15. Earlier desktop/phone controls passed with unchanged frontend. PR #47 merged the new-folder increment. Existing-folder apply remains open |
 | 13 | GUI workspace setup | [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) · [#15](https://github.com/vivary-dev/Vivary-New/issues/15) | Managed-folder reconnect and the reviewed lost-response/replay follow-up passed hosted and focused checks, then merged in PRs #45 and #46. Full existing-folder create/apply still depends on #14; linked issue owns delivery |
 | 14 | Starter patterns | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) · [#16](https://github.com/vivary-dev/Vivary-New/issues/16) | After 07d |
 | 15 | Existing folders | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) · [#17](https://github.com/vivary-dev/Vivary-New/issues/17) | After 07b |
