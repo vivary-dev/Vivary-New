@@ -1879,6 +1879,8 @@ create-vivary init <target> [--preset coding|second-brain|knowledge-work|writing
                            [--memory none|local|cognee]
                            [--auto] [--yes] [--dry-run] [--json]
                            [--size small|medium|large] [--privacy local|cloud] [--receipt PATH]
+create-vivary init <target> --reviewed --dry-run --json
+create-vivary init <target> --reviewed --yes --plan SHA256_HASH --json
 create-vivary wizard <target> [--storage auto|file|embedded|cloud] [--provider lancedb|sqlite-vec|qdrant|astra]
                               [--memory none|local|cognee] [--yes] [--dry-run] [--json] [--receipt PATH]
 create-vivary capabilities [--preset coding|second-brain|knowledge-work|writing] [--json]
@@ -1913,11 +1915,25 @@ create-vivary record <target> <modules|changes|decisions|verification|gates>/<sl
 | `--auto` | **Agent mode.** Skip all interactive prompts. Use explicit storage and privacy choices. Otherwise, keep file storage. |
 | `--yes` | Confirm an install or write already selected by another explicit flag. It does not select a provider. |
 | `--dry-run` | Print what would be written or installed; do not mutate the workspace. |
+| `--reviewed` | Staged source mode for exact thin-init file-content review and hash-bound apply. Use only the two reviewed `init` forms shown above. |
+| `--plan SHA256_HASH` | With `init --reviewed --yes`, accept the target-bound hash from its current exact preview. A changed target or options needs another review. |
 | `--json` | Machine-readable output. Init reports the thin contract and files; adoption reports the deterministic plan/apply envelope described below. |
 | `--size small\|medium\|large` | Workspace classification hint. Size never selects or installs a provider. |
 | `--privacy local\|cloud` | Local keeps file storage unless another tier is explicit. Cloud can select cloud configuration. |
 | `--repair` | Doctor-only. Include conservative repair diagnostics. Recognized legacy-full workspaces are always report-only. |
 | `--yes` | With `doctor --repair`, apply deterministic safe repairs only to supported non-legacy contracts. It never writes a legacy-full workspace. |
+
+The staged `init --reviewed --dry-run --json` response contains the exact
+`vivary.thin-init-plan/v1` ordered UTF-8 file content, byte/hash list, target
+and selected options. It writes nothing. `--reviewed --yes --plan HASH --json`
+recomputes those inputs and returns `created` or exact-inventory
+`already-created`; a changed plan refuses. Reviewed mode rejects `--force`,
+`--auto`, storage/provider, memory beyond `none`, size/privacy and wizard side writers. It
+handles a greenfield target only, not arbitrary existing-folder apply or
+application registration. The 2026-09-15 bundled-Python CLI/managed-bridge and private hosted greenfield
+journeys passed exact-plan, wrong-hash, byte-match, and no-write retry checks.
+These topic-branch changes are not published registry behavior. Existing-folder
+apply remains open.
 
 ### Capability status
 

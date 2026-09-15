@@ -2,7 +2,7 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/14
 Parent: 07
-Status: ready-for-agent
+Status: in-progress
 Depends-on: [07a]
 Owner: Coordinating Codex, sole creator and Workbench adapter writer
 Scope: Complete the shared portable creator plan/apply operation. The separate 07d packet owns its visible GUI flow.
@@ -24,15 +24,38 @@ agent (`root`) assigns one source writer before activation. Follow the live
 repository delivery rules.
 
 The shared content-preview API was recovered in PR #4. Reuse that renderer.
-The guarded Python provider remains missing after its strict symlink tests failed
-on Zo. Select a portable supported write path through the original creator and
-existing project authority. Do not reintroduce the failed provider unchanged.
+The earlier guarded Python provider failed strict symlink checks on Zo. Use
+the original creator's effect boundary and the existing managed-project bridge
+for the greenfield path. A plan hash is not folder custody or an app grant.
+Do not reintroduce the failed provider unchanged.
+
+## Current source candidate
+
+`plan_thin_workspace(target, preset, adapters, active_context)` returns the
+ordered exact UTF-8 files, content hashes, normalized target/options and a
+target-bound `plan_sha256` without writing.
+`apply_thin_workspace(target, accepted_plan_sha256, ...)` recomputes those
+inputs before the creator's existing write boundary. It returns `created`,
+`plan-changed`, or `already-created`; the last result is a no-write retry only
+when the target has exactly the reviewed file/byte inventory. An arbitrary
+nonempty existing folder remains refused. Changed target or options invalidate
+the reviewed hash. The managed bridge delegates to these source operations and
+keeps its existing external camel-case result fields.
+
+The source CLI candidate adds `create-vivary init TARGET --reviewed --dry-run
+--json` for the full file-content plan, followed by `--reviewed --yes --plan
+HASH --json` for its exact apply. Reviewed mode refuses wizard/provider,
+storage, memory beyond `none`, and other setup side writers. This greenfield
+content plan is separate from project registration and task plans. It does not
+enable general existing-folder apply under issue #15. The bounded runtime
+increment passed on 2026-09-15. Full issue #14 remains open for existing-folder
+apply and delivery.
 
 ## Owned files
 
 - Original thin renderer and apply helpers in `packages/create-vivary/create_vivary.py`.
-- `packages/workbench/server/creation_workspace.py`, `creation-provider.mjs`,
-  and the required existing project-services/registry integration.
+- The existing `packages/workbench/server/managed_project_workspace.py` bridge
+  and managed-project caller. Project registration keeps its own owner.
 - Deterministic setup actions under `packages/workbench/`. The 07d packet owns
   project navigation and visible setup.
 - The minimum packaging changes needed to call the same operations outside this
@@ -57,7 +80,49 @@ Use temporary targets with the normal application composition. Check plan bytes
 against applied bytes, refusal after changed input, retry/recovery, and no writes
 from preview. Exercise the shared Native action and equivalent headless operations. The 07d
 journey validates their GUI caller.
-Test hosted workflow first, then the packaged desktop path under existing authority.
+The earlier 2026-09-15 candidate passed the hosted keyboard Create journey
+at 1440x900 and normal-size Cancel. Its unchanged frontend also passed phone
+preview/Cancel controls, focus, and no horizontal overflow at 390x844. That
+pre-fix hosted proof remains in `.tmp/47-hosted-acceptance.json` and
+`.tmp/47-hosted-files-final.json`; it is not the corrected creator receipt.
+
+The PR #47 review correction gives each write attempt its own file-commit
+and directory ownership, so a failed concurrent attempt cannot roll back a
+winner's files. An exact retry runs read-only Doctor before reporting success.
+Target-inspection errors become structured refusals, and sanitized CLI
+receipts include `--reviewed`. The corrected bundled-Python run in
+`.tmp/47-review-bundled-acceptance.json` passed five-file CLI/bridge plan
+parity, no preview or wrong-hash writes, exact create bytes, and no-write
+cross-caller retry. Focused shared, CLI, bridge, and adoption tests passed
+15, 22, 5, and 20 cases.
+
+The corrected hosted journey in `.tmp/47-review-hosted-acceptance.json`
+again matched all five UI plan contents to the Native response and bundled
+CLI hash. Preview and wrong-hash refusal left the target absent. Keyboard
+Create registered and selected the new project. Exact retry retained its
+project and policy, with all five file bytes and modification times unchanged
+(`.tmp/47-review-hosted-files-final.json`). The existing registration-attempt
+receipt advanced `registryRevision` from 23 to 24; a whole-catalog-unchanged
+claim does not follow. The actual `STATE.md` file view showed formatted content
+and Edit/Rename controls. Returning to the earlier conversation restored its
+history, enabled composer and New conversation, and left panels closed. The
+app was idle and made no model calls.
+
+Six saved fixture folders had changed filesystem inodes at the same paths.
+Root used the existing reviewed reconnection flow; all 33 fixture files kept
+their exact bytes. The underlying Zo identity-change cause remains unknown.
+The corrected hosted run did not repeat the earlier viewport checks; the
+frontend output was unchanged. Existing-folder apply, Windows execution,
+and held PR #43 remain outside this increment.
+
+Windows CI on `32ef296` found that `DirEntry.stat()` reports a zero link
+count on Windows, so exact retries were refused. The creator now uses
+`os.stat(..., follow_symlinks=False)` for that metadata, as specified by the
+[Python documentation](https://docs.python.org/3.13/library/os.html#os.DirEntry.stat).
+The existing CLI, shared creator, and bridge suites each have a separate
+Windows CI step so any failing suite fails the job. This is platform test
+coverage; Windows application acceptance remains separate under issue #8.
+
 The commands below are starting suites, not substitutes for the actual journey.
 
 ```console
@@ -71,7 +136,6 @@ git diff --check
 Resolve any new write-authority requirement with the owning root/creation
 contract. Do not enable strict mutation roles on the local-stat provider, claim
 held custody from a path, install another executor, or activate external templates.
-A hosted-auth blocker prevents only its dependent hosted mutation proof.
 
 ## Log
 
@@ -80,6 +144,14 @@ A hosted-auth blocker prevents only its dependent hosted mutation proof.
 - 2026-09-13: 07a accepted. Root owns the creator/adapter closure. Begin with
   a shared `plan_thin_workspace` operation over the existing renderer, then wire
   the retained adapter to the real apply path. Hosted mutation proof retains
-  its separate unresolved auth prerequisite. Source preparation can proceed.
+  its separate unresolved auth prerequisite. Source preparation could proceed.
 
-- 2026-09-13: Recovered preview and role metadata are integrated. This packet owns portable apply, with visible setup in 07d.
+- 2026-09-13: Recovered preview and role metadata are integrated. This packet
+  owns portable apply, with visible setup in 07d.
+- 2026-09-15: Issue #14 is active on `feat/shared-workspace-plan`. The original
+  creator source candidate binds reviewed greenfield file bytes, target and
+  options before apply, recognizes only exact no-write retries, and routes the
+  managed bridge and reviewed CLI through that contract. Hosted and packaged
+  bundled-Python and private hosted acceptance passed for the bounded
+  greenfield path. Existing-folder
+  apply and issue #14 delivery remain open.

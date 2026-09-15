@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import sys
+import tempfile
 import tomllib
 import unittest
 import uuid
@@ -126,6 +127,101 @@ class ThinInitTests(unittest.TestCase):
         finally:
             if target.exists():
                 shutil.rmtree(target)
+
+    def test_reviewed_cli_shares_exact_plan_apply_and_no_write_retry(self):
+        target = temp_target()
+        other = temp_target()
+        try:
+            preview_args = [
+                "init", str(target), "--reviewed", "--dry-run", "--json",
+                "--preset", "writing",
+            ]
+            rc, out = run_cli(preview_args)
+            self.assertEqual(rc, 0, out)
+            plan = json.loads(out)["plan"]
+            self.assertEqual(plan, create_vivary.plan_thin_workspace(
+                target, preset="writing"
+            ))
+            self.assertFalse(target.exists())
+
+            for changed in (
+                ["--preset", "coding"],
+                ["--storage", "embedded"],
+                ["--memory", "local"],
+                ["--auto"],
+            ):
+                rc, out = run_cli(preview_args + changed)
+                if changed == ["--preset", "coding"]:
+                    self.assertEqual(rc, 0, out)
+                    self.assertNotEqual(json.loads(out)["plan"]["plan_sha256"],
+                                        plan["plan_sha256"])
+                else:
+                    self.assertEqual(rc, 1, out)
+                self.assertFalse(target.exists())
+
+            apply_args = [
+                "init", str(target), "--reviewed", "--yes", "--json",
+                "--preset", "writing", "--plan", plan["plan_sha256"],
+                "--repo-root", str(ROOT),
+            ]
+            for extra in (["--storage", "embedded"], ["--memory", "local"],
+                          ["--provider", "qdrant"], ["--auto"]):
+                rc, out = run_cli(apply_args + extra)
+                self.assertEqual(rc, 1, out)
+                self.assertFalse(target.exists())
+            rc, out = run_cli([
+                "init", str(target), "--yes", "--json",
+                "--plan", plan["plan_sha256"],
+            ])
+            self.assertEqual(rc, 1, out)
+            self.assertFalse(target.exists())
+            rc, out = run_cli([
+                "init", str(other), *apply_args[2:]
+            ])
+            self.assertEqual(rc, 1, out)
+            self.assertFalse(other.exists())
+            rc, out = run_cli(apply_args)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(json.loads(out)["code"], "created")
+            for row in plan["files"]:
+                self.assertEqual((target/row["path"]).read_bytes(),
+                                 row["content"].encode("utf-8"))
+            before = (target/"AGENTS.md").stat().st_mtime_ns
+            rc, out = run_cli(apply_args)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(json.loads(out)["code"], "already-created")
+            self.assertEqual((target/"AGENTS.md").stat().st_mtime_ns, before)
+        finally:
+            for path in (target, other):
+                if path.exists():
+                    shutil.rmtree(path)
+
+    def test_reviewed_receipts_mark_mode_without_paths_or_plan_hash(self):
+        with tempfile.TemporaryDirectory(prefix="vivary-reviewed-receipt-") as temporary:
+            target = Path(temporary)/"project"
+            receipt = Path(temporary)/"runs.jsonl"
+            rc, out = run_cli([
+                "init", str(target), "--reviewed", "--dry-run", "--json",
+                "--receipt", str(receipt),
+            ])
+            self.assertEqual(rc, 0, out)
+            accepted = json.loads(out)["plan"]["plan_sha256"]
+            rc, out = run_cli([
+                "init", str(target), "--reviewed", "--yes", "--json",
+                "--plan", accepted, "--repo-root", str(ROOT),
+                "--receipt", str(receipt),
+            ])
+            self.assertEqual(rc, 0, out)
+            records = [json.loads(line) for line in
+                       receipt.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(records), 2)
+            for record in records:
+                self.assertIn("--reviewed", record["flags"])
+                self.assertNotIn("--receipt", record["flags"])
+                serialized = json.dumps(record)
+                self.assertNotIn(str(target), serialized)
+                self.assertNotIn(str(receipt), serialized)
+                self.assertNotIn(accepted, serialized)
 
     def test_interactive_defaults_create_five_file_seed_without_provider_install(self):
         target = temp_target()
