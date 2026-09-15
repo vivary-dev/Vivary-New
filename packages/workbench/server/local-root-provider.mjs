@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { open, realpath, stat } from "node:fs/promises";
+import { lstat, open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { and, eq } from "@agent-native/core/db/schema";
 import { listAppMemberRoles, orgMembers, setAppMemberRole } from "@agent-native/core/org";
@@ -22,6 +22,8 @@ const inventorySchema = z.strictObject({
 });
 const allocate = prefix => prefix + "_" + randomUUID().replaceAll("-", "");
 const unknownVcs = () => ({ kind: "unobserved", repositoryId: null, checkoutId: null, mutationOwner: null });
+const managedChildName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const windowsReservedName = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 const unavailable = () => ({ code: "identity-unverified" });
 export const localRootInventoryKey = (email, orgId) => "vivary-private:local-folders-v1:"
   + localRootActorId(email, orgId);
@@ -244,6 +246,25 @@ export async function createLocalRootProvider({ ownerEmail, defaultFolder = null
     get locationRefs() { return [...records.keys()]; },
     resolveGrant,
     locationLabels: () => Object.fromEntries([...records].map(([ref, record]) => [ref, record.label])),
+    isManagedLocation: async (locationRef, dataDirectory) => {
+      const record = records.get(locationRef);
+      if (closed || !record || record.platform !== process.platform
+        || typeof dataDirectory !== "string" || !path.isAbsolute(dataDirectory)) return false;
+      try {
+        const dataRoot = await realpath(dataDirectory);
+        const parent = path.join(dataRoot, "projects");
+        const info = await lstat(parent);
+        const name = path.basename(record.canonicalPath);
+        return info.isDirectory() && !info.isSymbolicLink()
+          && await realpath(parent) === parent
+          && managedChildName.test(name) && !name.endsWith(".")
+          && !windowsReservedName.test(name)
+          && path.dirname(record.canonicalPath) === parent
+          && path.join(parent, name) === record.canonicalPath;
+      } catch {
+        return false;
+      }
+    },
     readiness: () => ({ status: closed ? "unavailable" : "ready" }),
     observe: ref => observation(ref, "observe"),
     inspect: ref => observation(ref, "inspect"),

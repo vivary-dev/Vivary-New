@@ -12,15 +12,18 @@ export const managedProjectReconnectionConfirmInput = z.strictObject({
   operationId: identifier,
   acceptedPlanSha256: digest,
 });
-export const managedProjectReconnectionPreviewOutput = z.strictObject({
+const previewFields = {
   code: z.literal("reconnect-preview"),
   projectId: identifier,
   displayName: z.string().min(1).max(200),
   folderName: z.string().min(1).max(128),
-  identityChanged: z.literal(true),
   operationId: identifier,
   planSha256: digest,
-});
+};
+export const managedProjectReconnectionPreviewOutput = z.discriminatedUnion("recorded", [
+  z.strictObject({ ...previewFields, recorded: z.literal(false), identityChanged: z.literal(true) }),
+  z.strictObject({ ...previewFields, recorded: z.literal(true), identityChanged: z.literal(false) }),
+]);
 export const managedProjectReconnectionResultOutput = z.strictObject({
   code: z.enum(["reconnected", "already-reconnected"]),
   projectId: identifier,

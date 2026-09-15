@@ -23,6 +23,7 @@ export function ReconnectProjectForm({ projectId, disabled, onReconnected }: {
 }) {
   const { call, ready } = useNativeActionCaller();
   const [state, setState] = useState<State>({ kind: "closed" });
+  const [unreconciled, setUnreconciled] = useState<ManagedProjectReconnectionPreview[]>([]);
   const request = useRef(0);
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -33,6 +34,7 @@ export function ReconnectProjectForm({ projectId, disabled, onReconnected }: {
 
   async function review() {
     const current = ++request.current;
+    const uncertain = state.kind === "uncertain" ? state : null;
     setState({ kind: "loading" });
     try {
       const preview = await call<ManagedProjectReconnectionPreview>(
@@ -40,8 +42,11 @@ export function ReconnectProjectForm({ projectId, disabled, onReconnected }: {
       );
       if (request.current === current) setState({ kind: "preview", preview });
     } catch (error) {
-      if (request.current === current) setState({ kind: "error", message: error instanceof Error
-        ? error.message : "The saved folder could not be checked. Try reviewing it again." });
+      if (request.current === current) {
+        const message = error instanceof Error
+          ? error.message : "The saved folder could not be checked. Try reviewing it again.";
+        setState(uncertain ? { ...uncertain, message } : { kind: "error", message });
+      }
     }
   }
 
@@ -53,11 +58,17 @@ export function ReconnectProjectForm({ projectId, disabled, onReconnected }: {
         projectId, operationId: preview.operationId, acceptedPlanSha256: preview.planSha256,
       });
     } catch (error) {
-      if (request.current === current) setState({ kind: "uncertain", preview, message: error instanceof Error
-        ? error.message : "The result is uncertain. Retry this reconnection to check it safely." });
+      if (request.current === current) {
+        setUnreconciled(previous => previous.some(item => item.operationId === preview.operationId)
+          ? previous : [...previous, preview]);
+        setState({ kind: "uncertain", preview, message: error instanceof Error
+          ? error.message : "The result is uncertain. Retry this reconnection to check it safely." });
+      }
       return;
     }
     if (request.current !== current) return;
+    // A successful receipt reconciliation identifies the current binding; older attempts are superseded.
+    setUnreconciled([]);
     setState({ kind: "complete" });
     // Refresh availability without selecting a project the user may have left.
     await onReconnected();
@@ -85,17 +96,26 @@ export function ReconnectProjectForm({ projectId, disabled, onReconnected }: {
       {preview && <>
         <p className="project-reconnection-folder">{preview.folderName}</p>
         <p>In Vivary's managed Projects folder on this host.</p>
-        <p>The folder's identity has changed since it was connected. Reconnect only if you recognize this project.</p>
+        {preview.recorded
+          ? <p>This reconnection was recorded. Retry its exact confirmation to restore folder access.</p>
+          : <p>The folder's identity has changed since it was connected. Reconnect only if you recognize this project.</p>}
         <p>Reconnecting restores file and agent access. Your saved conversations stay with this project.
           Files stay unchanged, and no agent starts.</p>
       </>}
       {(state.kind === "error" || state.kind === "uncertain") && <p role="alert">{state.message}</p>}
       {state.kind === "uncertain" && <p>Retry checks the same request. Review again if the folder or access changed.</p>}
       {state.kind === "complete" && <p role="status">Project reconnected. Refresh the project list if it still shows unavailable.</p>}
+      {unreconciled.some(item => item.operationId !== preview?.operationId) && <p>
+        An earlier confirmation has an uncertain result. You can retry its exact request here.
+      </p>}
       <div className="project-form-actions">
         {preview && <Button size="sm" disabled={unavailable} onClick={() => void reconnect(preview)}>
-          {state.kind === "confirming" ? "Reconnecting…" : state.kind === "uncertain" ? "Retry reconnect" : "Reconnect project"}
+          {state.kind === "confirming" ? "Reconnecting…" : state.kind === "uncertain"
+            ? "Retry reconnect" : preview.recorded ? "Finish reconnecting" : "Reconnect project"}
         </Button>}
+        {unreconciled.filter(item => item.operationId !== preview?.operationId).map((item, index) =>
+          <Button key={item.operationId} size="sm" variant="outline" disabled={unavailable}
+            onClick={() => void reconnect(item)}>Retry earlier request {index + 1}</Button>)}
         {(state.kind === "error" || state.kind === "uncertain") && <Button size="sm" variant="outline"
           disabled={unavailable} onClick={() => void review()}>Review again</Button>}
         {state.kind === "complete" && <Button size="sm" variant="outline" disabled={disabled}

@@ -162,7 +162,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const error = selectionMessage ?? (catalogQuery.isError || (!checking && !catalog)
     ? "Project folders could not be loaded. Refresh the list to retry."
     : selectionQuery.isError ? "The saved project selection could not be read. Choose a project again."
-      : !checking && !workspaceAvailable ? "This project is unavailable. Review its connection in the project list, or choose another project." : null);
+      : !checking && !workspaceAvailable ? activeProject?.managedReconnectEligible
+        ? "This project is unavailable. Review its connection in the project list, or choose another project."
+        : "This project is unavailable. Its saved conversations are retained. Choose another project to access files." : null);
   const retrySelection = (selectionIssue?.kind === "save" || selectionIssue?.kind === "requested-unavailable")
     ? () => requestSelection(selectionIssue.target, true)
     : null;

@@ -185,6 +185,14 @@ async function assertStillObserved(managed, observed) {
     throw refuse("The replacement folder changed during confirmation. Review it again.", 409);
   }
 }
+async function assertCommittedPath(managed, observed) {
+  try {
+    await assertStillObserved(managed, observed);
+  } catch {
+    throw refuse("The reconnection was recorded, but the reviewed folder moved or changed before access was restored. Restore that folder and retry this same confirmation.");
+  }
+}
+
 function assertStillManagedSync(snapshot, managed, observed, dataDir) {
   const currentData = realpathSync(dataDir);
   const parent = path.join(currentData, "projects");
@@ -236,6 +244,55 @@ async function readReceipt(tx, snapshot, input) {
   return { ...record.output, code: "already-reconnected", newGrant: record.newGrant };
 }
 
+async function requireCurrentPreviewSnapshot(exec, owner, projectId, previous) {
+  const current = await loadSnapshot(exec, owner, projectId);
+  if (current.settingRaw !== previous.settingRaw
+    || current.settingUpdatedAt !== previous.settingUpdatedAt
+    || current.registryRevision !== previous.registryRevision
+    || JSON.stringify(current.binding) !== JSON.stringify(previous.binding)) {
+    throw refuse("Project folder access changed while it was reviewed. Review it again.");
+  }
+  return current;
+}
+
+async function currentRecordedPreview(exec, snapshot, projectId) {
+  const rows = await one(exec, `SELECT receipt_key AS receiptKey, actor_id AS actorId,
+      collection_id AS collectionId, device_id AS deviceId, operation,
+      operation_id AS operationId, request_digest AS requestDigest, record
+    FROM vivary_registry_receipts
+    WHERE actor_id = ? AND collection_id = ? AND device_id = ? AND operation = ?`,
+    [snapshot.scope.actorId, snapshot.scope.collectionId, snapshot.scope.deviceId, OPERATION]);
+  const matching = [];
+  for (const row of rows) {
+    let record;
+    try { record = JSON.parse(row.record); }
+    catch { throw refuse("The saved reconnection receipt is invalid. Review project access."); }
+    if (!record || typeof record !== "object" || Array.isArray(record)
+      || record.version !== 1 || typeof record.planSha256 !== "string"
+      || !record.output || typeof record.output !== "object" || Array.isArray(record.output)) {
+      throw refuse("The saved reconnection receipt is invalid. Review project access.");
+    }
+    if (record.output.projectId === projectId
+      && record.output.bindingId === snapshot.binding.bindingId
+      && record.output.rootId === snapshot.binding.rootId
+      && record.output.bindingRevision === snapshot.binding.bindingRevision) {
+      matching.push({ row, record });
+    }
+  }
+  if (matching.length > 1) {
+    throw refuse("Multiple current reconnection receipts exist for this project. Review project access.");
+  }
+  if (matching.length === 0) return null;
+  const { row, record } = matching[0];
+  if (!identifier.safeParse(row.operationId).success
+    || !digest.safeParse(record.planSha256).success) {
+    throw refuse("The saved reconnection receipt is invalid. Review project access.");
+  }
+  await readReceipt(exec, snapshot, { projectId, operationId: row.operationId,
+    acceptedPlanSha256: record.planSha256 });
+  return { operationId: row.operationId, planSha256: record.planSha256 };
+}
+
 async function reconcileReplay(exec, owner, request, replay, dataDir) {
   let observed;
   try {
@@ -251,8 +308,11 @@ async function reconcileReplay(exec, owner, request, replay, dataDir) {
       await readReceipt(tx, current, request);
       assertStillManagedSync(current, managed, observed, dataDir);
     });
-    await owner.service.provider.installReplacement(owner.owner.orgId, replay.newGrant, observed);
+    await assertCommittedPath(managed, observed);
+    const installed = observed;
+    await owner.service.provider.installReplacement(owner.owner.orgId, replay.newGrant, installed);
     observed = null;
+    await assertCommittedPath(managed, installed);
     getSettingsEmitter().emit("settings", { source: "settings", type: "change",
       key: localRootInventoryKey(owner.owner.userEmail, owner.owner.orgId),
       requestSource: "vivary-managed-project-reconnection" });
@@ -273,12 +333,22 @@ export async function previewManagedProjectReconnection(context, input, dependen
     const managed = await managedFolder(snapshot.grant,
       managedProjectDataDirectory(dependencies));
     observed = await owner.service.provider.captureReplacement(owner.owner, managed.target);
-    assertReplacement(snapshot, observed);
     await assertStillObserved(managed, observed);
+    const current = await requireCurrentPreviewSnapshot(exec, owner, projectId, snapshot);
+    if (localRootIdentity(current.grant) === localRootIdentity(observed)) {
+      const recorded = await currentRecordedPreview(exec, current, projectId);
+      if (!recorded) {
+        throw refuse("The recorded folder identity has not changed. Refresh the project list.");
+      }
+      return { code: "reconnect-preview", projectId,
+        displayName: snapshot.binding.displayName, folderName: managed.folderName,
+        recorded: true, identityChanged: false, ...recorded };
+    }
+    assertReplacement(current, observed);
     const operationId = randomUUID().replaceAll("-", "");
-    const reviewed = plan(snapshot, managed, observed, operationId);
+    const reviewed = plan(current, managed, observed, operationId);
     return { code: "reconnect-preview", projectId, displayName: snapshot.binding.displayName,
-      folderName: managed.folderName, identityChanged: true, operationId,
+      folderName: managed.folderName, recorded: false, identityChanged: true, operationId,
       planSha256: reviewed.planSha256 };
   } finally {
     await observed?.handle.close();
@@ -389,10 +459,14 @@ export async function confirmManagedProjectReconnection(context, input, dependen
     });
     if (result.code === "already-reconnected") return await reconcileReplay(exec, owner, request, result,
       managedProjectDataDirectory(dependencies));
-    await owner.service.provider.installReplacement(owner.owner.orgId, result.newGrant, observed);
-    observed = null;
+    // The receipt and binding are committed even if the pathname changes now.
     getSettingsEmitter().emit("settings", { source: "settings", type: "change",
       key: result.settingKey, requestSource: "vivary-managed-project-reconnection" });
+    await assertCommittedPath(managed, observed);
+    const installed = observed;
+    await owner.service.provider.installReplacement(owner.owner.orgId, result.newGrant, installed);
+    observed = null;
+    await assertCommittedPath(managed, installed);
     const { newGrant: _grant, settingKey: _key, ...output } = result;
     return output;
   } finally {
