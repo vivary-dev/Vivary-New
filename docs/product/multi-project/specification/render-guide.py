@@ -18,9 +18,24 @@ ROOT = HERE.parents[3]
 BASE = HERE.parent
 SOURCE_REVISION = "3d3a6c50c32284ebf2c7def311f6e3e80deb8bb5"
 PROJECT_SESSION_REVISION = "feat/project-chat-sessions"
-BUNDLED_RUNTIME_REVISION = "feat/bundle-original-runtime"
+BUNDLED_RUNTIME_REVISION = "dev"
+RECONNECTION_REVISION = "fix/managed-project-reconnection"
 CURRENT_IMPLEMENTATION_CHAPTERS = {"overview", "modules", "operating-manual", "unified-workspace"}
 CURRENT_IMPLEMENTATION_DOCS = {BASE / "receipts/04a-project-chat-sessions.md"}
+RECONNECTION_PATHS = {
+    Path("docs/product/multi-project/receipts/23a-bundled-original-runtime.md"),
+    Path("packages/workbench/actions/vivary-preview-managed-project-reconnection.ts"),
+    Path("packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts"),
+    Path("packages/workbench/app/components/projects/ProjectContext.tsx"),
+    Path("packages/workbench/app/components/projects/ProjectNavigation.tsx"),
+    Path("packages/workbench/app/components/projects/ReconnectProjectForm.tsx"),
+    Path("packages/workbench/server/local-code-agent.ts"),
+    Path("packages/workbench/server/local-root-provider.mjs"),
+    Path("packages/workbench/server/managed-project-reconnection.mjs"),
+    Path("packages/workbench/server/managed-projects.mjs"),
+    Path("packages/workbench/server/project-services.mjs"),
+    Path("packages/workbench/shared/managed-project-reconnection.ts"),
+}
 BUNDLED_RUNTIME_PATHS = {
     Path("docs/product/multi-project/receipts/23a-bundled-original-runtime.md"),
     Path("packages/desktop"),
@@ -199,7 +214,10 @@ def build():
                     revision = SOURCE_REVISION
                     if slug in CURRENT_IMPLEMENTATION_CHAPTERS:
                         if any(relative == prefix or prefix in relative.parents
-                               for prefix in BUNDLED_RUNTIME_PATHS):
+                               for prefix in RECONNECTION_PATHS):
+                            revision = RECONNECTION_REVISION
+                        elif any(relative == prefix or prefix in relative.parents
+                                 for prefix in BUNDLED_RUNTIME_PATHS):
                             revision = BUNDLED_RUNTIME_REVISION
                         elif (relative.parts[:2] == ("packages", "workbench")
                               or target in CURRENT_IMPLEMENTATION_DOCS):

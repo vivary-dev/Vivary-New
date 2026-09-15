@@ -15,9 +15,11 @@ reading/editing and existing drafts. A grouped harness/model picker uses support
 installed CLIs and their available models. Switching harness creates a linked
 conversation; preparing a handoff is a separate agent workflow.
 
-This is the target design under issue #38. The current application still has the
-older routes. Do not treat earlier component acceptance as acceptance of that
-navigation or claim the consolidation is already running in the preview.
+This is the target design under issue #38. The first unified shell merged in
+PR #42 and passed private hosted project, conversation, file and panel checks.
+The old `/agent`, `/files`, `/workbench` and `/chat` routes redirect to the
+central workspace at `/`. Supported harness selection, linked handoffs and
+concurrent execution remain later issue #38 work.
 
 ## Visual direction
 
@@ -55,8 +57,8 @@ a document; Edit opens source with explicit Save. Rename changes one filename in
 its current folder. Native app state retains drafts across panel closure,
 navigation and reload. A changed file requires review before another save.
 A requested document can maximize and restore. Narrow layouts use a focused
-surface with a clear return to the same conversation. The existing routes are
-transitional implementation, not the target navigation. Personal workspace's
+surface with a clear return to the same conversation. The older route names are
+compatibility redirects to the workspace. Personal workspace's
 existing file limitations remain until it is connected as a project.
 
 Keep one primary action per view. Use short labels, visible focus, matching

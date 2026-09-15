@@ -15,7 +15,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## In-progress packet snapshot
 
-- [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.

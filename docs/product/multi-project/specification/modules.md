@@ -34,6 +34,8 @@ Stable project identity and authorized folders.
 - Calls: M05.
 - Replacement contract: Replace a root or VCS observation adapter while preserving IDs and current grants.
 - Conceptual request/result: RegisterRoot / ResolveProject / RebindRoot -> stable identity, revision and scoped capability result. Root observation is separate from adoption.
+- Current recovery slice: Review connection checks one already-registered managed folder; explicit confirm rechecks its reviewed inputs before changing that project's binding. Project and conversation IDs survive loss of folder access. Cancel writes nothing; changed inputs require re-review. Reconnect changes no project files or agent state and accepts no arbitrary folder path. Old Code root metadata is provenance: continuing a saved conversation needs the same current canonical path, a new grant and fresh approval; a moved path refuses. Reconnect refuses during an active or awaiting-approval Code request.
+- Verification: The bounded increment passed private hosted desktop/phone, cancel, reconnect, retained-history, fresh-approval/deny, refusal, file-hash and reload checks on 2026-09-15. The full issue #15 Create/apply goal remains open under issue #14's shared operation.
 - Acceptance: Register two no-VCS folders, switch away and back, remove one root, then retry without falling back to the other.
 - Actions: A010, A011, A012, A013, A014, A015, A016, A017. See [the action catalog](actions.md#m02-projects-and-roots).
 
@@ -44,6 +46,12 @@ Current source or design entry points:
 - [packages/workbench/server/native-registry.mjs](../../../../packages/workbench/server/native-registry.mjs)
 - [packages/workbench/server/root-provider.mjs](../../../../packages/workbench/server/root-provider.mjs)
 - [packages/workbench/app/components/projects/ProjectContext.tsx](../../../../packages/workbench/app/components/projects/ProjectContext.tsx)
+- [packages/workbench/app/components/projects/ProjectNavigation.tsx](../../../../packages/workbench/app/components/projects/ProjectNavigation.tsx)
+- [packages/workbench/app/components/projects/ReconnectProjectForm.tsx](../../../../packages/workbench/app/components/projects/ReconnectProjectForm.tsx)
+- [packages/workbench/server/managed-project-reconnection.mjs](../../../../packages/workbench/server/managed-project-reconnection.mjs)
+- [packages/workbench/shared/managed-project-reconnection.ts](../../../../packages/workbench/shared/managed-project-reconnection.ts)
+- [packages/workbench/actions/vivary-preview-managed-project-reconnection.ts](../../../../packages/workbench/actions/vivary-preview-managed-project-reconnection.ts)
+- [packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts](../../../../packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts)
 
 ## M03: Conversations and continuity
 
@@ -140,7 +148,7 @@ Create, adopt and run the original Vivary commands.
 
 Vivary provides its original engine and narrow deterministic workspace operations. Explain whether a missing user capability is blocked by the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
 
-Implementation status: the desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations; applying changes to an existing folder remains under issues #14/#15. The tested `2885589` build passed the hosted command checks and the Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution is issue #8. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records the evidence and limits. Issue #7 and its linked PR own CI and merge status.
+Implementation status: the desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations; applying changes to an existing folder remains under issues #14/#15. The tested `2885589` build passed the hosted command checks and the Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution is issue #8. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records the evidence and limits. PR #44 merged into `dev` after all seven final-head checks passed, and issue #7 is closed. Actual Windows acceptance remains with issue #8.
 
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.

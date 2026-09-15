@@ -162,6 +162,15 @@ button, a, input, summary { outline-offset: 3px; }
 .project-registration label { font-size: 12px; }
 .project-registration select { width: 100%; min-height: 36px; padding: 6px; border: 1px solid hsl(var(--input)); background: hsl(var(--background)); color: hsl(var(--foreground)); border-radius: var(--radius); font-size: 12px; }
 .project-form-actions { display: flex; gap: 4px; }
+.project-reconnection { margin: 4px 0 12px; }
+.project-reconnection-trigger { width: 100%; }
+.project-reconnection section { display: grid; gap: 10px; padding: 12px 10px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); }
+.project-reconnection h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.project-reconnection p { margin: 0; overflow-wrap: anywhere; }
+.project-reconnection .project-reconnection-folder { color: hsl(var(--foreground)); font-weight: 500; }
+.project-reconnection .project-form-actions { flex-wrap: wrap; gap: 6px; }
+.project-reconnection .project-form-actions button { min-height: 40px; padding-inline: 8px; font-size: 12px; }
+
 .conversation-checking { display: flex; flex-direction: column; height: 100%; padding: 20px; }
 
 .vivary-shell { --agent-layout-left-drawer-collapsed-width: 56px; --agent-layout-left-drawer-expanded-width: 248px; }

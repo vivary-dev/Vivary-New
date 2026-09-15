@@ -2,12 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/7
 Parent: 23
-Status: in-progress
+Status: done
 Depends-on: []
 Owner: Root-assigned desktop packaging and original-CLI integrator
 Scope: Include the existing Python suite and its runtime in the desktop distribution.
 Verification-kind: runtime
 Evidence: [Bundled original runtime verification](../receipts/23a-bundled-original-runtime.md)
+Verification-result: passed
 Timebox: One source-free runtime packaging increment with focused command routing checks.
 
 ## Goal
@@ -92,3 +93,7 @@ Linux-only creation provider unchanged, or add another agent executor to run det
   apply-refusal journey. The matching Windows folder passed structural checks
   on Linux. The linked PR owns final merge; actual Windows execution remains
   with issue #8. See the linked receipt.
+- 2026-09-15: [PR #44](https://github.com/vivary-dev/Vivary-New/pull/44)
+  merged into `dev` at `684b4e8e4041493940b4b534d75df66ad129f5c0` and
+  issue #7 closed. The bundled-runtime slice is delivered; actual Windows
+  execution remains issue #8 and existing-folder apply remains #14/#15.

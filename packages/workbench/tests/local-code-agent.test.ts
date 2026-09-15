@@ -4,7 +4,9 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
+  appendCodeAgentTranscriptEvent,
   createCodeAgentRunRecord,
+  getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
   type CodeAgentTranscriptEvent,
 } from "@agent-native/core/code-agents";
@@ -148,13 +150,103 @@ describe("local Vivary code agent boundaries", () => {
         getVivaryCodeState("owner@example.com", runId, history, "other-org"),
         { errorCode: "vivary_code_run_not_found" },
       );
+      const reconnected = await getVivaryCodeState("owner@example.com", runId, {
+        ...history, rootId: "root_reconnected", bindingRevision: 5,
+      }, "org-history");
+      assert.equal(reconnected.run?.id, runId);
       await assert.rejects(
-        getVivaryCodeState("owner@example.com", runId, { ...history, bindingRevision: 5 }, "org-history"),
+        getVivaryCodeState("owner@example.com", runId, { ...history, bindingId: "binding_other" }, "org-history"),
         { errorCode: "vivary_code_run_not_found" },
       );
     } finally {
       if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
       else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore; // guard:allow-env-credential - Restore prior nonsecret record path.
+    }
+  });
+
+  it("reopens a Native transcript after reconnection and gates a fresh follow-up", async () => {
+    const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-store-"));
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-root-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-bin-"));
+    temporaryRoots.push(store, workspaceRoot, bin);
+    const executable = path.join(bin, "claude");
+    await writeFile(executable, `#!/usr/bin/env node
+if (JSON.stringify(process.argv.slice(2)) !== '["auth","status","--json"]') process.exit(2);
+process.stdout.write('{"loggedIn":true}');
+`, { mode: 0o755 });
+    const previous = {
+      store: process.env.AGENT_NATIVE_CODE_AGENTS_HOME,
+      path: process.env.PATH, // guard:allow-env-credential - Isolated test runtime configuration.
+      mode: process.env.VIVARY_ACCESS_MODE, // guard:allow-env-credential - Isolated test runtime configuration.
+    };
+    const ownerEmail = "owner@example.com";
+    const orgId = "org-reconnected";
+    const oldWorkspace = { root: workspaceRoot, label: "Alpha", projectId: "project_reconnected",
+      bindingId: "binding_stable", rootId: "root_old", bindingRevision: 1 };
+    const freshWorkspace = { ...oldWorkspace, rootId: "root_new", bindingRevision: 2 };
+    const runId = "retained-reconnect-native-run";
+    try {
+      process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated Native test record directory.
+      process.env.PATH = bin + path.delimiter + (previous.path ?? ""); // guard:allow-env-credential - Isolated test runtime configuration.
+      process.env.VIVARY_ACCESS_MODE = "local"; // guard:allow-env-credential - Isolated test runtime configuration.
+      createCodeAgentRunRecord({ id: runId, goalId: "vivary-local-code",
+        title: "Retained Alpha conversation", status: "completed", cwd: workspaceRoot,
+        metadata: { app: "vivary-workbench-local-code", ownerEmail, orgId,
+          engine: "claude-cli", model: "sonnet", workspaceRoot,
+          projectId: oldWorkspace.projectId, bindingId: oldWorkspace.bindingId,
+          rootId: oldWorkspace.rootId, bindingRevision: oldWorkspace.bindingRevision },
+      });
+      appendCodeAgentTranscriptEvent({ runId, kind: "system", message: "BETA-READY retained marker",
+        metadata: { role: "assistant" } });
+      const reopened = await getVivaryCodeState(ownerEmail, runId, {
+        label: "Alpha", projectId: freshWorkspace.projectId,
+        bindingId: freshWorkspace.bindingId, rootId: freshWorkspace.rootId,
+        bindingRevision: freshWorkspace.bindingRevision,
+      }, orgId);
+      assert.deepEqual(reopened.runs.map(run => run.id), [runId]);
+      assert.equal(reopened.run?.events.some(event => event.message.includes("BETA-READY")), true);
+      await assert.rejects(getVivaryCodeState(ownerEmail, runId,
+        { ...freshWorkspace, projectId: "project_foreign" }, orgId),
+      { errorCode: "vivary_code_run_not_found" });
+      await assert.rejects(sendVivaryCodeMessage({
+        ownerEmail, orgId, runId, message: "A moved path must not continue this run.",
+        workspace: { ...freshWorkspace, root: path.join(store, "different-location") },
+      }), { errorCode: "vivary_code_run_not_found" });
+      const staged = await sendVivaryCodeMessage({
+        ownerEmail, orgId, runId, message: "Follow up after reconnect.",
+        workspace: freshWorkspace, revalidateWorkspace: async () => freshWorkspace,
+      });
+      assert.equal(staged.run?.id, runId);
+      assert.equal(staged.run?.status, "needs-approval");
+      assert.ok(staged.pendingApproval?.requestId);
+      const pending = getCodeAgentRunRecord(runId)?.metadata?.pendingLaunch;
+      assert.ok(pending && typeof pending === "object" && "workspace" in pending);
+      assert.deepEqual(pending.workspace, freshWorkspace);
+      assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
+      await assert.rejects(approveVivaryCodeMessage({
+        ownerEmail, orgId, runId, requestId: staged.pendingApproval!.requestId,
+        workspace: freshWorkspace, revalidateWorkspace: async () => oldWorkspace,
+      }), { errorCode: "vivary_code_approval_project_changed" });
+      const denied = await denyVivaryCodeMessage({
+        ownerEmail, orgId, runId, requestId: staged.pendingApproval!.requestId,
+        projectId: freshWorkspace.projectId,
+      });
+      assert.equal(denied.run?.status, "paused");
+      assert.equal(denied.run?.events.some(event => event.message.includes("BETA-READY")), true);
+      assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
+      assert.equal((await getVivaryCodeHostState(ownerEmail, orgId)).busy, false);
+      assert.equal(getCodeAgentRunRecord(runId)?.metadata?.rootId, oldWorkspace.rootId);
+    } finally {
+      if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previous.store; // guard:allow-env-credential - Restore prior nonsecret Native directory.
+      // guard:allow-env-credential - Restore the prior nonsecret runtime path from this test.
+      if (previous.path === undefined) delete process.env.PATH;
+      // guard:allow-env-credential - Restore the prior nonsecret runtime path from this test.
+      else process.env.PATH = previous.path; // guard:allow-env-credential - Restore prior runtime path.
+      // guard:allow-env-credential - Restore the prior nonsecret runtime mode from this test.
+      if (previous.mode === undefined) delete process.env.VIVARY_ACCESS_MODE;
+      // guard:allow-env-credential - Restore the prior nonsecret runtime mode from this test.
+      else process.env.VIVARY_ACCESS_MODE = previous.mode; // guard:allow-env-credential - Restore prior runtime mode.
     }
   });
 

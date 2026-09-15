@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { CreateProjectForm } from "./CreateProjectForm";
+import { ReconnectProjectForm } from "./ReconnectProjectForm";
 import { useProjects } from "./ProjectContext";
 import type { ProjectCatalog, RegistrationAttempt, RegistrationResult } from "@/lib/project-catalog-schema";
 
@@ -138,6 +139,9 @@ export function ProjectNavigation() {
             aria-pressed={activeProject?.projectId === project.projectId} onClick={() => void chooseProject(project.projectId)}>
             <span>{project.displayName}</span>{project.status !== "available" && <span className="project-unavailable-label">Unavailable</span>}
           </Button>
+          {project.status !== "available" && activeProject?.projectId === project.projectId
+            && <ReconnectProjectForm key={catalog.scopeKey + ":" + project.projectId}
+              projectId={project.projectId} disabled={checking || selecting} onReconnected={refresh} />}
         </li>)}</ul>}
       {!creating && <Button size="sm" className="register-project-button" onClick={() => {
         setRegistering(false);
@@ -150,7 +154,7 @@ export function ProjectNavigation() {
           setRegistering(true);
         }}>Register existing folder</Button>}
       {!catalog.locations.some(location => location.status === "available")
-        && <p>No connected existing folder is available. Create a managed project here, or reconnect the folder from the desktop app.</p>}
+        && <p>Select an unavailable project to review its connection. You can also create a managed project here.</p>}
     </>}
     {creating && <CreateProjectForm disabled={checking || selecting}
       onClose={() => setCreating(false)}

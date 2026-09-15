@@ -2,11 +2,12 @@
 
 Evidence-record: 23a
 Date: 2026-09-14
-Acceptance status: tested guarded package evidence complete; issue #7 records delivery
+Acceptance status: delivered in PR #44; issue #7 closed; Windows execution remains issue #8
 
 [Issue #7](https://github.com/vivary-dev/Vivary-New/issues/7) owns acceptance
 and delivery. This receipt records the reviewed `2885589` source and tested
-private artifacts. It does not close the issue or claim a Windows launch.
+private artifacts. The issue is closed after the reviewed PR merge; this
+receipt does not claim a Windows launch.
 
 ## Current boundary
 
@@ -145,6 +146,7 @@ standalone CLI and packaged-Electron journeys. The matching Windows folder
 passed structural checks on Linux. Actual Windows execution remains unrun
 under issue #8. Recovery and reconnect/rebind for unavailable saved roots
 remain with issue #15. Existing-folder apply in the application remains
-deferred to issues #14/#15. The linked PR in issue #7 owns final CI and merge
-and closure status. This evidence does not
-establish signing, upgrade behavior, release readiness or publication.
+deferred to issues #14/#15. [PR #44](https://github.com/vivary-dev/Vivary-New/pull/44) merged into `dev`
+on 2026-09-15 at `684b4e8e4041493940b4b534d75df66ad129f5c0`, and
+issue #7 closed. This delivery does not establish signing, upgrade behavior,
+release readiness or publication.
