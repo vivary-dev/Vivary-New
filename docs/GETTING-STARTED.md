@@ -24,7 +24,7 @@ Paste this into Claude Code, Codex, Cursor, or another coding agent:
 ```text
 Set up Vivary in this project.
 
-1. Confirm Python 3.11+ and either uv or pipx are available. Do not install anything without my approval.
+1. Confirm Python 3.11+ and uv are available. Do not install anything without my approval.
 2. If this folder already has content, run `uvx --from create-vivary==0.4.2 create-vivary adopt . --json`. Show me the exact creates, bounded patches, optional projections, kept files, conflicts, privacy result, and plan_hash. Stop on any conflict. Apply only the exact approved plan with `--yes --plan <plan_hash>`.
 3. If this folder is empty, ask which preset fits (coding, second-brain, knowledge-work, or writing), then run `uvx --from create-vivary==0.4.2 create-vivary init . --preset <choice>`.
 4. Verify with `uvx --from create-vivary==0.4.2 create-vivary doctor .` and `uvx --from vivary-tropo==0.5.3 tropo check --root .`. Both must pass.
