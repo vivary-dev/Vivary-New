@@ -174,7 +174,7 @@ button, a, input, summary { outline-offset: 3px; }
 .conversation-checking { display: flex; flex-direction: column; height: 100%; padding: 20px; }
 
 .vivary-shell { --agent-layout-left-drawer-collapsed-width: 56px; --agent-layout-left-drawer-expanded-width: 248px; }
-.vivary-sidebar { width: 248px; background: hsl(var(--sidebar-background)); color: hsl(var(--sidebar-foreground)); }
+.vivary-sidebar { width: 100%; background: hsl(var(--sidebar-background)); color: hsl(var(--sidebar-foreground)); }
 .vivary-sidebar.is-collapsed { width: 56px; }
 .vivary-sidebar-brand { height: 60px; padding: 0 16px; display: flex; align-items: center; color: hsl(var(--sidebar-accent-foreground)); }
 .vivary-sidebar.is-collapsed .vivary-sidebar-brand { padding: 0; justify-content: center; }
