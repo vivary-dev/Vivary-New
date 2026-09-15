@@ -5,8 +5,8 @@ editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/GETTING-STARTED
 ---
 
 This page installs the original command-line engine. For the unreleased desktop
-app, use [Workbench source setup](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/README.md#run-from-source)
-and the [desktop acceptance record](https://github.com/vivary-dev/vivary/blob/dev/packages/desktop/README.md#current-acceptance).
+app, use [Workbench source setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source)
+and the [desktop acceptance record](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#current-acceptance).
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and

@@ -252,3 +252,13 @@ test('generated docs edit their canonical repo sources rather than generated cop
   assert.match(syncScript, /fs\.writeFileSync\(output, render\(raw, title, desc, editUrl\)\)/);
   assert.doesNotMatch(syncScript, /readCanonicalMarkdown\(outDir,/);
 });
+
+
+test('desktop onboarding links use the app repository in generated docs', () => {
+  for (const file of ['../src/content/docs/getting-started.md', '../public/llms-full.txt']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source'));
+    assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#current-acceptance'));
+    assert.doesNotMatch(text, /https:\/\/github\.com\/vivary-dev\/vivary\/blob\/dev\/packages\/(?:desktop|workbench)\//);
+  }
+});
