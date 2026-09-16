@@ -546,10 +546,35 @@ after leaving the browser. Background work must be obvious and provide approval
 and denial. Issue [#35](https://github.com/vivary-dev/Vivary-New/issues/35) owns
 this requirement.
 
-Each local coding turn requires a visible, server-enforced decision before
-execution. Show its exact task, project, runtime, capabilities, and existing
-two-minute limit. Approval applies to that turn only. Denial starts no model or
-tools. Pending, running, and terminal outcomes remain visible with a conversation
-link and denial or Stop as appropriate. Host restart never grants approval or
-automatically resumes interrupted work. Native retains the conversation and
-approval records. This decision adds no scheduler or second run store.
+The original per-turn launch decision and two-minute limit are superseded by
+Jeff's September 16 correction below. The [issue #35 receipt](receipts/35-background-approval.md)
+retains the original implementation and its historical acceptance.
+
+## Native coding permissions and activity, 2026-09-16
+
+Sending a message starts work. The agent may continue until it completes, fails,
+the user selects Stop, or the host closes. Leaving a browser page does not stop
+it. Startup and process cleanup retain time limits; model turns have no fixed
+wall-clock cutoff. Restart interrupts unfinished work and never replays actions
+or instructions awaiting an old launch approval.
+
+Codex owns tool execution. Vivary relays its native action approvals and questions
+into the existing workspace. Decisions bind to the live owner, project connection,
+run, and native request. The browser cannot replace the command or permissions.
+Stop and pending decisions remain available when another project is selected.
+
+Runtime settings offers Normal, Read only, and YOLO for Codex, with no Plan mode.
+Normal allows project work and asks when an action needs broader access. Read only
+prevents local command writes and permission expansion. YOLO allows full host
+command access without action prompts. Connected services retain their own access
+rules. Changes apply to the next turn and never expand an active turn silently.
+
+Public progress updates use compact, darker cards within the conversation. Actual
+native subagent activity has distinct cards with recorded identities and status.
+Final answers use the main text style. Never infer subagents from consecutive
+assistant messages or label public progress as hidden reasoning.
+
+The [Workbench runtime contract](../../../packages/workbench/README.md) owns
+adapter capabilities and limitations. The [acceptance register](desktop-acceptance-status.md)
+separates source, hosted, simulated-protocol, and real Windows evidence. Issue #38
+retains broader linked-conversation, handoff, and concurrent-conversation work.

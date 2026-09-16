@@ -81,7 +81,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
-| Agent loop | Real approved Claude Code file turn, follow-up, approvals, Stop, stored transcripts, and visible runtime identity | Selectable Codex execution, real Native-provider turns, automation execution, and external provider-log acceptance |
+| Agent loop | Windows Codex file work, session continuity, native action decisions, subagent cards, long commands, active-command Stop, and shutdown. Remote permission-setting and retained activity checks | Broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -89,11 +89,46 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
 | Original Vivary | Bundled ten-verb standalone CLI and bounded preview/evaluation app adapter | The shared greenfield creator path passed bundled and hosted checks in #14; existing-folder apply remains open under #14/#15 |
 
-Checkpoint, 2026-09-16: the private `26798df` Windows candidate passed the
-focused desktop journeys summarized in the [acceptance register](desktop-acceptance-status.md),
-including a real approved Claude Code file turn and complete process cleanup. This is
-not the final product journey or a public release. Codex selection, real Native-provider
-turns, automations, clean-profile setup, and the remaining table entries stay open.
+Checkpoint, 2026-09-16: the published private `26798df` Windows candidate passed
+the focused journeys in the [acceptance register](desktop-acceptance-status.md).
+The later local `3dd5aa8` candidate verified Codex subscription model selection,
+file work, native-session follow-up, Stop, and cleanup. Those results predate the
+replacement native action approvals, permission modes, and activity cards.
+
+Candidate `2f4a5df` passed its Zo production build, 70 focused tests, 12 Native
+regressions, and type checking. The real Astra journey displayed one actual child
+and its public result after reopening on desktop and narrow layouts. The simulated
+protocol UI journey covered native decisions/forms, activity persistence, an open
+card surviving the live-to-history remount, and cross-project Stop after 125.15
+seconds. The acceptance register separates real model evidence from fixture proof.
+
+The replacement Windows archive has been downloaded, hash-verified, and launched.
+The exact EXE verified file work, existing native-session continuation, a configured
+MCP call, an actual child card and public result, and a 125.19-second command.
+After the unintended Escape pause, resumed Windows QA verified native Allow once
+and Decline against actual files. Cross-project Stop ended an observed running
+command, and its delayed file stayed absent beyond 90 seconds. Closing the EXE
+removed its candidate processes.
+
+Read only completed a real read and an OS-denied write, leaving its output absent.
+YOLO wrote and read an authorized fixture outside the project without an approval
+prompt. The mode setting survived restart, and Normal was restored.
+
+Final source `98515c9` fixes overlapping tool identity and pending-approval display,
+including the API phase missing from the first correction. Its production build,
+75 focused tests, and type checking passed. The 12 unchanged Native regressions
+also passed. Hosted QA held and reloaded a pending request without a false stopped
+warning, then received the final answer. The hash-verified replacement EXE passed
+the same affected journey with a real approved file write and retained output.
+
+This accepts the bounded Codex prototype flows tested across the recorded candidates.
+The final EXE retest does not repeat the entire earlier Windows journey. Final
+restart and shutdown passed, and superseded local packages were removed. The private preview
+serves `98515c9` with its authentication boundary preserved. Draft PR #59 is unmerged,
+and CI jobs never started because of billing. The published `26798df` archive is
+unchanged.
+Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
+clean-profile setup, and the remaining table entries stay open.
 
 The private preview includes PR #43's maintained Native repair. Its saved-head
 and composer journeys pass. Legacy bookmarks and Native history controls also
@@ -155,7 +190,8 @@ must remain visible and reopenable after browser navigation.
 access and real-provider turns in the packaged Windows app. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
 owns automation creation, execution, restart recovery, and lifecycle acceptance and is
 blocked on #50. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
-the harness-owned model catalog and selectable Codex tool acceptance.
+linked conversations and broader cross-runtime integration, including OpenCode.
+Its Codex catalog and tool increment has separate evidence in the acceptance register.
 
 The first Windows launch check happens before final acceptance, so platform
 failures are discovered while product implementation continues. The final release

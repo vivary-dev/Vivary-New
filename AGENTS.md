@@ -25,6 +25,48 @@ and original Vivary contracts. Reuse Native execution and connectors.
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
 
+## Working practices: Zo, CI, and clean checkpoints
+
+Jeff confirmed these practices on 2026-09-16. They apply to this repository.
+
+- Work over `ssh -o BatchMode=yes zo` in the existing checkout at
+  `/home/workspace/Projects/vivary-integration`. Read the named Zo handoff first.
+  Keep source edits, builds, automated tests, hosted QA, and continuity on Zo.
+  Do not create a Windows development clone. A local handoff is supplementary.
+- Run CI on Zo. Zo is the standing owner-approved CI host, including when GitHub
+  Actions cannot start because of billing or runner availability. Execute the
+  applicable commands and gates from `.github/workflows/ci.yml` against the exact
+  candidate commit. Reuse the existing pinned tools and runners. Fix failures and
+  rerun affected checks. Do not wait for GitHub billing to resume this work.
+- Record the tested commit, commands, results, logs, and any platform-specific
+  omissions. Report Zo CI separately from GitHub Actions. A failed or unrun job
+  never becomes a pass by changing hosts. Passing applicable Zo CI can satisfy
+  the CI gate together with required review and product acceptance.
+- Reserve Windows for checks requiring the packaged application. Build on Zo,
+  verify the downloaded artifact, then use Computer Use and screenshots to test
+  the real EXE. Verify actual tools, files, approvals, Stop, persistence, cleanup,
+  and visual fidelity. Plan a complete journey, observing after each dependent
+  action. Separate simulated protocol checks from real model and tool execution.
+- Keep one current local test version. After its replacement passes, remove exact
+  superseded package folders and archives. Preserve user profiles, credentials,
+  fixtures, and evidence. Make source fixes on Zo and rebuild there.
+- Use the existing supported coding runtime's subscription, tools, skills, and
+  configured connections. Do not assemble a duplicate tool system in Vivary.
+  Use GPT-6 Astra for this integration's model calls and delegated reviews unless
+  Jeff explicitly changes that choice. OpenCode remains a separate integration.
+- Carry an authorized slice through implementation, review, fixes, automated
+  checks, and affected real UI testing. Routine reversible work needs no new
+  phase confirmation. Do not merge or publish merely because tests pass.
+- Aim for a complete, usable checkpoint before usage is exhausted. Check usage
+  between bounded work waves. Jeff's stop boundary is 1% remaining. Reserve enough
+  capacity to finish the current unit, stop task-owned jobs, update the canonical
+  handoff and acceptance docs, commit reviewed work, push GitHub and Entire, and
+  verify matching remote refs and a clean checkout. Do not start another large
+  unit if it would leave unfinished work at the boundary.
+- Preserve Windows Defender and file associations. Dismiss unexpected Open With
+  prompts and fix their launcher cause. Do not disable protection, add broad
+  exclusions, or change associations as a workaround.
+
 ## Team and visual testing
 
 Jeff clarified on 2026-09-12: use up to three concurrent subagents as useful for

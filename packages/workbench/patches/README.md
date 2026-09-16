@@ -65,3 +65,26 @@ behavior. Do not edit files in an installed dependency directory.
 Rolling back this patch restores the known save-order and composer defects.
 The extra repository field requires no schema migration. Keep the private
 preview's prior build available until its replacement passes verification.
+
+## Codex integration
+
+The September 16, 2026 integration adds an explicit `codexCli` option to Core's
+existing executor. Other Core consumers keep their existing launch behavior.
+Vivary supplies its resolved executable and environment, retains Codex configuration,
+and skips host MCP overlays. Explicit sandbox arguments prevent extra configured
+write roots and network access from broadening the approved shell work.
+
+The executor records the native Codex session ID and resumes it for follow-ups.
+It waits for output streams to close before recording the final event. Windows
+launches use an executable and argument array without shell dispatch.
+
+Run the maintained adapter and model-discovery tests:
+
+```sh
+node --test packages/workbench/tests/codex-executor.test.mjs
+pnpm --dir packages/workbench exec tsx --test tests/codex-models.test.ts tests/local-runtime-setup.test.ts
+```
+
+The optional `VIVARY_CODEX_POLICY_PROBE` test setting points to an installed Codex
+executable. It checks effective permission rendering without starting a model turn.
+Successful rendering does not establish operating-system sandbox execution.

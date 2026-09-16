@@ -1,3 +1,4 @@
+import type { CodexModelCatalog } from "./codex-models";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readdir, stat } from "node:fs/promises";
@@ -13,6 +14,7 @@ export type VivaryRuntimeStatus = {
   checkedAt: string;
 };
 export type VivaryRuntimeStatusResult = {
+  codexModels: CodexModelCatalog | null;
   runtimes: Array<VivaryRuntimeStatus & { engine: VivaryCodeEngine; label: string }>;
 };
 
@@ -20,7 +22,7 @@ type ProbeResult =
   | { kind: "exited"; exitCode: number; stdout: string; stderr: string }
   | { kind: "not-installed" }
   | { kind: "unavailable" };
-type CommandLaunch = { executable: string; prefix: string[]; env: NodeJS.ProcessEnv };
+export type CommandLaunch = { executable: string; prefix: string[]; env: NodeJS.ProcessEnv };
 
 const STATUS_TTL_MS = 30_000;
 const PROBE_TIMEOUT_MS = 10_000;
@@ -58,8 +60,10 @@ export function vivaryRuntimeStatusFromProbe(
     }
     if (result.exitCode !== 0 && !(result.exitCode === 1 && !data.loggedIn)) return unavailable;
     signedIn = data.loggedIn;
-  } else if (result.exitCode === 0) {
+  } else if (result.exitCode === 0 && /Logged in using ChatGPT/i.test(`${result.stdout}\n${result.stderr}`)) {
     signedIn = true;
+  } else if (result.exitCode === 0) {
+    return { ...unavailable, message: "Sign in to Codex with ChatGPT to use your subscription in Vivary. API-key access is not enabled for this integration." };
   } else if (result.exitCode === 1 && /\bnot logged in\b/i.test(`${result.stdout}\n${result.stderr}`)) {
     signedIn = false;
   } else {
@@ -101,7 +105,7 @@ export function getVivaryRuntimeStatus(
 }
 
 async function probeRuntime(engine: VivaryCodeEngine): Promise<ProbeResult> {
-  const launch = await resolveCommand(engine);
+  const launch = await resolveVivaryRuntimeCommand(engine);
   if (!launch) return { kind: "not-installed" };
   return new Promise(resolve => {
     const child = execFile(launch.executable, [...launch.prefix, ...commands[engine].args], {
@@ -126,7 +130,7 @@ async function probeRuntime(engine: VivaryCodeEngine): Promise<ProbeResult> {
   });
 }
 
-async function resolveCommand(engine: VivaryCodeEngine): Promise<CommandLaunch | null> {
+export async function resolveVivaryRuntimeCommand(engine: VivaryCodeEngine): Promise<CommandLaunch | null> {
   const spec = commands[engine];
   if (!isAllowedCommand(spec.command)) return null;
   const home = homedir();
@@ -167,6 +171,10 @@ async function resolveCommand(engine: VivaryCodeEngine): Promise<CommandLaunch |
   }
   delete env.CODEX_THREAD_ID;
   delete env.CODEX_SESSION_ID;
+  if (engine === "codex-cli") {
+    delete env.CODEX_API_KEY;
+    delete env.OPENAI_API_KEY;
+  }
   delete env.Path;
   env.PATH = searchDirectories.join(path.delimiter);
 
