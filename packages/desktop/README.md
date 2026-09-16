@@ -146,12 +146,14 @@ pip's vendored distlib 0.4.0 console launcher and its supported
 passes `-I -X utf8 -B` so redirected Unicode output has the same encoding
 contract as the application adapter. See the first-party
 [distlib launcher source](https://github.com/pypa/distlib/blob/0.4.0/PC/launcher.c).
+The packaged runtime omits pip and Python bytecode caches. It retains distlib's
+license at `licenses/LICENSE.distlib` for the copied Windows launcher stubs.
 Electron Packager copies the staged Python tree with verbatim relative symlinks.
 
 The manifest records the target, source revision, interpreter and component
 versions, wheel hashes, launchers, bridge hash, and license paths. The package
 includes each component's MIT license, the repository MIT license for the
-bridge, CPython and pip notices, and the release-pinned
+bridge, CPython and distlib licenses, and the release-pinned
 [python-build-standalone aggregate licenses](https://github.com/astral-sh/python-build-standalone/blob/20260901/python-licenses.rst).
 That aggregate is 105,875 bytes with SHA-256
 `e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab`.
@@ -214,6 +216,10 @@ supports cross-platform packaging. A successful package build establishes an
 artifact, not Windows runtime acceptance.
 
 The folder must stay together: `vivary.exe` uses its sibling `resources` files.
+For this private preview, extract the archive to a short path such as
+`C:\Vivary` or `%USERPROFILE%\Vivary`. Windows Explorer can reject a deeply
+nested destination before the application starts.
+
 Windows users need their own installed Claude Code CLI and subscription login.
 The package does not include credentials. Explorer launch, CLI discovery/login,
 file tools, restart persistence, and cleanup during an active run still need

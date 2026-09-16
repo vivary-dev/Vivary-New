@@ -70,6 +70,21 @@ def _link_target(member: tarfile.TarInfo, *, windows_target: bool) -> tuple[str,
     return _archive_path(normalized, windows_target=windows_target)
 
 
+def _include_runtime_member(parts: tuple[str, ...]) -> bool:
+    if "__pycache__" in parts or parts[-1].endswith(".pyc"):
+        return False
+    try:
+        site_packages = parts.index("site-packages")
+    except ValueError:
+        return True
+    if site_packages + 1 >= len(parts):
+        return True
+    package = parts[site_packages + 1]
+    return package != "pip" and not (
+        package.startswith("pip-") and package.endswith(".dist-info")
+    )
+
+
 def extract_runtime(archive_path: Path, destination: Path, platform: str) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     if any(destination.iterdir()):
@@ -83,6 +98,8 @@ def extract_runtime(archive_path: Path, destination: Path, platform: str) -> Non
         folded_names: set[tuple[str, ...]] = set()
         for member in archive.getmembers():
             parts = _archive_path(member.name, windows_target=windows_target)
+            if not _include_runtime_member(parts):
+                continue
             if parts in member_names:
                 raise ValueError("duplicate archive member: " + repr(member.name))
             member_names.add(parts)
@@ -456,6 +473,20 @@ def _write_windows_launcher(
     return launcher
 
 
+def _stage_distlib_license(runtime_root: Path) -> Path:
+    from pip._vendor import distlib
+
+    if distlib.__version__ != WINDOWS_DISTLIB_VERSION:
+        raise ValueError("Windows launchers require pip-vendored distlib " + WINDOWS_DISTLIB_VERSION)
+    source = Path(distlib.__file__).resolve().parent / "LICENSE.txt"
+    if not source.is_file():
+        raise ValueError("The pinned distlib license is unavailable.")
+    destination = runtime_root / "licenses" / "LICENSE.distlib"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+    return destination
+
+
 def write_component_launchers(runtime_root: Path, site_packages: Path, platform: str) -> None:
     if platform == "win32":
         scripts = runtime_root / "python" / "Scripts"
@@ -467,6 +498,8 @@ def write_component_launchers(runtime_root: Path, site_packages: Path, platform:
         raise ValueError("bundled Python interpreter is missing: " + str(interpreter))
     scripts.mkdir(parents=True, exist_ok=True)
     _remove_direct_url_records(site_packages)
+    if platform == "win32":
+        _stage_distlib_license(runtime_root)
 
     for wheel_name, script, module, callable_name in ENTRY_POINTS:
         if platform == "win32":
