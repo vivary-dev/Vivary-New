@@ -19,11 +19,12 @@ folder and use a configured coding runtime without installing the app's dependen
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [desktop packaging](../../../../packages/desktop/README.md).
-The ed8812e Windows candidate passed bundled Python/CLI preview, five-file create,
-and exact retry on Windows on 2026-09-15. Its Electron GUI remains unverified.
-It predates the PR #48 sidebar change. Build and identify the current candidate
-before the GUI journey. Earlier unsigned archives remain historical evidence.
-Test hosted changes first, then this normal Windows package. Do not revive old proof campaigns.
+The private `26798df` Windows candidate passed the focused extraction, launch,
+bundled-runtime, project, file, Claude Code, restart, second-instance, and cleanup
+journeys in the [desktop acceptance register](../desktop-acceptance-status.md).
+Earlier unsigned archives remain historical evidence. The live issue retains
+clean-profile and integration gates; focused candidate proof does not authorize
+publication or complete the final product journey.
 
 ## Owned files
 
@@ -62,5 +63,7 @@ Do not disable Defender, add exclusions, alter file associations, bundle provide
 credentials, or claim Windows support from a Linux cross-build. Signing and publication are separate.
 
 ## Log
+
+- 2026-09-16: The private `26798df` Windows candidate passed focused extraction, launch, bundled-runtime, project, file, Claude Code, restart, second-instance, and cleanup checks. See the [desktop acceptance register](../desktop-acceptance-status.md). This does not close the live issue or establish public release readiness.
 
 - 2026-09-13: Drafted. The existing Windows portable artifact has no accepted runtime journey.

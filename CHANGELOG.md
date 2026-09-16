@@ -11,6 +11,28 @@ the `v0.1.0` line.
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
 
+## [Unreleased: Private Windows desktop integration] - 2026-09-16
+
+No package version or registry artifact changes. The private Windows candidate now
+includes reliable portable extraction, clear filename and project-name validation,
+first-query Usage table initialization, and truthful CLI runtime identity without Native provider
+fallback. Focused Windows acceptance covered launch, bundled runtimes, managed project
+creation, project files, a real approved Claude Code turn, restart continuity,
+second-instance reuse, and complete owned-process cleanup.
+
+The desktop remains unreleased. Codex selection/execution, real Native-provider turns,
+automation execution, clean-profile setup, populated-folder adoption, search, memory,
+self-hosted phone access, integrated debugging, upgrade/removal behavior, and release
+approval remain outside this acceptance. Signing and installers are future distribution
+choices. macOS is later roadmap work. See the
+[desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md).
+
+### Verification
+
+The exact private artifact and affected hosted UI passed independent source and
+artifact review plus focused Windows testing. No public registry, installer, release,
+or remote CI result is claimed.
+
 ## [Unreleased: Workspace role repair] - 2026-09-13
 
 Staged source versions are `vivary-tropo` **0.5.5**, `create-vivary` and

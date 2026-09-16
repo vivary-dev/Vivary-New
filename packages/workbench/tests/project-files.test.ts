@@ -156,6 +156,15 @@ describe("project file boundary", () => {
     const opened = await f.service.get(undefined, "project_a", "note.md");
     assert.equal(opened.code, "file");
     if (opened.code !== "file") return;
+    const outside = path.join(path.dirname(f.root), path.basename(f.root) + "-escape.txt");
+    await assert.rejects(
+      f.service.rename(undefined, { projectId: "project_a", path: "note.md",
+        name: `../${path.basename(outside)}`, expectedVersion: opened.file.version }),
+      error => error instanceof Error && error.message === "Choose a file inside the selected project."
+        && "statusCode" in error && error.statusCode === 400,
+    );
+    assert.equal(await readFile(path.join(f.root, "note.md"), "utf8"), "hello\n");
+    await assert.rejects(stat(outside), { code: "ENOENT" });
     const renamed = await f.service.rename(undefined, { projectId: "project_a", path: "note.md",
       name: "renamed.md", expectedVersion: opened.file.version });
     assert.equal(renamed.code, "renamed");

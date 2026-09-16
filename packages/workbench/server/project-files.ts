@@ -56,6 +56,8 @@ type Workspace = Readonly<{
 type Resolver = (context: ActionRunContext | undefined, projectId: string) => Promise<Workspace | undefined>;
 
 class ProjectFileBoundaryError extends Error {
+  readonly statusCode = 400;
+
   constructor(readonly code: "invalid-path" | "blocked-path") {
     super(code === "invalid-path" ? "Choose a file inside the selected project." : "This file is not available in Vivary.");
   }

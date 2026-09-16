@@ -11,44 +11,38 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-Checkpoint: 2026-09-15. Runtime packaging merged in PR #44, and the shared
-new-folder creator merged in PR #47. Issue #7 is closed. The desktop includes
-Electron, ordinary Node, pinned standalone Python, the original command router,
-and licenses. It is an unreleased private candidate.
+Checkpoint: 2026-09-16. The current private Windows x64 candidate is built from
+`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is unsigned and unreleased.
+The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
+is the concise authority for verified capabilities and remaining gaps.
 
-The ed8812e Windows candidate's bundled Python and CLI ran on Windows without
-global dependencies. A target containing spaces and Unicode passed preview,
-exact five-file creation, and no-write retry. This proves the bundled CLI path.
-The Electron GUI has not passed Explorer launch, native folder selection,
-real agent tools, second-instance behavior, or child cleanup on Windows.
-[Issue #8](https://github.com/vivary-dev/Vivary-New/issues/8) owns those checks.
-The newer PR #48 sidebar fix is visible in the private web preview. That does
-not update or reverify the retained ed8812e Windows archive.
+The broad `31d9afc` Windows pass exercised managed five-file creation, project
+files, the preserved-profile Usage surface, restart persistence, a real approved
+Claude Code follow-up, Stop, second-instance reuse, and idle and active cleanup. The
+focused final `26798df` retest extracted and hash-matched all 3,110 files, verified the
+read-only runtime identity with no provider fallback, ran one approved Claude Code
+file read, retained its conversation through a second launch, and removed every
+observed process on close. See the register for the exact evidence split.
 
-PR #43 remains draft at ff3ae49. Its six real Code follow-up turns passed, but
-Native saved-head and composer-gating defects keep project-session acceptance
-open. Its held changes remain in the private preview composition and are not
-merged into dev. Check the source composition before interpreting preview proof.
+Windows acceptance fixed five concrete defects: long cache paths in the Python stage,
+generic invalid-rename errors, hidden project-name rules, first-run Usage table setup,
+and a Code model control that routed CLI aliases into Native provider setup. The Code
+composer now displays the effective CLI identity as read-only text and leaves runtime
+setup in Settings.
 
-PRs #45 and #46 delivered explicit managed-folder reconnection and retry
-recovery. An earlier successful reconnection does not prove a folder remains
-available. Recheck the current binding. Full existing-folder apply remains
-open under issues #14/#15.
+This does not establish public release readiness. Codex can report Ready but cannot
+be selected for a new Code conversation. Real Native-provider turns, automation
+execution, clean-profile setup, full populated-folder adoption, search, memory,
+responsive self-hosted access, integrated preview/debugging, upgrade/removal behavior,
+and release approval remain unaccepted. A portable archive satisfies the current
+distribution shape. Signing and an installer are future choices. macOS is later work.
 
 ### Earlier packaged proofs
 
-The Linux packaged application ran outside the source checkout, created local
-SQLite/workspace data, restored completed history and a file after reopening,
-and stopped its local server on close. A real Sonnet turn performed Read,
-Write, and Read using the existing Claude Code login. Credentials are not
-bundled. Later packaging checks verified all ten original verbs, receipt
-defaults, Doctor, command refusals, and relocated runtime execution.
-
-The [bundled runtime receipt](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md)
-retains the earlier 2885589 candidate and its checks. That Windows artifact was
-assembled and structurally inspected on Linux. Later ed8812e CLI proof does
-not retroactively establish Windows GUI acceptance for either artifact.
-Signing, installers, upgrades, and public release remain unfinished.
+Earlier Linux and Windows candidates established portions of runtime packaging,
+the original command surface, and managed creation. They remain historical evidence.
+The current register supersedes their current-status claims. Credentials are never
+bundled, and a cross-build alone never establishes Windows behavior.
 
 ## Development
 
@@ -146,12 +140,14 @@ pip's vendored distlib 0.4.0 console launcher and its supported
 passes `-I -X utf8 -B` so redirected Unicode output has the same encoding
 contract as the application adapter. See the first-party
 [distlib launcher source](https://github.com/pypa/distlib/blob/0.4.0/PC/launcher.c).
+The packaged runtime omits pip and Python bytecode caches. It retains distlib's
+license at `licenses/LICENSE.distlib` for the copied Windows launcher stubs.
 Electron Packager copies the staged Python tree with verbatim relative symlinks.
 
 The manifest records the target, source revision, interpreter and component
 versions, wheel hashes, launchers, bridge hash, and license paths. The package
 includes each component's MIT license, the repository MIT license for the
-bridge, CPython and pip notices, and the release-pinned
+bridge, CPython and distlib licenses, and the release-pinned
 [python-build-standalone aggregate licenses](https://github.com/astral-sh/python-build-standalone/blob/20260901/python-licenses.rst).
 That aggregate is 105,875 bytes with SHA-256
 `e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab`.
@@ -176,11 +172,10 @@ issues #14 and #15, with an identity-preserving apply path. The managed New
 Project flow uses its separate reviewed creator. See the
 [runtime verification](../../docs/product/multi-project/receipts/23a-bundled-original-runtime.md).
 The corrected Linux artifact passed its relocated ten-command checks and
-packaged-Electron journey. The hosted preview passed create, Doctor, control
-and foreign-identity rejection. Clean-host preparation assembled both Linux
-x64 and Windows x64 original runtimes. The full Windows x64 Electron folder
-also passed structural verification. Actual Windows execution remains open
-under issue #8.
+packaged-Electron journey. The hosted preview passed create, Doctor, control,
+and foreign-identity rejection. The current Windows candidate passed bundled
+Python creation and the native journeys listed in the acceptance register.
+Complete original-operation GUI acceptance remains part of the final release journey.
 
 The default command builds the supported target for its host: Linux x64 or
 Windows x64. Other architectures and macOS remain later release work. The build
@@ -214,7 +209,12 @@ supports cross-platform packaging. A successful package build establishes an
 artifact, not Windows runtime acceptance.
 
 The folder must stay together: `vivary.exe` uses its sibling `resources` files.
-Windows users need their own installed Claude Code CLI and subscription login.
-The package does not include credentials. Explorer launch, CLI discovery/login,
-file tools, restart persistence, and cleanup during an active run still need
-actual Windows checks before this becomes a supported release.
+For this private preview, extract the archive to a short path such as
+`C:\Vivary` or `%USERPROFILE%\Vivary`. Windows Explorer can reject a deeply
+nested destination before the application starts.
+
+Windows users need their own installed and signed-in coding CLI. The package does
+not include credentials. Explorer launch, Claude Code discovery, a bounded real file
+turn, restart persistence, and active cleanup passed on the tested candidate. Codex
+selection/execution, clean-profile setup, upgrade/removal behavior, and the complete
+release journey remain open before this becomes a supported release.

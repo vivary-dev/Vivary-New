@@ -393,3 +393,24 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac463
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
+diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
+index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
+--- a/dist/usage/metrics-store.js
++++ b/dist/usage/metrics-store.js
+@@ -1,7 +1,7 @@
+ import { getAppConfig } from "../app-config/index.js";
+ import { getDbExec } from "../db/client.js";
+ import { ForbiddenError } from "../sharing/access.js";
+-import { builderCreditsFromCostCents, usageBillingForEngine, } from "./store.js";
++import { builderCreditsFromCostCents, ensureUsageTable, usageBillingForEngine, } from "./store.js";
+ const DAY_MS = 86_400_000;
+ function numberField(row, key) {
+     return Number(row[key] ?? 0) || 0;
+@@ -275,6 +275,7 @@ async function detectUsageEngineName() {
+     return getAppConfig().agent.engine ?? null;
+ }
+ export async function listAppUsageMetrics(input, accessInput) {
++    await ensureUsageTable();
+     const scope = input.scope === "workspace" ? "workspace" : "me";
+     const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
+     const now = Date.now();

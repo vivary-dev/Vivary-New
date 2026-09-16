@@ -93,12 +93,14 @@ export function CreateProjectForm({
     <label htmlFor="new-project-name">Project name</label>
     <Input id="new-project-name" value={name} autoComplete="off" maxLength={128}
       pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" disabled={unavailable}
+      aria-describedby="new-project-name-help"
+      title="Use 1 to 128 ASCII letters, numbers, periods, underscores, or hyphens. Start with a letter or number. Do not end with a period. Do not use CON, PRN, AUX, NUL, COM1 through COM9, or LPT1 through LPT9."
       onChange={event => {
         setName(event.target.value);
         setPreview(null);
         setMessage(null);
       }} />
-    <p>Vivary will create this project in its managed Projects folder.</p>
+    <p id="new-project-name-help">Use 1 to 128 ASCII letters, numbers, periods, underscores, or hyphens. Start with a letter or number. Do not end with a period. Do not use CON, PRN, AUX, NUL, COM1 through COM9, or LPT1 through LPT9. Vivary creates the project in its managed Projects folder.</p>
     {preview && <section aria-label="Project file preview">
       <p><strong>{preview.plan.files.length} guidance files</strong> will be created.</p>
       <p className="break-all">Folder: {preview.plan.target}</p>

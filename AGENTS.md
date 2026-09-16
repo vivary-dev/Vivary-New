@@ -71,7 +71,8 @@ runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are ac
 [Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) records
 verified project conversations, Native persistence, and history controls.
 [Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retains
-unmet acceptance. Follow
+unmet acceptance. The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
+separates the tested private candidate from remaining release gates. Follow
 [the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
 task must advance this release or fix a demonstrated blocker. Broader product
 outcomes retain their later milestones and evidence.

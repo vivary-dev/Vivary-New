@@ -128,7 +128,7 @@ test("manifest records the runtime, source, exact component closure, and relativ
       sha256: "b".repeat(64),
       licensePath: "licenses/LICENSE.vivary-new-managed-project-bridge",
     },
-    runtimeLicensePaths: ["licenses/python-build-standalone.rst", "python/LICENSE.txt"],
+    runtimeLicensePaths: ["licenses/LICENSE.distlib", "licenses/python-build-standalone.rst", "python/LICENSE.txt"],
   });
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.components.length, 7);
@@ -137,7 +137,8 @@ test("manifest records the runtime, source, exact component closure, and relativ
   assert.equal(manifest.runtimeLicenseAsset.url, "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20260901/python-licenses.rst");
   assert.equal(manifest.managedProjectBridge.path, "bridge/managed_project_workspace.py");
   assert.equal(manifest.managedProjectBridge.sha256, "b".repeat(64));
-  assert.deepEqual(manifest.runtimeLicensePaths, ["licenses/python-build-standalone.rst", "python/LICENSE.txt"]);
+  assert.deepEqual(manifest.runtimeLicensePaths,
+    ["licenses/LICENSE.distlib", "licenses/python-build-standalone.rst", "python/LICENSE.txt"]);
   assert.equal(JSON.stringify(manifest).includes(os.tmpdir()), false);
 });
 
@@ -198,7 +199,7 @@ test("runtime extraction rejects traversal before writing outside the destinatio
   }
 });
 
-test("runtime extraction preserves the pinned python-relative layout and executable mode", async () => {
+test("runtime extraction preserves the required layout and removes unnecessary Python caches and pip", async () => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), "vivary-runtime-safe-archive-"));
   try {
     const archive = path.join(fixture, "runtime.tar.gz");
@@ -206,7 +207,15 @@ test("runtime extraction preserves the pinned python-relative layout and executa
     const makeArchive = [
       "import io, tarfile, sys",
       "archive = tarfile.open(sys.argv[1], 'w:gz')",
-      "items = [('python/bin/python3', b'python', 0o755), ('python/LICENSE.txt', b'license', 0o644)]",
+      "items = [",
+      "    ('python/bin/python3', b'python', 0o755),",
+      "    ('python/LICENSE.txt', b'license', 0o644),",
+      "    ('python/lib/python3.12/__pycache__/os.cpython-312.pyc', b'cache', 0o644),",
+      "    ('python/lib/python3.12/os.py', b'source', 0o644),",
+      "    ('python/lib/python3.12/site-packages/pip/__init__.py', b'pip', 0o644),",
+      "    ('python/lib/python3.12/site-packages/pip-26.2.1.dist-info/METADATA', b'pip metadata', 0o644),",
+      "    ('python/lib/python3.12/site-packages/retained/__init__.py', b'retained', 0o644),",
+      "]",
       "for name, data, mode in items:",
       "    item = tarfile.TarInfo(name)",
       "    item.size = len(data)",
@@ -226,6 +235,15 @@ test("runtime extraction preserves the pinned python-relative layout and executa
     assert.equal(await readFile(executable, "utf8"), "python");
     assert.equal((await stat(executable)).mode & 0o111, 0o111);
     assert.equal(await readFile(path.join(destination, "python", "LICENSE.txt"), "utf8"), "license");
+    assert.equal(await readFile(path.join(destination, "python", "lib", "python3.12", "os.py"), "utf8"), "source");
+    assert.equal(await readFile(path.join(destination, "python", "lib", "python3.12", "site-packages", "retained", "__init__.py"), "utf8"), "retained");
+    for (const relative of [
+      ["python", "lib", "python3.12", "__pycache__", "os.cpython-312.pyc"],
+      ["python", "lib", "python3.12", "site-packages", "pip", "__init__.py"],
+      ["python", "lib", "python3.12", "site-packages", "pip-26.2.1.dist-info", "METADATA"],
+    ]) {
+      await assert.rejects(stat(path.join(destination, ...relative)), { code: "ENOENT" });
+    }
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
@@ -287,6 +305,12 @@ test("component launchers stay relative and replace stale pip RECORD rows", asyn
         "--site-packages", sitePackages,
         "--platform", platform,
       ]);
+      const distlibLicense = path.join(fixture, "licenses", "LICENSE.distlib");
+      if (platform === "win32") {
+        assert.match(await readFile(distlibLicense, "utf8"), /^A\. HISTORY OF THE SOFTWARE/);
+      } else {
+        await assert.rejects(stat(distlibLicense), { code: "ENOENT" });
+      }
       const coreRecord = await readFile(path.join(sitePackages, "vivary_core-0.2.7.dist-info", "RECORD"), "utf8");
       assert.equal(coreRecord.includes("direct_url.json"), false);
       await assert.rejects(
