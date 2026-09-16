@@ -477,6 +477,6 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       <Button variant="outline" size="sm" disabled={props.stopping} onClick={() => void props.onStop()} aria-label="Stop response">
         <IconSquare size={14} /> Stop
       </Button> : undefined}
-    threadFooterSlot={<p className="local-agent-limits"><span>{selectedEngine?.label ?? choice.engine} · {choice.model}</span>. {choice.engine === "codex-cli" ? "Codex can run commands and edit files." : "Claude Code uses file tools."} Work continues if you leave this page. Use Stop to end the active turn.</p>}
+    threadFooterSlot={<p className="local-agent-limits"><span>{selectedEngine?.label ?? choice.engine} · {choice.model}</span>. {choice.engine === "codex-cli" ? "Codex uses the permissions selected in Runtime settings." : "Claude Code uses file tools."} Work continues if you leave this page. Use Stop to end the active turn.</p>}
   /></>;
 }

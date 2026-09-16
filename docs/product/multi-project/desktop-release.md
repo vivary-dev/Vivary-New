@@ -81,7 +81,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
-| Agent loop | Historical Windows file work and session continuity. Remote Codex native action handling, permission modes, actual subagent cards, long-turn Stop, and retained activity | Exact `2f4a5df` Windows acceptance, broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
+| Agent loop | Windows Codex file work, session continuity, native action decisions, subagent cards, long commands, active-command Stop, and shutdown. Remote permission-setting and retained activity checks | Replacement `a1486b0` acceptance, mode enforcement, restart, broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -105,8 +105,17 @@ seconds. The acceptance register separates real model evidence from fixture proo
 The replacement Windows archive has been downloaded, hash-verified, and launched.
 The exact EXE verified file work, existing native-session continuation, a configured
 MCP call, an actual child card and public result, and a 125.19-second command.
-Computer Use then reported physical Escape. Native action decisions, mode enforcement,
-active-command Stop, restart, and cleanup remain pending. The published archive is unchanged.
+After the unintended Escape pause, resumed Windows QA verified native Allow once
+and Decline against actual files. Cross-project Stop ended an observed running
+command, and its delayed file stayed absent beyond 90 seconds. Closing the EXE
+removed its candidate processes.
+
+Windows QA exposed merged overlapping tool calls and a premature stopped warning
+during native approval. Source `a1486b0` fixes both. All 75 focused tests, 12 Native
+regressions, and type checking passed. Its production build is in progress. The
+focused hosted retest and replacement Windows EXE acceptance remain pending,
+along with actual Read only/YOLO enforcement and restart. The published archive
+is unchanged.
 Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
 clean-profile setup, and the remaining table entries stay open.
 

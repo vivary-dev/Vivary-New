@@ -59,7 +59,7 @@ type ActiveRun = {
 
 export type VivaryCodeRunSummary = Pick<
   CodeAgentRunRecord,
-  "id" | "status" | "title" | "updatedAt"
+  "id" | "status" | "phase" | "title" | "updatedAt"
 > & {
   engine: VivaryCodeEngine;
   engineLabel: string;
@@ -739,6 +739,7 @@ function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
   return {
     id: run.id,
     status: activeRuns.has(run.id) && !isActiveCodeAgentRun(run) ? "running" : run.status,
+    phase: run.phase,
     title: run.title,
     updatedAt: run.updatedAt,
     engine: engineFromRun(run),

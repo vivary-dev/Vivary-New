@@ -5,8 +5,13 @@ import path from "node:path";
 import { test } from "node:test";
 import { createCodeAgentRunRecord, getCodeAgentRunRecord } from "@agent-native/core/code-agents";
 import { codexApprovalResponse, supportsCodexRequest } from "../server/codex-approval.ts";
-import { approveVivaryCodeMessage, denyVivaryCodeMessage, getVivaryCodeHostState } from "../server/local-code-agent.ts";
+import { approveVivaryCodeMessage, denyVivaryCodeMessage, getVivaryCodeHostState, getVivaryCodeState } from "../server/local-code-agent.ts";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import type { CodexActionRequest } from "../server/code-execution-protocol.ts";
+
+const coreAgents = path.dirname(createRequire(import.meta.url).resolve("@agent-native/core/code-agents"));
+const { isCodeAgentRunActive } = await import(pathToFileURL(path.join(coreAgents, "transcript-order.js")).href);
 
 function request(method: string, params = {}): CodexActionRequest {
   return { requestId: "11111111-1111-4111-8111-111111111111", method, params };
@@ -79,6 +84,12 @@ test("native approval rejects cross-owner, cross-org, cross-project, stale and c
         workspaceRoot: directory, projectId: workspace.projectId, bindingId: workspace.bindingId,
         rootId: workspace.rootId, bindingRevision: workspace.bindingRevision } });
     host.activeRuns.set(runId, active);
+    const visible = await getVivaryCodeState(ownerEmail, runId, workspace, orgId);
+    assert.equal(visible.run?.status, "needs-approval");
+    assert.equal(visible.run?.phase, "action-approval");
+    assert.equal(visible.runs.find(run => run.id === runId)?.phase, "action-approval");
+    assert.ok(visible.run);
+    assert.equal(isCodeAgentRunActive(visible.run), true);
     const input = { ownerEmail, orgId, runId, requestId: native.requestId, projectId: workspace.projectId };
     for (const patch of [{ ownerEmail: "other@example.test" }, { orgId: "other-org" },
       { projectId: "other-project" }, { runId: "other-run" }, { requestId: "22222222-2222-4222-8222-222222222222" }]) {

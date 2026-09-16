@@ -113,14 +113,34 @@ after 125.19 seconds and wrote the expected file. Screenshots and execution even
 are retained on Zo in `.tmp/38-codex-integration/v2-windows-proof.json` and the
 adjacent `v2-01` / `v2-02` screenshots.
 
-Computer Use reported a physical Escape after the completed turn, so application
-interaction stopped. Native Allow/Decline, Read only/YOLO enforcement, Stop after an
-actual command starts, restart, process cleanup, and removal of superseded packages
-remain pending on this exact EXE. The app was left open with its run completed.
+After the unintended Escape pause, resumed Windows QA verified native command
+Allow once and Decline. The allowed command wrote `ALLOW_PROBE`, and the denied
+output file stayed absent. A second command reached its started marker. Stop from
+another project ended its observed process, PID 22904. Its delayed output file
+stayed absent beyond the command's 90-second delay. Closing the EXE through its UI
+left no candidate process running. `v2-windows-proof.json` retains these results.
+
+Read only was saved for the next turn. Actual Read only and YOLO enforcement,
+restart after these changes, and replacement-package cleanup remain pending.
+Windows QA also exposed two presentation defects: overlapping same-name tools
+could merge, and pending native approvals could show a stopped-agent warning.
+
+### Approval and tool identity correction `a1486b0`
+
+Commit `a1486b0` preserves separate tool inputs/results by native call identity.
+It also keeps native approval waits active, including reopened conversations, so
+polling continues and the stopped-agent warning stays hidden while work is pending.
+Legacy launch-approval behavior and terminal worker states remain unchanged.
+
+All 75 focused tests, all 12 Native regressions, and type checking passed. Logs are
+`v3-all-tests.log`, `v3-native-regressions.log`, and `v3-types.log` under
+`.tmp/38-codex-integration/`. The production build is in progress. A focused hosted
+approval hold/reopen retest, replacement Windows package, and affected native EXE
+acceptance remain pending. Earlier Windows results do not prove these corrections.
 
 The `3dd5aa8` results remain historical evidence for the earlier implementation.
 They do not establish acceptance of the replacement execution policy or activity UI.
-Neither local candidate replaces the published `26798df` private preview archive.
+These candidates do not replace the published `26798df` private preview archive.
 
 ## Defects fixed during Windows acceptance
 
@@ -186,8 +206,8 @@ automations in #51 remain open.
 
 | Area | Verified now | Still required |
 | --- | --- | --- |
-| Code conversations | Windows `2f4a5df` file work, session continuity, configured MCP call, real subagent card, and 125.19-second command. Remote native decisions, modes, and Stop | Exact `2f4a5df` Windows acceptance, linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Subscription turns, file tools, MCP call, child public result, and long command in local `2f4a5df`; remote native-policy and rendering checks | Exact replacement Windows acceptance, connection-specific journeys, and broader issue #38 scope. The published `26798df` binary still lacks this integration |
+| Code conversations | Windows `2f4a5df` file work, session continuity, MCP call, real subagent card, 125.19-second command, native Allow/Decline, active-command Stop, and shutdown | Replacement `a1486b0` acceptance, mode enforcement, restart, linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
+| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Exact replacement Windows acceptance, connection-specific journeys, and broader issue #38 scope. The published `26798df` binary still lacks this integration |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
