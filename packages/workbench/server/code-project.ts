@@ -48,3 +48,17 @@ export async function resolveVivaryCodeProjectHistory(
     });
   }
 }
+
+/** Keep history readable when a folder is unavailable; include its current root when connected. */
+export async function resolveVivaryCodeProjectState(
+  context: ActionRunContext | undefined,
+  projectId: string | undefined,
+): Promise<VivaryCodeProjectHistory | VivaryCodeWorkspace | undefined> {
+  if (!projectId) return undefined;
+  try {
+    return await resolveLocalProjectWorkspace(context, projectId);
+  } catch (error) {
+    preserveAccessDenial(error);
+    return resolveVivaryCodeProjectHistory(context, projectId);
+  }
+}
