@@ -30,7 +30,7 @@ const renderer = await readFile(path.join(core, "dist/client/chat/message-compon
 const cardSource = renderer.slice(renderer.indexOf("export function CodeAgentActivityCard("),
   renderer.indexOf("export function AssistantMessage(")).replace(/^export /, "");
 assert.ok(cardSource.startsWith("function CodeAgentActivityCard("));
-const Card = compileFunction(`${cardSource}\nreturn CodeAgentActivityCard;`, ["_jsx", "_jsxs"])(jsx, jsxs);
+const Card = compileFunction(`${cardSource}\nreturn CodeAgentActivityCard;`, ["_jsx", "_jsxs", "codeActivityOpen"])(jsx, jsxs, new Set());
 let sequence = 0;
 function event(message, metadata, kind = "system") {
   const id = `event-${++sequence}`;
@@ -118,4 +118,62 @@ test("subagent operation labels use plain language and preserve unknown details"
   const unknown = renderToStaticMarkup(jsx(Card, { part: make("futureOperation") }));
   assert.match(unknown, /Subagent activity/);
   assert.match(unknown, /Operation:.*futureOperation/);
+});
+
+
+test("native v2 subagent start and completion merge by child identity within the parent turn", () => {
+  const metadata = { type: "subagent", activityType: "subAgentActivity", agentThreadId: "native-child-42",
+    agentPath: "/root/file_reviewer", senderThreadId: "main-thread" };
+  const started = event("Subagent started.", { ...metadata, itemId: "start-item", activityKind: "started", status: "running" }, "status");
+  const completed = event("Subagent completed.", { ...metadata, itemId: "completion-item", activityKind: "completed", status: "completed",
+    agentsStates: { "native-child-42": { status: "completed", message: "Public result: fixture file verified." } } }, "status");
+  const events = [event("First turn", {}, "user"), started, completed];
+  const content = codeAgentTranscriptEventsToContent(events);
+  assert.equal(content.length, 1);
+  assert.equal(content[0].data.agentThreadId, "native-child-42");
+  assert.equal(content[0].data.status, "completed");
+  assert.equal(content[0].data.agents[0].text, "Public result: fixture file verified.");
+  assert.deepEqual(restoredContent(events), content);
+  const html = renderToStaticMarkup(jsx(Card, { part: content[0] }));
+  assert.match(html, /Subagent · file reviewer/);
+  assert.match(html, /Completed/);
+  assert.match(html, /Public result: fixture file verified/);
+  const nextTurn = [...events, event("Next turn", {}, "user"), { ...started, id: "restart-event" }];
+  assert.equal(codeAgentTranscriptEventsToContent(nextTurn).length, 2);
+  const replayed = [...events, event("Subagent completed.", { ...metadata, itemId: "completion-replay", activityKind: "completed", status: "completed" }, "status")];
+  assert.equal(codeAgentTranscriptEventsToContent(replayed)[0].data.agents[0].text, "Public result: fixture file verified.");
+});
+
+test("unidentified wait and early spawn do not invent a subagent card", () => {
+  for (const tool of ["wait", "spawnAgent"]) {
+    const events = [event("Codex agent operation: " + tool + ".", { type: "subagent", itemId: "empty-" + tool,
+      senderThreadId: "main-thread", receiverThreadIds: [], agentsStates: {}, tool, status: "completed" }, "status")];
+    assert.deepEqual(codeAgentTranscriptEventsToContent(events), []);
+    assert.deepEqual(restoredContent(events), []);
+  }
+});
+
+
+test("an opened activity stays open across live-to-history remount and remains run-scoped", () => {
+  const part = { type: "data", name: "code-agent-activity", data: { kind: "progress", itemId: "stable-item", text: "Working" } };
+  const initial = Card({ part, scopeKey: "run-live" });
+  assert.equal(initial.props.open, false);
+  initial.props.onToggle({ currentTarget: { open: true } });
+  const remounted = Card({ part: { ...part, data: { ...part.data, text: "Completed" } }, scopeKey: "run-live" });
+  assert.equal(remounted.props.open, true);
+  assert.match(renderToStaticMarkup(remounted), /<details open=""/);
+  assert.equal(Card({ part, scopeKey: "different-run" }).props.open, false);
+  remounted.props.onToggle({ currentTarget: { open: false } });
+  assert.equal(Card({ part, scopeKey: "run-live" }).props.open, false);
+  assert.match(renderer, /CodeAgentActivityCard, \{ part, scopeKey: messageRunId \}/);
+});
+
+test("native subagent boilerplate is omitted while public result stays visible", () => {
+  const part = { type: "data", name: "code-agent-activity", data: { kind: "subagent", itemId: "child", activityType: "subAgentActivity",
+    agentPath: "/root/integration_check", status: "completed", tool: "", text: "Codex subagent /root/integration_check: completed.",
+    agents: [{ id: "real-child", status: "completed", text: "The public result." }] } };
+  const html = renderToStaticMarkup(jsx(Card, { part }));
+  assert.match(html, /Subagent · integration check/);
+  assert.match(html, /The public result/);
+  assert.doesNotMatch(html, /Codex subagent/);
 });

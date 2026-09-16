@@ -48,11 +48,26 @@ rl.on("line",line=>{
   const response={thread:{id,parentThreadId:id==="foreign-root"?null:parent}};
   if(mode==="child-root-during-lookup") setTimeout(()=>reply(message.id,response),30); else reply(message.id,response);
  }
+ if(message.method==="thread/turns/list") {
+  reply(message.id,{data:[{id:"v2-child-turn",status:mode==="v2-failed"?"failed":"completed",
+   ...(mode==="v2-failed"?{error:{message:"Native child failed."}}:{}),
+   items:mode==="v2-failed"?[]:[{id:"v2-final",type:"agentMessage",phase:"final_answer",text:"Native child result."}]}]});
+ }
  if (message.method==="turn/start") {
   reply(message.id,{turn:{id:turnId,status:"inProgress",items:[]}});
   notify("turn/started",{threadId,turn:{id:turnId,status:"inProgress",items:[]}});
   notify("item/completed",{...scope,item:{id:"commentary-1",type:"agentMessage",phase:"commentary",text:"Reading the project."}});
-  if(mode.startsWith("child-") || mode==="grandchild") {
+  if(mode.startsWith("v2-")) {
+   notify("item/completed",{...scope,item:{id:"native-start-1",type:"subAgentActivity",kind:"started",agentThreadId:"v2-child",agentPath:"/root/native_check"}});
+   if(mode==="v2-live") {
+    notify("turn/started",{threadId:"v2-child",turn:{id:"v2-child-turn",status:"inProgress",items:[]}});
+    notify("item/completed",{threadId:"v2-child",turnId:"v2-child-turn",item:{id:"v2-final",type:"agentMessage",phase:"final_answer",text:"Native child result."}});
+    notify("turn/completed",{threadId:"v2-child",turn:{id:"v2-child-turn",status:"completed",items:[]}});
+   }
+   notify("item/completed",{...scope,item:{id:"different-native-complete-2",type:"subAgentActivity",kind:"completed",agentThreadId:"v2-child",agentPath:"/root/native_check"}});
+   done();
+  }
+  else if(mode.startsWith("child-") || mode==="grandchild") {
    const childId=mode==="grandchild"?"grandchild-1":"child-1";
    notify("item/started",{...scope,item:{id:"spawn-1",type:"collabAgentToolCall",tool:"spawnAgent",status:"inProgress",senderThreadId:threadId,receiverThreadIds:[],agentsStates:{}}});
    notify("turn/started",{threadId:childId,turn:{id:"child-turn-1",status:"inProgress",items:[]}});
@@ -282,4 +297,21 @@ test("root completion during ancestry verification waits for the child and its a
   assert.equal(f.calls.length, 1);
   assert.ok(f.notifications.some(({params}) => params.item?.agentsStates?.["child-1"]?.status === "completed"));
   assert.equal(f.notifications.filter(event => event.method === "turn/completed").length, 1);
+});
+
+
+for (const mode of ["v2-summary", "v2-live", "v2-failed"]) test(`${mode} retains actual native activity identity and contained child output`, async t => {
+  const f = await fixture(t, mode);
+  const result = await runCodexAppServer(f.options);
+  assert.equal(result.status, "completed");
+  const activities = f.notifications.filter(({params}) => params.item?.type === "subAgentActivity");
+  assert.ok(activities.some(({params}) => params.item.id === "native-start-1" && params.item.agentPath === "/root/native_check"));
+  assert.ok(activities.some(({params}) => params.item.id === "different-native-complete-2" && params.item.agentThreadId === "v2-child"));
+  const last = activities.at(-1).params.agentState;
+  assert.equal(last.status, mode === "v2-failed" ? "errored" : "completed");
+  assert.equal(last.message, mode === "v2-failed" ? "Native child failed." : "Native child result.");
+  assert.equal(f.notifications.some(({params}) => params.item?.id === "v2-final"), false);
+  const reads = (await f.receipt()).messages.filter(message => message.method === "thread/turns/list");
+  assert.equal(reads.length, mode === "v2-live" ? 0 : 1);
+  if (reads.length) assert.deepEqual(reads[0].params, { threadId: "v2-child", limit: 1, sortDirection: "desc", itemsView: "summary" });
 });

@@ -167,7 +167,7 @@ index 57a2f6cba8abdb513bc0155a607e47ff84068793..4a48e7b668f406eefa3984c1bc3ecd20
      attachments?: AgentPromptAttachment[];
      stdout?: NodeJS.WritableStream;
 diff --git a/dist/cli/code-agent-executor.js b/dist/cli/code-agent-executor.js
-index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899f9124988 100644
+index 911ded5d652659602d5f6050563d27e4c00e8de3..c3a40b671a519c7260d4fbbc23afedb2a4e3ae10 100644
 --- a/dist/cli/code-agent-executor.js
 +++ b/dist/cli/code-agent-executor.js
 @@ -1,4 +1,5 @@
@@ -184,7 +184,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
              stdout: options.stdout,
              streamToolOutputToStdout,
              signal: options.signal,
-@@ -1219,7 +1221,78 @@ function normalizeOpenCodeVariant(effort) {
+@@ -1219,7 +1221,87 @@ function normalizeOpenCodeVariant(effort) {
          return undefined;
      return effort;
  }
@@ -241,6 +241,15 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
 +        }
 +        return;
 +    }
++    if (item.type === "subAgentActivity" && typeof item.agentThreadId === "string") {
++        const state = asRecordValue(params.agentState);
++        const status = cliStringValue(state?.status) ?? (item.kind === "completed" || item.kind === "interrupted" ? item.kind : "running");
++        appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `Codex subagent ${item.agentPath || item.agentThreadId}: ${status}.`,
++            metadata: { ...metadata, type: "subagent", activityType: "subAgentActivity", activityKind: item.kind,
++                agentThreadId: item.agentThreadId, agentPath: item.agentPath, status,
++                agentsStates: { [item.agentThreadId]: { status, ...(typeof state?.message === "string" ? { message: state.message } : {}) } } } });
++        return;
++    }
 +    if (item.type === "collabAgentToolCall") {
 +        appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `Codex agent operation: ${item.tool ?? "unknown"}.`,
 +            metadata: { ...metadata, type: "subagent", senderThreadId: item.senderThreadId,
@@ -263,7 +272,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
      const cwd = options.run.cwd || process.cwd();
      const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-code-codex-"));
      const outputPath = path.join(outputDir, "last-message.txt");
-@@ -1241,8 +1314,7 @@ async function executeCodexCliRun(options) {
+@@ -1241,8 +1323,7 @@ async function executeCodexCliRun(options) {
          "--cd",
          cwd,
          "exec",
@@ -273,7 +282,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
          "--json",
          "--skip-git-repo-check",
          "--ignore-user-config",
-@@ -1269,6 +1341,7 @@ async function executeCodexCliRun(options) {
+@@ -1269,6 +1350,7 @@ async function executeCodexCliRun(options) {
          const result = await runCodexCliProcess({
              args,
              cwd,
@@ -281,7 +290,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
              prompt: buildCodexCliPrompt(options.run, options.prompt),
              stdout: options.stdout,
              streamToolOutputToStdout,
-@@ -1363,6 +1436,7 @@ async function executeCodexCliRun(options) {
+@@ -1363,6 +1445,7 @@ async function executeCodexCliRun(options) {
                  attachments: pendingFollowUp.attachments ??
                      userPromptAttachmentsForEvent(options.run.id, pendingFollowUp.eventId),
                  appendUserEvent: false,
@@ -289,7 +298,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
                  stdout: options.stdout,
                  streamToolOutputToStdout: options.streamToolOutputToStdout,
                  signal: options.signal,
-@@ -1406,10 +1480,14 @@ function runCodexCliProcess(options) {
+@@ -1406,10 +1489,14 @@ function runCodexCliProcess(options) {
          let stderr = "";
          let pendingJson = "";
          let settled = false;
@@ -306,7 +315,7 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..e93c197935f416ad3be7197ec7c9f899
          });
          const finish = (result) => {
              if (settled)
-@@ -1455,7 +1533,7 @@ function runCodexCliProcess(options) {
+@@ -1455,7 +1542,7 @@ function runCodexCliProcess(options) {
                          : String(err),
              });
          });
@@ -350,10 +359,10 @@ index 0000000000000000000000000000000000000000..e242551e6527ff0d1cdddf224cddcf06
 +export declare function runCodexAppServer(options: CodexAppServerOptions): Promise<CodexAppServerResult>;
 diff --git a/dist/cli/codex-app-server-executor.js b/dist/cli/codex-app-server-executor.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3bc156f470
+index 0000000000000000000000000000000000000000..b17699cccc0bba6f27eb3b8953d9ef7b20453662
 --- /dev/null
 +++ b/dist/cli/codex-app-server-executor.js
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,468 @@
 +import { spawn } from "node:child_process";
 +import { randomUUID } from "node:crypto";
 +import path from "node:path";
@@ -437,6 +446,8 @@ index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3b
 +    const checkingThreads = new Map();
 +    const threadStates = new Map();
 +    const collabItems = new Map();
++    const activityItems = new Map();
++    const summaryReads = new Map();
 +    const itemKey = params => JSON.stringify([params.threadId, params.turnId, params.itemId ?? params.item?.id]);
 +    function rememberItem(params, item) {
 +        const key = itemKey(params);
@@ -462,7 +473,7 @@ index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3b
 +    }
 +    function finishWhenReady() {
 +        if (!rootOutcome || completed) return;
-+        if (rootOutcome.status === "completed" && (checkingThreads.size || pendingRequests.size
++        if (rootOutcome.status === "completed" && (checkingThreads.size || pendingRequests.size || summaryReads.size
 +            || [...members].some(id => id !== threadId && threadStates.get(id)?.active))) return;
 +        finish(rootOutcome);
 +    }
@@ -474,10 +485,35 @@ index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3b
 +        }
 +        options.onNotification?.(entry.method, { ...entry.params, item: { ...entry.params.item, agentsStates } });
 +    }
++    function publishActivity(entry) {
++        const state = threadStates.get(entry.params.item.agentThreadId);
++        options.onNotification?.(entry.method, { ...entry.params,
++            agentState: { status: state?.status ?? "running", ...(state?.message ? { message: state.message } : {}) } });
++    }
 +    function refreshAgentCards(id) {
++        const activity = activityItems.get(id);
++        if (activity) publishActivity(activity);
 +        for (const entry of collabItems.values()) {
 +            if (entry.params.item.receiverThreadIds?.includes(id)) publishCollab(entry);
 +        }
++    }
++    function readChildSummary(id) {
++        const state = stateFor(id);
++        if (state.message || summaryReads.has(id)) return;
++        const expectedTurn = state.turnId;
++        const request = call("thread/turns/list", { threadId: id, limit: 1, sortDirection: "desc", itemsView: "summary" })
++            .then(result => {
++                const turn = result?.data?.[0];
++                if (state.active || !isRecord(turn) || expectedTurn && turn.id !== expectedTurn) return;
++                if (turn.status === "failed") state.status = "errored";
++                else if (turn.status === "interrupted") state.status = "interrupted";
++                const message = Array.isArray(turn.items) ? [...turn.items].reverse().find(item =>
++                    item?.type === "agentMessage" && item.phase !== "commentary" && typeof item.text === "string") : null;
++                if (message) state.message = message.text.slice(0, 32_000);
++                else if (typeof turn.error?.message === "string") state.message = turn.error.message.slice(0, 32_000);
++                refreshAgentCards(id);
++            }).catch(() => undefined).finally(() => { summaryReads.delete(id); finishWhenReady(); });
++        summaryReads.set(id, request);
 +    }
 +    async function verifyMember(id) {
 +        if (members.has(id)) return;
@@ -622,7 +658,23 @@ index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3b
 +            if (existing) rememberItem(params, { ...existing, changes: params.changes });
 +        }
 +        const item = params.item;
-+        if (isRecord(item) && item.type === "collabAgentToolCall" && members.has(source)
++        if (isRecord(item) && item.type === "subAgentActivity" && members.has(source)
++            && typeof item.agentThreadId === "string" && (method === "item/started" || method === "item/completed")) {
++            if (!members.has(item.agentThreadId) && members.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex agent threads.");
++            members.add(item.agentThreadId);
++            const state = stateFor(item.agentThreadId);
++            if (item.kind === "completed" || item.kind === "interrupted") {
++                state.active = false;
++                if (!["errored", "interrupted"].includes(state.status)) state.status = item.kind;
++            } else if (!state.status || state.active) {
++                state.active = true;
++                state.status = "running";
++            }
++            const entry = { method, params };
++            activityItems.set(item.agentThreadId, entry);
++            publishActivity(entry);
++            if (item.kind === "completed") readChildSummary(item.agentThreadId);
++        } else if (isRecord(item) && item.type === "collabAgentToolCall" && members.has(source)
 +            && item.senderThreadId === source && (method === "item/started" || method === "item/completed")) {
 +            if (item.tool === "spawnAgent" && item.status === "completed") {
 +                for (const id of item.receiverThreadIds ?? []) {
@@ -905,31 +957,35 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db2
                      })] })] }));
  }
 diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
-index 78f2051e8470f1cbe1789520828320e1cb06e620..741f736f2076116c2d3c9c606662c1ea16b7da6a 100644
+index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a3454d087 100644
 --- a/dist/client/chat/message-components.d.ts
 +++ b/dist/client/chat/message-components.d.ts
-@@ -246,3 +246,7 @@ export declare function RunningActivityStatus({ label }: {
+@@ -246,3 +246,8 @@ export declare function RunningActivityStatus({ label }: {
  export declare function ThinkingIndicator({ label }?: {
      label?: string;
  }): React.JSX.Element;
 +
-+export declare function CodeAgentActivityCard({ part }: {
++export declare function CodeAgentActivityCard({ part, scopeKey }: {
 +    part: Extract<ContentPart, { type: "data" }>;
++    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..1d3570e11f035d9c9b2ec592486e406a4b3b1bac 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..4377652ffc390b7be2b1a6bfdebbff6dabb3e1fc 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
-@@ -985,6 +985,59 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+@@ -985,6 +985,75 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
  function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
      return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
  }
-+export function CodeAgentActivityCard({ part }) {
++const codeActivityOpen = new Set();
++export function CodeAgentActivityCard({ part, scopeKey }) {
 +    if (part.name !== "code-agent-activity") return null;
 +    const activity = part.data;
 +    if (!activity || (activity.kind !== "progress" && activity.kind !== "subagent")) return null;
 +    const subagent = activity.kind === "subagent";
-+    const label = subagent ? "Subagent activity" : "Progress";
++    const agentName = subagent && typeof activity.agentPath === "string"
++        ? activity.agentPath.split("/").filter(Boolean).at(-1)?.replace(/[_-]+/g, " ") : undefined;
++    const label = subagent ? agentName ? "Subagent · " + agentName : "Subagent activity" : "Progress";
 +    const rawText = typeof activity.text === "string" ? activity.text : "";
 +    const operationLabels = {
 +        spawnAgent: ["Starting subagent", "Started subagent"],
@@ -947,12 +1003,23 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..1d3570e11f035d9c9b2ec592486e406a
 +        completed: "Completed", interrupted: "Interrupted", errored: "Failed", failed: "Failed",
 +        shutdown: "Closed", notFound: "Not found" };
 +    const statusLabel = value => Object.hasOwn(statusLabels, value) ? statusLabels[value] : value;
-+    const text = subagent && rawText === `Codex agent operation: ${activity.tool}.` ? "" : rawText;
-+    const summary = subagent ? operation
++    const nativeActivityNote = activity.activityType === "subAgentActivity"
++        && ["started", "interacted", "interrupted", "completed"].some(kind => rawText === `Codex subagent ${activity.agentPath}: ${kind}.`);
++    const text = subagent && (rawText === `Codex agent operation: ${activity.tool}.` || nativeActivityNote) ? "" : rawText;
++    const summary = subagent ? activity.activityType === "subAgentActivity" ? statusLabel(activity.status) : operation
 +        ? operation[activity.status === "completed" ? 1 : 0] + (activity.status === "failed" ? " · Failed" : "")
 +        : statusLabel(activity.status)
 +        : text.replace(/\s+/g, " ").slice(0, 180);
++    const disclosureKey = scopeKey ? JSON.stringify([scopeKey, activity.kind, activity.itemId]) : null;
 +    return _jsxs("details", {
++        open: disclosureKey ? codeActivityOpen.has(disclosureKey) : undefined,
++        onToggle: event => {
++            if (!disclosureKey) return;
++            if (event.currentTarget.open) {
++                codeActivityOpen.add(disclosureKey);
++                if (codeActivityOpen.size > 256) codeActivityOpen.delete(codeActivityOpen.values().next().value);
++            } else codeActivityOpen.delete(disclosureKey);
++        },
 +        "data-code-activity": activity.kind,
 +        "aria-label": label,
 +        style: { margin: "0.5rem 0", maxWidth: "92%", border: "1px solid hsl(var(--border))",
@@ -964,7 +1031,9 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..1d3570e11f035d9c9b2ec592486e406a
 +                    _jsx("span", { style: { marginLeft: "0.5rem" }, children: summary })] }),
 +            _jsxs("div", { tabIndex: 0, "aria-label": label + " details",
 +                style: { padding: "0 0.75rem 0.75rem", maxHeight: "16rem", overflowY: "auto", overflowWrap: "anywhere" },
-+                children: [subagent && !operation && activity.tool && _jsxs("p", {
++                children: [subagent && activity.agentPath && _jsxs("p", { style: { margin: "0.25rem 0" },
++                        children: ["Path: ", _jsx("code", { children: activity.agentPath })] }),
++                    subagent && !operation && activity.tool && _jsxs("p", {
 +                        style: { margin: "0.25rem 0" }, children: ["Operation: ", _jsx("code", { children: activity.tool })] }),
 +                    text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: text }),
 +                    subagent && Array.isArray(activity.agents) && activity.agents.map(agent =>
@@ -980,12 +1049,12 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..1d3570e11f035d9c9b2ec592486e406a
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1298,6 +1351,8 @@ export function AssistantMessage() {
+@@ -1298,6 +1367,8 @@ export function AssistantMessage() {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
 +                                    case "data":
-+                                        return _jsx(CodeAgentActivityCard, { part }, part.data?.itemId);
++                                        return _jsx(CodeAgentActivityCard, { part, scopeKey: messageRunId }, part.data?.itemId);
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
@@ -1081,7 +1150,7 @@ index a49a21f4f6c6500367bcc2445042669d2a875834..8a64937114afd72e725397bf3015ab75
          catch { }
      }, [apiUrl, historyScope, readKnownThreadScope]);
 diff --git a/dist/code-agents/transcript-normalizer.d.ts b/dist/code-agents/transcript-normalizer.d.ts
-index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..8ee1f9dda4d785f6451545fce5615b7e3a66815f 100644
+index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..7b01c8a6067923b1a71058440b6edb0ea4568296 100644
 --- a/dist/code-agents/transcript-normalizer.d.ts
 +++ b/dist/code-agents/transcript-normalizer.d.ts
 @@ -2,7 +2,7 @@ import { type ActionChatUIConfig } from "../action-ui.js";
@@ -1093,7 +1162,7 @@ index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..8ee1f9dda4d785f6451545fce5615b7e
  export interface NormalizedCodeAgentTranscript {
      items: NormalizedCodeAgentTranscriptItem[];
      rawEvents: CodeAgentTranscriptEvent[];
-@@ -94,3 +94,12 @@ export declare function isCredentialGapCodeAgentEvent(event: {
+@@ -94,3 +94,13 @@ export declare function isCredentialGapCodeAgentEvent(event: {
      message?: string;
  }): boolean;
  export declare function normalizeCodeAgentTranscript(events: readonly CodeAgentTranscriptEvent[]): NormalizedCodeAgentTranscript;
@@ -1101,16 +1170,17 @@ index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..8ee1f9dda4d785f6451545fce5615b7e
 +export type CodeAgentActivity =
 +    | { kind: "progress"; itemId: string; text: string }
 +    | { kind: "subagent"; itemId: string; text: string; senderThreadId: string; tool: string;
++        activityType?: "subAgentActivity"; agentThreadId?: string; agentPath?: string;
 +        status: string; agents: { id: string; status: string; text: string }[] };
 +export interface NormalizedCodeAgentActivityEvent extends NormalizedCodeAgentTranscriptBase {
 +    type: "activity";
 +    activity: CodeAgentActivity;
 +}
 diff --git a/dist/code-agents/transcript-normalizer.js b/dist/code-agents/transcript-normalizer.js
-index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..45ef93c173f16885cfb56a6c16246736014b928e 100644
+index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..e71bfaf74357732b3a62adb1bfc483dca950ef32 100644
 --- a/dist/code-agents/transcript-normalizer.js
 +++ b/dist/code-agents/transcript-normalizer.js
-@@ -37,6 +37,22 @@ export function normalizeCodeAgentTranscript(events) {
+@@ -37,6 +37,26 @@ export function normalizeCodeAgentTranscript(events) {
              items.push(createUserTurn(event, turnIndex));
              continue;
          }
@@ -1120,6 +1190,10 @@ index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..45ef93c173f16885cfb56a6c16246736
 +                && item.turnIndex === currentTurnIndex && item.activity.itemId === activity.itemId
 +                && item.activity.kind === activity.kind && item.events[0]?.runId === event.runId);
 +            if (previous) {
++                if (activity.activityType === "subAgentActivity") {
++                    activity.agents = activity.agents.map(agent => ({ ...agent,
++                        text: agent.text || previous.activity.agents?.find(previousAgent => previousAgent.id === agent.id)?.text || "" }));
++                }
 +                previous.activity = activity;
 +                previous.updatedAt = event.createdAt;
 +                previous.eventIds.push(event.id);
@@ -1133,7 +1207,7 @@ index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..45ef93c173f16885cfb56a6c16246736
          const assistantSource = assistantTextSource(event);
          if (assistantSource) {
              const text = assistantTextForEvent(event, assistantSource);
-@@ -125,6 +141,36 @@ function createUserTurn(event, turnIndex) {
+@@ -125,6 +145,48 @@ function createUserTurn(event, turnIndex) {
          turnIndex,
      };
  }
@@ -1151,12 +1225,24 @@ index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..45ef93c173f16885cfb56a6c16246736
 +        const text = boundedActivityText(event.message);
 +        return text.trim() ? { kind: "progress", itemId, text } : null;
 +    }
++    if (metadata.type === "subagent" && metadata.activityType === "subAgentActivity") {
++        const agentThreadId = boundedActivityText(metadata.agentThreadId, 200);
++        if (!agentThreadId || typeof metadata.agentThreadId !== "string" || metadata.agentThreadId.length > 200) return null;
++        const state = metadata.agentsStates?.[agentThreadId];
++        const status = boundedActivityText(state?.status, 80) || boundedActivityText(metadata.status, 80) || "unknown";
++        return { kind: "subagent", itemId: "subagent:" + agentThreadId, activityType: "subAgentActivity",
++            agentThreadId, agentPath: boundedActivityText(metadata.agentPath, 200),
++            senderThreadId: boundedActivityText(metadata.senderThreadId, 200), tool: "", status,
++            text: boundedActivityText(event.message),
++            agents: [{ id: agentThreadId, status, text: boundedActivityText(state?.message) }] };
++    }
 +    if (metadata.type !== "subagent" || typeof metadata.senderThreadId !== "string"
 +        || !Array.isArray(metadata.receiverThreadIds)) return null;
 +    const states = metadata.agentsStates && typeof metadata.agentsStates === "object"
 +        && !Array.isArray(metadata.agentsStates) ? metadata.agentsStates : {};
-+    const receivers = metadata.receiverThreadIds.filter(id => typeof id === "string" && id.length <= 200);
-+    const ids = [...new Set([...receivers, ...Object.keys(states).filter(id => id.length <= 200)])].slice(0, 32);
++    const receivers = metadata.receiverThreadIds.filter(id => typeof id === "string" && id.length > 0 && id.length <= 200);
++    const ids = [...new Set([...receivers, ...Object.keys(states).filter(id => id.length > 0 && id.length <= 200)])].slice(0, 32);
++    if (!ids.length) return null;
 +    const agents = ids.map(id => {
 +        const state = states[id];
 +        return { id, status: boundedActivityText(state?.status, 80) || "unknown",
