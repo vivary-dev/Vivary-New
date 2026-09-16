@@ -156,6 +156,9 @@ describe("local Vivary code agent boundaries", () => {
         ...history, rootId: "root_reconnected", bindingRevision: 5,
       }, "org-history");
       assert.equal(reconnected.run?.id, runId);
+      const moved = await getVivaryCodeState("owner@example.com", runId, history, "org-history", store);
+      assert.equal(moved.run?.id, runId);
+      assert.deepEqual(moved.runs.map(run => run.id), [runId]);
       await assert.rejects(
         getVivaryCodeState("owner@example.com", runId, { ...history, bindingId: "binding_other" }, "org-history"),
         { errorCode: "vivary_code_run_not_found" },

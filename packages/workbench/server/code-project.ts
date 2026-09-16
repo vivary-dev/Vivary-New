@@ -49,16 +49,17 @@ export async function resolveVivaryCodeProjectHistory(
   }
 }
 
-/** Keep history readable when a folder is unavailable; include its current root when connected. */
-export async function resolveVivaryCodeProjectState(
+
+/** Discover runtime configuration from a connected folder without changing history access. */
+export async function resolveVivaryCodeProjectDiscoveryRoot(
   context: ActionRunContext | undefined,
   projectId: string | undefined,
-): Promise<VivaryCodeProjectHistory | VivaryCodeWorkspace | undefined> {
+): Promise<string | undefined> {
   if (!projectId) return undefined;
   try {
-    return await resolveLocalProjectWorkspace(context, projectId);
+    return (await resolveLocalProjectWorkspace(context, projectId)).root;
   } catch (error) {
     preserveAccessDenial(error);
-    return resolveVivaryCodeProjectHistory(context, projectId);
+    return undefined;
   }
 }

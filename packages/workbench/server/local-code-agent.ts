@@ -287,6 +287,7 @@ export async function getVivaryCodeState(
   runId?: string,
   selectedWorkspace?: VivaryCodeReadScope,
   orgId?: string,
+  modelDiscoveryRoot?: string,
 ): Promise<VivaryCodeState> {
   const workspace = selectedWorkspace ?? await resolveWorkspace();
   await ensureVivaryCodeHostInitialized();
@@ -297,8 +298,9 @@ export async function getVivaryCodeState(
 
   const engines = await Promise.all(VIVARY_CODE_ENGINES.map(async engine => {
     const runtime = await getVivaryRuntimeStatus(engine);
-    const modelCatalog = engine === "codex-cli" && runtime.status === "ready" && "root" in workspace
-      ? await getCodexModels(workspace.root) : null;
+    const discoveryRoot = "root" in workspace ? workspace.root : modelDiscoveryRoot;
+    const modelCatalog = engine === "codex-cli" && runtime.status === "ready" && discoveryRoot
+      ? await getCodexModels(discoveryRoot) : null;
     const models = engine === "claude-cli" ? [...VIVARY_CODE_MODELS]
       : modelCatalog?.status === "ready" ? modelCatalog.models.map(model => model.id) : [];
     if (selected && engine === "codex-cli" && engineFromRun(selected) === engine && !models.includes(modelFromRun(selected))) {
