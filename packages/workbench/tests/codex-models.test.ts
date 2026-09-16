@@ -48,6 +48,7 @@ test("speaks bounded app-server protocol through an absolute launcher with space
   const dir = await mkdtemp(path.join(tmpdir(), "vivary codex models "));
   const file = path.join(dir, "fake cli.mjs");
   await writeFile(file, String.raw`import readline from 'node:readline';
+import {writeFileSync} from 'node:fs';
 const values = ${JSON.stringify({ 1: {}, 2: models, 3: config, 4: account })};
 readline.createInterface({input:process.stdin}).on('line', line => {
  const input=JSON.parse(line);
@@ -56,10 +57,11 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   process.stdout.write(output.slice(0,7));
   process.stdout.write(output.slice(7));
  }
-});`);
+}).on('close', () => setTimeout(() => writeFileSync('closed.txt', 'graceful'), 500));`);
   try {
     const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir);
     assert.equal(result.status, "ready");
+    assert.equal(await readFile(path.join(dir, "closed.txt"), "utf8"), "graceful");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

@@ -88,8 +88,14 @@ export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs =
       clearTimeout(timer);
       child.stdin.end();
       try {
-        if (!await waitClosed(300)) {
-          if (!didClose) await hardStopWorkerTree(child, false);
+        if (!await waitClosed(1_000)) {
+          if (!didClose) {
+            try { await hardStopWorkerTree(child, false); }
+            catch (error) {
+              // Codex may finish normally while Windows starts taskkill.
+              if (!didClose || child.exitCode !== 0) throw error;
+            }
+          }
           if (!await waitClosed(3_000)) throw new Error("Codex discovery did not stop.");
         }
         if (process.platform !== "win32") await hardStopWorkerTree(child, true);
