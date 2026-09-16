@@ -9,12 +9,16 @@ what a new contributor or tester can rely on now.
 
 **Vivary is not ready for public release.** The current Windows x64 portable folder
 is a private development candidate built from source commit
-`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is an unsigned portable archive.
-It has not passed the complete desktop and self-hosted web release journey. No desktop package has been published.
+`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is available as an unsigned
+[private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16).
+Repository access is required to download it. The preview is incomplete and has
+not passed the complete desktop and self-hosted web release journey.
 
 The exact private archive tested on Windows was 236,023,078 bytes with SHA-256
 `a987fac00c20fe3b613baabe7b4f2c3d60c87f6a097cd2f8cb1454adf8593a6c`.
-Those values identify evidence. They are not a download or release promise.
+Use those values to verify the downloaded ZIP. The prerelease tag identifies the
+tested `26798df` binary. It is not a suite version and does not imply that a newer
+source merge rebuilt the archive.
 
 ## Windows evidence by candidate
 
