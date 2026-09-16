@@ -181,9 +181,15 @@ errors. The receipt is `native-ui-fixture-20260916T174242/receipt.json` under
 
 The private preview was refreshed to `98515c9` output. Unauthenticated actions
 still returned 401, and unauthenticated external access redirected with 302.
-[Draft PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) is unmerged.
-GitHub CI jobs never started because of billing. Zo is the approved CI host.
-The PR records the exact commit and results of the applicable Zo CI checks.
+[PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) merged into `dev` as
+`b81dcd76a80613ae248eebacfb5f7d5a0269c1a7` on 2026-09-16. The merge tree matches
+tested head `f21328ba21ad5a381d9c6f49247a5d3984fb0f03`; GitHub and Entire refs
+were verified at the merge. All 62 applicable Linux workflow steps passed on Zo,
+the approved CI host. Evidence is retained in `.tmp/zo-ci-codex-f21328b/`,
+including the step logs, results, final proof, and merge proof. GitHub Actions
+did not start because of billing. Windows governed-platform and orientation
+workflow jobs were not run; the Windows UI evidence above remains separate.
+The merge does not publish a new download or complete the broader desktop issues.
 
 The `2f4a5df` production build passed on Zo. All 70 focused Codex, runtime,
 approval, transcript, and lifecycle tests passed, with no failures or skips.

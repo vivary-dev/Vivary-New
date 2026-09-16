@@ -124,9 +124,12 @@ the same affected journey with a real approved file write and retained output.
 This accepts the bounded Codex prototype flows tested across the recorded candidates.
 The final EXE retest does not repeat the entire earlier Windows journey. Final
 restart and shutdown passed, and superseded local packages were removed. The private preview
-serves `98515c9` with its authentication boundary preserved. Draft PR #59 is unmerged,
-and CI jobs never started because of billing. The published `26798df` archive is
-unchanged.
+serves `98515c9` with its authentication boundary preserved.
+[PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) merged into `dev` as
+`b81dcd7` on 2026-09-16. Its tree matches the `f21328b` head that passed all 62
+applicable Linux workflow steps on Zo. GitHub and Entire both received the merge.
+GitHub Actions did not start because of billing; Windows workflow jobs remain
+unrun. The published `26798df` archive is unchanged.
 Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
 clean-profile setup, and the remaining table entries stay open.
 

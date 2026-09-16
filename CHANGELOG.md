@@ -11,7 +11,39 @@ the `v0.1.0` line.
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
 
-## [Unreleased: Private Windows desktop integration] - 2026-09-16
+## [Unreleased: Codex integration] - 2026-09-16
+
+[PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) merged into `dev` as
+`b81dcd7`. New Code conversations can select Codex using its existing subscription,
+account-effective model catalog, native tools, skills, and configured connections.
+Saved conversations retain their runtime, model, and native session identity.
+
+Send starts the turn immediately. Native action requests offer Allow once or
+Decline while Stop remains available. Runtime settings provide Normal, Read only,
+and YOLO; there is no Plan mode or fixed two-minute turn deadline. Public progress
+and actual child-agent activity appear separately from the main answer. The final
+corrections retain tool-call identity and pending approvals across refresh.
+
+### Verification and distribution
+
+The bounded Windows prototype passed file work, native session continuity, an MCP
+call, a real subagent result, a command longer than two minutes, native decisions,
+permission modes, and active-command cancellation across the recorded candidates.
+The final `98515c9` EXE retested the affected approval, output, restart, and shutdown
+journeys. It did not repeat every earlier journey. The hosted preview serves the
+same application source with its authentication boundary preserved.
+
+All 62 applicable Linux workflow steps passed on Zo at `f21328b`; the merge tree
+matches that tested head. GitHub Actions could not start because of billing.
+Windows governed-platform and orientation workflow jobs remain unrun. Detailed
+artifact and platform boundaries are in the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md).
+
+No package version, registry artifact, or published download changed. The private
+`26798df` archive below remains the downloadable preview. OpenCode, broader
+cross-runtime linking and concurrency, real Native-provider turns, automations,
+and the remaining desktop release journey are still open.
+
+## [Unreleased: Private Windows preview 26798df] - 2026-09-16
 
 No package version or registry artifact changes. The private Windows candidate now
 includes reliable portable extraction, clear filename and project-name validation,

@@ -119,9 +119,11 @@ Shutdown left no candidate processes. Superseded local packages were removed.
 
 These are bounded Codex prototype results across recorded candidates. The final
 EXE retest does not repeat every earlier journey. The private preview serves the
-final output with authentication preserved. Draft PR #59 is unmerged, and CI jobs
-never started because of billing. The acceptance register owns candidate details
-and remaining release gates.
+final output with authentication preserved. PR #59 merged into `dev` on September 16,
+2026 as `b81dcd7`. The exact reviewed head `f21328b` passed all 62 applicable Zo CI
+steps, including Linux tests, orientation, graph review, and site checks. GitHub
+Actions did not run because of billing; Windows CI jobs were not part of the Zo run.
+The acceptance register owns candidate details and remaining release gates.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
@@ -130,7 +132,7 @@ and issue #50 retains real Native-provider acceptance.
 
 Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex supplies its command,
 file, and connection tools. Vivary sets this integration's approval and sandbox
-bounds; Codex enforces the shell sandbox. Choosing a project alone is not an
+bounds; Codex enforces the selected shell sandbox except in YOLO mode. Choosing a project alone is not an
 operating-system sandbox.
 
 [DeepSeek Flash titles for both chat surfaces](../../docs/product/multi-project/tickets/05-integrate-workbench-shell.md#planned-chat-titles)
