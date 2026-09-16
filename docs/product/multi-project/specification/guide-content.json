@@ -41,23 +41,23 @@
       "why": "You should not have to remember which window or agent owns your work, or force unrelated work through one context window.",
       "module": "M02",
       "scene": "project",
-      "detail": "Stable project identity is separate from the current authorized root. Registration does not modify or adopt the folder."
+      "detail": "Stable project identity is separate from the current authorized root. Registration does not modify or adopt the folder. If a saved managed folder loses verified access, its project and conversation history remain attached to the same IDs. Review connection explains the recorded folder and consequences; only an explicit reviewed reconnect can restore access to that same managed folder. Canceling changes nothing, and reconnecting neither edits files nor starts an agent. Only a single recorded managed-folder binding is eligible for this recovery. An uncertain result keeps the exact reviewed retry through another review. After a reload, Review connection can find a recorded but unfinished reconnection without changing files and offer Finish reconnecting. A newly changed folder gets a fresh plan. External folders or multiple bindings need a separate path."
     },
     {
       "title": "Return to the conversation",
-      "plain": "Return to an existing conversation or start another inside the same project. Each chat keeps its own history, context and draft.",
+      "plain": "Return to an existing conversation or start another inside the same project. Each chat has separate history and model context. Reliable Native reopening and restart-draft recovery still need verification.",
       "why": "A long project needs more than one context window, and separate work should not blur into one transcript.",
       "module": "M03",
       "scene": "conversation",
-      "detail": "The center shows one selected conversation at a time, not the project's only conversation. Existing Native thread, Code and harness records retain their own identities. A conversation can reach its model context limit. Another chat starts with a separate context. Potentially concurrent work needs status and approvals for each thread plus controls for conflicting edits to shared files. The current runtime still permits one active run at a time. Unsent drafts belong to the current client and profile; this does not promise draft transfer to another device."
+      "detail": "The center shows one selected conversation at a time, not the project's only conversation. Existing Native thread, Code and harness records retain their own identities. A conversation can reach its model context limit. Another chat starts with a separate context. Potentially concurrent work needs status and approvals for each thread plus controls for conflicting edits to shared files. The current runtime still permits one active run at a time. Unsent drafts belong to the current client and profile; this does not promise draft transfer to another device. Native persistence is held under issue #6. Per-conversation draft restoration across restarts remains issue #9 acceptance."
     },
     {
       "title": "Choose a harness and model",
-      "plain": "Choose a supported installed harness. It owns its tools, MCP configuration, models and native permission semantics. Vivary shows only what it observes.",
+      "plain": "The planned picker groups supported installed harnesses and their available models. Each harness owns its tools and permissions. This unified catalog is not implemented yet.",
       "why": "You can see the harness's actual available capabilities without configuring a second general tool picker or a predefined persona.",
       "module": "M04",
       "scene": "harness",
-      "detail": "A different harness creates a linked conversation. The source history stays available, while the material supplied to the new model is shown separately. Linking sends nothing. An installed CLI needs a registered, compatible adapter and readiness checks before it can run. Unknown availability stays unknown. Vivary retains project and host authorization plus approval, denial and Stop."
+      "detail": "Target behavior, not an available switching flow: A different harness creates a linked conversation. The source history stays available, while the material supplied to the new model is shown separately. Linking sends nothing. An installed CLI needs a registered, compatible adapter and readiness checks before it can run. Unknown availability stays unknown. Vivary retains project and host authorization plus approval, denial and Stop."
     },
     {
       "title": "Approve or decline work",
@@ -91,7 +91,7 @@
     ],
     "M02": [
       "Which project is this?",
-      "Keeps projects distinct and checks which folder is available and authorized."
+      "Keeps projects distinct and checks which folder is available and authorized. A workspace content preview does not grant folder access."
     ],
     "M03": [
       "Your ongoing conversations",
@@ -99,7 +99,7 @@
     ],
     "M04": [
       "Your installed agent tools",
-      "Shows observed tools, MCP configuration, models and native permissions from supported installed harnesses through replaceable integrations."
+      "The target adapter catalog displays observed capabilities from supported installed harnesses. The grouped model picker and linked switching remain planned."
     ],
     "M05": [
       "What is allowed to happen?",
@@ -111,7 +111,7 @@
     ],
     "M07": [
       "Set up and operate a workspace",
-      "Uses the original Vivary engine and narrow deterministic operations to create, adopt, inspect and maintain project structure."
+      "Uses the original Vivary engine. The shared creator's target-bound five-file preview, greenfield apply, and no-write exact retry passed bundled and hosted checks. Existing-folder apply remains open."
     ],
     "M08": [
       "Find and remember",
@@ -119,7 +119,7 @@
     ],
     "M09": [
       "Plans and tasks",
-      "Shows intended work and dependencies while respecting the selected task source."
+      "Shows intended work and dependencies from the selected task source. A creator file-content plan controls one workspace change without replacing that task owner."
     ],
     "M10": [
       "Do, check and hand over work",

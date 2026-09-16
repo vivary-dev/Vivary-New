@@ -33,7 +33,7 @@ server. Your agents, credentials, files, and history stay on the host.
 
 - Open a project and work with an agent that can read files, edit them, and run tools.
 - Return to project conversations, search past sessions, and keep useful memory in files.
-- Set up providers and workspace guidance through the app.
+- Use supported installed coding harnesses and their tools, with workspace guidance in files.
 - Preview the site or dashboard you are building and let the agent inspect and debug it.
 - Connect a phone browser to your self-hosted instance when you choose to enable remote access.
 
@@ -46,12 +46,12 @@ and authentication. Provider accounts are separate.
 
 | Available in the prototype | Still required for release |
 | --- | --- |
-| Native agent chat, tool output, model controls, and settings | Reliable project, conversation, appearance, and draft restoration |
-| Project selection, persistent completed run records, and a file inspector | Complete searchable project sessions, file memory, and workspace tools |
-| Electron shell with a real agent file-editing run verified on Linux | Bundle the original command runtime and pass actual Windows launch-and-use checks |
+| One unified workspace, multiple saved Code conversations, optional panels, saved selection and appearance | Reliable Native project sessions and draft restoration across restarts |
+| File navigation, formatted reading, explicit Edit/Save/Rename, and conflict recovery | File and conversation search, scoped memory, and complete workspace operations |
+| Electron with bundled Node/Python and the original ten-verb command runtime | Actual Windows GUI launch, folder selection, agent use, and shutdown acceptance |
 | Basic isolated web preview | Responsive remote access and integrated preview/debugging |
 
-A Windows portable folder has been assembled, but it has not been run on Windows.
+The bundled CLI passed a Windows create/retry check. The Electron GUI remains unverified.
 The [desktop acceptance record](packages/desktop/README.md#current-acceptance)
 states what has been exercised. The
 [GitHub milestone](https://github.com/vivary-dev/Vivary-New/milestone/1) owns remaining
@@ -67,7 +67,7 @@ preview run on Zo. Zo is not a product dependency.
 | Build or run the GUI from source | [Workbench setup](packages/workbench/README.md#run-from-source) |
 | Run or package the desktop shell | [Desktop setup](packages/desktop/README.md#development) |
 | Pick up an issue and contribute | [Contributor guide](CONTRIBUTING.md) |
-| Understand the product and implementation | [Product design](docs/product/multi-project/design.md) and [source map](docs/product/multi-project/source-map/index.md) |
+| Understand the product and implementation | [Interactive guide](docs/product/multi-project/specification/README.md#open-the-guided-reader), [release status](docs/product/multi-project/desktop-release.md#what-exists-and-what-is-missing), and [source map](docs/product/multi-project/source-map/index.md) |
 | Enable agent-session recording | [Entire setup](docs/ENTIRE.md) |
 | Use the original published command tools | [Original CLI reference](docs/ORIGINAL-CLI.md) |
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { EventEmitter } from "node:events";
 import { registerHooks } from "node:module";
 import { setImmediate } from "node:timers/promises";
@@ -12,7 +13,7 @@ const hooks = registerHooks({
     return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
   },
 });
-const { attachProjectFolderChooser, isExternalSetupUrl, isProjectFolderRequest } = await import("../main.mjs");
+const { attachProjectFolderChooser, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -114,4 +115,14 @@ test("only exact HTTPS provider setup destinations can leave the app", () => {
     "https://platform.openai.com@evil.test/api-keys", "https://platform.openai.com/api-keys?secret=value",
     "https://platform.openai.com/api-keys#secret", "https://example.org", "https://platform.openai.com/",
   ]) assert.equal(isExternalSetupUrl(url), false);
+});
+
+
+test("packaged startup uses its own original runtime and does not inherit data or receipt targets", () => {
+  const resources = path.resolve("packaged-resources");
+  const environment = localChildEnvironment({ VIVARY_ORIGINAL_RUNTIME: path.resolve("other-runtime"), VIVARY_DATA_DIR: "/other-data", VIVARY_RECEIPT_LOG: "/other-receipt", APP_URL: "https://example.test", PATH: "host-tools" }, true, resources);
+  assert.equal(environment.VIVARY_ORIGINAL_RUNTIME, path.join(resources, "original-runtime"));
+  for (const key of ["VIVARY_DATA_DIR", "VIVARY_RECEIPT_LOG", "APP_URL"]) assert.equal(environment[key], undefined);
+  assert.equal(environment.PATH, "host-tools");
+  assert.equal(localChildEnvironment({ VIVARY_ORIGINAL_RUNTIME: "relative" }, false).VIVARY_ORIGINAL_RUNTIME, undefined);
 });

@@ -13,6 +13,7 @@ const outDir = path.resolve(here, '..', 'src', 'content', 'docs');
 const docsWalkthroughAssetsDir = path.join(docsDir, 'assets', 'walkthrough');
 const publicWalkthroughAssetsDir = path.resolve(here, '..', 'public', 'assets', 'walkthrough');
 const GH = 'https://github.com/vivary-dev/vivary/blob/dev';
+const APP_GH = 'https://github.com/vivary-dev/Vivary-New/blob/dev';
 const noDelete = process.env.VIVARY_SYNC_NO_DELETE === '1';
 
 const normalizeForCompare = (p) => {
@@ -122,6 +123,8 @@ const rewrite = (s) =>
    .replaceAll('](SPEC-data-layer.md)', `](${GH}/docs/SPEC-data-layer.md)`)
    .replaceAll('](SPEC-data-layer.md#', `](${GH}/docs/SPEC-data-layer.md#`)
    .replaceAll('](bellamente-memory/', `](${GH}/docs/bellamente-memory/`)
+   .replaceAll('](../packages/workbench/', `](${APP_GH}/packages/workbench/`)
+   .replaceAll('](../packages/desktop/', `](${APP_GH}/packages/desktop/`)
    .replaceAll('](../packages/', `](${GH}/packages/`)
    .replaceAll('](../LICENSE)', `](${GH}/LICENSE)`)
    .replaceAll('](PORTFOLIO.md)', `](${GH}/docs/PORTFOLIO.md)`)

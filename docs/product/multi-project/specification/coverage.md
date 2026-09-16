@@ -1,6 +1,6 @@
 # Coverage and delivery map
 
-This specification retains all 36 product outcomes. The table maps scope, not current lifecycle. Live GitHub issues remain authoritative. Always qualify outcome numbers and GitHub issue numbers. The generated program graph remains a supporting snapshot. Issue #38's first workspace shell is implemented and verified in the private hosted candidate. The linked PR in issue #38 owns CI and merge status. The supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, and Windows proof remain incomplete.
+This specification retains all 36 product outcomes. The table maps scope, not current lifecycle. Live GitHub issues remain authoritative. Always qualify outcome numbers and GitHub issue numbers. The generated program graph remains a supporting snapshot. Issue #38's first workspace shell merged in PR #42 after private hosted verification, independent review and CI. The supported harness catalog, cross-harness linking, handoff workflow, concurrent runtime, model execution, and Windows proof remain incomplete.
 
 ## Complete outcome coverage
 

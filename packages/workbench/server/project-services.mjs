@@ -53,6 +53,8 @@ export const PROJECT_ACTION_PATHS = Object.freeze([
   "/_agent-native/actions/vivary-project-catalog",
   "/_agent-native/actions/vivary-project-runtime-readiness",
   "/_agent-native/actions/vivary-project-runtime-activity",
+  "/_agent-native/actions/vivary-preview-managed-project-reconnection",
+  "/_agent-native/actions/vivary-confirm-managed-project-reconnection",
 ]);
 
 const controllers = new WeakMap();
@@ -311,6 +313,8 @@ export function startProjectServices(nitroApp, dependencies) {
         readScope: registry.readScope,
         provider,
         locationLabels: local ? provider.locationLabels : installation.locationLabels,
+        canReconnect: local
+          ? ref => provider.isManagedLocation(ref, environment.VIVARY_DATA_DIR) : undefined,
       });
       const readiness = runtime.createProjectRuntimeReadiness({
         readScope: registry.readScope,
@@ -363,6 +367,10 @@ function localService(context) {
   // Both names belong to this app. Workbench retains its existing role namespace.
   return { service, owner: Object.freeze({ userEmail: context.userEmail, orgId: context.orgId,
     appId: "workbench", caller: context.caller }) };
+}
+
+export function getLocalProjectReconnectionService(context) {
+  return localService(context);
 }
 
 export async function getLocalProjectAccess(context) {
@@ -433,7 +441,7 @@ export async function resolveLocalProjectWorkspace(context, projectId) {
   if (!resolved) {
     throw new Error("The project folder is missing or changed. Reconnect it before running an agent.");
   }
-  return Object.freeze({ root: resolved.path, label: binding.label, projectId,
+  return Object.freeze({ root: resolved.path, label: binding.label, projectId, actorId: scope.actorId,
     bindingId: binding.bindingId, bindingRevision: binding.bindingRevision,
     policyRevision: scope.policyRevision, rootId: binding.rootId, locationRef: binding.locationRef,
     verificationKind: LOCAL_VERIFICATION });

@@ -1,6 +1,13 @@
 # Vivary documentation
 
-Start here.
+For the desktop and self-hosted app, start with the
+[contributor guide](../CONTRIBUTING.md), [Workbench setup](../packages/workbench/README.md),
+and [maintained interactive guide](product/multi-project/specification/README.md#open-the-guided-reader).
+The [desktop release status](product/multi-project/desktop-release.md#what-exists-and-what-is-missing)
+distinguishes accepted work from remaining product acceptance.
+
+The command guides below describe the original Vivary engine. Its published
+packages do not install or release the desktop app.
 
 | Doc | What it covers |
 |---|---|
@@ -30,7 +37,7 @@ Starlight guides.
 
 | Document | What it covers |
 |---|---|
-| [Multi-project program](product/multi-project/design.md) | Approved GUI-first evolution, 36-ticket graph, preservation map, and unmet release gates. |
+| [Multi-project program](product/multi-project/design.md) | Approved application direction, 36 retained outcomes, preservation map, and unmet release gates. |
 | [Source map](product/multi-project/source-map/index.md) | Typed routes for root observation, project registry, native runtime, and project write-back work. |
 | [bellamente-memory/](bellamente-memory/) | Reconciled contract for optional Bellamente agent LTM and its typed Vivary boundary. |
 | [PRODUCT-ROADMAP.md](PRODUCT-ROADMAP.md) | Canonical outcome map behind the public [roadmap page](https://vivary.vercel.app/roadmap/). |

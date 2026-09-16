@@ -8,7 +8,7 @@ The dependency list describes the target direction of capability calls, not issu
 
 One selected project conversation with optional panels.
 
-Implementation status: implemented on `feat/unified-project-workspace` and verified in the private hosted candidate on 2026-09-14. The final source review approved the code. The linked PR in issue #38 owns CI and merge status. This acceptance covers the first shell and integrated panels, not every issue #38 capability.
+Implementation status: the first workspace shell merged in [PR #42](https://github.com/vivary-dev/Vivary-New/pull/42) after independent review, CI and private hosted verification on 2026-09-14. This acceptance covers the first shell and integrated panels, not every issue #38 capability.
 
 - Owns: Layout, focus, panel selection and visibility. Durable data stays with its owner.
 - Calls: M02, M03, M05, M06, M09, M14.
@@ -30,10 +30,14 @@ Current source or design entry points:
 
 Stable project identity and authorized folders.
 
-- Owns: Project IDs, root bindings and revisions. A mutable path is not identity.
+- Owns: Project IDs, root bindings and revisions. A mutable path is not identity. A target-bound creator content plan is separate from a project grant or root binding.
 - Calls: M05.
 - Replacement contract: Replace a root or VCS observation adapter while preserving IDs and current grants.
 - Conceptual request/result: RegisterRoot / ResolveProject / RebindRoot -> stable identity, revision and scoped capability result. Root observation is separate from adoption.
+- Current recovery slice: Review connection checks one already-registered managed folder; explicit confirm rechecks its reviewed inputs before changing that project's binding. Project and conversation IDs survive loss of folder access. Cancel writes nothing; changed inputs require re-review. Reconnect changes no project files or agent state and accepts no arbitrary folder path. Old Code root metadata is provenance: continuing a saved conversation needs the same current canonical path, a new grant and fresh approval; a moved path refuses. Reconnect refuses during an active or awaiting-approval Code request.
+- Verification: The bounded increment passed private hosted desktop/phone, cancel, reconnect, retained-history, fresh-approval/deny, refusal, file-hash and reload checks on 2026-09-15. That is the earlier tested candidate; the full issue #15 Create/apply goal remains open under issue #14's shared operation.
+- Follow-up contract: The mounted UI keeps exact uncertain attempts through new reviews. A read-only preview can recover the original operation/hash from one current scoped receipt (`recorded: true`, `identityChanged: false`) and offer Finish reconnecting; a changed folder gets a fresh plan. One managed binding is eligible. Keyboard completion keeps focus/status stable; post-commit path change returns uncertain with the receipt intact.
+- Follow-up evidence: Private hosted lost-response, recorded-preview, exact authenticated replay, desktop/390px keyboard and Cancel, reload, idle/model-zero and all 28 file hashes passed on 2026-09-15. Catalog refresh restored availability before Finish was clicked. External/multi-binding eligibility and post-commit path change passed nine real SQLite tests; a hosted rename returned EXDEV before files changed. Full #15 remains open, Windows execution is unrun, and PR #43 stays held.
 - Acceptance: Register two no-VCS folders, switch away and back, remove one root, then retry without falling back to the other.
 - Actions: A010, A011, A012, A013, A014, A015, A016, A017. See [the action catalog](actions.md#m02-projects-and-roots).
 
@@ -41,9 +45,16 @@ Current source or design entry points:
 
 - [packages/workbench/server/project-services.mjs](../../../../packages/workbench/server/project-services.mjs)
 - [packages/workbench/server/project-catalog.mjs](../../../../packages/workbench/server/project-catalog.mjs)
+- [packages/workbench/app/lib/project-catalog-schema.ts](../../../../packages/workbench/app/lib/project-catalog-schema.ts)
 - [packages/workbench/server/native-registry.mjs](../../../../packages/workbench/server/native-registry.mjs)
 - [packages/workbench/server/root-provider.mjs](../../../../packages/workbench/server/root-provider.mjs)
 - [packages/workbench/app/components/projects/ProjectContext.tsx](../../../../packages/workbench/app/components/projects/ProjectContext.tsx)
+- [packages/workbench/app/components/projects/ProjectNavigation.tsx](../../../../packages/workbench/app/components/projects/ProjectNavigation.tsx)
+- [packages/workbench/app/components/projects/ReconnectProjectForm.tsx](../../../../packages/workbench/app/components/projects/ReconnectProjectForm.tsx)
+- [packages/workbench/server/managed-project-reconnection.mjs](../../../../packages/workbench/server/managed-project-reconnection.mjs)
+- [packages/workbench/shared/managed-project-reconnection.ts](../../../../packages/workbench/shared/managed-project-reconnection.ts)
+- [packages/workbench/actions/vivary-preview-managed-project-reconnection.ts](../../../../packages/workbench/actions/vivary-preview-managed-project-reconnection.ts)
+- [packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts](../../../../packages/workbench/actions/vivary-confirm-managed-project-reconnection.ts)
 
 ## M03: Conversations and continuity
 
@@ -140,6 +151,29 @@ Create, adopt and run the original Vivary commands.
 
 Vivary provides its original engine and narrow deterministic workspace operations. Explain whether a missing user capability is blocked by the harness, observed host state, authorization or an existing Vivary operation before proposing another tool.
 
+The desktop bundles Python and the original Vivary commands. The standalone CLI retains all ten verbs. The application adapter provides previews and evaluations. The tested `2885589` build passed hosted command checks and Linux New Project, Doctor, refusal and shutdown journeys. The Windows folder passed structural checks; actual Windows execution remains issue #8. [PR #44](https://github.com/vivary-dev/Vivary-New/pull/44) merged into `dev` with all seven final-head checks passing, and issue #7 closed. The [runtime receipt](../receipts/23a-bundled-original-runtime.md) records this evidence and its limits.
+
+PR #47 merged the shared new-folder creator path into dev. Issue #14 remains open for existing-folder apply. `plan_thin_workspace` previews exact target-bound file content. `apply_thin_workspace` rechecks the accepted hash, target, and options before greenfield writes. Only an exact completed inventory qualifies for a no-write retry. The managed bridge and reviewed CLI use that same plan.
+
+The earlier hosted candidate passed keyboard creation at 1440x900,
+normal-size cancellation, and phone preview/Cancel controls at 390x844. That
+viewport proof predates the PR #47 correction; the frontend output was
+unchanged. The correction assigns rollback ownership per attempt, runs
+read-only Doctor on exact retries, converts inspection errors to structured
+refusals, and marks `--reviewed` in sanitized receipts.
+
+The corrected bundled-Python and private hosted journeys matched five-file
+CLI/bridge/Native plans, refused wrong hashes without writes, created exact
+bytes, and repeated without changing files. Hosted Create selected the new
+project, `STATE.md` displayed formatted content and Edit/Rename controls,
+and the earlier conversation returned with panels closed and no model calls.
+The repeated registration kept project, binding, and policy while its attempt
+receipt advanced the registry revision. Six changed-inode saved folders
+required explicit reviewed reconnection; all 33 fixture file bytes remained
+unchanged. The cause of that host identity change is unknown. Existing-folder
+apply remains open under issues #14/#15. The later ed8812e bundled CLI passed
+Windows create/retry checks. Windows GUI execution is unrun, and PR #43 remains held.
+
 - Owns: Original workspace files, operation plans, policy results and receipts.
 - Calls: M02, M05, M06.
 - Replacement contract: Replace transport or packaging while retaining ten-verb behavior and receipt meanings.
@@ -150,12 +184,19 @@ Vivary provides its original engine and narrow deterministic workspace operation
 Current source or design entry points:
 
 - [packages/create-vivary](../../../../packages/create-vivary)
+- [packages/create-vivary/create_vivary.py](../../../../packages/create-vivary/create_vivary.py)
 - [packages/core](../../../../packages/core)
 - [packages/tropo](../../../../packages/tropo)
 - [packages/strato](../../../../packages/strato)
 - [packages/ozone](../../../../packages/ozone)
 - [packages/exo](../../../../packages/exo)
 - [packages/vivary](../../../../packages/vivary)
+- [packages/desktop/original-runtime.mjs](../../../../packages/desktop/original-runtime.mjs)
+- [packages/desktop/build-original-wheels.py](../../../../packages/desktop/build-original-wheels.py)
+- [packages/workbench/server/original-runtime.ts](../../../../packages/workbench/server/original-runtime.ts)
+- [packages/workbench/server/original-runtime-location.mjs](../../../../packages/workbench/server/original-runtime-location.mjs)
+- [packages/workbench/actions/vivary-original-command.ts](../../../../packages/workbench/actions/vivary-original-command.ts)
+- [packages/workbench/server/managed_project_workspace.py](../../../../packages/workbench/server/managed_project_workspace.py)
 
 ## M08: Search and file memory
 
@@ -178,7 +219,7 @@ Current source or design entry points:
 
 Inspect plans, dependencies and approved work.
 
-- Owns: Selected task source owns tasks. Native/local plan owner retains revisions and feedback.
+- Owns: Selected task source owns tasks. Native/local plan owner retains revisions and feedback. The creator's target-bound file-content plan governs one workspace effect; it does not become the task or project plan owner.
 - Calls: M02, M05, M06.
 - Replacement contract: Swap tracker or plan view while preserving external IDs and exact revision binding.
 - Conceptual request/result: ReadPlan / ProposeRevision / WriteTaskSource -> authoritative plan/task refs. Coordination binds exact revisions to existing approval and run refs.

@@ -131,7 +131,7 @@ The `files-desktop`, `files-phone`, and `workspace-desktop` images received visu
 2. Finish project/session binding under #6, including authorized legacy Native history and non-code conversations. Establish durable links without merging transcript stores.
 3. Implement the supported harness/model catalog and one-selection linked-conversation behavior. Verify exact-history access, context disclosure, failed switching and same-harness compatibility separately.
 4. Add the explicit handoff workflow and freshness checks over existing files and Native history references. Connect #9 restart/drafts and #21 scoped memory where they own the behavior.
-5. Complete surface integrations under their owners: #13 search, #31 supported preview/debugging, #30 responsive browser use, then #7/#8 packaged local acceptance. Do not wait for every future surface before testing the coherent shell.
+5. Complete surface integrations under their owners: #13 search, #31 supported preview/debugging, #30 responsive browser use, then #8 Windows GUI acceptance using the runtime delivered under #7. Do not wait for every future surface before testing the coherent shell.
 
 Each implementation unit gets focused checks and affected real hosted verification. Use independent review when its risk or complexity warrants it. Each PR still requires applicable CI and an independent approval under CONTRIBUTING.md before sequential merge. Refresh the private preview for completed application changes. No public release or main promotion follows from this design. Research does not close #38 or reopen completed #12 backend work merely to rename its acceptance.
 
@@ -153,4 +153,4 @@ Each implementation unit gets focused checks and affected real hosted verificati
 | Close all panels during work | Active work and Stop remain visible; no hidden execution or lost approval. |
 | Use a non-Git writing/research project | Plans and documents work normally; Git-specific controls explain absence only when relevant. |
 
-The first shell and integrated file, conversation, project-recovery, and panel journeys passed on the tested private hosted candidate. The acceptance evidence above defines that scope. The linked PR in issue #38 owns CI and merge status. No model ran, and no Windows artifact was tested. The supported harness catalog, cross-harness linking, handoff workflow, and concurrent runtime remain incomplete.
+The first shell and integrated file, conversation, project-recovery, and panel journeys passed on the tested private hosted candidate and merged in PR #42. The acceptance evidence above defines that scope. No model ran, and no Windows artifact was tested. The supported harness catalog, cross-harness linking, handoff workflow, and concurrent runtime remain incomplete.

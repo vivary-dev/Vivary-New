@@ -24,8 +24,8 @@ Run each guide with the published launchers.
 Use these commands:
 
 ```bash
-uvx create-vivary
-uvx --from vivary-tropo tropo
+uvx --from create-vivary==0.4.2 create-vivary
+uvx --from vivary-tropo==0.5.3 tropo
 ```
 
 The guide commands use these launchers.

@@ -45,10 +45,14 @@ needed by [issue #9](https://github.com/vivary-dev/Vivary-New/issues/9).
 ## Checks and limits
 
 The 91 affected tests, TypeScript, production build, 24 CI workflow tests, guide,
-planning, navigation, line-ending, and diff checks passed. Seven CI checks passed
-on `53a5fcdeb8aaed3b19ccc62ccc2be146ffee599a`. CI does not establish Native acceptance.
+planning, navigation, line-ending, and diff checks passed. All seven CI checks
+passed on the final PR head `ff3ae49d9a51dfeeaff7735797312001c16aad4c`.
+CI does not establish Native acceptance.
 
-The private preview runs that build. Native has no configured provider there.
+At the time of the isolated issue #6 fixture checks, the private preview ran
+candidate `53a5fcdeb8aaed3b19ccc62ccc2be146ffee599a` without a configured
+Native provider. The later [issue #7 receipt](23a-bundled-original-runtime.md)
+records the refreshed preview composition.
 The isolated responder proves application behavior, not an actual hosted Native
 model run. All disposable fixture processes stopped. No credentials or user files
 were copied. Windows product acceptance remains under issue #8.

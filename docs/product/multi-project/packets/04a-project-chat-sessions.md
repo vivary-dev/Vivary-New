@@ -18,6 +18,12 @@ same project after navigation and reopening.
 
 ## Context
 
+The official Core 0.179.0 package was inspected on 2026-09-15 and retains the
+saved-head/composer defects. An upgrade alone does not close this issue. Public
+AssistantChat/useChatThreads composition is an investigation path. A client-only
+save queue does not order concurrent server or other-client writes. Keep the
+Native store and require the actual two-project journey before accepting a repair.
+
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
 Code runs bind project, root, binding and owner. The issue #6 implementation

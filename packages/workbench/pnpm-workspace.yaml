@@ -1,0 +1,4 @@
+# Native's local database needs the locked SQLite native module.
+# https://pnpm.io/10.x/settings#allowbuilds
+allowBuilds:
+  better-sqlite3@12.11.1: true

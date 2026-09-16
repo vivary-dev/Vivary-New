@@ -18,6 +18,7 @@ installed-platform matrix.
 Build with the pinned dependencies, then start the application:
 
 ```console
+pnpm --dir packages/workbench install --frozen-lockfile
 pnpm --dir packages/workbench build
 pnpm --dir packages/workbench start
 ```
@@ -49,9 +50,12 @@ restore an older saved value over an unsaved choice.
 Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
-Agent uses the user's local Claude Code or Codex installation and account.
-Full chat uses Native's configured model providers. Model access is separate
-from opening Vivary; changing providers does not require a Vivary login.
+Code conversations use the user's local Claude Code or Codex installation and
+account. Native conversations use Native's configured providers. Both appear
+inside the same workspace. Model access is separate from opening Vivary.
+Changing providers does not require a Vivary login.
+The accepted harness catalog will display adapter-reported models and capabilities.
+It remains planned. Vivary does not require a second general tool-selection setup.
 
 Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
 workspace-write permission policy and can run commands. Runtime permissions
@@ -72,9 +76,16 @@ registers and selects that project. Cancel writes nothing. Existing files and
 unavailable folder grants are preserved. Browser startup can also connect its
 initial folder with `--workspace`.
 
-Selecting a project selects its working directory, Code history, and file
-inspector. Personal workspace opens the app's default folder. Native owns the
-actual runs and transcripts. The app supports a rich composer, model choice,
+The canonical `/` workspace keeps the selected conversation in the center.
+Project details, files, and page preview open only when requested. Panels can
+resize, close, reopen, and expand for focused work. The old Agent, Files,
+Workbench, and Full chat URLs redirect to this workspace.
+
+Selecting a project selects its working directory, Code history, and files.
+Personal workspace opens the app's default folder. Native owns the actual runs
+and transcripts. Project-bound Native history in PR #43 remains held for saved-head
+and composer-gating defects. A passing Code conversation does not prove that
+Native acceptance. The runtime admits one active Code request at a time. The app supports a rich composer, model choice,
 tool output, follow-ups, visible history, and Stop. The active-run control stays
 available in Settings and when a project folder becomes unavailable.
 
@@ -126,14 +137,26 @@ cleanup of the owned worker processes. Unverified cleanup blocks further
 admission, including after restart. Native CLI permission and containment
 capabilities still apply to its tools.
 
-The current inspector displays Markdown, text, and JSON files up to 64 KiB.
-A complete editor, recovery for relocated folders, factory orchestration, and
-the full installed-platform matrix remain unfinished.
+Open **Files** to browse the project tree and select a file. Markdown opens as
+formatted content. Text and source files open for reading. Choose **Edit** to
+change text, **Save** to write it, or **Rename** to change its name. Saving checks
+the disk version and preserves the draft when a conflict or failure needs recovery.
+Binary or unsupported files and files beyond the bounded size limit are refused.
+Viewing a file does not send its content to a model.
+
+**Review connection** can recover one recorded managed-folder binding after an
+explicit review. Cancel changes nothing. It does not relocate a folder or grant
+an arbitrary path. External-folder relocation, full existing-folder setup, file
+search, factory orchestration, and Windows GUI acceptance remain unfinished.
 
 ## Development preview
 
-Zo is the current implementation and private preview host. It is not a product
-dependency. The optional `bin/serve-preview.sh` launcher serves the same app
+Zo is the implementation and private preview host. It is not a product
+dependency. Before testing, identify the served source and any held PR composition.
+Refresh it only at an authorized idle point, preserving its command, private access,
+and data. A source merge alone does not update a running build. Recheck folder
+availability after refresh. An unavailable project keeps history and offers reviewed
+recovery. Never replace its grant silently to make a preview appear healthy. The optional `bin/serve-preview.sh` launcher serves the same app
 through the existing private Zo proxy and requires `PORT`,
 `VIVARY_DATA_DIR`, the exact external HTTPS `APP_URL`, and
 `VIVARY_TRUSTED_PROXY=zo-owner-only`. Keep that service private.

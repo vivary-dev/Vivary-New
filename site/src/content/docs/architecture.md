@@ -4,7 +4,10 @@ description: "The four-layer model and the principles behind Vivary."
 editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/ARCHITECTURE.md"
 ---
 
-This page explains how Vivary is put together and why. It's the deep version; for the
+This page describes the original command-line engine and its Python packages.
+For the desktop and self-hosted application, read the [product design](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md)
+and [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md).
+For the
 plain-language overview, read [Concepts](/concepts/) first.
 
 ## 1. What Vivary is

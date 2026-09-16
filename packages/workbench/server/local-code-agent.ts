@@ -763,14 +763,12 @@ export function isVivaryAppRun(
 
 function isVivaryProjectHistoryRun(
   run: Pick<CodeAgentRunRecord, "goalId" | "metadata">,
-  project: VivaryCodeProjectHistory,
+  project: Pick<VivaryCodeProjectHistory, "projectId" | "bindingId">,
 ): boolean {
   return run.goalId === VIVARY_CODE_GOAL_ID
     && metadataString(run, "app") === VIVARY_CODE_APP_MARKER
     && metadataString(run, "projectId") === project.projectId
-    && metadataString(run, "bindingId") === project.bindingId
-    && metadataString(run, "rootId") === project.rootId
-    && metadataNumber(run, "bindingRevision") === project.bindingRevision;
+    && metadataString(run, "bindingId") === project.bindingId;
 }
 
 function isOwnedRun(
@@ -779,8 +777,17 @@ function isOwnedRun(
   orgId: string | undefined,
   scope: VivaryCodeReadScope,
 ): boolean {
+  // Reconnection changes the local root epoch, not the saved conversation.
+  // Approval still checks the newly staged workspace tuple with sameWorkspace.
   const belongsToScope = "root" in scope
-    ? isVivaryAppRun(run, scope)
+    ? scope.projectId && scope.bindingId
+      ? run.cwd === scope.root
+        && metadataString(run, "workspaceRoot") === scope.root
+        && isVivaryProjectHistoryRun(run, {
+          projectId: scope.projectId,
+          bindingId: scope.bindingId,
+        })
+      : isVivaryAppRun(run, scope)
     : isVivaryProjectHistoryRun(run, scope);
   return belongsToScope && isOwnedIdentity(run, ownerEmail, orgId);
 }

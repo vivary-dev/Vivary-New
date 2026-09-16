@@ -3,6 +3,7 @@ import type { CatalogResult, RegistrationResult } from "../app/lib/project-catal
 
 export type LocalProjectWorkspace = Readonly<{
   root: string;
+  actorId: string;
   label: string;
   projectId: string;
   bindingId: string;
