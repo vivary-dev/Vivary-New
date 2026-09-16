@@ -80,8 +80,8 @@ Store derived indexes in private application data, keyed by stable project ident
 | --- | --- | --- |
 | Desktop | Electron, bundled Node and Python, loopback launcher, native folder chooser | Prove the current app on Windows |
 | Agent loop | Native Code execution, file tools, Stop, stored normalized transcripts | Supported provider session persistence/resume and external log references |
-| Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Native project/session acceptance and existing-folder apply/adoption |
-| History | Retained Code transcripts, Native storage, and one central workspace | PR #43 Native persistence/composer repair, pagination, content search, and restart drafts |
+| Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
+| History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
 | Files | Tree navigation, formatted reading, explicit Edit/Save/Rename, conflict recovery | Exact file search and broader file capabilities under their owning issues |
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
@@ -92,8 +92,9 @@ with spaces and Unicode. The Electron GUI remains unverified. PR #48 corrected
 the hosted sidebar edge after production build, real UI checks, independent review,
 and an owner-approved Zo Linux CI run. The Windows archive predates that CSS fix.
 
-The private preview retains PR #43's held conversation composition. Its Native
-saved-head and composer failures remain open. Earlier failure receipts are dated
+The private preview includes PR #43's maintained Native repair. Its saved-head
+and composer journeys pass. Legacy bookmarks and Native history controls also
+pass. PR #43 records the owner-approved Zo CI and integration result. Earlier failure receipts are dated
 evidence, not the current source or release status. Recheck folder availability
 before each hosted journey. Previous successful bindings can become unavailable.
 
@@ -120,7 +121,7 @@ its accepted behavior is verified and its reviewed PR is merged.
 | --- | --- | --- | --- |
 | 1 | Reliable state | [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md) · [#5](https://github.com/vivary-dev/Vivary-New/issues/5) | Done |
 | 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | First shell merged; remaining integrations follow the accepted specification |
-| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | PR #43 held for Native persistence and composer fixes |
+| 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Done. Verified Native repair, legacy bookmarks, and history controls. PR #43 records integration |
 | 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Done: PR #44 merged into dev and issue closed. The governed original-command app adapter remains preview-only for create/adopt. The managed greenfield New Project path passed #14 bundled/hosted checks. Existing-folder apply is #14/#15. Actual Windows execution is #8 |
 | 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
 | 6 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a, 06g |

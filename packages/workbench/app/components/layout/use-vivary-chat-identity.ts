@@ -1,25 +1,26 @@
-import { useSession } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
-import { useMemo } from "react";
-import { vivaryChatScope } from "@/lib/chat-scope";
+import { useQuery } from "@tanstack/react-query";
+import { useProjects } from "../projects/ProjectContext";
+import type { VivaryChatIdentity } from "@/lib/chat-scope";
 
-export function useVivaryChatIdentity() {
+export function useVivaryChatIdentity(kind: "project" | "unassigned" = "project") {
   const { session, status } = useSession();
-  const orgQuery = useOrg();
-  return useMemo(() => {
-    if (
-      status !== "authenticated" ||
-      !session ||
-      !orgQuery.isSuccess ||
-      !orgQuery.data
-    )
-      return null;
-    const email = session.email.trim().toLowerCase();
-    const orgEmail = orgQuery.data.email.trim().toLowerCase();
-    const orgId = orgQuery.data.orgId?.trim() ?? "";
-    const scope = vivaryChatScope(orgId);
-    if (!email || email !== orgEmail || !scope) return null;
-    const namespace = encodeURIComponent(JSON.stringify([email, orgId]));
-    return { scope, storageKey: `vivary-workbench-chat-v1:${namespace}` };
-  }, [status, session, orgQuery.isSuccess, orgQuery.data]);
+  const org = useOrg();
+  const { activeProject, historyAvailable, checking } = useProjects();
+  const projectId = activeProject?.projectId ?? null;
+  const owner = session?.email.trim().toLowerCase();
+  const authenticated = status === "authenticated" && Boolean(owner)
+    && org.isSuccess && owner === org.data?.email.trim().toLowerCase();
+  const enabled = authenticated && (kind === "unassigned" || (historyAvailable && !checking));
+  const input = kind === "unassigned" ? { kind } : { kind, projectId: projectId ?? undefined };
+  // Scope the cache by the authenticated actor too; the server derives the actual identity.
+  const query = useQuery({
+    queryKey: ["action", "vivary-chat-identity", owner, org.data?.orgId, input],
+    queryFn: ({ signal }) => callAction<VivaryChatIdentity>("vivary-chat-identity", input, { method: "GET", signal }),
+    enabled, retry: false,
+  });
+  const identity = enabled && query.data?.kind === kind
+    && (kind === "unassigned" || query.data.projectId === projectId) ? query.data : null;
+  return { ...query, identity, waiting: status === "loading" || org.isPending || (enabled && query.isPending) };
 }

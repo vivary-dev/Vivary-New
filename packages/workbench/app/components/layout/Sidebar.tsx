@@ -3,7 +3,7 @@ import { IconLayoutSidebarLeftCollapse, IconSearch, IconSettings } from "@tabler
 import { Link } from "react-router";
 import { useProjects } from "../projects/ProjectContext";
 import { ProjectNavigation } from "../projects/ProjectNavigation";
-import { CodeHistory } from "./CodeHistory";
+import { ProjectHistory } from "./ProjectHistory";
 import { ChatHistory } from "./ChatHistory";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 
@@ -14,7 +14,7 @@ type SidebarProps = {
 };
 
 export function Sidebar({ collapsible = true, onCollapsedChange }: SidebarProps) {
-  const identity = useVivaryChatIdentity();
+  const { identity } = useVivaryChatIdentity("unassigned");
   const { activeProject } = useProjects();
   return <aside className="vivary-sidebar flex h-full min-w-0 flex-col overflow-hidden" aria-label="Projects and conversations">
     <div className="vivary-sidebar-brand">
@@ -29,11 +29,11 @@ export function Sidebar({ collapsible = true, onCollapsedChange }: SidebarProps)
       <div className="vivary-project-navigation"><ProjectNavigation /></div>
       <section className="workspace-project-conversations">
         <h2>{activeProject?.displayName ?? "Personal workspace"} conversations</h2>
-        <CodeHistory />
+        <ProjectHistory />
       </section>
       {identity && <details className="workspace-saved-conversations">
-        <summary>Other saved conversations</summary>
-        <p>Earlier workspace conversations keep their original history.</p>
+        <summary>Unassigned conversations</summary>
+        <p>Earlier chats keep their original history and are not assigned to a project.</p>
         <ChatHistory key={identity.storageKey} identity={identity} />
       </details>}
     </div>

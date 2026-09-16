@@ -65,7 +65,7 @@ type PendingLaunch = {
 
 export type VivaryCodeRunSummary = Pick<
   CodeAgentRunRecord,
-  "id" | "status" | "title"
+  "id" | "status" | "title" | "updatedAt"
 > & {
   engine: VivaryCodeEngine;
   engineLabel: string;
@@ -926,6 +926,7 @@ function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
     id: run.id,
     status: activeRuns.has(run.id) && !isActiveCodeAgentRun(run) ? "running" : run.status,
     title: run.title,
+    updatedAt: run.updatedAt,
     engine: engineFromRun(run),
     engineLabel: engineLabelFromRun(run),
     model: modelFromRun(run),

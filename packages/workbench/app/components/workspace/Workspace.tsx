@@ -23,6 +23,7 @@ export function Workspace() {
   const location = useLocation();
   const navigate = useNavigate();
   const native = params.get("runtime") === "native";
+  const unassigned = native && params.get("history") === "unassigned";
   const opened = surface(params.get("panel"));
   const narrow = useNarrowLayout();
   const [maximized, setMaximized] = useState(false);
@@ -81,7 +82,7 @@ export function Workspace() {
       setMaximized(false);
       setParams(current => {
         const next = new URLSearchParams(current);
-        next.delete("panel"); next.delete("path"); next.delete("project"); next.delete("runtime"); next.delete("thread");
+        next.delete("panel"); next.delete("path"); next.delete("project"); next.delete("runtime"); next.delete("thread"); next.delete("history");
         next.delete("run"); next.delete("draft");
         return next;
       }, { replace: true });
@@ -102,8 +103,8 @@ export function Workspace() {
   return <section className="workspace-page" aria-label="Project workspace">
     <header className="workspace-header">
       <div className="workspace-identity">
-        <h1>{checking ? "Opening project" : native ? "Saved workspace conversations" : activeProject?.displayName ?? "Personal workspace"}</h1>
-        <p>{native ? "Saved workspace conversation" : "Project conversation"} / Connected host</p>
+        <h1>{checking ? "Opening project" : unassigned ? "Unassigned conversations" : activeProject?.displayName ?? "Personal workspace"}</h1>
+        <p>{unassigned ? "No project assigned" : native ? "Native chat" : "Project conversation"} / Connected host</p>
       </div>
       <div className="workspace-tools">
         <Button ref={detailsTrigger} size="sm" variant={opened === "details" ? "secondary" : "ghost"} aria-label="Project details"
