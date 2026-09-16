@@ -19,6 +19,9 @@ export type CodexModelCatalog =
   | { status: "unavailable"; message: string };
 const unavailable = (): CodexModelCatalog => ({ status: "unavailable",
   message: "Codex could not report its subscription models. Check Codex in your terminal, then refresh Runtime settings." });
+const cleanupUnavailable = (): CodexModelCatalog => ({ status: "unavailable",
+  message: "Vivary could not confirm that Codex stopped after checking models. Restart Vivary before trying again.",
+});
 let cleanupBlocked = false;
 const cache = new Map<string, { expiresAt: number; value: CodexModelCatalog }>();
 const pending = new Map<string, Promise<CodexModelCatalog>>();
@@ -67,7 +70,7 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
 
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
 export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs = 12_000): Promise<CodexModelCatalog> {
-  if (cleanupBlocked) return Promise.resolve(unavailable());
+  if (cleanupBlocked) return Promise.resolve(cleanupUnavailable());
   return new Promise(resolve => {
     const child = spawn(launch.executable, [...launch.prefix, "app-server", "--listen", "stdio://"], {
       cwd, env: launch.env, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "ignore"],
@@ -93,7 +96,7 @@ export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs =
             try { await hardStopWorkerTree(child, false); }
             catch (error) {
               // Codex may finish normally while Windows starts taskkill.
-              if (!didClose || child.exitCode !== 0) throw error;
+              if (!await waitClosed(3_000) || child.exitCode !== 0) throw error;
             }
           }
           if (!await waitClosed(3_000)) throw new Error("Codex discovery did not stop.");
@@ -101,11 +104,13 @@ export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs =
         if (process.platform !== "win32") await hardStopWorkerTree(child, true);
       } catch {
         cleanupBlocked = true;
-        value = unavailable();
+        value = cleanupUnavailable();
       }
       resolve(value);
     };
-    const timer = setTimeout(() => finish(unavailable()), timeoutMs);
+    const timer = setTimeout(() => finish({ status: "unavailable",
+      message: "Codex took too long to report its models. Refresh Runtime settings and try again.",
+    }), timeoutMs);
     const send = (message: unknown) => { if (!complete) child.stdin.write(JSON.stringify(message) + "\n"); };
     child.once("error", () => finish(unavailable()));
     child.once("close", () => { void finish(unavailable()); });
