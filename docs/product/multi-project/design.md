@@ -477,8 +477,10 @@ disciplined work process usable without programming expertise.
 The owner clarified that Vivary is a tool for accomplishing real work, not an
 educational product. The GUI directs work and presents results and decisions.
 Do not add lessons, tutorials, or teaching flows from this accessibility goal.
-Existing Claude Code and Codex subscriptions are an intended connection journey.
-The desired action is one button to connect an existing coding agent.
+Existing Claude Code and Codex subscriptions are supported by the current Code
+runtime path. PR #59 verifies the bounded Codex prototype; see the
+[acceptance register](desktop-acceptance-status.md) for exact platform and artifact
+coverage. A simpler one-button connection journey remains a product goal.
 
 Preserve GUI-first and headless-capable use, runtime choice, and the complete agreed
 scope. Show the task, changed result, passing and failing checks, and required

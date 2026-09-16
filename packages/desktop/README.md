@@ -11,7 +11,7 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-Checkpoint: 2026-09-16. The current private Windows x64 candidate is built from
+Checkpoint: 2026-09-16. The published private Windows x64 preview is built from
 `26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. The unsigned portable archive is
 available as a [private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16)
 to people with repository access. It is incomplete and is not ready for public
@@ -28,12 +28,21 @@ observed process on close. See the register for the exact evidence split.
 
 Windows acceptance fixed five concrete defects: long cache paths in the Python stage,
 generic invalid-rename errors, hidden project-name rules, first-run Usage table setup,
-and a Code model control that routed CLI aliases into Native provider setup. The Code
-composer now displays the effective CLI identity as read-only text and leaves runtime
-setup in Settings.
+and a Code model control that routed CLI aliases into Native provider setup. In that published preview, the Code
+composer displays the effective CLI identity as read-only text and leaves runtime
+setup in Settings. Current source adds explicit runtime and native model selection.
 
-This does not establish public release readiness. Codex can report Ready but cannot
-be selected for a new Code conversation. Real Native-provider turns, automation
+That published preview reports Codex readiness but cannot select it for a new Code
+conversation. Current source includes PR #59's merged Codex integration. Separate
+Windows prototypes through `98515c9` verified runtime/model selection, subscription
+file tools, configured MCP, actual subagent output, native-session follow-ups,
+a command beyond two minutes, action approvals, permission modes, Stop, restart,
+and cleanup across the recorded journeys. The final retest covered the corrected
+approval display and persistence; it did not repeat every earlier journey. See the
+[Workbench integration record](../workbench/README.md) and acceptance register for
+the evidence split. The published archive has not been replaced by these prototypes.
+
+This does not establish public release readiness. Real Native-provider turns, automation
 execution, clean-profile setup, full populated-folder adoption, search, memory,
 responsive self-hosted access, integrated preview/debugging, upgrade/removal behavior,
 and release approval remain unaccepted. A portable archive satisfies the current
@@ -217,6 +226,7 @@ nested destination before the application starts.
 
 Windows users need their own installed and signed-in coding CLI. The package does
 not include credentials. Explorer launch, Claude Code discovery, a bounded real file
-turn, restart persistence, and active cleanup passed on the tested candidate. Codex
-selection/execution, clean-profile setup, upgrade/removal behavior, and the complete
-release journey remain open before this becomes a supported release.
+turn, restart persistence, and active cleanup passed on the published preview.
+Codex selection and execution have separate prototype evidence above. Clean-profile
+setup, upgrade/removal behavior, and the complete release journey remain open before
+this becomes a supported release.
