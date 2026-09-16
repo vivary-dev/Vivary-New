@@ -182,7 +182,8 @@ errors. The receipt is `native-ui-fixture-20260916T174242/receipt.json` under
 The private preview was refreshed to `98515c9` output. Unauthenticated actions
 still returned 401, and unauthenticated external access redirected with 302.
 [Draft PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) is unmerged.
-Its CI jobs never started because of billing. Local verification is not a CI pass.
+GitHub CI jobs never started because of billing. Zo is the approved CI host.
+The PR records the exact commit and results of the applicable Zo CI checks.
 
 The `2f4a5df` production build passed on Zo. All 70 focused Codex, runtime,
 approval, transcript, and lifecycle tests passed, with no failures or skips.

@@ -17,11 +17,13 @@ repository retains its release workflow and is a separate delivery target.
   (`entire`). Source mirroring does not establish agent-session capture.
 
 Before merging, resolve review findings and require passing applicable CI plus
-one independent approval. When the CI service cannot start, record that failure
-separately from test failures. An owner-approved alternative host may run the
-applicable checks against the exact PR commit. Record executed checks, omissions,
-and review evidence under a distinct result. Do not relabel an unrun Actions or
-Windows job as successful. Promotion to `main` also needs Jeff's acceptance of
+one independent approval. Zo is the standing owner-approved CI host. Run the
+applicable workflow commands and gates on Zo against the exact PR commit. GitHub
+Actions billing or runner failures do not block this verification path. Record
+executed checks, omissions, logs, and review evidence as Zo CI. Keep GitHub service
+failures separate from test failures. Do not relabel an unrun Actions or Windows
+job as successful. Passing applicable Zo CI satisfies the CI gate, subject to the
+same independent review and product acceptance requirements. Promotion to `main` also needs Jeff's acceptance of
 the delivered product milestone. This does not authorize a public release.
 
 On 2026-09-13, GitHub refused branch-protection configuration for this private
