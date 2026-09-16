@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 // Load the real executor with only its external stores and providers replaced.
 const workbench = fileURLToPath(new URL("../", import.meta.url));
+// guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
 const core = process.env.VIVARY_CORE_TEST_ROOT
   ?? path.join(workbench, "node_modules/@agent-native/core");
 const executorSource = await readFile(path.join(core, "dist/cli/code-agent-executor.js"), "utf8");
@@ -29,9 +30,12 @@ let prompt = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", value => { prompt += value; });
 process.stdin.on("end", () => {
+  // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
   writeFileSync(process.env.FIXTURE_RECEIPT, JSON.stringify({args, prompt, pid:process.pid, cwd:process.cwd(), marker:process.env.FIXTURE_MARKER}));
   process.stdout.write(JSON.stringify({type:"thread.started",thread_id:"019a1234-abcd-7123-abcd-0123456789ab"}) + "\\n");
+  // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
   if (process.env.FIXTURE_MODE === "wait") { setInterval(() => {}, 1000); return; }
+  // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
   if (process.env.FIXTURE_MODE === "fail") { process.stderr.write("fixture failure"); process.exitCode = 1; return; }
   writeFileSync(output, "Fixture completed.");
   process.stdout.write(JSON.stringify({type:"item.completed",item:{type:"command_execution",id:"tool-1",command:"read fixture",aggregated_output:"read result",exit_code:0}}));
@@ -174,6 +178,7 @@ test("abort stops the Codex child and removes temporary output", { timeout: 10_0
 });
 
 test("installed Codex resolves bounded permissions over extra roots and profiles", {
+  // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
   skip: !process.env.VIVARY_CODEX_POLICY_PROBE,
   timeout: 30_000,
 }, async t => {
@@ -186,6 +191,7 @@ test("installed Codex resolves bounded permissions over extra roots and profiles
   for (const config of configs) {
     await writeFile(path.join(directory, "config.toml"), config);
     const { stdout, stderr, code } = await new Promise((resolve, reject) => {
+      // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
       const child = spawnProcess(process.env.VIVARY_CODEX_POLICY_PROBE, [
         "--ask-for-approval", "never", "--sandbox", "workspace-write", "--cd", directory,
         "-c", "sandbox_workspace_write.writable_roots=[]",
