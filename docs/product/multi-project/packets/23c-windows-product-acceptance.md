@@ -65,6 +65,8 @@ evidence, or publish/sign without the specific authority. Preserve user files an
 
 ## Log
 
+- 2026-09-16: The private `26798df` Windows candidate passed focused extraction, launch, bundled-runtime, project, file, Claude Code, restart, second-instance, and cleanup checks. See the [desktop acceptance register](../desktop-acceptance-status.md). This does not close the live issue or establish public release readiness.
+
 - 2026-09-13: Drafted. No current artifact satisfies the complete Windows release target.
 
 ## Shared desktop and web behavior

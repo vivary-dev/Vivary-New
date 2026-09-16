@@ -208,8 +208,13 @@ are even named for the layers of the sky.
 # Getting started with Vivary
 
 This page installs the original command-line engine. For the unreleased desktop
-app, use [Workbench source setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source)
-and the [desktop acceptance record](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#current-acceptance).
+app, first read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
+then use [Workbench source setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source)
+or [desktop development and packaging](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development).
+The private Windows candidate is tested, but no desktop package is publicly released.
+Real Native-provider acceptance is tracked in [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50),
+automation execution and recovery in [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51),
+and selectable Codex/model behavior in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and
@@ -6405,7 +6410,7 @@ Work out which packages actually changed, then bump only those:
 | `packages/mcp/vivary_mcp.py` or its tests | `vivary-mcp` — keep it optional and off by default; preserve the exact reviewed MCP SDK pin | MCP guide, package README, Tropo floor |
 | `packages/core/` modules or tests | `vivary-core` — bump the version and publish it in the next coordinated train, always before every dependent role package | ARCHITECTURE seam section, ORIGINAL-CLI package row |
 | dependency floors in `packages/vivary/pyproject.toml` | `vivary` (meta) — bump its floors and patch version when component minimums move | ORIGINAL-CLI release table |
-| `docs/`, `site/`, root README only | **no package bump** — site redeploys from `dev` via Vercel automatically | keep docs/site sync (step 3) |
+| `docs/`, `site/`, root README only | **no package bump** | keep docs/site sync (step 3); only the original public repository's configured Vercel project redeploys from its `dev` branch |
 | repo CI / stats / tests only | no bump, no site work | — |
 
 Bump rules (semver-ish, pre-1.0):
@@ -6492,8 +6497,9 @@ git diff --exit-code -- src/content/docs public/llms.txt public/llms-full.txt
 Commit the regenerated `site/src/content/docs/*` with the source docs — CI's
 site build and the graph review gate both expect them to match. (`sync-docs`
 is dependency-free; plain `node scripts/sync-docs.mjs` works without
-`npm install`.) The live site redeploys from `dev` on merge via Vercel — there
-is no separate site publish step, but the copy only updates if you committed it.
+`npm install`.) In the original public repository, its configured Vercel project
+redeploys from `dev` on merge. This private Vivary-New repository has no deployment
+hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate
 
@@ -6729,8 +6735,9 @@ dump).
 
 ## 9. After the release
 
-- Confirm the live site (https://vivary.vercel.app/) shows the new versions and
-  command surface — it deploys from `dev`, so this is a read-check, not a step.
+- For a release in the original public repository, confirm the live site
+  (https://vivary.vercel.app/) shows the new versions and command surface. This is a
+  read-check for that repository's configured deployment, not a Vivary-New merge step.
 - Stats: the daily `track-stats` workflow picks up the new versions. Every stats PR
   receives exact-head CI, while only warning-free, non-stale output may request
   auto-merge or supersede an older proposal. Stale output stays open as `blocked` for
@@ -7212,6 +7219,27 @@ the `v0.1.0` line.
 **0.3.1** · `vivary-exo` **0.3.0** · `vivary` **0.1.10** · optional
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
+
+## [Unreleased: Private Windows desktop integration] - 2026-09-16
+
+No package version or registry artifact changes. The private Windows candidate now
+includes reliable portable extraction, clear filename and project-name validation,
+fresh Usage initialization, and truthful CLI runtime identity without Native provider
+fallback. Focused Windows acceptance covered launch, bundled runtimes, managed project
+creation, project files, a real approved Claude Code turn, restart continuity,
+second-instance reuse, and complete owned-process cleanup.
+
+The desktop remains unreleased. Codex selection/execution, real Native-provider turns,
+automation execution, clean-profile setup, populated-folder adoption, search, memory,
+self-hosted phone access, integrated debugging, signing, installation, and upgrades
+remain outside this acceptance. See the
+[desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md).
+
+### Verification
+
+The exact private artifact and affected hosted UI passed independent source and
+artifact review plus focused Windows testing. No public registry, installer, release,
+or remote CI result is claimed.
 
 ## [Unreleased: Workspace role repair] - 2026-09-13
 

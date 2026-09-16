@@ -76,10 +76,12 @@ Store derived indexes in private application data, keyed by stable project ident
 
 ## What exists and what is missing
 
+See the [current desktop acceptance register](desktop-acceptance-status.md) for the tested artifact, fixed defects, and explicit proof gaps.
+
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
-| Desktop | Electron, bundled Node and Python, loopback launcher, native folder chooser | Prove the current app on Windows |
-| Agent loop | Native Code execution, file tools, Stop, stored normalized transcripts | Supported provider session persistence/resume and external log references |
+| Desktop | Windows candidate passed Explorer extraction/launch, bundled runtimes, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, installer/signing, upgrades/removal, and final release acceptance |
+| Agent loop | Real approved Claude Code file turn, follow-up, approvals, Stop, stored transcripts, and visible runtime identity | Selectable Codex execution, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -87,10 +89,11 @@ Store derived indexes in private application data, keyed by stable project ident
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
 | Original Vivary | Bundled ten-verb standalone CLI and bounded preview/evaluation app adapter | The shared greenfield creator path passed bundled and hosted checks in #14; existing-folder apply remains open under #14/#15 |
 
-Checkpoint, 2026-09-15: the ed8812e bundled CLI passed Windows preview/create/retry
-with spaces and Unicode. The Electron GUI remains unverified. PR #48 corrected
-the hosted sidebar edge after production build, real UI checks, independent review,
-and an owner-approved Zo Linux CI run. The Windows archive predates that CSS fix.
+Checkpoint, 2026-09-16: the private `26798df` Windows candidate passed the
+focused desktop journeys summarized in the [acceptance register](desktop-acceptance-status.md),
+including a real approved Claude Code file turn and complete process cleanup. This is
+not the final product journey or a public release. Codex selection, real Native-provider
+turns, automations, clean-profile setup, and the remaining table entries stay open.
 
 The private preview includes PR #43's maintained Native repair. Its saved-head
 and composer journeys pass. Legacy bookmarks and Native history controls also
@@ -123,7 +126,7 @@ its accepted behavior is verified and its reviewed PR is merged.
 | 2 | Unified project workspace | [Interaction contract](unified-workspace.md) · [#38](https://github.com/vivary-dev/Vivary-New/issues/38) | First shell merged; remaining integrations follow the accepted specification |
 | 3 | Project sessions | [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md) · [#6](https://github.com/vivary-dev/Vivary-New/issues/6) | Done. Verified Native repair, legacy bookmarks, and history controls. PR #43 records integration |
 | 4 | Bundled runtime | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) · [#7](https://github.com/vivary-dev/Vivary-New/issues/7) | Done: PR #44 merged into dev and issue closed. The governed original-command app adapter remains preview-only for create/adopt. The managed greenfield New Project path passed #14 bundled/hosted checks. Existing-folder apply is #14/#15. Actual Windows execution is #8 |
-| 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | After 23a |
+| 5 | Early Windows check | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) · [#8](https://github.com/vivary-dev/Vivary-New/issues/8) | Private candidate passed focused Windows acceptance; issue lifecycle and integration remain with GitHub |
 | 6 | Session continuity | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) · [#9](https://github.com/vivary-dev/Vivary-New/issues/9) | After 04a, 06g |
 | 7 | Native session logs | [04c: Retain provider sessions outside project folders](packets/04c-native-provider-session-logs.md) · [#10](https://github.com/vivary-dev/Vivary-New/issues/10) | After 04a |
 | 8 | Searchable chats | [04b: Search the contents of project chat sessions](packets/04b-search-chat-content.md) · [#11](https://github.com/vivary-dev/Vivary-New/issues/11) | After 04a |
@@ -147,6 +150,12 @@ its accepted behavior is verified and its reviewed PR is merged.
 approval and denial for background agent work to final product acceptance.
 It is required in the desktop and self-hosted web milestone. Each approved turn
 must remain visible and reopenable after browser navigation.
+
+[Issue #50](https://github.com/vivary-dev/Vivary-New/issues/50) owns real Native-provider
+access and real-provider turns in the packaged Windows app. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
+owns automation creation, execution, restart recovery, and lifecycle acceptance and is
+blocked on #50. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
+the harness-owned model catalog and selectable Codex tool acceptance.
 
 The first Windows launch check happens before final acceptance, so platform
 failures are discovered while product implementation continues. The final release

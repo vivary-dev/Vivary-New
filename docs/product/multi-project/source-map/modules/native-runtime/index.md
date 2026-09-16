@@ -41,13 +41,17 @@ how work is claimed and verified; it is not the native runtime behavior contract
 
 ## Current integration and remaining gaps
 
-The canonical Workbench now has a working Native Code path in
+The canonical Workbench has a working Native Code path in
 `packages/workbench/server/local-code-agent.ts` and the Code execution host/worker.
-It reuses Native Code run/transcript records. The private Claude file-tool and
-follow-up evidence is routed from the [Native owner inventory](../../../native-owners.md).
-Generic harness discovery, native resume, linked conversations and the complete
-runtime contract remain unaccepted. Existing follow-ups use bounded text replay.
+It reuses Native Code run/transcript records. The tested Windows candidate completed
+a real approved Claude Code file turn, follow-up, Stop, restart, and cleanup. The Code
+composer exposes read-only runtime identity and deliberately omits Native's provider
+picker. Codex readiness discovery is implemented, but user selection and packaged
+Codex execution are not accepted.
 
-The [adapter specification](../../../specification/harness-adapters.md) identifies
-the current owners and intended generic Native seam. These implementation paths
-do not establish every outcome 04/10 requirement or Windows acceptance.
+Project-bound Native storage and deterministic-provider journeys are implemented.
+They do not establish access to a real Native provider, real-provider Native turns,
+or automation execution. The [adapter specification](../../../specification/harness-adapters.md)
+identifies the intended generic seam. Linked conversations, broader resume, concurrent
+execution, model switching, and the complete outcome 04/10 contract remain open.
+See the [desktop acceptance register](../../../desktop-acceptance-status.md).

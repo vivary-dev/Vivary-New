@@ -42,18 +42,18 @@ and authentication. Provider accounts are separate.
 
 ## Release status
 
-**In development. A complete, accepted Windows release is not available yet.**
+**In development. The tested Windows candidate is not a public release.**
 
-| Available in the prototype | Still required for release |
+| Verified in the private Windows candidate | Still required for release |
 | --- | --- |
-| One unified workspace, multiple saved Code conversations, optional panels, saved selection and appearance | Reliable Native project sessions and draft restoration across restarts |
-| File navigation, formatted reading, explicit Edit/Save/Rename, and conflict recovery | File and conversation search, scoped memory, and complete workspace operations |
-| Electron with bundled Node/Python and the original ten-verb command runtime | Actual Windows GUI launch, folder selection, agent use, and shutdown acceptance |
-| Basic isolated web preview | Responsive remote access and integrated preview/debugging |
+| Explorer launch/extraction, bundled runtimes, second-instance reuse, restart persistence, and owned-process cleanup | Clean-profile first run, installer/signing, upgrades/removal, and public release approval |
+| Managed project creation, project files, clear validation/refusal, retained Code history, and a real approved Claude Code file turn | Existing-folder adoption, search, scoped memory, and complete original-operation GUI flows |
+| CLI runtime readiness and read-only `Claude Code · sonnet` identity | Selectable Codex execution, harness-owned model catalog/switching, and real Native-provider turns |
+| Private authenticated web preview and basic isolated page preview | Responsive self-hosted phone access and integrated preview/debugging acceptance |
 
-The bundled CLI passed a Windows create/retry check. The Electron GUI remains unverified.
-The [desktop acceptance record](packages/desktop/README.md#current-acceptance)
-states what has been exercised. The
+The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
+separates verified behavior from known gaps. The [desktop package record](packages/desktop/README.md#current-acceptance)
+describes the tested artifact. The
 [GitHub milestone](https://github.com/vivary-dev/Vivary-New/milestone/1) owns remaining
 work and acceptance. Mac distribution is optional later work.
 
@@ -67,7 +67,8 @@ preview run on Zo. Zo is not a product dependency.
 | Build or run the GUI from source | [Workbench setup](packages/workbench/README.md#run-from-source) |
 | Run or package the desktop shell | [Desktop setup](packages/desktop/README.md#development) |
 | Pick up an issue and contribute | [Contributor guide](CONTRIBUTING.md) |
-| Understand the product and implementation | [Interactive guide](docs/product/multi-project/specification/README.md#open-the-guided-reader), [release status](docs/product/multi-project/desktop-release.md#what-exists-and-what-is-missing), and [source map](docs/product/multi-project/source-map/index.md) |
+| Understand current desktop acceptance and gaps | [Acceptance register](docs/product/multi-project/desktop-acceptance-status.md) |
+| Understand the product and implementation | [Interactive guide](docs/product/multi-project/specification/README.md#open-the-guided-reader), [release target](docs/product/multi-project/desktop-release.md#what-exists-and-what-is-missing), and [source map](docs/product/multi-project/source-map/index.md) |
 | Enable agent-session recording | [Entire setup](docs/ENTIRE.md) |
 | Use the original published command tools | [Original CLI reference](docs/ORIGINAL-CLI.md) |
 

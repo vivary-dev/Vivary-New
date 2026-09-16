@@ -1,8 +1,13 @@
 # Getting started with Vivary
 
 This page installs the original command-line engine. For the unreleased desktop
-app, use [Workbench source setup](../packages/workbench/README.md#run-from-source)
-and the [desktop acceptance record](../packages/desktop/README.md#current-acceptance).
+app, first read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
+then use [Workbench source setup](../packages/workbench/README.md#run-from-source)
+or [desktop development and packaging](../packages/desktop/README.md#development).
+The private Windows candidate is tested, but no desktop package is publicly released.
+Real Native-provider acceptance is tracked in [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50),
+automation execution and recovery in [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51),
+and selectable Codex/model behavior in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and

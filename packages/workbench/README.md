@@ -42,7 +42,7 @@ Source startup requires Node 22.22.0 or newer and built dependencies. The
 ## Settings and models
 
 Settings provides Native appearance, provider keys, integrations, resources,
-and model controls. Appearance is saved through Native application state.
+and local coding-runtime readiness. Appearance is saved through Native application state.
 If an appearance save fails, Settings keeps the visible choice and provides
 Retry. Theme and palette retries remain independent when both saves fail.
 Saved appearance loads once when the app opens, so changing the theme cannot
@@ -50,12 +50,16 @@ restore an older saved value over an unsaved choice.
 Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
-Code conversations use the user's local Claude Code or Codex installation and
-account. Native conversations use Native's configured providers. Both appear
-inside the same workspace. Model access is separate from opening Vivary.
-Changing providers does not require a Vivary login.
-The accepted harness catalog will display adapter-reported models and capabilities.
-It remains planned. Vivary does not require a second general tool-selection setup.
+Code conversations use local CLI accounts. Native conversations use Native's
+configured providers. Model access is separate from opening Vivary. The current Code
+composer displays its effective runtime and model as read-only text. It deliberately
+hides Native's cloud-provider model picker because CLI aliases are not Native provider
+models. Runtime settings reports both Claude Code and Codex readiness.
+
+Claude Code is the only coding runtime exercised through the packaged UI. Codex may
+show Ready, but a new Code conversation cannot currently select it. The accepted
+harness catalog and truthful model/runtime switching remain issue #38 work. Native
+provider configuration does not prove an accepted real-provider Native turn.
 
 Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
 workspace-write permission policy and can run commands. Runtime permissions
@@ -83,11 +87,12 @@ Workbench, and Full chat URLs redirect to this workspace.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
-and transcripts. Project-bound Native history in PR #43 remains held for saved-head
-and composer-gating defects. A passing Code conversation does not prove that
-Native acceptance. The runtime admits one active Code request at a time. The app supports a rich composer, model choice,
-tool output, follow-ups, visible history, and Stop. The active-run control stays
-available in Settings and when a project folder becomes unavailable.
+and transcripts. Project-bound Native history includes the maintained saved-head repair and history
+controls. Deterministic-provider journeys do not replace an approved real Native-provider
+turn. The runtime admits one active Code request at a time. Code supports tool output,
+follow-ups, visible history, approvals, and Stop. Its current engine/model identity is
+read-only; switching remains planned. The active-run control stays available in
+Settings and when a project folder becomes unavailable.
 
 Project selection and conversation pointers use Native application state.
 Personal workspace is stored as the scoped value
@@ -105,10 +110,11 @@ preview bridge accepts that header
 only after its existing request and owner checks pass. A rejected token is not
 replayed while Native refreshes the session. Rejected tokens stay only in page memory so every action and state control
 blocks stale retries. Tokens are never written to disk, browser storage, or logs.
-Native's composer keeps unsent text in browser storage, so drafts survive
-project switching and navigation. A desktop restart that changes the loopback
-port does not yet restore those unsent text drafts. Completed transcripts
-remain in Native's persistent run store.
+The composer keeps unsent text in browser storage, so drafts survive project
+switching and navigation. A file draft survived a packaged desktop restart with a
+new loopback port in the tested Windows candidate. Completed Code transcripts remain
+in Native's persistent run store. Broader Native per-thread draft acceptance remains
+owned by the restart-continuity issue.
 
 Local folder grants persist in server-only Native settings. Startup reopens
 and rechecks the canonical path, device, inode, and creation time. Filesystems
@@ -147,7 +153,16 @@ Viewing a file does not send its content to a model.
 **Review connection** can recover one recorded managed-folder binding after an
 explicit review. Cancel changes nothing. It does not relocate a folder or grant
 an arbitrary path. External-folder relocation, full existing-folder setup, file
-search, factory orchestration, and Windows GUI acceptance remain unfinished.
+search, factory orchestration, and complete Windows release acceptance remain unfinished.
+
+### Current acceptance and gaps
+
+The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
+distinguishes the tested private candidate from the complete release target. In
+particular, real Native-provider access and turns remain under issue #50, and
+automation execution/recovery remains under issue #51. The current settings surfaces
+alone are not execution proof. Clean-profile setup, Codex selection/execution under
+issue #38, search, memory, existing-folder adoption, and final self-hosted access remain open.
 
 ## Development preview
 

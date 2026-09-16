@@ -36,7 +36,7 @@ Work out which packages actually changed, then bump only those:
 | `packages/mcp/vivary_mcp.py` or its tests | `vivary-mcp` — keep it optional and off by default; preserve the exact reviewed MCP SDK pin | MCP guide, package README, Tropo floor |
 | `packages/core/` modules or tests | `vivary-core` — bump the version and publish it in the next coordinated train, always before every dependent role package | ARCHITECTURE seam section, ORIGINAL-CLI package row |
 | dependency floors in `packages/vivary/pyproject.toml` | `vivary` (meta) — bump its floors and patch version when component minimums move | ORIGINAL-CLI release table |
-| `docs/`, `site/`, root README only | **no package bump** — site redeploys from `dev` via Vercel automatically | keep docs/site sync (step 3) |
+| `docs/`, `site/`, root README only | **no package bump** | keep docs/site sync (step 3); only the original public repository's configured Vercel project redeploys from its `dev` branch |
 | repo CI / stats / tests only | no bump, no site work | — |
 
 Bump rules (semver-ish, pre-1.0):
@@ -123,8 +123,9 @@ git diff --exit-code -- src/content/docs public/llms.txt public/llms-full.txt
 Commit the regenerated `site/src/content/docs/*` with the source docs — CI's
 site build and the graph review gate both expect them to match. (`sync-docs`
 is dependency-free; plain `node scripts/sync-docs.mjs` works without
-`npm install`.) The live site redeploys from `dev` on merge via Vercel — there
-is no separate site publish step, but the copy only updates if you committed it.
+`npm install`.) In the original public repository, its configured Vercel project
+redeploys from `dev` on merge. This private Vivary-New repository has no deployment
+hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate
 
@@ -360,8 +361,9 @@ dump).
 
 ## 9. After the release
 
-- Confirm the live site (https://vivary.vercel.app/) shows the new versions and
-  command surface — it deploys from `dev`, so this is a read-check, not a step.
+- For a release in the original public repository, confirm the live site
+  (https://vivary.vercel.app/) shows the new versions and command surface. This is a
+  read-check for that repository's configured deployment, not a Vivary-New merge step.
 - Stats: the daily `track-stats` workflow picks up the new versions. Every stats PR
   receives exact-head CI, while only warning-free, non-stale output may request
   auto-merge or supersede an older proposal. Stale output stays open as `blocked` for
