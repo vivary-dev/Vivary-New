@@ -468,7 +468,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       <p>Read files, make changes, and inspect the results in your workspace.</p>
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => chatRef.current?.prefillMessage(example)}>Try a file change</Button>
     </div>}
-    composerSlot={!runtimeReady ? <div className="local-agent-runtime-setup" role="status">
+    composerSlot={props.workspaceAvailable && !runtimeReady ? <div className="local-agent-runtime-setup" role="status">
       <div><h3>Set up {selectedEngine?.label ?? "a runtime"}</h3><p>{selectedEngine?.modelCatalog?.status === "unavailable"
         ? selectedEngine.modelCatalog.message : runtime?.message ?? "Choose a local runtime in Settings."}</p></div>
       <Button variant="outline" size="sm" onClick={props.onSettings}>Open runtime settings</Button>
