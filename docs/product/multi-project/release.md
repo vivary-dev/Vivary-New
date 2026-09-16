@@ -1,6 +1,6 @@
 # Vivary workbench delivery and agent readiness
 
-Updated: 2026-09-05. Status: planned release criteria, not released functionality. [Program](design.md), [graph](graph.md), [migration](migration.md).
+Updated: 2026-09-15. Status: release criteria with partial implementation, not a released application. The [desktop release checkpoint](desktop-release.md#what-exists-and-what-is-missing) owns the implementation summary. [Program](design.md), [graph](graph.md), [migration](migration.md).
 
 ## Done means the whole user journey
 
@@ -29,7 +29,9 @@ Use real UI screenshots and verified outputs. Never describe a pending native ru
 
 ## Website ownership
 
-`docs/`, root README release status, and CHANGELOG are canonical. `site/scripts/sync-docs.mjs` generates doc mirrors and `llms.txt`/`llms-full.txt`. The Astro `site/` is the public website, not the GUI runtime.
+`docs/ORIGINAL-CLI.md` owns original package release status. The Astro `site/` retains the existing CLI documentation site. Its sync script generates selected doc mirrors and LLM text files.
+
+The new desktop marketing website lives in the separate private `vivary-dev/vivary-site` repository. Its `src/content/facts.ts` owns product claims. The locked home page and site foundations are merged there. Cloudflare is the chosen final host, but resource creation, DNS, analytics setup, and publication remain unperformed. Read that repository's AGENTS.md before changes. Do not copy its implementation into the old Astro site or create another site.
 
 Update homepage positioning, getting started, architecture, command reference, feature/maturity matrix, template and Brain guides, runtime support, screenshots, download links, and compatibility notices. Preserve useful existing URLs or redirect them intentionally. Align public claims with the actual package and app versions.
 

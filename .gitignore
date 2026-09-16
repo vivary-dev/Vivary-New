@@ -49,3 +49,6 @@ HANDOFF.md
 
 # Vivary runtime data (storage.toml is committed; data/ is not)
 /.vivary/data/
+
+# Entire local settings, metadata, logs, and transcripts
+/.entire/

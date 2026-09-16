@@ -1,6 +1,6 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
-import { resolveVivaryCodeProject } from "../server/code-project";
+import { resolveVivaryCodeProjectHistory } from "../server/code-project";
 
 import {
   getVivaryCodeHostState,
@@ -25,7 +25,13 @@ export default defineAction({
   toolCallable: false,
   run: async (input, ctx?: ActionRunContext) => {
     const ownerEmail = requireVivaryCodeUser(ctx);
-    if ("scope" in input) return getVivaryCodeHostState(ownerEmail);
-    return getVivaryCodeState(ownerEmail, input.runId, await resolveVivaryCodeProject(ctx, input.projectId));
+    const orgId = ctx?.orgId ?? undefined;
+    if ("scope" in input) return getVivaryCodeHostState(ownerEmail, orgId);
+    return getVivaryCodeState(
+      ownerEmail,
+      input.runId,
+      await resolveVivaryCodeProjectHistory(ctx, input.projectId),
+      orgId,
+    );
   },
 });

@@ -1,7 +1,7 @@
 ---
 title: "Vivary guides"
 description: "Task-based Vivary guides for creating or adopting a workspace, connecting agents, retrieving context, writing records, and recovering safely."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/LEARN-BY-DOING.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/LEARN-BY-DOING.md"
 ---
 
 Use these Vivary guides to complete one governed workspace task at a time.
@@ -17,7 +17,7 @@ The command reference keeps exhaustive flags, schemas, limits, and exit codes.
 
 The guide library describes published 0.4.2.
 Registry `latest` installs it.
-Use the [release-status table](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) as the publication authority.
+Use the [release-status table](/original-cli/#release-status) as the publication authority.
 
 The [historical proof](/walkthrough/) records the published 0.3.1 full layout.
 Do not use that 38-file fixture as the thin-workspace expectation.
@@ -28,8 +28,8 @@ Run each guide with the published launchers.
 Use these commands:
 
 ```bash
-uvx create-vivary
-uvx --from vivary-tropo tropo
+uvx --from create-vivary==0.4.2 create-vivary
+uvx --from vivary-tropo==0.5.3 tropo
 ```
 
 The guide commands use these launchers.

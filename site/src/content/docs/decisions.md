@@ -1,7 +1,7 @@
 ---
 title: "Decisions"
 description: "Hard-to-reverse Vivary decisions and links to their canonical owners."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/DECISIONS.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/DECISIONS.md"
 ---
 
 This is a compact index, not a second specification. Follow the first link in each

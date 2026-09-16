@@ -1,10 +1,10 @@
 name: ci
 
-# GitHub Actions is free for public repos, so this runs at no cost.
+# Validate topic PRs, integration commits, and reviewed promotions.
 on:
   pull_request:
   push:
-    branches: [dev]
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
       head_sha:
@@ -88,12 +88,26 @@ jobs:
       - uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+      - name: install workbench dependencies
+        run: |
+          npm install --global pnpm@10.33.2
+          pnpm --dir packages/workbench install --frozen-lockfile
+      - name: install pinned Python launcher tooling
+        run: python -m pip install pip==26.0.1
+      - name: workbench state transport
+        run: |
+          pnpm --dir packages/workbench exec tsx --test tests/local-access.test.ts tests/native-state.test.ts tests/native-actions.test.ts tests/chat-scope.test.ts tests/native-chat-project.test.ts
+          pnpm --dir packages/workbench exec tsx --test tests/local-code-agent.test.ts tests/local-code-approval-restart.test.ts tests/code-host-lifecycle.test.ts tests/managed-projects.test.mjs tests/managed-project-reconnection.test.mjs tests/project-files.test.ts tests/file-draft-state.test.ts tests/original-runtime.test.ts
+          node --test packages/desktop/tests/main.test.mjs packages/desktop/tests/original-runtime.test.mjs packages/desktop/tests/package-snapshot.test.mjs packages/workbench/tests/startup.test.mjs
+          node --test packages/workbench/tests/usage-metrics-cold-start.test.mjs packages/workbench/tests/native-thread-save.test.mjs packages/workbench/tests/native-thread-save-queue.test.mjs packages/workbench/tests/native-thread-save-store.test.mjs
+          python packages/workbench/tests/managed-projects-python.test.py
+          pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
       - name: install Python test runner
         run: python -m pip install pytest packaging
       - name: install release build frontend
@@ -122,7 +136,9 @@ jobs:
       - name: create-vivary
         run: python packages/create-vivary/tests/test_create_vivary.py
       - name: create-vivary thin init
-        run: python packages/create-vivary/tests/test_init_thin.py
+        run: |
+          python packages/create-vivary/tests/test_init_thin.py
+          python packages/create-vivary/tests/test_thin_init_preview.py
       - name: create-vivary governed record workflow
         run: python packages/create-vivary/tests/test_record_workflow.py
       - name: create-vivary adopt
@@ -190,6 +206,7 @@ jobs:
           unset PYTHONPATH
           "$venv_python" -m pip install --no-index --find-links "$wheelhouse" vivary
           "$venv_python" -m pip check
+          "$venv_python" -I scripts/check_installed_workspace_roles.py
           (
             cd "$smoke"
             "$smoke/venv/bin/vivary" logs --help > /dev/null
@@ -341,12 +358,12 @@ jobs:
           assert version("vivary-exo") == "0.3.1"
           assert version("vivary-ozone") == "0.3.2"
           assert version("vivary-strato") == "0.1.3"
-          assert version("create-vivary") == "0.4.3"
-          assert version("vivary") == "0.2.0"
+          assert version("create-vivary") == "0.4.4"
+          assert version("vivary") == "0.2.1"
           assert "vivary-core>=0.2.5" in requires("vivary-exo")
           vivary_requirements = requires("vivary") or []
-          assert "create-vivary>=0.4.3" in vivary_requirements
-          assert "vivary-tropo>=0.5.4" in vivary_requirements
+          assert "create-vivary>=0.4.4" in vivary_requirements
+          assert "vivary-tropo>=0.5.5" in vivary_requirements
           assert "vivary-strato>=0.1.3" in vivary_requirements
           assert "vivary-ozone>=0.3.2" in vivary_requirements
           assert "vivary-exo>=0.3.1" in vivary_requirements
@@ -378,7 +395,7 @@ jobs:
           import create_vivary
 
           assert version("vivary-mcp") == "0.1.3"
-          assert version("vivary-tropo") == "0.5.4"
+          assert version("vivary-tropo") == "0.5.5"
           assert version("vivary-core") == "0.2.7"
           assert version("mcp") == "2.0.0"
           assert version("mcp-types") == "2.0.0"
@@ -665,7 +682,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: source navigation contract on Windows
@@ -674,6 +691,12 @@ jobs:
         run: python -B scripts/tests/test-source-navigation.py
       - name: install test runner
         run: python -m pip install pytest packaging
+      - name: thin init CLI on Windows
+        run: python packages/create-vivary/tests/test_init_thin.py
+      - name: reviewed workspace creation on Windows
+        run: python packages/create-vivary/tests/test_thin_init_preview.py
+      - name: managed project bridge on Windows
+        run: python packages/workbench/tests/managed-projects-python.test.py
       - name: core governed-context contract
         run: python -m pytest packages/core/tests/ -q
       - name: ozone governed-verification facade
@@ -705,6 +728,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vivary install failed" }
           & $python -m pip check
           if ($LASTEXITCODE -ne 0) { throw "pip check failed" }
+          & $python -I scripts/check_installed_workspace_roles.py
+          if ($LASTEXITCODE -ne 0) { throw "installed role API failed" }
           $capabilityJson = & (Join-Path $scripts "create-vivary.exe") `
             capabilities --preset coding --json
           if ($LASTEXITCODE -ne 0) { throw "capability report failed" }
@@ -762,7 +787,7 @@ jobs:
           import create_vivary
 
           assert version("vivary-mcp") == "0.1.3"
-          assert version("vivary-tropo") == "0.5.4"
+          assert version("vivary-tropo") == "0.5.5"
           assert version("vivary-core") == "0.2.7"
           assert version("mcp") == "2.0.0"
           assert version("mcp-types") == "2.0.0"
@@ -803,7 +828,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v6
@@ -823,7 +848,7 @@ jobs:
         run: python packages/create-vivary/tests/orientation_proof.py --receipt orientation-proof.json
       - name: preserve orientation receipt
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: orientation-proof-${{ runner.os }}
           path: orientation-proof.json
@@ -837,7 +862,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: mkdir -p sandboxes

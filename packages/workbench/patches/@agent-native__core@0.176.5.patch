@@ -1,0 +1,416 @@
+diff --git a/dist/agent/thread-data-builder.d.ts b/dist/agent/thread-data-builder.d.ts
+index bd348265bcdf57cebf5d611d2741fa9705bf6486..10bcb617c8705f7e8c97d035fad9fd7b5d8d63b9 100644
+--- a/dist/agent/thread-data-builder.d.ts
++++ b/dist/agent/thread-data-builder.d.ts
+@@ -138,6 +138,7 @@ export declare function buildRepositoryFromCodeAgentTranscript(events: readonly
+  * accepting client-only messages and metadata.
+  */
+ export interface MergeThreadDataOptions {
++    expectedHeadRevision?: number;
+     preserveExistingQueuedMessages?: boolean;
+     preserveExistingTopLevelKeys?: boolean;
+ }
+diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..ce62599a7ed65788ec9652d83f487b4d72eb279e 100644
+--- a/dist/agent/thread-data-builder.js
++++ b/dist/agent/thread-data-builder.js
+@@ -1117,6 +1117,21 @@ function pruneClaimedQueuedMessages(repo) {
+         queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
+     };
+ }
++function finalizeThreadHead(existing, merged, options, idRewrites) {
++    const result = normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
++    const previousHead = idRewrites.get(existing.headId) ?? existing.headId;
++    const revision = Number.isSafeInteger(existing._vivaryHeadRevision)
++        && existing._vivaryHeadRevision >= 0 ? existing._vivaryHeadRevision : 0;
++    // Message content can be merged from an old snapshot. Moving the selected
++    // branch requires the revision that the browser actually observed.
++    if (options.expectedHeadRevision !== undefined
++        && options.expectedHeadRevision !== revision
++        && result.headId !== previousHead) {
++        result.headId = previousHead;
++    }
++    result._vivaryHeadRevision = revision + Number(result.headId !== previousHead);
++    return result;
++}
+ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
+     const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
+     const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
+@@ -1193,7 +1208,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+         nextMessages.push(incomingMessages[index]);
+     }
+     merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
+-    return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
++    return finalizeThreadHead(existingNormalized, merged, options, idRewrites);
+ }
+ function escapeAttachmentAttribute(value) {
+     return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+diff --git a/dist/chat-threads/store.d.ts b/dist/chat-threads/store.d.ts
+index 354f2c362706756b805b6ad958816f473a695636..211316ca82539fc0ab7cdbfd2f463b8201a1c550 100644
+--- a/dist/chat-threads/store.d.ts
++++ b/dist/chat-threads/store.d.ts
+@@ -174,12 +174,13 @@ export declare function setThreadArchived(id: string, archived: boolean, options
+     ownerEmail?: string;
+ }): Promise<boolean>;
+ export interface UpdateThreadDataOptions {
++    expectedHeadRevision?: number;
+     preserveExistingQueuedMessages?: boolean;
+     preserveExistingTopLevelKeys?: boolean;
+     maxAttempts?: number;
+     ignoreConflicts?: boolean;
+ }
+-export declare function updateThreadData(id: string, threadData: string, title: string, preview: string, messageCount: number, options?: UpdateThreadDataOptions): Promise<void>;
++export declare function updateThreadData(id: string, threadData: string, title: string, preview: string, messageCount: number, options?: UpdateThreadDataOptions): Promise<{ headRevision: number; headId: string | null; headApplied: boolean } | undefined>;
+ export interface ThreadEngineMeta {
+     engineName: string;
+     model: string;
+diff --git a/dist/chat-threads/store.js b/dist/chat-threads/store.js
+index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf53b36719 100644
+--- a/dist/chat-threads/store.js
++++ b/dist/chat-threads/store.js
+@@ -811,6 +811,13 @@ function parseThreadData(value) {
+     }
+ }
+ export async function updateThreadData(id, threadData, title, preview, messageCount, options = {}) {
++    const incoming = options.expectedHeadRevision === undefined
++        ? parseThreadData(threadData) : JSON.parse(threadData);
++    if (options.expectedHeadRevision !== undefined
++        && (!incoming || typeof incoming !== "object" || Array.isArray(incoming)
++            || !Array.isArray(incoming.messages))) {
++        throw new TypeError("Invalid thread snapshot");
++    }
+     // getThread() ensures the table exists. Keep that bootstrap inside the
+     // retry boundary below so a cold serverless process can recover from a
+     // transient initialization/read failure too.
+@@ -823,21 +830,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
+             const current = await getThread(id);
+             if (!current)
+                 return;
+-            let nextThreadData = threadData;
+-            let nextMessageCount = messageCount;
+-            try {
+-                const merged = mergeThreadDataForClientSave(parseThreadData(current.threadData), parseThreadData(threadData), {
+-                    preserveExistingQueuedMessages: options.preserveExistingQueuedMessages ?? true,
+-                    preserveExistingTopLevelKeys: options.preserveExistingTopLevelKeys ?? true,
+-                });
+-                nextThreadData = JSON.stringify(merged);
+-                if (Array.isArray(merged.messages)) {
+-                    nextMessageCount = merged.messages.length;
+-                }
+-            }
+-            catch {
+-                // Keep the caller's serialized value if either JSON blob is malformed.
+-            }
++            const merged = mergeThreadDataForClientSave(parseThreadData(current.threadData), incoming, {
++                preserveExistingQueuedMessages: options.preserveExistingQueuedMessages ?? true,
++                preserveExistingTopLevelKeys: options.preserveExistingTopLevelKeys ?? true,
++                expectedHeadRevision: options.expectedHeadRevision,
++            });
++            const nextThreadData = JSON.stringify(merged);
++            const nextMessageCount = Array.isArray(merged.messages) ? merged.messages.length : messageCount;
+             const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+             const result = await client.execute({
+                 sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+@@ -853,7 +852,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
+             });
+             if (result.rowsAffected > 0) {
+                 emitChatThreadChange(id);
+-                return;
++                const saved = parseThreadData(nextThreadData);
++                const requested = normalizeThreadRepository(parseThreadData(threadData));
++                return {
++                    headRevision: saved._vivaryHeadRevision ?? 0,
++                    headId: saved.headId ?? null,
++                    headApplied: saved.headId === requested.headId,
++                };
+             }
+             lastConflict = true;
+         }
+diff --git a/dist/client/AssistantChat.d.ts b/dist/client/AssistantChat.d.ts
+index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..a4e8c6088705df943600b198afc5bd0c22408ef3 100644
+--- a/dist/client/AssistantChat.d.ts
++++ b/dist/client/AssistantChat.d.ts
+@@ -339,7 +339,8 @@ export interface AssistantChatProps {
+         title: string;
+         preview: string;
+         messageCount: number;
+-    }) => void;
++        expectedHeadRevision?: number;
++    }) => void | Promise<void | { headRevision: number; headId: string | null; headApplied: boolean }>;
+     /** Callback to generate a title from the first user message */
+     onGenerateTitle?: (threadId: string, message: string) => void;
+     /** Optional content rendered just above the composer input */
+diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..6bca4475d9276bd07fdd8cabecb57f0a6b1d26e0 100644
+--- a/dist/client/AssistantChat.js
++++ b/dist/client/AssistantChat.js
+@@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
+ import { IconArrowUp, IconClock, IconMessage, IconX, IconPlayerStopFilled, IconTerminal, IconAlertTriangle, IconRefresh, } from "@tabler/icons-react";
+ import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect, forwardRef, useImperativeHandle, } from "react";
+ import { createPollEngine } from "../shared/poll-engine.js";
++import { saveThreadSnapshot } from "./thread-save-queue.js";
+ import { clearPendingTurnIfMatches, clearActiveRunIfMatches, getPendingTurn, getActiveRunActivityTool, getActiveRun, hasRecentActiveRunProgress, resolveReconnectAfterSeq, setActiveRun, updateActiveRunActivity, updateActiveRunSeq, } from "./active-run-state.js";
+ import { activeRunLooksAlive, createAgentChatAdapter, hasInFlightToolCall, } from "./agent-chat-adapter.js";
+ import { appendAgentChatContextToMessage, filterAgentChatContextItems, formatAgentChatContextItemsForPrompt, getAgentChatContextState, isAgentChatSubmitCancelled, normalizeAgentChatContextItem, publishAgentChatContextItems, refreshAgentChatContext, reportAgentChatSubmitResult, subscribeAgentChatContext, } from "./agent-chat.js";
+@@ -2081,6 +2082,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+     const onGenerateTitleRef = useRef(onGenerateTitle);
+     onGenerateTitleRef.current = onGenerateTitle;
+     const titleGeneratedRef = useRef(false);
++    // A new accepted import starts a new server-observation lineage. Older queued saves keep their own object.
++    const headObservationRef = useRef({ revision: 0 });
++    useBrowserLayoutEffect(() => {
++        headObservationRef.current = { revision: 0 };
++    }, [threadId]);
+     const importThreadData = useCallback((threadData, options) => {
+         // Cheap-signal short-circuit: if the raw payload is identical to the
+         // last one we imported, there is nothing new to parse, normalize, or
+@@ -2156,6 +2162,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+                 queueDirtyRef.current = false;
+             }
+         }
++        if (settled) {
++            const revision = Number.isSafeInteger(repo?._vivaryHeadRevision) && repo._vivaryHeadRevision >= 0
++                ? repo._vivaryHeadRevision : 0;
++            headObservationRef.current = { revision };
++        }
+         if (settled && signature !== null) {
+             lastImportedSignatureRef.current = signature;
+             lastImportedRepoRef.current = settledRepo;
+@@ -3099,6 +3110,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             onGenerateTitleRef.current?.(threadId, text.trim());
+         }
+     }, [messages, threadId]);
++    const queueThreadSnapshot = useCallback((id, snapshot, headId) => {
++        const callback = onSaveThreadRef.current;
++        const observation = headObservationRef.current;
++        const key = JSON.stringify([apiUrl, threadScopeQuery, id]);
++        void saveThreadSnapshot({
++            key, observation, threadId: id, snapshot, headId, save: callback,
++        }).catch(() => undefined);
++    }, [apiUrl, threadScopeQuery]);
+     // Periodically save thread data while the agent is running so refreshes
+     // don't lose messages. Saves every 5 seconds while running.
+     const savedTitleRef = useRef("");
+@@ -3128,8 +3147,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         lastSaveTimeRef.current = now;
+         savedTitleRef.current = title;
+         writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
+-        onSaveThreadRef.current(threadId, snapshot);
+-    }, [apiUrl, exportPersistableThreadRepo, messages, isRunning, threadId]);
++        queueThreadSnapshot(threadId, snapshot, repo.headId ?? null);
++    }, [apiUrl, exportPersistableThreadRepo, messages, isRunning, threadId, queueThreadSnapshot]);
+     // Persist full thread data after each completed response
+     useEffect(() => {
+         if (!hasRestoredRef.current)
+@@ -3151,7 +3170,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             };
+             savedTitleRef.current = title;
+             writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
+-            onSaveThreadRef.current(threadId, snapshot);
++            queueThreadSnapshot(threadId, snapshot, repo.headId ?? null);
+         }
+         else {
+             // Legacy: save to sessionStorage
+@@ -3167,6 +3186,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         messages,
+         isRunning,
+         threadId,
++        queueThreadSnapshot,
+         tabId,
+     ]);
+     useEffect(() => {
+diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
+index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db289c83c82 100644
+--- a/dist/client/MultiTabAssistantChat.js
++++ b/dist/client/MultiTabAssistantChat.js
+@@ -1852,12 +1852,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+         });
+     }, [generateTitle, saveThreadData]);
+     const handleSaveThread = useCallback((threadId, data) => {
+-        void saveThreadData(threadId, data);
++        const save = saveThreadData(threadId, data);
+         if (data.messageCount > 0 &&
+             threadId === activeThreadIdRef.current &&
+             urlThreadIdRef.current !== threadId) {
+             writeThreadUrl(threadId);
+         }
++        return save;
+     }, [saveThreadData, writeThreadUrl]);
+     // ─── Slash command handler ──────────────────────────────────────────
+     const [helpVisible, setHelpVisible] = useState(false);
+@@ -2061,10 +2062,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                                     // sub-agent tab would start a fresh run on that thread and kill
+                                     // the in-flight team chunk. Disable the composer and show a
+                                     // hint so users know to send via the orchestrator chat instead.
+-                                    composerDisabled: Boolean(parentMap[tabId]) || modelSelectionPending, composerDisabledPlaceholder: parentMap[tabId]
++                                    composerDisabled: Boolean(props.composerDisabled) || Boolean(parentMap[tabId]) || modelSelectionPending, composerDisabledPlaceholder: parentMap[tabId]
+                                         ? translate("agentChat.composer.subAgentReadOnly")
+                                         : modelSelectionPending
+                                             ? translate("agentChat.composer.loadingModels")
+-                                            : undefined })] }, tabId));
++                                            : props.composerDisabledPlaceholder })] }, tabId));
+                     })] })] }));
+ }
+diff --git a/dist/client/thread-save-queue.js b/dist/client/thread-save-queue.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac85dd3af93
+--- /dev/null
++++ b/dist/client/thread-save-queue.js
+@@ -0,0 +1,22 @@
++const pendingByThread = new Map();
++
++export function saveThreadSnapshot({ key, observation, threadId, snapshot, headId, save }) {
++    const previous = pendingByThread.get(key) ?? Promise.resolve();
++    const current = previous.catch(() => undefined).then(async () => {
++        const receipt = await save(threadId, {
++            ...snapshot,
++            expectedHeadRevision: observation.revision,
++        });
++        if (receipt?.headApplied === true && receipt.headId === headId &&
++            Number.isSafeInteger(receipt.headRevision) && receipt.headRevision >= 0) {
++            observation.revision = receipt.headRevision;
++        }
++        return receipt;
++    });
++    pendingByThread.set(key, current);
++    void current.finally(() => {
++        if (pendingByThread.get(key) === current)
++            pendingByThread.delete(key);
++    }).catch(() => undefined);
++    return current;
++}
+diff --git a/dist/client/use-chat-threads.d.ts b/dist/client/use-chat-threads.d.ts
+index 70b99ddcb657a03956b7869e1b567987e232fb82..33edda7317e61e7be88190bfb47f59fe0301859d 100644
+--- a/dist/client/use-chat-threads.d.ts
++++ b/dist/client/use-chat-threads.d.ts
+@@ -92,7 +92,8 @@ export declare function useChatThreads(apiUrl?: string, storageKey?: string, sco
+         preview: string;
+         messageCount?: number;
+         titleSource?: ThreadTitleSource;
+-    }) => Promise<void>;
++        expectedHeadRevision?: number;
++    }) => Promise<void | { headRevision: number; headId: string | null; headApplied: boolean }>;
+     generateTitle: (threadId: string, message: string) => Promise<string | null>;
+     searchThreads: (query: string) => Promise<ChatThreadSummary[]>;
+     loadMoreThreads: () => Promise<void>;
+diff --git a/dist/client/use-chat-threads.js b/dist/client/use-chat-threads.js
+index a49a21f4f6c6500367bcc2445042669d2a875834..8a64937114afd72e725397bf3015ab75a02dfc4c 100644
+--- a/dist/client/use-chat-threads.js
++++ b/dist/client/use-chat-threads.js
+@@ -958,6 +958,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
+             }
+             if (!response.ok)
+                 return;
++            const receipt = await response.json().catch(() => undefined);
+             emitThreadsUpdated();
+             // Update local thread list metadata. If the thread isn't in our
+             // local list yet (an optimistic-only thread that the server just
+@@ -994,6 +995,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
+                     ...prev,
+                 ]);
+             });
++            return receipt;
+         }
+         catch { }
+     }, [apiUrl, historyScope, readKnownThreadScope]);
+diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
+--- a/dist/server/agent-chat-plugin.js
++++ b/dist/server/agent-chat-plugin.js
+@@ -4649,6 +4649,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                                 setResponseStatus(event, 404);
+                                 return { error: "Thread not found" };
+                             }
++                            if (body.threadData) {
++                                try {
++                                    const snapshot = JSON.parse(body.threadData);
++                                    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)
++                                        || !Array.isArray(snapshot.messages)) {
++                                        throw new TypeError("Invalid thread snapshot");
++                                    }
++                                }
++                                catch {
++                                    setResponseStatus(event, 400);
++                                    return { error: "Invalid thread snapshot" };
++                                }
++                            }
+                             let newThreadData = body.threadData || thread.threadData;
+                             let newMessageCount = body.messageCount ?? thread.messageCount;
+                             let nextTitle = typeof body.title === "string" ? body.title : thread.title;
+@@ -4666,34 +4679,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                                         nextTitle = meta.title;
+                                 }
+                             };
+-                            // Merge the incoming full-thread blob over the current SQL
+-                            // copy. Periodic saves can be stale relative to server-side
+-                            // run completion, and threadRuntime.export() does not carry
+-                            // queuedMessages.
+-                            if (body.threadData) {
+-                                try {
+-                                    const existing = JSON.parse(thread.threadData);
+-                                    const incoming = JSON.parse(newThreadData);
+-                                    const merged = mergeThreadDataForClientSave(existing, incoming);
+-                                    newThreadData = JSON.stringify(merged);
+-                                    if (Array.isArray(merged.messages)) {
+-                                        newMessageCount = merged.messages.length;
+-                                    }
+-                                    preserveTitleOverride(merged);
+-                                }
+-                                catch {
+-                                    // Invalid JSON in either side — fall back to raw body blob.
+-                                }
++                            // Keep the original snapshot until the store's CAS attempt. A
++                            // preliminary merge would hide which head the browser requested.
++                            try {
++                                preserveTitleOverride(JSON.parse(thread.threadData));
+                             }
+-                            else {
+-                                try {
+-                                    preserveTitleOverride(JSON.parse(newThreadData));
+-                                }
+-                                catch {
+-                                    // Invalid JSON — keep the title supplied by the client.
+-                                }
++                            catch { }
++                            const saved = await updateThreadData(threadId, newThreadData, nextTitle, nextPreview, newMessageCount, {
++                                expectedHeadRevision: Number.isSafeInteger(body.expectedHeadRevision)
++                                    && body.expectedHeadRevision >= 0 ? body.expectedHeadRevision : -1,
++                            });
++                            if (!saved) {
++                                setResponseStatus(event, 404);
++                                return { error: "Thread not found" };
+                             }
+-                            await updateThreadData(threadId, newThreadData, nextTitle, nextPreview, newMessageCount, { ignoreConflicts: true });
+                             // Scope updates piggyback on the PUT — the client uses this
+                             // path for detach and for claiming a legacy unscoped thread.
+                             // A scoped thread cannot be retagged across resources here.
+@@ -4701,7 +4700,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                                 const incomingScope = parseScopeFromBody(body.scope);
+                                 await setThreadScope(threadId, incomingScope);
+                             }
+-                            return { ok: true };
++                            return { ok: true, ...saved };
+                         });
+                     }
+                     // POST /threads/:id/queued — debounced writes from the client
+diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
+index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
+--- a/dist/usage/metrics-store.js
++++ b/dist/usage/metrics-store.js
+@@ -1,7 +1,7 @@
+ import { getAppConfig } from "../app-config/index.js";
+ import { getDbExec } from "../db/client.js";
+ import { ForbiddenError } from "../sharing/access.js";
+-import { builderCreditsFromCostCents, usageBillingForEngine, } from "./store.js";
++import { builderCreditsFromCostCents, ensureUsageTable, usageBillingForEngine, } from "./store.js";
+ const DAY_MS = 86_400_000;
+ function numberField(row, key) {
+     return Number(row[key] ?? 0) || 0;
+@@ -275,6 +275,7 @@ async function detectUsageEngineName() {
+     return getAppConfig().agent.engine ?? null;
+ }
+ export async function listAppUsageMetrics(input, accessInput) {
++    await ensureUsageTable();
+     const scope = input.scope === "workspace" ? "workspace" : "me";
+     const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
+     const now = Date.now();

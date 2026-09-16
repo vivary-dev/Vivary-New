@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { open, realpath, stat } from "node:fs/promises";
+import { lstat, open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { and, eq } from "@agent-native/core/db/schema";
 import { listAppMemberRoles, orgMembers, setAppMemberRole } from "@agent-native/core/org";
@@ -22,13 +22,19 @@ const inventorySchema = z.strictObject({
 });
 const allocate = prefix => prefix + "_" + randomUUID().replaceAll("-", "");
 const unknownVcs = () => ({ kind: "unobserved", repositoryId: null, checkoutId: null, mutationOwner: null });
+const managedChildName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const windowsReservedName = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 const unavailable = () => ({ code: "identity-unverified" });
-const identity = value => [value.platform, value.dev, value.ino, value.birthtimeNs].join(":");
+export const localRootInventoryKey = (email, orgId) => "vivary-private:local-folders-v1:"
+  + localRootActorId(email, orgId);
+export const parseLocalRootInventory = value => inventorySchema.parse(value);
+export const localRootIdentity = value => [value.platform, value.dev, value.ino, value.birthtimeNs].join(":");
+const identity = localRootIdentity;
 const contains = (parent, child) => {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith(".." + path.sep) && relative !== ".." && !path.isAbsolute(relative));
 };
-const actorId = (email, orgId) => "actor_" + createHash("sha256")
+export const localRootActorId = (email, orgId) => "actor_" + createHash("sha256")
   .update(orgId + "\0" + email.trim().toLowerCase()).digest("hex");
 
 function stamp(info) {
@@ -73,7 +79,7 @@ export async function createLocalRootProvider({ ownerEmail, defaultFolder = null
   const preparing = new Map();
   let closed = false;
 
-  const key = orgId => "vivary-private:local-folders-v1:" + actorId(email, orgId);
+  const key = orgId => localRootInventoryKey(email, orgId);
   const legacyKey = orgId => "u:" + email + ":vivary-local-folders-v1:" + orgId;
   const newInventory = () => ({ version: 1, collectionId: allocate("collection"),
     policyRevision: 1, roleInitialized: false, defaultFolderInitialized: false, grants: [] });
@@ -240,9 +246,46 @@ export async function createLocalRootProvider({ ownerEmail, defaultFolder = null
     get locationRefs() { return [...records.keys()]; },
     resolveGrant,
     locationLabels: () => Object.fromEntries([...records].map(([ref, record]) => [ref, record.label])),
+    isManagedLocation: async (locationRef, dataDirectory) => {
+      const record = records.get(locationRef);
+      if (closed || !record || record.platform !== process.platform
+        || typeof dataDirectory !== "string" || !path.isAbsolute(dataDirectory)) return false;
+      try {
+        const dataRoot = await realpath(dataDirectory);
+        const parent = path.join(dataRoot, "projects");
+        const info = await lstat(parent);
+        const name = path.basename(record.canonicalPath);
+        return info.isDirectory() && !info.isSymbolicLink()
+          && await realpath(parent) === parent
+          && managedChildName.test(name) && !name.endsWith(".")
+          && !windowsReservedName.test(name)
+          && path.dirname(record.canonicalPath) === parent
+          && path.join(parent, name) === record.canonicalPath;
+      } catch {
+        return false;
+      }
+    },
     readiness: () => ({ status: closed ? "unavailable" : "ready" }),
     observe: ref => observation(ref, "observe"),
     inspect: ref => observation(ref, "inspect"),
+    // Reconnection only receives a server-selected recorded path. The caller never supplies a folder.
+    captureReplacement: async (context, folder) => {
+      if (!await isOwner(context)) throw new Error("Only the local workspace owner can reconnect folders.");
+      return capture(folder);
+    },
+    installReplacement: async (orgId, grant, observed) => {
+      if (closed || observed.canonicalPath !== grant.canonicalPath
+        || identity(observed) !== identity(grant)) {
+        await observed.handle.close();
+        throw new Error("Project folder access changed after reconnection.");
+      }
+      const previous = handles.get(grant.locationRef);
+      records.set(grant.locationRef, { ...grant, orgId });
+      handles.set(grant.locationRef, observed.handle);
+      if (previous && previous !== observed.handle) {
+        await previous.close().catch(() => {});
+      }
+    },
     addGrantedFolder: async (context, folder) => {
       if (!await prepare(context)) throw new Error("Only the local workspace owner can connect folders.");
       const added = await addFolder(context.orgId, folder);
@@ -255,7 +298,7 @@ export async function createLocalRootProvider({ ownerEmail, defaultFolder = null
       const record = await inspectRecord(locationRef);
       if (!record || record.rootId !== rootId || record.orgId !== context.orgId || !await isOwner(context)) return null;
       return Object.freeze({ path: record.canonicalPath, rootId, locationRef,
-        verificationKind: LOCAL_ROOT_VERIFICATION, actorId: actorId(email, context.orgId) });
+        verificationKind: LOCAL_ROOT_VERIFICATION, actorId: localRootActorId(email, context.orgId) });
     },
     close: async () => {
       closed = true;

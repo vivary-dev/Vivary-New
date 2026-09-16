@@ -4,7 +4,7 @@ Status: planned
 Blocked-by: [02, 03]
 Unlocks: [09, 10, 16, 17, 20, 21, 22, 29, 30]
 
-Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+Execution: Read and claim the live [GitHub issue](https://github.com/vivary-dev/Vivary-New/issues). Its dependencies govern starting work. Use [the graph](../graph.md) for supporting references. Parent dependencies still gate outcome completion, not independent preparation.
 
 ## Goal
 
@@ -51,3 +51,10 @@ they do not prove the behavior above.
 - 2026-09-05: Refined acceptance after the owner-requested [HoH comparison](../research/hoh-alignment.md). These criteria remain unimplemented and unverified.
 
 - 2026-09-06: [Decision four](../design.md#direction-decision-2026-09-06) adds the shared adapter acceptance above. Packet [20a](../packets/20a-headless-loop-proof.md) supplies the first runtime evidence; its required continuation supplies parity evidence. Unimplemented and unverified.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.

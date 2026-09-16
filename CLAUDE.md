@@ -20,5 +20,6 @@ cost for the actual work. They are not default phases. Preserve stop conditions
 for expensive or dangerous jobs and all external-action gates.
 
 The [skills index](docs/SKILLS.md) and [command reference](docs/COMMANDS.md)
-route to optional tools. [README.md](README.md#release-status) owns release truth.
+route to optional tools. [The original CLI reference](docs/ORIGINAL-CLI.md#release-status)
+owns package release status.
 Keep this file lean and put durable product decisions in their existing owner.

@@ -4,7 +4,7 @@ Status: in-progress
 Blocked-by: [09, 10, 13, 29]
 Unlocks: [24, 25, 26, 27]
 
-Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+Execution: Read and claim the live [GitHub issue](https://github.com/vivary-dev/Vivary-New/issues). Its dependencies govern starting work. Use [the graph](../graph.md) for supporting references. Parent dependencies still gate outcome completion, not independent preparation.
 
 ## Goal
 
@@ -67,3 +67,19 @@ they do not prove the behavior above.
 
 - 2026-09-13: Jeff confirmed hosted Zo testing before Electron delivery and
   further local laptop testing. Existing platform evidence keeps its scope.
+
+## Desktop delivery scope
+
+The [desktop release queue](../desktop-release.md) assigns bounded work for this
+outcome and preserves the broader completion contract. A successful Windows
+artifact requires its specified sessions, memory, search, and original-tool
+journeys. Earlier source and Linux evidence retain their recorded scope.
+
+## Shared desktop and self-hosted browser delivery
+
+Jeff clarified on 2026-09-13 that phone users connect through a responsive web
+client to their own Vivary instance, including a suitable server host. Agents,
+files, credentials and history remain on that host. Packet 23d supplies explicit
+authenticated access and client behavior. Packet 23c accepts it alongside the
+Windows artifact and packet 11e live preview. Mac distribution remains optional
+later work and is not a dependency of this release. Existing evidence is unchanged.

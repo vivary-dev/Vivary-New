@@ -1,7 +1,7 @@
 ---
 title: "Command reference"
 description: "Every CLI across Vivary: tropo, strato, ozone, exo, create-vivary, and optional adapters."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/COMMANDS.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/COMMANDS.md"
 ---
 
 This is the full, technical list of every command. If you're just starting, you only
@@ -19,9 +19,11 @@ MCP SDK dependency.
 - **Scaffold (npm):** `npm create @vivary@latest my-workspace` / `npx @vivary/create@latest my-workspace`
 - **From a repo checkout:** `python packages/tropo/tropo.py check`, etc.
 
-Every command on this page is available from the published PyPI and npm packages
-listed in the [root release status](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status), except the front-door
-task verbs, which ship in `vivary` 0.2.0 from source until this train publishes.
+The front-door task verbs are available in [PyPI `vivary` 0.2.0](https://pypi.org/project/vivary/0.2.0/).
+The staged source adds unpublished workspace-role repairs with newer dependency
+floors. Published versions are listed in the [Python](https://pypi.org/project/vivary/)
+and [npm](https://www.npmjs.com/package/@vivary/create) registries. Registry
+availability does not establish fresh installation acceptance.
 Governed paths stay behind an explicit `--governed` flag and are opt-in, not default
 behavior.
 
@@ -105,8 +107,8 @@ task verbs to them, and adds a local helper for the receipt files they emit.
 A verb runs the component operation in the same process. Arguments pass through
 unchanged and the operation's output is the component's, while the program name, the
 usage line, and the hidden command list are the front door's. `vivary --help` groups
-the verbs the same way this table does. These verbs ship in `vivary` 0.2.0 from source.
-The published 0.1.10 on PyPI does not have them until the next release publishes.
+the verbs the same way this table does. These verbs are available in PyPI
+`vivary` 0.2.0. Version 0.1.10 predates them.
 
 | Group | Verb | Standalone equivalent | Job |
 |---|---|---|---|
@@ -121,12 +123,12 @@ The published 0.1.10 on PyPI does not have them until the next release publishes
 | Review | `vivary impact` | `ozone impact` | Show what one node affects. |
 | Coordination | `vivary control` | `exo control` | Dispatch one governed Core control request. |
 
-Each route declares the component version floor that shipped the verb:
-`create-vivary>=0.4.3` for the workspace verbs, `vivary-tropo>=0.5.4` for `check` and
+The staged source routes require these component versions:
+`create-vivary>=0.4.4` for the workspace verbs, `vivary-tropo>=0.5.5` for `check` and
 `find`, `vivary-strato>=0.1.3` for `decide`, `vivary-ozone>=0.3.2` for `review` and
 `impact`, and `vivary-exo>=0.3.1` for `control`. A component below its floor is refused
 with exit code `2` and a message naming the required version. The floors match the
-[meta-package manifest](https://github.com/vivary-dev/vivary/blob/dev/packages/vivary/pyproject.toml).
+[meta-package manifest](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/vivary/pyproject.toml).
 A missing component, or one below its floor, is refused with exit code `2` and a `pip
 install` hint naming the distribution.
 
@@ -1049,6 +1051,8 @@ create-vivary init <target> [--preset coding|second-brain|knowledge-work|writing
                            [--memory none|local|cognee]
                            [--auto] [--yes] [--dry-run] [--json]
                            [--size small|medium|large] [--privacy local|cloud] [--receipt PATH]
+create-vivary init <target> --reviewed --dry-run --json
+create-vivary init <target> --reviewed --yes --plan SHA256_HASH --json
 create-vivary wizard <target> [--storage auto|file|embedded|cloud] [--provider lancedb|sqlite-vec|qdrant|astra]
                               [--memory none|local|cognee] [--yes] [--dry-run] [--json] [--receipt PATH]
 create-vivary capabilities [--preset coding|second-brain|knowledge-work|writing] [--json]
@@ -1083,11 +1087,25 @@ create-vivary record <target> <modules|changes|decisions|verification|gates>/<sl
 | `--auto` | **Agent mode.** Skip all interactive prompts. Use explicit storage and privacy choices. Otherwise, keep file storage. |
 | `--yes` | Confirm an install or write already selected by another explicit flag. It does not select a provider. |
 | `--dry-run` | Print what would be written or installed; do not mutate the workspace. |
+| `--reviewed` | Staged source mode for exact thin-init file-content review and hash-bound apply. Use only the two reviewed `init` forms shown above. |
+| `--plan SHA256_HASH` | With `init --reviewed --yes`, accept the target-bound hash from its current exact preview. A changed target or options needs another review. |
 | `--json` | Machine-readable output. Init reports the thin contract and files; adoption reports the deterministic plan/apply envelope described below. |
 | `--size small\|medium\|large` | Workspace classification hint. Size never selects or installs a provider. |
 | `--privacy local\|cloud` | Local keeps file storage unless another tier is explicit. Cloud can select cloud configuration. |
 | `--repair` | Doctor-only. Include conservative repair diagnostics. Recognized legacy-full workspaces are always report-only. |
 | `--yes` | With `doctor --repair`, apply deterministic safe repairs only to supported non-legacy contracts. It never writes a legacy-full workspace. |
+
+The private source `init --reviewed --dry-run --json` response contains the exact
+`vivary.thin-init-plan/v1` ordered UTF-8 file content, byte/hash list, target
+and selected options. It writes nothing. `--reviewed --yes --plan HASH --json`
+recomputes those inputs and returns `created` or exact-inventory
+`already-created`; a changed plan refuses. Reviewed mode rejects `--force`,
+`--auto`, storage/provider, memory beyond `none`, size/privacy and wizard side writers. It
+handles a greenfield target only, not arbitrary existing-folder apply or
+application registration. The 2026-09-15 bundled-Python CLI/managed-bridge and private hosted greenfield
+journeys passed exact-plan, wrong-hash, byte-match, and no-write retry checks.
+PR #47 merged these changes into private Vivary-New `dev`. They are not
+published PyPI/npm behavior. Existing-folder apply remains open.
 
 ### Capability status
 

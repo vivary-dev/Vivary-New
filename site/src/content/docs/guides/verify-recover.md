@@ -1,7 +1,7 @@
 ---
 title: "Verify and recover a Vivary workspace"
 description: "Run Vivary Doctor and Tropo checks, interpret health findings, and use explicit bounded recovery for interrupted adoption."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/guides/verify-recover.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/guides/verify-recover.md"
 ---
 
 Use this guide after setup, adoption, or an approved record write.
@@ -27,7 +27,7 @@ You can select a bounded recovery action without changing unrelated files.
 Run Doctor first.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
 ```
 
 Plain Doctor is read-only.
@@ -38,7 +38,7 @@ Warnings do not change the exit code.
 Use JSON when an agent must inspect fields.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --json
 ```
 
 Review the contract, privacy, capability, and recovery sections.
@@ -48,7 +48,7 @@ Review the contract, privacy, capability, and recovery sections.
 Run the strict graph check.
 
 ```bash
-uvx --from vivary-tropo tropo check --root C:/path/to/project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project
 ```
 
 Strict mode is the default.
@@ -57,7 +57,7 @@ Warnings fail the strict check.
 Use lenient mode only for an approved diagnostic reason.
 
 ```bash
-uvx --from vivary-tropo tropo check --root C:/path/to/project --lenient
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project --lenient
 ```
 
 Do not report a lenient result as strict proof.
@@ -85,7 +85,7 @@ Use recovery only when Doctor or adoption reports the transaction.
 Copy the exact reported hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --json
 ```
@@ -97,7 +97,7 @@ Review that exact plan.
 Apply the separately approved recovery hash.
 
 ```bash
-uvx create-vivary adopt C:/path/to/project \
+uvx --from create-vivary==0.4.2 create-vivary adopt C:/path/to/project \
   --recover sha256:<reported-plan-hash> \
   --yes \
   --plan sha256:<approved-recovery-plan-hash> \
@@ -125,7 +125,7 @@ Use repair mode only for a recognized legacy full workspace.
 Request the report.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --repair --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --repair --json
 ```
 
 The report writes nothing.
@@ -144,7 +144,7 @@ Plain Doctor does not write runtime state.
 `doctor --trend` writes a local trend snapshot.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project --trend --json
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project --trend --json
 ```
 
 Get approval before this write.
@@ -166,8 +166,8 @@ Run Doctor again.
 Then run Tropo validation.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
-uvx --from vivary-tropo tropo check --root C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/project
 ```
 
 Record the exact commands and results.

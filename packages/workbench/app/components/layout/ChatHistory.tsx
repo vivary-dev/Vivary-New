@@ -1,11 +1,9 @@
 import { useChatThreads } from "@agent-native/core/client/agent-chat";
-import { ChatHistoryRail } from "@agent-native/toolkit/chat-history";
+import { ChatHistoryList } from "@agent-native/toolkit/chat-history";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
-import type { useVivaryChatIdentity } from "./use-vivary-chat-identity";
-
-type ChatIdentity = NonNullable<ReturnType<typeof useVivaryChatIdentity>>;
+import type { VivaryChatIdentity as ChatIdentity } from "@/lib/chat-scope";
 
 export function ChatHistory({ identity }: { identity: ChatIdentity }) {
   const location = useLocation();
@@ -14,7 +12,6 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
   const {
     threads,
     activeThreadId,
-    createThread,
     switchThread,
     pinThread,
     archiveThread,
@@ -36,7 +33,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
     )
     .slice(0, 15);
   const routeThread =
-    location.pathname === "/chat"
+    new URLSearchParams(location.search).get("runtime") === "native"
       ? new URLSearchParams(location.search).get("thread")
       : null;
 
@@ -53,14 +50,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
 
   function openThread(threadId: string) {
     switchThread(threadId);
-    navigate(`/chat?thread=${encodeURIComponent(threadId)}`);
-  }
-
-  async function newChat() {
-    setError(undefined);
-    const threadId = await createThread();
-    if (threadId) openThread(threadId);
-    else setError("The conversation could not be created. Try again.");
+    navigate(`/?runtime=native&history=unassigned&thread=${encodeURIComponent(threadId)}`);
   }
 
   async function archive(threadId: string) {
@@ -70,7 +60,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
       return;
     }
     if (threadId === routeThread || threadId === activeThreadId)
-      await newChat();
+      navigate("/");
   }
 
   async function rename(threadId: string, title: string) {
@@ -89,7 +79,7 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
 
   return (
     <section className="vivary-chat-history" aria-label="Chat history">
-      <ChatHistoryRail
+      <ChatHistoryList
         items={visibleThreads.map((thread) => ({
           id: thread.id,
           title: thread.title || thread.preview || "Untitled chat",
@@ -98,7 +88,6 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
         }))}
         activeId={routeThread ?? activeThreadId}
         onSelect={openThread}
-        onNewChat={() => void newChat()}
         onTogglePin={(threadId) => void togglePin(threadId)}
         onRename={(threadId, title) => void rename(threadId, title)}
         onDelete={(threadId) => void archive(threadId)}
@@ -123,11 +112,8 @@ export function ChatHistory({ identity }: { identity: ChatIdentity }) {
           ) : undefined
         }
         emptyLabel="No conversations yet."
-        railLabels={{
-          newChat: "New chat",
-          showMore: "More conversations",
-          showLess: "Fewer conversations",
-        }}
+        variant="rail"
+        className="an-chat-history-rail"
         labels={{
           options: (item) => `Options for ${item.titleText}`,
           renameInput: (item) => `Rename ${item.titleText}`,

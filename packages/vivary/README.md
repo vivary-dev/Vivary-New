@@ -1,7 +1,7 @@
 # vivary
 
-`vivary 0.2.0` is the source version and provides one install for the Vivary CLI
-suite:
+`vivary 0.2.1` is staged and unpublished. Its source composition includes the
+workspace-role fixes. The registry command installs the published CLI suite:
 
 ```bash
 python -m pip install vivary
@@ -14,14 +14,13 @@ consulting a registry:
 python -m pip install --no-index --find-links <wheelhouse> vivary
 ```
 
-Published versions live in the
-[root release status](../../README.md#release-status). Pin an exact version when you
+Published versions are listed on [PyPI](https://pypi.org/project/vivary/). Pin an exact version when you
 need to reproduce a specific composition.
 
-The install includes:
+The staged source composition requires:
 
-- `create-vivary>=0.4.3`: thin greenfield init and deterministic brownfield adoption.
-- `vivary-tropo>=0.5.4`: typed governed context and local retrieval.
+- `create-vivary>=0.4.4`: thin greenfield init and deterministic brownfield adoption.
+- `vivary-tropo>=0.5.5`: typed governed context and local retrieval.
 - `vivary-strato>=0.1.3`: policy and deliberate human gates.
 - `vivary-ozone>=0.3.2`: review and evidence verification.
 - `vivary-exo>=0.3.1`: optional bounded orchestration.

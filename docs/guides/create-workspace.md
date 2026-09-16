@@ -10,7 +10,7 @@ The workspace contains no starter records, templates, skills, or second-brain co
 ## Release boundary
 
 These commands describe published 0.4.2.
-Registry `latest` installs it and creates the five-file layout.
+The examples pin the verified command versions. Unpinned PyPI installs can resolve newer versions.
 Pin `create-vivary==0.3.1` only to get the historical full layout.
 
 ## Agent contract
@@ -49,7 +49,7 @@ The `second-brain` preset does not create notes or a pre-populated second brain.
 Run a dry-run before the first write.
 
 ```bash
-uvx create-vivary init C:/path/to/my-project --preset coding --no-wizard --dry-run --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-project --preset coding --no-wizard --dry-run --json
 ```
 
 Confirm the target, preset, contract, and five planned files.
@@ -60,7 +60,7 @@ Stop if the target contains work that Vivary can overwrite.
 Run the same command without `--dry-run`.
 
 ```bash
-uvx create-vivary init C:/path/to/my-project --preset coding --no-wizard --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-project --preset coding --no-wizard --json
 ```
 
 Vivary creates this tree:
@@ -87,8 +87,8 @@ Run Doctor.
 Then run Tropo validation.
 
 ```bash
-uvx create-vivary doctor C:/path/to/my-project
-uvx --from vivary-tropo tropo check --root C:/path/to/my-project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/my-project
+uvx --from vivary-tropo==0.5.3 tropo check --root C:/path/to/my-project
 ```
 
 Both commands must exit with code `0`.
@@ -99,8 +99,8 @@ Fix each error before an agent uses the workspace.
 Preview the policy before creation.
 
 ```bash
-uvx create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --dry-run --json
-uvx create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --dry-run --json
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-notes --preset second-brain --no-wizard --json
 ```
 
 The result is still the five-file seed.
@@ -111,8 +111,8 @@ Real notes must come from later work.
 Include an adapter in the initial command only when the runtime needs it.
 
 ```bash
-uvx create-vivary init C:/path/to/my-agent-project --preset coding --adapter agents --no-wizard
-uvx create-vivary init C:/path/to/my-claude-project --preset coding --adapter claude --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-agent-project --preset coding --adapter agents --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-claude-project --preset coding --adapter claude --no-wizard
 ```
 
 Each adapter adds one bounded runtime file.
@@ -121,7 +121,7 @@ Use `--adapter` twice when both adapters are required.
 Include active code context only after explicit selection.
 
 ```bash
-uvx create-vivary init C:/path/to/my-code-project --preset coding --active-context cocoindex-code --no-wizard
+uvx --from create-vivary==0.4.2 create-vivary init C:/path/to/my-code-project --preset coding --active-context cocoindex-code --no-wizard
 ```
 
 This option keeps the five-file seed.
@@ -136,3 +136,55 @@ Stop when provider installation needs approval.
 Stop when privacy policy is missing or invalid.
 
 Use the [command reference](../COMMANDS.md#create-vivary--the-scaffolder) for all flags and output fields.
+
+## File roles in Vivary-New source
+
+The Vivary-New source adds optional metadata to `.vivary/workspace.toml`.
+This section describes the development source, not the published 0.4.2 command.
+A role names a file's purpose. A pattern supplies a set of default assignments.
+
+| Role | Purpose |
+| --- | --- |
+| `law` | Instructions and policy |
+| `map` | Navigation to relevant files |
+| `record` | Durable decisions or completed-work records |
+| `memory` | Reusable knowledge |
+| `boundary` | Paths that describe privacy and runtime separation |
+
+The only supported pattern is `thin-context`. All four presets use this base:
+
+```toml
+[workspace.vivary]
+version = 1
+patterns = ["thin-context"]
+
+[workspace.vivary.roles]
+law = ["AGENTS.md", ".vivary/context.md"]
+map = [".vivary/context.md"]
+record = []
+memory = []
+boundary = [".gitignore", ".vivary/private", ".vivary/runtime"]
+```
+
+The map assignment refers to the context file's existing Routes section.
+It does not introduce a generated inventory. Empty lists explicitly describe
+absent roles. Multiple roles can reference the same file.
+
+Assign exact workspace-relative paths, such as `notes/[Q3] review.md`.
+Assignments describe paths without opening them, creating files, or granting
+access. Existing privacy exclusions and required thin files remain mandatory,
+even when a role is empty. `STATE.md` remains authored state.
+
+Without `workspace.vivary`, valid assignments from the previous
+`workspace.patterns` and `workspace.roles` schema remain readable. Unrecognized
+generic extensions stay ignored and use the `thin-context` defaults. The
+versioned Vivary table validates its metadata strictly. The default boundary
+also includes declared capability storage, such as `.cocoindex_code`.
+Doctor reports valid roles even when unrelated workspace health checks fail.
+Set `patterns = []` to omit its default assignments, then provide any desired
+role overrides. Overrides replace that role's list. Doctor JSON exposes the
+effective result as `workspace_roles`, including empty lists.
+
+These fields do not change presets, generate starter content, or load memory
+into conversations. Follow [the program frontier](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/index.md)
+for the setup and persistence work that consumes this metadata.

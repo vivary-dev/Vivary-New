@@ -4,7 +4,7 @@ from pathlib import Path
 WORKFLOW = Path(".github/workflows/npm-trusted-publish.yml")
 ACTION_PINS = (
     "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-    "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
     "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
 )
 

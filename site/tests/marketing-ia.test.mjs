@@ -32,10 +32,10 @@ const blogPosts = readdirSync(blogDir)
     source: readFileSync(new URL(name, blogDir), 'utf8'),
   }));
 
-const rootReadme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+const cliReference = readFileSync(new URL('../../docs/ORIGINAL-CLI.md', import.meta.url), 'utf8');
 
 const publishedVersion = (surface) => {
-  const row = rootReadme
+  const row = cliReference
     .split(/\r?\n/)
     .find((line) => line.startsWith(`| \`${surface}\``));
   const version = row?.split('|')[2]?.trim();
@@ -174,7 +174,7 @@ test('guide documents expose distinct search metadata and agent task routes', ()
   }
 
   assert.match(llmsText, /## Task guides/);
-  assert.match(llmsText, /Release Status: https:\/\/github\.com\/vivary-dev\/vivary#release-status/);
+  assert.match(llmsText, /Release Status: https:\/\/vivary\.vercel\.app\/original-cli\/#release-status/);
   for (const { slug } of guideSources) {
     assert.match(llmsText, new RegExp(`https://vivary\\.vercel\\.app/guides/${slug}/`));
   }
@@ -183,9 +183,9 @@ test('guide documents expose distinct search metadata and agent task routes', ()
   assert.match(robots, /Sitemap: https:\/\/vivary\.vercel\.app\/sitemap-index\.xml/);
 });
 
-test('agent search surfaces derive published versions from the root release table', () => {
-  // llms.txt is an install surface, so every version in it must be registry truth from
-  // the README release table, not a manifest version that can lead the registry.
+test('agent search surfaces derive published versions from the original CLI reference', () => {
+  // llms.txt keeps the original CLI reference's dated verified versions.
+  // A source manifest can lead the registry.
   const createVersion = publishedVersion('create-vivary');
   const mcpVersion = publishedVersion('vivary-mcp');
 
@@ -251,4 +251,15 @@ test('generated docs edit their canonical repo sources rather than generated cop
   assert.match(syncScript, /const output = path\.join\(outDir, `\$\{slug\}\.md`\)/);
   assert.match(syncScript, /fs\.writeFileSync\(output, render\(raw, title, desc, editUrl\)\)/);
   assert.doesNotMatch(syncScript, /readCanonicalMarkdown\(outDir,/);
+});
+
+
+test('desktop onboarding links use the app repository in generated docs', () => {
+  for (const file of ['../src/content/docs/getting-started.md', '../public/llms-full.txt']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md'));
+    assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source'));
+    assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development'));
+    assert.doesNotMatch(text, /https:\/\/github\.com\/vivary-dev\/vivary\/blob\/dev\/packages\/(?:desktop|workbench)\//);
+  }
 });

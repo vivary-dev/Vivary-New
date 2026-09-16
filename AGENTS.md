@@ -1,23 +1,26 @@
 # Vivary agent instructions
 
-## GUI branch acceptance
+## Active repository and product acceptance
 
-Jeff corrected delivery on 2026-09-12: keep new Vivary product work on
-`feat/vivary-gui`. Do not merge it into `dev` until Jeff has used the GUI,
-seen the real agent loop and tool results, and explicitly approved promotion.
-The local preview was shown. Jeff then returned execution to Zo and authorized
-a private hosted GUI service and model trials on 2026-09-12. Preserve the local
-preview, Zo source, and existing evidence.
-Working components and passing tests do not establish a finished product.
-Vivary is a local desktop product. Zo is the current development and preview
-host, not a product dependency or a required deployment destination. Prioritize
-the installable desktop path from outcome 23 alongside the working agent slice.
-Users must be able to open Vivary and use their own local files and CLI models
-without a Vivary account, Zo account, or cloud control plane.
-Jeff confirmed self-hosted installation must not require login or signup. Private hosted
-access and model sign-in must work reliably. Reuse the original Vivary contracts
-and any relevant existing Paperclip integration; do not create a replacement
-agent system merely to connect the GUI.
+Jeff selected a complete new private repository on 2026-09-13:
+`vivary-dev/Vivary-New`. His later branching correction selects typed topic
+branches from `dev`, PRs into `dev`, and reviewed promotion from `dev` to `main`.
+Do not commit directly to either long-lived branch. `main` is the default branch.
+The `origin` remote is that GitHub repository. The `entire` remote is its Entire
+mirror. Push reviewed source to both. Preserve the previous repositories and
+history. This supersedes the earlier Entire-only `feat/vivary-gui` restriction.
+
+The original public `vivary-dev/vivary` repository and its `dev` branch are not
+this development target. Publication, releases, and changes to the public product
+still require Jeff's explicit acceptance. A working component does not establish
+a finished product.
+
+Vivary is a desktop and self-hosted web product. One instance runs on a
+user-controlled computer or suitable server. The desktop and responsive browser
+clients use that host's agents, files, credentials, and history. Local desktop
+opens without a Vivary account. Remote browser access is explicit and authenticated.
+Zo is the development and private preview host. Preserve existing preview evidence
+and original Vivary contracts. Reuse Native execution and connectors.
 
 Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
 Older packet and runtime instructions cannot restore heavier process defaults.
@@ -41,17 +44,44 @@ tool results. Fix a failure and repeat the affected journey. Then continue the
 product work. Do not turn visual testing into new verification infrastructure,
 repeat unrelated checks, or change historical evidence and budgets.
 
-Self-hosted Vivary does not require login or signup. Local access stays on loopback.
-The private Zo service uses Zo's existing owner-login boundary and must stay
-private. Internal Native session identity still scopes actions and records.
-Model-provider login remains separate from access to Vivary.
+Local desktop use requires no Vivary account or signup and stays on loopback by
+default. Remote browser access to the same host requires explicit setup and owner
+authentication. The private Zo service keeps its existing owner-login boundary.
+Internal Native session identity still scopes actions and records. Model-provider
+login remains separate from access to Vivary.
 
 ## Start with the product
 
-Read [the current frontier](docs/product/multi-project/index.md) and the owning
-packet. [The execution contract](docs/product/multi-project/execution-contract.md)
-owns program metadata and delivery details. Choose the next observable user
-capability and implement one coherent slice through the real application.
+Jeff's 2026-09-13 target is a working `Vivary.exe` with project workspaces,
+searchable persistent sessions, file memory, fast project search, and the original
+Vivary operations, plus responsive browser access and live project preview/debugging. Follow [the desktop release queue](docs/product/multi-project/desktop-release.md).
+Keep at most two independent implementation issues active. Select the next ready
+issues from the live release milestone after checking accepted and held work. Keep the existing 36 outcomes as coverage, not parallel
+workstreams. Do not mark the desktop finished from packaging or CI alone.
+
+Jeff approved GitHub issues as the execution ledger on 2026-09-13. Issues in
+`vivary-dev/Vivary-New` own task goals, acceptance, dependencies, ownership,
+priority, and lifecycle. Documents own architecture, code contracts,
+implementation guidance, and retained evidence. Packets and the generated
+frontier are synchronized references; refresh them when a linked issue changes,
+but a routine issue needs no packet before it starts. Read the live issue before
+work. Issue [#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this
+alignment. State repair [#5](https://github.com/vivary-dev/Vivary-New/issues/5) and
+runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are accepted.
+[Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) records
+verified project conversations, Native persistence, and history controls.
+[Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retains
+unmet acceptance. The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
+separates the tested private candidate from remaining release gates. Follow
+[the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
+task must advance this release or fix a demonstrated blocker. Broader product
+outcomes retain their later milestones and evidence.
+
+Read the claimed issue, then [the current frontier](docs/product/multi-project/index.md)
+and any linked packet for implementation guidance and evidence.
+[The execution contract](docs/product/multi-project/execution-contract.md)
+owns program metadata and delivery details. Implement one coherent slice
+through the real application.
 
 Use the workspace and execution environment authorized for the task. Reuse the
 current checkout and handoff when provided. Inspect live Git and preserve dirty
@@ -70,14 +100,19 @@ named dangerous failure. Select controls for that risk.
 
 ## Delivery and authority
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md). Branch from current remote `dev`,
-use a typed topic branch, and integrate through a PR with the required CI and
-review gates. Never push directly to protected `dev` or legacy `prod`.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). Branch from current `origin/dev`,
+use a typed topic branch, and open a PR into `dev`. Review and verify each
+increment before committing and pushing to GitHub and Entire.
+Do not promote this work into the original repository or its release branches.
 
 Make small, coherent, reviewed commits. Preserve unrelated work, accepted
 evidence, and historical budgets. Keep private handoffs, credentials, transcripts,
 and machine-specific continuity notes outside public source and Git history.
-Private source hosting does not establish agent-session capture.
+Private source hosting does not establish agent-session capture. Follow
+[the Entire contributor setup](docs/ENTIRE.md) before supported agent work.
+Verify enabled hooks and the private checkpoint destination. Use Entire session
+and checkpoint commands to confirm capture, then search prior checkpoints when
+past decisions matter. Never claim MCP controller edits were captured locally.
 
 Use the user's existing authorization. Complete reversible preparation before
 requesting any missing approval for pushes, PR creation, merges, publication,
@@ -89,7 +124,17 @@ or flywheel.
 
 Follow [the release workflow](docs/RELEASE-WORKFLOW.md) when release operations
 apply. Source implementation and passing tests do not establish publication.
-[README.md](README.md#release-status) owns shipped behavior.
+[The original CLI reference](docs/ORIGINAL-CLI.md#release-status) owns package release status.
+
+## Contributor readability
+
+Jeff confirmed on 2026-09-13 that another contributor is joining. Write code that
+someone new can follow. Keep responsibilities in their existing owner modules,
+use names that explain purpose, and keep functions focused. Add comments for
+non-obvious decisions and contracts. Avoid narration, speculative abstractions,
+duplicate checks, and wrappers that only pass arguments. Explain unfamiliar
+primitives in the contributor guide when they affect implementation choices.
+Review the diff for readability before committing.
 
 ## Keep knowledge useful
 

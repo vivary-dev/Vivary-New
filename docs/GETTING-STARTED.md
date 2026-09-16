@@ -1,5 +1,14 @@
 # Getting started with Vivary
 
+This page installs the original command-line engine. For the unreleased desktop
+app, first read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
+then use [Workbench source setup](../packages/workbench/README.md#run-from-source)
+or [desktop development and packaging](../packages/desktop/README.md#development).
+The private Windows candidate is tested, but no desktop package is publicly released.
+Real Native-provider acceptance is tracked in [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50),
+automation execution and recovery in [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51),
+and selectable Codex/model behavior in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
+
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and
 verification hooks, and deliberate human gates. It does not require a particular
@@ -7,7 +16,9 @@ editor, agent runtime, database, memory provider, or MCP client.
 
 > **Release truth:** the five-file workflow on this page is published 0.4.2
 > behavior, verified on the public registries on 2026-08-15. The
-> [README release table](../README.md#release-status) is the publication authority.
+> [original CLI release table](ORIGINAL-CLI.md#release-status) is the publication authority.
+> Commands below pin that tested creator and Tropo baseline. Newer registry
+> availability is listed separately and is not fresh installation verification.
 > Pin `create-vivary==0.3.1` or `@vivary/create@0.3.1` only to get the historical
 > full layout.
 
@@ -18,10 +29,10 @@ Paste this into Claude Code, Codex, Cursor, or another coding agent:
 ```text
 Set up Vivary in this project.
 
-1. Confirm Python 3.11+ and either uv or pipx are available. Do not install anything without my approval.
-2. If this folder already has content, run `create-vivary adopt . --json`. Show me the exact creates, bounded patches, optional projections, kept files, conflicts, privacy result, and plan_hash. Stop on any conflict. Apply only the exact approved plan with `--yes --plan <plan_hash>`.
-3. If this folder is empty, ask which preset fits (coding, second-brain, knowledge-work, or writing), then run `create-vivary init . --preset <choice>`.
-4. Verify with `create-vivary doctor .` and `tropo check --root .`. Both must pass.
+1. Confirm Python 3.11+ and uv are available. Do not install anything without my approval.
+2. If this folder already has content, run `uvx --from create-vivary==0.4.2 create-vivary adopt . --json`. Show me the exact creates, bounded patches, optional projections, kept files, conflicts, privacy result, and plan_hash. Stop on any conflict. Apply only the exact approved plan with `--yes --plan <plan_hash>`.
+3. If this folder is empty, ask which preset fits (coding, second-brain, knowledge-work, or writing), then run `uvx --from create-vivary==0.4.2 create-vivary init . --preset <choice>`.
+4. Verify with `uvx --from create-vivary==0.4.2 create-vivary doctor .` and `uvx --from vivary-tropo==0.5.3 tropo check --root .`. Both must pass.
 5. Read AGENTS.md and .vivary/context.md. Read STATE.md only when current state matters.
 ```
 
@@ -31,8 +42,8 @@ You need Python 3.11 or newer. Run the published scaffolder from the public inde
 with no permanent install:
 
 ```bash
-uvx create-vivary --help
-uvx --from vivary-tropo tropo --help
+uvx --from create-vivary==0.4.2 create-vivary --help
+uvx --from vivary-tropo==0.5.3 tropo --help
 ```
 
 The npm launcher runs the same PyPI scaffolder:
@@ -41,8 +52,8 @@ The npm launcher runs the same PyPI scaffolder:
 npx @vivary/create@0.4.2 --help
 ```
 
-The examples below write `create-vivary` and `tropo` as bare commands. Keep the
-`uvx` prefix if you have not installed the tools. The optional MCP package carries
+Bare commands below assume the verified package versions. Use the pinned
+`uvx` prefixes above when those versions are not installed. The optional MCP package carries
 third-party runtime dependencies, so install `vivary-mcp` explicitly before you
 check its `vivary-mcp --help` entry point. Version 0.3.1 remains available for the
 previous layout with `uvx --from create-vivary==0.3.1 create-vivary ...` or

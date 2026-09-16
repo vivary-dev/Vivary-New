@@ -4,7 +4,7 @@ Status: planned
 Blocked-by: [03, 06]
 Unlocks: [09, 13, 19, 24]
 
-Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+Execution: Read and claim the live [GitHub issue](https://github.com/vivary-dev/Vivary-New/issues). Its dependencies govern starting work. Use [the graph](../graph.md) for supporting references. Parent dependencies still gate outcome completion, not independent preparation.
 
 ## Goal
 
@@ -34,8 +34,19 @@ Run the [canonical common planning checks](../execution-contract.md#maintaining-
 after changing this outcome's metadata. These checks validate planning documents;
 they do not prove the behavior above.
 
+## Next packets
+
+- [07a: Optional workspace metadata](../packets/07a-workspace-role-contract.md): compatible preparation, assigned to runtime_setup.
+- [07b: Shared content plan and apply](../packets/07b-shared-workspace-plan-apply.md): repair the creator adapter and deliver the first GUI/CLI setup journey.
+- [07c: Built-in patterns and reconfiguration](../packets/07c-builtin-patterns-reconfiguration.md): useful starter content and explicit S1 changes.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
 
 - 2026-09-13: Jeff clarified useful workspace setup and questioned fixed language or stack packs. Recorded composable structure and agent guidance as the proposed implementation direction. The GUI creation flow remains unimplemented.
+
+- 2026-09-13: Combined setup work into bounded packets. Metadata alone does not complete creation or S1. GUI acceptance accompanies setup, before merge/split.
+- 2026-09-13: Packet 07a accepted as compatible role metadata. Packet 07b is
+  ready for the shared GUI/CLI plan and apply implementation. The outcome remains
+  open until real workspace creation passes its user-facing exit checks.

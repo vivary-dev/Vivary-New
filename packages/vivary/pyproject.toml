@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vivary"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first governed context for agent work. One install for the Vivary CLI suite: create-vivary, tropo, strato, ozone, and exo."
 readme = "README.md"
 license = "MIT"
@@ -19,8 +19,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "create-vivary>=0.4.3",
-    "vivary-tropo>=0.5.4",
+    "create-vivary>=0.4.4",
+    "vivary-tropo>=0.5.5",
     "vivary-strato>=0.1.3",
     "vivary-ozone>=0.3.2",
     "vivary-exo>=0.3.1",

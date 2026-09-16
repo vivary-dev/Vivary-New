@@ -8,6 +8,7 @@ import {
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { Button } from "@agent-native/toolkit/ui";
 import { IconTerminal2 } from "@tabler/icons-react";
 import { LocalRuntimeSettings } from "@/components/settings/LocalRuntimeSettings";
 import { useTheme } from "next-themes";
@@ -54,7 +55,9 @@ export function meta() {
 
 export default function SettingsRoute() {
   const { theme } = useTheme();
-  const { ready, error, setTheme, setAppearance } = useAppearancePreferences();
+  const {
+    ready, error, retryAppearance, retrySession, setTheme, setAppearance,
+  } = useAppearancePreferences();
   const nativeTabs = useAgentSettingsTabs({
     appName: "Vivary",
     usageAppId: "vivary",
@@ -88,9 +91,19 @@ export default function SettingsRoute() {
             </p>
           </div>
           {error && (
-            <p role="status" className="text-sm text-destructive">
-              {error}
-            </p>
+            <div role="status" className="flex items-center gap-3 text-sm text-destructive">
+              <span>{error}</span>
+              {retryAppearance && (
+                <Button variant="ghost" size="sm" onClick={retryAppearance}>
+                  Retry
+                </Button>
+              )}
+              {retrySession && (
+                <Button variant="ghost" size="sm" onClick={retrySession}>
+                  Retry session
+                </Button>
+              )}
+            </div>
           )}
           <SettingsGroup title="Appearance">
             <SettingsRow

@@ -44,18 +44,18 @@ export async function runDesktopServer(args = process.argv.slice(2)) {
   }
   await startVivary(options);
   nativeHandlersReady = true;
-  await waitForAgent(options.appUrl);
+  await waitForWorkspace(options.appUrl);
   send({ type: "ready", origin: options.appUrl });
 }
 
-async function waitForAgent(origin) {
+export async function waitForWorkspace(origin) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   let lastStatus;
   while (Date.now() < deadline) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1_000);
     try {
-      const response = await fetch(`${origin}/agent`, {
+      const response = await fetch(`${origin}/`, {
         headers: { accept: "text/html" },
         method: "GET",
         redirect: "manual",
@@ -77,7 +77,7 @@ async function waitForAgent(origin) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const cause = lastStatus === undefined ? "no HTTP response" : `last HTTP status ${lastStatus}`;
-  throw new Error(`Vivary local server did not return a successful GET /agent response (${cause}).`);
+  throw new Error(`Vivary local server did not return a successful GET / response (${cause}).`);
 }
 
 const directEntry = process.argv[1] && path.resolve(process.argv[1]) === sourceFile;

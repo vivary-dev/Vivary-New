@@ -1,6 +1,6 @@
 # Vivary multi-project workbench
 
-Updated: 2026-09-13. Status: documented program; implementation evidence is tracked by the ticket graph. The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the owning packet; explicit unresolved product, account, security, and release decisions retain their stated owners.
+Updated: 2026-09-14. Status: documented program; GitHub issues own task lifecycle and the ticket graph is a synchronized reference (see [issue authority](issue-authority.md)). The product direction and Habitat development environment are approved. The owner confirmed BrowserPod is unavailable. Ordinary reversible technical choices belong to the issue owner; explicit unresolved product, account, security, and release decisions retain their stated owners.
 
 This is the canonical program plan. [Execution rules](execution-contract.md), [scope coverage](capability-matrix.md), [native owners](native-owners.md), and [current risks](audit.md) keep the work bounded and current. Start here, then open [the graph](graph.md), [source evidence](evidence.md), [migration map](migration.md), or [release criteria](release.md). [CONTEXT.md](CONTEXT.md) defines the terms.
 
@@ -16,9 +16,33 @@ The product handles new and existing projects, workspace templates installed wit
 
 The full little-agent scope survives: visual planning, research, tickets, workers, review, portable handoffs, CLI agents, factory mode, email intake, and heartbeat maintenance. Delivery order does not remove later scope.
 
-Implementation proceeds through the bounded packets in the generated graph. HarnessMax removal remains deferred. Website, UI, docs, guides, and a real 100% isitagentready.com result belong to the delivery program. This plan does not claim that the behavior is implemented, released, or published.
+Implementation proceeds through live GitHub issues, with packets and the graph as supporting references. HarnessMax removal remains deferred. Website, UI, docs, guides, and actual agent-readiness verification remain in the program. The [release checkpoint](desktop-release.md#what-exists-and-what-is-missing) identifies accepted increments and unmet acceptance. Target scope does not establish a release or publication.
 
 No model, storage vendor, hosting plan, default runtime, or payment service is selected by this document. Earlier Littleagent implementation authority remains relevant to compatible work after the changed contracts are reconciled. Planning authority does not establish implementation or publication evidence.
+
+## Vivary-New repository decision: 2026-09-13
+
+Jeff requested one complete new repository named `Vivary-New` in the Vivary
+organization, connected to GitHub and Entire. His later branching correction
+selects typed topic branches from `dev`, PRs into `dev`, and reviewed promotion
+to `main`. `main` is the default branch. The repository remains private.
+Keep the existing checkout and history. This supersedes the earlier Entire-only
+feature-branch delivery restriction. The original public repository remains separate.
+[CONTRIBUTING.md](../../../CONTRIBUTING.md) owns the workflow and its enforcement limit.
+
+Jeff also confirmed that another contributor is joining. Keep code modular and
+readable, document module ownership, and remove unnecessary layers and comments.
+
+Jeff also asked to combine the research into one plan and follow it. Extend the
+existing outcome graph with bounded packets. Treat supplied research as evidence
+and proposals. Its embedded decision block is not a record of Jeff's answers.
+Keep compatible file-role metadata as the first source increment. Preserve
+existing authored state while a later packet defines generated-view inputs and
+migration. Deliver GUI acceptance with useful setup and memory slices. Merge and
+split support do not block the first working workspace setup flow.
+
+The [research reconciliation](research/workspace-research-reconciliation.md) records
+source corrections and maps the combined work to its owning packets.
 
 ## Local desktop delivery decision: 2026-09-12
 
@@ -30,6 +54,44 @@ without a Vivary or Zo account. Outcome 23 owns packaging and platform acceptanc
 Its broader release dependencies do not block a bounded desktop increment for
 the already working agent surface. Follow the testing sequence below for later
 application increments.
+
+## Unified workspace decision: 2026-09-14
+
+Jeff selected one conversation-centered project workspace after reviewing the
+private application beside Codex and T3 Code. Agent, Files, Workbench and Full
+chat must not remain competing top-level destinations. Files, plans, documents,
+changes and supported previews are optional resizable and closable surfaces.
+Project metadata stays compact; selecting a project does not open a file.
+
+Harness/model choice comes from supported, registered and installed CLIs on the
+selected host. The picker groups models under harness names with small brand
+marks. Cross-harness selection opens a linked conversation with exact recorded
+history available. Model context capacity remains explicit. A separate agent
+handoff workflow maintains project documents and continuation evidence through
+deterministic tools. Vivary does not impose predefined agent personas.
+
+[Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) owns delivery.
+The [interaction contract](unified-workspace.md) distinguishes these decisions
+from proposed dimensions and implementation details. The [research](research/agent-workspace-ergonomics.md)
+records primary sources and evidence limits. Existing file/runtime proofs remain
+valid for their components. Jeff accepted the design review, and PR #42 delivered
+the first unified shell. PR #48 corrected the sidebar edge. Remaining issue #38
+integrations still need their own implementation and acceptance.
+
+## Visual product specification decision: 2026-09-14
+
+Jeff requested a complete visual specification and codebase operating manual
+before returning to application implementation. It must cover the existing full
+product scope, shared vocabulary, interconnected actions, modular boundaries,
+replaceable harness integrations, state and failure paths, and diagrams that
+route a contributor to the exact relevant context.
+
+The [visual specification](specification/README.md) organizes the 36 retained
+outcomes and issue #38 without creating a second task ledger. Jeff accepted guide
+snapshot `e86d06ed592a2d3c` on 2026-09-14. Header-first project details and manual
+handoff updates are settled. The first shell is implemented. The grouped harness
+catalog, linked conversations, handoff workflow, and concurrent runtime remain
+planned. A new CLI still needs a supported adapter and compatibility evidence.
 
 ## Hosted and desktop testing decision: 2026-09-13
 
@@ -53,18 +115,21 @@ its existing system contracts. Reuse working packages and Native integrations
 before adding new orchestration. Check existing Paperclip use and retain a useful
 integration if one exists; this does not make Paperclip mandatory.
 
-Jeff clarified later on 2026-09-12 that self-hosted Vivary must open without
-login or signup, including the private Zo instance. Local access stays on loopback. Zo's
-existing owner-login boundary controls remote access; the service must remain
-private. Internal Native identity and action scoping remain active without a
-second user account. Coding-provider sign-in is separate and reuses the user's
-existing CLI subscription. A paid authentication service is not required.
+Jeff requested account-free self-hosted use on 2026-09-12. The 2026-09-13
+[host and browser decision](#host-and-browser-access-decision-2026-09-13) clarifies
+the access boundary: local desktop use requires no Vivary account or signup and
+stays on loopback by default. Remote browser access is explicit and authenticated.
+The private Zo instance retains Zo's existing owner-login boundary. Internal
+Native identity and action scoping stay active without a second user account.
+Coding-provider sign-in is separate and reuses the user's existing CLI subscription.
+A paid authentication service is not required.
 
 Use up to three subagents as needed and make broad real visual/UI testing part
 of normal delivery. Repair failures, repeat the affected journey, and continue
 implementation without expanding verification machinery. The private Zo preview
-is the active development surface. Promotion to dev still requires Jeff's
-explicit product acceptance.
+is the active development surface. For private Vivary-New, reviewed topic PRs
+merge into dev under [the contributor rules](../../../CONTRIBUTING.md). Promotion
+to main and public release retain their separate product-acceptance requirements.
 
 ## Execution decision: 2026-09-05
 
@@ -203,7 +268,9 @@ Jujutsu supports Git-backed and colocated workspaces. Detection must distinguish
 
 ## Project onboarding
 
-The GUI starts with three choices: create a project, open an existing folder, or open an existing Vivary workspace. An agent can invoke the same operations with structured inputs and receive the same plan and receipt.
+The target GUI offers three choices: create a project, open an existing folder, or open an existing Vivary workspace. Agent actions must use the same operation owners.
+
+The accepted New project increment creates a managed folder under private app data after previewing the original creator's exact five files. PR #47 merged that shared creator path. Arbitrary-target creation, populated-folder apply, template choices, VCS, and hosting steps below remain target behavior. Registering an existing folder through the desktop picker does not adopt or modify it.
 
 New project:
 
@@ -438,3 +505,51 @@ experience as already implemented.
 When owner statements genuinely conflict, name the conflicting requirements and
 the decision they affect. Discuss that conflict before choosing a consequential
 interpretation. An explicit correction updates the existing decision.
+
+## Coherent desktop release decision, 2026-09-13
+
+Jeff specified the end state as a working Vivary.exe with project workspaces,
+persistent and searchable chat sessions, useful memory, native external logs,
+and fast file/code search. He also authorized consolidating useful work.
+[The desktop release target](desktop-release.md) owns the ordered delivery queue,
+storage model, complete original CLI coverage, and actual Windows finish line.
+PRs #3 and #4 are integrated into dev. Prior standalone experiment plans do not
+override this queue. The broader outcomes remain covered in later milestones.
+
+## Host and browser access decision: 2026-09-13
+
+Jeff decided that the same Vivary instance runs on a user-controlled computer
+or a suitable self-hosted server, with a responsive browser client for phone
+and desktop. Runtime agents, credentials, projects, and history remain on the
+host. The local desktop needs no Vivary account and stays on loopback by
+default. Remote browser access is explicit and authenticated and does not
+expose the private Zo preview. Issue
+[#30](https://github.com/vivary-dev/Vivary-New/issues/30) owns remote/browser
+access. Issue [#31](https://github.com/vivary-dev/Vivary-New/issues/31) owns
+live project preview plus supported agent browser debugging. The existing
+Electron build includes Chromium; no separate Google Chrome distribution is
+presumed.
+
+Letta Code is a major design reference for persistence. Reuse the existing
+[Letta Code study](research/letta-code-workspace-patterns.md), the
+[persistence study](research/file-memory-and-persistence.md), and
+[Native owners](native-owners.md) rather than adding a new agent system.
+Mac distribution is optional later roadmap work outside the active
+Windows/shared-web milestone. Native phone apps and a managed cloud service are
+not in scope.
+
+
+## Background work approval decision, 2026-09-14
+
+Jeff selected both reopening the same agent conversation and work that continues
+after leaving the browser. Background work must be obvious and provide approval
+and denial. Issue [#35](https://github.com/vivary-dev/Vivary-New/issues/35) owns
+this requirement.
+
+Each local coding turn requires a visible, server-enforced decision before
+execution. Show its exact task, project, runtime, capabilities, and existing
+two-minute limit. Approval applies to that turn only. Denial starts no model or
+tools. Pending, running, and terminal outcomes remain visible with a conversation
+link and denial or Stop as appropriate. Host restart never grants approval or
+automatically resumes interrupted work. Native retains the conversation and
+approval records. This decision adds no scheduler or second run store.

@@ -7,24 +7,9 @@ import {
 } from "@tabler/icons-react";
 
 export const navigationItems = [
-  {
-    href: "/agent",
-    label: "Agent",
-    icon: IconTerminal2,
-    keywords: ["code", "files", "local"],
-  },
-  {
-    href: "/workbench",
-    label: "Workbench",
-    icon: IconLayoutColumns,
-    keywords: ["project", "plan", "output"],
-  },
-  {
-    href: "/chat",
-    label: "Full chat",
-    icon: IconMessageCircle,
-    keywords: ["conversation", "assistant"],
-  },
+  { href: "/", label: "Workspace", icon: IconMessageCircle, keywords: ["conversation", "project"] },
+  { href: "/?panel=files", label: "Open files", icon: IconFolder, keywords: ["read", "edit", "rename"] },
+  { href: "/?panel=details", label: "Project details", icon: IconLayoutColumns, keywords: ["host", "information"] },
 ] as const;
 
 export const settingsItems = [
@@ -77,13 +62,13 @@ export function navigationTitle(pathname: string) {
 }
 
 export function fullChatHref(identity?: { storageKey: string; scope: { type: string; id: string } } | null) {
-  if (!identity) return "/chat";
+  if (!identity) return "/?runtime=native";
   try {
     const threadId = window.localStorage.getItem(
       `agent-chat-active-thread:${identity.storageKey}:scope:${identity.scope.type}:${identity.scope.id}`,
     );
-    return threadId ? `/chat?thread=${encodeURIComponent(threadId)}` : "/chat";
+    return threadId ? `/?runtime=native&thread=${encodeURIComponent(threadId)}` : "/?runtime=native";
   } catch {
-    return "/chat";
+    return "/?runtime=native";
   }
 }

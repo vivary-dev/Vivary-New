@@ -3820,7 +3820,7 @@ class VersionParityTests(unittest.TestCase):
         manifest = tomllib.loads(
             (root / "pyproject.toml").read_text(encoding="utf-8")
         )["project"]
-        self.assertIn("vivary-tropo>=0.5.3", manifest["dependencies"])
+        self.assertIn("vivary-tropo>=0.5.5", manifest["dependencies"])
 
     def test_governed_install_hints_match_role_manifests(self):
         import tomllib
@@ -3872,7 +3872,7 @@ class VersionParityTests(unittest.TestCase):
                 f"{role_requirement['module']}:{role_requirement['callable']}",
             )
 
-    def test_package_release_status_links_survive_registry_rendering(self):
+    def test_package_registry_links_survive_registry_rendering(self):
         import tomllib
 
         manifest = tomllib.loads(
@@ -3882,16 +3882,18 @@ class VersionParityTests(unittest.TestCase):
         )["project"]
         self.assertEqual(manifest["readme"], "README.md")
 
-        release_status_url = (
-            "https://github.com/vivary-dev/vivary/blob/dev/"
-            "README.md#release-status"
+        registry_urls = (
+            "https://pypi.org/project/create-vivary/",
+            "https://www.npmjs.com/package/@vivary/create",
         )
         for relative_path in (
             "packages/create-vivary/README.md",
             "packages/create-vivary/npm/README.md",
         ):
             content = (ROOT / relative_path).read_text(encoding="utf-8")
-            self.assertIn(release_status_url, content, relative_path)
+            for url in registry_urls:
+                self.assertIn(url, content, relative_path)
+            self.assertNotIn("github.com/vivary-dev/Vivary-New", content)
             self.assertNotIn("](../../README.md#release-status)", content)
             self.assertNotIn("](../../../README.md#release-status)", content)
 

@@ -23,11 +23,12 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "./components/layout/AppearancePreferences";
-import { useVivaryChatIdentity } from "./components/layout/use-vivary-chat-identity";
 import { Layout as AppLayout } from "./components/layout/Layout";
+import { FileDraftProvider } from "./components/projects/FileDrafts";
+import "./project-files.css";
 import { ProjectProvider } from "./components/projects/ProjectContext";
 import { designSystem } from "./design-system";
-import { fullChatHref, navigationItems, settingsItems } from "./lib/navigation";
+import { navigationItems, settingsItems } from "./lib/navigation";
 import stylesheet from "./global.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: stylesheet }];
@@ -56,7 +57,6 @@ export function Layout({ children }: { children: ReactNode }) {
 
 function AppContent() {
   const navigate = useNavigate();
-  const identity = useVivaryChatIdentity();
   const { resolvedTheme } = useTheme();
   const { ready, setTheme } = useAppearancePreferences();
   const [commandOpen, setCommandOpen] = useState(false);
@@ -77,9 +77,7 @@ function AppContent() {
               keywords={[...item.keywords]}
               onSelect={() =>
                 navigate(
-                  item.href === "/chat"
-                    ? fullChatHref(identity)
-                    : item.href,
+                  item.href.startsWith("/?") ? (() => { const params = new URLSearchParams(window.location.search); params.set("panel", new URLSearchParams(item.href.slice(2)).get("panel") ?? "details"); return "/?" + params.toString(); })() : item.href,
                 )
               }
             >
@@ -139,7 +137,7 @@ export default function Root() {
       >
         <AppearancePreferencesProvider>
           <ProjectProvider>
-            <AppContent />
+            <FileDraftProvider><AppContent /></FileDraftProvider>
           </ProjectProvider>
         </AppearancePreferencesProvider>
       </AppProviders>

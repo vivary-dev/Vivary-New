@@ -1,7 +1,7 @@
 ---
 title: "Agent skills"
 description: "The strato, tropo, and loops skills that operate a Vivary workspace."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/SKILLS.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/SKILLS.md"
 ---
 
 Vivary packages include **agent skills**: load-on-demand procedures that tell an

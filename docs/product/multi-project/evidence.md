@@ -15,9 +15,19 @@ This brief records public code and source-safe constraints for the proposed mult
 
 ## Public source identities
 
-`vivary-dev/vivary` is the canonical public product repository. `Jeff-Kazzee/littleagent` is the public source identity for the workbench specifications and implementation. `The-Little-AI-Company/harnessmax` is a public legacy evidence source. Private planning, machine paths, branches, commit hashes, dirty-state inventories, and review material are maintained outside this public contract.
+`vivary-dev/Vivary-New` is the private desktop-development repository. Topic PRs
+integrate into `dev`, with reviewed promotion to the default branch, `main`.
+`vivary-dev/vivary` remains the original public product and release repository. `Jeff-Kazzee/littleagent` is the public source identity for the workbench specifications and implementation. `The-Little-AI-Company/harnessmax` is a public legacy evidence source. Private planning, machine paths, branches, commit hashes, dirty-state inventories, and review material are maintained outside this public contract.
 
 The public repository contract governs branches, reviews, tests, documentation generation, and release evidence. This brief does not convert a source observation, proposal, or local result into shipped or published behavior.
+
+## Workspace research reconciliation
+
+The [supplied synthesis](research/workspace-primitives-and-templates.md) is a
+proposal. The [source reconciliation](research/workspace-research-reconciliation.md)
+corrects its non-Git record claim and distinguishes confirmed adoption and Doctor
+gaps from broader hypotheses. The combined plan preserves authored state and
+includes GUI acceptance with each useful workspace operation.
 
 ## Current workspace behavior
 
@@ -135,8 +145,8 @@ The dependency remains held. Its six outcomes cover semantic and transport contr
 ## Website, documentation, and release evidence
 
 Canonical prose lives in `docs/`. The repository contract lines 91-103 says the site
-copies are generated and must not be edited directly. The root `README.md` owns
-publication truth, and `CHANGELOG.md` records each development line.
+copies are generated and must not be edited directly. The [original CLI reference](../../ORIGINAL-CLI.md#release-status) owns
+package publication truth, and `CHANGELOG.md` records each development line.
 
 [`sync-docs.mjs`](../../../site/scripts/sync-docs.mjs) owns the canonical-doc to site-doc
 mapping and the generated LLM files. The

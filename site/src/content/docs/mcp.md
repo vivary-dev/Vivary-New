@@ -1,7 +1,7 @@
 ---
 title: "MCP adapter"
 description: "Optional local read-only MCP adapter contract, tools, privacy boundary, and verification."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/MCP.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/MCP.md"
 ---
 
 `vivary-mcp` is an optional, read-only bridge from local MCP clients to Vivary's

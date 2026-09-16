@@ -14,7 +14,8 @@ export const catalogSchema = z.union([
     locations: z.array(z.strictObject({ locationRef: identifier, displayName: label,
       status: availability })).max(16),
     projects: z.array(z.strictObject({ projectId: identifier, displayName: label,
-      bindingRevision: revision(1), status: availability })).max(128),
+      bindingRevision: revision(1), status: availability,
+      managedReconnectEligible: z.boolean().default(false) })).max(128),
   }),
 ]);
 
@@ -22,7 +23,7 @@ export type CatalogResult = z.infer<typeof catalogSchema>;
 export type ProjectCatalog = Extract<CatalogResult, { code: "catalog" }>;
 export type CatalogProject = ProjectCatalog["projects"][number];
 
-export const selectionSchema = z.strictObject({ scopeKey: identifier, projectId: identifier });
+export const selectionSchema = z.strictObject({ scopeKey: identifier, projectId: identifier.nullable() });
 export type ProjectSelection = z.infer<typeof selectionSchema>;
 
 export type RegistrationAttempt = {

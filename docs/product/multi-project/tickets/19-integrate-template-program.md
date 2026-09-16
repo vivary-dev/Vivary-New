@@ -5,7 +5,7 @@ Blocked-by: [07, 08]
 External-gates: [template-installer]
 Unlocks: [24, 36]
 
-Execution: Start only a bounded packet listed in [the graph](../graph.md). Parent dependencies gate completion, not independent preparatory work.
+Execution: Read and claim the live [GitHub issue](https://github.com/vivary-dev/Vivary-New/issues). Its dependencies govern starting work. Use [the graph](../graph.md) for supporting references. Parent dependencies still gate outcome completion, not independent preparation.
 
 ## Goal
 
@@ -32,8 +32,15 @@ Run the [canonical common planning checks](../execution-contract.md#maintaining-
 after changing this outcome's metadata. These checks validate planning documents;
 they do not prove the behavior above.
 
+## Next packets
+
+- [19a: Held external catalog](../packets/19a-held-external-pattern-catalog.md): wait for the named external owner release and installed API.
+- [07c: Independent built-in patterns](../packets/07c-builtin-patterns-reconfiguration.md): deliver built-in setup without an external catalog dependency.
+
 ## Log
 
 - 2026-09-05: Initial public plan recorded. Implementation has not started.
 
 - 2026-09-06: Proposal for the external template program from [the alignment brief](../research/hoh-direction-brief.md): a template manifest declares its oracle, the check command or the written-expectation procedure that judges work in that workspace. A workspace without one cannot enable factory or learning runs. This is a manifest field proposal; the program's hold is unchanged.
+
+- 2026-09-13: Recorded the future external wrapper packet without lifting its hold. Built-in pattern and GUI work remain independent.

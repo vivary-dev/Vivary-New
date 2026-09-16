@@ -19,6 +19,7 @@ export default defineAction({
   run: async ({ runId, projectId }, ctx?: ActionRunContext) =>
     stopVivaryCodeRun({
       ownerEmail: requireVivaryCodeUser(ctx),
+      orgId: ctx?.orgId ?? undefined,
       projectId,
       runId,
     }),

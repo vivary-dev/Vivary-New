@@ -1,7 +1,7 @@
 ---
 title: "Optional semantic memory"
 description: "Implemented contract for Tropo-backed semantic-memory adapters and their boundary from independent agent LTM."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/SEMANTIC-MEMORY.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/SEMANTIC-MEMORY.md"
 ---
 
 Status: architecture note plus first optional Cognee adapter slice
@@ -525,8 +525,8 @@ Files touched by the setup slice and likely files for the Cognee adapter PR:
 - `site/scripts/sync-docs.mjs` and generated `site/src/content/docs/*` - website docs.
 - `site/src/pages/index.astro` - homepage copy if semantic memory becomes a named
   public capability.
-- `README.md` and package READMEs - release truth and quickstart
-  surfaces.
+- [Original CLI release status](/original-cli/#release-status) and package READMEs:
+  package release status and CLI quickstarts.
 - `packages/create-vivary/create_vivary.py` - `--memory`, capability discovery JSON,
   `knowledge-work` preset, wizard choices, scaffold writes, stale cleanup, and doctor
   reporting.

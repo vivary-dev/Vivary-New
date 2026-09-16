@@ -1,7 +1,7 @@
 ---
 title: "Connect an AI agent to Vivary"
 description: "Connect an AI coding or writing agent to Vivary through the standard context route or optional read-only MCP adapter."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/guides/connect-agent.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/guides/connect-agent.md"
 ---
 
 Use this guide after Vivary creates or adopts a workspace.
@@ -27,7 +27,7 @@ The connection does not grant write authority.
 Run Doctor before the connection.
 
 ```bash
-uvx create-vivary doctor C:/path/to/project
+uvx --from create-vivary==0.4.2 create-vivary doctor C:/path/to/project
 ```
 
 Stop if Doctor reports an error.

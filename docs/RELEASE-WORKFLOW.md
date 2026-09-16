@@ -11,8 +11,8 @@ together, and the website copy updates with them.
 The **Vivary Governed Context** train published and was verified on **2026-08-15**. A
 train name is a planning and release label, not a suite version, and it is never
 evidence that a given artifact reached a registry. Exact current source and registry
-versions live in the [root release status](../README.md#release-status); maturity lives
-in [MIGRATION-STATUS.md](MIGRATION-STATUS.md).
+versions live in the [original CLI release status](ORIGINAL-CLI.md#release-status).
+[MIGRATION-STATUS.md](MIGRATION-STATUS.md) owns maturity classifications.
 
 ## 1. Name the train and decide the release scope
 
@@ -21,18 +21,18 @@ Work out which packages actually changed, then bump only those:
 
 | What changed | Package to bump | Also update |
 |---|---|---|
-| `packages/tropo/tropo.py` or its tests | `vivary-tropo` | README release line, COMMANDS if CLI changed |
+| `packages/tropo/tropo.py` or its tests | `vivary-tropo` | Package README, original CLI release table, COMMANDS if CLI changed |
 | `packages/ozone/ozone.py` | `vivary-ozone` | same |
 | `packages/exo/exo.py` | `vivary-exo` | same |
 | `packages/create-vivary/create_vivary.py` | `create-vivary` (PyPI) **and** `@vivary/create` (npm) — always in lockstep | same |
 | `packages/create-vivary/create_vivary_assets/` or legacy full-workspace fixtures | No user-facing package bump by themselves; these are repository-only compatibility archives and must remain excluded from wheels and source distributions | parity/packaging proof |
 | `packages/strato/` templates or skills | `vivary-strato` when its runtime/package surface changes; do not copy these assets into thin init/adopt output | same |
-| `packages/strato/strato.py`, its tests, or CLI contract | `vivary-strato` — bump the version and publish it in the next coordinated train alongside core and the other role packages | ARCHITECTURE seam section, COMMANDS, README surface row |
+| `packages/strato/strato.py`, its tests, or CLI contract | `vivary-strato` — bump the version and publish it in the next coordinated train alongside core and the other role packages | ARCHITECTURE seam section, COMMANDS, ORIGINAL-CLI package row |
 | `packages/memory-cognee/vivary_cognee.py` | `vivary-memory-cognee` | same |
 | `packages/mcp/vivary_mcp.py` or its tests | `vivary-mcp` — keep it optional and off by default; preserve the exact reviewed MCP SDK pin | MCP guide, package README, Tropo floor |
-| `packages/core/` modules or tests | `vivary-core` — bump the version and publish it in the next coordinated train, always before every dependent role package | ARCHITECTURE seam section, README surface row |
-| dependency floors in `packages/vivary/pyproject.toml` | `vivary` (meta) — bump its floors and patch version when component minimums move | README table |
-| `docs/`, `site/`, root README only | **no package bump** — site redeploys from `dev` via Vercel automatically | keep docs/site sync (step 3) |
+| `packages/core/` modules or tests | `vivary-core` — bump the version and publish it in the next coordinated train, always before every dependent role package | ARCHITECTURE seam section, ORIGINAL-CLI package row |
+| dependency floors in `packages/vivary/pyproject.toml` | `vivary` (meta) — bump its floors and patch version when component minimums move | ORIGINAL-CLI release table |
+| `docs/`, `site/`, root README only | **no package bump** | keep docs/site sync (step 3); only the original public repository's configured Vercel project redeploys from its `dev` branch |
 | repo CI / stats / tests only | no bump, no site work | — |
 
 Bump rules (semver-ish, pre-1.0):
@@ -51,15 +51,15 @@ Bump rules (semver-ish, pre-1.0):
 1. **Planned** — name the train in the approved plan and top changelog entry. Do not
    assign a suite semver.
 2. **Staged** — set each changed package's independent next version, dependency floors,
-   and source status. Keep `create-vivary` and `@vivary/create` identical. The README
-   registry table still shows the old published versions.
+   and source status. Keep `create-vivary` and `@vivary/create` identical. The
+   `ORIGINAL-CLI.md` registry table still shows the old published versions.
 3. **Publishing** — after the train-level approval, publish one exact artifact at a
    time in dependency order. If publication is partial, name each artifact that reached
    its registry and keep the train itself incomplete.
 4. **Registry-complete** — every planned artifact is visible at its exact version, but
    the train is not yet verified.
 5. **Verified** — cache-resistant install and CLI smokes pass for every artifact; only
-   then update the root registry table and change the same changelog entry to
+   then update the `ORIGINAL-CLI.md` registry table and change the same changelog entry to
    "Published and verified."
 
 The historical independent versions remain valid history. A source change after one
@@ -78,8 +78,8 @@ Update every surface that names versions or the command set, in the repo,
 - `vivary-core` has no module `__version__`; `packages/core/pyproject.toml` is its sole
   in-repo version declaration, and step 6 verifies the installed distribution version.
 - `packages/create-vivary/npm/package.json` — lockstep version;
-- root `README.md` — the train name/state, registry table, development-source line,
-  create-only lockstep statement, and "Current command surface" list;
+- `docs/ORIGINAL-CLI.md`: the train name/state, registry table, development-source
+  line, create-only lockstep statement, and "Current command surface" list.
 - `CHANGELOG.md` — new entry at the top, matching the existing format: package
   names + versions + date, what changed, and a **Verification** section listing
   only the exact smoke commands actually run. Before publishing, the entry says
@@ -119,8 +119,9 @@ git diff --exit-code -- src/content/docs public/llms.txt public/llms-full.txt
 Commit the regenerated `site/src/content/docs/*` with the source docs — CI's
 site build and the graph review gate both expect them to match. (`sync-docs`
 is dependency-free; plain `node scripts/sync-docs.mjs` works without
-`npm install`.) The live site redeploys from `dev` on merge via Vercel — there
-is no separate site publish step, but the copy only updates if you committed it.
+`npm install`.) In the original public repository, its configured Vercel project
+redeploys from `dev` on merge. This private Vivary-New repository has no deployment
+hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate
 
@@ -356,12 +357,13 @@ dump).
 
 ## 9. After the release
 
-- Confirm the live site (https://vivary.vercel.app/) shows the new versions and
-  command surface — it deploys from `dev`, so this is a read-check, not a step.
+- For a release in the original public repository, confirm the live site
+  (https://vivary.vercel.app/) shows the new versions and command surface. This is a
+  read-check for that repository's configured deployment, not a Vivary-New merge step.
 - Stats: the daily `track-stats` workflow picks up the new versions. Every stats PR
   receives exact-head CI, while only warning-free, non-stale output may request
   auto-merge or supersede an older proposal. Stale output stays open as `blocked` for
-  inspection. Confirm `stats/history.csv` and the README
+  inspection. Confirm `stats/history.csv` and the `ORIGINAL-CLI.md`
   chart advanced before treating public signals as current.
 - Keep private agent communications outside the repo: handoffs, launch/social
   drafts, and private release packets stay in ignored local storage such as

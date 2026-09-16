@@ -39,11 +39,19 @@ Runtime work resolves stable project identity through the
 [packet execution policy](../../sources/program-execution.md). That policy governs
 how work is claimed and verified; it is not the native runtime behavior contract.
 
-## Gaps
+## Current integration and remaining gaps
 
-The behavior contract required by
-[Outcome 04](../../../tickets/04-define-runtime-session-contracts.md) remains planned
-and unimplemented. Preserved host-side evidence routed through the owner inventory is
-not proof of a real coding-runtime session. This checkout has no canonical runtime
-implementation or accepted live-runtime receipt to link, so this record deliberately
-has no contract, test, or evidence edge.
+The canonical Workbench has a working Native Code path in
+`packages/workbench/server/local-code-agent.ts` and the Code execution host/worker.
+It reuses Native Code run/transcript records. The tested Windows candidate completed
+a real approved Claude Code file turn, follow-up, Stop, restart, and cleanup. The Code
+composer exposes read-only runtime identity and deliberately omits Native's provider
+picker. Codex readiness discovery is implemented, but user selection and packaged
+Codex execution are not accepted.
+
+Project-bound Native storage and deterministic-provider journeys are implemented.
+They do not establish access to a real Native provider, real-provider Native turns,
+or automation execution. The [adapter specification](../../../specification/harness-adapters.md)
+identifies the intended generic seam. Linked conversations, broader resume, concurrent
+execution, model switching, and the complete outcome 04/10 contract remain open.
+See the [desktop acceptance register](../../../desktop-acceptance-status.md).

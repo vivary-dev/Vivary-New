@@ -1,7 +1,7 @@
 ---
 title: "Get bounded Vivary context"
 description: "Retrieve privacy-filtered project evidence with Vivary or save a complete governed Task Capsule for approved work."
-editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/guides/get-context.md"
+editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/guides/get-context.md"
 ---
 
 Use this guide before an agent changes the workspace.
@@ -45,7 +45,7 @@ Tell me everything.
 Run `find` for normal task context.
 
 ```bash
-uvx --from vivary-tropo tropo find "where is release truth owned" --root C:/path/to/project --budget 1200 --json
+uvx --from vivary-tropo==0.5.3 tropo find "where is release truth owned" --root C:/path/to/project --budget 1200 --json
 ```
 
 The default budget is 1,200 approximate tokens.
@@ -67,7 +67,7 @@ State that the result is unknown when evidence is missing.
 Use `query` when you need typed or filtered matches.
 
 ```bash
-uvx --from vivary-tropo tropo query "release status" --root C:/path/to/project --type project --json
+uvx --from vivary-tropo==0.5.3 tropo query "release status" --root C:/path/to/project --type project --json
 ```
 
 Use `--path` to limit paths.
@@ -132,7 +132,7 @@ A loosening or invalid overlay fails closed.
 Add `--receipt` when the operator needs a local run receipt.
 
 ```bash
-uvx --from vivary-tropo tropo find "where is release truth owned" --root C:/path/to/project --json \
+uvx --from vivary-tropo==0.5.3 tropo find "where is release truth owned" --root C:/path/to/project --json \
   --receipt C:/path/to/project/.vivary/runtime/receipts.jsonl
 ```
 

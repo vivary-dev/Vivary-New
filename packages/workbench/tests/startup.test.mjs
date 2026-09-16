@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createServer } from "node:http";
+import { waitForWorkspace } from "../bin/desktop-server.mjs";
 import { startupOptions } from "../bin/start.mjs";
 
 test("local startup stays on this computer despite a hosted environment", () => {
@@ -47,5 +49,27 @@ test("private Zo startup requires its explicit access boundary and DNS origin", 
   assert.throws(() => startupOptions(["--private-proxy", "--hosted"], env), /not both/);
   for (const url of ["https://10.0.0.2", "https://[2001:db8::1]"]) {
     assert.throws(() => startupOptions(["--private-proxy", "--url", url], env), /DNS hostname/);
+  }
+});
+
+test("desktop readiness opens the unified workspace without depending on its legacy redirect", async () => {
+  const requests = [];
+  const server = createServer((request, response) => {
+    requests.push(request.url);
+    if (request.url === "/") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<!doctype html><title>Vivary</title>");
+    } else {
+      response.writeHead(302, { location: "/" });
+      response.end();
+    }
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await waitForWorkspace(`http://127.0.0.1:${server.address().port}`);
+    assert.deepEqual(requests, ["/"]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
   }
 });

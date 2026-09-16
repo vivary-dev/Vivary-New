@@ -20,7 +20,12 @@ const { bindings, projects } = await import("../server/db/schema.mjs");
 const { createLocalRootProvider, LOCAL_ROOT_VERIFICATION } = await import("../server/local-root-provider.mjs");
 const { createNativeRegistry } = await import("../server/native-registry.mjs");
 const { createProjectCatalog } = await import("../server/project-catalog.mjs");
-const { getLocalProjectAccess, connectLocalProjectFolder, resolveLocalProjectWorkspace } = await import("../server/project-services.mjs");
+const {
+  getLocalProjectAccess,
+  connectLocalProjectFolder,
+  resolveLocalProjectHistory,
+  resolveLocalProjectWorkspace,
+} = await import("../server/project-services.mjs");
 const { evaluateRegistryOperation, deriveMutationKeys } = await import("../../../scripts/registry_contract_model.mjs");
 
 test("local project grants register real folders and reopen without content snapshots", async suite => {
@@ -222,7 +227,18 @@ test("local project grants register real folders and reopen without content snap
       await rename(beta, path.join(directory, "OriginalBeta"));
       const current = await catalog.run({}, context);
       assert.ok(current.projects.every(project => project.status === "unavailable"));
-      assert.equal((await getDb().select().from(projects)).length, 2);
+      const projectRows = await getDb().select().from(projects);
+      assert.equal(projectRows.length, 2);
+      const [alphaBinding] = (await getDb().select().from(bindings))
+        .filter(value => value.projectId === alphaResult.projectId);
+      assert.deepEqual(await resolveLocalProjectHistory(context, alphaResult.projectId), {
+        label: "Alpha",
+        projectId: alphaResult.projectId,
+        bindingId: alphaBinding.bindingId,
+        rootId: alphaBinding.rootId,
+        bindingRevision: alphaBinding.bindingRevision,
+      });
+      await assert.rejects(resolveLocalProjectWorkspace(context, alphaResult.projectId), /missing or changed/);
       await assert.rejects(provider.addGrantedFolder(context, alpha), /different folder/);
     });
     await suite.test("role removal survives restart and cannot be repaired by ordinary reads", async () => {
@@ -230,6 +246,11 @@ test("local project grants register real folders and reopen without content snap
       await reopen();
       assert.equal(await registry.readScope(context), null);
       assert.equal(await registry.readScope({ ...context, userEmail: "another@local.test" }), null);
+      await assert.rejects(resolveLocalProjectHistory(context, alphaResult.projectId), { statusCode: 403 });
+      await assert.rejects(
+        resolveLocalProjectHistory({ ...context, userEmail: "another@local.test" }, alphaResult.projectId),
+        { statusCode: 403 },
+      );
       await setAppMemberRole({ appId: "workbench", orgId, email, role: "project-mutator", updatedBy: email });
       const mutation = { operationId: "local-mutation", expectedPolicyRevision: 1, expectedRegistryRevision: 2,
         bindingId: alphaResult.bindingId, expectedBindingRevision: 1, expectedContentRevision: "fiction",

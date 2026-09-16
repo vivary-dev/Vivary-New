@@ -8,7 +8,7 @@ private/runtime ignores. It seeds no starter records, template pack, or second b
 Website: https://vivary.vercel.app/
 Repository: https://github.com/vivary-dev/vivary
 License: MIT
-Release Status: https://github.com/vivary-dev/vivary#release-status
+Release Status: https://vivary.vercel.app/original-cli/#release-status
 Full Documentation: https://vivary.vercel.app/llms-full.txt
 
 ## Published package surfaces
@@ -57,6 +57,7 @@ sources are the same canonical procedures.
 
 - What is Vivary?: https://vivary.vercel.app/concepts/
 - Getting started: https://vivary.vercel.app/getting-started/
+- Original Vivary CLI: https://vivary.vercel.app/original-cli/
 - Getting started proof: https://vivary.vercel.app/walkthrough/
 - Command reference: https://vivary.vercel.app/commands/
 - MCP adapter: https://vivary.vercel.app/mcp/
