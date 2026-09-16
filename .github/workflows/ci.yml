@@ -105,7 +105,7 @@ jobs:
           pnpm --dir packages/workbench exec tsx --test tests/local-access.test.ts tests/native-state.test.ts tests/native-actions.test.ts tests/chat-scope.test.ts tests/native-chat-project.test.ts
           pnpm --dir packages/workbench exec tsx --test tests/local-code-agent.test.ts tests/local-code-approval-restart.test.ts tests/code-host-lifecycle.test.ts tests/managed-projects.test.mjs tests/managed-project-reconnection.test.mjs tests/project-files.test.ts tests/file-draft-state.test.ts tests/original-runtime.test.ts
           node --test packages/desktop/tests/main.test.mjs packages/desktop/tests/original-runtime.test.mjs packages/desktop/tests/package-snapshot.test.mjs packages/workbench/tests/startup.test.mjs
-          node --test packages/workbench/tests/native-thread-save.test.mjs packages/workbench/tests/native-thread-save-queue.test.mjs packages/workbench/tests/native-thread-save-store.test.mjs
+          node --test packages/workbench/tests/usage-metrics-cold-start.test.mjs packages/workbench/tests/native-thread-save.test.mjs packages/workbench/tests/native-thread-save-queue.test.mjs packages/workbench/tests/native-thread-save-store.test.mjs
           python packages/workbench/tests/managed-projects-python.test.py
           pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
       - name: install Python test runner
