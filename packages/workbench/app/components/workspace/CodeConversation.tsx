@@ -292,7 +292,10 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     <div className="local-agent-layout">
       <div className="local-agent-chat">
         {selection && codeState ? <LocalCodeConversation key={selection.key}
-          projectId={projectId} selection={selection} run={run ?? null} state={codeState} workspaceAvailable={workspaceAvailable}
+          projectId={projectId} selection={selection} run={run ?? null}
+          state={run && selectedState.data?.projectId === projectId && selectedState.data.run?.id === run.id
+            ? { ...codeState, engines: selectedState.data.engines } : codeState}
+          workspaceAvailable={workspaceAvailable}
           active={codeState.busy} streaming={streaming} onStreaming={setStreaming}
           onStarted={runId => onStarted(selection.key, runId)}
           onChoice={choice => setSelection(current => current ? { ...current, choice } : current)}
@@ -367,6 +370,17 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     .map(engine => ({ ...engine, models: [...engine.models] })),
   [props.state.engines, props.selection.runId, choice.engine]);
   const selectedEngine = props.state.engines.find(engine => engine.engine === choice.engine);
+  const modelChoices = !props.selection.runId && choice.engine === "codex-cli"
+    ? selectedEngine?.modelCatalog?.status === "ready" ? selectedEngine.modelCatalog.models.map(model => model.id) : []
+    : selectedEngine?.models ?? [];
+  const availableDraftModel = !props.selection.runId && selectedEngine?.configured
+    && !modelChoices.includes(choice.model) ? modelChoices[0] : undefined;
+  useEffect(() => {
+    if (!availableDraftModel) return;
+    const next = { engine: choice.engine, model: availableDraftModel };
+    setChoice(next);
+    latest.current.onChoice(next);
+  }, [availableDraftModel, choice.engine]);
   const runtime = selectedEngine?.runtime;
   const events = props.run?.events ?? [];
   const snapshotKey = events.length + ":" + (events.at(-1)?.id ?? "") + ":" + (props.run?.status ?? "");
@@ -376,14 +390,14 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   if (!adapterOwnsMessages.current) viewKey.current = snapshotKey;
   const stoppedByUser = props.run?.status === "paused"
     && events.findLast(event => event.kind === "status")?.metadata?.reason === "user";
-  const runtimeReady = runtime?.status === "ready";
+  const runtimeReady = selectedEngine?.configured === true;
   const disabled = !props.workspaceAvailable || props.active || props.streaming || !runtimeReady;
 
   function chooseRuntime(engineName: string) {
     const engine = props.state.engines.find(item => item.engine === engineName);
     if (!engine || props.selection.runId || props.active || props.streaming) return;
-    const model = engine.models[0];
-    if (!model) return;
+    const model = engine.modelCatalog?.status === "ready" ? engine.modelCatalog.defaultModel
+      : engine.engine === "claude-cli" ? engine.models[0] ?? "sonnet" : "default";
     const next = { engine: engine.engine, model };
     setChoice(next);
     props.onChoice(next);
@@ -398,11 +412,29 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
           disabled={!props.workspaceAvailable || props.active || props.streaming}
           onChange={event => chooseRuntime(event.target.value)}>
           {props.state.engines.map(engine => <option key={engine.engine} value={engine.engine}>
-            {engine.label}{engine.runtime.status === "ready" ? "" : " (setup required)"}
+            {engine.label}{engine.runtime.status === "ready" ? "" : ` (${engine.runtime.status.replaceAll("-", " ")})`}
           </option>)}
         </select>
       </label>
-      <span className="text-xs text-muted-foreground">Uses this runtime's existing account.</span>
+      <label className="flex min-w-0 items-center gap-2 text-sm">
+        Model
+        <select aria-label="Conversation model" value={choice.model}
+          className="min-w-0 max-w-full rounded-md border bg-background px-2 py-1 text-foreground"
+          disabled={!props.workspaceAvailable || props.active || props.streaming || !modelChoices.length}
+          onChange={event => {
+            const model = event.target.value;
+            if (!selectedEngine || !modelChoices.includes(model)) return;
+            const next = { engine: selectedEngine.engine, model };
+            setChoice(next);
+            props.onChoice(next);
+          }}>
+          {!modelChoices.length && <option value={choice.model}>Models unavailable</option>}
+          {modelChoices.map(model => <option key={model} value={model}>
+            {selectedEngine?.modelCatalog?.status === "ready"
+              ? selectedEngine.modelCatalog.models.find(item => item.id === model)?.label ?? model : model}
+          </option>)}
+        </select>
+      </label>
     </div>}
     <AssistantChat key={viewKey.current} ref={chatRef}
     tabId={"vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key}
@@ -437,7 +469,8 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => chatRef.current?.prefillMessage(example)}>Try a file change</Button>
     </div>}
     composerSlot={!runtimeReady ? <div className="local-agent-runtime-setup" role="status">
-      <div><h3>Set up {selectedEngine?.label ?? "a runtime"}</h3><p>{runtime?.message ?? "Choose a local runtime in Settings."}</p></div>
+      <div><h3>Set up {selectedEngine?.label ?? "a runtime"}</h3><p>{selectedEngine?.modelCatalog?.status === "unavailable"
+        ? selectedEngine.modelCatalog.message : runtime?.message ?? "Choose a local runtime in Settings."}</p></div>
       <Button variant="outline" size="sm" onClick={props.onSettings}>Open runtime settings</Button>
     </div> : undefined}
     composerExtraActionButton={props.active && !props.streaming ?

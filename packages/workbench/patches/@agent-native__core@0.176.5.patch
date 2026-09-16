@@ -126,6 +126,129 @@ index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf
              }
              lastConflict = true;
          }
+diff --git a/dist/cli/code-agent-executor.d.ts b/dist/cli/code-agent-executor.d.ts
+index 57a2f6cba8abdb513bc0155a607e47ff84068793..381a4a6b0278149aa8a4e268711f4afe40fc85f5 100644
+--- a/dist/cli/code-agent-executor.d.ts
++++ b/dist/cli/code-agent-executor.d.ts
+@@ -10,6 +10,13 @@ export interface ExecuteCodeAgentRunOptions {
+     appendUserEvent?: boolean;
+     engine?: AgentEngine;
+     model?: string;
++    /** Use the installed Codex configuration and a host-resolved executable. */
++    codexCli?: {
++        command: string;
++        argsPrefix?: string[];
++        env?: NodeJS.ProcessEnv;
++        configMode: "native";
++    };
+     reasoningEffort?: ReasoningEffort;
+     attachments?: AgentPromptAttachment[];
+     stdout?: NodeJS.WritableStream;
+diff --git a/dist/cli/code-agent-executor.js b/dist/cli/code-agent-executor.js
+index 911ded5d652659602d5f6050563d27e4c00e8de3..b7888e894adac7d103d547ba325b6b93ff966ef6 100644
+--- a/dist/cli/code-agent-executor.js
++++ b/dist/cli/code-agent-executor.js
+@@ -112,6 +112,7 @@ export async function executeCodeAgentRun(options) {
+             prompt: executionPrompt,
+             model: options.model ?? metadataString(existing, "model"),
+             permissionMode: existing.permissionMode ?? "full-auto",
++            codexCli: options.codexCli,
+             stdout: options.stdout,
+             streamToolOutputToStdout,
+             signal: options.signal,
+@@ -1231,9 +1232,15 @@ async function executeCodexCliRun(options) {
+     // spawning the packaged runner. Reading persisted settings again here would
+     // both widen that boundary and require the app's native database binding in
+     // the standalone runner process.
+-    const mcpConfig = process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null;
++    const nativeConfig = options.codexCli?.configMode === "native";
++    const resumeSessionId = nativeConfig ? metadataString(options.run, "codexSessionId") : null;
++    // Native configuration owns Codex tools and credentials. Do not merge a second catalog.
++    const mcpConfig = !nativeConfig && process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null;
+     const args = [
+-        ...codexMcpConfigArgs(mcpConfig),
++        ...(nativeConfig ? [
++            "-c", "sandbox_workspace_write.writable_roots=[]",
++            "-c", "sandbox_workspace_write.network_access=false",
++        ] : codexMcpConfigArgs(mcpConfig)),
+         "--ask-for-approval",
+         "never",
+         "--sandbox",
+@@ -1241,19 +1248,19 @@ async function executeCodexCliRun(options) {
+         "--cd",
+         cwd,
+         "exec",
+-        "--color",
+-        "never",
++        ...(resumeSessionId ? ["resume"] : ["--color", "never"]),
+         "--json",
+         "--skip-git-repo-check",
+-        "--ignore-user-config",
++        ...(nativeConfig ? [] : ["--ignore-user-config"]),
+         "--output-last-message",
+         outputPath,
+     ];
+-    if (additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
++    if (!nativeConfig && additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
+         args.splice(args.indexOf("--output-last-message"), 0, "--add-dir", additionalSkillsRoot);
+     }
+     if (model)
+         args.push("--model", model);
++    if (resumeSessionId) args.push("--", resumeSessionId);
+     args.push("-");
+     appendCodeAgentTranscriptEvent({
+         runId: options.run.id,
+@@ -1269,10 +1276,16 @@ async function executeCodexCliRun(options) {
+         const result = await runCodexCliProcess({
+             args,
+             cwd,
++            launch: options.codexCli,
+             prompt: buildCodexCliPrompt(options.run, options.prompt),
+             stdout: options.stdout,
+             streamToolOutputToStdout,
+             onEvent: (event) => {
++                if (nativeConfig && event.type === "thread.started"
++                    && typeof event.thread_id === "string"
++                    && /^[a-zA-Z0-9_-]{1,200}$/.test(event.thread_id)) {
++                    updateCodeAgentRunRecord(options.run.id, { metadata: { codexSessionId: event.thread_id } });
++                }
+                 appendCodexCliTranscriptEvent(options.run.id, event);
+             },
+             signal: options.signal,
+@@ -1363,6 +1376,7 @@ async function executeCodexCliRun(options) {
+                 attachments: pendingFollowUp.attachments ??
+                     userPromptAttachmentsForEvent(options.run.id, pendingFollowUp.eventId),
+                 appendUserEvent: false,
++                codexCli: options.codexCli,
+                 stdout: options.stdout,
+                 streamToolOutputToStdout: options.streamToolOutputToStdout,
+                 signal: options.signal,
+@@ -1406,10 +1420,14 @@ function runCodexCliProcess(options) {
+         let stderr = "";
+         let pendingJson = "";
+         let settled = false;
+-        const child = spawn("codex", options.args, {
++        const child = spawn(options.launch?.command ?? "codex", [
++            ...(options.launch?.argsPrefix ?? []), ...options.args,
++        ], {
+             cwd: options.cwd,
+             stdio: ["pipe", "pipe", "pipe"],
+-            env: process.env,
++            env: options.launch?.env ?? process.env,
++            shell: false,
++            windowsHide: true,
+         });
+         const finish = (result) => {
+             if (settled)
+@@ -1455,7 +1473,7 @@ function runCodexCliProcess(options) {
+                         : String(err),
+             });
+         });
+-        child.on("exit", (exitCode, exitSignal) => {
++        child.on("close", (exitCode, exitSignal) => {
+             if (pendingJson.trim())
+                 consumeCodexJsonLine(pendingJson, options.onEvent);
+             finish({ exitCode, exitSignal });
 diff --git a/dist/client/AssistantChat.d.ts b/dist/client/AssistantChat.d.ts
 index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..a4e8c6088705df943600b198afc5bd0c22408ef3 100644
 --- a/dist/client/AssistantChat.d.ts

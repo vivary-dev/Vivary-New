@@ -4,6 +4,8 @@ import path from "node:path";
 import { executeCodeAgentRun, getCodeAgentRunRecord } from "@agent-native/core/code-agents";
 import { runWithRequestContext } from "@agent-native/core/server";
 
+import { resolveVivaryRuntimeCommand } from "./local-runtime-setup";
+
 import { isVivaryCodeWorkerRequest } from "./code-execution-protocol";
 
 const controller = new AbortController();
@@ -31,9 +33,13 @@ async function receive(message: unknown) {
     return;
   }
   try {
+    const codexLaunch = record.metadata?.engine === "codex-cli" ? await resolveVivaryRuntimeCommand("codex-cli") : null;
+    if (record.metadata?.engine === "codex-cli" && !codexLaunch) throw new Error("Codex could not be started. Refresh Runtime settings.");
     await runWithRequestContext({ userEmail: message.ownerEmail, orgId: message.orgId }, () =>
       executeCodeAgentRun({
         runId: message.runId,
+        ...(codexLaunch ? { codexCli: { command: codexLaunch.executable, argsPrefix: codexLaunch.prefix,
+          env: codexLaunch.env, configMode: "native" as const } } : {}),
         prompt: message.prompt,
         model: message.model,
         appendUserEvent: false,

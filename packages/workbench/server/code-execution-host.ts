@@ -146,7 +146,7 @@ export async function executeVivaryCodeWorker(input: {
   });
 }
 
-async function hardStopWorkerTree(child: ChildProcess, workerExited: boolean): Promise<void> {
+export async function hardStopWorkerTree(child: ChildProcess, workerExited: boolean): Promise<void> {
   if (!child.pid) return;
   if (process.platform === "win32") {
     if (workerExited) throw new VivaryCodeWorkerCleanupError();

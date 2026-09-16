@@ -21,7 +21,7 @@ const runtimes = [
     signInCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
     helpUrl: "https://developers.openai.com/codex/auth",
-    description: "Use OpenAI coding models with your Codex account.",
+    description: "Use your ChatGPT subscription, Codex models, and configured tools.",
   },
 ] satisfies Array<{
   engine: VivaryCodeEngine;
@@ -68,7 +68,7 @@ export function LocalRuntimeSettings() {
       <div className="min-w-0 flex-1">
         <h2 className="text-lg font-semibold tracking-tight">Coding runtimes</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Vivary uses the coding agents installed on this computer. Connect either one to start working in Agent.
+          Vivary uses the coding agents installed on this computer. Choose a runtime when starting a conversation.
         </p>
       </div>
       <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={checking}>
@@ -95,6 +95,15 @@ export function LocalRuntimeSettings() {
             : <p className="text-sm leading-6 text-muted-foreground" role="status">
                 {current?.message ?? "Refresh to check this runtime."}
               </p>}
+          {runtime.engine === "codex-cli" && status.data?.codexModels && <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+            <p>{status.data.codexModels.message}</p>
+            {status.data.codexModels.status === "ready" && <>
+              <p>{status.data.codexModels.models.length} models reported by Codex.</p>
+              <p>Configured connections: {status.data.codexModels.connections.length
+                ? status.data.codexModels.connections.join(", ") : "None"}.</p>
+              <p>Connection names come from Codex settings. Availability is checked when Codex uses them.</p>
+            </>}
+          </div>}
           <details className="mt-3 text-sm" open={current?.status !== "ready"}>
             <summary className="w-fit cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {current?.status === "ready" ? "Setup and sign-in help" : "Set up " + runtime.label}

@@ -48,6 +48,8 @@ describe("local Vivary code agent boundaries", () => {
   it("keeps each runtime's model selection in its own model family", () => {
     assert.equal(resolveVivaryCodeModel("claude-cli"), "sonnet");
     assert.equal(resolveVivaryCodeModel("codex-cli"), "default");
+    assert.equal(resolveVivaryCodeModel("codex-cli", "gpt-example", ["gpt-example"]), "gpt-example");
+    assert.throws(() => resolveVivaryCodeModel("codex-cli", "unreported", ["gpt-example"]), { errorCode: "vivary_code_model_unsupported" });
     assert.equal(resolveVivaryCodeModel("claude-cli", "opus"), "opus");
     assert.throws(() => resolveVivaryCodeModel("claude-cli", "default"), { errorCode: "vivary_code_model_unsupported" });
     assert.throws(() => resolveVivaryCodeModel("codex-cli", "opus"), { errorCode: "vivary_code_model_unsupported" });

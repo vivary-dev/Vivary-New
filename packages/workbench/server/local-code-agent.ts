@@ -13,6 +13,8 @@ import {
   type CodeAgentTranscriptEvent,
 } from "@agent-native/core/code-agents";
 
+import { getCodexModels, type CodexModelCatalog } from "./codex-models";
+
 import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
 
@@ -128,7 +130,7 @@ export type VivaryCodeState = VivaryCodeHostState & {
   defaultModel: VivaryCodeModel;
   defaultEngine: VivaryCodeEngine;
   runtime: VivaryRuntimeStatus;
-  engines: { engine: VivaryCodeEngine; label: string; models: string[]; configured: boolean; runtime: VivaryRuntimeStatus }[];
+  engines: { engine: VivaryCodeEngine; label: string; models: string[]; configured: boolean; runtime: VivaryRuntimeStatus; modelCatalog: CodexModelCatalog | null }[];
   runs: VivaryCodeRunSummary[];
   run: VivaryCodeRunState | null;
   error?: string;
@@ -295,9 +297,15 @@ export async function getVivaryCodeState(
 
   const engines = await Promise.all(VIVARY_CODE_ENGINES.map(async engine => {
     const runtime = await getVivaryRuntimeStatus(engine);
-    return { engine, label: engine === "claude-cli" ? "Claude Code" : "Codex",
-      models: engine === "claude-cli" ? [...VIVARY_CODE_MODELS] : ["default"],
-      configured: runtime.status === "ready", runtime };
+    const modelCatalog = engine === "codex-cli" && runtime.status === "ready" && "root" in workspace
+      ? await getCodexModels(workspace.root) : null;
+    const models = engine === "claude-cli" ? [...VIVARY_CODE_MODELS]
+      : modelCatalog?.status === "ready" ? modelCatalog.models.map(model => model.id) : [];
+    if (selected && engine === "codex-cli" && engineFromRun(selected) === engine && !models.includes(modelFromRun(selected))) {
+      models.push(modelFromRun(selected));
+    }
+    return { engine, label: engine === "claude-cli" ? "Claude Code" : "Codex", models, modelCatalog,
+      configured: runtime.status === "ready" && (engine !== "codex-cli" || modelCatalog?.status === "ready"), runtime };
   }));
   const selectedEngine = selected ? engineFromRun(selected) : VIVARY_CODE_DEFAULT_ENGINE;
   const runtime = await getVivaryRuntimeStatus(selectedEngine);
@@ -343,10 +351,24 @@ export async function sendVivaryCodeMessage(input: {
   if (input.engine && input.engine !== selectedEngine) {
     fail("Start a new conversation to change coding runtimes.", { errorCode: "vivary_code_engine_changed", statusCode: 409 });
   }
-  const selectedModel = resolveVivaryCodeModel(selectedEngine, input.model ?? (existing ? modelFromRun(existing) : undefined));
   const runtime = await getVivaryRuntimeStatus(selectedEngine);
   if (runtime.status !== "ready") {
     fail(runtime.message, { errorCode: "vivary_code_runtime_unavailable", statusCode: 503 });
+  }
+  const catalog = selectedEngine === "codex-cli" ? await getCodexModels(workspace.root) : null;
+  if (selectedEngine === "codex-cli" && catalog?.status !== "ready") {
+    fail(catalog?.message ?? "Codex models are unavailable. Refresh Runtime settings.", { errorCode: "vivary_code_models_unavailable", statusCode: 503 });
+  }
+  const supportedModels = catalog?.status === "ready" ? catalog.models.map(model => model.id) : [];
+  const recordedModel = existing ? modelFromRun(existing) : undefined;
+  if (existing && input.model && input.model !== recordedModel) {
+    fail("Start a new conversation to change its model.", { errorCode: "vivary_code_model_changed", statusCode: 409 });
+  }
+  const selectedModel = resolveVivaryCodeModel(selectedEngine,
+    input.model ?? recordedModel ?? (catalog?.status === "ready" ? catalog.defaultModel : undefined),
+    recordedModel ? [...supportedModels, recordedModel] : supportedModels);
+  if (!existing && selectedEngine === "codex-cli" && selectedModel === "default") {
+    fail("Choose a model reported by Codex before starting a conversation.", { errorCode: "vivary_code_model_unsupported", statusCode: 400 });
   }
   if (input.revalidateWorkspace) {
     const current = await input.revalidateWorkspace();
@@ -384,7 +406,7 @@ export async function sendVivaryCodeMessage(input: {
     metadata: {
       app: VIVARY_CODE_APP_MARKER,
       engine: selectedEngine,
-      model: selectedEngine === "claude-cli" ? selectedModel : null,
+      model: selectedModel === "default" ? null : selectedModel,
       ownerEmail: input.ownerEmail,
       orgId: input.orgId,
       workspaceRoot: workspace.root,
@@ -405,7 +427,7 @@ export async function sendVivaryCodeMessage(input: {
       needsApproval: true,
       progress: { label: "Approval required", completed: 0, total: 1, percent: 0 },
       metadata: {
-        model: selectedEngine === "claude-cli" ? selectedModel : null,
+        model: selectedModel === "default" ? null : selectedModel,
         pendingLaunch,
       },
     });
@@ -448,6 +470,10 @@ export async function approveVivaryCodeMessage(input: {
   if (runtime.status !== "ready") {
     fail(runtime.message, { errorCode: "vivary_code_runtime_unavailable", statusCode: 503 });
   }
+  if (pending.engine === "codex-cli") {
+    const catalog = await getCodexModels(pending.workspace.root, { refresh: true });
+    if (catalog.status !== "ready") fail(catalog.message, { errorCode: "vivary_code_models_unavailable", statusCode: 503 });
+  }
   const current = input.revalidateWorkspace
     ? await input.revalidateWorkspace()
     : await resolveWorkspace();
@@ -474,7 +500,7 @@ export async function approveVivaryCodeMessage(input: {
     });
   }
 
-  const executionMessage = currentPending.isFollowUp
+  const executionMessage = currentPending.isFollowUp && !(currentPending.engine === "codex-cli" && metadataString(currentRun, "codexSessionId"))
     ? buildVivaryCodeFollowUpPrompt(
         listCodeAgentTranscriptEvents(currentRun.id),
         currentPending.message,
@@ -583,7 +609,7 @@ function startVivaryCodeRun(input: {
   activeRun.execution = executeVivaryCodeRun({
     activeRun,
     message: input.message,
-    model: input.engine === "claude-cli" ? input.model : undefined,
+    model: input.model === "default" ? undefined : input.model,
     runId: input.runId,
   });
   void activeRun.execution.catch(() => undefined);
@@ -941,7 +967,6 @@ function engineLabelFromRun(run: CodeAgentRunRecord): string {
 }
 
 function modelFromRun(run: CodeAgentRunRecord): string {
-  if (metadataString(run, "engine") === "codex-cli") return "default";
   return metadataString(run, "model")
     ?? (metadataString(run, "engine") === "claude-cli"
       ? VIVARY_CODE_DEFAULT_MODEL
@@ -956,9 +981,10 @@ function engineFromRun(run: CodeAgentRunRecord): VivaryCodeEngine {
   });
 }
 
-export function resolveVivaryCodeModel(engine: VivaryCodeEngine, requested?: string): string {
+export function resolveVivaryCodeModel(engine: VivaryCodeEngine, requested?: string, codexModels: readonly string[] = []): string {
   if (engine === "codex-cli") {
     if (!requested || requested === "default") return "default";
+    if (codexModels.includes(requested)) return requested;
   } else {
     if (!requested) return VIVARY_CODE_DEFAULT_MODEL;
     if (VIVARY_CODE_MODELS.some(model => model === requested)) return requested;

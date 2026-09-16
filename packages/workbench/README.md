@@ -60,14 +60,34 @@ starts, its runtime stays fixed. Start a new conversation to use another runtime
 This selector does not implement linked history or a complete harness model catalog.
 
 The Code composer keeps runtime/model identity visible and hides Native's cloud
-provider picker. Codex uses the adapter's `default` model choice. The app does not
-claim to discover or display the CLI's resolved model identity.
+provider picker. Codex reports its available models through its app-server API.
+Choose one before starting. Vivary records that model with the conversation.
+Older conversations retain their recorded model, including an unknown historical
+CLI default. A saved draft with an unavailable model switches to Codex's reported
+default before it can start.
 
-On 2026-09-16, an isolated production build on Zo verified Codex subscription
-responses, a context-only follow-up, denial, and restart history through the UI.
-Its file-tool request failed with the documented Zo sandbox error below. No file
-read/write/read acceptance is claimed. The published `26798df` Windows preview
-still has the earlier read-only identity and no runtime selector.
+The Codex integration requires ChatGPT subscription authentication and the built-in
+OpenAI provider. API-key fallback and custom providers are not enabled. Vivary
+uses the same resolved executable for readiness and execution, including Windows
+npm installations. Credentials stay in Codex's existing store.
+
+Codex loads its own configuration, skills, and configured connections. Vivary does
+not inject Native's separate MCP catalog. The settings page lists connection names,
+not credentials or a claim that each connection is reachable. Connection tools can
+operate outside the shell's filesystem sandbox and retain their own access rules.
+
+Vivary applies its approved-turn execution policy instead of a custom Codex
+permission profile. Shell work uses the selected workspace, no additional configured
+write roots, and restricted network access. Commands needing elevation fail instead
+of opening an interactive Codex prompt. Each turn still requires Vivary approval.
+
+A new Codex run records its native session ID. Follow-ups resume that exact session.
+Historical Vivary runs without an ID use the existing bounded-history prompt once,
+then record the native session for subsequent turns. Runtime and model changes
+require a new conversation. Linked conversations remain separate issue #38 work.
+
+The published `26798df` Windows preview does not include these source changes.
+The acceptance register separates source checks, hosted tests, and package proof.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
