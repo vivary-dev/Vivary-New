@@ -103,11 +103,13 @@ then record the native session for subsequent turns. Runtime and model changes
 require a new conversation. Linked conversations remain separate issue #38 work.
 
 The published `26798df` Windows preview does not include these source changes.
-The locally tested `3dd5aa8` candidate verified Codex file work, native-session
-follow-up, Stop, denial, restart history, and process cleanup. It has not been
-published. The native approval, permission-mode, and activity-card changes after
-that candidate require new hosted and Windows acceptance. The acceptance register
-separates these results from the older release.
+The later `2f4a5df` candidate passed remote native approval, permission-mode,
+activity-card, and long-turn checks. Its Windows EXE verified file work, continuation
+of an existing native session, a configured MCP call, one actual subagent with its
+public result, and a command completing after 125.19 seconds. Native action decisions,
+mode enforcement, active-command Stop, restart, and cleanup still need acceptance
+on that exact EXE. Historical `3dd5aa8` results cover its earlier execution policy.
+The acceptance register separates these candidates from the published archive.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do

@@ -81,7 +81,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
-| Agent loop | Real Claude Code and Codex file work, follow-up, approvals, Stop, stored transcripts, and runtime/model identity on the recorded candidates | Broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
+| Agent loop | Historical Windows file work and session continuity. Remote Codex native action handling, permission modes, actual subagent cards, long-turn Stop, and retained activity | Exact `2f4a5df` Windows acceptance, broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -89,13 +89,26 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Browser experience | Basic isolated iframe preview and the shared web UI | Explicit phone-to-host connection, responsive controls, and integrated agent debugging |
 | Original Vivary | Bundled ten-verb standalone CLI and bounded preview/evaluation app adapter | The shared greenfield creator path passed bundled and hosted checks in #14; existing-folder apply remains open under #14/#15 |
 
-Checkpoint, 2026-09-16: the private `26798df` Windows candidate passed the
-focused desktop journeys summarized in the [acceptance register](desktop-acceptance-status.md),
-including a real approved Claude Code file turn and complete process cleanup. This is
-not the final product journey or a public release. The later local `3dd5aa8` candidate
-verified Codex selection, reported models, file work, and native-session follow-up.
-Real Native-provider turns, automations, broader cross-runtime work, clean-profile
-setup, and the remaining table entries stay open.
+Checkpoint, 2026-09-16: the published private `26798df` Windows candidate passed
+the focused journeys in the [acceptance register](desktop-acceptance-status.md).
+The later local `3dd5aa8` candidate verified Codex subscription model selection,
+file work, native-session follow-up, Stop, and cleanup. Those results predate the
+replacement native action approvals, permission modes, and activity cards.
+
+Candidate `2f4a5df` passed its Zo production build, 70 focused tests, 12 Native
+regressions, and type checking. The real Astra journey displayed one actual child
+and its public result after reopening on desktop and narrow layouts. The simulated
+protocol UI journey covered native decisions/forms, activity persistence, an open
+card surviving the live-to-history remount, and cross-project Stop after 125.15
+seconds. The acceptance register separates real model evidence from fixture proof.
+
+The replacement Windows archive has been downloaded, hash-verified, and launched.
+The exact EXE verified file work, existing native-session continuation, a configured
+MCP call, an actual child card and public result, and a 125.19-second command.
+Computer Use then reported physical Escape. Native action decisions, mode enforcement,
+active-command Stop, restart, and cleanup remain pending. The published archive is unchanged.
+Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
+clean-profile setup, and the remaining table entries stay open.
 
 The private preview includes PR #43's maintained Native repair. Its saved-head
 and composer journeys pass. Legacy bookmarks and Native history controls also

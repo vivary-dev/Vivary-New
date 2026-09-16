@@ -1,7 +1,3 @@
-<!-- Current Codex acceptance: the 3dd5aa8 Windows results below predate native
-app-server action approvals, permission settings, unlimited turn duration, and
-activity cards. Those changes require new hosted and Windows QA before acceptance. -->
-
 # Desktop acceptance status
 
 Updated 2026-09-16. This page is the current tracked acceptance register for the
@@ -97,6 +93,35 @@ screenshots, file hashes, transcript events, native-session identity, and proces
 snapshots. These checks used the existing authorized Windows profile. They do not
 establish clean-profile installation or complete the broader issue #38 scope.
 
+### Native Codex candidate `2f4a5df`
+
+Commit `2f4a5df6b23a81789961bea1199fd20cec74df55` replaces the earlier
+per-message launch approval and two-minute limit with native Codex action approvals.
+Send starts a turn immediately. Runtime settings offer Normal, Read only, and YOLO.
+Each turn keeps the permission mode selected when it starts. Progress and actual
+subagent activity appear in compact cards, with the main answer as ordinary text.
+
+The Zo production build and remote checks below passed. Its Windows ZIP contains
+3,108 files, is 234,956,990 bytes, and has SHA-256
+`b757e8d94711412ac1bb3b9420615972d5bb72e6e9dd3882b6469ee7940e23e8`.
+The downloaded ZIP hash was verified and the replacement EXE launched on Windows.
+Its native acceptance is still in progress. The exact EXE verified immediate Send,
+continuation of the existing native session, and a file copy with independently
+matching SHA-256 hashes. The configured Node REPL returned `4` for `2+2`. One real
+child appeared in a compact card with its public result. A local command completed
+after 125.19 seconds and wrote the expected file. Screenshots and execution events
+are retained on Zo in `.tmp/38-codex-integration/v2-windows-proof.json` and the
+adjacent `v2-01` / `v2-02` screenshots.
+
+Computer Use reported a physical Escape after the completed turn, so application
+interaction stopped. Native Allow/Decline, Read only/YOLO enforcement, Stop after an
+actual command starts, restart, process cleanup, and removal of superseded packages
+remain pending on this exact EXE. The app was left open with its run completed.
+
+The `3dd5aa8` results remain historical evidence for the earlier implementation.
+They do not establish acceptance of the replacement execution policy or activity UI.
+Neither local candidate replaces the published `26798df` private preview archive.
+
 ## Defects fixed during Windows acceptance
 
 | Finding | Current behavior |
@@ -109,35 +134,60 @@ establish clean-profile installation or complete the broader issue #38 scope.
 
 ## Remote Codex verification, 2026-09-16
 
-An isolated production build on Zo verified runtime/model selection, saved choice,
-recovery of legacy and retired draft models, approval, denial, restart, and retained
-history when the folder was unavailable. Real GPT-6-Astra turns resumed one native
-Codex session and retained context. Screenshots covered desktop and 390px layouts
-in light and dark themes. The private owner-authenticated preview was refreshed;
-unauthenticated actions still returned 401.
+The `2f4a5df` production build passed on Zo. All 70 focused Codex, runtime,
+approval, transcript, and lifecycle tests passed, with no failures or skips.
+All 12 Native patch/storage regressions and type checking also passed. Evidence
+is retained under `.tmp/38-codex-integration/` in `v2-all-tests.log`,
+`v2-native-regressions.log`, `v2-types.log`, and `build-receipt.json`.
 
+Real GPT-6-Astra turns through the production app verified immediate Send,
+continuation of one native Codex session, context retention, restart/history,
+fixed model identity, and saved permission settings. The earlier two-turn receipt
+is `native-code-journey.json`. The latest build then displayed one actual Astra
+subagent and its public result. Native child identity and completion events
+establish delegation. Reopening the completed conversation preserved the card and
+exact result on desktop and narrow layouts. `real-subagent-journey.json` and
+`reopen-real-subagent.log` retain that result. An earlier native child receipt
+marked `uiAccepted: false` records the rendering defect before this fix.
+
+The deterministic production UI fixture separately verified:
+
+- Command Allow once, file Decline, permission approval, question validation, and
+  submitted MCP form values, including changing a visible checked default to false.
+- One subagent card from native-shaped start/completion events for one child.
+  Empty wait events created no extra cards.
+- A card opened during a pending action remained open through completion and an
+  actual live-to-history component remount. Restart retained the activity content.
+- A turn remained active for 125.15 seconds, then stopped from another project.
+- Desktop and 390px layouts in light and dark themes, no horizontal overflow,
+  no browser errors, and cleanup of the test application.
+
+The receipt and screenshots are in
+`.tmp/38-codex-integration/native-ui-fixture-20260916T165256/`.
+This fixture simulates Codex protocol events. It proves application handling of
+those events, not real model execution, subagent execution, or external MCP calls.
+
+Earlier remote checks verified runtime/model selection, saved choices, recovery of
+legacy and retired draft models, and retained history when a folder was unavailable.
 Codex file commands remain unverified on Zo because its restricted-network sandbox
 failed with `bwrap: loopback: Failed RTM_NEWADDR`. The sandbox stayed enabled.
-Windows provides the actual file-tool proof described above. A later repeated Zo
-folder-fixture rename failed with `EXDEV`; history stayed readable, but that fixture
-could no longer prove folder recovery. Earlier successful recovery evidence remains
-dated separately. No project grant was replaced to hide the failure.
-
-Source checks include 34 focused Codex/runtime/approval/lifecycle tests, 12 Native
-patch/storage regressions, type checking, and production builds. The final shutdown
-refinement passed all seven catalog tests and a production catalog/history smoke.
-The earlier deterministic-provider journey remains separate Native evidence.
+Windows candidates `3dd5aa8` and `2f4a5df` provide actual file-tool proof above.
+A repeated Zo folder-fixture rename later failed with `EXDEV`. History stayed
+readable, but that fixture could no longer prove folder recovery. Earlier successful
+recovery evidence remains dated separately. No project grant was replaced to hide
+the failure.
 
 OpenCode Go separately completed a read-only file turn through its CLI using
 `opencode-go/glm-5.3-flash`. It is not integrated into Vivary by this increment.
-Real Native-provider acceptance in #50 and automations in #51 remain open.
+Broader issue #38 integration, real Native-provider acceptance in #50, and
+automations in #51 remain open.
 
 ## Capability and acceptance gaps
 
 | Area | Verified now | Still required |
 | --- | --- | --- |
-| Code conversations | Claude/Codex selection, Codex-reported models, real file work, native-session follow-up, approvals, Stop, and history on the recorded candidates | Linked conversations and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Actual subscription turns and file tools in local `3dd5aa8`, model discovery, native session continuity, and configured connection names | Complete connection-specific journeys and broader issue #38 scope; the published `26798df` binary still lacks this integration |
+| Code conversations | Windows `2f4a5df` file work, session continuity, configured MCP call, real subagent card, and 125.19-second command. Remote native decisions, modes, and Stop | Exact `2f4a5df` Windows acceptance, linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
+| Codex CLI | Subscription turns, file tools, MCP call, child public result, and long command in local `2f4a5df`; remote native-policy and rendering checks | Exact replacement Windows acceptance, connection-specific journeys, and broader issue #38 scope. The published `26798df` binary still lacks this integration |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
