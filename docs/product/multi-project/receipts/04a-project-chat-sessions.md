@@ -5,7 +5,8 @@ Date: 2026-09-14
 
 [Issue #6](https://github.com/vivary-dev/Vivary-New/issues/6) and
 [PR #43](https://github.com/vivary-dev/Vivary-New/pull/43) own acceptance and delivery.
-The repair below passes the affected Native journeys. PR #43 owns final CI and merge.
+The repair and review follow-up pass the affected Native journeys. PR #43 records
+the final Zo CI result and integration commit.
 
 ## Verified behavior
 
@@ -86,3 +87,34 @@ same-version SQLite binary from the previous verified preview, which opens a
 database under Node 24. The isolated browser journey passes on that exact bundle.
 Source tests use Node 22. These results do not establish a real hosted Native
 provider turn, Windows acceptance, or final PR CI.
+
+
+## Review follow-up and Zo CI, 2026-09-16
+
+Old Native bookmarks omit a history parameter. The application now checks the
+authenticated legacy scope before opening them. A match opens Unassigned. A 404
+continues through the selected project's normal scope checks. Other lookup errors
+show Retry history. This preserves both legacy and project links without moving
+messages or weakening access checks.
+
+Project Native rows again expose Rename, Pin, Unpin, and Archive through Native's
+existing callbacks. Code rows have no Native action menu. Failed changes preserve
+a Retry change action. A successful archive clears the route only while that
+conversation is still selected.
+
+The expanded normal-app journey repeats all six Native turns and the saved-head,
+scope, unavailable-project, and phone checks. It also verifies legacy bookmarks,
+project bookmark recovery after a refused lookup, rename persistence, failed Pin
+and retry, Unpin persistence, Archive persistence, and route clearing. Independent
+source review and the five chat-scope tests pass.
+
+Jeff explicitly approved Zo CI after GitHub Actions could not start because of
+account billing. All 61 selected Linux steps passed on repair commit `71b49a1`,
+including the test, orientation, review, and site jobs. Zo's temporary filesystem
+supports the timestamp and physical-identity fixtures that its shared filesystem
+cannot represent. Tests and product checks were not weakened. The PR records the
+final follow-up commit's CI receipt separately from this baseline.
+
+GitHub Actions and Windows jobs remain unrun. Native model turns used the local
+deterministic provider. This evidence does not establish Windows product
+acceptance, a paid hosted Native model turn, or restart/draft acceptance.

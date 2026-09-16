@@ -2,12 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/6
 Parent: 04
-Status: in-progress
+Status: done
 Depends-on: [03c]
 Owner: Root-assigned Workbench session integrator, sole writer of shared chat identity
 Scope: Give Code and Full chat stable project-scoped session references using existing Native records.
 Verification-kind: runtime
 Evidence: [Project conversation verification](../receipts/04a-project-chat-sessions.md)
+Verification-result: passed
 Timebox: One project-session increment with focused checks and a two-project GUI journey.
 
 ## Goal
@@ -21,8 +22,9 @@ The installed Core 0.176.5 and inspected 0.180.0 stable and 0.181.0 nightly
 packages retain the original saved-head defect. Jeff approved a maintained Core
 patch on 2026-09-15. The [patch contract](../../../../packages/workbench/patches/README.md)
 documents server revision checks, ordered snapshots, composer gating, and removal.
-Its normal-app two-project and Personal journeys pass. PR #43 owns final CI and
-merge. Native still owns the conversation store.
+Its normal-app two-project and Personal journeys pass. Legacy bookmarks and
+Native history controls also pass the review follow-up. PR #43 records the final
+Zo CI and integration result. Native still owns the conversation store.
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
@@ -82,6 +84,10 @@ or weaken project authorization to make the history list populate.
 - 2026-09-15: Approved maintained Core patch repairs both blockers. Regression,
   normal-app Native journeys, phone layout, and private-preview read checks pass.
   Final current-head CI and merge remain in PR #43.
+
+- 2026-09-16: Verified legacy bookmark routing, Native rename/pin/archive, failed
+  lookup and mutation retries, and phone layout. The owner-approved Zo CI baseline
+  passed all 61 Linux steps. PR #43 records final-commit checks and integration.
 
 ## Shared desktop and web behavior
 

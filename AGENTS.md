@@ -68,8 +68,9 @@ but a routine issue needs no packet before it starts. Read the live issue before
 work. Issue [#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this
 alignment. State repair [#5](https://github.com/vivary-dev/Vivary-New/issues/5) and
 runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are accepted.
-[Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) and
-[Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retain
+[Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) records
+verified project conversations, Native persistence, and history controls.
+[Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retains
 unmet acceptance. Follow
 [the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
 task must advance this release or fix a demonstrated blocker. Broader product

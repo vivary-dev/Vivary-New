@@ -2,7 +2,7 @@ import { isCodeAgentRunActive, useChatThreads } from "@agent-native/core/client/
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
-import { IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
+import { IconArchive, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
@@ -29,6 +29,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   const params = new URLSearchParams(location.search);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string>();
+  const [failedAction, setFailedAction] = useState<{ message: string; retry: () => Promise<boolean> }>();
   const native = useChatThreads(undefined, identity.storageKey, identity.scope, {
     autoCreate: false, restoreActiveThread: false, isolateHistoryByScope: true, includeExternal: false,
   });
@@ -54,6 +55,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       updatedAt: Date.parse(run.updatedAt), pinned: false })),
     ...native.threads.filter(thread => thread.messageCount > 0 && !thread.archivedAt).map(thread => ({
       id: `native:${thread.id}`, title: thread.title || thread.preview || "Untitled conversation",
+      titleText: thread.title || thread.preview || "Untitled conversation",
       subtitle: "Native chat", timestamp: undefined, updatedAt: thread.updatedAt, pinned: Boolean(thread.pinnedAt),
     })),
   ].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
@@ -77,26 +79,56 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     labels: { newChat: "New conversation", showMore: "More conversations", showLess: "Fewer conversations" },
   });
   const codeFailed = state.isError || code?.error || (state.data && !code);
+  async function updateNative(action: () => Promise<boolean>, message: string) {
+    setFailedAction(undefined);
+    try {
+      if (await action()) return;
+    } catch {
+      // Native restores its optimistic state; retain the action for retry.
+    }
+    setFailedAction({ message, retry: action });
+  }
+  async function archiveNative(threadId: string) {
+    const archived = await native.archiveThread(threadId);
+    const route = new URLSearchParams(window.location.search);
+    if (archived && route.get("runtime") === "native" && route.get("thread") === threadId) navigate("/");
+    return archived;
+  }
+  function selectSession(id: string) {
+    if (!sessions.some(item => item.id === id)) return;
+    const [runtime, ...parts] = id.split(":");
+    const recordId = parts.join(":");
+    if (runtime === "native") {
+      native.switchThread(recordId);
+      navigate(`/?runtime=native&thread=${encodeURIComponent(recordId)}`);
+    } else navigate(`/?run=${encodeURIComponent(recordId)}`);
+  }
+  const loading = checking || (state.isLoading && native.isLoading);
   return <section className="vivary-chat-history" aria-label="Project conversations">
+    {failedAction && <div role="alert">
+      <p>{failedAction.message}</p>
+      <Button variant="ghost" size="sm" onClick={() => void updateNative(failedAction.retry, failedAction.message)}>Retry change</Button>
+    </div>}
     {(error || codeFailed || native.threadsLoadError) && <div role="alert">
       <p>{error ?? "Some conversations could not be loaded. Your history is preserved."}</p>
       <Button variant="ghost" size="sm" onClick={() => { setError(undefined); void state.refetch(); refreshThreads(); }}>Retry history</Button>
     </div>}
-    <ChatHistoryList items={history.visibleItems} activeId={selected} variant="rail" className="an-chat-history-rail"
-      onSelect={id => {
-        const session = sessions.find(item => item.id === id);
-        if (!session) return;
-        const [runtime, ...parts] = id.split(":");
-        const recordId = parts.join(":");
-        if (runtime === "native") {
-          native.switchThread(recordId);
-          navigate(`/?runtime=native&thread=${encodeURIComponent(recordId)}`);
-        } else navigate(`/?run=${encodeURIComponent(recordId)}`);
-      }}
-      loading={checking || (state.isLoading && native.isLoading)}
+    {loading || history.visibleItems.length === 0 ? <ChatHistoryList items={[]} onSelect={selectSession} variant="rail" className="an-chat-history-rail"
+      loading={loading}
       loadingLabel={<div className="vivary-history-skeleton" role="status"><span className="sr-only">Opening conversations</span><span /><span /><span /></div>}
-      emptyLabel="No conversations yet."
-      footer={<div className="an-chat-history-rail__footer">
+      emptyLabel="No conversations yet." /> : history.visibleItems.map(item => {
+        const thread = native.threads.find(thread => item.id === `native:${thread.id}`);
+        return <ChatHistoryList key={item.id} items={[item]} activeId={selected} onSelect={selectSession}
+          variant="rail" className="an-chat-history-rail [&_.an-chat-history__list]:py-0"
+          renameMaxLength={160}
+          onRename={thread ? (_id, title) => void updateNative(() => native.renameThread(thread.id, title), "The conversation could not be renamed. Try again.") : undefined}
+          onTogglePin={thread ? () => void updateNative(() => native.pinThread(thread.id, !thread.pinnedAt), "The conversation pin could not be changed. Try again.") : undefined}
+          renderAdditionalRowActions={thread ? (_item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item" onClick={() => {
+            closeMenu();
+            void updateNative(() => archiveNative(thread.id), "The conversation could not be archived. Try again.");
+          }}><IconArchive size={13} aria-hidden /><span>Archive</span></button> : undefined} />;
+      })}
+      <div className="an-chat-history-rail__footer">
         <Button variant="ghost" size="sm" className="an-chat-history-rail__new-chat" disabled={!workspaceAvailable} onClick={history.onNewChat}>
           <IconPlus size={14} aria-hidden />New conversation</Button>
         <Popover open={menuOpen} onOpenChange={setMenuOpen}><PopoverTrigger asChild>
@@ -106,6 +138,6 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
           <Button variant="ghost" className="w-full justify-start" onClick={() => void newNative()}>Native chat</Button>
         </PopoverContent></Popover>
         {history.canExpand && <Button variant="ghost" size="icon" aria-label={history.disclosureLabel} aria-expanded={history.expanded} onClick={history.toggleExpanded}><IconDots size={14} /></Button>}
-      </div>} />
+      </div>
   </section>;
 }

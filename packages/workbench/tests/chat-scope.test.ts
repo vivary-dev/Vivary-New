@@ -52,3 +52,36 @@ test("project identities keep actor, organization and Personal separate", async 
     assert.throws(() => identity("owner@example.test", "org-a", projectId));
   }
 });
+
+
+test("legacy links probe the authenticated legacy scope before choosing history", async () => {
+  const { resolveNativeHistoryKind } = await import("../app/lib/native-history-route.ts");
+  const scope = vivaryChatScope("org-a")!;
+  const controller = new AbortController();
+  const result = await resolveNativeHistoryKind("old/thread", scope, controller.signal, async (input, init) => {
+    const url = new URL(String(input), "https://vivary.test");
+    assert.equal(url.pathname, "/_agent-native/agent-chat/threads/old%2Fthread");
+    assert.equal(url.searchParams.get("scopeType"), "workspace-app");
+    assert.equal(url.searchParams.get("scopeId"), scope.id);
+    assert.equal(init?.signal, controller.signal);
+    return new Response("{}", { status: 200 });
+  });
+  assert.equal(result, "unassigned");
+  assert.equal(await resolveNativeHistoryKind("project-thread", scope, undefined,
+    async () => new Response(null, { status: 404 })), "project");
+});
+
+test("failed legacy lookup never guesses the project scope", async () => {
+  const { resolveNativeHistoryKind } = await import("../app/lib/native-history-route.ts");
+  const scope = vivaryChatScope("org-a")!;
+  for (const status of [401, 403, 429, 500]) {
+    await assert.rejects(resolveNativeHistoryKind("thread", scope, undefined,
+      async () => new Response(null, { status })), /could not be verified/);
+  }
+  await assert.rejects(resolveNativeHistoryKind("thread", scope, undefined,
+    async () => { throw new Error("offline"); }), /offline/);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(resolveNativeHistoryKind("thread", scope, controller.signal,
+    async (_input, init) => { init?.signal?.throwIfAborted(); return new Response(); }), { name: "AbortError" });
+});

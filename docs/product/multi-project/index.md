@@ -14,7 +14,6 @@ The packet lists below are snapshots of recorded metadata.
 
 ## In-progress packet snapshot
 
-- [04a: Bind every chat session to its project](packets/04a-project-chat-sessions.md)
 - [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md)
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
