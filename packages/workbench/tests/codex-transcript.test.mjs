@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { compileFunction } from "node:vm";
 
 const workbench = fileURLToPath(new URL("../", import.meta.url));
+// guard:allow-env-credential - Disposable test paths and fixture behavior, not credentials.
 const core = process.env.VIVARY_CORE_TEST_ROOT ?? path.join(workbench, "node_modules/@agent-native/core");
 const { normalizeCodeAgentTranscript, isCredentialGapCodeAgentEvent } = await import(
   pathToFileURL(path.join(core, "dist/code-agents/transcript-normalizer.js")));

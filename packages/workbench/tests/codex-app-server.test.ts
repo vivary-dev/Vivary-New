@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 type Request = { requestId: string; method: string; params: Record<string, unknown> };
 const workbench = fileURLToPath(new URL("../", import.meta.url));
+// guard:allow-env-credential - Disposable test paths and fixture behavior, not credentials.
 const core = process.env.VIVARY_CORE_TEST_ROOT ?? path.join(workbench, "node_modules/@agent-native/core");
 const { runCodexAppServer } = await import(pathToFileURL(path.join(core, "dist/cli/codex-app-server-executor.js")).href);
 
@@ -19,6 +20,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, mode = "comp
   await writeFile(script, `
 import { createInterface } from "node:readline";
 import { writeFileSync } from "node:fs";
+// guard:allow-env-credential - Disposable test paths and fixture behavior, not credentials.
 const mode=process.env.FIXTURE_MODE, messages=[];
 const emit=message=>process.stdout.write(JSON.stringify(message)+"\\n");
 const reply=(id,result)=>emit({id,result});
@@ -30,6 +32,7 @@ const request=(method,params={})=>emit({id:17,method,params:{...scope,itemId:"it
 const rl=createInterface({input:process.stdin});
 rl.on("line",line=>{
  const message=JSON.parse(line); messages.push(message);
+// guard:allow-env-credential - Disposable test paths and fixture behavior, not credentials.
  writeFileSync(process.env.FIXTURE_RECEIPT,JSON.stringify({pid:process.pid,args:process.argv.slice(2),messages}));
  if (message.method==="initialize") reply(message.id,{});
  if (message.method==="thread/start" || message.method==="thread/resume") {
