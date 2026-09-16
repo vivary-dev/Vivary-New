@@ -207,11 +207,12 @@ are even named for the layers of the sky.
 
 # Getting started with Vivary
 
-This page installs the original command-line engine. For the unreleased desktop
-app, first read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
+This page installs the original command-line engine. A tested, unsigned
+[private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16)
+is available to people with repository access. It is incomplete and is not ready
+for public release. Before using it, read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
 then use [Workbench source setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source)
 or [desktop development and packaging](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development).
-The private Windows candidate is tested, but no desktop package is publicly released.
 Real Native-provider acceptance is tracked in [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50),
 automation execution and recovery in [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51),
 and selectable Codex/model behavior in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).

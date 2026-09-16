@@ -12,8 +12,10 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 ## Current acceptance
 
 Checkpoint: 2026-09-16. The current private Windows x64 candidate is built from
-`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is unsigned and unreleased.
-The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
+`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. The unsigned portable archive is
+available as a [private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16)
+to people with repository access. It is incomplete and is not ready for public
+release. The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
 is the concise authority for verified capabilities and remaining gaps.
 
 The broad `31d9afc` Windows pass exercised managed five-file creation, project
