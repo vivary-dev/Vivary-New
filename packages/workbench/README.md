@@ -103,13 +103,25 @@ then record the native session for subsequent turns. Runtime and model changes
 require a new conversation. Linked conversations remain separate issue #38 work.
 
 The published `26798df` Windows preview does not include these source changes.
-The later `2f4a5df` candidate passed remote native approval, permission-mode,
-activity-card, and long-turn checks. Its Windows EXE verified file work, continuation
-of an existing native session, a configured MCP call, one actual subagent with its
-public result, and a command completing after 125.19 seconds. Native action decisions,
-mode enforcement, active-command Stop, restart, and cleanup still need acceptance
-on that exact EXE. Historical `3dd5aa8` results cover its earlier execution policy.
-The acceptance register separates these candidates from the published archive.
+The `2f4a5df` Windows EXE verified subscription file work, native-session continuity,
+a configured MCP call, one actual subagent and its public result, and a command
+completing after 125.19 seconds. Native Allow/Decline, Read only read/write controls,
+YOLO fixture access, cross-project cancellation of a running command, mode
+persistence, and shutdown also passed. Normal was restored after mode testing.
+
+Final candidate `98515c9` corrects overlapping tool identity and pending-approval
+presentation. Its production build, 75 focused tests, and type checking passed.
+The 12 unchanged Native regressions passed separately. The simulated hosted protocol test and actual Windows retest held and reloaded
+native approval without a false stopped warning. The Windows test then approved
+a real file write and received its final answer. Saved output
+remained inspectable. The final EXE preserved its answer and model after restart.
+Shutdown left no candidate processes. Superseded local packages were removed.
+
+These are bounded Codex prototype results across recorded candidates. The final
+EXE retest does not repeat every earlier journey. The private preview serves the
+final output with authentication preserved. Draft PR #59 is unmerged, and CI jobs
+never started because of billing. The acceptance register owns candidate details
+and remaining release gates.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do

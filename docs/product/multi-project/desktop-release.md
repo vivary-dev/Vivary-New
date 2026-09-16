@@ -81,7 +81,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
-| Agent loop | Windows Codex file work, session continuity, native action decisions, subagent cards, long commands, active-command Stop, and shutdown. Remote permission-setting and retained activity checks | Replacement `a1486b0` acceptance, mode enforcement, restart, broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
+| Agent loop | Windows Codex file work, session continuity, native action decisions, subagent cards, long commands, active-command Stop, and shutdown. Remote permission-setting and retained activity checks | Broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -110,12 +110,23 @@ and Decline against actual files. Cross-project Stop ended an observed running
 command, and its delayed file stayed absent beyond 90 seconds. Closing the EXE
 removed its candidate processes.
 
-Windows QA exposed merged overlapping tool calls and a premature stopped warning
-during native approval. Source `a1486b0` fixes both. All 75 focused tests, 12 Native
-regressions, and type checking passed. Its production build is in progress. The
-focused hosted retest and replacement Windows EXE acceptance remain pending,
-along with actual Read only/YOLO enforcement and restart. The published archive
-is unchanged.
+Read only completed a real read and an OS-denied write, leaving its output absent.
+YOLO wrote and read an authorized fixture outside the project without an approval
+prompt. The mode setting survived restart, and Normal was restored.
+
+Final source `98515c9` fixes overlapping tool identity and pending-approval display,
+including the API phase missing from the first correction. Its production build,
+75 focused tests, and type checking passed. The 12 unchanged Native regressions
+also passed. Hosted QA held and reloaded a pending request without a false stopped
+warning, then received the final answer. The hash-verified replacement EXE passed
+the same affected journey with a real approved file write and retained output.
+
+This accepts the bounded Codex prototype flows tested across the recorded candidates.
+The final EXE retest does not repeat the entire earlier Windows journey. Final
+restart and shutdown passed, and superseded local packages were removed. The private preview
+serves `98515c9` with its authentication boundary preserved. Draft PR #59 is unmerged,
+and CI jobs never started because of billing. The published `26798df` archive is
+unchanged.
 Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
 clean-profile setup, and the remaining table entries stay open.
 
