@@ -26,6 +26,7 @@ export function CodexRequestFields({ request, answers, content, setAnswers, setC
   const url = text(params.url);
   const safeUrl = /^https?:\/\//i.test(url) ? url : undefined;
   return <div className="space-y-3">
+    {text(params.agentThreadId) && <p className="text-xs text-muted-foreground" title={text(params.agentThreadId)}>Subagent {text(params.agentThreadId).slice(0, 10)}</p>}
     {text(params.reason) && <p>{text(params.reason)}</p>}
     {text(params.message) && <p>{text(params.message)}</p>}
     {text(params.command) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/10 p-3 text-xs">{text(params.command)}</pre>}
@@ -64,7 +65,7 @@ export function CodexRequestFields({ request, answers, content, setAnswers, setC
           value={Array.isArray(content[key]) ? content[key].filter((value): value is string => typeof value === "string") : []}
           onChange={event => setContent({ ...content, [key]: Array.from(event.target.selectedOptions, option => option.value) })}>
           {multiChoices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
-          : field.type === "boolean" ? <input type="checkbox" checked={content[key] === true} onChange={event => setContent({ ...content, [key]: event.target.checked })} />
+          : field.type === "boolean" ? <input type="checkbox" className="ml-2 size-4 align-middle" checked={content[key] === true} onChange={event => setContent({ ...content, [key]: event.target.checked })} />
           : choices.length ? <select className="w-full rounded-md border bg-background px-3 py-2" value={text(content[key])} onChange={event => setContent({ ...content, [key]: event.target.value })}>
             <option value="">Choose an option</option>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
           : <input className="w-full rounded-md border bg-background px-3 py-2" type={field.type === "number" || field.type === "integer" ? "number" : "text"}

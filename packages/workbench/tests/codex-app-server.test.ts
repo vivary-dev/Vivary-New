@@ -42,11 +42,28 @@ rl.on("line",line=>{
    sandbox:p.sandbox==="read-only"?{type:"readOnly",networkAccess:false}:p.sandbox==="danger-full-access"?{type:"dangerFullAccess"}:
    {type:"workspaceWrite",networkAccess:false,writableRoots:mode==="wide-roots"?["/outside-project"]:[]}});
  }
+ if (message.method==="thread/read") {
+  const id=message.params.threadId;
+  const parent=mode==="child-unrelated"?"foreign-root":mode==="child-cycle"?id:id==="grandchild-1"?"child-1":threadId;
+  const response={thread:{id,parentThreadId:id==="foreign-root"?null:parent}};
+  if(mode==="child-root-during-lookup") setTimeout(()=>reply(message.id,response),30); else reply(message.id,response);
+ }
  if (message.method==="turn/start") {
   reply(message.id,{turn:{id:turnId,status:"inProgress",items:[]}});
   notify("turn/started",{threadId,turn:{id:turnId,status:"inProgress",items:[]}});
   notify("item/completed",{...scope,item:{id:"commentary-1",type:"agentMessage",phase:"commentary",text:"Reading the project."}});
-  if(mode==="command" || mode==="readonly-request") request("item/commandExecution/requestApproval",{command:"echo fixture",cwd:process.cwd(),reason:"Command access"});
+  if(mode.startsWith("child-") || mode==="grandchild") {
+   const childId=mode==="grandchild"?"grandchild-1":"child-1";
+   notify("item/started",{...scope,item:{id:"spawn-1",type:"collabAgentToolCall",tool:"spawnAgent",status:"inProgress",senderThreadId:threadId,receiverThreadIds:[],agentsStates:{}}});
+   notify("turn/started",{threadId:childId,turn:{id:"child-turn-1",status:"inProgress",items:[]}});
+   notify("item/started",{...scope,item:{id:"shared-item",type:"fileChange",status:"inProgress",changes:[{path:"root.txt",diff:"+root"}]}});
+   notify("item/started",{threadId:childId,turnId:"child-turn-1",item:{id:"shared-item",type:"fileChange",status:"inProgress",changes:[{path:"child.txt",diff:"+child"}]}});
+   emit({id:17,method:mode==="child-file"?"item/fileChange/requestApproval":"item/commandExecution/requestApproval",
+    params:{threadId:childId,turnId:mode==="child-stale"?"wrong-turn":"child-turn-1",itemId:"shared-item",command:"read child fixture"}});
+   if(mode==="child-root-during-lookup") done();
+   if(mode==="child-resolved") setTimeout(()=>{notify("serverRequest/resolved",{threadId:childId,requestId:17});notify("turn/completed",{threadId:childId,turn:{id:"child-turn-1",status:"completed",items:[]}});done();},40);
+  }
+  else if(mode==="command" || mode==="readonly-request") request("item/commandExecution/requestApproval",{command:"echo fixture",cwd:process.cwd(),reason:"Command access"});
   else if(mode==="file") {
    notify("item/started",{...scope,item:{id:"item-1",type:"fileChange",status:"inProgress",changes:[]}});
    notify("item/fileChange/patchUpdated",{...scope,itemId:"item-1",changes:[{path:"note.txt",diff:"+approved",kind:{type:"add"}}]});
@@ -59,11 +76,23 @@ rl.on("line",line=>{
   else {
    notify("item/completed",{...scope,item:{id:"collab-1",type:"collabAgentToolCall",tool:"spawnAgent",status:"completed",senderThreadId:threadId,receiverThreadIds:["child-1"],agentsStates:{"child-1":{status:"running"}}}});
    notify("item/completed",{...scope,item:{id:"final-1",type:"agentMessage",phase:"final_answer",text:"Done."}});
+   notify("turn/completed",{threadId:"child-1",turn:{id:"child-turn-1",status:"completed",items:[]}});
    done();
   }
  }
  if(message.method==="turn/interrupt") { reply(message.id,{}); done("interrupted"); }
- if(message.id===17 && ("result" in message || "error" in message)) done();
+ if(message.id===17 && ("result" in message || "error" in message)) {
+  if(mode.startsWith("child-") || mode==="grandchild") {
+   const childId=mode==="grandchild"?"grandchild-1":"child-1";
+   notify("item/completed",{...scope,item:{id:"spawn-1",type:"collabAgentToolCall",tool:"spawnAgent",status:"completed",senderThreadId:threadId,receiverThreadIds:[childId],agentsStates:{[childId]:{status:"running"}}}});
+   if(mode==="child-after-root") done();
+   setTimeout(()=>{
+    notify("item/completed",{threadId:childId,turnId:"child-turn-1",item:{id:"child-final",type:"agentMessage",phase:"final_answer",text:"Child finished."}});
+    notify("turn/completed",{threadId:childId,turn:{id:"child-turn-1",status:"completed",items:[]}});
+    if(mode!=="child-after-root" && mode!=="child-root-during-lookup") setTimeout(()=>done(),40);
+   },60);
+  } else done();
+ }
 });
 `);
   const calls: Request[] = [];
@@ -200,4 +229,57 @@ test("MCP elicitation accepts a nullable turn correlation", async t => {
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].params.turnId, null);
   assert.deepEqual((await f.receipt()).messages.find(message => message.id === 17).result, { action: "decline" });
+});
+
+
+for (const mode of ["child-early", "grandchild", "child-file"]) test(`${mode} verifies ancestry before presenting native approval`, async t => {
+  const f = await fixture(t, mode);
+  const result = await runCodexAppServer(f.options);
+  assert.equal(result.status, "completed");
+  assert.equal(f.calls.length, 1);
+  const childId = mode === "grandchild" ? "grandchild-1" : "child-1";
+  assert.equal(f.calls[0].params.agentThreadId, childId);
+  assert.equal(f.calls[0].params.turnId, "child-turn-1");
+  if (mode === "child-file") assert.equal(f.calls[0].params.item.changes[0].path, "child.txt");
+  const messages = (await f.receipt()).messages;
+  assert.ok(messages.some(message => message.method === "thread/read" && message.params.threadId === childId && message.params.includeTurns === false));
+  assert.equal(f.notifications.some(({params}) => params.item?.id === "child-final"), false);
+  assert.ok(f.notifications.some(({params}) => params.item?.agentsStates?.[childId]?.status === "completed"));
+  assert.ok(f.notifications.some(({params}) => params.item?.agentsStates?.[childId]?.message === "Child finished."));
+});
+
+for (const mode of ["child-unrelated", "child-cycle", "child-stale"]) test(`${mode} refuses foreign or stale requests`, async t => {
+  const f = await fixture(t, mode);
+  const result = await runCodexAppServer(f.options);
+  assert.equal(result.status, "failed");
+  assert.equal(f.calls.length, 0);
+});
+
+test("root completion waits for a verified active child", async t => {
+  const f = await fixture(t, "child-after-root");
+  const result = await runCodexAppServer(f.options);
+  assert.equal(result.status, "completed");
+  assert.ok(f.notifications.some(({params}) => params.item?.agentsStates?.["child-1"]?.status === "completed"));
+  assert.equal(f.notifications.filter(event => event.method === "turn/completed").length, 1);
+});
+
+test("child request resolution clears only its request and child completion does not finish the root", async t => {
+  const f = await fixture(t, "child-resolved");
+  const result = await runCodexAppServer({ ...f.options, onRequest: request => {
+    f.calls.push(request); return new Promise(() => {});
+  } });
+  assert.equal(result.status, "completed");
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.resolved, [f.calls[0].requestId]);
+  assert.equal(f.notifications.filter(event => event.method === "turn/completed").length, 1);
+});
+
+
+test("root completion during ancestry verification waits for the child and its approval", async t => {
+  const f = await fixture(t, "child-root-during-lookup");
+  const result = await runCodexAppServer(f.options);
+  assert.equal(result.status, "completed");
+  assert.equal(f.calls.length, 1);
+  assert.ok(f.notifications.some(({params}) => params.item?.agentsStates?.["child-1"]?.status === "completed"));
+  assert.equal(f.notifications.filter(event => event.method === "turn/completed").length, 1);
 });

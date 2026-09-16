@@ -444,7 +444,7 @@ async function resolveCodexRequest(input: {
   try { response = codexApprovalResponse(pending.request, decision); }
   catch (error) { fail(error instanceof Error ? error.message : "Check your response.", { statusCode: 400 }); }
   active.requests.delete(input.requestId);
-  appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "note", message: decision.allow ? "Codex request allowed." : "Codex request declined.",
+  appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message: decision.allow ? "Codex request allowed." : "Codex request declined.",
     metadata: { requestId: input.requestId, method: pending.request.method } });
   updateCodeAgentRunRecord(input.runId, { needsApproval: active.requests.size > 0,
     status: active.requests.size ? "needs-approval" : "running", phase: active.requests.size ? "action-approval" : "running" });

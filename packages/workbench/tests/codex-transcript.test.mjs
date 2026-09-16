@@ -103,6 +103,19 @@ test("subagent card identifies actual native agent and its status", () => {
   const html = renderToStaticMarkup(jsx(Card, { part }));
   assert.match(html, /data-code-activity="subagent"/);
   assert.match(html, /real-child/);
-  assert.match(html, /completed/);
+  assert.match(html, /Completed/);
+  assert.match(html, /Checked subagent status/);
   assert.match(renderer, /case "data":[\s\S]*?CodeAgentActivityCard/);
+});
+
+
+test("subagent operation labels use plain language and preserve unknown details", () => {
+  const make = tool => ({ type: "data", name: "code-agent-activity", data: { kind: "subagent", itemId: "native",
+    tool, status: "completed", text: `Codex agent operation: ${tool}.`, agents: [] } });
+  const html = renderToStaticMarkup(jsx(Card, { part: make("spawnAgent") }));
+  assert.match(html, /Started subagent/);
+  assert.doesNotMatch(html, /spawnAgent|Codex agent operation/);
+  const unknown = renderToStaticMarkup(jsx(Card, { part: make("futureOperation") }));
+  assert.match(unknown, /Subagent activity/);
+  assert.match(unknown, /Operation:.*futureOperation/);
 });

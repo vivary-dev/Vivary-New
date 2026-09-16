@@ -350,10 +350,10 @@ index 0000000000000000000000000000000000000000..e242551e6527ff0d1cdddf224cddcf06
 +export declare function runCodexAppServer(options: CodexAppServerOptions): Promise<CodexAppServerResult>;
 diff --git a/dist/cli/codex-app-server-executor.js b/dist/cli/codex-app-server-executor.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f03e11555
+index 0000000000000000000000000000000000000000..89aeebc1ad77e8a08f0657e13c1e3e3bc156f470
 --- /dev/null
 +++ b/dist/cli/codex-app-server-executor.js
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,425 @@
 +import { spawn } from "node:child_process";
 +import { randomUUID } from "node:crypto";
 +import path from "node:path";
@@ -361,6 +361,9 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +const REQUEST_TIMEOUT_MS = 15_000;
 +const INTERRUPT_TIMEOUT_MS = 3_000;
 +const MAX_LINE_BYTES = 8 * 1024 * 1024;
++const MAX_TRACKED_THREADS = 128;
++const MAX_CACHED_ITEMS = 256;
++const MAX_CACHED_ITEM_CHARS = 2 * 1024 * 1024;
 +const SUPPORTED_REQUESTS = new Set([
 +    "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
 +    "item/permissions/requestApproval", "mcpServer/elicitation/request", "item/tool/requestUserInput",
@@ -428,6 +431,79 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +    const pendingCalls = new Map();
 +    const pendingRequests = new Map();
 +    const items = new Map();
++    let itemChars = 0;
++    let rootOutcome;
++    const members = new Set();
++    const checkingThreads = new Map();
++    const threadStates = new Map();
++    const collabItems = new Map();
++    const itemKey = params => JSON.stringify([params.threadId, params.turnId, params.itemId ?? params.item?.id]);
++    function rememberItem(params, item) {
++        const key = itemKey(params);
++        const previous = items.get(key);
++        if (previous) { itemChars -= previous.size; items.delete(key); }
++        const size = JSON.stringify(item).length;
++        if (size > MAX_CACHED_ITEM_CHARS) return;
++        items.set(key, { item, size });
++        itemChars += size;
++        while (items.size > MAX_CACHED_ITEMS || itemChars > MAX_CACHED_ITEM_CHARS) {
++            const oldest = items.keys().next().value;
++            itemChars -= items.get(oldest).size;
++            items.delete(oldest);
++            collabItems.delete(oldest);
++        }
++    }
++    function stateFor(id) {
++        if (!threadStates.has(id)) {
++            if (threadStates.size >= MAX_TRACKED_THREADS) throw new Error("Codex exceeded the supported number of active agent threads.");
++            threadStates.set(id, { active: false });
++        }
++        return threadStates.get(id);
++    }
++    function finishWhenReady() {
++        if (!rootOutcome || completed) return;
++        if (rootOutcome.status === "completed" && (checkingThreads.size || pendingRequests.size
++            || [...members].some(id => id !== threadId && threadStates.get(id)?.active))) return;
++        finish(rootOutcome);
++    }
++    function publishCollab(entry) {
++        const agentsStates = { ...entry.params.item.agentsStates };
++        for (const id of entry.params.item.receiverThreadIds ?? []) {
++            const state = threadStates.get(id);
++            if (state?.status) agentsStates[id] = { status: state.status, ...(state.message ? { message: state.message } : {}) };
++        }
++        options.onNotification?.(entry.method, { ...entry.params, item: { ...entry.params.item, agentsStates } });
++    }
++    function refreshAgentCards(id) {
++        for (const entry of collabItems.values()) {
++            if (entry.params.item.receiverThreadIds?.includes(id)) publishCollab(entry);
++        }
++    }
++    async function verifyMember(id) {
++        if (members.has(id)) return;
++        if (checkingThreads.has(id)) return checkingThreads.get(id);
++        if (typeof id !== "string" || !id || checkingThreads.size >= MAX_TRACKED_THREADS) throw new Error("Invalid Codex agent identity.");
++        const lookup = (async () => {
++            const chain = new Set();
++            let current = id;
++            while (!members.has(current)) {
++                if (chain.has(current) || chain.size >= 16) throw new Error("Codex agent ancestry is invalid.");
++                chain.add(current);
++                const result = await call("thread/read", { threadId: current, includeTurns: false });
++                const thread = result?.thread;
++                if (!isRecord(thread) || thread.id !== current) throw new Error("Codex could not verify the requesting agent.");
++                const parent = thread.parentThreadId ?? thread.source?.subAgent?.thread_spawn?.parent_thread_id;
++                if (typeof parent !== "string" || !parent) throw new Error("Codex requested access from an unrelated agent.");
++                current = parent;
++            }
++            if (members.size + chain.size > MAX_TRACKED_THREADS) throw new Error("Codex exceeded the supported number of agent threads.");
++            for (const member of chain) members.add(member);
++        })();
++        checkingThreads.set(id, lookup);
++        try { await lookup; }
++        finally { checkingThreads.delete(id); finishWhenReady(); }
++    }
++
 +    let resolveResult;
 +    const result = new Promise(resolve => { resolveResult = resolve; });
 +    let resolveClose;
@@ -463,36 +539,45 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +        const pending = pendingRequests.get(wireId);
 +        if (!pending) return;
 +        pendingRequests.delete(wireId);
-+        try { options.onRequestResolved?.(pending.requestId); } catch (error) { fail(error); }
++        if (pending.exposed) {
++            try { options.onRequestResolved?.(pending.requestId); } catch (error) { fail(error); }
++        }
++        finishWhenReady();
 +    }
 +    async function handleRequest(message) {
 +        if (pendingRequests.has(message.id)) throw new Error("Codex reused an unresolved request ID.");
++        if (pendingRequests.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex requests are waiting for a response.");
 +        const requestId = randomUUID();
 +        let params = message.params;
-+        if (params.threadId !== undefined && params.threadId !== threadId
-+            || params.turnId != null && turnId && params.turnId !== turnId) {
-+            throw new Error("Codex requested approval for another conversation or turn.");
-+        }
-+        if (!SUPPORTED_REQUESTS.has(message.method) || !options.onRequest) {
-+            write({ id: message.id, error: { code: -32601, message: "Vivary cannot answer this Codex request." } });
-+            throw new Error(`Unsupported Codex request: ${message.method}`);
-+        }
-+        if (options.permissionMode === "read-only"
-+            && ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(message.method)) {
-+            write({ id: message.id, result: message.method === "item/permissions/requestApproval"
-+                ? { permissions: {}, scope: "turn" } : { decision: "decline" } });
-+            return;
-+        }
-+        if (message.method === "item/fileChange/requestApproval") {
-+            const item = items.get(params.itemId);
-+            if (!item || item.type !== "fileChange") {
-+                write({ id: message.id, result: { decision: "decline" } });
-+                throw new Error("Codex requested file approval without the proposed changes.");
-+            }
-+            params = { ...params, item };
-+        }
-+        pendingRequests.set(message.id, { requestId });
++        const pending = { requestId, threadId: params.threadId, exposed: false };
++        pendingRequests.set(message.id, pending);
 +        try {
++            if (!SUPPORTED_REQUESTS.has(message.method) || !options.onRequest) {
++                throw new Error(`Unsupported Codex request: ${message.method}`);
++            }
++            if (!members.has(params.threadId)) await verifyMember(params.threadId);
++            if (!pendingRequests.has(message.id) || completed || options.signal?.aborted) return;
++            const nativeTurnId = params.threadId === threadId ? turnId : threadStates.get(params.threadId)?.turnId;
++            if (params.turnId != null && nativeTurnId && params.turnId !== nativeTurnId) {
++                throw new Error("Codex requested approval for another turn.");
++            }
++            if (params.threadId !== threadId) {
++                params = { ...params, agentThreadId: params.threadId };
++                if (params.turnId != null) Object.assign(stateFor(params.threadId), { turnId: params.turnId, active: true });
++            }
++            if (options.permissionMode === "read-only"
++                && ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(message.method)) {
++                write({ id: message.id, result: message.method === "item/permissions/requestApproval"
++                    ? { permissions: {}, scope: "turn" } : { decision: "decline" } });
++                clearRequest(message.id);
++                return;
++            }
++            if (message.method === "item/fileChange/requestApproval") {
++                const item = items.get(itemKey(params))?.item;
++                if (!item || item.type !== "fileChange") throw new Error("Codex requested file approval without the proposed changes.");
++                params = { ...params, item };
++            }
++            pending.exposed = true;
 +            const response = await options.onRequest({ requestId, method: message.method, params });
 +            if (!pendingRequests.has(message.id) || completed || options.signal?.aborted) return;
 +            if (!isRecord(response)) throw new Error("The Codex request response is invalid.");
@@ -501,8 +586,9 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +        } catch (error) {
 +            if (!pendingRequests.has(message.id) || completed) return;
 +            try { write({ id: message.id, error: { code: -32603, message: "Vivary could not answer this request." } }); } catch {}
++            // Fail before clearing so a completed root cannot hide an invalid child request.
++            fail(error);
 +            clearRequest(message.id);
-+            throw error;
 +        }
 +    }
 +    function recordThread() {
@@ -512,30 +598,73 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +        }
 +    }
 +    function notification(method, params) {
-+        if (params.threadId !== undefined && threadId && params.threadId !== threadId) return;
-+        if (method === "serverRequest/resolved") { clearRequest(params.requestId); return; }
-+        if (method === "turn/started" && startingTurn && isRecord(params.turn)) {
-+            turnId = params.turn.id;
-+            recordThread();
++        const source = params.threadId;
++        if (method === "serverRequest/resolved") {
++            if (pendingRequests.get(params.requestId)?.threadId === source) clearRequest(params.requestId);
++            return;
 +        }
-+        if (params.turnId != null && turnId && params.turnId !== turnId) return;
-+        if ((method === "item/started" || method === "item/completed") && isRecord(params.item)) {
-+            items.set(params.item.id, params.item);
++        if (method === "thread/started" && isRecord(params.thread) && members.has(params.thread.parentThreadId)) {
++            if (members.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex agent threads.");
++            members.add(params.thread.id);
 +        }
++        if (typeof source !== "string") return;
++        const root = source === threadId;
++        if (method === "turn/started" && isRecord(params.turn) && typeof params.turn.id === "string") {
++            Object.assign(stateFor(source), { turnId: params.turn.id, active: true, status: "running", message: undefined });
++            if (root && startingTurn) { turnId = params.turn.id; recordThread(); }
++            else if (threadId && !members.has(source)) void verifyMember(source).catch(() => undefined);
++        }
++        const observed = threadStates.get(source);
++        if (params.turnId != null && observed?.turnId && params.turnId !== observed.turnId) return;
++        if ((method === "item/started" || method === "item/completed") && isRecord(params.item)) rememberItem(params, params.item);
 +        if (method === "item/fileChange/patchUpdated" && typeof params.itemId === "string") {
-+            const existing = items.get(params.itemId);
-+            if (existing) items.set(params.itemId, { ...existing, ...params });
++            const existing = items.get(itemKey(params))?.item;
++            if (existing) rememberItem(params, { ...existing, changes: params.changes });
 +        }
-+        options.onNotification?.(method, params);
-+        if (method === "turn/completed" && startingTurn && isRecord(params.turn)) {
-+            if (turnId && params.turn.id !== turnId) return;
-+            turnId = params.turn.id;
++        const item = params.item;
++        if (isRecord(item) && item.type === "collabAgentToolCall" && members.has(source)
++            && item.senderThreadId === source && (method === "item/started" || method === "item/completed")) {
++            if (item.tool === "spawnAgent" && item.status === "completed") {
++                for (const id of item.receiverThreadIds ?? []) {
++                    if (typeof id !== "string" || members.size >= MAX_TRACKED_THREADS) throw new Error("Invalid Codex child identity.");
++                    members.add(id);
++                    stateFor(id);
++                }
++            }
++            for (const id of item.receiverThreadIds ?? []) {
++                if (!members.has(id) || !isRecord(item.agentsStates?.[id])) continue;
++                const state = stateFor(id);
++                const incoming = item.agentsStates[id];
++                if (!state.status || item.tool !== "spawnAgent" || !["pendingInit", "running"].includes(incoming.status)) {
++                    Object.assign(state, { status: incoming.status, active: ["pendingInit", "running"].includes(incoming.status),
++                        ...(typeof incoming.message === "string" ? { message: incoming.message.slice(0, 32_000) } : {}) });
++                }
++            }
++            const key = itemKey(params);
++            if (!collabItems.has(key) && collabItems.size >= MAX_CACHED_ITEMS) collabItems.delete(collabItems.keys().next().value);
++            const entry = { method, params };
++            if (items.has(key)) collabItems.set(key, entry);
++            publishCollab(entry);
++        } else if (root) options.onNotification?.(method, params);
++        if (!root && method === "item/completed" && item?.type === "agentMessage"
++            && item.phase !== "commentary" && typeof item.text === "string") {
++            stateFor(source).message = item.text.slice(0, 32_000);
++        }
++        if (method === "turn/completed" && isRecord(params.turn)) {
++            const state = stateFor(source);
++            if (state.turnId && params.turn.id !== state.turnId) return;
 +            const status = params.turn.status;
-+            if (status === "completed") finish({ status: "completed", threadId, turnId });
-+            else if (status === "interrupted") finish({ status: "interrupted", threadId, turnId });
-+            else finish({ status: "failed", threadId, turnId,
-+                error: typeof params.turn.error?.message === "string" ? params.turn.error.message : "Codex could not complete the turn." });
++            Object.assign(state, { turnId: params.turn.id, active: false,
++                status: status === "failed" ? "errored" : status,
++                ...(typeof params.turn.error?.message === "string" ? { message: params.turn.error.message } : {}) });
++            if (root && startingTurn) {
++                turnId = params.turn.id;
++                rootOutcome = { status: status === "completed" ? "completed" : status === "interrupted" ? "interrupted" : "failed",
++                    threadId, turnId, ...(status === "failed" ? { error: state.message ?? "Codex could not complete the turn." } : {}) };
++            }
++            if (members.has(source)) refreshAgentCards(source);
 +        }
++        finishWhenReady();
 +    }
 +    function receive(line) {
 +        if (!line.trim() || completed) return;
@@ -557,8 +686,11 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +    }
 +    function abort() {
 +        if (completed) return;
-+        if (threadId && turnId) {
-+            void call("turn/interrupt", { threadId, turnId }).catch(() => undefined);
++        for (const id of members) {
++            const activeTurn = id === threadId ? turnId : threadStates.get(id)?.turnId;
++            if (activeTurn && (id === threadId || threadStates.get(id)?.active)) {
++                void call("turn/interrupt", { threadId: id, turnId: activeTurn }).catch(() => undefined);
++            }
 +        }
 +        interruptTimer ??= setTimeout(() => finish({ status: "interrupted", threadId, turnId }), INTERRUPT_TIMEOUT_MS);
 +    }
@@ -602,6 +734,7 @@ index 0000000000000000000000000000000000000000..40c43970248547fa670dd4ae8513433f
 +        });
 +        if (completed || options.signal?.aborted) return;
 +        threadId = validateThread(started, options, policy);
++        members.add(threadId);
 +        effectiveModel = started.model;
 +        startingTurn = true;
 +        const startedTurn = await call("turn/start", {
@@ -784,10 +917,10 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..741f736f2076116c2d3c9c606662c1ea
 +    part: Extract<ContentPart, { type: "data" }>;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..37755d57ff168908e210889da19fe0a218d27ddd 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..1d3570e11f035d9c9b2ec592486e406a4b3b1bac 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
-@@ -985,6 +985,38 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+@@ -985,6 +985,59 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
  function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
      return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
  }
@@ -797,8 +930,27 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..37755d57ff168908e210889da19fe0a2
 +    if (!activity || (activity.kind !== "progress" && activity.kind !== "subagent")) return null;
 +    const subagent = activity.kind === "subagent";
 +    const label = subagent ? "Subagent activity" : "Progress";
-+    const text = typeof activity.text === "string" ? activity.text : "";
-+    const summary = subagent ? [activity.tool, activity.status].filter(Boolean).join(" · ")
++    const rawText = typeof activity.text === "string" ? activity.text : "";
++    const operationLabels = {
++        spawnAgent: ["Starting subagent", "Started subagent"],
++        sendInput: ["Sending follow-up", "Sent follow-up"],
++        sendMessage: ["Sending follow-up", "Sent follow-up"],
++        followupTask: ["Sending follow-up", "Sent follow-up"],
++        wait: ["Waiting for subagent", "Checked subagent status"],
++        closeAgent: ["Closing subagent", "Closed subagent"],
++        resumeAgent: ["Resuming subagent", "Resumed subagent"],
++        interruptAgent: ["Requesting subagent stop", "Requested subagent stop"],
++        listAgents: ["Checking subagents", "Checked subagents"],
++    };
++    const operation = Object.hasOwn(operationLabels, activity.tool) ? operationLabels[activity.tool] : undefined;
++    const statusLabels = { pendingInit: "Starting", inProgress: "Working", running: "Working",
++        completed: "Completed", interrupted: "Interrupted", errored: "Failed", failed: "Failed",
++        shutdown: "Closed", notFound: "Not found" };
++    const statusLabel = value => Object.hasOwn(statusLabels, value) ? statusLabels[value] : value;
++    const text = subagent && rawText === `Codex agent operation: ${activity.tool}.` ? "" : rawText;
++    const summary = subagent ? operation
++        ? operation[activity.status === "completed" ? 1 : 0] + (activity.status === "failed" ? " · Failed" : "")
++        : statusLabel(activity.status)
 +        : text.replace(/\s+/g, " ").slice(0, 180);
 +    return _jsxs("details", {
 +        "data-code-activity": activity.kind,
@@ -812,11 +964,13 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..37755d57ff168908e210889da19fe0a2
 +                    _jsx("span", { style: { marginLeft: "0.5rem" }, children: summary })] }),
 +            _jsxs("div", { tabIndex: 0, "aria-label": label + " details",
 +                style: { padding: "0 0.75rem 0.75rem", maxHeight: "16rem", overflowY: "auto", overflowWrap: "anywhere" },
-+                children: [text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: text }),
++                children: [subagent && !operation && activity.tool && _jsxs("p", {
++                        style: { margin: "0.25rem 0" }, children: ["Operation: ", _jsx("code", { children: activity.tool })] }),
++                    text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: text }),
 +                    subagent && Array.isArray(activity.agents) && activity.agents.map(agent =>
 +                        _jsxs("div", { style: { marginTop: "0.5rem" }, children: [
 +                            _jsxs("p", { style: { margin: 0 }, children: ["Agent ",
-+                                _jsx("code", { children: agent.id }), " · ", agent.status] }),
++                                _jsx("code", { children: agent.id }), " · ", statusLabel(agent.status)] }),
 +                            agent.text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: agent.text })
 +                        ] }, agent.id))]
 +            })]
@@ -826,7 +980,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..37755d57ff168908e210889da19fe0a2
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1298,6 +1330,8 @@ export function AssistantMessage() {
+@@ -1298,6 +1351,8 @@ export function AssistantMessage() {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
