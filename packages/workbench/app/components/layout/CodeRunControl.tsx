@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { CodexRequestFields, requestTitle, object } from "./CodexRequestFields";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
 import { Button } from "@agent-native/toolkit/ui";
@@ -18,6 +19,20 @@ export function CodeRunControl() {
   const active = status.data?.activeRun;
   const pending = status.data?.pendingApproval;
   const recent = status.data?.recentRun;
+  const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [content, setContent] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    setAnswers({}); setError(undefined);
+    const fields = object(object(pending?.params.requestedSchema).properties);
+    const values: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(fields)) {
+      const field = object(raw);
+      if (field.default != null) values[key] = field.default;
+      else if (field.type === "boolean") values[key] = false;
+      else if (field.type === "array") values[key] = [];
+    }
+    setContent(values);
+  }, [pending?.requestId]);
   const current = pending ?? active;
   const currentRunId = pending?.runId ?? active?.id ?? recent?.id;
   const projectLabel = current?.projectId
@@ -34,6 +49,7 @@ export function CodeRunControl() {
       } else if (pending && decision !== "stop") {
         await call(decision === "approve" ? "vivary-code-approve" : "vivary-code-deny", {
           runId: pending.runId, requestId: pending.requestId, projectId: pending.projectId ?? undefined,
+          ...(decision === "approve" ? { answers, content } : {}),
         });
       }
       await status.refetch();
@@ -55,16 +71,14 @@ export function CodeRunControl() {
 
   if (!current && !status.error) return null;
   return <section aria-label="Agent work" className="shrink-0 border-b px-4 py-3 text-sm">
-    {pending ? <div className="flex flex-col gap-2" role="region" aria-label="Approve background work">
-      <h2 className="font-semibold">Approval needed. The agent has not started.</h2>
-      <p>{pending.workspaceLabel} · {pending.engineLabel} · {pending.model}</p>
-      <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words font-sans">{pending.message}</pre>
-      <p>{pending.engine === "codex-cli" ? "Codex can run commands and edit project files." : "Claude Code can read and edit project files."}
-        {" "}This turn continues on this host if you leave or close the browser, for up to two minutes.
-        You can stop it anywhere in Vivary. Closing the host interrupts it.</p>
+    {pending ? <div className="flex max-h-[60vh] flex-col gap-3 overflow-auto rounded-lg bg-black/5 p-3 dark:bg-black/20" role="region" aria-label="Codex request">
+      <h2 className="font-semibold">{requestTitle(pending.method)}</h2>
+      <p className="text-xs text-muted-foreground">{pending.workspaceLabel} · Codex</p>
+      <CodexRequestFields key={pending.requestId} request={pending} answers={answers} content={content} setAnswers={setAnswers} setContent={setContent} />
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={!ready || working} onClick={() => void decide("approve")}>Approve background work</Button>
-        <Button size="sm" variant="outline" disabled={!ready || working} onClick={() => void decide("deny")}>Deny</Button>
+        <Button size="sm" disabled={!ready || working} onClick={() => void decide("approve")}>{pending.method.includes("requestApproval") ? "Allow once" : "Continue"}</Button>
+        <Button size="sm" variant="outline" disabled={!ready || working} onClick={() => void decide("deny")}>Decline</Button>
+        <Button size="sm" variant="outline" disabled={!ready || working} onClick={() => void decide("stop")}>Stop</Button>
         <Button size="sm" variant="ghost" onClick={() => void openConversation()}>Open conversation</Button>
       </div>
     </div> : active ? <div className="flex flex-wrap items-center gap-2">

@@ -45,6 +45,17 @@ export function LocalRuntimeSettings() {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const permissions = useActionQuery<{ mode: "normal" | "read-only" | "yolo" }>("vivary-code-permissions", {}, { retry: false });
+  const [saving, setSaving] = useState(false);
+  async function saveMode(mode: string) {
+    setSaving(true);
+    setRefreshError(undefined);
+    try {
+      await callAction("vivary-code-permissions-set", { mode });
+      await permissions.refetch();
+    } catch (failure) { setRefreshError(actionErrorMessage(failure) ?? "Permissions could not be saved."); }
+    finally { setSaving(false); }
+  }
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
   const error = refreshError ?? actionErrorMessage(status.error);
@@ -79,6 +90,21 @@ export function LocalRuntimeSettings() {
 
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
+    <SettingsGroup title="Codex permissions">
+      <SettingsRow id="codex-permissions" label="Execution mode" description="Applies when you send your next message. Running work keeps its current permissions.">
+        <select aria-label="Codex execution mode" className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          value={permissions.data?.mode ?? "normal"} disabled={saving || !permissions.data}
+          onChange={event => void saveMode(event.target.value)}>
+          <option value="normal">Normal</option><option value="read-only">Read only</option><option value="yolo">YOLO</option>
+        </select>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          {permissions.data?.mode === "yolo" ? "Codex can run commands with full host access without asking for approval. Use this only with projects and instructions you trust."
+            : permissions.data?.mode === "read-only" ? "Codex can inspect local files but cannot edit them or request broader command permissions. Connected services retain their own access settings."
+              : "Codex can work inside the project. It asks before actions that need broader access."}
+        </p>
+        {permissions.error && <p role="alert" className="text-sm text-destructive">Permissions could not be loaded. <button onClick={() => void permissions.refetch()}>Retry</button></p>}
+      </SettingsRow>
+    </SettingsGroup>
     <SettingsGroup title="Local agents">
       {runtimes.map(runtime => {
         const current = status.data?.runtimes.find(item => item.engine === runtime.engine);

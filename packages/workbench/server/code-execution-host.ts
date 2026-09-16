@@ -1,11 +1,11 @@
+import type { CodePermissionMode } from "./code-permissions";
 import { execFile, fork, type ChildProcess, type ForkOptions, type SpawnOptions } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
 
-import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest } from "./code-execution-protocol";
+import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest, isCodexActionRequest, type CodexActionRequest } from "./code-execution-protocol";
 
-const RUN_TIMEOUT_MS = 120_000;
-const TERMINATION_GRACE_MS = 1_000;
+const TERMINATION_GRACE_MS = 5_000;
 const EXIT_TIMEOUT_MS = 3_000;
 let cleanupBlocked = false;
 
@@ -26,6 +26,9 @@ export async function executeVivaryCodeWorker(input: {
   runId: string;
   prompt: string;
   model?: string;
+  permissionMode?: CodePermissionMode;
+  onRequest?: (request: CodexActionRequest) => Promise<Record<string, unknown>>;
+  onRequestResolved?: (requestId: string) => void;
   ownerEmail: string;
   orgId?: string;
   signal: AbortSignal;
@@ -34,7 +37,7 @@ export async function executeVivaryCodeWorker(input: {
   if (input.signal.aborted) throw aborted();
   const request: VivaryCodeWorkerRequest = {
     type: "vivary:code-worker:start", runId: input.runId, prompt: input.prompt,
-    model: input.model, ownerEmail: input.ownerEmail, orgId: input.orgId,
+    model: input.model, permissionMode: input.permissionMode, ownerEmail: input.ownerEmail, orgId: input.orgId,
   };
   if (!isVivaryCodeWorkerRequest(request)) throw new Error("The coding worker received an invalid run request.");
   // startVivary pins cwd to the Workbench package, including relocated desktop builds.
@@ -67,7 +70,7 @@ export async function executeVivaryCodeWorker(input: {
     const finish = (error: Error | null) => {
       if (settled) return;
       settled = true;
-      clearTimeout(deadline);
+      clearTimeout(startupDeadline);
       clearTimeout(grace);
       clearTimeout(exitTimer);
       input.signal.removeEventListener("abort", onAbort);
@@ -125,18 +128,30 @@ export async function executeVivaryCodeWorker(input: {
       if (!message || typeof message !== "object" || !("type" in message)) return;
       if (message.type === "vivary:code-worker:ready" && !sent) {
         sent = true;
+        clearTimeout(startupDeadline);
         try {
           child.send(request, error => { if (error) requestStop(new Error("The coding worker could not receive its run.")); });
         } catch { requestStop(new Error("The coding worker connection closed.")); }
         return;
       }
       if (!("runId" in message) || message.runId !== input.runId) return;
+      if (message.type === "vivary:code-worker:request" && "request" in message && isCodexActionRequest(message.request)) {
+        const action = message.request;
+        Promise.resolve().then(() => input.onRequest?.(action)).then(result => {
+          if (!settled && !cleanup && child.connected) child.send({ type: "vivary:code-worker:response", requestId: action.requestId, result: result ?? { decision: "decline" } }, () => undefined);
+        }).catch(() => requestStop(new Error("The Codex approval request could not be handled.")));
+        return;
+      }
+      if (message.type === "vivary:code-worker:resolved" && "requestId" in message && typeof message.requestId === "string") {
+        input.onRequestResolved?.(message.requestId);
+        return;
+      }
       if (message.type !== "vivary:code-worker:done" && message.type !== "vivary:code-worker:failed") return;
       reported = true;
       if (message.type === "vivary:code-worker:failed") failure ??= new Error("The Native coding executor failed.");
       stopTree();
     };
-    const deadline = setTimeout(() => requestStop(aborted("The coding run reached its 120 second limit.")), RUN_TIMEOUT_MS);
+    const startupDeadline = setTimeout(() => requestStop(new Error("The coding worker did not become ready.")), 15_000);
     child.on("message", onMessage);
     child.on("error", onError);
     child.once("exit", onExit);

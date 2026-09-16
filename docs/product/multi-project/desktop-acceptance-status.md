@@ -1,3 +1,7 @@
+<!-- Current Codex acceptance: the 3dd5aa8 Windows results below predate native
+app-server action approvals, permission settings, unlimited turn duration, and
+activity cards. Those changes require new hosted and Windows QA before acceptance. -->
+
 # Desktop acceptance status
 
 Updated 2026-09-16. This page is the current tracked acceptance register for the
@@ -7,7 +11,7 @@ what a new contributor or tester can rely on now.
 
 ## Release boundary
 
-**Vivary is not ready for public release.** The current Windows x64 portable folder
+**Vivary is not ready for public release.** The published Windows x64 portable folder
 is a private development candidate built from source commit
 `26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is available as an unsigned
 [private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16).
@@ -58,6 +62,41 @@ The focused final retest did not replay every broad `31d9afc` journey. W01 throu
 retain their broad `31d9afc` Windows evidence. W05 and the final artifact/lifecycle
 seams have direct `26798df` Windows evidence.
 
+### Codex integration candidate `3dd5aa8`
+
+This later candidate was built and packaged on Zo and tested locally in the Windows
+EXE. It has not replaced the published `26798df` archive. Its ZIP contains 3,107
+files, is 234,930,723 bytes, and has SHA-256
+`e53b3389f819322be2d7841f297ce0f613aafc036ff0297d11724bd46a7c26b8`.
+Its full source commit is `3dd5aa8a7de4125b8508ed43ad69cef4a74f3975`.
+
+The Windows journey verified:
+
+- Codex subscription model discovery, including three consecutive refreshes, and
+  recovery of a saved draft's historical `default` choice to GPT-6-Astra.
+- An approved Codex turn read `PROBE.md`, copied it to `RESULT.txt`, and read the
+  result back. Independent disk hashes matched. The UI exposed command details.
+- A follow-up recalled the exact file marker without tools. The native Codex
+  session ID stayed unchanged.
+- Denial started no model or tools and created no output file.
+- Stop from another project paused the Codex run. Its recorded worker and
+  descendants exited, and the delayed output file stayed absent.
+- Restart retained the selected project, transcript, runtime/model, and paused
+  status. Closing the EXE removed the application processes and released its port.
+- Runtime settings listed five Codex models and the configured connection names.
+  Names establish configuration, not successful calls through every connection.
+
+Earlier local candidates `6e86971` and `ab8ae26` exposed Windows discovery cleanup
+races. A valid model catalog could be discarded when taskkill found an already
+exited launcher or its pipes were still closing. The final candidate waits for
+confirmed completion and keeps genuinely unconfirmed cleanup blocked. The failed
+local packages were removed after shutdown; their receipts remain on Zo.
+
+Evidence is retained on Zo under `.tmp/38-codex-integration/`, including native
+screenshots, file hashes, transcript events, native-session identity, and process
+snapshots. These checks used the existing authorized Windows profile. They do not
+establish clean-profile installation or complete the broader issue #38 scope.
+
 ## Defects fixed during Windows acceptance
 
 | Finding | Current behavior |
@@ -68,39 +107,39 @@ seams have direct `26798df` Windows evidence.
 | W04: Usage queried before `token_usage` existed | The metrics path creates its table before querying. A disposable empty-database regression returns empty metrics. |
 | W05: CLI model aliases opened Native provider setup | The Code composer hides that picker and keeps the effective CLI engine/model visible as read-only text. |
 
-## Remote source runtime selection, 2026-09-16
+## Remote Codex verification, 2026-09-16
 
-The source Code composer can select Claude Code or Codex before a conversation
-starts. The selection survives reload, and existing conversations keep their
-recorded runtime. This source change is not included in the published `26798df`
-Windows archive.
+An isolated production build on Zo verified runtime/model selection, saved choice,
+recovery of legacy and retired draft models, approval, denial, restart, and retained
+history when the folder was unavailable. Real GPT-6-Astra turns resumed one native
+Codex session and retained context. Screenshots covered desktop and 390px layouts
+in light and dark themes. The private owner-authenticated preview was refreshed;
+unauthenticated actions still returned 401.
 
-An isolated production build on Zo verified the selector at desktop and phone
-widths, approval before execution, a real Codex subscription response, a
-context-only follow-up, denial without writes, and retained runtime/history after
-restart. Codex's file commands failed with `bwrap: loopback: Failed RTM_NEWADDR`.
-The requested output file was absent. The sandbox remained enabled. Real Codex
-file-tool acceptance remains open under issue #38.
+Codex file commands remain unverified on Zo because its restricted-network sandbox
+failed with `bwrap: loopback: Failed RTM_NEWADDR`. The sandbox stayed enabled.
+Windows provides the actual file-tool proof described above. A later repeated Zo
+folder-fixture rename failed with `EXDEV`; history stayed readable, but that fixture
+could no longer prove folder recovery. Earlier successful recovery evidence remains
+dated separately. No project grant was replaced to hide the failure.
 
-OpenCode Go separately completed a read-only file turn through the OpenCode CLI
-using `opencode-go/glm-5.3-flash`. The read result matched the unchanged fixture.
-This proves CLI subscription access, not OpenCode integration into Vivary or a
-real Native-provider turn. Issues #50 and #51 remain open.
+Source checks include 34 focused Codex/runtime/approval/lifecycle tests, 12 Native
+patch/storage regressions, type checking, and production builds. The final shutdown
+refinement passed all seven catalog tests and a production catalog/history smoke.
+The earlier deterministic-provider journey remains separate Native evidence.
 
-Remote checks passed 17 focused Native storage/startup/Usage tests, 18 Code
-runtime/approval/lifecycle tests, type checking, and a production build. The retained
-Native fixture journey passed six deterministic turns and its history/isolation
-checks. The new selector still needs packaged Windows acceptance. The existing
-private hosted preview and accepted Windows archive were unchanged by this pass.
+OpenCode Go separately completed a read-only file turn through its CLI using
+`opencode-go/glm-5.3-flash`. It is not integrated into Vivary by this increment.
+Real Native-provider acceptance in #50 and automations in #51 remain open.
 
 ## Capability and acceptance gaps
 
 | Area | Verified now | Still required |
 | --- | --- | --- |
-| Code conversations | Real Claude Code file read, earlier read/write/follow-up proof, approvals, Stop, history, and runtime identity | A supported user-facing Claude/Codex selector and full adapter-reported catalog under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Installation and account status can show **Ready** | Codex cannot currently be selected for a new Code conversation in the packaged UI. No packaged Codex turn is accepted |
+| Code conversations | Claude/Codex selection, Codex-reported models, real file work, native-session follow-up, approvals, Stop, and history on the recorded candidates | Linked conversations and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
+| Codex CLI | Actual subscription turns and file tools in local `3dd5aa8`, model discovery, native session continuity, and configured connection names | Complete connection-specific journeys and broader issue #38 scope; the published `26798df` binary still lacks this integration |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
-| Models and providers | Runtime settings separates local CLI readiness from Native provider setup | User-facing provider/model selection must reflect the selected harness without routing CLI aliases into cloud setup |
+| Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed five-file creation, saved selection, reconnection review, and unavailable-folder handling | Full populated-folder adoption/apply and the rest of the setup/pattern journey |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, and clean shutdown | File search, chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |

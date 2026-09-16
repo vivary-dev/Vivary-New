@@ -55,9 +55,10 @@ configured providers. Model access is separate from opening Vivary.
 
 For a new Code conversation, choose **Claude Code** or **Codex** from **Runtime**.
 The choice survives reload. Runtime setup remains available when the selected
-CLI is not ready. Each message still requires approval. After the conversation
+CLI is not ready. Sending a message starts the turn. After the conversation
 starts, its runtime stays fixed. Start a new conversation to use another runtime.
-This selector does not implement linked history or a complete harness model catalog.
+Codex model discovery is implemented. Linked history and broader cross-runtime
+integration remain separate issue #38 work.
 
 The Code composer keeps runtime/model identity visible and hides Native's cloud
 provider picker. Codex reports its available models through its app-server API.
@@ -76,10 +77,25 @@ not inject Native's separate MCP catalog. The settings page lists connection nam
 not credentials or a claim that each connection is reachable. Connection tools can
 operate outside the shell's filesystem sandbox and retain their own access rules.
 
-Vivary applies its approved-turn execution policy instead of a custom Codex
-permission profile. Shell work uses the selected workspace, no additional configured
-write roots, and restricted network access. Commands needing elevation fail instead
-of opening an interactive Codex prompt. Each turn still requires Vivary approval.
+Codex uses its native app-server protocol for execution and approval requests.
+Choose **Normal**, **Read only**, or **YOLO** in Runtime settings. Normal allows
+project work and asks about actions requiring broader access. Read only prevents
+local file edits and permission expansion. YOLO gives commands full host access
+without approval prompts. Connected services retain their own access settings.
+There is no Plan mode. A settings change applies to the next turn; active work
+keeps the permissions recorded when it started. Global Codex configuration is
+unchanged.
+
+Approval cards show the requested command, file changes, access, or questions.
+The response goes back to the live Codex request. Vivary does not execute the
+approved command itself. Allow once and Decline apply to that request. Additional
+permission grants last for the current turn. Persistent command rules and session
+approval shortcuts are not exposed by this adapter.
+
+Commentary appears in smaller Progress cards. Actual native subagent events have
+separate Subagent activity cards with their recorded identities and statuses.
+Final answers retain the main text style. Reopening history uses the same event
+classification; consecutive assistant messages alone never imply subagents.
 
 A new Codex run records its native session ID. Follow-ups resume that exact session.
 Historical Vivary runs without an ID use the existing bounded-history prompt once,
@@ -87,17 +103,21 @@ then record the native session for subsequent turns. Runtime and model changes
 require a new conversation. Linked conversations remain separate issue #38 work.
 
 The published `26798df` Windows preview does not include these source changes.
-The acceptance register separates source checks, hosted tests, and package proof.
+The locally tested `3dd5aa8` candidate verified Codex file work, native-session
+follow-up, Stop, denial, restart history, and process cleanup. It has not been
+published. The native approval, permission-mode, and activity-card changes after
+that candidate require new hosted and Windows acceptance. The acceptance register
+separates these results from the older release.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
 not establish Native provider access. Issue #38 retains runtime/model integration,
 and issue #50 retains real Native-provider acceptance.
 
-Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
-workspace-write permission policy and can run commands. Runtime permissions
-belong to the installed CLI; choosing a project is not an operating-system
-sandbox.
+Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex supplies its command,
+file, and connection tools. Vivary sets this integration's approval and sandbox
+bounds; Codex enforces the shell sandbox. Choosing a project alone is not an
+operating-system sandbox.
 
 [DeepSeek Flash titles for both chat surfaces](../../docs/product/multi-project/tickets/05-integrate-workbench-shell.md#planned-chat-titles)
 are planned. The existing Full chat adapter remains; this increment does not
@@ -157,24 +177,20 @@ Without creation times, inode reuse during downtime can hide a replacement.
 This mode supplies ordinary local access. Content snapshots, VCS custody, and
 strict mutation evidence belong to the existing Core providers.
 
-Each Code message first becomes a pending request in Native's run store.
-The approval card shows the exact instruction, project, runtime, and two-minute
-limit. Approve background work starts that turn on the host, where it can
-continue after navigation or browser closure. Deny starts no model or tools.
-Every follow-up needs a new decision. Denied instructions do not enter later
-agent context.
+Code work continues on the host after navigation or browser closure, until the
+agent completes, fails, or the user selects Stop. There is no fixed turn deadline.
+The global control shows running work and native requests, including when another
+project is selected. Open conversation returns to the same run and transcript.
+Decline and Stop remain available if its folder becomes unavailable.
 
-The global control shows pending requests, running work, and the latest outcome.
-Open conversation returns to the same run and transcript. Deny and Stop remain
-available if its folder becomes unavailable. Host restart preserves pending
-requests and history, marks interrupted execution honestly, and never starts
-work automatically.
+Host restart marks unfinished work and former launch-approval records interrupted.
+It never replays pending actions or old unsent instructions. Saved history remains
+readable. Start a new turn explicitly to continue.
 
 Each Code invocation uses a separate ordinary Node worker around Native's
-executor. A two-minute work deadline requests cancellation, followed by forced
-cleanup of the owned worker processes. Unverified cleanup blocks further
-admission, including after restart. Native CLI permission and containment
-capabilities still apply to its tools.
+executor. Stop interrupts the native turn before bounded process-tree cleanup.
+Startup and cleanup still have time limits. Unverified cleanup blocks further
+runs, including after restart.
 
 Open **Files** to browse the project tree and select a file. Markdown opens as
 formatted content. Text and source files open for reading. Choose **Edit** to
@@ -194,8 +210,9 @@ The [desktop acceptance register](../../docs/product/multi-project/desktop-accep
 distinguishes the tested private candidate from the complete release target. In
 particular, real Native-provider access and turns remain under issue #50, and
 automation execution/recovery remains under issue #51. The current settings surfaces
-alone are not execution proof. Clean-profile setup, Codex selection/execution under
-issue #38, search, memory, existing-folder adoption, and final self-hosted access remain open.
+alone are not execution proof. Codex selection and file execution passed on the
+locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
+memory, existing-folder adoption, and final self-hosted access remain open.
 
 ## Development preview
 
@@ -223,9 +240,10 @@ interrupted Native records before accepting another message. SQLite and files
 stay in local persistent storage. Multi-instance deployment is unsupported.
 
 Codex 0.153.4 cannot start its default restricted-network sandbox on the current
-Zo host. A bounded diagnostic confirmed that its network-enabled profile retains
-filesystem and PID containment, but Native 0.176.5 exposes no per-run profile
-override. No global CLI configuration or sandbox bypass was applied.
+Zo host. The maintained Native adapter supplies per-run configuration while keeping
+restricted networking and workspace writes. No global CLI configuration change or
+sandbox bypass was applied. File-tool proof comes from the Windows candidate;
+Zo verified real context-only turns and native-session continuity.
 This is a development-host compatibility gap, not a requirement to run Vivary
 on Zo.
 

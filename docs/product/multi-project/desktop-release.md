@@ -81,7 +81,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
-| Agent loop | Real approved Claude Code file turn, follow-up, approvals, Stop, stored transcripts, and visible runtime identity | Selectable Codex execution, real Native-provider turns, automation execution, and external provider-log acceptance |
+| Agent loop | Real Claude Code and Codex file work, follow-up, approvals, Stop, stored transcripts, and runtime/model identity on the recorded candidates | Broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
@@ -92,8 +92,10 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 Checkpoint, 2026-09-16: the private `26798df` Windows candidate passed the
 focused desktop journeys summarized in the [acceptance register](desktop-acceptance-status.md),
 including a real approved Claude Code file turn and complete process cleanup. This is
-not the final product journey or a public release. Codex selection, real Native-provider
-turns, automations, clean-profile setup, and the remaining table entries stay open.
+not the final product journey or a public release. The later local `3dd5aa8` candidate
+verified Codex selection, reported models, file work, and native-session follow-up.
+Real Native-provider turns, automations, broader cross-runtime work, clean-profile
+setup, and the remaining table entries stay open.
 
 The private preview includes PR #43's maintained Native repair. Its saved-head
 and composer journeys pass. Legacy bookmarks and Native history controls also
@@ -155,7 +157,8 @@ must remain visible and reopenable after browser navigation.
 access and real-provider turns in the packaged Windows app. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
 owns automation creation, execution, restart recovery, and lifecycle acceptance and is
 blocked on #50. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
-the harness-owned model catalog and selectable Codex tool acceptance.
+linked conversations and broader cross-runtime integration, including OpenCode.
+Its Codex catalog and tool increment has separate evidence in the acceptance register.
 
 The first Windows launch check happens before final acceptance, so platform
 failures are discovered while product implementation continues. The final release

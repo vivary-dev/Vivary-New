@@ -78,7 +78,7 @@ process.stdin.on("end", () => {
   const codexCli = { command: process.execPath, argsPrefix: [script], env: environment, configMode: "native" };
   const execute = overrides => executeCodeAgentRun({
     runId: state.id, prompt: "Read the fixture.", attachments: [], appendUserEvent: false,
-    streamToolOutputToStdout: false, codexCli, ...overrides,
+    streamToolOutputToStdout: false, ...overrides,
   });
   return { directory, script, receipt, state, events, launches, codexCli, execute,
     mergedReads: () => mergedReads,
@@ -91,50 +91,6 @@ function assertOutputRemoved(args) {
   assert.equal(fs.existsSync(path.dirname(valueAfter(args, "--output-last-message"))), false);
 }
 
-test("native Codex retains config, uses the resolved launcher, and bounds its sandbox", async t => {
-  const f = await fixture(t);
-  if (process.platform !== "win32") {
-    const executable = path.join(f.directory, "node executable with spaces");
-    await symlink(process.execPath, executable);
-    f.codexCli.command = executable;
-  }
-  const run = await f.execute({ model: "gpt-6-astra" });
-  const call = await f.invocation();
-  assert.equal(run.status, "completed");
-  assert.equal(f.mergedReads(), 0);
-  assert.equal(call.args.includes("--ignore-user-config"), false);
-  assert.equal(call.args.some(value => value.includes("mcp_servers")), false);
-  assert.equal(valueAfter(call.args, "--sandbox"), "workspace-write");
-  assert.equal(valueAfter(call.args, "--ask-for-approval"), "never");
-  assert.equal(valueAfter(call.args, "--model"), "gpt-6-astra");
-  assert.ok(call.args.includes("sandbox_workspace_write.writable_roots=[]"));
-  assert.ok(call.args.includes("sandbox_workspace_write.network_access=false"));
-  assert.equal(call.cwd, f.directory);
-  assert.equal(call.marker, "preserved");
-  assert.equal(f.launches[0].command, f.codexCli.command);
-  assert.equal(f.launches[0].options.shell, false);
-  assert.equal(f.launches[0].options.windowsHide, true);
-  assert.ok(f.events.some(event => event.metadata?.type === "tool_done"));
-  assert.equal(run.metadata.codexSessionId, "019a1234-abcd-7123-abcd-0123456789ab");
-  assertOutputRemoved(call.args);
-});
-
-test("native follow-up resumes its recorded Codex session with supported flags", async t => {
-  const f = await fixture(t);
-  await f.execute({ model: "gpt-6-astra" });
-  await f.execute({ prompt: "Continue.", model: "gpt-6-astra" });
-  const call = await f.invocation();
-  assert.equal(valueAfter(call.args, "exec"), "resume");
-  assert.equal(valueAfter(call.args, "--model"), "gpt-6-astra");
-  assert.equal(call.args.includes("--color"), false);
-  assert.equal(call.args.includes("--last"), false);
-  assert.deepEqual(call.args.slice(-3), ["--", f.state.metadata.codexSessionId, "-"]);
-  assert.equal(valueAfter(call.args, "--cd"), f.directory);
-  assert.equal(valueAfter(call.args, "--sandbox"), "workspace-write");
-  assert.match(call.prompt, /Continue\./);
-  assertOutputRemoved(call.args);
-});
-
 test("legacy Core execution retains host MCP and ignores user config", async t => {
   const f = await fixture(t);
   const run = await f.execute({ codexCli: undefined });
@@ -145,12 +101,6 @@ test("legacy Core execution retains host MCP and ignores user config", async t =
   assert.equal(f.launches[0].command, "codex");
   assert.equal(run.metadata.codexSessionId, undefined);
   assert.equal(call.args.includes("resume"), false);
-});
-
-test("read-only native turns retain the read-only sandbox", async t => {
-  const f = await fixture(t, { permissionMode: "read-only" });
-  await f.execute();
-  assert.equal(valueAfter((await f.invocation()).args, "--sandbox"), "read-only");
 });
 
 test("failed Codex execution records failure and removes temporary output", async t => {
@@ -177,7 +127,7 @@ test("abort stops the Codex child and removes temporary output", { timeout: 10_0
   assertOutputRemoved(call.args);
 });
 
-test("installed Codex resolves bounded permissions over extra roots and profiles", {
+test("installed legacy Codex flags resolve bounded permissions over extra roots and profiles", {
   // guard:allow-env-credential - Nonsecret test paths and fixture controls, never provider credentials.
   skip: !process.env.VIVARY_CODEX_POLICY_PROBE,
   timeout: 30_000,

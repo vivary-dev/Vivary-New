@@ -10,8 +10,9 @@ import { isVivaryCodeWorkerRequest } from "./code-execution-protocol";
 
 const controller = new AbortController();
 let started = false;
+const pendingResponses = new Map<string, (result: Record<string, unknown>) => void>();
 
-function reply(message: { type: string; runId?: string }) {
+function reply(message: Record<string, unknown>) {
   if (!process.connected || !process.send) return;
   try { process.send(message, () => undefined); } catch {
     // Parent teardown may close IPC before the final status reaches it.
@@ -21,6 +22,13 @@ function reply(message: { type: string; runId?: string }) {
 async function receive(message: unknown) {
   if (message && typeof message === "object" && "type" in message && message.type === "vivary:code-worker:abort") {
     controller.abort();
+    return;
+  }
+  if (message && typeof message === "object" && "type" in message && message.type === "vivary:code-worker:response"
+      && "requestId" in message && typeof message.requestId === "string" && "result" in message
+      && message.result && typeof message.result === "object" && !Array.isArray(message.result)) {
+    pendingResponses.get(message.requestId)?.(message.result as Record<string, unknown>);
+    pendingResponses.delete(message.requestId);
     return;
   }
   if (started || !isVivaryCodeWorkerRequest(message)) return;
@@ -39,7 +47,16 @@ async function receive(message: unknown) {
       executeCodeAgentRun({
         runId: message.runId,
         ...(codexLaunch ? { codexCli: { command: codexLaunch.executable, argsPrefix: codexLaunch.prefix,
-          env: codexLaunch.env, configMode: "native" as const } } : {}),
+          env: codexLaunch.env, configMode: "native" as const,
+          permissionMode: message.permissionMode ?? "normal",
+          onRequest: (request: { requestId: string; method: string; params: Record<string, unknown> }) => new Promise<Record<string, unknown>>(resolve => {
+            pendingResponses.set(request.requestId, resolve);
+            reply({ type: "vivary:code-worker:request", runId: message.runId, request });
+          }),
+          onRequestResolved: (requestId: string) => {
+            pendingResponses.delete(requestId);
+            reply({ type: "vivary:code-worker:resolved", runId: message.runId, requestId });
+          } } } : {}),
         prompt: message.prompt,
         model: message.model,
         appendUserEvent: false,
