@@ -68,6 +68,31 @@ seams have direct `26798df` Windows evidence.
 | W04: Usage queried before `token_usage` existed | The metrics path creates its table before querying. A disposable empty-database regression returns empty metrics. |
 | W05: CLI model aliases opened Native provider setup | The Code composer hides that picker and keeps the effective CLI engine/model visible as read-only text. |
 
+## Remote source runtime selection, 2026-09-16
+
+The source Code composer can select Claude Code or Codex before a conversation
+starts. The selection survives reload, and existing conversations keep their
+recorded runtime. This source change is not included in the published `26798df`
+Windows archive.
+
+An isolated production build on Zo verified the selector at desktop and phone
+widths, approval before execution, a real Codex subscription response, a
+context-only follow-up, denial without writes, and retained runtime/history after
+restart. Codex's file commands failed with `bwrap: loopback: Failed RTM_NEWADDR`.
+The requested output file was absent. The sandbox remained enabled. Real Codex
+file-tool acceptance remains open under issue #38.
+
+OpenCode Go separately completed a read-only file turn through the OpenCode CLI
+using `opencode-go/glm-5.3-flash`. The read result matched the unchanged fixture.
+This proves CLI subscription access, not OpenCode integration into Vivary or a
+real Native-provider turn. Issues #50 and #51 remain open.
+
+Remote checks passed 17 focused Native storage/startup/Usage tests, 18 Code
+runtime/approval/lifecycle tests, type checking, and a production build. The retained
+Native fixture journey passed six deterministic turns and its history/isolation
+checks. The new selector still needs packaged Windows acceptance. The existing
+private hosted preview and accepted Windows archive were unchanged by this pass.
+
 ## Capability and acceptance gaps
 
 | Area | Verified now | Still required |

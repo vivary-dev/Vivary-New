@@ -51,15 +51,28 @@ Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
 Code conversations use local CLI accounts. Native conversations use Native's
-configured providers. Model access is separate from opening Vivary. The current Code
-composer displays its effective runtime and model as read-only text. It deliberately
-hides Native's cloud-provider model picker because CLI aliases are not Native provider
-models. Runtime settings reports both Claude Code and Codex readiness.
+configured providers. Model access is separate from opening Vivary.
 
-Claude Code is the only coding runtime exercised through the packaged UI. Codex may
-show Ready, but a new Code conversation cannot currently select it. The accepted
-harness catalog and truthful model/runtime switching remain issue #38 work. Native
-provider configuration does not prove an accepted real-provider Native turn.
+For a new Code conversation, choose **Claude Code** or **Codex** from **Runtime**.
+The choice survives reload. Runtime setup remains available when the selected
+CLI is not ready. Each message still requires approval. After the conversation
+starts, its runtime stays fixed. Start a new conversation to use another runtime.
+This selector does not implement linked history or a complete harness model catalog.
+
+The Code composer keeps runtime/model identity visible and hides Native's cloud
+provider picker. Codex uses the adapter's `default` model choice. The app does not
+claim to discover or display the CLI's resolved model identity.
+
+On 2026-09-16, an isolated production build on Zo verified Codex subscription
+responses, a context-only follow-up, denial, and restart history through the UI.
+Its file-tool request failed with the documented Zo sandbox error below. No file
+read/write/read acceptance is claimed. The published `26798df` Windows preview
+still has the earlier read-only identity and no runtime selector.
+
+OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
+separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
+not establish Native provider access. Issue #38 retains runtime/model integration,
+and issue #50 retains real Native-provider acceptance.
 
 Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
 workspace-write permission policy and can run commands. Runtime permissions

@@ -379,7 +379,32 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   const runtimeReady = runtime?.status === "ready";
   const disabled = !props.workspaceAvailable || props.active || props.streaming || !runtimeReady;
 
-  return <AssistantChat key={viewKey.current} ref={chatRef}
+  function chooseRuntime(engineName: string) {
+    const engine = props.state.engines.find(item => item.engine === engineName);
+    if (!engine || props.selection.runId || props.active || props.streaming) return;
+    const model = engine.models[0];
+    if (!model) return;
+    const next = { engine: engine.engine, model };
+    setChoice(next);
+    props.onChoice(next);
+  }
+
+  return <>
+    {!props.selection.runId && <div className="local-agent-notice">
+      <label className="flex items-center gap-2 text-sm">
+        Runtime
+        <select aria-label="Conversation runtime" value={choice.engine}
+          className="rounded-md border bg-background px-2 py-1 text-foreground"
+          disabled={!props.workspaceAvailable || props.active || props.streaming}
+          onChange={event => chooseRuntime(event.target.value)}>
+          {props.state.engines.map(engine => <option key={engine.engine} value={engine.engine}>
+            {engine.label}{engine.runtime.status === "ready" ? "" : " (setup required)"}
+          </option>)}
+        </select>
+      </label>
+      <span className="text-xs text-muted-foreground">Uses this runtime's existing account.</span>
+    </div>}
+    <AssistantChat key={viewKey.current} ref={chatRef}
     tabId={"vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key}
     showHeader={false} className="local-agent-transcript"
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}
@@ -420,5 +445,5 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
         <IconSquare size={14} /> Stop
       </Button> : undefined}
     threadFooterSlot={<p className="local-agent-limits"><span>{selectedEngine?.label ?? choice.engine} · {choice.model}</span>. {choice.engine === "codex-cli" ? "Codex can run commands and edit files." : "Claude Code uses file tools."} Each turn needs your approval before it starts. Approved work continues after you leave, for up to two minutes.</p>}
-  />;
+  /></>;
 }
