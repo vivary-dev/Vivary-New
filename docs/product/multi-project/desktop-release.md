@@ -80,7 +80,7 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 
 | Area | Existing implementation | Required work |
 | --- | --- | --- |
-| Desktop | Windows candidate passed Explorer extraction/launch, bundled runtimes, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, installer/signing, upgrades/removal, and final release acceptance |
+| Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
 | Agent loop | Real approved Claude Code file turn, follow-up, approvals, Stop, stored transcripts, and visible runtime identity | Selectable Codex execution, real Native-provider turns, automation execution, and external provider-log acceptance |
 | Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |

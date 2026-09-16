@@ -37,10 +37,10 @@ does not silently select the Personal workspace. Source review, focused tests,
 typechecking, build, Native Doctor, and program/navigation checks passed.
 
 Native's unsent text draft cache uses browser storage. Project switches and
-navigation preserve drafts; a desktop restart with a different loopback port
-does not yet restore them. Windows/macOS execution, provider-backed Full chat
-trials, relocated-folder recovery, and the governed multi-stage workflow remain
-open. A Windows portable artifact does not establish Windows execution.
+navigation preserve drafts. A file draft has focused Windows restart evidence, while
+broader Native per-thread draft restoration remains open. The current portable
+candidate has focused Windows execution evidence. macOS execution, real Native-provider
+turns, relocated-folder recovery, and the governed multi-stage workflow remain open.
 
 Zo remains the authorized development and private-preview host. The product is
 local and requires no Vivary signup or login. Jeff authorized consolidation

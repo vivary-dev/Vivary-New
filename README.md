@@ -46,7 +46,7 @@ and authentication. Provider accounts are separate.
 
 | Verified in the private Windows candidate | Still required for release |
 | --- | --- |
-| Explorer launch/extraction, bundled runtimes, second-instance reuse, restart persistence, and owned-process cleanup | Clean-profile first run, installer/signing, upgrades/removal, and public release approval |
+| Explorer launch/extraction, bundled runtimes, second-instance reuse, restart persistence, and owned-process cleanup | Clean-profile first run, upgrade/removal behavior, remaining desktop/web acceptance, and release approval |
 | Managed project creation, project files, clear validation/refusal, retained Code history, and a real approved Claude Code file turn | Existing-folder adoption, search, scoped memory, and complete original-operation GUI flows |
 | CLI runtime readiness and read-only `Claude Code · sonnet` identity | Selectable Codex execution, harness-owned model catalog/switching, and real Native-provider turns |
 | Private authenticated web preview and basic isolated page preview | Responsive self-hosted phone access and integrated preview/debugging acceptance |

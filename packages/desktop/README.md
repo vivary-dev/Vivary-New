@@ -16,13 +16,13 @@ Checkpoint: 2026-09-16. The current private Windows x64 candidate is built from
 The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
 is the concise authority for verified capabilities and remaining gaps.
 
-The exact tested archive extracted all 3,110 files through Windows Explorer and
-matched every file hash. The GUI launched with bundled Node, Python, SQLite, and the
-original command runtime. Managed five-file project creation, native folder use,
-project file operations, Usage on a fresh database, restart persistence, a real
-approved Claude Code file-tool turn, follow-up, Stop, second-instance reuse, and idle
-and active cleanup passed. No candidate process or listening port remained after the
-final close.
+The broad `31d9afc` Windows pass exercised managed five-file creation, project
+files, the preserved-profile Usage surface, restart persistence, a real approved
+Claude Code follow-up, Stop, second-instance reuse, and idle and active cleanup. The
+focused final `26798df` retest extracted and hash-matched all 3,110 files, verified the
+read-only runtime identity with no provider fallback, ran one approved Claude Code
+file read, retained its conversation through a second launch, and removed every
+observed process on close. See the register for the exact evidence split.
 
 Windows acceptance fixed five concrete defects: long cache paths in the Python stage,
 generic invalid-rename errors, hidden project-name rules, first-run Usage table setup,
@@ -33,14 +33,15 @@ setup in Settings.
 This does not establish public release readiness. Codex can report Ready but cannot
 be selected for a new Code conversation. Real Native-provider turns, automation
 execution, clean-profile setup, full populated-folder adoption, search, memory,
-responsive self-hosted access, integrated preview/debugging, signing, installers,
-upgrades, and public distribution remain unaccepted.
+responsive self-hosted access, integrated preview/debugging, upgrade/removal behavior,
+and release approval remain unaccepted. A portable archive satisfies the current
+distribution shape. Signing and an installer are future choices. macOS is later work.
 
 ### Earlier packaged proofs
 
 Earlier Linux and Windows candidates established portions of runtime packaging,
-the original command surface, and managed creation. They remain historical evidence;
-the current register supersedes their current-status claims. Credentials are never
+the original command surface, and managed creation. They remain historical evidence.
+The current register supersedes their current-status claims. Credentials are never
 bundled, and a cross-build alone never establishes Windows behavior.
 
 ## Development
@@ -215,5 +216,5 @@ nested destination before the application starts.
 Windows users need their own installed and signed-in coding CLI. The package does
 not include credentials. Explorer launch, Claude Code discovery, a bounded real file
 turn, restart persistence, and active cleanup passed on the tested candidate. Codex
-selection/execution, clean-profile setup, signing, installation, upgrades, and the
-complete release journey remain open before this becomes a supported release.
+selection/execution, clean-profile setup, upgrade/removal behavior, and the complete
+release journey remain open before this becomes a supported release.

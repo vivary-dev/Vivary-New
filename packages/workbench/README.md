@@ -214,6 +214,5 @@ pnpm run doctor
 ```
 
 Exercise changed flows through normal startup. The private handoff preserves
-actual browser and desktop results, including failed attempts. These checks do
-not establish completion of the remaining roadmap or Windows/macOS runtime
-acceptance.
+actual browser and desktop results, including failed attempts. These checks do not
+establish the complete desktop/web release journey or macOS runtime acceptance.

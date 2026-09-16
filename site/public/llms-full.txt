@@ -7224,15 +7224,16 @@ independent. There is no single "Vivary 0.4.2" release.
 
 No package version or registry artifact changes. The private Windows candidate now
 includes reliable portable extraction, clear filename and project-name validation,
-fresh Usage initialization, and truthful CLI runtime identity without Native provider
+first-query Usage table initialization, and truthful CLI runtime identity without Native provider
 fallback. Focused Windows acceptance covered launch, bundled runtimes, managed project
 creation, project files, a real approved Claude Code turn, restart continuity,
 second-instance reuse, and complete owned-process cleanup.
 
 The desktop remains unreleased. Codex selection/execution, real Native-provider turns,
 automation execution, clean-profile setup, populated-folder adoption, search, memory,
-self-hosted phone access, integrated debugging, signing, installation, and upgrades
-remain outside this acceptance. See the
+self-hosted phone access, integrated debugging, upgrade/removal behavior, and release
+approval remain outside this acceptance. Signing and installers are future distribution
+choices. macOS is later roadmap work. See the
 [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md).
 
 ### Verification
