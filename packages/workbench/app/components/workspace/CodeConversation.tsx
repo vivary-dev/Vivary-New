@@ -441,7 +441,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     showHeader={false} className="local-agent-transcript"
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}
     isThreadStateLoading={!!props.selection.runId && !props.run && !props.streaming}
-    externalStreaming={!!props.run && props.run.status !== "needs-approval" && isCodeAgentRunActive(props.run)}
+    externalStreaming={!!props.run && isCodeAgentRunActive(props.run)}
     externalUserStopped={stoppedByUser}
     onStop={async () => {
       await props.onStop();

@@ -177,3 +177,37 @@ test("native subagent boilerplate is omitted while public result stays visible",
   assert.match(html, /The public result/);
   assert.doesNotMatch(html, /Codex subagent/);
 });
+
+
+test("overlapping same-name native tools retain each call's input and result live and restored", () => {
+  const tool = (type, toolCallId, value) => event(type, { type, tool: "js", toolCallId,
+    ...(type === "tool_start" ? { input: { code: value } } : { result: value }) }, "status");
+  const events = [event("Run both", {}, "user"), tool("tool_start", "call-a", "first"),
+    tool("tool_start", "call-b", "second"), tool("tool_done", "call-a", "4"),
+    tool("tool_done", "call-b", "8")];
+  const tools = normalizeCodeAgentTranscript(events).items.filter(item => item.type === "tool");
+  assert.deepEqual(tools.map(item => [item.input, item.result, item.state]), [
+    [{ code: "first" }, "4", "completed"], [{ code: "second" }, "8", "completed"],
+  ]);
+  const content = codeAgentTranscriptEventsToContent(events);
+  assert.deepEqual(content.map(part => [part.args, part.result]), [
+    [{ code: "first" }, "4"], [{ code: "second" }, "8"],
+  ]);
+  assert.deepEqual(restoredContent(events), content);
+});
+
+test("native tool identity stays turn-scoped and missing historical IDs still pair", () => {
+  const tool = (type, toolCallId, extra = {}) => event(type, { type, tool: "js", toolCallId, ...extra }, "status");
+  const events = [event("First", {}, "user"), tool("tool_start", "reused", { input: { code: "old" } }),
+    event("Second", {}, "user"), tool("tool_done", "reused", { result: "new" })];
+  const tools = normalizeCodeAgentTranscript(events).items.filter(item => item.type === "tool");
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0].result, undefined);
+  assert.equal(tools[1].result, "new");
+  for (const [startId, doneId] of [[undefined, undefined], [undefined, "native"], ["native", undefined]]) {
+    const legacy = normalizeCodeAgentTranscript([tool("tool_start", startId, { input: { code: "legacy" } }),
+      tool("tool_done", doneId, { result: "4" })]).items.filter(item => item.type === "tool");
+    assert.equal(legacy.length, 1);
+    assert.equal(legacy[0].result, "4");
+  }
+});

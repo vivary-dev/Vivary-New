@@ -846,7 +846,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..a4e8c6088705df943600b198afc5bd0c
      onGenerateTitle?: (threadId: string, message: string) => void;
      /** Optional content rendered just above the composer input */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..6bca4475d9276bd07fdd8cabecb57f0a6b1d26e0 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..a8068be2c6d8d83958ecc5bdc033f6b992ae874d 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -924,6 +924,15 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..6bca4475d9276bd07fdd8cabecb57f0a
          tabId,
      ]);
      useEffect(() => {
+@@ -4542,7 +4562,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         recordApprovalResolution,
+         showActionTypeApprovalPolicy,
+     ]);
+-    return (_jsx(SuppressInlineOpenAppContext.Provider, { value: suppressInlineOpenApp, children: _jsx(CheckpointContext.Provider, { value: checkpointCtx, children: _jsx(MessageActionsContext.Provider, { value: messageActionsCtx, children: _jsx(ApprovalContext.Provider, { value: approvalCtx, children: _jsx(ChatRunDurationContext.Provider, { value: showRunningInUI ? null : lastChatRunDurationMs, children: _jsx(ServerRunActiveContext.Provider, { value: serverRunActive, children: _jsx(ChatRunningRunIdContext.Provider, { value: activeChatRunId, children: _jsx(ChatRunningTurnIdContext.Provider, { value: activeChatTurnId, children: _jsx(ChatRunningContext.Provider
++    return (_jsx(SuppressInlineOpenAppContext.Provider, { value: suppressInlineOpenApp, children: _jsx(CheckpointContext.Provider, { value: checkpointCtx, children: _jsx(MessageActionsContext.Provider, { value: messageActionsCtx, children: _jsx(ApprovalContext.Provider, { value: approvalCtx, children: _jsx(ChatRunDurationContext.Provider, { value: showRunningInUI ? null : lastChatRunDurationMs, children: _jsx(ServerRunActiveContext.Provider, { value: serverRunActive || externalStreaming, children: _jsx(ChatRunningRunIdContext.Provider, { value: activeChatRunId, children: _jsx(ChatRunningTurnIdContext.Provider, { value: activeChatTurnId, children: _jsx(ChatRunningContext.Provider
+                                     // Keep the current message in a non-complete state while
+                                     // the terminal error card is visible, even if the server
+                                     // still reports the prior run for a short time while its
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
 index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db289c83c82 100644
 --- a/dist/client/MultiTabAssistantChat.js
@@ -1177,7 +1186,7 @@ index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..7b01c8a6067923b1a71058440b6edb0e
 +    activity: CodeAgentActivity;
 +}
 diff --git a/dist/code-agents/transcript-normalizer.js b/dist/code-agents/transcript-normalizer.js
-index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..e71bfaf74357732b3a62adb1bfc483dca950ef32 100644
+index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..5b7d73b82a236cdadc604c18b6867ba8015265d6 100644
 --- a/dist/code-agents/transcript-normalizer.js
 +++ b/dist/code-agents/transcript-normalizer.js
 @@ -37,6 +37,26 @@ export function normalizeCodeAgentTranscript(events) {
@@ -1256,6 +1265,59 @@ index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..e71bfaf74357732b3a62adb1bfc483dc
  function createAssistantTurn(event, source, turnIndex, text) {
      return {
          type: "assistant",
+@@ -194,7 +256,8 @@ function createStatusEvent(event, turnIndex) {
+ }
+ function appendToolEvent(items, event, toolType, turnIndex) {
+     const tool = stringMetadata(event.metadata, "tool");
+-    const item = findOpenToolEvent(items, tool, turnIndex);
++    const toolCallId = stringMetadata(event.metadata, "toolCallId");
++    const item = findOpenToolEvent(items, tool, turnIndex, toolCallId);
+     if (!item) {
+         items.push(createToolEvent(event, toolType, turnIndex));
+         return;
+@@ -266,7 +329,8 @@ function createToolEvent(event, toolType, turnIndex) {
+         turnIndex,
+     };
+ }
+-function findOpenToolEvent(items, tool, turnIndex) {
++function findOpenToolEvent(items, tool, turnIndex, toolCallId) {
++    let legacyMatch = null;
+     for (let index = items.length - 1; index >= 0; index -= 1) {
+         const item = items[index];
+         if (item.type !== "tool")
+@@ -279,9 +343,17 @@ function findOpenToolEvent(items, tool, turnIndex) {
+             continue;
+         if (!tool && item.tool)
+             continue;
+-        return item;
++        if (!toolCallId)
++            return item;
++        const itemToolCallId = item.events
++            .map((event) => stringMetadata(event.metadata, "toolCallId"))
++            .find((id) => id !== undefined);
++        if (itemToolCallId === toolCallId)
++            return item;
++        if (!itemToolCallId && !legacyMatch)
++            legacyMatch = item;
+     }
+-    return null;
++    return legacyMatch;
+ }
+ function isAgentChatClearEvent(event) {
+     return stringMetadata(event.metadata, "agentChatEventType") === "clear";
+diff --git a/dist/code-agents/transcript-order.js b/dist/code-agents/transcript-order.js
+index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f327bc9e0f6 100644
+--- a/dist/code-agents/transcript-order.js
++++ b/dist/code-agents/transcript-order.js
+@@ -28,6 +28,8 @@ export function isCodeAgentRunActive(run) {
+         runnerState === "stopped") {
+         return false;
+     }
++    if (run.status === "needs-approval" && run.phase === "action-approval")
++        return true;
+     return !(run.needsApproval ||
+         run.status === "completed" ||
+         run.status === "errored" ||
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
 index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
 --- a/dist/server/agent-chat-plugin.js
