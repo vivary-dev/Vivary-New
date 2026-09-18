@@ -12,9 +12,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## In-progress packet snapshot
 
-- [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md)
 - [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md)
-- [11c: Search large project trees from the application](packets/11c-fast-project-search.md)
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.
