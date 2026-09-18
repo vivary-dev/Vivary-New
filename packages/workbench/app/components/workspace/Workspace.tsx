@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, Skeleton } from "@agent-native/toolkit/ui";
-import { IconArrowsMaximize, IconArrowsMinimize, IconFiles, IconInfoCircle, IconWorld, IconX } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconArrowsMinimize, IconFiles, IconInfoCircle, IconSearch, IconWorld, IconX } from "@tabler/icons-react";
 import { useProjects } from "../projects/ProjectContext";
 import { ProjectFiles } from "../projects/ProjectFiles";
+import { ProjectSearch } from "../projects/ProjectSearch";
 import FilesView from "../../routes/files";
 import CodeConversation from "./CodeConversation";
 import NativeConversation from "./NativeConversation";
@@ -11,9 +12,9 @@ import { BrowserPreview } from "../workbench/BrowserPreview";
 import { readPanelWidth, savePanelWidth, useNarrowLayout, type PanelHandle } from "../layout/use-workspace-layout";
 import "../../workspace.css";
 
-type Surface = "files" | "details" | "preview";
+type Surface = "files" | "details" | "preview" | "search";
 function surface(value: string | null): Surface | null {
-  return value === "files" || value === "details" || value === "preview" ? value : null;
+  return value === "files" || value === "details" || value === "preview" || value === "search" ? value : null;
 }
 const WIDTH_KEY = "vivary.surface.width";
 
@@ -34,7 +35,8 @@ export function Workspace() {
   const detailsTrigger = useRef<HTMLButtonElement>(null);
   const filesTrigger = useRef<HTMLButtonElement>(null);
   const previewTrigger = useRef<HTMLButtonElement>(null);
-  const triggers = { details: detailsTrigger, files: filesTrigger, preview: previewTrigger };
+  const searchTrigger = useRef<HTMLButtonElement>(null);
+  const triggers = { details: detailsTrigger, files: filesTrigger, preview: previewTrigger, search: searchTrigger };
   const [splitWidth, setSplitWidth] = useState(0);
   useEffect(() => {
     const element = split.current;
@@ -46,6 +48,7 @@ export function Workspace() {
   const [width, setWidth] = useState(() => readPanelWidth(WIDTH_KEY, 480, 260, 1200));
   const [filesVisited, setFilesVisited] = useState(opened === "files");
   const [previewVisited, setPreviewVisited] = useState(opened === "preview");
+  const [searchVisited, setSearchVisited] = useState(opened === "search");
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
   const priorProject = useRef<string | null>(null);
   const changingProject = !checking && priorProject.current !== null
@@ -72,6 +75,7 @@ export function Workspace() {
     if (location.pathname !== "/") return;
     if (opened === "files") setFilesVisited(true);
     if (opened === "preview") setPreviewVisited(true);
+    if (opened === "search") setSearchVisited(true);
   }, [opened, location.pathname]);
   useEffect(() => {
     if (checking) return;
@@ -116,6 +120,9 @@ export function Workspace() {
         <Button ref={previewTrigger} size="sm" variant={opened === "preview" ? "secondary" : "ghost"} aria-label="Open page preview"
           aria-pressed={opened === "preview"} onClick={e => changeSurface(opened === "preview" ? null : "preview", e.currentTarget)}>
           <IconWorld size={17} aria-hidden /><span>Preview</span></Button>
+        <Button ref={searchTrigger} size="sm" variant={opened === "search" ? "secondary" : "ghost"} aria-label="Search project files"
+          aria-pressed={opened === "search"} onClick={e => changeSurface(opened === "search" ? null : "search", e.currentTarget)}>
+          <IconSearch size={17} aria-hidden /><span>Search</span></Button>
       </div>
     </header>
     {!checking && !workspaceAvailable && <div className="workspace-recovery" role="alert">
@@ -145,7 +152,7 @@ export function Workspace() {
           minSize={showOnlySurface ? 0 : 260} collapsible collapsedSize={0}>
           <aside className="workspace-surface" hidden={!opened} aria-label="Work panel">
             <header className="workspace-surface-toolbar">
-              <h2>{opened === "files" ? "Files" : opened === "preview" ? "Page preview" : "Project details"}</h2>
+              <h2>{opened === "files" ? "Files" : opened === "preview" ? "Page preview" : opened === "search" ? "Search" : "Project details"}</h2>
               {opened === "files" && <Button variant="ghost" size="sm" aria-expanded={fileTreeOpen}
                 onClick={() => setFileTreeOpen(value => !value)}>{fileTreeOpen ? "Hide file list" : "Show file list"}</Button>}
               {!narrow && splitWidth >= 620 && <Button size="icon" variant="ghost" aria-label={maximized ? "Restore panel" : "Maximize panel"}
@@ -157,6 +164,7 @@ export function Workspace() {
               <div className="workspace-file-document"><FilesView /></div>
             </div>}
             {previewVisited && <div className="workspace-preview" hidden={opened !== "preview"}><BrowserPreview /></div>}
+            {searchVisited && <div className="workspace-search" hidden={opened !== "search"}><ProjectSearch /></div>}
             <div className="workspace-details" hidden={opened !== "details"}>
               <h3>{activeProject?.displayName ?? "Personal workspace"}</h3>
               <dl><dt>Execution</dt><dd>The connected Vivary host</dd>
