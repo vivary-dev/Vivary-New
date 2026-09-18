@@ -46,6 +46,15 @@ describe("project search state", () => {
     assert.deepEqual(replaced?.matches.map(m => m.path), ["q.md"]);
   });
 
+  it("never continues pages across a rebound project", () => {
+    const first = reduceSearchPages(null, page({ matches: [match("a.md")], truncated: "matches", continueAfter: "a.md" }), request, undefined);
+    const rebound = reduceSearchPages(first, page({ matches: [match("b.md")], project: { ...project, bindingRevision: 2 } }), request, "a.md");
+    assert.equal(rebound, first);
+    const replaced = reduceSearchPages(first, page({ matches: [match("b.md")], project: { ...project, bindingRevision: 2 } }), request, undefined);
+    assert.deepEqual(replaced?.matches.map(m => m.path), ["b.md"]);
+    assert.equal(replaced?.identity.bindingRevision, 2);
+  });
+
   it("carries an invalid pattern as a message instead of results", () => {
     const invalid = reduceSearchPages(null, { code: "invalid-pattern", project, query: "needle", mode: "regex", reason: "Invalid regular expression: /needle(/u: Unterminated group" },
       { ...request, mode: "regex" }, undefined);

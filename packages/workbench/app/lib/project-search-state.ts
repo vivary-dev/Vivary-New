@@ -1,3 +1,4 @@
+import type { ProjectFileIdentity } from "./project-file-schema.ts";
 import type { ProjectSearchMode, ProjectSearchResult, ProjectSearchTruncation } from "./project-search-schema.ts";
 
 // Pure state for the search panel: which request is current, and how pages
@@ -7,6 +8,8 @@ export type SearchRequest = Readonly<{ projectId: string; query: string; mode: P
 
 export type SearchPages = Readonly<{
   request: SearchRequest;
+  // The exact binding the pages came from; a rebound project never continues them.
+  identity: ProjectFileIdentity;
   files: Array<{ path: string; name: string }>;
   matches: Array<{ path: string; line: number; column: number; excerpt: string }>;
   truncated: ProjectSearchTruncation | null;
@@ -22,6 +25,11 @@ export const MIN_QUERY_LENGTH = 2;
 export function committedQuery(input: string): string {
   const trimmed = input.trim();
   return trimmed.length >= MIN_QUERY_LENGTH ? trimmed.slice(0, 200) : "";
+}
+
+export function sameIdentity(left: ProjectFileIdentity, right: ProjectFileIdentity): boolean {
+  return left.projectId === right.projectId && left.rootId === right.rootId && left.bindingId === right.bindingId
+    && left.bindingRevision === right.bindingRevision && left.policyRevision === right.policyRevision;
 }
 
 export function sameRequest(left: SearchRequest, right: SearchRequest): boolean {
@@ -44,14 +52,15 @@ export function reduceSearchPages(
 ): SearchPages | null {
   if (!isCurrentSearch(result, request)) return previous;
   if (result.code === "invalid-pattern") {
-    return { request, files: [], matches: [], truncated: null, continueAfter: null,
+    return { request, identity: result.project, files: [], matches: [], truncated: null, continueAfter: null,
       scannedEntries: 0, readFiles: 0, elapsedMs: 0, invalidPattern: result.reason };
   }
-  const fresh: SearchPages = { request, files: result.files, matches: result.matches, truncated: result.truncated,
+  const fresh: SearchPages = { request, identity: result.project, files: result.files, matches: result.matches, truncated: result.truncated,
     continueAfter: result.continueAfter, scannedEntries: result.scannedEntries, readFiles: result.readFiles,
     elapsedMs: result.elapsedMs, invalidPattern: null };
   if (!after) return fresh;
   if (!previous || !sameRequest(previous.request, request) || previous.continueAfter !== after) return previous;
+  if (!sameIdentity(previous.identity, result.project)) return previous;
   return {
     ...fresh,
     files: [...previous.files, ...result.files],
