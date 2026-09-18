@@ -1427,14 +1427,18 @@ def doctor_workspace(
             if resolver is None:
                 tropo, resolver = _doctor_config_context(target, root)
             docs, nodes, edges = _doctor_graph_context(tropo, resolver, target)
-            findings = [f.render() for doc in docs for f in doc.findings]
             graph = {
                 "nodes": len(nodes),
                 "edges": len(edges),
                 "broken": sum(1 for edge in edges if edge["broken"]),
             }
-            if findings:
-                errors.extend(f"tropo finding: {finding}" for finding in findings)
+            # Keep Tropo's own severity. Warnings such as W202 (unknown field)
+            # or W210 (redundant frontmatter) describe ordinary notes, not a
+            # broken workspace; only error-level findings fail Doctor.
+            for doc in docs:
+                for finding in doc.findings:
+                    bucket = errors if finding.level == "error" else warnings
+                    bucket.append(f"tropo finding: {finding.render()}")
             if graph["broken"]:
                 errors.append(f"graph has {graph['broken']} broken edge(s)")
             if graph["nodes"] == 0:
