@@ -242,15 +242,25 @@ def test_repository_fsmonitor_hook_is_not_invoked_by_default_observation(tmp_pat
 
     _git(base, repo, ["config", "core.fsmonitor", hook.replace("\\", "/")])
     _git(base, repo, ["config", "core.fsmonitorHookVersion", "1"])
+    if os.name != "nt":
+        # Establish independently that the temp directory permits execution.
+        # A noexec TMPDIR is an unsupported host, not a product failure; any
+        # other reason for a silent hook stays a failure below.
+        probe = os.path.join(base, "exec-probe")
+        with open(probe, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("#!/bin/sh\nexit 0\n")
+        os.chmod(probe, stat.S_IRWXU)
+        try:
+            subprocess.run([probe], check=True)
+        except PermissionError:
+            pytest.skip(
+                "the test temp directory does not permit execution (noexec "
+                "TMPDIR); the fsmonitor hook proof needs an executable provider"
+            )
     # Positive control: the repository-local provider is executable on both
     # platforms before either governed runner applies its command-scoped override.
     _git(base, repo, ["status", "--porcelain"])
-    if not os.path.isfile(marker):
-        pytest.skip(
-            "the executable fsmonitor provider did not run from the test temp "
-            "directory (noexec TMPDIR?); the default-observation assertions "
-            "need that positive control"
-        )
+    assert os.path.isfile(marker)
     os.remove(marker)
 
     result = observe_checkouts([repo], allowlist=[repo], now=NOW)
