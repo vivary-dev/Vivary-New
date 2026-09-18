@@ -99,8 +99,12 @@ function fakeRuntime(options = {}) {
   };
   const readScope = async () => null;
   const action = name => ({ schema: {}, run: async () => ({ code: name }) });
+  // Paths this runtime serves itself. The other project action paths are
+  // served by discovered app actions and only receive the cold-start gate.
+  const servicePaths = new Set();
   const mount = (name, path) => (nitro, value) => {
     calls.push([name, value]);
+    servicePaths.add(path);
     options.getH3App(nitro).use(path, async () => {
       if (options.actionStarted) options.actionStarted.resolve();
       if (options.actionWait) await options.actionWait.promise;
@@ -111,6 +115,7 @@ function fakeRuntime(options = {}) {
     calls,
     provider,
     readScope,
+    servicePaths,
     migrateRegistry: async () => {
       calls.push(["migrateRegistry"]);
       if (options.failAt === "migration") throw new Error("private migration detail");
@@ -216,7 +221,9 @@ test("actual plugin gates cold requests, mounts one shared registry once and lea
   const first = plugin(fixture.nitro);
   const second = plugin(fixture.nitro);
 
-  assert.equal((await fixture.request(PROJECT_ACTION_PATHS[1])).status, 503);
+  for (const path of PROJECT_ACTION_PATHS) {
+    assert.equal((await fixture.request(path)).status, 503, `cold gate for ${path}`);
+  }
   assert.equal((await fixture.request("/")).status, 200);
   bootstrap.resolve();
   assert.deepEqual(await first, { status: "open", failure: null });
@@ -224,8 +231,12 @@ test("actual plugin gates cold requests, mounts one shared registry once and lea
   assert.equal(runtime.calls.filter(([name]) => name === "startRootProvider").length, 1);
 
   for (const path of PROJECT_ACTION_PATHS) {
-    assert.equal(fixture.mountCount(path), 2, "one gate and one service route");
-    assert.equal((await fixture.request(path)).status, 200);
+    const served = runtime.servicePaths.has(path);
+    assert.equal(fixture.mountCount(path), served ? 2 : 1,
+      served ? `one gate and one service route for ${path}` : `gate only for ${path}`);
+    // Once open, the gate yields: served paths answer; app-action paths fall
+    // through to the fake's 404 instead of the 503 gate.
+    assert.equal((await fixture.request(path)).status, served ? 200 : 404);
   }
   assert.equal(runtime.calls.filter(([name]) => name === "createNativeRegistry").length, 1);
   const catalog = runtime.calls.find(([name]) => name === "createProjectCatalog")[1];
