@@ -227,6 +227,12 @@
       "name": "Search and file memory",
       "purpose": "Find files, history and sourced project knowledge",
       "sourcePaths": [
+        "packages/workbench/server/project-search.ts",
+        "packages/workbench/actions/vivary-project-search.ts",
+        "packages/workbench/app/components/projects/ProjectSearch.tsx",
+        "packages/workbench/app/lib/project-search-schema.ts",
+        "packages/workbench/app/lib/project-search-state.ts",
+        "packages/workbench/app/lib/project-file-location.ts",
         "packages/workbench/server/project-files.ts",
         "packages/workbench/actions/vivary-code-state.ts",
         "packages/tropo"
