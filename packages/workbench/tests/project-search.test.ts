@@ -1,0 +1,202 @@
+import assert from "node:assert/strict";
+import { link, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, it } from "node:test";
+
+import { createProjectSearchService } from "../server/project-search.ts";
+import { projectSearchInputSchema } from "../app/lib/project-search-schema.ts";
+
+const roots: string[] = [];
+afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
+
+type Limits = Parameters<typeof createProjectSearchService>[1];
+
+async function fixture(limits?: Limits) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-"));
+  roots.push(root);
+  let revision = 1;
+  let available = true;
+  const workspace = () => ({ root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+    rootId: "root_a", bindingRevision: revision, policyRevision: 1 });
+  const service = createProjectSearchService(async (_context, projectId) => {
+    if (!available || projectId !== "project_a") throw new Error("Project unavailable");
+    return workspace();
+  }, limits);
+  const search = (query: string, mode: "filename" | "text" | "regex" = "text", after?: string) =>
+    service.search(undefined, { projectId: "project_a", query, mode, after });
+  const write = async (relative: string, content: string | Buffer) => {
+    const absolute = path.join(root, relative);
+    await mkdir(path.dirname(absolute), { recursive: true });
+    await writeFile(absolute, content);
+  };
+  return { root, service, search, write, revoke: () => { available = false; }, rebind: () => { revision += 1; } };
+}
+
+describe("project search input", () => {
+  it("accepts a bounded query with a default mode and rejects empty, short, or overlong queries", () => {
+    const parsed = projectSearchInputSchema.safeParse({ projectId: "project_a", query: "  todo " });
+    assert.equal(parsed.success, true);
+    if (parsed.success) assert.deepEqual(parsed.data, { projectId: "project_a", query: "todo", mode: "text" });
+    for (const query of ["", " ", "a", "x".repeat(201)]) {
+      assert.equal(projectSearchInputSchema.safeParse({ projectId: "project_a", query }).success, false, JSON.stringify(query));
+    }
+    assert.equal(projectSearchInputSchema.safeParse({ projectId: "project_a", query: "ok", extra: 1 }).success, false);
+    assert.equal(projectSearchInputSchema.safeParse({ projectId: "project_a", query: "ok", mode: "fuzzy" }).success, false);
+  });
+});
+
+describe("project search", () => {
+  it("finds filenames case-insensitively while hiding secret and dependency trees", async () => {
+    const f = await fixture();
+    await f.write("src/Widget.ts", "export const widget = 1;\n");
+    await f.write("docs/widgets.md", "# Widgets\n");
+    await f.write("node_modules/widget/index.js", "hidden\n");
+    await f.write(".env", "WIDGET_SECRET=1\n");
+    await f.write("widget-credentials.json", "{}\n");
+    await f.write("image.png", Buffer.from([0, 1, 2]));
+
+    const result = await f.search("widget", "filename");
+    assert.equal(result.code, "results");
+    if (result.code !== "results") return;
+    assert.deepEqual(result.files.map(file => file.path), ["docs/widgets.md", "src/Widget.ts"]);
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.truncated, null);
+    assert.equal(result.continueAfter, null);
+    assert.equal(result.project.projectId, "project_a");
+    assert.equal(result.query, "widget");
+    assert.equal(result.mode, "filename");
+  });
+
+  it("finds exact text with line, column and excerpt and skips binary and oversized files", async () => {
+    const f = await fixture();
+    await f.write("notes/plan.md", "# Plan\n\nWe need a search box.\nsearch happens here too\n");
+    await f.write("src/index.ts", "const label = \"Search\";\n");
+    await f.write("blob.bin", Buffer.concat([Buffer.from("search "), Buffer.from([0]), Buffer.from("inside")]));
+    await f.write("big.txt", "search\n".repeat(60_000));
+
+    const result = await f.search("search");
+    assert.equal(result.code, "results");
+    if (result.code !== "results") return;
+    assert.deepEqual(result.matches.map(match => [match.path, match.line, match.column]), [
+      ["notes/plan.md", 3, 11],
+      ["notes/plan.md", 4, 1],
+      ["src/index.ts", 1, 16],
+    ]);
+    assert.equal(result.matches[0]?.excerpt, "We need a search box.");
+    assert.deepEqual(result.files, []);
+    assert.equal(result.truncated, null);
+    assert.ok(result.readFiles >= 2);
+  });
+
+  it("matches regular expressions per line and reports invalid patterns without scanning", async () => {
+    const f = await fixture();
+    await f.write("a.ts", "const answer = 42;\nconst other = 7;\n");
+    const result = await f.search("answer\\s*=\\s*\\d+", "regex");
+    assert.equal(result.code, "results");
+    if (result.code === "results") {
+      assert.deepEqual(result.matches.map(match => [match.path, match.line, match.column]), [["a.ts", 1, 7]]);
+    }
+    const invalid = await f.search("answer(", "regex");
+    assert.equal(invalid.code, "invalid-pattern");
+    if (invalid.code === "invalid-pattern") assert.match(invalid.reason, /Invalid regular expression/);
+  });
+
+  it("refuses symlinked directories and multiply linked files", async () => {
+    const f = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-outside-"));
+    roots.push(outside);
+    await writeFile(path.join(outside, "leak.md"), "needle outside\n");
+    await symlink(outside, path.join(f.root, "linked-dir"), "dir");
+    await f.write("inside.md", "needle inside\n");
+    await link(path.join(f.root, "inside.md"), path.join(f.root, "twin.md"));
+
+    const result = await f.search("needle");
+    assert.equal(result.code, "results");
+    if (result.code !== "results") return;
+    assert.deepEqual(result.matches.map(match => match.path), []);
+    const names = await f.search("leak", "filename");
+    if (names.code === "results") assert.deepEqual(names.files, []);
+  });
+
+  it("handles Unicode and spaced paths in both modes", async () => {
+    const f = await fixture();
+    await f.write("réunion notes/plan été.md", "café\n");
+    const byName = await f.search("plan été", "filename");
+    if (byName.code === "results") assert.deepEqual(byName.files.map(file => file.path), ["réunion notes/plan été.md"]);
+    const byText = await f.search("café");
+    if (byText.code === "results") assert.deepEqual(byText.matches.map(match => [match.path, match.line, match.column]), [["réunion notes/plan été.md", 1, 1]]);
+  });
+
+  it("caps matches and continues from the returned cursor without repeating or skipping", async () => {
+    const f = await fixture({ maxMatches: 3 });
+    for (const name of ["a", "b", "c", "d", "e"]) await f.write(`${name}.md`, `hit ${name}\n`);
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await f.search("hit", "text", after);
+      assert.equal(result.code, "results");
+      if (result.code !== "results") return;
+      seen.push(...result.matches.map(match => match.path));
+      if (!result.continueAfter) { assert.equal(result.truncated, null); break; }
+      assert.equal(result.truncated, "matches");
+      after = result.continueAfter;
+    }
+    assert.deepEqual(seen, ["a.md", "b.md", "c.md", "d.md", "e.md"]);
+  });
+
+  it("stops at the time budget and names the truncation", async () => {
+    const f = await fixture({ timeBudgetMs: 0 });
+    await f.write("first.md", "hit\n");
+    await f.write("second.md", "hit\n");
+    const result = await f.search("hit");
+    assert.equal(result.code, "results");
+    if (result.code !== "results") return;
+    assert.equal(result.truncated, "time");
+    assert.equal(result.continueAfter, "first.md");
+    assert.deepEqual(result.matches.map(match => match.path), ["first.md"]);
+  });
+
+  it("bounds scanned entries and read files", async () => {
+    const f = await fixture({ maxScannedEntries: 3 });
+    for (const name of ["a", "b", "c", "d", "e"]) await f.write(`${name}.md`, `hit ${name}\n`);
+    const scanned = await f.search("hit");
+    if (scanned.code === "results") {
+      assert.equal(scanned.truncated, "entries");
+      assert.ok(scanned.continueAfter);
+    }
+    const g = await fixture({ maxReadFiles: 2 });
+    for (const name of ["a", "b", "c"]) await g.write(`${name}.md`, `hit ${name}\n`);
+    const read = await g.search("hit");
+    if (read.code === "results") {
+      assert.equal(read.truncated, "files");
+      assert.equal(read.readFiles, 2);
+      assert.equal(read.continueAfter, "b.md");
+    }
+  });
+
+  it("returns nothing for an empty project and refuses revoked or rebound projects", async () => {
+    const f = await fixture();
+    const empty = await f.search("anything");
+    assert.equal(empty.code, "results");
+    if (empty.code === "results") { assert.deepEqual(empty.matches, []); assert.equal(empty.scannedEntries, 0); }
+    f.rebind();
+    await f.write("x.md", "anything\n");
+    const g = await fixture();
+    g.revoke();
+    await assert.rejects(g.search("anything"), /unavailable/);
+  });
+
+  it("rejects results when the project binding changes during the search", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-"));
+    roots.push(root);
+    await writeFile(path.join(root, "x.md"), "needle\n");
+    let calls = 0;
+    const service = createProjectSearchService(async () => {
+      calls += 1;
+      return { root, label: "Example", projectId: "project_a", bindingId: "binding_a", rootId: "root_a",
+        bindingRevision: calls === 1 ? 1 : 2, policyRevision: 1 };
+    });
+    await assert.rejects(service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }), /changed/);
+  });
+});
