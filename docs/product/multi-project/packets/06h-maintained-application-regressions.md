@@ -2,7 +2,7 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/22
 Parent: 06
-Status: ready-for-agent
+Status: in-progress
 Depends-on: [03c]
 Owner: Coordinating Codex, sole existing-test maintenance writer
 Scope: Correct named obsolete fixture assumptions and environment setup in the maintained application checks.
@@ -62,6 +62,11 @@ Do not build a new verifier, evidence archive system, or test runner product.
 
 - 2026-09-13: Converted named recovery-test failures into bounded maintenance.
   Existing application checks and historical evidence remain unchanged.
+- 2026-09-18: Corrected the registry-actions metadata assertion, the stale
+  project-services gate expectation, the chat-title bootstrap teardown, and
+  the Doctor snapshot timestamp settle; supplied default proof roots and the
+  Core manifest; retired the 05b GUI runner test; identified root and noexec
+  hosts in the Core permission proofs; documented `pnpm test:maintained`.
 
 ## Shared desktop and web behavior
 
