@@ -11,15 +11,16 @@ import { CHAT_TITLE_PATH, mountChatTitles } from "../server/chat-title.mjs";
 
 // The production-plugin test below bootstraps Core. Keep that bootstrap inert
 // and its database disposable so the process exits when the assertions finish,
-// the way registry-http and the runtime suites already do.
+// the way registry-http and the runtime suites already do. Assign rather than
+// default: an inherited value must not be able to re-enable background work.
 // guard:allow-env-mutation — Test-only framework switches; process-scoped by design.
-process.env.AGENT_NATIVE_DISABLED_PLUGINS ??= "agent-chat,auth,context-xray,core-routes,integrations,observational-memory,onboarding,org,resources,sentry,terminal"; // guard:allow-env-credential — Fixed framework plugin list; no credential value.
+process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat,auth,context-xray,core-routes,integrations,observational-memory,onboarding,org,resources,sentry,terminal"; // guard:allow-env-credential — Fixed framework plugin list; no credential value.
 // guard:allow-env-mutation — Test-only framework switches; process-scoped by design.
-process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS ??= "1"; // guard:allow-env-credential — Framework switch; no credential value.
+process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "1"; // guard:allow-env-credential — Framework switch; no credential value.
 // guard:allow-env-mutation — Test-only framework switches; process-scoped by design.
-process.env.AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS ??= "1"; // guard:allow-env-credential — Framework switch; no credential value.
+process.env.AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS = "1"; // guard:allow-env-credential — Framework switch; no credential value.
 // guard:allow-env-mutation — Test-only framework switches; process-scoped by design.
-process.env.AGENT_NATIVE_DISABLE_KEEP_WARM ??= "1"; // guard:allow-env-credential — Framework switch; no credential value.
+process.env.AGENT_NATIVE_DISABLE_KEEP_WARM = "1"; // guard:allow-env-credential — Framework switch; no credential value.
 const disposableData = mkdtempSync(path.join(os.tmpdir(), "vivary-chat-title-"));
 // guard:allow-env-mutation — Test-only disposable database, never an inherited one; process-scoped by design.
 process.env.DATABASE_URL = `file:${path.join(disposableData, "app.sqlite")}`; // guard:allow-env-credential — Task-owned SQLite fixture file only.
