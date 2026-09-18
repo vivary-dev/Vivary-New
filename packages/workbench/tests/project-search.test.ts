@@ -159,6 +159,77 @@ describe("project search", () => {
     assert.deepEqual(seen, ["a.md", "b.md", "c.md", "d.md", "e.md"]);
   });
 
+  it("visits directories at their sorted position so pages never skip or repeat", async () => {
+    const f = await fixture({ maxMatches: 1 });
+    await f.write("a/hit.md", "hit a\n");
+    await f.write("b.md", "hit b\n");
+    await f.write("b/deep/hit.md", "hit deep\n");
+    await f.write("z.md", "hit z\n");
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 8; page += 1) {
+      const result = await f.search("hit", "text", after);
+      if (result.code !== "results") return;
+      seen.push(...result.matches.map(match => match.path));
+      if (!result.continueAfter) break;
+      after = result.continueAfter;
+    }
+    assert.deepEqual(seen, ["a/hit.md", "b/deep/hit.md", "b.md", "z.md"]);
+  });
+
+  it("makes progress under a tiny entry budget without repeating files", async () => {
+    const f = await fixture({ maxScannedEntries: 2 });
+    for (const name of ["a", "b", "c", "d", "e"]) await f.write(`${name}.md`, `hit ${name}\n`);
+    await f.write("dir/inner.md", "hit inner\n");
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 12; page += 1) {
+      const result = await f.search("hit", "text", after);
+      if (result.code !== "results") return;
+      seen.push(...result.matches.map(match => match.path));
+      if (!result.continueAfter) break;
+      after = result.continueAfter;
+    }
+    assert.deepEqual(seen, ["a.md", "b.md", "c.md", "d.md", "dir/inner.md", "e.md"]);
+  });
+
+  it("enforces the page match cap exactly and defers a file that would overflow it", async () => {
+    const f = await fixture({ maxMatches: 5 });
+    await f.write("a.md", "hit\nhit\nhit\nhit\n");
+    await f.write("b.md", "hit\nhit\nhit\n");
+    const first = await f.search("hit");
+    assert.equal(first.code, "results");
+    if (first.code !== "results") return;
+    assert.equal(first.matches.length, 4);
+    assert.equal(first.truncated, "matches");
+    assert.equal(first.continueAfter, "a.md");
+    const second = await f.search("hit", "text", first.continueAfter ?? undefined);
+    if (second.code !== "results") return;
+    assert.deepEqual(second.matches.map(match => [match.path, match.line]), [["b.md", 1], ["b.md", 2], ["b.md", 3]]);
+    assert.equal(second.truncated, null);
+  });
+
+  it("caps matches per file and marks the last one when more remain", async () => {
+    const f = await fixture({ maxFileMatches: 3 });
+    await f.write("many.md", "hit\n".repeat(7));
+    await f.write("one.md", "hit\n");
+    const result = await f.search("hit");
+    if (result.code !== "results") return;
+    const many = result.matches.filter(match => match.path === "many.md");
+    assert.equal(many.length, 3);
+    assert.equal(many.at(-1)?.more, true);
+    assert.equal(many[0]?.more, undefined);
+    assert.equal(result.matches.filter(match => match.path === "one.md")[0]?.more, undefined);
+  });
+
+  it("reports literal columns in the original line even when case folding changes length", async () => {
+    const f = await fixture();
+    await f.write("turkish.md", "\u0130 needle\n");
+    const result = await f.search("NEEDLE");
+    if (result.code !== "results") return;
+    assert.deepEqual(result.matches.map(match => [match.line, match.column]), [[1, 3]]);
+  });
+
   it("stops at the time budget and names the truncation", async () => {
     const f = await fixture({ timeBudgetMs: 0 });
     await f.write("first.md", "hit\n");

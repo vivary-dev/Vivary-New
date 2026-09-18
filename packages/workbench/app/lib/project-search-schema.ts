@@ -32,6 +32,8 @@ export type ProjectSearchTextMatch = {
   line: number;
   column: number;
   excerpt: string;
+  // Set on a file's last returned match when the per-file cap cut it.
+  more?: true;
 };
 
 export type ProjectSearchResult =
