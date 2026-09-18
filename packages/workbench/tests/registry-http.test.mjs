@@ -7,6 +7,7 @@ import { register } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { assertNativeSqliteMatchesNode, ensureCorePackageJson, ensureProofRoot } from "./maintained-test-options.mjs";
 
 const TEST_FILE = fileURLToPath(import.meta.url);
 const ACTION_PATH = "/_agent-native/actions/vivary-register-project";
@@ -251,6 +252,8 @@ if (process.env.VIVARY_HTTP_WORKER === "1") { // guard:allow-env-credential — 
     process.exitCode = 1;
   }
 } else {
+  assertNativeSqliteMatchesNode(ensureCorePackageJson());
+  ensureProofRoot("VIVARY_REGISTRY_PROOF_ROOT");
   for (const [scenario, title] of Object.entries(scenarios)) {
     test(title, async () => {
       const configured = process.env.VIVARY_REGISTRY_PROOF_ROOT; // guard:allow-env-credential — Disposable test directory path; no credential value.

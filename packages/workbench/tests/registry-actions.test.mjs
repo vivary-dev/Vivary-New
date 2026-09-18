@@ -5,6 +5,7 @@ import { register } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { assertNativeSqliteMatchesNode, ensureCorePackageJson, ensureProofRoot } from "./maintained-test-options.mjs";
 
 const TEST_FILE = fileURLToPath(import.meta.url);
 const CHILD_HEAP_ARG = "--max-old-space-size=192";
@@ -338,6 +339,8 @@ async function worker(scenario) {
 if (process.env.VIVARY_ACTION_WORKER === "1") { // guard:allow-env-credential — Test child mode flag; no credential value.
   await worker(process.argv[2]);
 } else {
+  assertNativeSqliteMatchesNode(ensureCorePackageJson());
+  ensureProofRoot("VIVARY_REGISTRY_PROOF_ROOT");
   for (const [scenario, title] of Object.entries(cases)) {
     test(title, async () => {
       const configured = process.env.VIVARY_REGISTRY_PROOF_ROOT; // guard:allow-env-credential — Disposable test directory path; no credential value.
