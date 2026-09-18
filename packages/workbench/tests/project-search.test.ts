@@ -169,8 +169,11 @@ describe("project search", () => {
     await rm(target);
     await symlink(path.join(outside, "secret.md"), target);
     assert.equal(await readVerifiedFile(target, inspected, 1024), null);
-    await rm(target);
-    await writeFile(target, "replacement needle\n");
+    // Rename a separately created file over the target: its inode was
+    // allocated while the original still existed, so it cannot be a reuse
+    // of the original's number.
+    await f.write("replacement.md", "replacement needle\n");
+    await rename(path.join(f.root, "replacement.md"), target);
     assert.equal(await readVerifiedFile(target, inspected, 1024), null);
     await rename(target, path.join(f.root, "renamed.md"));
     assert.equal(await readVerifiedFile(target, inspected, 1024), null);

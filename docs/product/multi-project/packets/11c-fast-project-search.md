@@ -119,7 +119,10 @@ indexes in user folders, or require a paid embedding service for basic text sear
   is running can redirect that page's later listings; Node exposes no
   `openat`-style handle-relative opens, the project file surface shares the
   same window, and the threat requires a concurrent writer inside the user's
-  own project folder; (2) browser callers carry no request signal through
+  own project folder, and the open-time identity check is best effort because
+  a filesystem may reuse an unlinked file's inode number for its replacement
+  (a rewritten regular file inside the project is then read as itself);
+  (2) browser callers carry no request signal through
   the framework's action transport, so a superseded panel query is abandoned
   by the client while the server finishes its bounded page; (3) the file
   reader re-centers the requested line on every navigation while a match is
