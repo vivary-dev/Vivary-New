@@ -351,6 +351,21 @@ def test_tracked_ignored_dirty_path_is_never_disclosed(fx, allowlist):
     assert "privacy_command" in serialized
 
 
+def test_npm_script_fact_is_absent_when_no_manifest_exists(tmp_path):
+    # A writing or notes checkout has no package.json. The npm fact does not
+    # apply, so it must not appear as an unknown either.
+    base = str(tmp_path)
+    repo = str(tmp_path / "repo")
+    _git(base, base, ["init", "-q", "-b", "main", repo])
+    _commit_file(base, repo, "notes.md", "# Notes\n", "notes")
+
+    result = observe_checkouts([repo], allowlist=[repo], now=NOW)
+
+    facts = result["checkouts"][0]["facts"]
+    assert "package.json" not in facts["workspace_markers"]["value"]
+    assert "npm_test_script" not in facts
+
+
 def test_ignored_manifest_never_enters_markers_or_npm_script_facts(tmp_path):
     base = str(tmp_path)
     repo = str(tmp_path / "repo")
