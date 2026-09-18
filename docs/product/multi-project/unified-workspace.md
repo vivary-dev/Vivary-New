@@ -98,7 +98,9 @@ Implementation status: the first shell merged in [PR #42](https://github.com/viv
 | Owner | Reuse and change boundary |
 | --- | --- |
 | `app/root.tsx`, `app/components/layout/Layout.tsx` | Preserve Native, query, appearance, project, and file-draft providers. `Layout` now mounts the canonical `Workspace` below those owners while settings keep their separate utility view. |
-| `app/components/workspace/Workspace.tsx` | Own the selected conversation area, header-first Details control, optional Files and Preview panels, responsive single-surface behavior, and panel focus/width preferences. |
+| `app/components/workspace/Workspace.tsx` | Own the selected conversation area, header-first Details control, optional Files, Preview, and Search panels, responsive single-surface behavior, and panel focus/width preferences. |
+| `app/components/projects/ProjectSearch.tsx`, `app/lib/project-search-state.ts`, `app/lib/project-file-location.ts` | Scoped filename, text, and regex search inside the optional Search panel; results open the file at a line. The reducer owns request staleness; file locations are URL state with one href owner. |
+| `actions/vivary-project-search.ts`, `server/project-search.ts`, `app/lib/project-search-schema.ts` | Bounded, read-only project search that reuses the project file boundary, skip, and secret rules. No index, shell, or bundled binary; limits and a continuation cursor replace streaming. |
 | `app/components/workspace/CodeConversation.tsx` | Compose existing Code history, selected run, approval, Stop, model control, and draft behavior in the canonical workspace. The current runtime still permits one active run. |
 | `app/components/workspace/NativeConversation.tsx` | Compose Native `AgentChatSurface` with server-derived actor/organization/project scope and thread URL synchronization. Legacy v1 chats use their unchanged identity under Unassigned. |
 | `app/components/projects/ProjectFiles.tsx`, `app/routes/files.tsx` | Open the real project file browser and document view inside the optional panel. Documents remain read-first. Edit, Save, Rename, conflict recovery, and drafts retain their existing owners. |

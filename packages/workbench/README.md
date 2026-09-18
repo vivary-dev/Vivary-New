@@ -154,6 +154,24 @@ Project details, files, and page preview open only when requested. Panels can
 resize, close, reopen, and expand for focused work. The old Agent, Files,
 Workbench, and Full chat URLs redirect to this workspace.
 
+Search opens beside Files and finds file names, literal text, or a regular
+expression inside the selected project only. Results show the path, line,
+column, and an excerpt; choosing one opens the file at that line. Each request
+stops at explicit limits (50,000 entries, 2,000 files read, 200 matches, 20
+per file, a 1.5 s budget, 200 ms per file for a regular expression) and says
+which limit it hit; More results continues from where it stopped, and for a
+tree that does not change between pages nothing is repeated or skipped.
+Limits are soft deadlines checked between filesystem operations. Filename
+mode lists names from directory entries and reads nothing. Content search
+applies the file panel's skip list and secret rules, skips links it sees,
+verifies a file's identity when opening it, and skips binary, oversized,
+and overlong content. A superseded query is abandoned by the panel while the
+server finishes its bounded page; a pattern that is too slow skips that file
+and the status line says so. There is no index, shell, or bundled search
+binary. Coding agents search
+the same folder through their own tools: Claude Code's Grep and Glob run in
+the project directory, and Codex uses its sandboxed shell there.
+
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
 and transcripts. Project-bound Native history includes the maintained saved-head repair and history
