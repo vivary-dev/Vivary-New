@@ -48,7 +48,7 @@ export function ensureProofRoot(variable) {
 }
 
 // The native SQLite module is built for the Node major that ran pnpm install.
-// Surface a mismatch here, in one sentence, instead of as a failed child exit.
+// Surface a load failure here, in one sentence, instead of as a failed child exit.
 export function assertNativeSqliteMatchesNode(corePackageJson) {
   const requireFromCore = createRequire(realpathSync(corePackageJson));
   try {
@@ -56,9 +56,9 @@ export function assertNativeSqliteMatchesNode(corePackageJson) {
     new Database(":memory:").close();
   } catch (error) {
     if (error?.code === "ERR_DLOPEN_FAILED") {
-      throw new Error(`better-sqlite3 was built for a different Node ABI than ${process.version}; `
-        + "run the maintained checks with the Node major that installed packages/workbench (CI pins Node 22)",
-      { cause: error });
+      throw new Error(`better-sqlite3's native module failed to load under ${process.version}. `
+        + "It is built for the Node major that ran pnpm install (CI pins Node 22), so a Node ABI "
+        + "mismatch is the usual cause; see the original error.", { cause: error });
     }
     throw error;
   }
