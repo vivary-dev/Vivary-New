@@ -306,15 +306,21 @@ async function mainTest(t) {
   assert.ok(requestedRoot && path.isAbsolute(requestedRoot));
   const base = await realpath(requestedRoot);
   const fixture = await makeFixture(base);
-  t.after(async () => rm(fixture.root, { recursive: true, force: true }));
+  let m;
+  // Close the shared database before removing the fixture that holds it:
+  // Windows refuses to delete an open SQLite file. Also covers a failure
+  // part-way through module loading below.
+  t.after(async () => {
+    if (m) await m.closeDbExec();
+    await rm(fixture.root, { recursive: true, force: true });
+  });
   // Parent and forked children share this database. Always use the fixture
   // root the suite removes: never an inherited DATABASE_URL, and not Core's
   // cwd-relative default. Core still creates an empty data/ directory under
   // the working directory, which the package scripts keep in packages/workbench.
   // guard:allow-env-mutation — Test-only fixture location shared with the forked children; process-scoped by design.
   process.env.DATABASE_URL = `file:${path.join(fixture.root, "registry.sqlite")}`; // guard:allow-env-credential — Task-owned SQLite fixture file only.
-  const m = await modules();
-  t.after(async () => m.closeDbExec());
+  m = await modules();
   const cases = [];
   const snapshotPool = new Map();
   const orgId = `org_${randomUUID().replaceAll("-", "")}`;
