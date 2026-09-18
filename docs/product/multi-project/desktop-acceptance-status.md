@@ -178,7 +178,8 @@ runtime, plus one ordinary note and an unknown `author` field in
 
 | Step | Result on `43ae417` |
 | --- | --- |
-| First launch, runtime readiness | Pass. "Connected host" shown, loopback server on 127.0.0.1 |
+| First launch | Pass. "Connected host" shown, loopback server on 127.0.0.1 |
+| Runtime readiness | Claude Code ready, proven by the tool turn below. Codex showed "Check needed" because the laptop's npm Codex CLI 0.148.0 could not parse the configuration written by the Codex desktop app; a laptop environment gap, not the build. Codex readiness on this candidate is therefore not established |
 | Register existing folder | Pass on the second attempt. The first attempt showed the generic "The folder could not be connected. Try again." after the native picker stayed open past the client action timeout; see [issue #68](https://github.com/vivary-dev/Vivary-New/issues/68) |
 | Details shows "Not checked yet" | Pass |
 | Check project health | Pass. `Healthy · 4 typed notes, 0 links` with one W202 warning, identical to headless `doctor --json` |
@@ -206,9 +207,8 @@ three notes was wrong; both surfaces count four (`AGENTS.md`, `STATE.md`,
 
 Approval and denial were not rerun because this candidate launches the Claude
 Code runtime with `auto-edit` permission mode and file tools only, so writes
-inside the project never prompt, and the laptop's npm Codex CLI 0.148.0 could
-not parse the configuration written by the Codex desktop app. That is a laptop
-environment gap, not a build defect. Rerunning both with the Codex runtime in
+inside the project never prompt, and Codex was not runnable on the laptop, as
+the readiness row records. That is a laptop environment gap, not a build defect. Rerunning both with the Codex runtime in
 Normal mode against a path outside the project remains due on this candidate.
 
 Evidence is retained privately on Zo under
