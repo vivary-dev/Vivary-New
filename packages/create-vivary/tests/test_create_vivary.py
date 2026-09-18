@@ -77,13 +77,21 @@ def snapshot_workspace(root: Path) -> dict[str, tuple]:
     load. Settling the capture keeps the byte-for-byte and
     timestamp-for-timestamp comparison intact.
     """
+    earlier = None
     previous = _capture_workspace(root)
     for _ in range(4):
         current = _capture_workspace(root)
         if current == previous:
             return current
-        previous = current
-    return previous
+        earlier, previous = previous, current
+    changed = sorted(
+        rel
+        for rel in set(earlier) | set(previous)
+        if earlier.get(rel) != previous.get(rel)
+    )
+    raise AssertionError(
+        f"workspace snapshot did not settle after 5 captures; still changing: {changed}"
+    )
 
 def flatten_v01_modules(target: Path) -> None:
     """Turn current generated module routers into the flat published v0.1 layout."""
