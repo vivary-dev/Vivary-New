@@ -2,8 +2,10 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/18
 Parent: 09
-Status: in-progress
+Status: done
 Depends-on: []
+Evidence: [Non-code context and Doctor verification](../receipts/09a-noncode-context-doctor.md)
+Verification-result: passed
 Owner: Claude on Zo (Jeff's 2026-09-18 decision), sole original context and Doctor behavior writer; Codex (GPT-6 Astra) reviews
 Scope: Characterize supported non-code work, fix demonstrated context/schema/Doctor mismatches, and preserve valid behavior and existing budgets.
 Verification-kind: runtime
@@ -119,3 +121,6 @@ capability choice, not permission for a broad parser or runtime rewrite.
     on the non-Git fixture: 10 of 10 steps, GUI findings identical to
     `vivary doctor --json` on the same runtime for the healthy and the failed
     case, readable at 390 px; screenshots retained privately on Zo.
+- 2026-09-18: PR #66 merged into dev as `43ae417` after Codex review, Zo CI
+  63/63, and GitHub Actions 8/8. Accepted and closed under Jeff's delegation
+  after the journey passed again on merged dev; evidence in the linked receipt.
