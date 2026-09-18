@@ -83,13 +83,33 @@ indexes in user folders, or require a paid embedding service for basic text sear
   Staleness: results echo project, query, and mode; the panel's pure reducer
   ignores anything else and a project switch clears the panel with the other
   URL params. Matches open the file at the line through a new `line` param.
-- 2026-09-18 measurements (disposable fixture, 20,000 files, 22 MB, on Zo's
-  9p filesystem, Node 22): filename search over the whole tree 195 ms in one
-  page after removing the per-file stat (2.3 s before); literal text and regex
-  over all 20,000 files 8 to 9 s total across 10 pages of 2,000 files (each
-  page under its 1.5 s budget), first page in under a second; process RSS
-  stable at about 240 MB, no growth across queries. Real desktops with local
-  disks will be faster; the caps, not the host, bound each request.
+- 2026-09-18 measurements, observations from one disposable fixture (20,000
+  files, 22 MB) on Zo's 9p filesystem under Node 22, not a benchmark:
+  filename search over the whole tree 195 ms in one page after removing the
+  per-file stat (2.3 s before); literal text and regex over all 20,000 files
+  8 to 9 s total across 10 pages of 2,000 files (each page under its 1.5 s
+  budget), first page in under a second; process RSS stable at about 240 MB
+  across queries. The caps, not the host, bound each request.
+- 2026-09-18 review corrections (Codex, GPT-6 Astra): the walk now visits
+  each directory at its sorted position so pages never skip or repeat,
+  counts only entries past the cursor, checks the time budget after every
+  listing and entry, and enforces the page match cap exactly (a file that
+  would overflow it is deferred; a file's last returned match is marked when
+  the per-file cap of 20 cut it). Regular expressions run inside a vm
+  context with a 200 ms per-file timeout; a file that exceeds it is skipped
+  and counted in the result and the status line. The service accepts an
+  AbortSignal and checks it between filesystem operations; the action
+  forwards the request signal the framework supplies to tool callers, while
+  browser callers carry none and rely on the caps plus react-query's abort
+  of superseded requests. Files are opened without following a link at the
+  leaf and the open handle's identity is compared with the inspected stat;
+  a queued directory is re-checked before listing. Pages are tied to the
+  full project binding identity, so a rebound project never continues them.
+  Filename mode lists names from directory entries without a stat, so it
+  applies the skip and secret rules but not the link, size, or text checks
+  that content search applies; nothing is read in that mode. Time and
+  cancellation are honored between operations; a single pending read or
+  listing is not interrupted.
 - 2026-09-18 agent access (Jeff's decision): the selected harness owns its
   tools (`specification/harness-adapters.md`). Vivary injects no tools or MCP
   into Claude Code or Codex runs; Claude Code runs with Grep and Glob scoped
@@ -99,7 +119,7 @@ indexes in user folders, or require a paid embedding service for basic text sear
   Exposing it to the app's own Native conversations would need the local
   project service to accept tool callers; that is a separate reviewed slice
   if wanted.
-- 2026-09-18 verification: 26 focused tests across `tests/project-search.test.ts`,
+- 2026-09-18 verification: 28 focused tests across `tests/project-search.test.ts`,
   `tests/project-file-location.test.ts`, and `tests/project-search-state.test.ts`
   (all in the CI list), tsc and agent-native doctor clean, production build
   green, and a Playwright journey on a loopback build (register the fixture

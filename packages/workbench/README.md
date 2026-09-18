@@ -157,13 +157,17 @@ Workbench, and Full chat URLs redirect to this workspace.
 Search opens beside Files and finds file names, literal text, or a regular
 expression inside the selected project only. Results show the path, line,
 column, and an excerpt; choosing one opens the file at that line. Each request
-stops at explicit limits (50,000 entries scanned, 2,000 files read, 200
-matches, a 1.5 s budget) and says which limit it hit; More results continues
-from where it stopped. The walk applies the file panel's skip list and secret
-rules, never follows symlinks, and skips binary and oversized files. There is
-no index, shell, or bundled search binary. Coding agents search the same
-folder through their own tools: Claude Code's Grep and Glob run in the project
-directory, and Codex uses its sandboxed shell there.
+stops at explicit limits (50,000 entries, 2,000 files read, 200 matches, 20
+per file, a 1.5 s budget, 200 ms per file for a regular expression) and says
+which limit it hit; More results continues from where it stopped without
+repeating or skipping. Filename mode lists names from directory entries and
+reads nothing. Content search applies the file panel's skip list and secret
+rules, never follows links, verifies a file's identity when opening it, and
+skips binary and oversized files. A superseded query is abandoned by the
+panel; a pattern that is too slow skips that file and the status line says
+so. There is no index, shell, or bundled search binary. Coding agents search
+the same folder through their own tools: Claude Code's Grep and Glob run in
+the project directory, and Codex uses its sandboxed shell there.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
