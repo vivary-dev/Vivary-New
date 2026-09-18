@@ -63,10 +63,12 @@ merge; the merged result was verified end to end before this receipt.
   GitHub Actions, which passed all 8 checks including both Windows jobs.
 - Independent review: Codex (GPT-6 Astra), one pass, two findings, each fixed
   in its own commit (capped-list disclosure; README wording on dangling refs).
-- Not covered: the packaged Windows EXE. The published preview predates this
-  change; the next Windows build should add one journey step (register a
-  plain notes folder, open Details, run the health check, compare with
-  `vivary doctor --json` from the bundled runtime).
+- Packaged Windows EXE, 2026-09-18: candidate `43ae417` passed the same
+  journey on the laptop (register the plain notes folder, Not checked yet,
+  Check project health, break and recover) with output identical to
+  `vivary doctor --json` from the bundled runtime in both states. The
+  per-step table is in the [acceptance register](../desktop-acceptance-status.md).
+  The published preview still predates this change.
 
 ## Acceptance
 

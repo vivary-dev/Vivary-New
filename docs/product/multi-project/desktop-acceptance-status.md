@@ -1,6 +1,6 @@
 # Desktop acceptance status
 
-Updated 2026-09-16. This page is the current tracked acceptance register for the
+Updated 2026-09-18. This page is the current tracked acceptance register for the
 private Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
@@ -160,6 +160,62 @@ The `3dd5aa8` results remain historical evidence for the earlier implementation.
 They do not establish acceptance of the replacement execution policy or activity UI.
 These candidates do not replace the published `26798df` private preview archive.
 
+### Project-health candidate `43ae417`
+
+Commit `43ae4171a56ab89069420a5512d1f735351e608a` is merged `dev` after
+[PR #66](https://github.com/vivary-dev/Vivary-New/pull/66), which added the
+"Check project health" block to the Details panel for
+[issue #18](https://github.com/vivary-dev/Vivary-New/issues/18). The candidate
+was built and packaged on Zo and tested on the laptop on 2026-09-18. It has not
+replaced the published `26798df` archive, and no prerelease was opened. Its ZIP
+contains 3,111 files, is 222,950,043 bytes, and has SHA-256
+`b4ace1eb58b1715ccebcf40228af6c24840d980562fcb58198e79035b9e3f6db`. The laptop
+verified that hash before extracting the folder.
+
+The fixture was a disposable `writing` workspace created with the bundled
+runtime, plus one ordinary note and an unknown `author` field in
+`.vivary/context.md`, with no Git repository.
+
+| Step | Result on `43ae417` |
+| --- | --- |
+| First launch, runtime readiness | Pass. "Connected host" shown, loopback server on 127.0.0.1 |
+| Register existing folder | Pass on the second attempt. The first attempt showed the generic "The folder could not be connected. Try again." after the native picker stayed open past the client action timeout; see [issue #68](https://github.com/vivary-dev/Vivary-New/issues/68) |
+| Details shows "Not checked yet" | Pass |
+| Check project health | Pass. `Healthy · 4 typed notes, 0 links` with one W202 warning, identical to headless `doctor --json` |
+| Break and recover | Pass. `Needs attention · 5 typed notes, 0 links` with one E101 error and the W202 warning kept, identical to headless; removing the record and clicking Check again returned to Healthy |
+| Narrow window | Pass at 488 px, the Electron default frame minimum; the health block, its warning, and Check again stayed reachable and clickable |
+| Real tool turn | Pass. The Claude Code runtime wrote the requested file |
+| Approval | Not rerun on `43ae417`, last proven on `98515c9` with Codex Normal mode |
+| Denial | Not rerun on `43ae417`, last proven on `98515c9` with Codex Normal mode |
+| Stop from another project | Pass. Writes stopped at 26 files and stayed there |
+| Restart persistence | Pass. Project, three turns, and "Not checked yet" restored |
+| Second-instance reuse | Pass. The second EXE exited, leaving one main process and one listener |
+| Shutdown cleanup | Pass twice. No candidate-owned vivary, node, or python process remained, and the port was released |
+
+Exact health comparison: headless `doctor --json` returned `ok: true`, no
+errors, one warning
+`tropo finding: .vivary/context.md:4: warning W202: unknown field 'author' for type 'project'`,
+4 graph nodes, and 0 edges. The Details panel showed `Healthy · 4 typed notes,
+0 links` with the identical warning line. With `changes/bad.md` missing its
+`slice` field, headless returned `ok: false`, one error
+`tropo finding: changes/bad.md:1: error E101: missing required field 'slice' for type 'change'`,
+the same warning, and 5 nodes; the panel showed `Needs attention · 5 typed
+notes, 0 links` with the same error and warning. An earlier expectation of
+three notes was wrong; both surfaces count four (`AGENTS.md`, `STATE.md`,
+`.vivary/context.md`, `notes/idea.md`).
+
+Approval and denial were not rerun because this candidate launches the Claude
+Code runtime with `auto-edit` permission mode and file tools only, so writes
+inside the project never prompt, and the laptop's npm Codex CLI 0.148.0 could
+not parse the configuration written by the Codex desktop app. That is a laptop
+environment gap, not a build defect. Rerunning both with the Codex runtime in
+Normal mode against a path outside the project remains due on this candidate.
+
+Evidence is retained privately on Zo under
+`.tmp/09a-windows-43ae417/laptop-evidence/`, with `doctor-headless.json` and
+`doctor-headless-broken.json` one level up. These checks used the existing
+authorized Windows profile and do not establish clean-profile acceptance.
+
 ## Defects fixed during Windows acceptance
 
 | Finding | Current behavior |
@@ -248,9 +304,9 @@ automations in #51 remain open.
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, reconnection review, and unavailable-folder handling | Full populated-folder adoption/apply and the rest of the setup/pattern journey |
+| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and Windows `43ae417` registration of an existing non-Git folder | Full populated-folder adoption/apply, the rest of the setup/pattern journey, and the folder-picker timeout message in [issue #68](https://github.com/vivary-dev/Vivary-New/issues/68) |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, and clean shutdown | File search, chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
-| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator | Complete GUI/agent flows for every original operation on the final product journey |
+| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | Private authenticated Zo preview and basic isolated page preview | Clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
 | Distribution | Exact unsigned Windows x64 portable artifact, licenses, checksum, and process cleanup | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and release approval |
 
