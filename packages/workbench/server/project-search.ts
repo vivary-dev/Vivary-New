@@ -101,6 +101,12 @@ function regexScanner(query: string, timeoutMs: number): Scanner | string {
   };
 }
 
+function abortError(): Error {
+  const error = new Error("The search was cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
 function excerptFor(line: string, column: number, length: number): string {
   if (line.length <= length) return line;
   const start = Math.max(0, Math.min(column - Math.floor(length / 4), line.length - length));
@@ -143,7 +149,7 @@ export function createProjectSearchService(
     return { workspace, project: projectIdentity(workspace) };
   };
 
-  async function walk(root: string, input: ProjectSearchInput, project: ProjectFileIdentity, scanner: Scanner | null) {
+  async function walk(root: string, input: ProjectSearchInput, project: ProjectFileIdentity, scanner: Scanner | null, signal?: AbortSignal) {
     const started = performance.now();
     const after = input.after ? input.after.split("/") : null;
     const files: ProjectSearchFileMatch[] = [];
@@ -157,6 +163,9 @@ export function createProjectSearchService(
     let lastExamined: string | null = null;
 
     const stop = (reason: ProjectSearchTruncation) => { truncated = reason; };
+    // Cancellation is honored between filesystem operations, like the time
+    // budget; a pending read or listing finishes first.
+    const throwIfAborted = () => { if (signal?.aborted) throw abortError(); };
     // Time is checked between filesystem operations; a single read or readdir
     // is not interrupted. Progress is guaranteed because the budget only
     // applies once at least one entry has been handled.
@@ -208,6 +217,7 @@ export function createProjectSearchService(
     }
 
     async function visit(directory: string, segments: string[]): Promise<void> {
+      throwIfAborted();
       let entries;
       try {
         entries = await readdir(directory, { withFileTypes: true });
@@ -215,6 +225,7 @@ export function createProjectSearchService(
         if (segments.length === 0) throw error;
         return;
       }
+      throwIfAborted();
       entries.sort(byName);
       if (outOfTime()) { stop("time"); return; }
       for (const entry of entries) {
@@ -252,6 +263,7 @@ export function createProjectSearchService(
           if (truncated !== null) return;
           lastExamined = relative;
         }
+        throwIfAborted();
         if (outOfTime()) { stop("time"); return; }
       }
     }
@@ -278,7 +290,8 @@ export function createProjectSearchService(
   return {
     limits: bounds,
 
-    async search(context: ActionRunContext | undefined, input: ProjectSearchInput): Promise<ProjectSearchResult> {
+    async search(context: ActionRunContext | undefined, input: ProjectSearchInput, signal?: AbortSignal): Promise<ProjectSearchResult> {
+      if (signal?.aborted) throw abortError();
       const { workspace, project } = await resolve(context, input.projectId);
       let scanner: Scanner | null = null;
       if (input.mode === "text") scanner = literalScanner(input.query);
@@ -289,7 +302,7 @@ export function createProjectSearchService(
         }
         scanner = built;
       }
-      const result = await walk(workspace.root, input, project, scanner);
+      const result = await walk(workspace.root, input, project, scanner, signal);
       const finalScope = await resolve(context, input.projectId);
       if (!sameProject(project, finalScope.project)) {
         throw new Error("The selected project changed while it was being searched.");

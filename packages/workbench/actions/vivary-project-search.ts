@@ -12,5 +12,6 @@ export default defineAction({
   agentTool: false,
   mcpTool: false,
   toolCallable: false,
-  run: (input, context?: ActionRunContext) => projectSearchService.search(context, input),
+  // Tool callers carry a request signal; browser callers do not, and rely on the caps.
+  run: (input, context?: ActionRunContext) => projectSearchService.search(context, input, context?.signal),
 });

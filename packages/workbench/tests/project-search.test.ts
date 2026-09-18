@@ -286,6 +286,25 @@ describe("project search", () => {
     await assert.rejects(g.search("anything"), /unavailable/);
   });
 
+  it("honors a cancellation signal before and during the walk", async () => {
+    const f = await fixture();
+    await f.write("a.md", "needle\n");
+    await f.write("b.md", "needle\n");
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await assert.rejects(f.service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, cancelled.signal),
+      { name: "AbortError" });
+    const midway = new AbortController();
+    const service = createProjectSearchService(async () => {
+      // Abort once the walk is about to start; nothing should be read after.
+      queueMicrotask(() => midway.abort());
+      return { root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a", rootId: "root_a",
+        bindingRevision: 1, policyRevision: 1 };
+    });
+    await assert.rejects(service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, midway.signal),
+      { name: "AbortError" });
+  });
+
   it("rejects results when the project binding changes during the search", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-"));
     roots.push(root);
