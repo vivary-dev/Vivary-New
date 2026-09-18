@@ -150,11 +150,11 @@ export function createProjectSearchService(
         }
         if (!entry.isFile() || precedesCursor(segments, after)) continue;
         const relative = segments.join("/");
-        let info;
-        try { info = await lstat(absolute); } catch { continue; }
-        if (!info.isFile() || info.nlink !== 1) continue;
 
         if (input.mode === "filename") {
+          // Names need no stat: the directory entry already says this is a
+          // regular file, and nothing is read. That keeps a 20,000-file tree
+          // under the time budget on slow filesystems.
           if (relative.toLowerCase().includes(input.query.toLowerCase())) {
             files.push({ path: relative, name: entry.name });
           }
@@ -164,6 +164,9 @@ export function createProjectSearchService(
           continue;
         }
 
+        let info;
+        try { info = await lstat(absolute); } catch { continue; }
+        if (!info.isFile() || info.nlink !== 1) continue;
         if (!kindFor(absolute) || info.size > MAX_FILE_BYTES) { lastVisited = relative; continue; }
         if (readFiles >= bounds.maxReadFiles) { stop("files"); break walk; }
         readFiles += 1;
