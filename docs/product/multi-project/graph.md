@@ -13,8 +13,8 @@ This graph is a snapshot of recorded metadata and retained evidence.
 The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
-Frontier snapshot: 06h, 09a, 11c.
-In-progress snapshot: 07b.
+Frontier snapshot: 09a, 11c.
+In-progress snapshot: 06h, 07b.
 
 ## Packet references
 
@@ -30,7 +30,7 @@ In-progress snapshot: 07b.
 | [04c: Retain provider sessions outside project folders](packets/04c-native-provider-session-logs.md) | 04 | needs-info | [04a] |
 | [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md) | 06 | needs-info | [06g, 04a, 07d] |
 | [06g: Save project and conversation selections reliably](packets/06g-reliable-local-and-hosted-state.md) | 06 | done | [03c] |
-| [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md) | 06 | ready-for-agent | [03c] |
+| [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md) | 06 | in-progress | [03c] |
 | [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | done | [] |
 | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | in-progress | [07a] |
 | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | needs-info | [07d] |

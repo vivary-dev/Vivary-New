@@ -280,6 +280,22 @@ pnpm build
 pnpm run doctor
 ```
 
+The maintained regression checks (issue #22, packet 06h) run from this
+directory under Node 22, the CI pin recorded in `.node-version`. The native
+SQLite module is built for the Node major that ran `pnpm install`; a mismatch
+fails fast with one sentence naming it.
+
+```console
+pnpm test:maintained
+```
+
+That runs the registry, project-services, shell, mutation, and chat-title
+suites in sequence with disposable proof roots and a disposable database.
+Set `VIVARY_REGISTRY_PROOF_ROOT`, `VIVARY_12H_PROOF_ROOT`,
+`VIVARY_17A_PROOF_ROOT`, or `VIVARY_TEST_CORE_PACKAGE_JSON` to absolute paths
+only when a task needs to own them. Core creates an empty `data/` directory
+under the working directory, which is ignored here.
+
 Exercise changed flows through normal startup. The private handoff preserves
 actual browser and desktop results, including failed attempts. These checks do not
 establish the complete desktop/web release journey or macOS runtime acceptance.
