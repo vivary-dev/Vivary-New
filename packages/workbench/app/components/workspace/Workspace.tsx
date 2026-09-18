@@ -83,7 +83,7 @@ export function Workspace() {
       setParams(current => {
         const next = new URLSearchParams(current);
         next.delete("panel"); next.delete("path"); next.delete("project"); next.delete("runtime"); next.delete("thread"); next.delete("history");
-        next.delete("run"); next.delete("draft");
+        next.delete("run"); next.delete("draft"); next.delete("line");
         return next;
       }, { replace: true });
     }
