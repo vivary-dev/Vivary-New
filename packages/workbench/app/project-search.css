@@ -15,6 +15,7 @@
 .project-search-line { color:hsl(var(--muted-foreground)); }
 .project-search-excerpt { font: .75rem/1.4 ui-monospace, monospace; color:hsl(var(--muted-foreground)); white-space:pre-wrap; overflow-wrap:anywhere; }
 .project-search-more { padding:.4rem; }
+.project-search-more-in-file { font-size:.7rem; color:hsl(var(--muted-foreground)); }
 .project-search-form input:focus-visible, .project-search-modes button:focus-visible, .project-search-result:focus-visible, .project-search-notice button:focus-visible { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
 @media (max-width:767px) {
   .project-search-form input { min-height:40px; }

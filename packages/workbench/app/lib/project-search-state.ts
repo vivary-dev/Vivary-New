@@ -1,5 +1,11 @@
 import type { ProjectFileIdentity } from "./project-file-schema.ts";
-import type { ProjectSearchMode, ProjectSearchResult, ProjectSearchTruncation } from "./project-search-schema.ts";
+import type {
+  ProjectSearchFileMatch,
+  ProjectSearchMode,
+  ProjectSearchResult,
+  ProjectSearchTextMatch,
+  ProjectSearchTruncation,
+} from "./project-search-schema.ts";
 
 // Pure state for the search panel: which request is current, and how pages
 // accumulate. A response counts only when it echoes the request the panel
@@ -10,12 +16,13 @@ export type SearchPages = Readonly<{
   request: SearchRequest;
   // The exact binding the pages came from; a rebound project never continues them.
   identity: ProjectFileIdentity;
-  files: Array<{ path: string; name: string }>;
-  matches: Array<{ path: string; line: number; column: number; excerpt: string }>;
+  files: ProjectSearchFileMatch[];
+  matches: ProjectSearchTextMatch[];
   truncated: ProjectSearchTruncation | null;
   continueAfter: string | null;
   scannedEntries: number;
   readFiles: number;
+  regexTimeouts: number;
   elapsedMs: number;
   invalidPattern: string | null;
 }>;
@@ -53,11 +60,11 @@ export function reduceSearchPages(
   if (!isCurrentSearch(result, request)) return previous;
   if (result.code === "invalid-pattern") {
     return { request, identity: result.project, files: [], matches: [], truncated: null, continueAfter: null,
-      scannedEntries: 0, readFiles: 0, elapsedMs: 0, invalidPattern: result.reason };
+      scannedEntries: 0, readFiles: 0, regexTimeouts: 0, elapsedMs: 0, invalidPattern: result.reason };
   }
   const fresh: SearchPages = { request, identity: result.project, files: result.files, matches: result.matches, truncated: result.truncated,
     continueAfter: result.continueAfter, scannedEntries: result.scannedEntries, readFiles: result.readFiles,
-    elapsedMs: result.elapsedMs, invalidPattern: null };
+    regexTimeouts: result.regexTimeouts, elapsedMs: result.elapsedMs, invalidPattern: null };
   if (!after) return fresh;
   if (!previous || !sameRequest(previous.request, request) || previous.continueAfter !== after) return previous;
   if (!sameIdentity(previous.identity, result.project)) return previous;
@@ -67,6 +74,7 @@ export function reduceSearchPages(
     matches: [...previous.matches, ...result.matches],
     scannedEntries: previous.scannedEntries + result.scannedEntries,
     readFiles: previous.readFiles + result.readFiles,
+    regexTimeouts: previous.regexTimeouts + result.regexTimeouts,
     elapsedMs: previous.elapsedMs + result.elapsedMs,
   };
 }
@@ -78,7 +86,9 @@ export function summarize(pages: SearchPages): string {
   const fileCount = pages.request.mode === "filename" ? pages.files.length : new Set(pages.matches.map(match => match.path)).size;
   const where = pages.request.mode === "filename" ? "" : ` in ${fileCount} ${fileCount === 1 ? "file" : "files"}`;
   const base = `${hits} ${hits === 1 ? noun : noun + (noun === "match" ? "es" : "s")}${where} · ${pages.scannedEntries} entries in ${pages.elapsedMs} ms`;
-  if (!pages.truncated) return base;
+  const skipped = pages.regexTimeouts > 0
+    ? ` · ${pages.regexTimeouts} ${pages.regexTimeouts === 1 ? "file" : "files"} skipped: pattern too slow` : "";
+  if (!pages.truncated) return base + skipped;
   const reason = { entries: "the entry limit", files: "the file limit", matches: "the match limit", time: "the time budget" }[pages.truncated];
-  return `${base} · stopped at ${reason}`;
+  return `${base} · stopped at ${reason}${skipped}`;
 }

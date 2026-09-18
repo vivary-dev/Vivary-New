@@ -85,6 +85,7 @@ export function ProjectSearch() {
             title={`${match.path} line ${match.line}`}>
             <span className="project-search-path">{match.path}<span className="project-search-line">:{match.line}:{match.column}</span></span>
             <span className="project-search-excerpt">{match.excerpt}</span>
+            {match.more && <span className="project-search-more-in-file">More matches in this file</span>}
           </Link></li>)}
     </ul>}
     {current?.continueAfter && !current.invalidPattern && <div className="project-search-more">

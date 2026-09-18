@@ -116,6 +116,20 @@ describe("project search", () => {
     if (invalid.code === "invalid-pattern") assert.match(invalid.reason, /Invalid regular expression/);
   });
 
+  it("skips a file whose pattern exceeds the regex time limit instead of hanging", async () => {
+    const f = await fixture({ regexTimeoutMs: 50 });
+    await f.write("slow.md", "a".repeat(40) + "b\n");
+    await f.write("fast.md", "aab\n");
+    const started = Date.now();
+    const result = await f.search("(a+)+$", "regex");
+    assert.ok(Date.now() - started < 2_000, "returned promptly");
+    assert.equal(result.code, "results");
+    if (result.code !== "results") return;
+    assert.equal(result.regexTimeouts, 1);
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.truncated, null);
+  });
+
   it("refuses symlinked directories and multiply linked files", async () => {
     const f = await fixture();
     const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-outside-"));

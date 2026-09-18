@@ -1,6 +1,7 @@
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import vm from "node:vm";
 
 import type { ActionRunContext } from "@agent-native/core/action";
 
@@ -39,6 +40,9 @@ export type ProjectSearchLimits = Readonly<{
   maxDepth: number;
   timeBudgetMs: number;
   excerptLength: number;
+  // Per-file limit for user-supplied regular expressions, enforced with a
+  // vm timeout because a pathological pattern can otherwise block the loop.
+  regexTimeoutMs: number;
 }>;
 
 export const DEFAULT_PROJECT_SEARCH_LIMITS: ProjectSearchLimits = Object.freeze({
@@ -50,10 +54,12 @@ export const DEFAULT_PROJECT_SEARCH_LIMITS: ProjectSearchLimits = Object.freeze(
   maxDepth: 16,
   timeBudgetMs: 1_500,
   excerptLength: 160,
+  regexTimeoutMs: 200,
 });
 
-// A scanner returns, per line, the 0-based column of the first match or -1.
-type Scanner = (lines: string[]) => number[];
+// A scanner returns, per line, the 0-based column of the first match or -1,
+// or "timeout" when the pattern exceeded its per-file time limit.
+type Scanner = (lines: string[]) => number[] | "timeout";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -67,13 +73,32 @@ function literalScanner(query: string): Scanner {
   return lines => lines.map(line => pattern.exec(line)?.index ?? -1);
 }
 
-function regexScanner(query: string): Scanner | string {
+// User patterns run inside a vm context whose timeout interrupts even a
+// catastrophic backtrack, one file at a time. Compiling outside the context
+// first reports syntax errors without any scanning.
+const REGEX_SCAN = new vm.Script(
+  '(function () { const pattern = new RegExp(source, "u"); return lines.map(line => { const found = pattern.exec(line); return found ? found.index : -1; }); })()',
+  { filename: "project-search-regex.vm" },
+);
+
+function regexScanner(query: string, timeoutMs: number): Scanner | string {
   try {
-    const pattern = new RegExp(query, "u");
-    return lines => lines.map(line => pattern.exec(line)?.index ?? -1);
+    new RegExp(query, "u");
   } catch (error) {
     return error instanceof Error ? error.message : "Invalid regular expression";
   }
+  const context = vm.createContext({ source: query, lines: [] as string[] });
+  return lines => {
+    context.lines = lines;
+    try {
+      return REGEX_SCAN.runInContext(context, { timeout: timeoutMs }) as number[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") return "timeout";
+      throw error;
+    } finally {
+      context.lines = [];
+    }
+  };
 }
 
 function excerptFor(line: string, column: number, length: number): string {
@@ -125,6 +150,7 @@ export function createProjectSearchService(
     const matches: ProjectSearchTextMatch[] = [];
     let scannedEntries = 0;
     let readFiles = 0;
+    let regexTimeouts = 0;
     let truncated: ProjectSearchTruncation | null = null;
     // The last entry fully handled on this page. A truncation never advances
     // it past the entry that tripped the limit, so the next page starts there.
@@ -153,6 +179,7 @@ export function createProjectSearchService(
       if (content === null || !scanner) return;
       const lines = content.split("\n").map(line => line.endsWith("\r") ? line.slice(0, -1) : line);
       const columns = scanner(lines.map(line => line.length > bounds.maxLineLength ? "" : line));
+      if (columns === "timeout") { regexTimeouts += 1; return; }
       const found: ProjectSearchTextMatch[] = [];
       for (let index = 0; index < columns.length; index += 1) {
         const column = columns[index];
@@ -240,6 +267,7 @@ export function createProjectSearchService(
       matches,
       scannedEntries,
       readFiles,
+      regexTimeouts,
       truncated,
       continueAfter: truncated === null ? null : lastExamined,
       elapsedMs: Math.round(performance.now() - started),
@@ -255,7 +283,7 @@ export function createProjectSearchService(
       let scanner: Scanner | null = null;
       if (input.mode === "text") scanner = literalScanner(input.query);
       else if (input.mode === "regex") {
-        const built = regexScanner(input.query);
+        const built = regexScanner(input.query, bounds.regexTimeoutMs);
         if (typeof built === "string") {
           return { code: "invalid-pattern", project, query: input.query, mode: "regex", reason: built };
         }

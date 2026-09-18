@@ -8,7 +8,7 @@ const project = { projectId: "project_a", label: "Example", rootId: "root_a", bi
 const request = { projectId: "project_a", query: "needle", mode: "text" as const };
 function page(overrides: Partial<Extract<ProjectSearchResult, { code: "results" }>> = {}): ProjectSearchResult {
   return { code: "results", project, query: "needle", mode: "text", files: [], matches: [], scannedEntries: 10,
-    readFiles: 4, truncated: null, continueAfter: null, elapsedMs: 5, ...overrides };
+    readFiles: 4, regexTimeouts: 0, truncated: null, continueAfter: null, elapsedMs: 5, ...overrides };
 }
 const match = (path: string, line = 1) => ({ path, line, column: 1, excerpt: "needle" });
 
@@ -70,5 +70,7 @@ describe("project search state", () => {
     assert.equal(summarize(one!), "1 match in 1 file · 10 entries in 5 ms");
     const files = reduceSearchPages(null, page({ mode: "filename", files: [{ path: "a.md", name: "a.md" }] }), { ...request, mode: "filename" }, undefined);
     assert.equal(summarize(files!), "1 file · 10 entries in 5 ms");
+    const slow = reduceSearchPages(null, page({ mode: "regex", regexTimeouts: 2 }), { ...request, mode: "regex" }, undefined);
+    assert.equal(summarize(slow!), "0 matches in 0 files · 10 entries in 5 ms · 2 files skipped: pattern too slow");
   });
 });

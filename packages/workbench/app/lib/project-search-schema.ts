@@ -46,6 +46,8 @@ export type ProjectSearchResult =
       matches: ProjectSearchTextMatch[];
       scannedEntries: number;
       readFiles: number;
+      // Files whose regex scan exceeded its time limit and were skipped.
+      regexTimeouts: number;
       truncated: ProjectSearchTruncation | null;
       continueAfter: string | null;
       elapsedMs: number;
