@@ -51,21 +51,39 @@ def run_doctor_json(target: Path, *args: str) -> tuple[int, dict]:
     return rc, json.loads(buf.getvalue())
 
 
-def snapshot_workspace(root: Path) -> dict[str, tuple]:
-    """Capture every file's bytes and every entry's modification time."""
+def _capture_workspace(root: Path) -> dict[str, tuple]:
     snapshot = {}
     for path in sorted(root.rglob("*")):
         rel = path.relative_to(root).as_posix()
-        stat_result = path.stat()
         if path.is_dir():
-            snapshot[rel] = ("dir", stat_result.st_mtime_ns)
+            # List before stat so the entry is revalidated first; see
+            # snapshot_workspace for why the order matters.
+            os.listdir(path)
+            snapshot[rel] = ("dir", path.stat().st_mtime_ns)
         elif path.is_file():
-            snapshot[rel] = (
-                "file",
-                stat_result.st_mtime_ns,
-                hashlib.sha256(path.read_bytes()).hexdigest(),
-            )
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            snapshot[rel] = ("file", path.stat().st_mtime_ns, digest)
     return snapshot
+
+
+def snapshot_workspace(root: Path) -> dict[str, tuple]:
+    """Capture every file's bytes and every entry's modification time.
+
+    Read or list each entry before taking its stat, then repeat until two
+    consecutive captures agree. On gVisor's 9p root (the Zo host) the first
+    stat of a freshly written entry can carry a cached timestamp about a
+    millisecond later than the value a later stat returns once the entry has
+    been revalidated, which made read-only doctor runs look like writes under
+    load. Settling the capture keeps the byte-for-byte and
+    timestamp-for-timestamp comparison intact.
+    """
+    previous = _capture_workspace(root)
+    for _ in range(4):
+        current = _capture_workspace(root)
+        if current == previous:
+            return current
+        previous = current
+    return previous
 
 def flatten_v01_modules(target: Path) -> None:
     """Turn current generated module routers into the flat published v0.1 layout."""
