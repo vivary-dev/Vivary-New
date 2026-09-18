@@ -4,6 +4,7 @@ import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { Badge, Button, Skeleton } from "@agent-native/toolkit/ui";
 import { IconExternalLink, IconRefresh } from "@tabler/icons-react";
 
+import type { CodePermissionMode } from "../../../server/code-permissions";
 import type { VivaryCodeEngine, VivaryRuntimeStatus, VivaryRuntimeStatusResult } from "../../../server/local-runtime-setup";
 
 const runtimes = [
@@ -32,6 +33,9 @@ const runtimes = [
   description: string;
 }>;
 
+// The select below offers exactly the modes the permissions action accepts.
+const permissionModes: readonly CodePermissionMode[] = ["normal", "read-only", "yolo"];
+
 const statusLabels: Record<VivaryRuntimeStatus["status"], string> = {
   ready: "Ready",
   "sign-in-required": "Sign-in required",
@@ -47,7 +51,7 @@ export function LocalRuntimeSettings() {
   });
   const permissions = useActionQuery<{ mode: "normal" | "read-only" | "yolo" }>("vivary-code-permissions", {}, { retry: false });
   const [saving, setSaving] = useState(false);
-  async function saveMode(mode: string) {
+  async function saveMode(mode: CodePermissionMode) {
     setSaving(true);
     setRefreshError(undefined);
     try {
@@ -94,7 +98,10 @@ export function LocalRuntimeSettings() {
       <SettingsRow id="codex-permissions" label="Execution mode" description="Applies when you send your next message. Running work keeps its current permissions.">
         <select aria-label="Codex execution mode" className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           value={permissions.data?.mode ?? "normal"} disabled={saving || !permissions.data}
-          onChange={event => void saveMode(event.target.value)}>
+          onChange={event => {
+            const next = permissionModes.find(mode => mode === event.target.value);
+            if (next) void saveMode(next);
+          }}>
           <option value="normal">Normal</option><option value="read-only">Read only</option><option value="yolo">YOLO</option>
         </select>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
