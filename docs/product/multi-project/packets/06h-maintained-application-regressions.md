@@ -65,8 +65,20 @@ Do not build a new verifier, evidence archive system, or test runner product.
 - 2026-09-18: Corrected the registry-actions metadata assertion, the stale
   project-services gate expectation, the chat-title bootstrap teardown, and
   the Doctor snapshot timestamp settle; supplied default proof roots and the
-  Core manifest; retired the 05b GUI runner test; identified root and noexec
-  hosts in the Core permission proofs; documented `pnpm test:maintained`.
+  Core manifest; identified root and noexec hosts in the Core permission
+  proofs; documented `pnpm test:maintained`.
+- 2026-09-18 source disposition: `packages/workbench/tests/gui-zo-runner.test.mjs`
+  removed. Obsolete assumption: it statically imported
+  `docs/product/multi-project/fixtures/05b/gui_zo_runner.mjs`, deleted with the
+  05b Zo GUI-proof harness in the 2026-09-12 salvage, so the file failed at
+  load and no case ran. What it asserted (proof-token authorization, read-only
+  mount verification, source manifest validation, owned-child cleanup) were
+  contracts of that retired harness, not of product code. Replacement
+  coverage for the product behavior it drove: the title route in
+  `tests/chat-title.test.mjs`; worker-child cleanup in the maintained registry
+  and mutation suites; history and navigation in the real-application
+  journeys. The harness and test remain readable on
+  `salvage/handoff-2026-09-12`.
 
 ## Shared desktop and web behavior
 
