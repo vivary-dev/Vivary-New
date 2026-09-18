@@ -1,4 +1,5 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { constants as fsConstants, type Stats } from "node:fs";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import vm from "node:vm";
@@ -21,7 +22,6 @@ import {
   isSecretName,
   kindFor,
   projectIdentity,
-  readBoundedFile,
   sameProject,
   type Resolver,
 } from "./project-files.ts";
@@ -99,6 +99,34 @@ function regexScanner(query: string, timeoutMs: number): Scanner | string {
       context.lines = [];
     }
   };
+}
+
+// Read a file only if it is still the regular, singly linked file that was
+// inspected a moment ago: open without following a link at the leaf, then
+// compare the open handle's identity with the earlier stat. A path swapped
+// for a link or another file between the two steps yields null.
+export async function readVerifiedFile(absolute: string, expected: Stats, maxBytes: number): Promise<Buffer | null> {
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+  let handle;
+  try {
+    handle = await open(absolute, flags);
+  } catch {
+    return null;
+  }
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.nlink !== 1 || opened.ino !== expected.ino || opened.dev !== expected.dev) return null;
+    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, null);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    return buffer.subarray(0, offset);
+  } finally {
+    await handle.close();
+  }
 }
 
 function abortError(): Error {
@@ -183,7 +211,8 @@ export function createProjectSearchService(
       if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return;
       if (readFiles >= bounds.maxReadFiles) { stop("files"); return; }
       readFiles += 1;
-      const bytes = await readBoundedFile(absolute);
+      const bytes = await readVerifiedFile(absolute, info, MAX_FILE_BYTES);
+      if (bytes === null) return;
       const content = bytes.length > MAX_FILE_BYTES ? null : decodeText(bytes);
       if (content === null || !scanner) return;
       const lines = content.split("\n").map(line => line.endsWith("\r") ? line.slice(0, -1) : line);
@@ -218,6 +247,13 @@ export function createProjectSearchService(
 
     async function visit(directory: string, segments: string[]): Promise<void> {
       throwIfAborted();
+      // The canonical directory was contained when it was queued; make sure
+      // the path still names a real directory before listing it.
+      try {
+        if (!(await lstat(directory)).isDirectory()) return;
+      } catch {
+        return;
+      }
       let entries;
       try {
         entries = await readdir(directory, { withFileTypes: true });

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { link, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import projectSearchAction from "../actions/vivary-project-search.ts";
-import { createProjectSearchService } from "../server/project-search.ts";
+import { createProjectSearchService, readVerifiedFile } from "../server/project-search.ts";
 import { projectSearchInputSchema } from "../app/lib/project-search-schema.ts";
 
 const roots: string[] = [];
@@ -145,6 +145,25 @@ describe("project search", () => {
     assert.deepEqual(result.matches.map(match => match.path), []);
     const names = await f.search("leak", "filename");
     if (names.code === "results") assert.deepEqual(names.files, []);
+  });
+
+  it("refuses to read a file that was swapped for a link or another file after inspection", async () => {
+    const f = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-outside-"));
+    roots.push(outside);
+    await writeFile(path.join(outside, "secret.md"), "outside needle\n");
+    await f.write("target.md", "inside needle\n");
+    const target = path.join(f.root, "target.md");
+    const inspected = await lstat(target);
+    assert.equal((await readVerifiedFile(target, inspected, 1024))?.toString(), "inside needle\n");
+    await rm(target);
+    await symlink(path.join(outside, "secret.md"), target);
+    assert.equal(await readVerifiedFile(target, inspected, 1024), null);
+    await rm(target);
+    await writeFile(target, "replacement needle\n");
+    assert.equal(await readVerifiedFile(target, inspected, 1024), null);
+    await rename(target, path.join(f.root, "renamed.md"));
+    assert.equal(await readVerifiedFile(target, inspected, 1024), null);
   });
 
   it("handles Unicode and spaced paths in both modes", async () => {
