@@ -153,6 +153,6 @@ Each implementation unit gets focused checks and affected real hosted verificati
 | Select an unavailable model | Accurate readiness state and supported recovery; no invented capability or silent fallback. |
 | Prepare handoff, then change files | Existing designated document updates with actual evidence; later changes mark it stale; failure retains previous content. |
 | Close all panels during work | Active work and Stop remain visible; no hidden execution or lost approval. |
-| Use a non-Git writing/research project | Plans and documents work normally; Git-specific controls explain absence only when relevant. |
+| Use a non-Git writing/research project | Plans and documents work normally; Git-specific controls explain absence only when relevant. Project details offers an on-demand health check that shows the same result as `vivary doctor --json`: redundant or unknown frontmatter stays a warning, a missing required field or a broken link is an error, and no Git or npm fact appears for a folder without a repository or a package manifest. |
 
 The first shell and integrated file, conversation, project-recovery, and panel journeys passed on the tested private hosted candidate and merged in PR #42. The acceptance evidence above defines that scope. No model ran, and no Windows artifact was tested. The supported harness catalog, cross-harness linking, handoff workflow, and concurrent runtime remain incomplete.

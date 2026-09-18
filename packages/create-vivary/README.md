@@ -116,6 +116,14 @@ can be recovered explicitly.
 privacy rules, optional adapters, and pending adoption recovery. Plain Doctor is
 read-only; `--trend` is the explicit mode that writes runtime trend state.
 
+Doctor keeps Tropo's own severity. Error-level findings (a missing required
+field, invalid frontmatter, a broken reference) fail Doctor with exit 1.
+Warning-level findings (a field equal to its derived value, an unknown field on
+a typed record, a dangling ref that is also counted as a broken edge) are
+listed under `warnings` and leave `ok` true, so an ordinary notes workspace
+with a redundant `title:` stays healthy. A workspace with no `ref` edges is
+valid; only zero typed nodes is reported, as a warning.
+
 Doctor also reads older full Vivary workspaces without migrating or regenerating
 them. Its versioned compatibility report uses `schema_version = 2`: new workspaces
 report `workspace_contract = "thin-v0.3"`; old workspaces report
