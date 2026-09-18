@@ -90,12 +90,17 @@ indexes in user folders, or require a paid embedding service for basic text sear
   8 to 9 s total across 10 pages of 2,000 files (each page under its 1.5 s
   budget), first page in under a second; process RSS stable at about 240 MB
   across queries. The caps, not the host, bound each request.
-- 2026-09-18 review corrections (Codex, GPT-6 Astra): the walk now visits
-  each directory at its sorted position so pages never skip or repeat,
-  counts only entries past the cursor, checks the time budget after every
-  listing and entry, and enforces the page match cap exactly (a file that
-  would overflow it is deferred; a file's last returned match is marked when
-  the per-file cap of 20 cut it). Regular expressions run inside a vm
+- 2026-09-18 review corrections (Codex, GPT-6 Astra, two passes): the walk
+  visits each directory at its sorted position and resumes from a cursor that
+  names the last counted entry (a file, an unfinished directory, or a finished
+  directory with a trailing slash), so for a tree that does not change between
+  pages no match is skipped or repeated and every page makes progress, even
+  through directory-only prefixes under a tiny budget. The time budget is a
+  soft deadline checked between filesystem operations. The page match cap is
+  exact (a file that would overflow it is deferred; a file's last returned
+  match is marked when the per-file cap of 20 cut it), overlong lines are
+  excluded from matching rather than blanked, and a FIFO swapped in for a
+  file cannot block the open. Regular expressions run inside a vm
   context with a 200 ms per-file timeout; a file that exceeds it is skipped
   and counted in the result and the status line. The service accepts an
   AbortSignal and checks it between filesystem operations; the action
@@ -109,7 +114,18 @@ indexes in user folders, or require a paid embedding service for basic text sear
   applies the skip and secret rules but not the link, size, or text checks
   that content search applies; nothing is read in that mode. Time and
   cancellation are honored between operations; a single pending read or
-  listing is not interrupted.
+  listing is not interrupted. Accepted residuals, recorded rather than
+  claimed away: (1) a directory or ancestor replaced by a link while a page
+  is running can redirect that page's later listings; Node exposes no
+  `openat`-style handle-relative opens, the project file surface shares the
+  same window, and the threat requires a concurrent writer inside the user's
+  own project folder; (2) browser callers carry no request signal through
+  the framework's action transport, so a superseded panel query is abandoned
+  by the client while the server finishes its bounded page; (3) the file
+  reader re-centers the requested line on every navigation while a match is
+  open, which also re-centers after an unrelated navigation in the same
+  panel state; (4) a cursor describes a position, not a snapshot, so files
+  changed between pages can be missed or seen twice.
 - 2026-09-18 agent access (Jeff's decision): the selected harness owns its
   tools (`specification/harness-adapters.md`). Vivary injects no tools or MCP
   into Claude Code or Codex runs; Claude Code runs with Grep and Glob scoped
@@ -119,12 +135,13 @@ indexes in user folders, or require a paid embedding service for basic text sear
   Exposing it to the app's own Native conversations would need the local
   project service to accept tool callers; that is a separate reviewed slice
   if wanted.
-- 2026-09-18 verification: 28 focused tests across `tests/project-search.test.ts`,
+- 2026-09-18 verification: 33 focused tests across `tests/project-search.test.ts`,
   `tests/project-file-location.test.ts`, and `tests/project-search-state.test.ts`
   (all in the CI list), tsc and agent-native doctor clean, production build
   green, and a Playwright journey on a loopback build (register the fixture
   folder, text and filename and regex queries, invalid pattern, superseding
-  query, project switch, narrow layout, open at line): 14 of 14 passed;
+  query, project switch, narrow layout, open at line, re-selecting a match,
+  a catastrophic pattern returning at once): 15 of 15 passed on the final build;
   screenshots retained privately on Zo. A latent type error in the runtime
   settings page, visible only after a fresh build regenerates the action type
   map, was fixed alongside. gitignore parsing is not implemented; the file
