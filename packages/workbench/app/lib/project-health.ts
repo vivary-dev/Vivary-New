@@ -16,8 +16,11 @@ export type ProjectHealthReport = {
   nodes: number;
   edges: number;
   broken: number;
+  // The lists are capped; the totals say how many Doctor actually reported.
   warnings: string[];
+  warningTotal: number;
   errors: string[];
+  errorTotal: number;
 };
 
 export type ProjectHealth =
@@ -38,6 +41,13 @@ function findings(value: unknown): string[] | null {
     ? entry.slice(0, MAX_FINDING_CHARS - 1) + "…" : entry);
 }
 
+// "Errors", or "Showing 50 of 80 errors" when the list above was capped.
+export function heading(noun: "error" | "warning", shown: number, total: number): string {
+  const plural = `${noun}s`;
+  if (shown >= total) return plural[0].toUpperCase() + plural.slice(1);
+  return `Showing ${shown} of ${total} ${plural}`;
+}
+
 export function summarizeDoctorOutput(output: OriginalCommandOutput): ProjectHealth {
   let parsed: unknown;
   try { parsed = JSON.parse(output.stdout); } catch { parsed = undefined; }
@@ -52,5 +62,6 @@ export function summarizeDoctorOutput(output: OriginalCommandOutput): ProjectHea
       ? `Doctor did not return a readable report: ${detail.slice(0, MAX_FINDING_CHARS)}`
       : "Doctor did not return a readable report. Check the local runtime and try again." };
   }
-  return { kind: "report", ok: report.ok, nodes, edges, broken, warnings, errors };
+  return { kind: "report", ok: report.ok, nodes, edges, broken,
+    warnings, warningTotal: (report.warnings as string[]).length, errors, errorTotal: (report.errors as string[]).length };
 }

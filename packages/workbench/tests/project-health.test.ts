@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { summarizeDoctorOutput } from "../app/lib/project-health.ts";
+import { heading, summarizeDoctorOutput } from "../app/lib/project-health.ts";
 
 const report = (fields: Record<string, unknown>) => JSON.stringify({
   ok: true, root: "/project", errors: [], warnings: [], graph: { nodes: 6, edges: 1, broken: 0 },
@@ -11,7 +11,8 @@ const report = (fields: Record<string, unknown>) => JSON.stringify({
 test("a healthy report keeps Doctor's warnings as warnings", () => {
   const warning = "tropo finding: .vivary/context.md:4: warning W202: unknown field 'author' for type 'project'";
   const health = summarizeDoctorOutput({ exitCode: 0, stdout: report({ warnings: [warning] }), stderr: "" });
-  assert.deepEqual(health, { kind: "report", ok: true, nodes: 6, edges: 1, broken: 0, warnings: [warning], errors: [] });
+  assert.deepEqual(health, { kind: "report", ok: true, nodes: 6, edges: 1, broken: 0,
+    warnings: [warning], warningTotal: 1, errors: [], errorTotal: 0 });
 });
 
 test("a failed report lists Doctor's errors even though the command exited 1", () => {
@@ -35,12 +36,15 @@ test("output that is not a Doctor report is reported as unreadable with the firs
   }
 });
 
-test("long finding lists stay bounded", () => {
+test("long finding lists stay bounded and the omitted remainder is disclosed", () => {
   const warnings = Array.from({ length: 80 }, (_, index) => `warning ${index} ` + "x".repeat(500));
   const health = summarizeDoctorOutput({ exitCode: 0, stdout: report({ warnings }), stderr: "" });
   assert.equal(health.kind, "report");
   if (health.kind !== "report") return;
   assert.equal(health.warnings.length, 50);
+  assert.equal(health.warningTotal, 80);
   assert.ok(health.warnings.every(entry => entry.length <= 400));
   assert.ok(health.warnings[0].endsWith("…"));
+  assert.equal(heading("warning", health.warnings.length, health.warningTotal), "Showing 50 of 80 warnings");
+  assert.equal(heading("error", 2, 2), "Errors");
 });

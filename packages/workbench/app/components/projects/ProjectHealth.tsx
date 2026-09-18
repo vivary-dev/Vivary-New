@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@agent-native/toolkit/ui";
 import { useNativeActionCaller } from "@/lib/native-actions";
-import { summarizeDoctorOutput, type OriginalCommandOutput, type ProjectHealth as Health } from "@/lib/project-health";
+import { heading, summarizeDoctorOutput, type OriginalCommandOutput, type ProjectHealth as Health } from "@/lib/project-health";
 
 type State =
   | { kind: "idle" }
@@ -46,11 +46,11 @@ export function ProjectHealth({ projectId, disabled }: { projectId: string; disa
           {report.broken > 0 && `, ${report.broken} broken`}
         </p>
         {report.errors.length > 0 && <>
-          <p className="project-health-heading">Errors</p>
+          <p className="project-health-heading">{heading("error", report.errors.length, report.errorTotal)}</p>
           <ul data-agent-native="project-health-errors">{report.errors.map(entry => <li key={entry}>{entry}</li>)}</ul>
         </>}
         {report.warnings.length > 0 && <>
-          <p className="project-health-heading">Warnings</p>
+          <p className="project-health-heading">{heading("warning", report.warnings.length, report.warningTotal)}</p>
           <ul data-agent-native="project-health-warnings">{report.warnings.map(entry => <li key={entry}>{entry}</li>)}</ul>
         </>}
         {report.errors.length === 0 && report.warnings.length === 0 && <p>No findings.</p>}
