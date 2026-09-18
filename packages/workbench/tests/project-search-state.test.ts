@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { committedQuery, isCurrentSearch, reduceSearchPages, summarize } from "../app/lib/project-search-state.ts";
+import { committedQuery, incompleteCoverage, isCurrentSearch, reduceSearchPages, summarize } from "../app/lib/project-search-state.ts";
 import type { ProjectSearchResult } from "../app/lib/project-search-schema.ts";
 
 const project = { projectId: "project_a", label: "Example", rootId: "root_a", bindingId: "binding_a", bindingRevision: 1, policyRevision: 1 };
@@ -49,10 +49,16 @@ describe("project search state", () => {
   it("never continues pages across a rebound project", () => {
     const first = reduceSearchPages(null, page({ matches: [match("a.md")], truncated: "matches", continueAfter: "a.md" }), request, undefined);
     const rebound = reduceSearchPages(first, page({ matches: [match("b.md")], project: { ...project, bindingRevision: 2 } }), request, "a.md");
-    assert.equal(rebound, first);
+    assert.equal(rebound, null);
     const replaced = reduceSearchPages(first, page({ matches: [match("b.md")], project: { ...project, bindingRevision: 2 } }), request, undefined);
     assert.deepEqual(replaced?.matches.map(m => m.path), ["b.md"]);
     assert.equal(replaced?.identity.bindingRevision, 2);
+  });
+
+  it("knows when coverage was incomplete", () => {
+    assert.equal(incompleteCoverage(reduceSearchPages(null, page(), request, undefined)!), false);
+    assert.equal(incompleteCoverage(reduceSearchPages(null, page({ truncated: "entries", continueAfter: "x.md" }), request, undefined)!), true);
+    assert.equal(incompleteCoverage(reduceSearchPages(null, page({ regexTimeouts: 1 }), request, undefined)!), true);
   });
 
   it("carries an invalid pattern as a message instead of results", () => {

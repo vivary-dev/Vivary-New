@@ -50,7 +50,9 @@ export function isCurrentSearch(result: ProjectSearchResult | undefined, request
 
 // Fold a page into the accumulated state. The first page (no `after`)
 // replaces everything; a continuation appends only when it continues the
-// cursor the previous page returned. Anything else is ignored.
+// cursor the previous page returned from the same project binding. A
+// continuation from a different binding clears the pages so the panel
+// starts a fresh search; anything else is ignored.
 export function reduceSearchPages(
   previous: SearchPages | null,
   result: ProjectSearchResult,
@@ -67,7 +69,7 @@ export function reduceSearchPages(
     regexTimeouts: result.regexTimeouts, elapsedMs: result.elapsedMs, invalidPattern: null };
   if (!after) return fresh;
   if (!previous || !sameRequest(previous.request, request) || previous.continueAfter !== after) return previous;
-  if (!sameIdentity(previous.identity, result.project)) return previous;
+  if (!sameIdentity(previous.identity, result.project)) return null;
   return {
     ...fresh,
     files: [...previous.files, ...result.files],
@@ -77,6 +79,12 @@ export function reduceSearchPages(
     regexTimeouts: previous.regexTimeouts + result.regexTimeouts,
     elapsedMs: previous.elapsedMs + result.elapsedMs,
   };
+}
+
+// True when some of the project was not searched: a limit stopped the page
+// or a slow pattern skipped files.
+export function incompleteCoverage(pages: SearchPages): boolean {
+  return pages.truncated !== null || pages.regexTimeouts > 0;
 }
 
 export function summarize(pages: SearchPages): string {

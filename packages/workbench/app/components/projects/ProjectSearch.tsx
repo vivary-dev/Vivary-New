@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router";
 import { useProjects } from "./ProjectContext";
 import { projectFileHref } from "@/lib/project-file-location";
 import type { ProjectSearchMode, ProjectSearchResult } from "@/lib/project-search-schema";
-import { committedQuery, reduceSearchPages, sameRequest, summarize, type SearchPages } from "@/lib/project-search-state";
+import { committedQuery, incompleteCoverage, reduceSearchPages, sameRequest, summarize, type SearchPages } from "@/lib/project-search-state";
 import "../../project-search.css";
 
 const MODES: ReadonlyArray<{ mode: ProjectSearchMode; label: string }> = [
@@ -45,7 +45,12 @@ export function ProjectSearch() {
   const data = search.data;
   useEffect(() => {
     if (!projectId || !data) return;
-    setPages(previous => reduceSearchPages(previous, data, { projectId, query, mode }, after));
+    setPages(previous => {
+      const next = reduceSearchPages(previous, data, { projectId, query, mode }, after);
+      // A continuation the reducer refused (the project was rebound) starts over.
+      if (next === null && after) setAfter(undefined);
+      return next;
+    });
   }, [data, projectId, query, mode, after]);
 
   if (!projectId || !activeProject) return <p className="project-search-empty">Choose a project to search its files.</p>;
@@ -73,7 +78,8 @@ export function ProjectSearch() {
       <button type="button" onClick={() => void search.refetch()}>Retry</button></div>}
     {current?.invalidPattern && <p className="project-search-notice" role="alert">{current.invalidPattern}</p>}
     {busy && !current && <div className="project-search-loading" aria-hidden><Skeleton className="h-6 w-4/5" /><Skeleton className="h-6 w-3/5" /></div>}
-    {current && !current.invalidPattern && hits === 0 && !busy && <p className="project-search-empty">No matches in this project.</p>}
+    {current && !current.invalidPattern && hits === 0 && !busy && <p className="project-search-empty">
+      {incompleteCoverage(current) ? "No matches in the files searched so far." : "No matches in this project."}</p>}
     {current && !current.invalidPattern && hits > 0 && <ul className="project-search-results">
       {mode === "filename"
         ? current.files.map(file => <li key={file.path}>
