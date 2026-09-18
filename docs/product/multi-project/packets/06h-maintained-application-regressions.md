@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/22
 Parent: 06
-Status: in-progress
+Status: done
 Depends-on: [03c]
 Owner: Coordinating Codex, sole existing-test maintenance writer
 Scope: Correct named obsolete fixture assumptions and environment setup in the maintained application checks.
 Verification-kind: runtime
+Evidence: [Maintained regression checks verification](../receipts/06h-maintained-application-regressions.md)
+Verification-result: passed
 Timebox: One focused test-maintenance change with no new proof framework.
 
 ## Goal
@@ -79,6 +81,8 @@ Do not build a new verifier, evidence archive system, or test runner product.
   and mutation suites; history and navigation in the real-application
   journeys. The harness and test remain readable on
   `salvage/handoff-2026-09-12`.
+- 2026-09-18: Accepted by Jeff after end-to-end verification of merged dev;
+  evidence in the linked receipt.
 
 ## Shared desktop and web behavior
 

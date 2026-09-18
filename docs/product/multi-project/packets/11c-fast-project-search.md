@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/13
 Parent: 11
-Status: in-progress
+Status: done
 Depends-on: [03c]
 Owner: Root-assigned Workbench project-search integrator
 Scope: Add scoped filename and text search with bounded work, useful matches and file navigation.
 Verification-kind: runtime
+Evidence: [Project search verification](../receipts/11c-fast-project-search.md)
+Verification-result: passed
 Timebox: One exact-search and source-navigation increment.
 
 ## Goal
@@ -149,6 +151,8 @@ indexes in user folders, or require a paid embedding service for basic text sear
   settings page, visible only after a fresh build regenerates the action type
   map, was fixed alongside. gitignore parsing is not implemented; the file
   surface's skip and secret rules are the current ignore policy.
+- 2026-09-18: Accepted by Jeff after end-to-end verification of merged dev;
+  evidence in the linked receipt.
 
 ## Shared desktop and web behavior
 
