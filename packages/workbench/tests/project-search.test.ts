@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
+import projectSearchAction from "../actions/vivary-project-search.ts";
 import { createProjectSearchService } from "../server/project-search.ts";
 import { projectSearchInputSchema } from "../app/lib/project-search-schema.ts";
 
@@ -43,6 +44,19 @@ describe("project search input", () => {
     }
     assert.equal(projectSearchInputSchema.safeParse({ projectId: "project_a", query: "ok", extra: 1 }).success, false);
     assert.equal(projectSearchInputSchema.safeParse({ projectId: "project_a", query: "ok", mode: "fuzzy" }).success, false);
+  });
+});
+
+describe("project search action", () => {
+  it("is a read-only authenticated GET action hidden from tool catalogs", () => {
+    assert.equal(projectSearchAction.readOnly, true);
+    assert.equal(projectSearchAction.requiresAuth, true);
+    assert.deepEqual(projectSearchAction.http, { method: "GET" });
+    for (const flag of ["agentTool", "mcpTool", "toolCallable"] as const) {
+      assert.equal(projectSearchAction[flag], false, flag);
+    }
+    assert.equal(projectSearchAction.schema.safeParse({ projectId: "project_a", query: "needle", mode: "regex" }).success, true);
+    assert.equal(projectSearchAction.schema.safeParse({ projectId: "project_a", query: "n" }).success, false);
   });
 });
 
