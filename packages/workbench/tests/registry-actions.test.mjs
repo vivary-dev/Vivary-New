@@ -110,7 +110,18 @@ async function worker(scenario) {
       assert.equal(action.schema.safeParse(request()).success, name === "register");
       assert.equal(action.tool.parameters.additionalProperties, false);
     }
-    await assert.rejects(readdir(new URL("../actions/", import.meta.url)), { code: "ENOENT" });
+    assert.deepEqual(Object.keys(actions).sort(),
+      ["exportProject", "mutationAdmission", "mutationQuarantine", "register"]);
+    // Registry actions are composed in server/registry-actions.mjs and mounted only
+    // by registry-http.mjs. Core discovers the app actions folder on its own, so a
+    // same-named file there would expose a registry action; assert absence by name.
+    const registryActionNames = ["vivary-register-project", "vivary-export-project",
+      "vivary-admit-project-mutation", "vivary-quarantine-project-mutation"];
+    const discovered = new Set((await readdir(new URL("../actions/", import.meta.url)))
+      .map((file) => path.parse(file).name));
+    for (const name of registryActionNames) {
+      assert.ok(!discovered.has(name), `${name} must not be discoverable from the app actions folder`);
+    }
     await empty();
   } else if (scenario === "persistence") {
     const actions = make();
