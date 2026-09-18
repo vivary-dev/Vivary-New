@@ -58,8 +58,9 @@ export const DEFAULT_PROJECT_SEARCH_LIMITS: ProjectSearchLimits = Object.freeze(
 });
 
 // A scanner returns, per line, the 0-based column of the first match or -1,
-// or "timeout" when the pattern exceeded its per-file time limit.
-type Scanner = (lines: string[]) => number[] | "timeout";
+// or "timeout" when the pattern exceeded its per-file time limit. A null
+// line is excluded from matching (it was longer than the line cap).
+type Scanner = (lines: Array<string | null>) => number[] | "timeout";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -70,14 +71,14 @@ function escapeRegExp(value: string): string {
 // can change a string's length).
 function literalScanner(query: string): Scanner {
   const pattern = new RegExp(escapeRegExp(query), "iu");
-  return lines => lines.map(line => pattern.exec(line)?.index ?? -1);
+  return lines => lines.map(line => (line === null ? -1 : pattern.exec(line)?.index ?? -1));
 }
 
 // User patterns run inside a vm context whose timeout interrupts even a
 // catastrophic backtrack, one file at a time. Compiling outside the context
 // first reports syntax errors without any scanning.
 const REGEX_SCAN = new vm.Script(
-  '(function () { const pattern = new RegExp(source, "u"); return lines.map(line => { const found = pattern.exec(line); return found ? found.index : -1; }); })()',
+  '(function () { const pattern = new RegExp(source, "u"); return lines.map(line => { if (line === null) return -1; const found = pattern.exec(line); return found ? found.index : -1; }); })()',
   { filename: "project-search-regex.vm" },
 );
 
@@ -87,7 +88,7 @@ function regexScanner(query: string, timeoutMs: number): Scanner | string {
   } catch (error) {
     return error instanceof Error ? error.message : "Invalid regular expression";
   }
-  const context = vm.createContext({ source: query, lines: [] as string[] });
+  const context = vm.createContext({ source: query, lines: [] as Array<string | null> });
   return lines => {
     context.lines = lines;
     try {
@@ -102,11 +103,13 @@ function regexScanner(query: string, timeoutMs: number): Scanner | string {
 }
 
 // Read a file only if it is still the regular, singly linked file that was
-// inspected a moment ago: open without following a link at the leaf, then
-// compare the open handle's identity with the earlier stat. A path swapped
-// for a link or another file between the two steps yields null.
+// inspected a moment ago: open without following a link at the leaf and
+// without blocking (a FIFO swapped in would otherwise wait for a writer),
+// then compare the open handle's identity with the earlier stat. A path
+// swapped for a link, a FIFO, or another file between the two steps yields
+// null.
 export async function readVerifiedFile(absolute: string, expected: Stats, maxBytes: number): Promise<Buffer | null> {
-  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0);
   let handle;
   try {
     handle = await open(absolute, flags);
@@ -144,7 +147,25 @@ function excerptFor(line: string, column: number, length: number): string {
 
 // Traversal is depth-first with every directory's entries in name order and
 // each directory visited at its own sorted position, so a project path's
-// place in the walk is its segment-wise comparison. `after` resumes past it.
+// place in the walk is its segment-wise comparison.
+//
+// The cursor names the last entry the previous page counted: a file, a
+// directory it had entered but not finished (no trailing slash), or a
+// directory it finished (trailing slash). Resuming skips files at or before
+// the cursor, prunes finished directories, re-enters an unfinished one, and
+// never counts the cursor's ancestors again, so every page makes progress.
+type Cursor = Readonly<{ segments: string[]; done: boolean }>;
+
+function parseCursor(after: string | undefined): Cursor | null {
+  if (!after) return null;
+  const done = after.endsWith("/");
+  return { segments: (done ? after.slice(0, -1) : after).split("/"), done };
+}
+
+function formatCursor(cursor: Cursor): string {
+  return cursor.segments.join("/") + (cursor.done ? "/" : "");
+}
+
 function compareSegments(left: string[], right: string[]): number {
   const length = Math.min(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
@@ -153,13 +174,26 @@ function compareSegments(left: string[], right: string[]): number {
   return left.length - right.length;
 }
 
-function precedesCursor(segments: string[], after: string[] | null): boolean {
-  return after !== null && compareSegments(segments, after) <= 0;
+function isPrefix(prefix: string[], segments: string[]): boolean {
+  return prefix.length <= segments.length && prefix.every((segment, index) => segment === segments[index]);
 }
 
-function subtreePrecedesCursor(segments: string[], after: string[] | null): boolean {
-  if (after === null) return false;
-  return compareSegments(segments, after.slice(0, segments.length)) < 0;
+function fileBeforeCursor(segments: string[], cursor: Cursor | null): boolean {
+  if (cursor === null) return false;
+  if (cursor.done && isPrefix(cursor.segments, segments)) return true;
+  return compareSegments(segments, cursor.segments) <= 0;
+}
+
+function directoryBeforeCursor(segments: string[], cursor: Cursor | null): boolean {
+  if (cursor === null) return false;
+  if (isPrefix(segments, cursor.segments)) return cursor.done && segments.length === cursor.segments.length;
+  return compareSegments(segments, cursor.segments) < 0;
+}
+
+// Ancestors of the cursor (and the cursor directory itself) were counted by
+// the page that produced it.
+function countedBefore(segments: string[], cursor: Cursor | null): boolean {
+  return cursor !== null && isPrefix(segments, cursor.segments);
 }
 
 const byName = (left: { name: string }, right: { name: string }) =>
@@ -179,45 +213,50 @@ export function createProjectSearchService(
 
   async function walk(root: string, input: ProjectSearchInput, project: ProjectFileIdentity, scanner: Scanner | null, signal?: AbortSignal) {
     const started = performance.now();
-    const after = input.after ? input.after.split("/") : null;
+    const after = parseCursor(input.after);
     const files: ProjectSearchFileMatch[] = [];
     const matches: ProjectSearchTextMatch[] = [];
     let scannedEntries = 0;
     let readFiles = 0;
     let regexTimeouts = 0;
     let truncated: ProjectSearchTruncation | null = null;
-    // The last entry fully handled on this page. A truncation never advances
-    // it past the entry that tripped the limit, so the next page starts there.
-    let lastExamined: string | null = null;
+    // The last entry this page counted; the next page resumes after it. A
+    // limit never advances it past the entry that tripped the limit.
+    let lastCounted: Cursor | null = null;
 
     const stop = (reason: ProjectSearchTruncation) => { truncated = reason; };
-    // Cancellation is honored between filesystem operations, like the time
-    // budget; a pending read or listing finishes first.
+    // Cancellation and the time budget are honored between filesystem
+    // operations; a single pending read or listing finishes first.
     const throwIfAborted = () => { if (signal?.aborted) throw abortError(); };
-    // Time is checked between filesystem operations; a single read or readdir
-    // is not interrupted. Progress is guaranteed because the budget only
-    // applies once at least one entry has been handled.
-    const outOfTime = () => lastExamined !== null && performance.now() - started >= bounds.timeBudgetMs;
-    const countEntry = (): boolean => {
+    // The budget applies once one entry has been counted, so a page always
+    // makes progress.
+    const outOfTime = () => lastCounted !== null && performance.now() - started >= bounds.timeBudgetMs;
+    const countEntry = (segments: string[]): boolean => {
+      if (scannedEntries >= bounds.maxScannedEntries) { stop("entries"); return false; }
       scannedEntries += 1;
-      if (scannedEntries > bounds.maxScannedEntries) { stop("entries"); return false; }
+      lastCounted = { segments, done: false };
       return true;
     };
 
-    async function scanFile(absolute: string, relative: string): Promise<void> {
-      if (!kindFor(absolute)) return;
+    // Returns false when the file was not handled on this page (a limit
+    // tripped first) so the caller leaves the cursor before it.
+    async function scanFile(absolute: string, relative: string): Promise<boolean> {
+      if (!kindFor(absolute)) return true;
       let info;
-      try { info = await lstat(absolute); } catch { return; }
-      if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return;
-      if (readFiles >= bounds.maxReadFiles) { stop("files"); return; }
+      try { info = await lstat(absolute); } catch { return true; }
+      if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return true;
+      if (readFiles >= bounds.maxReadFiles) { stop("files"); return false; }
       readFiles += 1;
       const bytes = await readVerifiedFile(absolute, info, MAX_FILE_BYTES);
-      if (bytes === null) return;
+      throwIfAborted();
+      if (bytes === null) return true;
       const content = bytes.length > MAX_FILE_BYTES ? null : decodeText(bytes);
-      if (content === null || !scanner) return;
+      if (content === null || !scanner) return true;
       const lines = content.split("\n").map(line => line.endsWith("\r") ? line.slice(0, -1) : line);
-      const columns = scanner(lines.map(line => line.length > bounds.maxLineLength ? "" : line));
-      if (columns === "timeout") { regexTimeouts += 1; return; }
+      // A final newline ends the last line; it does not start an empty one.
+      if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+      const columns = scanner(lines.map(line => (line.length > bounds.maxLineLength ? null : line)));
+      if (columns === "timeout") { regexTimeouts += 1; return true; }
       const found: ProjectSearchTextMatch[] = [];
       for (let index = 0; index < columns.length; index += 1) {
         const column = columns[index];
@@ -235,14 +274,14 @@ export function createProjectSearchService(
           const kept = found.slice(0, room);
           kept[kept.length - 1].more = true;
           matches.push(...kept);
-          lastExamined = relative;
+          return true;
         }
         stop("matches");
-        return;
+        return false;
       }
       matches.push(...found);
-      lastExamined = relative;
       if (matches.length >= bounds.maxMatches) stop("matches");
+      return true;
     }
 
     async function visit(directory: string, segments: string[]): Promise<void> {
@@ -271,20 +310,21 @@ export function createProjectSearchService(
         const absolute = path.join(directory, entry.name);
         if (entry.isDirectory()) {
           if (segments.length >= bounds.maxDepth || SKIPPED_DIRECTORIES.has(entry.name.toLowerCase())) continue;
-          if (subtreePrecedesCursor(childSegments, after)) continue;
-          if (!countEntry()) return;
+          if (directoryBeforeCursor(childSegments, after)) continue;
+          if (!countedBefore(childSegments, after) && !countEntry(childSegments)) return;
           let canonical: string;
           try { canonical = await realpath(absolute); } catch { continue; }
           if (!contained(root, canonical)) continue;
           await visit(canonical, childSegments);
           if (truncated !== null) return;
-          // Only files advance the cursor: a directory path sorts before its
-          // own contents, so using it would re-admit them on the next page.
+          // The whole subtree is done: the next page prunes it.
+          lastCounted = { segments: childSegments, done: true };
           if (outOfTime()) { stop("time"); return; }
           continue;
         }
-        if (!entry.isFile() || precedesCursor(childSegments, after)) continue;
-        if (!countEntry()) return;
+        if (!entry.isFile() || fileBeforeCursor(childSegments, after)) continue;
+        const before = lastCounted;
+        if (!countEntry(childSegments)) return;
         const relative = childSegments.join("/");
         if (input.mode === "filename") {
           // Names need no stat: the directory entry already says this is a
@@ -292,13 +332,14 @@ export function createProjectSearchService(
           if (relative.toLowerCase().includes(input.query.toLowerCase())) {
             files.push({ path: relative, name: entry.name });
           }
-          lastExamined = relative;
           if (files.length >= bounds.maxMatches) { stop("matches"); return; }
-        } else {
-          await scanFile(absolute, relative);
-          if (truncated !== null) return;
-          lastExamined = relative;
+        } else if (!(await scanFile(absolute, relative))) {
+          // A limit tripped before this file was handled: resume at it.
+          lastCounted = before;
+          scannedEntries -= 1;
+          return;
         }
+        if (truncated !== null) return;
         throwIfAborted();
         if (outOfTime()) { stop("time"); return; }
       }
@@ -317,7 +358,7 @@ export function createProjectSearchService(
       readFiles,
       regexTimeouts,
       truncated,
-      continueAfter: truncated === null ? null : lastExamined,
+      continueAfter: truncated === null || lastCounted === null ? null : formatCursor(lastCounted),
       elapsedMs: Math.round(performance.now() - started),
     };
     return result;
@@ -340,6 +381,7 @@ export function createProjectSearchService(
       }
       const result = await walk(workspace.root, input, project, scanner, signal);
       const finalScope = await resolve(context, input.projectId);
+      if (signal?.aborted) throw abortError();
       if (!sameProject(project, finalScope.project)) {
         throw new Error("The selected project changed while it was being searched.");
       }

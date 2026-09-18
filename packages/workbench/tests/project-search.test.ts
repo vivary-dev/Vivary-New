@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { link, lstat, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
 
 import projectSearchAction from "../actions/vivary-project-search.ts";
@@ -130,6 +131,15 @@ describe("project search", () => {
     assert.equal(result.truncated, null);
   });
 
+  it("excludes overlong lines from matching instead of treating them as empty", async () => {
+    const f = await fixture({ maxLineLength: 20 });
+    await f.write("lines.md", "x".repeat(50) + "\n\nshort\n");
+    const empty = await f.search("^$", "regex");
+    if (empty.code === "results") assert.deepEqual(empty.matches.map(match => match.line), [2]);
+    const literal = await f.search("xxxx");
+    if (literal.code === "results") assert.deepEqual(literal.matches, []);
+  });
+
   it("refuses symlinked directories and multiply linked files", async () => {
     const f = await fixture();
     const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-search-outside-"));
@@ -163,6 +173,16 @@ describe("project search", () => {
     await writeFile(target, "replacement needle\n");
     assert.equal(await readVerifiedFile(target, inspected, 1024), null);
     await rename(target, path.join(f.root, "renamed.md"));
+    assert.equal(await readVerifiedFile(target, inspected, 1024), null);
+  });
+
+  it("does not block on a file swapped for a FIFO after inspection", { skip: process.platform === "win32", timeout: 5_000 }, async () => {
+    const f = await fixture();
+    await f.write("target.md", "inside needle\n");
+    const target = path.join(f.root, "target.md");
+    const inspected = await lstat(target);
+    await rm(target);
+    execFileSync("mkfifo", [target]);
     assert.equal(await readVerifiedFile(target, inspected, 1024), null);
   });
 
@@ -224,6 +244,42 @@ describe("project search", () => {
       after = result.continueAfter;
     }
     assert.deepEqual(seen, ["a.md", "b.md", "c.md", "d.md", "dir/inner.md", "e.md"]);
+  });
+
+  it("resumes through deep and directory-only prefixes under a tiny entry budget", async () => {
+    const f = await fixture({ maxScannedEntries: 2 });
+    await f.write("a/b/c/hit.md", "hit deep\n");
+    for (const name of ["e0", "e1", "e2", "e3"]) await mkdir(path.join(f.root, "empty", name), { recursive: true });
+    await f.write("z.md", "hit z\n");
+    const seen: string[] = [];
+    let after: string | undefined;
+    let pages = 0;
+    for (; pages < 20; pages += 1) {
+      const result = await f.search("hit", "text", after);
+      if (result.code !== "results") return;
+      assert.ok(result.scannedEntries <= 2, `page ${pages} counted ${result.scannedEntries}`);
+      seen.push(...result.matches.map(match => match.path));
+      if (!result.continueAfter) { assert.equal(result.truncated, null); break; }
+      assert.equal(result.truncated, "entries");
+      after = result.continueAfter;
+    }
+    assert.deepEqual(seen, ["a/b/c/hit.md", "z.md"]);
+    assert.ok(pages < 20, "terminated");
+  });
+
+  it("does not repeat a match when a limit trips on the file that produced it", async () => {
+    const f = await fixture({ maxReadFiles: 1 });
+    for (const name of ["a", "b", "c"]) await f.write(`${name}.md`, `hit ${name}\n`);
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 6; page += 1) {
+      const result = await f.search("hit", "text", after);
+      if (result.code !== "results") return;
+      seen.push(...result.matches.map(match => match.path));
+      if (!result.continueAfter) break;
+      after = result.continueAfter;
+    }
+    assert.deepEqual(seen, ["a.md", "b.md", "c.md"]);
   });
 
   it("enforces the page match cap exactly and defers a file that would overflow it", async () => {
@@ -313,14 +369,20 @@ describe("project search", () => {
     cancelled.abort();
     await assert.rejects(f.service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, cancelled.signal),
       { name: "AbortError" });
+    for (let index = 0; index < 60; index += 1) await f.write(`many/file${String(index).padStart(2, "0")}.md`, "needle\n");
     const midway = new AbortController();
-    const service = createProjectSearchService(async () => {
-      // Abort once the walk is about to start; nothing should be read after.
-      queueMicrotask(() => midway.abort());
+    setTimeout(() => midway.abort(), 0);
+    await assert.rejects(f.service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, midway.signal),
+      { name: "AbortError" });
+    const late = new AbortController();
+    const service = createProjectSearchService(async (_context, projectId) => {
+      // Abort during the final project revalidation: no result may be returned.
+      late.abort();
+      if (projectId !== "project_a") throw new Error("Project unavailable");
       return { root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a", rootId: "root_a",
         bindingRevision: 1, policyRevision: 1 };
     });
-    await assert.rejects(service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, midway.signal),
+    await assert.rejects(service.search(undefined, { projectId: "project_a", query: "needle", mode: "text" }, late.signal),
       { name: "AbortError" });
   });
 
