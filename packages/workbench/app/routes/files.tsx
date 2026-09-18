@@ -185,7 +185,7 @@ function FileDocument({ projectId, projectLabel, path, draftKey, line }: { proje
         }} />
       {tooLarge && <p role="alert">This draft exceeds the 256 KB text-file limit. Shorten it before saving.</p>}
     </div> : file ? <div className="file-reading-surface">
-      {line !== null ? <SourceLines path={path} content={file.content} line={line} />
+      {line !== null ? <SourceLines path={path} content={file.content} line={line} navigation={location.key} />
         : file.kind === "markdown" ? <SharedRichEditor key={file.version} value={file.content} onChange={() => {}}
         editable={false} interactive={false} dragHandle={false} dialect="gfm" features={readonlyFeatures}
         ariaLabel={path} /> : <pre tabIndex={0}>{file.content}</pre>}
@@ -197,11 +197,13 @@ function FileDocument({ projectId, projectLabel, path, draftKey, line }: { proje
 // A search match opens the file here: the source split into numbered lines
 // with the requested line marked and scrolled into view. Markdown shows its
 // source in this view too, so the line number stays exact.
-function SourceLines({ path, content, line }: { path: string; content: string; line: number }) {
+function SourceLines({ path, content, line, navigation }: { path: string; content: string; line: number; navigation: string }) {
   const target = useRef<HTMLElement>(null);
   const lines = content.split("\n");
   const found = line <= lines.length;
-  useEffect(() => { target.current?.scrollIntoView({ block: "center" }); }, [line, content]);
+  // Re-scroll on every navigation, including choosing the same match again
+  // after scrolling away; the panel stays mounted while hidden.
+  useEffect(() => { target.current?.scrollIntoView({ block: "center" }); }, [line, content, navigation]);
   return <pre tabIndex={0} className="file-source-lines" aria-label={found ? `${path}, line ${line} selected` : `${path}, line ${line} is past the end`}>
     {lines.map((text, index) => {
       const number = index + 1;
