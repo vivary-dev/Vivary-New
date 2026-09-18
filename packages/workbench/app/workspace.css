@@ -43,3 +43,9 @@
   .workspace-file-tree { max-height:180px; }
   .workspace-file-document .file-document-toolbar { flex-wrap:wrap; }
 }
+.project-health { display:contents; }
+.project-health dd p { margin:6px 0; }
+.project-health-heading { font-weight:600; margin-top:12px !important; }
+.project-health ul { margin:4px 0 8px; padding-left:18px; word-break:break-word; }
+.project-health li { margin:4px 0; }
+.project-health button { margin-top:10px; }
