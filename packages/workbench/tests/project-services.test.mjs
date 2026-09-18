@@ -220,6 +220,14 @@ test("actual plugin gates cold requests, mounts one shared registry once and lea
   const plugin = createProjectServicesPlugin(dependencies);
   const first = plugin(fixture.nitro);
   const second = plugin(fixture.nitro);
+  // Paths project-services must serve itself. The remaining project action
+  // paths belong to discovered app actions and receive the cold-start gate only.
+  const expectedServicePaths = new Set([
+    "/_agent-native/actions/vivary-register-project",
+    "/_agent-native/actions/vivary-project-catalog",
+    "/_agent-native/actions/vivary-project-runtime-readiness",
+    "/_agent-native/actions/vivary-project-runtime-activity",
+  ]);
 
   for (const path of PROJECT_ACTION_PATHS) {
     assert.equal((await fixture.request(path)).status, 503, `cold gate for ${path}`);
@@ -230,8 +238,10 @@ test("actual plugin gates cold requests, mounts one shared registry once and lea
   assert.deepEqual(await second, { status: "open", failure: null });
   assert.equal(runtime.calls.filter(([name]) => name === "startRootProvider").length, 1);
 
+  assert.deepEqual([...runtime.servicePaths].sort(), [...expectedServicePaths].sort(),
+    "every service-owned path was mounted, and nothing else");
   for (const path of PROJECT_ACTION_PATHS) {
-    const served = runtime.servicePaths.has(path);
+    const served = expectedServicePaths.has(path);
     assert.equal(fixture.mountCount(path), served ? 2 : 1,
       served ? `one gate and one service route for ${path}` : `gate only for ${path}`);
     // Once open, the gate yields: served paths answer; app-action paths fall
