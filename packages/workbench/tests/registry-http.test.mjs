@@ -10,6 +10,7 @@ import test from "node:test";
 import { assertNativeSqliteMatchesNode, ensureCorePackageJson, ensureProofRoot } from "./maintained-test-options.mjs";
 
 const TEST_FILE = fileURLToPath(import.meta.url);
+const CHILD_HEAP_ARG = "--max-old-space-size=192";
 const ACTION_PATH = "/_agent-native/actions/vivary-register-project";
 const scenarios = {
   registration: "real native HTTP registration and replay preserve store, caller context and audit",
@@ -272,7 +273,7 @@ if (process.env.VIVARY_HTTP_WORKER === "1") { // guard:allow-env-credential — 
         ...(scenario === "appBase" ? { APP_BASE_PATH: "/workbench" } : {}),
       });
       try {
-        const result = spawnSync(process.execPath, [TEST_FILE, scenario], {
+        const result = spawnSync(process.execPath, [CHILD_HEAP_ARG, TEST_FILE, scenario], {
           cwd: caseRoot, env, windowsHide: true, encoding: "utf8", timeout: 45000,
           maxBuffer: 1024 * 1024,
         });
