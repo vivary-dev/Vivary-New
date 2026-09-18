@@ -124,3 +124,7 @@ capability choice, not permission for a broad parser or runtime rewrite.
 - 2026-09-18: PR #66 merged into dev as `43ae417` after Codex review, Zo CI
   63/63, and GitHub Actions 8/8. Accepted and closed under Jeff's delegation
   after the journey passed again on merged dev; evidence in the linked receipt.
+- 2026-09-18: Windows candidate `43ae417` passed the health-check journey on
+  the packaged EXE with output identical to headless Doctor; recorded in the
+  desktop acceptance register. Approval and denial were not rerun on it and
+  stay proven on `98515c9` with Codex Normal mode.

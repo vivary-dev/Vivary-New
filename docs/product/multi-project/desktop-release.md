@@ -133,6 +133,13 @@ unrun. The published `26798df` archive is unchanged.
 Real Native-provider turns, automations, OpenCode and broader cross-runtime work,
 clean-profile setup, and the remaining table entries stay open.
 
+Checkpoint, 2026-09-18: local candidate `43ae417` (merged `dev` after PR #66, not
+published) passed the packaged-EXE journey on the laptop, including the new
+project-health step with output identical to headless Doctor. Approval and denial
+were not rerun on it and remain proven on `98515c9` with Codex Normal mode. The
+[acceptance register](desktop-acceptance-status.md) has the per-step table. The
+published `26798df` archive is unchanged.
+
 The private preview includes PR #43's maintained Native repair. Its saved-head
 and composer journeys pass. Legacy bookmarks and Native history controls also
 pass. PR #43 records the owner-approved Zo CI and integration result. Earlier failure receipts are dated
