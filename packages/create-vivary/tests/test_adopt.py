@@ -1132,6 +1132,99 @@ else:
         child.communicate(timeout=5)
 
 
+class AdoptionJournalSizeTests(unittest.TestCase):
+    def test_oversized_backup_refuses_before_even_the_privacy_write(self):
+        for original in ("x" * (800 * 1024), "雪" * (280 * 1024)):
+            with self.subTest(utf8_bytes=len(original.encode("utf-8"))):
+                target = temp_dir()
+                try:
+                    write(target / "AGENTS.md", original)
+                    before = snapshot(target)
+                    plan = create_vivary.adopt_workspace(target, preset="coding")
+                    self.assertFalse(plan["conflicts"])
+                    self.assertEqual(snapshot(target), before)
+                    with self.assertRaisesRegex(
+                        create_vivary.ScaffoldError, "journal exceeds the recovery size limit"
+                    ):
+                        create_vivary.adopt_workspace(
+                            target, preset="coding", yes=True,
+                            plan_hash=plan["plan_hash"], _crash_before_journal=True,
+                        )
+                    self.assertEqual(snapshot(target), before)
+                    self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+                    rc, output = run_cli([
+                        "adopt", str(target), "--preset", "coding", "--yes",
+                        "--plan", plan["plan_hash"], "--json",
+                    ])
+                    self.assertNotEqual(rc, 0, output)
+                    self.assertIn("journal exceeds the recovery size limit", output)
+                    self.assertEqual(snapshot(target), before)
+                    self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+                finally:
+                    shutil.rmtree(target)
+
+    def test_near_limit_interrupted_patch_recovers_original_bytes(self):
+        target = temp_dir()
+        try:
+            original = b"# Host rules\r\n" + b"x" * (760 * 1024)
+            (target / "AGENTS.md").write_bytes(original)
+            before = snapshot(target)
+            plan = create_vivary.adopt_workspace(target, preset="coding")
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", yes=True,
+                    plan_hash=plan["plan_hash"], _crash_after=4,
+                )
+            journal = target / ".vivary/runtime/adopt-journal.json"
+            self.assertGreater(journal.stat().st_size, 1000 * 1024)
+            self.assertLessEqual(journal.stat().st_size, 1024 * 1024)
+            self.assertNotEqual((target / "AGENTS.md").read_bytes(), original)
+            interrupted = snapshot(target)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), interrupted)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"], yes=True,
+                plan_hash=recovery["recovery_plan_hash"],
+            )
+            self.assertTrue(result["recovered"])
+            self.assertEqual((target / "AGENTS.md").read_bytes(), original)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_preflight_reserves_the_extra_byte_for_applying_phase(self):
+        target = temp_dir()
+        try:
+            write(target / "AGENTS.md", "# Host rules\n")
+            before = snapshot(target)
+            plan = create_vivary.adopt_workspace(target, preset="coding")
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", yes=True,
+                    plan_hash=plan["plan_hash"], _crash_after=1,
+                )
+            applying_size = (target / ".vivary/runtime/adopt-journal.json").stat().st_size
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"], yes=True,
+                plan_hash=recovery["recovery_plan_hash"],
+            )
+            self.assertEqual(snapshot(target), before)
+            # The planned journal fits here; changing its phase adds one byte.
+            with mock.patch.object(create_vivary, "_ADOPT_JOURNAL_MAX_BYTES", applying_size - 1):
+                with self.assertRaisesRegex(
+                    create_vivary.ScaffoldError, "journal exceeds the recovery size limit"
+                ):
+                    create_vivary.adopt_workspace(
+                        target, preset="coding", yes=True,
+                        plan_hash=plan["plan_hash"], _crash_before_journal=True,
+                    )
+            self.assertEqual(snapshot(target), before)
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+        finally:
+            shutil.rmtree(target)
+
+
 class AdoptionExclusionTests(unittest.TestCase):
     def test_second_process_apply_refuses_before_any_project_write(self):
         target = temp_dir()

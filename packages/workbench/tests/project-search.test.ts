@@ -120,7 +120,6 @@ describe("project search", () => {
   it("skips a file whose pattern exceeds the regex time limit instead of hanging", async () => {
     const f = await fixture({ regexTimeoutMs: 50 });
     await f.write("slow.md", "a".repeat(40) + "b\n");
-    await f.write("fast.md", "aab\n");
     const started = Date.now();
     const result = await f.search("(a+)+$", "regex");
     assert.ok(Date.now() - started < 2_000, "returned promptly");
