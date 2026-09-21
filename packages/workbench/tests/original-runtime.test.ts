@@ -210,6 +210,20 @@ test("create and adopt apply requests are rejected before project resolution or 
   } finally { await f.cleanup(); }
 });
 
+test("output overflow returns a safe action error after the child stops", async () => {
+  const f = await fixture(async () => {
+    await runOriginalProcess(process.execPath, ["-e", "process.stdout.write(Buffer.alloc(300000));setInterval(() => {}, 1000)"], "", process.cwd(), process.env);
+  });
+  try {
+    await assert.rejects(f.runner(input, context), {
+      message: "The original Vivary command exceeded its output limit.",
+      statusCode: 413,
+      errorCode: "vivary_original_output_limit",
+    });
+    assert.equal((await runOriginalProcess(process.execPath, ["-e", ""], "", process.cwd(), process.env)).exitCode, 0);
+  } finally { await f.cleanup(); }
+});
+
 test("control uses a separate private request file and removes it after success or failure", async () => {
   for (const reject of [false, true]) {
     let requestPath = "";

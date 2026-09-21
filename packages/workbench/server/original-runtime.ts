@@ -148,6 +148,8 @@ async function validateGovernedRequest(command: OriginalCommand, workspace: Loca
   }
 }
 
+class OriginalCommandOutputLimitError extends Error {}
+
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
 type CommandHost = { closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
@@ -212,7 +214,7 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     signal?.addEventListener("abort", abort, { once: true });
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > OUTPUT_BYTES) stop(new Error("The original Vivary command exceeded its output limit."));
+      if (bytes > OUTPUT_BYTES) stop(new OriginalCommandOutputLimitError("The original Vivary command exceeded its output limit."));
       else target.push(chunk);
     };
     child.stdout.on("data", collect(output));
@@ -316,6 +318,11 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
       }
       return { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result };
+    } catch (error) {
+      if (error instanceof OriginalCommandOutputLimitError) {
+        commandError(error.message, "vivary_original_output_limit", 413);
+      }
+      throw error;
     } finally {
       if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true });
     }
