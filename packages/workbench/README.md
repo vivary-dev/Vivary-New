@@ -143,6 +143,9 @@ extend it to coding conversations.
 
 The desktop's Open folder action uses the system directory chooser. The server
 connects that folder through the existing Native-backed project registry.
+Folder selection expires after two minutes. The app identifies an expired
+selection and asks you to close the chooser before trying again. A selection
+returned after the chooser expires does not register a project.
 New project previews the original creator's five guidance files before creating
 a separate folder under the app data directory's `projects` folder. It then
 registers and selects that project. Cancel writes nothing. Existing files and
