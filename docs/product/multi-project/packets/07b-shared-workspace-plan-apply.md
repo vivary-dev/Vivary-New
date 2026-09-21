@@ -51,6 +51,29 @@ enable general existing-folder apply under issue #15. The bounded runtime
 increment passed on 2026-09-15 and merged in PR #47. Full issue #14 remains open
 for existing-folder apply. These private source commands are not a registry release.
 
+## Existing-folder content preview
+
+The ordinary `adopt --json` dry run now adds `content_plan` with schema
+`vivary.adopt-content-plan.v1`. The creator captures complete proposed UTF-8
+contents, byte counts, and hashes for creates, patches, and replacements during
+planning. Retained paths carry hashes, including files with binary contents.
+The existing `plan_hash` binds the same inputs as before. Serialization performs
+no filesystem rereads, and applied and recovery reports keep their existing shape.
+The [creator reference](../../../../packages/create-vivary/README.md#existing-repositories-and-vaults)
+owns the field contract.
+
+Workbench exposes this read-only report through **Details > Preview Vivary setup**
+for the selected registered folder. It reuses `vivary-original-command` and the
+original runtime's scope checks. Oversized output fails the whole preview at the
+existing process output bound; content is never silently truncated. The
+[Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
+owns the visible flow and its limit.
+
+This increment adds no adoption write action. General GUI adoption apply and
+its remaining approval, retry, and recovery work stay open under
+[issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
+[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15).
+
 ## Owned files
 
 - Original thin renderer and apply helpers in `packages/create-vivary/create_vivary.py`.
@@ -61,6 +84,19 @@ for existing-folder apply. These private source commands are not a registry rele
 - The minimum packaging changes needed to call the same operations outside this
   source checkout, coordinated with outcome 23.
 - Existing creator and creation-provider tests, plus shared action/CLI parity.
+
+## Adoption concurrency prerequisite
+
+The creator serializes ordinary adoption apply and approved rollback recovery for
+the same physical folder before either can write. Read-only previews remain
+unchanged. The [creator reference](../../../../packages/create-vivary/README.md#existing-repositories-and-vaults)
+owns platform behavior and limits. Real subprocess checks cover contention,
+process death, recovery, and independent folders; native Windows checks remain
+separate from the packaged desktop journey.
+
+This prerequisite does not make a lost success response safely replayable.
+Original-request completion records and explicit app-side write approval remain
+part of issue #14; the GUI Apply and recovery journey remains under issue #15.
 
 ## Done condition
 

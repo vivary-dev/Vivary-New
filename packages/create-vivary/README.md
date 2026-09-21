@@ -95,8 +95,20 @@ create-vivary adopt . --recover sha256:<plan-hash> \
 ```
 
 The preview reports `creates`, managed `patches`, `optional_projections`, `kept`,
-`conflicts`, privacy checks, and `plan_hash`. Apply accepts only that exact plan and
-revalidates kept files before writing.
+`conflicts`, privacy checks, and `plan_hash`. Ordinary dry-run JSON also includes
+`content_plan` with schema `vivary.adopt-content-plan.v1`. Its `files` list contains
+each proposed create, patch, or replacement, including optional adapter files.
+Each entry has a relative `path`, `operation`, full UTF-8 `content`, `content_hash`,
+and byte count in `bytes`. Patches and replacements also have `before_hash`.
+Encoding `content` as UTF-8 reproduces the proposed bytes, including existing
+BOM and CRLF bytes in patched files. The planner captures this content alongside
+the inputs used for `plan_hash`; reporting does not reread project files.
+`content_plan.kept` lists retained paths and hashes without decoding their contents.
+Conflicts remain in the surrounding report and prevent apply.
+
+The content field is additive and appears only in ordinary dry-run JSON.
+Applied and recovery reports keep their existing contract. Apply accepts only
+that exact plan and revalidates kept files before writing.
 The first recovery command is read-only. It returns the exact recovery plan hash that
 must receive separate approval before the second command rolls the transaction back.
 
@@ -109,6 +121,19 @@ overwrites arbitrary user content. Conflicts fail closed.
 Privacy is checked before payload writes. Apply uses a local transaction journal and
 exact-byte backups so an ordinary failure rolls back and an interrupted transaction
 can be recovered explicitly.
+
+Adoption apply and approved recovery admit one cooperating creator process per
+physical folder. A competing call refuses as busy before planning or writing;
+other folders remain independent. Preview does not acquire mutation ownership or
+write lock files. Process exit releases ownership, while an interrupted journal
+still requires the existing separately approved recovery.
+
+POSIX uses a lock on the held root directory. Windows uses a global named mutex
+keyed by the held directory's volume and file identity. An unavailable lock or
+Windows access denial refuses the operation; it does not fall back to an unsafe
+write. This coordinates current creator processes on one host, not arbitrary
+editors, older binaries, or writers on another machine. It does not add successful
+request replay or a GUI Apply action.
 
 ## Doctor and compatibility
 
