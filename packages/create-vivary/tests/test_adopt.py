@@ -1,9 +1,14 @@
 """Public-seam tests for thin-v0.3 brownfield adoption."""
 
 import contextlib
+import errno
 import hashlib
 import io
 import json
+import os
+import queue
+import subprocess
+import threading
 import shutil
 import sys
 import unittest
@@ -1082,6 +1087,252 @@ class ThinAdoptApplyTests(unittest.TestCase):
             )
             self.assertTrue(applied["doctor"]["ok"])
             self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+
+@contextlib.contextmanager
+def held_adoption(target: Path, recover_hash: str | None = None):
+    script = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import create_vivary
+
+def wait_before_apply():
+    print("ready", flush=True)
+    sys.stdin.read(1)
+
+if sys.argv[3]:
+    plan = create_vivary.adopt_workspace(sys.argv[2], recover_hash=sys.argv[3])
+    rollback = create_vivary._rollback_adopt
+    def wait_then_rollback(*args, **kwargs):
+        wait_before_apply()
+        return rollback(*args, **kwargs)
+    create_vivary._rollback_adopt = wait_then_rollback
+    create_vivary.adopt_workspace(sys.argv[2], yes=True, recover_hash=sys.argv[3],
+                                  plan_hash=plan["recovery_plan_hash"])
+else:
+    plan = create_vivary.adopt_workspace(sys.argv[2])
+    create_vivary.adopt_workspace(sys.argv[2], yes=True, plan_hash=plan["plan_hash"],
+                                  _before_apply=wait_before_apply)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", script, str(PKG), str(target), recover_hash or ""],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    ready = queue.Queue()
+    threading.Thread(target=lambda: ready.put(child.stdout.readline()), daemon=True).start()
+    try:
+        if ready.get(timeout=5) != "ready\n":
+            raise AssertionError("adoption holder did not reach the apply boundary")
+        yield child
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.communicate(timeout=5)
+
+
+class AdoptionExclusionTests(unittest.TestCase):
+    def test_second_process_apply_refuses_before_any_project_write(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            before = snapshot(target)
+            with held_adoption(target):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_missing_or_file_target_remains_a_structured_cli_refusal(self):
+        parent = temp_dir()
+        try:
+            file_target = parent / "file"
+            file_target.write_bytes(b"keep this file")
+            for target, reason in ((parent / "missing", "does not exist"), (file_target, "not a directory")):
+                with self.subTest(reason=reason):
+                    rc, output = run_cli(["adopt", str(target), "--yes", "--plan", "sha256:" + "0" * 64, "--json"])
+                    self.assertEqual(rc, 1, output)
+                    self.assertIn(reason, json.loads(output)["error"])
+            self.assertEqual(list(parent.iterdir()), [file_target])
+            self.assertEqual(file_target.read_bytes(), b"keep this file")
+        finally:
+            shutil.rmtree(parent)
+
+    def test_preview_and_other_target_proceed_while_apply_is_held(self):
+        target, other = temp_dir(), temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                self.assertEqual(create_vivary.adopt_workspace(target)["plan_hash"], plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+                other_plan = create_vivary.adopt_workspace(other)
+                result = create_vivary.adopt_workspace(other, yes=True, plan_hash=other_plan["plan_hash"])
+                self.assertTrue(result["doctor"]["ok"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+            shutil.rmtree(other)
+
+    def test_killed_apply_holder_releases_exclusion_and_leaves_no_metadata(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                self.assertEqual(list(target.iterdir()), [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertTrue(result["doctor"]["ok"])
+            unchanged = snapshot(target)
+            no_op = create_vivary.adopt_workspace(target)
+            self.assertEqual(no_op["writes"], [])
+            create_vivary.adopt_workspace(target, yes=True, plan_hash=no_op["plan_hash"])
+            self.assertEqual(snapshot(target), unchanged)
+        finally:
+            shutil.rmtree(target)
+
+    def test_apply_and_recovery_contenders_leave_interrupted_state_unchanged(self):
+        target = temp_dir()
+        try:
+            original = snapshot(target)
+            plan = create_vivary.adopt_workspace(target)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"], _crash_after=1)
+            interrupted = snapshot(target)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            with held_adoption(target, plan["plan_hash"]):
+                for request in (
+                    {"plan_hash": plan["plan_hash"]},
+                    {"recover_hash": plan["plan_hash"], "plan_hash": recovery["recovery_plan_hash"]},
+                ):
+                    with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                        create_vivary.adopt_workspace(target, yes=True, **request)
+                    self.assertEqual(snapshot(target), interrupted)
+                preview = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+                self.assertEqual(preview["recovery_plan_hash"], recovery["recovery_plan_hash"])
+                self.assertEqual(snapshot(target), interrupted)
+            result = create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=recovery["recovery_plan_hash"])
+            self.assertTrue(result["recovered"])
+            self.assertEqual(snapshot(target), original)
+        finally:
+            shutil.rmtree(target)
+
+    def test_recovery_refuses_while_ordinary_apply_is_held(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+
+    def test_reentrant_apply_refuses_without_disturbing_the_outer_apply(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            def nested_apply():
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"],
+                                                   _before_apply=nested_apply)
+            self.assertTrue(result["doctor"]["ok"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_cli_cannot_bypass_an_apply_holder_with_an_equivalent_target_path(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            alias = str(target.parent) + os.sep + "." + os.sep + target.name
+            with held_adoption(target):
+                rc, output = run_cli(["adopt", alias, "--yes", "--plan", plan["plan_hash"], "--json"])
+                self.assertEqual(rc, 1, output)
+                self.assertIn("already running", json.loads(output)["error"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "posix", "requires unprivileged symlink creation")
+    def test_unrelated_placeholder_symlink_is_not_an_adoption_destination(self):
+        target, outside = temp_dir(), temp_dir()
+        try:
+            source = outside / "host.txt"
+            source.write_bytes(b"untouched host content")
+            link = target / ".adopt-placeholder"
+            link.symlink_to(source)
+            plan = create_vivary.adopt_workspace(target)
+            self.assertEqual(plan["conflicts"], [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertTrue(result["doctor"]["ok"])
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.readlink(), source)
+            self.assertEqual(source.read_bytes(), b"untouched host content")
+        finally:
+            shutil.rmtree(target)
+            shutil.rmtree(outside)
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX flock")
+    def test_unsupported_lock_refuses_without_effects_and_releases_local_claim(self):
+        import fcntl
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with mock.patch.object(fcntl, "flock", side_effect=OSError(errno.EOPNOTSUPP, "unsupported")):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "cannot exclude concurrent adoption"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertTrue(create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])["applied"])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows mutex")
+    def test_windows_mutex_failures_refuse_without_effects_and_release_handles(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with mock.patch.object(create_vivary, "_WINDOWS_CREATE_MUTEX", return_value=None) as denied:
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "cannot acquire global adoption exclusion"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertTrue(denied.call_args.args[2].startswith("Global\\VivaryAdoptV1_"))
+                self.assertEqual(list(target.iterdir()), [])
+            for status, message in ((0xFFFFFFFF, "cannot acquire"), (0x102, "already running")):
+                with self.subTest(status=status):
+                    with mock.patch.object(create_vivary, "_WINDOWS_WAIT_OBJECT", return_value=status), \
+                            mock.patch.object(create_vivary, "_WINDOWS_RELEASE_MUTEX") as release:
+                        with self.assertRaisesRegex(create_vivary.ScaffoldError, message):
+                            create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                        release.assert_not_called()
+                    self.assertEqual(list(target.iterdir()), [])
+            # A failed wait must not leak the in-process claim or acquire ownership.
+            self.assertTrue(create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])["applied"])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows mutex")
+    def test_windows_abandoned_ownership_still_uses_existing_recovery_checks(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"], _crash_after=1)
+            interrupted = snapshot(target)
+            wait = create_vivary._WINDOWS_WAIT_OBJECT
+            def abandoned(handle, timeout):
+                self.assertEqual(wait(handle, timeout), 0)
+                return 0x80
+            with mock.patch.object(create_vivary, "_WINDOWS_WAIT_OBJECT", side_effect=abandoned):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), interrupted)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            result = create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=recovery["recovery_plan_hash"])
+            self.assertTrue(result["recovered"])
         finally:
             shutil.rmtree(target)
 

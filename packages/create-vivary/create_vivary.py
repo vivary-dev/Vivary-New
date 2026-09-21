@@ -23,8 +23,9 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import date, datetime, timezone
 from email.parser import BytesParser
 from email.message import Message
@@ -86,6 +87,15 @@ if os.name == "nt":
         ctypes.POINTER(_WindowsDirectoryInformation),
     ]
     _WINDOWS_GET_FILE_INFO.restype = wintypes.BOOL
+    _WINDOWS_CREATE_MUTEX = _WINDOWS_KERNEL32.CreateMutexW
+    _WINDOWS_CREATE_MUTEX.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    _WINDOWS_CREATE_MUTEX.restype = wintypes.HANDLE
+    _WINDOWS_WAIT_OBJECT = _WINDOWS_KERNEL32.WaitForSingleObject
+    _WINDOWS_WAIT_OBJECT.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    _WINDOWS_WAIT_OBJECT.restype = wintypes.DWORD
+    _WINDOWS_RELEASE_MUTEX = _WINDOWS_KERNEL32.ReleaseMutex
+    _WINDOWS_RELEASE_MUTEX.argtypes = [wintypes.HANDLE]
+    _WINDOWS_RELEASE_MUTEX.restype = wintypes.BOOL
     _WINDOWS_CLOSE_HANDLE = _WINDOWS_KERNEL32.CloseHandle
     _WINDOWS_CLOSE_HANDLE.argtypes = [wintypes.HANDLE]
     _WINDOWS_CLOSE_HANDLE.restype = wintypes.BOOL
@@ -6624,6 +6634,83 @@ def _recover_adopt(
     )
 
 
+_ADOPTION_ACTIVE: set[tuple[int, int]] = set()
+_ADOPTION_ACTIVE_LOCK = threading.Lock()
+
+
+@contextmanager
+def _exclusive_adoption(target: Path):
+    """Exclude cooperating adoption writers without creating lock metadata."""
+    if os.name not in ("posix", "nt"):
+        raise ScaffoldError("this platform cannot exclude concurrent adoption")
+    # Only walk the parent: the synthetic leaf is never inspected or created.
+    hold_parent = _windows_destination_parent if os.name == "nt" else _posix_destination_parent
+    with ExitStack() as root:
+        try:
+            before = os.stat(target, follow_symlinks=False)
+            if not stat.S_ISDIR(before.st_mode):
+                raise ScaffoldError(f"adopt target is not a directory: {target}")
+            held = root.enter_context(hold_parent(target, target / ".adopt-placeholder", create_missing=False))
+            if os.name == "nt":
+                info = _WindowsDirectoryInformation()
+                if not _WINDOWS_GET_FILE_INFO(held[1], ctypes.byref(info)):
+                    raise ScaffoldError("cannot inspect adoption root handle")
+                identity = (info.volume_serial_number, (info.file_index_high << 32) | info.file_index_low)
+                path_identity = held[2]
+            else:
+                info = os.fstat(held)
+                identity = path_identity = (info.st_dev, info.st_ino)
+        except FileNotFoundError as exc:
+            raise ScaffoldError(f"adopt target does not exist: {target}") from exc
+        except OSError as exc:
+            raise ScaffoldError(f"cannot open adoption root: {target}") from exc
+        # Windows mutex ownership is recursive on one thread; public reentry must refuse.
+        with _ADOPTION_ACTIVE_LOCK:
+            if identity in _ADOPTION_ACTIVE:
+                raise ScaffoldError("adoption or recovery is already running for this workspace")
+            _ADOPTION_ACTIVE.add(identity)
+        mutex = None
+        acquired = False
+        try:
+            if os.name == "nt":
+                key = hashlib.sha256(f"{identity[0]}:{identity[1]}".encode("ascii")).hexdigest()
+                mutex = _WINDOWS_CREATE_MUTEX(None, False, "Global\\VivaryAdoptV1_" + key)
+                if not mutex:
+                    raise ScaffoldError("cannot acquire global adoption exclusion")
+                status = _WINDOWS_WAIT_OBJECT(mutex, 0)
+                if status == 0x102:  # WAIT_TIMEOUT
+                    raise ScaffoldError("adoption or recovery is already running for this workspace")
+                if status not in (0, 0x80):  # WAIT_OBJECT_0 or WAIT_ABANDONED owns the mutex.
+                    raise ScaffoldError("cannot acquire global adoption exclusion")
+                acquired = True
+            else:
+                try:
+                    import fcntl
+                    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise ScaffoldError("adoption or recovery is already running for this workspace") from exc
+                except (ImportError, OSError) as exc:
+                    raise ScaffoldError("this filesystem cannot exclude concurrent adoption") from exc
+            try:
+                current = os.stat(target, follow_symlinks=False)
+            except OSError as exc:
+                raise ScaffoldError("adoption root changed before mutation") from exc
+            if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != path_identity:
+                raise ScaffoldError("adoption root changed before mutation")
+            yield
+        finally:
+            release_failed = False
+            if mutex:
+                if acquired:
+                    release_failed = not _WINDOWS_RELEASE_MUTEX(mutex)
+                _WINDOWS_CLOSE_HANDLE(mutex)
+            with _ADOPTION_ACTIVE_LOCK:
+                _ADOPTION_ACTIVE.remove(identity)
+            # POSIX flock is released when the parent guard closes its descriptor.
+            if release_failed:
+                raise ScaffoldError("cannot release global adoption exclusion")
+
+
 def adopt_workspace(
     target: str | Path,
     *,
@@ -6638,14 +6725,33 @@ def adopt_workspace(
     _crash_before_journal: bool = False,
     _before_apply: Callable[[], None] | None = None,
 ) -> dict:
-    """Adopt Vivary onto an existing tree.
+    """Plan read-only, or exclusively apply/recover the approved adoption."""
+    resolved_target = _resolve_scaffold_target(target)
+    exclusion = _exclusive_adoption(resolved_target) if yes else nullcontext()
+    with exclusion:
+        return _adopt_workspace(
+            resolved_target, preset=preset, adapters=adapters, repo_root=repo_root,
+            yes=yes, plan_hash=plan_hash, recover_hash=recover_hash,
+            _fault_after=_fault_after, _crash_after=_crash_after,
+            _crash_before_journal=_crash_before_journal, _before_apply=_before_apply,
+        )
 
-    Analyze + plan always run read-only. When `yes` is False (the default), no
-    file is written — the plan is returned for the caller to render as a dry run.
-    When `yes` is True, only files that do not already exist are written, using
-    the same symlink/out-of-root hardened write path as `init`. Existing files are
-    never opened for writing, moved, renamed, or truncated.
-    """
+
+def _adopt_workspace(
+    target: str | Path,
+    *,
+    preset: str | None = None,
+    adapters: tuple[str, ...] | list[str] = (),
+    repo_root: str | Path | None = None,
+    yes: bool = False,
+    plan_hash: str | None = None,
+    recover_hash: str | None = None,
+    _fault_after: int | None = None,
+    _crash_after: int | None = None,
+    _crash_before_journal: bool = False,
+    _before_apply: Callable[[], None] | None = None,
+) -> dict:
+    """Plan, or apply/recover reviewed changes under the caller's exclusion."""
     resolved_target = _resolve_scaffold_target(target)
     if recover_hash is not None:
         return _recover_adopt(

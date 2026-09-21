@@ -122,6 +122,19 @@ Privacy is checked before payload writes. Apply uses a local transaction journal
 exact-byte backups so an ordinary failure rolls back and an interrupted transaction
 can be recovered explicitly.
 
+Adoption apply and approved recovery admit one cooperating creator process per
+physical folder. A competing call refuses as busy before planning or writing;
+other folders remain independent. Preview does not acquire mutation ownership or
+write lock files. Process exit releases ownership, while an interrupted journal
+still requires the existing separately approved recovery.
+
+POSIX uses a lock on the held root directory. Windows uses a global named mutex
+keyed by the held directory's volume and file identity. An unavailable lock or
+Windows access denial refuses the operation; it does not fall back to an unsafe
+write. This coordinates current creator processes on one host, not arbitrary
+editors, older binaries, or writers on another machine. It does not add successful
+request replay or a GUI Apply action.
+
 ## Doctor and compatibility
 
 `doctor` validates thin workspace metadata, the context capsule, startup reachability,

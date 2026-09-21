@@ -85,6 +85,19 @@ its remaining approval, retry, and recovery work stay open under
   source checkout, coordinated with outcome 23.
 - Existing creator and creation-provider tests, plus shared action/CLI parity.
 
+## Adoption concurrency prerequisite
+
+The creator serializes ordinary adoption apply and approved rollback recovery for
+the same physical folder before either can write. Read-only previews remain
+unchanged. The [creator reference](../../../../packages/create-vivary/README.md#existing-repositories-and-vaults)
+owns platform behavior and limits. Real subprocess checks cover contention,
+process death, recovery, and independent folders; native Windows checks remain
+separate from the packaged desktop journey.
+
+This prerequisite does not make a lost success response safely replayable.
+Original-request completion records and explicit app-side write approval remain
+part of issue #14; the GUI Apply and recovery journey remains under issue #15.
+
 ## Done condition
 
 The plan includes target, selected inputs, creates/managed patches/kept files,
