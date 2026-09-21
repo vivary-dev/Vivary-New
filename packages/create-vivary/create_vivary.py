@@ -5968,6 +5968,7 @@ def plan_adopt(
 
 _ADOPT_JOURNAL_REL = Path(".vivary/runtime/adopt-journal.json")
 _ADOPT_JOURNAL_SCHEMA = "vivary.adopt-journal.v3"
+_ADOPT_JOURNAL_MAX_BYTES = 1024 * 1024
 _ADOPT_RECOVERY_PLAN_SCHEMA = "vivary.adopt-recovery-plan.v1"
 _ADOPT_PREJOURNAL_RE = re.compile(
     rb"# vivary-adopt-prejournal "
@@ -6077,12 +6078,15 @@ def _adopt_journal_payload(
     }
 
 
+def _encode_adopt_journal(payload: dict) -> bytes:
+    content = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    if len(content) > _ADOPT_JOURNAL_MAX_BYTES:
+        raise ScaffoldError("adoption journal exceeds the recovery size limit")
+    return content
+
+
 def _write_adopt_journal(target: Path, payload: dict) -> None:
-    _write_text_no_follow(
-        target,
-        target / _ADOPT_JOURNAL_REL,
-        json.dumps(payload, sort_keys=True, indent=2) + "\n",
-    )
+    _write_bytes_no_follow(target, target / _ADOPT_JOURNAL_REL, _encode_adopt_journal(payload))
 
 
 def _remove_empty_adopt_dirs(target: Path) -> None:
@@ -6593,7 +6597,7 @@ def _recover_adopt(
     else:
         if _is_symlink_or_junction(journal_path) or not journal_path.is_file():
             raise ScaffoldError("no safe adoption journal exists to recover")
-        if journal_path.stat().st_size > 1024 * 1024:
+        if journal_path.stat().st_size > _ADOPT_JOURNAL_MAX_BYTES:
             raise ScaffoldError("adoption journal exceeds the recovery size limit")
         try:
             payload = json.loads(journal_path.read_text(encoding="utf-8"))
@@ -6861,6 +6865,9 @@ def _adopt_workspace(
         phase="planned",
         completed=0,
     )
+    # Phase and completed count are the only growing fields. Reserve their
+    # largest state before even the transient privacy write needs recovery.
+    _encode_adopt_journal({**journal, "phase": "applying", "completed": len(actions)})
 
     try:
         action_offset = 0
