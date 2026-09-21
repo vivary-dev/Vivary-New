@@ -196,3 +196,14 @@ held custody from a path, install another executor, or activate external templat
   bundled-Python and private hosted acceptance passed for the bounded
   greenfield path. Existing-folder
   apply and issue #14 delivery remain open.
+
+## Opt-in adoption request replay
+
+The creator CLI and Python operation accept an original request ID for approved
+ordinary adoption. Completion receipts support lost-response retries without
+rewriting guidance. Request-aware journals distinguish pending rollback from
+possible completion, where rollback refuses. The
+[creator reference](../../../../packages/create-vivary/README.md#retrying-an-approved-adoption-request)
+owns the pre-existing privacy requirement, matching rules, size limits, and
+recovery restrictions. This does not add GUI write authority or complete issues
+#14 and #15.
