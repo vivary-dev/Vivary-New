@@ -157,6 +157,11 @@ Project details, files, and page preview open only when requested. Panels can
 resize, close, reopen, and expand for focused work. The old Agent, Files,
 Workbench, and Full chat URLs redirect to this workspace.
 
+Page preview shows its owning project. Closing and reopening the panel preserves
+the current page within that project. Changing projects, host scope, or folder
+binding clears the address and unloads the old page. Returning to a project starts
+with an empty preview. The iframe retains its existing sandbox and no-referrer policy.
+
 For a registered folder, **Details > Preview Vivary setup** shows the guidance
 files Vivary would create or update without changing project files. Expand a file
 to inspect its full proposed content and byte count. The preview also lists
