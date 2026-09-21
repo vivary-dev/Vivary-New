@@ -120,7 +120,10 @@ overwrites arbitrary user content. Conflicts fail closed.
 
 Privacy is checked before payload writes. Apply uses a local transaction journal and
 exact-byte backups so an ordinary failure rolls back and an interrupted transaction
-can be recovered explicitly.
+can be recovered explicitly. Before any write, apply checks that the complete
+journal fits the recovery reader's 1 MiB limit, including encoded backups and
+later progress updates. An oversized journal refuses apply without changing the
+folder. The content preview remains read-only and available.
 
 Adoption apply and approved recovery admit one cooperating creator process per
 physical folder. A competing call refuses as busy before planning or writing;

@@ -94,6 +94,11 @@ owns platform behavior and limits. Real subprocess checks cover contention,
 process death, recovery, and independent folders; native Windows checks remain
 separate from the packaged desktop journey.
 
+Apply also refuses before any write when the complete journal could exceed the
+recovery reader's size limit. Regression checks cover oversized UTF-8 inputs,
+progress-state growth, and exact-byte recovery near the limit. The creator
+reference above owns the limit and refusal behavior.
+
 This prerequisite does not make a lost success response safely replayable.
 Original-request completion records and explicit app-side write approval remain
 part of issue #14; the GUI Apply and recovery journey remains under issue #15.
