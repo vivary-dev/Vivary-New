@@ -50,6 +50,9 @@ export function Workspace() {
   const [width, setWidth] = useState(() => readPanelWidth(WIDTH_KEY, 480, 260, 1200));
   const [filesVisited, setFilesVisited] = useState(opened === "files");
   const [previewVisited, setPreviewVisited] = useState(opened === "preview");
+  const previewScope = JSON.stringify([
+    catalog?.scopeKey, activeProject?.projectId, activeProject?.bindingRevision,
+  ]);
   const [searchVisited, setSearchVisited] = useState(opened === "search");
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
   const priorProject = useRef<string | null>(null);
@@ -165,7 +168,7 @@ export function Workspace() {
               <div className="workspace-file-tree" hidden={!fileTreeOpen}><ProjectFiles /></div>
               <div className="workspace-file-document"><FilesView /></div>
             </div>}
-            {previewVisited && <div className="workspace-preview" hidden={opened !== "preview"}><BrowserPreview /></div>}
+            {previewVisited && <div className="workspace-preview" hidden={opened !== "preview"}><BrowserPreview key={previewScope} projectName={activeProject?.displayName ?? "Personal workspace"} /></div>}
             {searchVisited && <div className="workspace-search" hidden={opened !== "search"}><ProjectSearch /></div>}
             <div className="workspace-details" hidden={opened !== "details"}>
               <h3>{activeProject?.displayName ?? "Personal workspace"}</h3>
