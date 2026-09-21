@@ -5644,6 +5644,7 @@ def plan_adopt(
     adapter_replacements: list[dict] = []
     optional_projections: list[dict] = []
     patches: list[dict] = []
+    patch_contents: dict[Path, str] = {}
     kept: list[Path] = []
     conflicts: list[dict] = []
 
@@ -5739,12 +5740,14 @@ def plan_adopt(
                     {"path": agents_path, "reason": "duplicate or malformed Vivary block"}
                 )
             else:
+                inserted_text = _append_patch_text(agents_bytes, agents_block)
+                patch_contents[agents_path] = agents_text + inserted_text
                 patches.append(
                     {
                         "path": agents_path,
                         "before_hash": _sha256_prefixed(agents_bytes),
                         "anchor": "eof",
-                        "inserted_text": _append_patch_text(agents_bytes, agents_block),
+                        "inserted_text": inserted_text,
                     }
                 )
 
@@ -5805,12 +5808,14 @@ def plan_adopt(
                     )
                     privacy_status = "conflict"
                 else:
+                    inserted_text = _append_patch_text(gitignore_bytes, gitignore_block)
+                    patch_contents[gitignore_path] = gitignore_text + inserted_text
                     patches.append(
                         {
                             "path": gitignore_path,
                             "before_hash": _sha256_prefixed(gitignore_bytes),
                             "anchor": "eof",
-                            "inserted_text": _append_patch_text(gitignore_bytes, gitignore_block),
+                            "inserted_text": inserted_text,
                         }
                     )
                     privacy_status = "planned"
@@ -5883,7 +5888,43 @@ def plan_adopt(
     )
     plan_hash = _thin_approval_hash(approval_payload)
 
+    # Capture the reviewed bytes now; reporting must not reread changed files.
+    content_files = [
+        {"operation": "create", "path": path, "content": text}
+        for path, text in writes + projection_writes
+    ] + [
+        {
+            "operation": "patch",
+            "path": patch["path"],
+            "content": patch_contents[patch["path"]],
+            "before_hash": patch["before_hash"],
+        }
+        for patch in patches
+    ] + [
+        {
+            "operation": "replace",
+            "path": item["path"],
+            "content": item["text"],
+            "before_hash": item["before_hash"],
+        }
+        for item in adapter_replacements
+    ]
+    content_plan = {
+        "schema": "vivary.adopt-content-plan.v1",
+        "files": [
+            {
+                **item,
+                "path": item["path"].relative_to(target).as_posix(),
+                "content_hash": _sha256_prefixed(item["content"].encode("utf-8")),
+                "bytes": len(item["content"].encode("utf-8")),
+            }
+            for item in sorted(content_files, key=lambda item: item["path"])
+        ],
+        "kept": kept_identities,
+    }
+
     return {
+        "content_plan": content_plan,
         "contract": THIN_WORKSPACE_CONTRACT,
         "target": target,
         "preset": chosen_preset,
@@ -7260,6 +7301,8 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
     }
     if mode in ("applied", "recovered") and result.get("doctor") is not None:
         payload["doctor"] = result["doctor"]
+    if mode == "dry-run":
+        payload["content_plan"] = result["content_plan"]
     return payload
 
 

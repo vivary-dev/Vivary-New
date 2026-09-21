@@ -157,6 +157,18 @@ Project details, files, and page preview open only when requested. Panels can
 resize, close, reopen, and expand for focused work. The old Agent, Files,
 Workbench, and Full chat URLs redirect to this workspace.
 
+For a registered folder, **Details > Preview Vivary setup** shows the guidance
+files Vivary would create or update without changing project files. Expand a file
+to inspect its full proposed content and byte count. The preview also lists
+retained files, conflicts, and the plan hash. It uses the existing
+`vivary-original-command` action and the creator's dry-run `content_plan` report.
+See the [adoption content contract](../create-vivary/README.md#existing-repositories-and-vaults)
+for the exact UTF-8 fields. The action's 256 KiB combined output limit rejects an
+oversized preview in full; the UI does not present truncated content as a complete
+plan. General GUI adoption apply remains pending under
+[issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
+[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15).
+
 Search opens beside Files and finds file names, literal text, or a regular
 expression inside the selected project only. Results show the path, line,
 column, and an excerpt; choosing one opens the file at that line. Each request

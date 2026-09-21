@@ -46,6 +46,79 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class ThinAdoptPlanTests(unittest.TestCase):
+    def test_content_preview_matches_applied_bytes_and_retained_binary(self):
+        target = temp_dir()
+        try:
+            originals = {"AGENTS.md": b"\xef\xbb\xbf# Host\r\n", ".gitignore": b"host-cache/"}
+            for name, content in originals.items():
+                (target / name).write_bytes(content)
+            retained = b"\xff\x00host state"
+            (target / "STATE.md").write_bytes(retained)
+            before = snapshot(target)
+            rc, output = run_cli(["adopt", str(target), "--preset", "coding", "--adapter", "agents", "--json"])
+            self.assertEqual(rc, 0, output)
+            self.assertEqual(snapshot(target), before)
+            report = json.loads(output)
+            content_plan = report["content_plan"]
+            self.assertEqual(content_plan["schema"], "vivary.adopt-content-plan.v1")
+            files = content_plan["files"]
+            self.assertEqual([row["path"] for row in files], sorted(row["path"] for row in files))
+            by_path = {row["path"]: row for row in files}
+            self.assertEqual(set(by_path), {"AGENTS.md", ".gitignore", ".vivary/context.md", ".vivary/workspace.toml", ".agents/skills/vivary/SKILL.md"})
+            for name, original in originals.items():
+                row = by_path[name]
+                block = create_vivary._thin_agents_block() if name == "AGENTS.md" else create_vivary._thin_gitignore_block(active_context=None)
+                separator = b"\n" if original.endswith(b"\n") else b"\n\n"
+                self.assertEqual(row["content"].encode("utf-8"), original + separator + block.encode("utf-8"))
+                self.assertEqual(row["operation"], "patch")
+                self.assertEqual(row["before_hash"], "sha256:" + hashlib.sha256(original).hexdigest())
+            self.assertEqual(content_plan["kept"], [{"path": "STATE.md", "content_hash": "sha256:" + hashlib.sha256(retained).hexdigest()}])
+            plan = create_vivary.plan_adopt(target, preset="coding", adapters=("agents",))
+            self.assertEqual(report["plan_hash"], plan["plan_hash"])
+            self.assertEqual(plan["plan_hash"], create_vivary._thin_approval_hash(plan["approval_payload"]))
+            applied = create_vivary.adopt_workspace(target, preset="coding", adapters=("agents",), yes=True, plan_hash=report["plan_hash"])
+            for row in files:
+                expected = row["content"].encode("utf-8")
+                self.assertEqual((target / row["path"]).read_bytes(), expected)
+                self.assertEqual(row["bytes"], len(expected))
+                self.assertEqual(row["content_hash"], "sha256:" + hashlib.sha256(expected).hexdigest())
+                if row["operation"] == "create":
+                    self.assertNotIn("before_hash", row)
+            self.assertEqual((target / "STATE.md").read_bytes(), retained)
+            for mode in ("applied", "recovered", "recovery-dry-run"):
+                self.assertNotIn("content_plan", create_vivary._adopt_report_to_json(applied, mode=mode))
+        finally:
+            shutil.rmtree(target)
+
+    def test_content_preview_serializes_snapshot_without_rereading(self):
+        target = temp_dir()
+        try:
+            write(target / "AGENTS.md", "host guidance")
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            first = create_vivary._adopt_report_to_json(plan, mode="dry-run")
+            self.assertIn("content_plan", first)
+            write(target / "AGENTS.md", "changed after planning")
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("report reread")), mock.patch.object(Path, "read_text", side_effect=AssertionError("report reread")):
+                second = create_vivary._adopt_report_to_json(plan, mode="dry-run")
+            self.assertEqual(first, second)
+            self.assertIn("host guidance", next(row["content"] for row in second["content_plan"]["files"] if row["path"] == "AGENTS.md"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_content_preview_keeps_invalid_utf8_as_a_conflict(self):
+        target = temp_dir()
+        try:
+            (target / "AGENTS.md").write_bytes(b"\xff")
+            before = snapshot(target)
+            rc, output = run_cli(["adopt", str(target), "--preset", "coding", "--json"])
+            self.assertEqual(rc, 1)
+            report = json.loads(output)
+            self.assertEqual(report["conflicts"], [{"path": "AGENTS.md", "reason": "AGENTS.md is not UTF-8"}])
+            self.assertNotIn("AGENTS.md", [row["path"] for row in report["content_plan"]["files"]])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
     def test_default_dry_run_has_the_exact_thin_footprint_for_host_file_matrix(self):
         cases = {
             "all-host-files": {
@@ -875,6 +948,13 @@ class ThinAdoptApplyTests(unittest.TestCase):
                 plan_hash=plan["plan_hash"],
             )
             self.assertEqual(adapter.read_text(encoding="utf-8"), current)
+            projection = create_vivary._adopt_report_to_json(plan, mode="dry-run")["content_plan"]
+            row = next(row for row in projection["files"] if row["path"] == ".agents/skills/vivary/SKILL.md")
+            self.assertEqual(row["operation"], "replace")
+            self.assertEqual(row["content"].encode("utf-8"), adapter.read_bytes())
+            self.assertEqual(row["before_hash"], "sha256:" + hashlib.sha256(stale.encode("utf-8")).hexdigest())
+            self.assertEqual(row["bytes"], len(adapter.read_bytes()))
+            self.assertEqual(row["content_hash"], "sha256:" + hashlib.sha256(adapter.read_bytes()).hexdigest())
 
             future = current.replace(
                 f"create-vivary {create_vivary.__version__}",
