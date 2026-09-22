@@ -5955,6 +5955,10 @@ def plan_adopt(
 
     return {
         "content_plan": content_plan,
+        "request_replay": _adopt_request_readiness(
+            target, has_changes=bool(content_files), has_conflicts=bool(conflicts),
+            extra_root_rules=simulated_rules if privacy_status != "conflict" else (),
+        ),
         "contract": THIN_WORKSPACE_CONTRACT,
         "target": target,
         "preset": chosen_preset,
@@ -5991,6 +5995,7 @@ _ADOPT_JOURNAL_SCHEMA = "vivary.adopt-journal.v3"
 _ADOPT_JOURNAL_MAX_BYTES = 1024 * 1024
 _ADOPT_REQUEST_JOURNAL_SCHEMA = "vivary.adopt-journal.v4"
 _ADOPT_RECEIPT_SCHEMA = "vivary.adopt-receipt.v1"
+_ADOPT_RECOVERY_RECEIPT_SCHEMA = "vivary.adopt-recovery-receipt.v1"
 _ADOPT_RECEIPTS_REL = Path(".vivary/runtime/adopt-receipts")
 _ADOPT_RECOVERY_PLAN_SCHEMA = "vivary.adopt-recovery-plan.v1"
 _ADOPT_PREJOURNAL_RE = re.compile(
@@ -6205,6 +6210,34 @@ def _assert_adopt_record_privacy(
             raise ScaffoldError("adoption request privacy does not cover the record and its temporary file")
 
 
+def _adopt_request_readiness(
+    target: Path, *, has_changes: bool, has_conflicts: bool,
+    extra_root_rules: tuple[tuple[str, bool, str], ...],
+) -> dict:
+    """Capture conservative request prerequisites without granting apply authority."""
+    journal = target / _ADOPT_JOURNAL_REL
+    if journal.exists() or _is_symlink_or_junction(journal):
+        return {"ready": False, "reason": "An unfinished adoption needs recovery or its original request retry."}
+    if has_conflicts:
+        return {"ready": False, "reason": "Resolve the setup conflicts and preview again."}
+    if not has_changes:
+        return {"ready": False, "reason": "No setup changes need to be applied."}
+    # Directory coverage protects every request ID and random publication name.
+    # Checking only an example JSON filename could miss a temporary-file exception.
+    paths = [
+        journal.parent, target / _ADOPT_RECEIPTS_REL, journal,
+        journal.parent / ".adopt-journal.json.preview.vivary-tmp",
+        target / _ADOPT_RECEIPTS_REL / "preview.json",
+        target / _ADOPT_RECEIPTS_REL / ".preview.json.preview.vivary-tmp",
+    ]
+    try:
+        _assert_adopt_record_privacy(target, paths)
+        _assert_adopt_record_privacy(target, paths, extra_root_rules=extra_root_rules)
+    except (ScaffoldError, OSError):
+        return {"ready": False, "reason": "Existing ignore rules must protect .vivary/runtime/ and its recovery records before retryable setup. Review those rules and preview again."}
+    return {"ready": True, "reason": None}
+
+
 def _validated_adopt_receipt(
     target: Path, payload: dict, request: dict, plan_hash: str,
     *, repo_root: str | Path | None,
@@ -6259,6 +6292,8 @@ def _replay_adopt_request(
                 raise ScaffoldError("adoption completion is uncertain: the expected receipt is missing; refusing rollback or new apply")
             raise ScaffoldError("unfinished adoption journal exists; recover it before applying a new plan")
         return None
+    if record[0].get("schema") == _ADOPT_RECOVERY_RECEIPT_SCHEMA:
+        raise ScaffoldError("this adoption request was recovered; review a new plan with a new request ID")
     journal, actions, doctor = _validated_adopt_receipt(
         target, record[0], request, plan_hash, repo_root=repo_root,
     )
@@ -6823,6 +6858,66 @@ def _recovery_result(
     }
 
 
+def _assert_recovery_restored(target: Path, journal: dict, actions: list[dict], backups: dict) -> None:
+    _hash, current = _adopt_recovery_plan(target, journal["plan_hash"], actions, backups)
+    if any(row["operation"] != "no-op" for row in current):
+        raise ScaffoldError("recovered adoption output changed")
+    _ensure_safe_destinations(target, [target / row["path"] for row in journal["approval"]["kept"]], force=True)
+    _assert_adopt_kept_inputs(target, {"kept_identities": journal["approval"]["kept"]})
+
+
+def _replay_adopt_recovery(
+    target: Path, receipt: dict, request_id: str, recover_hash: str,
+    approved_recovery_hash: str | None, *, yes: bool, pending: tuple[dict, bytes] | None,
+) -> dict:
+    if set(receipt) != {"schema", "journal", "recovery_plan_hash", "recovery_actions"}:
+        raise ScaffoldError("adoption recovery receipt is malformed")
+    if receipt["schema"] != _ADOPT_RECOVERY_RECEIPT_SCHEMA:
+        raise ScaffoldError("adoption completion record exists; refusing rollback")
+    journal = receipt["journal"]
+    try:
+        actions, backups = _validated_journal_state(target, journal, recover_hash)
+        request = _validated_adopt_request(journal)
+        if request is None or request["id"] != request_id or journal["phase"] == "publishing":
+            raise ScaffoldError("adoption recovery receipt request does not match pending adoption")
+        rows = receipt["recovery_actions"]
+        if not isinstance(rows, list) or len(rows) != len(actions):
+            raise ScaffoldError("adoption recovery receipt actions are malformed")
+        for row, action in zip(rows, actions):
+            before = backups[action["path"]]
+            restore_hash = _sha256_prefixed(before) if before is not None else None
+            if not isinstance(row, dict) or set(row) != {"path", "operation", "current_hash", "restore_hash"}:
+                raise ScaffoldError("adoption recovery receipt action is malformed")
+            if row["path"] != action["path"].relative_to(target).as_posix() or row["restore_hash"] != restore_hash:
+                raise ScaffoldError("adoption recovery receipt action does not match its journal")
+            if row["current_hash"] == restore_hash:
+                operation = "no-op"
+            elif row["current_hash"] in _adopt_action_after_hashes(action):
+                operation = "restore" if before is not None else "delete-created"
+            else:
+                raise ScaffoldError("adoption recovery receipt action hash is invalid")
+            if row["operation"] != operation:
+                raise ScaffoldError("adoption recovery receipt operation is invalid")
+        recovery_hash = _thin_approval_hash({
+            "schema": _ADOPT_RECOVERY_PLAN_SCHEMA, "target": _thin_target_identity(target),
+            "transaction_plan_hash": recover_hash, "actions": rows,
+        })
+        if recovery_hash != receipt["recovery_plan_hash"]:
+            raise ScaffoldError("adoption recovery receipt approval hash does not match")
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as exc:
+        raise ScaffoldError("adoption recovery receipt is malformed") from exc
+    if yes and approved_recovery_hash != recovery_hash:
+        raise ScaffoldError("recovery plan hash mismatch: retry the originally approved recovery hash")
+    if pending is not None and pending[0] != journal:
+        raise ScaffoldError("adoption recovery receipt and remaining journal disagree; refusing cleanup")
+    _assert_recovery_restored(target, journal, actions, backups)
+    receipt_path = target / _ADOPT_RECEIPTS_REL / (request_id + ".json")
+    _assert_adopt_record_privacy(target, [receipt_path])
+    if yes and pending is not None:
+        _unlink_no_follow(target, target / _ADOPT_JOURNAL_REL, expected_hashes={_sha256_prefixed(pending[1])})
+    return _recovery_result(target, recover_hash, recovery_hash, rows, recovered=yes)
+
+
 def _recover_adopt(
     target: Path,
     recover_hash: str,
@@ -6830,10 +6925,19 @@ def _recover_adopt(
     yes: bool,
     approved_recovery_hash: str | None,
     repo_root: str | Path | None,
+    request_id: str | None = None,
 ) -> dict:
     journal_path = target / _ADOPT_JOURNAL_REL
     record = _read_adopt_record(target, journal_path)
+    if request_id is not None:
+        receipt_path = target / _ADOPT_RECEIPTS_REL / (request_id + ".json")
+        receipt = _read_adopt_record(target, receipt_path)
+        if receipt is not None:
+            return _replay_adopt_recovery(target, receipt[0], request_id, recover_hash,
+                approved_recovery_hash, yes=yes, pending=record)
     if record is None:
+        if request_id is not None:
+            raise ScaffoldError("no request-aware adoption journal or recovery receipt exists")
         prejournal = _prejournal_recovery_state(target, recover_hash)
         if prejournal is None:
             raise ScaffoldError("no safe adoption journal exists to recover")
@@ -6846,6 +6950,8 @@ def _recover_adopt(
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as exc:
             raise ScaffoldError("adoption journal is malformed") from exc
         if request is not None:
+            if request_id is not None and request["id"] != request_id:
+                raise ScaffoldError("recovery request ID does not match the adoption journal")
             if payload["phase"] == "publishing":
                 raise ScaffoldError("adoption completion is committed or uncertain; retry the original --request-id instead of rollback")
             receipt = _read_adopt_record(
@@ -6853,6 +6959,8 @@ def _recover_adopt(
             )
             if receipt is not None:
                 raise ScaffoldError("adoption completion record exists; refusing rollback")
+        elif request_id is not None:
+            raise ScaffoldError("this adoption journal has no original request ID")
 
     recovery_plan_hash, recovery_actions = _adopt_recovery_plan(
         target,
@@ -6877,7 +6985,38 @@ def _recover_adopt(
             "recovery plan hash mismatch: "
             f"approved {approved_recovery_hash}, current {recovery_plan_hash}"
         )
-    _rollback_adopt(target, actions, backups)
+    if request_id is None:
+        _rollback_adopt(target, actions, backups)
+    else:
+        recovery_receipt = {"schema": _ADOPT_RECOVERY_RECEIPT_SCHEMA, "journal": payload,
+            "recovery_plan_hash": recovery_plan_hash, "recovery_actions": recovery_actions}
+        receipt_bytes = _encode_adopt_journal(recovery_receipt)
+        temporary_name = f".{receipt_path.name}.{os.urandom(8).hex()}.vivary-tmp"
+        private_paths = [receipt_path, receipt_path.parent / temporary_name]
+        _ensure_safe_destinations(target, private_paths, force=False)
+        _assert_adopt_record_privacy(target, private_paths)
+        # Rollback restores the root ignore file. Require its original rules to
+        # exclude the runtime directory so recovery leftovers stay private too.
+        ignore_path = target / ".gitignore"
+        if ignore_path in backups:
+            original_ignore = backups[ignore_path]
+        else:
+            with _open_adopt_readonly(target, ignore_path) as stream:
+                original_ignore = stream.read()
+        try:
+            original_rules = [("", parsed[0], parsed[1]) for line in (original_ignore or b"").decode("utf-8-sig").splitlines()
+                if (parsed := _parse_gitignore_line(line)) is not None]
+        except UnicodeError as exc:
+            raise ScaffoldError("original recovery ignore rules are not UTF-8") from exc
+        if not _ignored_by_rules(original_rules, ".vivary/runtime"):
+            raise ScaffoldError("request-aware recovery requires original ignore rules protecting .vivary/runtime/")
+        _assert_adopt_kept_inputs(target, {"kept_identities": payload["approval"]["kept"]})
+        _rollback_adopt(target, actions, backups, cleanup_journal=False)
+        _assert_recovery_restored(target, payload, actions, backups)
+        _atomic_write_bytes_no_follow(target, receipt_path, receipt_bytes, replace_existing=False,
+            temporary_name=temporary_name,
+            before_temporary=lambda temporary: _assert_adopt_record_privacy(target, [receipt_path, temporary]))
+        _unlink_no_follow(target, journal_path, expected_hashes={_sha256_prefixed(record[1])})
     return _recovery_result(
         target,
         recover_hash,
@@ -6983,8 +7122,10 @@ def adopt_workspace(
     if request_id is not None:
         _validate_adopt_request_id(request_id)
         _adopt_request_options(preset, adapters)
-        if not yes or plan_hash is None or recover_hash is not None:
-            raise ScaffoldError("--request-id requires ordinary apply with --yes --plan and cannot be used with --recover")
+        if recover_hash is None and (not yes or plan_hash is None):
+            raise ScaffoldError("--request-id requires ordinary apply with --yes --plan or an explicit --recover")
+        if recover_hash is not None and (preset is not None or adapters):
+            raise ScaffoldError("request recovery uses the original journal options; omit preset and adapters")
     resolved_target = _resolve_scaffold_target(target)
     exclusion = _exclusive_adoption(resolved_target) if yes else nullcontext()
     with exclusion:
@@ -7020,6 +7161,7 @@ def _adopt_workspace(
             yes=yes,
             approved_recovery_hash=plan_hash,
             repo_root=repo_root,
+            request_id=request_id,
         )
 
     request = None
@@ -7158,7 +7300,9 @@ def _adopt_workspace(
 
     try:
         action_offset = 0
-        if privacy_is_action:
+        # Request-aware apply already proved record privacy in the original
+        # folder, so its journal must precede even the first ignore-file change.
+        if privacy_is_action and request is None:
             privacy_action = actions[0]
             _apply_adopt_action(
                 target_path,
@@ -7718,6 +7862,7 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
         payload["doctor"] = result["doctor"]
     if mode == "dry-run":
         payload["content_plan"] = result["content_plan"]
+        payload["request_replay"] = result["request_replay"]
     if "request_id" in result:
         payload.update(request_id=result["request_id"], replayed=result["replayed"])
     return payload
@@ -9644,7 +9789,7 @@ def build_parser(
     adopt.add_argument(
         "--request-id",
         default=None,
-        help="retry identity for ordinary --yes --plan apply; requires existing runtime privacy",
+        help="original request identity for retryable apply or recovery; requires existing runtime privacy",
     )
     adopt.add_argument(
         "--adapter",

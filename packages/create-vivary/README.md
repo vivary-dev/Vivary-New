@@ -163,11 +163,23 @@ JSON filename is insufficient. A refusal does not add a privacy rule or change
 the folder. This restriction keeps backup-bearing crash leftovers private even
 when explicit rollback restores the original `.gitignore`.
 
+Ordinary dry-run JSON includes `request_replay: {"ready": boolean, "reason": string | null}`.
+The planner captures this advisory result with the content preview. It refuses
+readiness for conflicts, an unfinished journal, an empty plan, or missing ignore
+protection. Its conservative privacy check requires coverage of the runtime and
+receipt directories, journal, and temporary publication paths, both before and
+after the proposed ignore changes. It makes no writes. Serialization performs no
+new filesystem reads. Readiness grants no write permission and does not guarantee
+apply will succeed: apply still checks the actual request paths, current inputs,
+record size, and filesystem safety. Applied and recovery reports omit this field.
+
 Receipts are stored in `.vivary/runtime/adopt-receipts/`. Successful replay reads
 and validates one bounded receipt, checks approved output and retained bytes,
 and runs read-only Doctor. If completion left a redundant journal, retry removes
 only that validated journal. It does not delete temporary publication aliases.
 Receipts and journals each have a 1 MiB limit, checked before setup writes.
+Request-aware apply writes its journal before changing any project guidance,
+including `.gitignore`, because record privacy must already exist.
 
 Pending work still uses separately approved rollback recovery. Once the journal
 records that receipt publication may have started, recovery refuses rollback.
@@ -176,10 +188,31 @@ unreadable, or altered expected receipt leaves completion uncertain and refuses
 both replay and rollback. An ordinary error after publication also cannot undo
 completed guidance. Do not delete transaction records to force a retry.
 
-Request IDs require ordinary `--yes --plan` apply and cannot be combined with
-`--recover` or a dry run. This first version refuses a replay-enabled plan with
-no actions before writing. Legacy adoption remains available without a request
-ID. Validation uses the installed renderer, so replay across renderer versions is
+To make recovery retryable too, include that same original request ID in both
+the recovery preview and confirmation:
+
+```bash
+create-vivary adopt . --recover sha256:<original-plan-hash> --request-id setup-attempt-1 --json
+create-vivary adopt . --recover sha256:<original-plan-hash> --request-id setup-attempt-1 \
+  --yes --plan sha256:<reviewed-recovery-hash> --json
+```
+
+This mode validates the journal's original request ID and requires the original
+root ignore rules to protect `.vivary/runtime/`. Before rollback it checks that
+the recovery receipt fits the 1 MiB limit. It retains the journal through rollback,
+then publishes a recovery receipt at the original request's receipt path before
+removing the journal. A lost response can be retried with the same hashes and ID.
+Replay validates the root identity, original journal, recovery approval, restored
+files, and retained bytes. It only removes a redundant matching journal after
+confirmation; the recovery preview makes no writes. Changed evidence refuses
+replay. A recovered request cannot apply again; a newly reviewed plan needs a new
+request ID. Recovery still refuses possible completed adoption.
+
+A failure before the recovery receipt is published leaves the journal available
+for a new recovery preview and confirmation. Legacy recovery without a request ID
+keeps its existing behavior and does not publish a recovery receipt.
+Ordinary request-aware adoption requires `--yes --plan` and a nonempty plan.
+Validation uses the installed renderer, so replay across renderer versions is
 not guaranteed. Process-crash checks do not establish power-loss durability.
 
 ## Doctor and compatibility
