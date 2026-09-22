@@ -34,6 +34,9 @@ describe("local coding runtime status", () => {
       kind: "exited", exitCode: 0, stdout: "", stderr: "Logged in using ChatGPT",
     }).status, "ready");
     assert.equal(vivaryRuntimeStatusFromProbe("codex-cli", {
+      kind: "exited", exitCode: 0, stdout: "", stderr: "Logged in using an API key",
+    }).status, "unavailable");
+    assert.equal(vivaryRuntimeStatusFromProbe("codex-cli", {
       kind: "exited", exitCode: 1, stdout: "", stderr: "Not logged in",
     }).status, "sign-in-required");
     assert.equal(vivaryRuntimeStatusFromProbe("codex-cli", {

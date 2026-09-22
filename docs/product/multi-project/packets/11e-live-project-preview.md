@@ -23,6 +23,12 @@ and a new-tab fallback. It does not start a server or provide integrated browser
 inspection. The Electron shell already includes Chromium. Inspect supported Native
 browser and execution APIs before selecting another dependency or browser process.
 
+The preview displays its owning project and resets when the selected project,
+host scope, or folder binding changes. Closing and reopening the panel within
+the same project preserves its page. The [Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
+owns this behavior. This scoping fix does not provide the integrated debugging
+loop required by this issue.
+
 ## Context
 
 Read the live GitHub issue, [the release snapshot](../desktop-release.md), and

@@ -1,9 +1,14 @@
 """Public-seam tests for thin-v0.3 brownfield adoption."""
 
 import contextlib
+import errno
 import hashlib
 import io
 import json
+import os
+import queue
+import subprocess
+import threading
 import shutil
 import sys
 import unittest
@@ -46,6 +51,79 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class ThinAdoptPlanTests(unittest.TestCase):
+    def test_content_preview_matches_applied_bytes_and_retained_binary(self):
+        target = temp_dir()
+        try:
+            originals = {"AGENTS.md": b"\xef\xbb\xbf# Host\r\n", ".gitignore": b"host-cache/"}
+            for name, content in originals.items():
+                (target / name).write_bytes(content)
+            retained = b"\xff\x00host state"
+            (target / "STATE.md").write_bytes(retained)
+            before = snapshot(target)
+            rc, output = run_cli(["adopt", str(target), "--preset", "coding", "--adapter", "agents", "--json"])
+            self.assertEqual(rc, 0, output)
+            self.assertEqual(snapshot(target), before)
+            report = json.loads(output)
+            content_plan = report["content_plan"]
+            self.assertEqual(content_plan["schema"], "vivary.adopt-content-plan.v1")
+            files = content_plan["files"]
+            self.assertEqual([row["path"] for row in files], sorted(row["path"] for row in files))
+            by_path = {row["path"]: row for row in files}
+            self.assertEqual(set(by_path), {"AGENTS.md", ".gitignore", ".vivary/context.md", ".vivary/workspace.toml", ".agents/skills/vivary/SKILL.md"})
+            for name, original in originals.items():
+                row = by_path[name]
+                block = create_vivary._thin_agents_block() if name == "AGENTS.md" else create_vivary._thin_gitignore_block(active_context=None)
+                separator = b"\n" if original.endswith(b"\n") else b"\n\n"
+                self.assertEqual(row["content"].encode("utf-8"), original + separator + block.encode("utf-8"))
+                self.assertEqual(row["operation"], "patch")
+                self.assertEqual(row["before_hash"], "sha256:" + hashlib.sha256(original).hexdigest())
+            self.assertEqual(content_plan["kept"], [{"path": "STATE.md", "content_hash": "sha256:" + hashlib.sha256(retained).hexdigest()}])
+            plan = create_vivary.plan_adopt(target, preset="coding", adapters=("agents",))
+            self.assertEqual(report["plan_hash"], plan["plan_hash"])
+            self.assertEqual(plan["plan_hash"], create_vivary._thin_approval_hash(plan["approval_payload"]))
+            applied = create_vivary.adopt_workspace(target, preset="coding", adapters=("agents",), yes=True, plan_hash=report["plan_hash"])
+            for row in files:
+                expected = row["content"].encode("utf-8")
+                self.assertEqual((target / row["path"]).read_bytes(), expected)
+                self.assertEqual(row["bytes"], len(expected))
+                self.assertEqual(row["content_hash"], "sha256:" + hashlib.sha256(expected).hexdigest())
+                if row["operation"] == "create":
+                    self.assertNotIn("before_hash", row)
+            self.assertEqual((target / "STATE.md").read_bytes(), retained)
+            for mode in ("applied", "recovered", "recovery-dry-run"):
+                self.assertNotIn("content_plan", create_vivary._adopt_report_to_json(applied, mode=mode))
+        finally:
+            shutil.rmtree(target)
+
+    def test_content_preview_serializes_snapshot_without_rereading(self):
+        target = temp_dir()
+        try:
+            write(target / "AGENTS.md", "host guidance")
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            first = create_vivary._adopt_report_to_json(plan, mode="dry-run")
+            self.assertIn("content_plan", first)
+            write(target / "AGENTS.md", "changed after planning")
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("report reread")), mock.patch.object(Path, "read_text", side_effect=AssertionError("report reread")):
+                second = create_vivary._adopt_report_to_json(plan, mode="dry-run")
+            self.assertEqual(first, second)
+            self.assertIn("host guidance", next(row["content"] for row in second["content_plan"]["files"] if row["path"] == "AGENTS.md"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_content_preview_keeps_invalid_utf8_as_a_conflict(self):
+        target = temp_dir()
+        try:
+            (target / "AGENTS.md").write_bytes(b"\xff")
+            before = snapshot(target)
+            rc, output = run_cli(["adopt", str(target), "--preset", "coding", "--json"])
+            self.assertEqual(rc, 1)
+            report = json.loads(output)
+            self.assertEqual(report["conflicts"], [{"path": "AGENTS.md", "reason": "AGENTS.md is not UTF-8"}])
+            self.assertNotIn("AGENTS.md", [row["path"] for row in report["content_plan"]["files"]])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
     def test_default_dry_run_has_the_exact_thin_footprint_for_host_file_matrix(self):
         cases = {
             "all-host-files": {
@@ -875,6 +953,13 @@ class ThinAdoptApplyTests(unittest.TestCase):
                 plan_hash=plan["plan_hash"],
             )
             self.assertEqual(adapter.read_text(encoding="utf-8"), current)
+            projection = create_vivary._adopt_report_to_json(plan, mode="dry-run")["content_plan"]
+            row = next(row for row in projection["files"] if row["path"] == ".agents/skills/vivary/SKILL.md")
+            self.assertEqual(row["operation"], "replace")
+            self.assertEqual(row["content"].encode("utf-8"), adapter.read_bytes())
+            self.assertEqual(row["before_hash"], "sha256:" + hashlib.sha256(stale.encode("utf-8")).hexdigest())
+            self.assertEqual(row["bytes"], len(adapter.read_bytes()))
+            self.assertEqual(row["content_hash"], "sha256:" + hashlib.sha256(adapter.read_bytes()).hexdigest())
 
             future = current.replace(
                 f"create-vivary {create_vivary.__version__}",
@@ -1004,6 +1089,744 @@ class ThinAdoptApplyTests(unittest.TestCase):
             self.assertEqual(snapshot(target), before)
         finally:
             shutil.rmtree(target)
+
+
+@contextlib.contextmanager
+def held_adoption(target: Path, recover_hash: str | None = None):
+    script = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import create_vivary
+
+def wait_before_apply():
+    print("ready", flush=True)
+    sys.stdin.read(1)
+
+if sys.argv[3]:
+    plan = create_vivary.adopt_workspace(sys.argv[2], recover_hash=sys.argv[3])
+    rollback = create_vivary._rollback_adopt
+    def wait_then_rollback(*args, **kwargs):
+        wait_before_apply()
+        return rollback(*args, **kwargs)
+    create_vivary._rollback_adopt = wait_then_rollback
+    create_vivary.adopt_workspace(sys.argv[2], yes=True, recover_hash=sys.argv[3],
+                                  plan_hash=plan["recovery_plan_hash"])
+else:
+    plan = create_vivary.adopt_workspace(sys.argv[2])
+    create_vivary.adopt_workspace(sys.argv[2], yes=True, plan_hash=plan["plan_hash"],
+                                  _before_apply=wait_before_apply)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", script, str(PKG), str(target), recover_hash or ""],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    ready = queue.Queue()
+    threading.Thread(target=lambda: ready.put(child.stdout.readline()), daemon=True).start()
+    try:
+        if ready.get(timeout=5) != "ready\n":
+            raise AssertionError("adoption holder did not reach the apply boundary")
+        yield child
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.communicate(timeout=5)
+
+
+class AdoptionJournalSizeTests(unittest.TestCase):
+    def test_oversized_backup_refuses_before_even_the_privacy_write(self):
+        for original in ("x" * (800 * 1024), "雪" * (280 * 1024)):
+            with self.subTest(utf8_bytes=len(original.encode("utf-8"))):
+                target = temp_dir()
+                try:
+                    write(target / "AGENTS.md", original)
+                    before = snapshot(target)
+                    plan = create_vivary.adopt_workspace(target, preset="coding")
+                    self.assertFalse(plan["conflicts"])
+                    self.assertEqual(snapshot(target), before)
+                    with self.assertRaisesRegex(
+                        create_vivary.ScaffoldError, "journal exceeds the recovery size limit"
+                    ):
+                        create_vivary.adopt_workspace(
+                            target, preset="coding", yes=True,
+                            plan_hash=plan["plan_hash"], _crash_before_journal=True,
+                        )
+                    self.assertEqual(snapshot(target), before)
+                    self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+                    rc, output = run_cli([
+                        "adopt", str(target), "--preset", "coding", "--yes",
+                        "--plan", plan["plan_hash"], "--json",
+                    ])
+                    self.assertNotEqual(rc, 0, output)
+                    self.assertIn("journal exceeds the recovery size limit", output)
+                    self.assertEqual(snapshot(target), before)
+                    self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+                finally:
+                    shutil.rmtree(target)
+
+    def test_near_limit_interrupted_patch_recovers_original_bytes(self):
+        target = temp_dir()
+        try:
+            original = b"# Host rules\r\n" + b"x" * (760 * 1024)
+            (target / "AGENTS.md").write_bytes(original)
+            before = snapshot(target)
+            plan = create_vivary.adopt_workspace(target, preset="coding")
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", yes=True,
+                    plan_hash=plan["plan_hash"], _crash_after=4,
+                )
+            journal = target / ".vivary/runtime/adopt-journal.json"
+            self.assertGreater(journal.stat().st_size, 1000 * 1024)
+            self.assertLessEqual(journal.stat().st_size, 1024 * 1024)
+            self.assertNotEqual((target / "AGENTS.md").read_bytes(), original)
+            interrupted = snapshot(target)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), interrupted)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"], yes=True,
+                plan_hash=recovery["recovery_plan_hash"],
+            )
+            self.assertTrue(result["recovered"])
+            self.assertEqual((target / "AGENTS.md").read_bytes(), original)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_preflight_reserves_the_extra_byte_for_applying_phase(self):
+        target = temp_dir()
+        try:
+            write(target / "AGENTS.md", "# Host rules\n")
+            before = snapshot(target)
+            plan = create_vivary.adopt_workspace(target, preset="coding")
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", yes=True,
+                    plan_hash=plan["plan_hash"], _crash_after=1,
+                )
+            applying_size = (target / ".vivary/runtime/adopt-journal.json").stat().st_size
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"], yes=True,
+                plan_hash=recovery["recovery_plan_hash"],
+            )
+            self.assertEqual(snapshot(target), before)
+            # The planned journal fits here; changing its phase adds one byte.
+            with mock.patch.object(create_vivary, "_ADOPT_JOURNAL_MAX_BYTES", applying_size - 1):
+                with self.assertRaisesRegex(
+                    create_vivary.ScaffoldError, "journal exceeds the recovery size limit"
+                ):
+                    create_vivary.adopt_workspace(
+                        target, preset="coding", yes=True,
+                        plan_hash=plan["plan_hash"], _crash_before_journal=True,
+                    )
+            self.assertEqual(snapshot(target), before)
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["AGENTS.md"])
+        finally:
+            shutil.rmtree(target)
+
+
+class AdoptionExclusionTests(unittest.TestCase):
+    def test_second_process_apply_refuses_before_any_project_write(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            before = snapshot(target)
+            with held_adoption(target):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_missing_or_file_target_remains_a_structured_cli_refusal(self):
+        parent = temp_dir()
+        try:
+            file_target = parent / "file"
+            file_target.write_bytes(b"keep this file")
+            for target, reason in ((parent / "missing", "does not exist"), (file_target, "not a directory")):
+                with self.subTest(reason=reason):
+                    rc, output = run_cli(["adopt", str(target), "--yes", "--plan", "sha256:" + "0" * 64, "--json"])
+                    self.assertEqual(rc, 1, output)
+                    self.assertIn(reason, json.loads(output)["error"])
+            self.assertEqual(list(parent.iterdir()), [file_target])
+            self.assertEqual(file_target.read_bytes(), b"keep this file")
+        finally:
+            shutil.rmtree(parent)
+
+    def test_preview_and_other_target_proceed_while_apply_is_held(self):
+        target, other = temp_dir(), temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                self.assertEqual(create_vivary.adopt_workspace(target)["plan_hash"], plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+                other_plan = create_vivary.adopt_workspace(other)
+                result = create_vivary.adopt_workspace(other, yes=True, plan_hash=other_plan["plan_hash"])
+                self.assertTrue(result["doctor"]["ok"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+            shutil.rmtree(other)
+
+    def test_killed_apply_holder_releases_exclusion_and_leaves_no_metadata(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                self.assertEqual(list(target.iterdir()), [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertTrue(result["doctor"]["ok"])
+            unchanged = snapshot(target)
+            no_op = create_vivary.adopt_workspace(target)
+            self.assertEqual(no_op["writes"], [])
+            create_vivary.adopt_workspace(target, yes=True, plan_hash=no_op["plan_hash"])
+            self.assertEqual(snapshot(target), unchanged)
+        finally:
+            shutil.rmtree(target)
+
+    def test_apply_and_recovery_contenders_leave_interrupted_state_unchanged(self):
+        target = temp_dir()
+        try:
+            original = snapshot(target)
+            plan = create_vivary.adopt_workspace(target)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"], _crash_after=1)
+            interrupted = snapshot(target)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            with held_adoption(target, plan["plan_hash"]):
+                for request in (
+                    {"plan_hash": plan["plan_hash"]},
+                    {"recover_hash": plan["plan_hash"], "plan_hash": recovery["recovery_plan_hash"]},
+                ):
+                    with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                        create_vivary.adopt_workspace(target, yes=True, **request)
+                    self.assertEqual(snapshot(target), interrupted)
+                preview = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+                self.assertEqual(preview["recovery_plan_hash"], recovery["recovery_plan_hash"])
+                self.assertEqual(snapshot(target), interrupted)
+            result = create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=recovery["recovery_plan_hash"])
+            self.assertTrue(result["recovered"])
+            self.assertEqual(snapshot(target), original)
+        finally:
+            shutil.rmtree(target)
+
+    def test_recovery_refuses_while_ordinary_apply_is_held(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with held_adoption(target):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+
+    def test_reentrant_apply_refuses_without_disturbing_the_outer_apply(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            def nested_apply():
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "already running"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertEqual(list(target.iterdir()), [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"],
+                                                   _before_apply=nested_apply)
+            self.assertTrue(result["doctor"]["ok"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_cli_cannot_bypass_an_apply_holder_with_an_equivalent_target_path(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            alias = str(target.parent) + os.sep + "." + os.sep + target.name
+            with held_adoption(target):
+                rc, output = run_cli(["adopt", alias, "--yes", "--plan", plan["plan_hash"], "--json"])
+                self.assertEqual(rc, 1, output)
+                self.assertIn("already running", json.loads(output)["error"])
+                self.assertEqual(list(target.iterdir()), [])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "posix", "requires unprivileged symlink creation")
+    def test_unrelated_placeholder_symlink_is_not_an_adoption_destination(self):
+        target, outside = temp_dir(), temp_dir()
+        try:
+            source = outside / "host.txt"
+            source.write_bytes(b"untouched host content")
+            link = target / ".adopt-placeholder"
+            link.symlink_to(source)
+            plan = create_vivary.adopt_workspace(target)
+            self.assertEqual(plan["conflicts"], [])
+            result = create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertTrue(result["doctor"]["ok"])
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.readlink(), source)
+            self.assertEqual(source.read_bytes(), b"untouched host content")
+        finally:
+            shutil.rmtree(target)
+            shutil.rmtree(outside)
+
+    @unittest.skipUnless(os.name == "posix", "requires POSIX flock")
+    def test_unsupported_lock_refuses_without_effects_and_releases_local_claim(self):
+        import fcntl
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with mock.patch.object(fcntl, "flock", side_effect=OSError(errno.EOPNOTSUPP, "unsupported")):
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "cannot exclude concurrent adoption"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertTrue(create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])["applied"])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows mutex")
+    def test_windows_mutex_failures_refuse_without_effects_and_release_handles(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with mock.patch.object(create_vivary, "_WINDOWS_CREATE_MUTEX", return_value=None) as denied:
+                with self.assertRaisesRegex(create_vivary.ScaffoldError, "cannot acquire global adoption exclusion"):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                self.assertTrue(denied.call_args.args[2].startswith("Global\\VivaryAdoptV1_"))
+                self.assertEqual(list(target.iterdir()), [])
+            for status, message in ((0xFFFFFFFF, "cannot acquire"), (0x102, "already running")):
+                with self.subTest(status=status):
+                    with mock.patch.object(create_vivary, "_WINDOWS_WAIT_OBJECT", return_value=status), \
+                            mock.patch.object(create_vivary, "_WINDOWS_RELEASE_MUTEX") as release:
+                        with self.assertRaisesRegex(create_vivary.ScaffoldError, message):
+                            create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+                        release.assert_not_called()
+                    self.assertEqual(list(target.iterdir()), [])
+            # A failed wait must not leak the in-process claim or acquire ownership.
+            self.assertTrue(create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])["applied"])
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows mutex")
+    def test_windows_abandoned_ownership_still_uses_existing_recovery_checks(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.adopt_workspace(target)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"], _crash_after=1)
+            interrupted = snapshot(target)
+            wait = create_vivary._WINDOWS_WAIT_OBJECT
+            def abandoned(handle, timeout):
+                self.assertEqual(wait(handle, timeout), 0)
+                return 0x80
+            with mock.patch.object(create_vivary, "_WINDOWS_WAIT_OBJECT", side_effect=abandoned):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.adopt_workspace(target, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), interrupted)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=plan["plan_hash"])
+            result = create_vivary.adopt_workspace(target, yes=True, recover_hash=plan["plan_hash"],
+                                                   plan_hash=recovery["recovery_plan_hash"])
+            self.assertTrue(result["recovered"])
+        finally:
+            shutil.rmtree(target)
+
+
+class AdoptionReplayTests(unittest.TestCase):
+    def setUp(self):
+        self.target = temp_dir()
+        self.addCleanup(shutil.rmtree, self.target)
+        (self.target / 'AGENTS.md').write_bytes(b'# Existing host guidance\n')
+        (self.target / 'STATE.md').write_bytes(b'Private retained state\n')
+        (self.target / '.gitignore').write_bytes(b'.vivary/runtime/\n')
+        self.plan = create_vivary.plan_adopt(self.target, preset='coding')
+        self.request_id = 'setup-attempt-1'
+
+    def apply(self, **overrides):
+        arguments = dict(preset='coding', yes=True, plan_hash=self.plan['plan_hash'], request_id=self.request_id)
+        arguments.update(overrides)
+        return create_vivary.adopt_workspace(self.target, **arguments)
+
+    def snapshot(self):
+        return {p.relative_to(self.target).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in self.target.rglob('*') if p.is_file()}
+
+    def test_unprotected_runtime_refuses_before_any_effects(self):
+        (self.target / '.gitignore').unlink()
+        plan = create_vivary.plan_adopt(self.target, preset='coding')
+        before = self.snapshot()
+        directories = sorted(str(p.relative_to(self.target)) for p in self.target.rglob('*') if p.is_dir())
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'privacy|ignored|protect'):
+            self.apply(plan_hash=plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(str(p.relative_to(self.target)) for p in self.target.rglob('*') if p.is_dir()), directories)
+
+    def test_narrow_final_file_ignore_does_not_protect_receipt_temporary(self):
+        (self.target / '.gitignore').write_text(
+            '.vivary/private/\n*.vivary-tmp\n.vivary/runtime/*\n'
+            '!.vivary/runtime/adopt-receipts/\n', encoding='utf-8')
+        directory = self.target / '.vivary/runtime/adopt-receipts'
+        directory.mkdir(parents=True)
+        (directory / '.gitignore').write_text('*.json\n!*.vivary-tmp\n', encoding='utf-8')
+        plan = create_vivary.plan_adopt(self.target, preset='coding')
+        before = self.snapshot()
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'privacy|ignored|protect'):
+            self.apply(plan_hash=plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(os.name == 'posix' and shutil.which('git'), 'POSIX atomic journal replacement and Git')
+    def test_interrupted_journal_temp_stays_private_after_pending_rollback(self):
+        subprocess.run(['git', 'init', '-q', str(self.target)], check=True, capture_output=True, timeout=10)
+        self.plan = create_vivary.plan_adopt(self.target, preset='coding')
+        initial_ignore = (self.target / '.gitignore').read_bytes()
+        self.crash_process('journal-temp')
+        leftovers = list((self.target / '.vivary/runtime').glob('*.vivary-tmp'))
+        self.assertEqual(len(leftovers), 1)
+        recovery = create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertTrue(create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'],
+                          yes=True, plan_hash=recovery['recovery_plan_hash'])['recovered'])
+        self.assertEqual((self.target / '.gitignore').read_bytes(), initial_ignore)
+        self.assertTrue(leftovers[0].is_file())
+        relative = leftovers[0].relative_to(self.target).as_posix()
+        ignored = subprocess.run(['git', '-C', str(self.target), 'check-ignore', '--no-index', '--', relative],
+                                 capture_output=True, text=True, timeout=10)
+        self.assertEqual(ignored.returncode, 0, ignored.stderr)
+        self.assertEqual(ignored.stdout.strip(), relative)
+
+    def test_adapter_retry_reports_the_original_reviewed_actions(self):
+        plan = create_vivary.plan_adopt(self.target, preset='coding', adapters=('agents',))
+        first = self.apply(plan_hash=plan['plan_hash'], adapters=('agents',))
+        before = self.snapshot()
+        replay = self.apply(plan_hash=plan['plan_hash'], adapters=('agents',))
+        first_report = create_vivary._adopt_report_to_json(first, mode='applied')
+        replay_report = create_vivary._adopt_report_to_json(replay, mode='applied')
+        for field in ('creates', 'patches', 'optional_projections', 'would_create', 'kept', 'plan_hash', 'preset'):
+            with self.subTest(field=field):
+                self.assertEqual(replay_report[field], first_report[field])
+        self.assertTrue(replay_report['replayed'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_readonly_receipt_is_valid_and_remains_readonly(self):
+        self.apply()
+        receipt = self.receipt()
+        receipt.chmod(0o400)
+        try:
+            before = self.snapshot()
+            mode = receipt.stat().st_mode
+            self.assertTrue(self.apply()['replayed'])
+            self.assertEqual(receipt.stat().st_mode, mode)
+            self.assertEqual(self.snapshot(), before)
+        finally:
+            receipt.chmod(0o600)
+
+    def test_malformed_receipt_shapes_refuse_without_effects(self):
+        self.apply()
+        receipt = self.receipt()
+        original = receipt.read_bytes()
+        variants = [b'null', b'[]', b'{"schema":1,"schema":2}', b'{"schema":"vivary.adopt-receipt.v1","journal":[]}']
+        malformed = json.loads(original)
+        malformed['journal']['approval']['creates'][0]['path'] = []
+        variants.append(json.dumps(malformed).encode('utf-8'))
+        for content in variants:
+            with self.subTest(content=content[:50]):
+                receipt.write_bytes(content)
+                before = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.apply()
+                self.assertEqual(self.snapshot(), before)
+        receipt.write_bytes(original)
+        self.assertTrue(self.apply()['replayed'])
+
+    def test_copied_completion_receipt_does_not_authorize_a_different_root(self):
+        self.apply()
+        other = temp_dir()
+        self.addCleanup(shutil.rmtree, other)
+        shutil.copytree(self.target, other, dirs_exist_ok=True)
+        before = snapshot(other)
+        with self.assertRaises(create_vivary.ScaffoldError):
+            create_vivary.adopt_workspace(other, preset='coding', yes=True,
+                plan_hash=self.plan['plan_hash'], request_id=self.request_id)
+        self.assertEqual(snapshot(other), before)
+
+    def test_publication_intent_commit_then_error_never_rolls_back(self):
+        original = create_vivary._write_adopt_journal
+
+        def commit_then_error(target, journal, **kwargs):
+            original(target, journal, **kwargs)
+            if journal['phase'] == 'publishing':
+                raise OSError('lost journal acknowledgement')
+
+        with mock.patch.object(create_vivary, '_write_adopt_journal', side_effect=commit_then_error):
+            with self.assertRaises(create_vivary.ScaffoldError):
+                self.apply()
+        self.assert_reviewed_bytes()
+        self.assertFalse(self.receipt().exists())
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_receipt_and_pending_journal_disagreement_refuses_cleanup(self):
+        self.crash_process('after-receipt')
+        journal_path = self.target / '.vivary/runtime/adopt-journal.json'
+        journal = json.loads(journal_path.read_text())
+        journal['phase'] = 'applying'
+        journal_path.write_text(json.dumps(journal), encoding='utf-8')
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_retry_after_lost_response_preserves_files_and_original_approval(self):
+        first = self.apply()
+        before = self.snapshot()
+        second = self.apply()
+        self.assertTrue(first['applied'])
+        self.assertFalse(first['replayed'])
+        self.assertTrue(second['applied'])
+        self.assertTrue(second['replayed'])
+        self.assertEqual(second['request_id'], 'setup-attempt-1')
+        self.assertEqual(second['plan_hash'], self.plan['plan_hash'])
+        self.assertTrue(second['doctor']['ok'])
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual((self.target / 'STATE.md').read_bytes(), b'Private retained state\n')
+
+    def test_retry_refuses_changed_output_or_kept_input_without_writes(self):
+        self.apply()
+        for relative in ('AGENTS.md', 'STATE.md'):
+            with self.subTest(relative=relative):
+                path = self.target / relative
+                original = path.read_bytes()
+                path.write_bytes(b'Changed by the owner\n')
+                before = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.apply()
+                self.assertEqual(self.snapshot(), before)
+                path.write_bytes(original)
+
+    def test_retry_refuses_different_approval_or_options_without_writes(self):
+        self.apply()
+        for change in ({'plan_hash': 'sha256:' + '0' * 64}, {'preset': 'writing'}, {'adapters': ('agents',)}):
+            with self.subTest(change=change):
+                before = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.apply(**change)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_request_requires_ordinary_approved_apply_and_safe_id_before_effects(self):
+        for change in ({'yes': False}, {'plan_hash': None}, {'recover_hash': self.plan['plan_hash']},
+                       {'request_id': '../escape'}, {'request_id': ''}, {'request_id': 'x' * 129},
+                       {'request_id': 'CON'}, {'request_id': True}, {'request_id': 12}):
+            with self.subTest(change=change):
+                before = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.apply(**change)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_new_request_does_not_reuse_old_approval(self):
+        self.apply()
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply(request_id='different-request')
+        self.assertEqual(self.snapshot(), before)
+
+    def test_cli_retries_in_separate_processes_without_disclosing_backups(self):
+        command = [sys.executable, str(ROOT / 'packages/create-vivary/create_vivary.py'),
+                   'adopt', str(self.target), '--preset', 'coding', '--yes', '--plan',
+                   self.plan['plan_hash'], '--request-id', self.request_id, '--json']
+        first = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        before = self.snapshot()
+        second = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+        report = json.loads(second.stdout)
+        self.assertTrue(report['replayed'])
+        self.assertEqual(report['request_id'], self.request_id)
+        self.assertEqual(report['plan_hash'], self.plan['plan_hash'])
+        self.assertNotIn('Private retained state', second.stdout)
+        self.assertNotIn('Existing host guidance', second.stdout)
+        self.assertEqual(self.snapshot(), before)
+
+
+    def crash_process(self, boundary):
+        script = r'''
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import create_vivary as creator
+root, plan_hash, request_id, boundary = sys.argv[2:]
+original_write = creator._atomic_write_bytes_no_follow
+original_link = os.link
+original_replace = os.replace
+journal_replacements = 0
+
+def replace(source, destination, **kwargs):
+    global journal_replacements
+    if destination == "adopt-journal.json":
+        journal_replacements += 1
+        if boundary == "journal-temp" and journal_replacements == 2:
+            os._exit(71)
+    return original_replace(source, destination, **kwargs)
+
+def write(target, destination, data, **kwargs):
+    receipt = destination.parent.name == 'adopt-receipts'
+    if receipt and boundary == 'before-receipt':
+        os._exit(71)
+    result = original_write(target, destination, data, **kwargs)
+    if receipt and boundary == 'after-receipt':
+        os._exit(71)
+    if receipt and boundary == 'error-after-receipt':
+        raise OSError('lost acknowledgement after receipt publication')
+    return result
+
+def link(source, destination, **kwargs):
+    result = original_link(source, destination, **kwargs)
+    if destination == request_id + '.json' and boundary == 'after-link':
+        os._exit(71)
+    return result
+
+creator._atomic_write_bytes_no_follow = write
+os.link = link
+os.replace = replace
+creator.adopt_workspace(root, preset='coding', yes=True, plan_hash=plan_hash,
+                        request_id=request_id)
+'''
+        result = subprocess.run([sys.executable, '-c', script, str(PKG), str(self.target),
+                                 self.plan['plan_hash'], self.request_id, boundary],
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        if boundary != 'error-after-receipt':
+            self.assertEqual(result.returncode, 71, result.stderr)
+        return result
+
+    def receipt(self):
+        return self.target / '.vivary/runtime/adopt-receipts' / (self.request_id + '.json')
+
+    def assert_reviewed_bytes(self):
+        for row in self.plan['content_plan']['files']:
+            self.assertEqual((self.target / row['path']).read_bytes(), row['content'].encode('utf-8'))
+        self.assertEqual((self.target / 'STATE.md').read_bytes(), b'Private retained state\n')
+
+    def test_completed_crash_retry_only_removes_redundant_journal(self):
+        self.crash_process('after-receipt')
+        journal = self.target / '.vivary/runtime/adopt-journal.json'
+        self.assertTrue(journal.is_file())
+        self.assert_reviewed_bytes()
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+        result = self.apply()
+        self.assertTrue(result['replayed'])
+        before.pop('.vivary/runtime/adopt-journal.json')
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(journal.exists())
+
+    def test_exception_after_receipt_publication_never_rolls_back(self):
+        self.crash_process('error-after-receipt')
+        self.assertTrue(self.receipt().is_file())
+        self.assert_reviewed_bytes()
+        result = self.apply()
+        self.assertTrue(result['replayed'])
+        self.assert_reviewed_bytes()
+
+    def test_publication_intent_without_receipt_blocks_retry_and_rollback(self):
+        self.crash_process('before-receipt')
+        self.assertFalse(self.receipt().exists())
+        self.assert_reviewed_bytes()
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX no-replace link publication')
+    def test_post_link_crash_replays_without_mutating_either_receipt_name(self):
+        self.crash_process('after-link')
+        receipt = self.receipt()
+        self.assertEqual(receipt.stat().st_nlink, 2)
+        aliases = [p for p in receipt.parent.iterdir() if p.name.endswith('.vivary-tmp')]
+        self.assertEqual(len(aliases), 1)
+        self.assertTrue(os.path.samefile(receipt, aliases[0]))
+        before = self.snapshot()
+        before.pop('.vivary/runtime/adopt-journal.json')
+        self.assertTrue(self.apply()['replayed'])
+        self.assertEqual(self.snapshot(), before)
+        aliases[0].write_bytes(b'{broken through alias')
+        altered = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply()
+        self.assertEqual(self.snapshot(), altered)
+
+    def test_corrupt_completion_blocks_retry_and_recovery_without_effects(self):
+        self.crash_process('after-receipt')
+        original = self.receipt().read_bytes()
+        for content in (b'{', b'x' * (1024 * 1024 + 1)):
+            with self.subTest(length=len(content)):
+                self.receipt().write_bytes(content)
+                before = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.apply()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+                self.assertEqual(self.snapshot(), before)
+        self.receipt().write_bytes(original)
+        self.assertTrue(self.apply()['replayed'])
+
+    def test_pending_request_can_be_explicitly_rolled_back(self):
+        before = {k: v[0] for k, v in self.snapshot().items()}
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        interrupted = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply()
+        self.assertEqual(self.snapshot(), interrupted)
+        recovery = create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        self.assertFalse(recovery['recovered'])
+        self.assertEqual(self.snapshot(), interrupted)
+        result = create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'],
+                                               yes=True, plan_hash=recovery['recovery_plan_hash'])
+        self.assertTrue(result['recovered'])
+        self.assertEqual({k: v[0] for k, v in self.snapshot().items()}, before)
+        retry_plan = create_vivary.plan_adopt(self.target, preset='coding')
+        self.assertTrue(self.apply(plan_hash=retry_plan['plan_hash'])['applied'])
+
+    def test_opt_in_noop_refuses_before_effects_and_legacy_noop_still_works(self):
+        self.apply()
+        noop = create_vivary.plan_adopt(self.target, preset='coding')
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply(request_id='noop-request', plan_hash=noop['plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+        legacy = create_vivary.adopt_workspace(self.target, preset='coding', yes=True,
+                                               plan_hash=noop['plan_hash'])
+        self.assertTrue(legacy['applied'])
+        self.assertNotIn('replayed', legacy)
+        self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX FIFO and symlink checks')
+    def test_fifo_or_symlink_receipt_refuses_promptly_without_following(self):
+        self.apply()
+        receipt = self.receipt()
+        original = receipt.read_bytes()
+        receipt.unlink()
+        outside = self.target / 'outside-receipt.json'
+        outside.write_bytes(original)
+        receipt.symlink_to(outside)
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.apply()
+        self.assertEqual(outside.read_bytes(), original)
+        receipt.unlink()
+        os.mkfifo(receipt)
+        command = [sys.executable, str(PKG / 'create_vivary.py'), 'adopt', str(self.target),
+                   '--preset', 'coding', '--yes', '--plan', self.plan['plan_hash'],
+                   '--request-id', self.request_id, '--json']
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertFalse(json.loads(result.stdout)['ok'])
+        self.assertEqual(outside.read_bytes(), original)
+        receipt.unlink()
 
 
 if __name__ == "__main__":

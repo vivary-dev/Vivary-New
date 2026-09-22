@@ -1,6 +1,6 @@
 # Contributor operating manual
 
-Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Jeff accepted the design direction on 2026-09-14. The first workspace shell merged in PR #42 after private hosted verification, independent review and CI. Model execution, Windows proof, and the remaining issue #38 capabilities are still incomplete.
+Use this manual to give an LLM the exact context for one change. It is a reading and contract map, not a second task tracker or a replacement for AGENTS.md. Jeff accepted the design direction on 2026-09-14. The first workspace shell merged in PR #42 after private hosted verification, independent review and CI. Bounded Codex execution and Windows proof are recorded in the acceptance register. Broader issue #38 capabilities remain incomplete.
 
 ## One feature, one bounded context
 
@@ -11,7 +11,7 @@ Use this manual to give an LLM the exact context for one change. It is a reading
 5. Implement against the current installed API. Conceptual names in this specification are not exports to import. Prefer configure, compose, then the smallest supported extraction.
 6. Run focused verification and the affected real hosted journey. Fix failures and repeat that journey. Run independent review for the risk and the required PR gate.
 7. Update the owning contract/evidence and its source map when behavior changes. GitHub owns lifecycle. Regenerate only views whose sources changed.
-8. Push reviewed source through Entire then GitHub, merge one ready PR into dev, refresh the private app at a safe authorized idle point, and identify the build tested. Windows proof follows separately.
+8. Follow the standing Zo CI and delivery practices in AGENTS.md and CONTRIBUTING.md. Push reviewed source to both remotes and verify matching refs. Merge only with the applicable CI, review, product acceptance, and existing authorization. Refresh the private app while idle. Test the packaged Windows EXE separately.
 
 ## Context routes
 
@@ -50,7 +50,8 @@ API rule: verify installed exports. Specification signatures are conceptual.
 Verification: <focused existing check> and <affected hosted user journey>.
 Failure: preserve authored data, report denied/conflict/uncertain state, repair and repeat.
 Delivery: reviewed topic PR into dev, applicable CI and independent approval,
-Entire first, sequential merge, preview source verified. No main/public promotion.
+Zo CI against the exact candidate, matching GitHub/Entire refs, and authorized merge only.
+Preview source verified. No automatic main/public promotion.
 Stop only the operation needing a missing actual prerequisite.
 Update the owning docs and existing handoff, not a parallel task ledger.
 ```
@@ -64,6 +65,8 @@ For a new editor, the caller reads content with a base version, edits a draft an
 If a change requires a new record, first identify the missing concept. Prefer a pointer to an existing owner. A new transcript, scheduler, secret store or task queue needs evidence that the existing Native owner cannot meet the contract. Ordinary UI composition is not that evidence.
 
 ## Verification without a second product
+
+Keep implementation, builds, automated checks, hosted QA, and continuity on Zo. Use Windows for the packaged EXE. GitHub billing does not block the standing approved Zo CI path. Record its exact candidate and executed checks without claiming unrun Windows jobs passed. Preserve one current local package after replacement acceptance. The root instructions own cleanup and the 1% remaining usage boundary.
 
 For documentation changes, use existing plan, navigation, line-ending and diff checks. Render diagrams and exercise the drawing room links/interactions. For code, run the smallest relevant existing tests and the actual user journey. Do not build a custom runtime just to demonstrate the spec.
 

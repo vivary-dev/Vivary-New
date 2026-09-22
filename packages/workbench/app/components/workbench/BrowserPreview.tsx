@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { previewUrl } from "@/lib/workbench-preview";
 
-export function BrowserPreview() {
+export function BrowserPreview({ projectName }: { projectName: string }) {
   const [address, setAddress] = useState("");
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -24,6 +24,7 @@ export function BrowserPreview() {
 
   return (
     <section className="flex h-full min-h-0 flex-col" aria-label="Web preview">
+      <p className="shrink-0 break-words border-b border-border px-3 py-2 text-xs text-muted-foreground">Preview for {projectName}</p>
       <form onSubmit={openPreview} className="flex shrink-0 items-center gap-2 border-b border-border p-3">
         <label htmlFor="preview-address" className="sr-only">Preview address</label>
         <Input id="preview-address" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="https://example.com or /app-path" className="min-w-0 flex-1" />

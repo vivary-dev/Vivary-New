@@ -17,6 +17,9 @@ test("command input has no caller-supplied executable, paths, flags or receipt t
     { ...input, command: { verb: "shell" } },
     { ...input, command: { verb: "create", root: "/outside" } },
     { ...input, command: { verb: "review", pack: "/outside" } },
+    { ...input, command: { verb: "find", query: "--root /outside" } },
+    { ...input, command: { verb: "find", query: "-v" } },
+    { ...input, command: { verb: "impact", nodeId: "--receipt=/outside" } },
     { ...input, command: { verb: "review", pack: "context-budget" } },
     { ...input, command: { verb: "adopt", approvedPlanHash: "--yes" } },
     { ...input, command: { verb: "create", apply: true } },
@@ -25,12 +28,14 @@ test("command input has no caller-supplied executable, paths, flags or receipt t
   ]) assert.equal(originalCommandSchema.safeParse(invalid).success, false);
 });
 
-test("arguments preserve the ten owners and put option-like text after the option terminator", () => {
+test("arguments preserve the ten owners and place the query or node id directly after its verb", () => {
+  // tropo and ozone parse positionals once, right after the verb; a trailing
+  // positional or a `--` terminator after options is rejected by both CLIs.
   const examples = [
     { verb: "create" }, { verb: "adopt" }, { verb: "doctor" }, { verb: "capabilities" },
-    { verb: "check" }, { verb: "find", query: "--root /outside" },
+    { verb: "check" }, { verb: "find", query: "chapter outline" },
     { verb: "decide", request: "{}" }, { verb: "review" },
-    { verb: "impact", nodeId: "--receipt=/outside" }, { verb: "control", request: "{}" },
+    { verb: "impact", nodeId: "outline" }, { verb: "control", request: "{}" },
   ];
   for (const command of examples) {
     const parsed = originalCommandSchema.parse({ projectId: "project-a", command });
@@ -38,7 +43,9 @@ test("arguments preserve the ten owners and put option-like text after the optio
     assert.equal(invocation.args[0], command.verb);
     if (command.verb === "create") assert.ok(invocation.args.includes("--dry-run"));
     if (command.verb === "adopt") assert.ok(!invocation.args.includes("--yes"));
-    if (command.verb === "find" || command.verb === "impact") assert.equal(invocation.args.at(-2), "--");
+    if (command.verb === "find") assert.deepEqual(invocation.args.slice(0, 2), ["find", "chapter outline"]);
+    if (command.verb === "impact") assert.deepEqual(invocation.args.slice(0, 2), ["impact", "outline"]);
+    assert.ok(!invocation.args.includes("--"), invocation.args.join(" "));
     if (command.verb === "decide") assert.equal(invocation.stdin, "{}");
     if (command.verb === "control") { assert.equal(invocation.stdin, ""); assert.equal(invocation.args.at(-1), "/private/request.json"); }
   }
@@ -200,6 +207,20 @@ test("create and adopt apply requests are rejected before project resolution or 
     }
     assert.equal(f.reads(), 0);
     assert.equal(f.calls(), 0);
+  } finally { await f.cleanup(); }
+});
+
+test("output overflow returns a safe action error after the child stops", async () => {
+  const f = await fixture(async () => {
+    await runOriginalProcess(process.execPath, ["-e", "process.stdout.write(Buffer.alloc(300000));setInterval(() => {}, 1000)"], "", process.cwd(), process.env);
+  });
+  try {
+    await assert.rejects(f.runner(input, context), {
+      message: "The original Vivary command exceeded its output limit.",
+      statusCode: 413,
+      errorCode: "vivary_original_output_limit",
+    });
+    assert.equal((await runOriginalProcess(process.execPath, ["-e", ""], "", process.cwd(), process.env)).exitCode, 0);
   } finally { await f.cleanup(); }
 });
 

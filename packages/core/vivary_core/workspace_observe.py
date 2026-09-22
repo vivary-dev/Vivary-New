@@ -1747,11 +1747,19 @@ def _observe_one(raw_path: str, run_git: RunGit) -> Dict[str, Any]:
                 )
             else:
                 npm_test = _observe_npm_test_script(worktree_root)
-                facts["npm_test_script"] = (
-                    _known(npm_test, "fs.read package.json scripts.test")
-                    if npm_test is not None
-                    else _unknown("no_npm_test_script", "fs.read package.json scripts.test")
-                )
+                if npm_test is not None:
+                    facts["npm_test_script"] = _known(
+                        npm_test, "fs.read package.json scripts.test"
+                    )
+                elif os.path.lexists(os.path.join(worktree_root, "package.json")):
+                    # A manifest is present but has no usable test script, or
+                    # was refused as unsafe: that is an unknown worth stating.
+                    facts["npm_test_script"] = _unknown(
+                        "no_npm_test_script", "fs.read package.json scripts.test"
+                    )
+                # No manifest at all: the npm fact does not apply to this
+                # checkout (notes, writing), so it is omitted rather than
+                # reported as an unknown.
     else:
         # `--show-toplevel` fails for a bare repository too (it has no working
         # tree) - that is not the same fact as "not a git repository at all".

@@ -51,20 +51,89 @@ Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
 Code conversations use local CLI accounts. Native conversations use Native's
-configured providers. Model access is separate from opening Vivary. The current Code
-composer displays its effective runtime and model as read-only text. It deliberately
-hides Native's cloud-provider model picker because CLI aliases are not Native provider
-models. Runtime settings reports both Claude Code and Codex readiness.
+configured providers. Model access is separate from opening Vivary.
 
-Claude Code is the only coding runtime exercised through the packaged UI. Codex may
-show Ready, but a new Code conversation cannot currently select it. The accepted
-harness catalog and truthful model/runtime switching remain issue #38 work. Native
-provider configuration does not prove an accepted real-provider Native turn.
+For a new Code conversation, choose **Claude Code** or **Codex** from **Runtime**.
+The choice survives reload. Runtime setup remains available when the selected
+CLI is not ready. Sending a message starts the turn. After the conversation
+starts, its runtime stays fixed. Start a new conversation to use another runtime.
+Codex model discovery is implemented. Linked history and broader cross-runtime
+integration remain separate issue #38 work.
 
-Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex uses its own
-workspace-write permission policy and can run commands. Runtime permissions
-belong to the installed CLI; choosing a project is not an operating-system
-sandbox.
+The Code composer keeps runtime/model identity visible and hides Native's cloud
+provider picker. Codex reports its available models through its app-server API.
+Choose one before starting. Vivary records that model with the conversation.
+Older conversations retain their recorded model, including an unknown historical
+CLI default. A saved draft with an unavailable model switches to Codex's reported
+default before it can start.
+
+The Codex integration requires ChatGPT subscription authentication and the built-in
+OpenAI provider. API-key fallback and custom providers are not enabled. Vivary
+uses the same resolved executable for readiness and execution, including Windows
+npm installations. Credentials stay in Codex's existing store.
+
+Codex loads its own configuration, skills, and configured connections. Vivary does
+not inject Native's separate MCP catalog. The settings page lists connection names,
+not credentials or a claim that each connection is reachable. Connection tools can
+operate outside the shell's filesystem sandbox and retain their own access rules.
+
+Codex uses its native app-server protocol for execution and approval requests.
+Choose **Normal**, **Read only**, or **YOLO** in Runtime settings. Normal allows
+project work and asks about actions requiring broader access. Read only prevents
+local file edits and permission expansion. YOLO gives commands full host access
+without approval prompts. Connected services retain their own access settings.
+There is no Plan mode. A settings change applies to the next turn; active work
+keeps the permissions recorded when it started. Global Codex configuration is
+unchanged.
+
+Approval cards show the requested command, file changes, access, or questions.
+The response goes back to the live Codex request. Vivary does not execute the
+approved command itself. Allow once and Decline apply to that request. Additional
+permission grants last for the current turn. Persistent command rules and session
+approval shortcuts are not exposed by this adapter.
+
+Commentary appears in smaller Progress cards. Actual native subagent events have
+separate Subagent activity cards with their recorded identities and statuses.
+Final answers retain the main text style. Reopening history uses the same event
+classification; consecutive assistant messages alone never imply subagents.
+
+A new Codex run records its native session ID. Follow-ups resume that exact session.
+Historical Vivary runs without an ID use the existing bounded-history prompt once,
+then record the native session for subsequent turns. Runtime and model changes
+require a new conversation. Linked conversations remain separate issue #38 work.
+
+The published `26798df` Windows preview does not include these source changes.
+The `2f4a5df` Windows EXE verified subscription file work, native-session continuity,
+a configured MCP call, one actual subagent and its public result, and a command
+completing after 125.19 seconds. Native Allow/Decline, Read only read/write controls,
+YOLO fixture access, cross-project cancellation of a running command, mode
+persistence, and shutdown also passed. Normal was restored after mode testing.
+
+Final candidate `98515c9` corrects overlapping tool identity and pending-approval
+presentation. Its production build, 75 focused tests, and type checking passed.
+The 12 unchanged Native regressions passed separately. The simulated hosted protocol test and actual Windows retest held and reloaded
+native approval without a false stopped warning. The Windows test then approved
+a real file write and received its final answer. Saved output
+remained inspectable. The final EXE preserved its answer and model after restart.
+Shutdown left no candidate processes. Superseded local packages were removed.
+
+These are bounded Codex prototype results across recorded candidates. The final
+EXE retest does not repeat every earlier journey. The private preview serves the
+final output with authentication preserved. PR #59 merged into `dev` on September 16,
+2026 as `b81dcd7`. The exact reviewed head `f21328b` passed all 62 applicable Zo CI
+steps, including Linux tests, orientation, graph review, and site checks. GitHub
+Actions did not run because of billing; Windows CI jobs were not part of the Zo run.
+The acceptance register owns candidate details and remaining release gates.
+
+OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
+separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
+not establish Native provider access. Issue #38 retains runtime/model integration,
+and issue #50 retains real Native-provider acceptance.
+
+Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex supplies its command,
+file, and connection tools. Vivary sets this integration's approval and sandbox
+bounds; Codex enforces the selected shell sandbox except in YOLO mode. Choosing a project alone is not an
+operating-system sandbox.
 
 [DeepSeek Flash titles for both chat surfaces](../../docs/product/multi-project/tickets/05-integrate-workbench-shell.md#planned-chat-titles)
 are planned. The existing Full chat adapter remains; this increment does not
@@ -74,6 +143,9 @@ extend it to coding conversations.
 
 The desktop's Open folder action uses the system directory chooser. The server
 connects that folder through the existing Native-backed project registry.
+Folder selection expires after two minutes. The app identifies an expired
+selection and asks you to close the chooser before trying again. A selection
+returned after the chooser expires does not register a project.
 New project previews the original creator's five guidance files before creating
 a separate folder under the app data directory's `projects` folder. It then
 registers and selects that project. Cancel writes nothing. Existing files and
@@ -84,6 +156,41 @@ The canonical `/` workspace keeps the selected conversation in the center.
 Project details, files, and page preview open only when requested. Panels can
 resize, close, reopen, and expand for focused work. The old Agent, Files,
 Workbench, and Full chat URLs redirect to this workspace.
+
+Page preview shows its owning project. Closing and reopening the panel preserves
+the current page within that project. Changing projects, host scope, or folder
+binding clears the address and unloads the old page. Returning to a project starts
+with an empty preview. The iframe retains its existing sandbox and no-referrer policy.
+
+For a registered folder, **Details > Preview Vivary setup** shows the guidance
+files Vivary would create or update without changing project files. Expand a file
+to inspect its full proposed content and byte count. The preview also lists
+retained files, conflicts, and the plan hash. It uses the existing
+`vivary-original-command` action and the creator's dry-run `content_plan` report.
+See the [adoption content contract](../create-vivary/README.md#existing-repositories-and-vaults)
+for the exact UTF-8 fields. The action's 256 KiB combined output limit rejects an
+oversized preview in full; the UI does not present truncated content as a complete
+plan. General GUI adoption apply remains pending under
+[issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
+[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15).
+
+Search opens beside Files and finds file names, literal text, or a regular
+expression inside the selected project only. Results show the path, line,
+column, and an excerpt; choosing one opens the file at that line. Each request
+stops at explicit limits (50,000 entries, 2,000 files read, 200 matches, 20
+per file, a 1.5 s budget, 200 ms per file for a regular expression) and says
+which limit it hit; More results continues from where it stopped, and for a
+tree that does not change between pages nothing is repeated or skipped.
+Limits are soft deadlines checked between filesystem operations. Filename
+mode lists names from directory entries and reads nothing. Content search
+applies the file panel's skip list and secret rules, skips links it sees,
+verifies a file's identity when opening it, and skips binary, oversized,
+and overlong content. A superseded query is abandoned by the panel while the
+server finishes its bounded page; a pattern that is too slow skips that file
+and the status line says so. There is no index, shell, or bundled search
+binary. Coding agents search
+the same folder through their own tools: Claude Code's Grep and Glob run in
+the project directory, and Codex uses its sandboxed shell there.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
@@ -124,24 +231,20 @@ Without creation times, inode reuse during downtime can hide a replacement.
 This mode supplies ordinary local access. Content snapshots, VCS custody, and
 strict mutation evidence belong to the existing Core providers.
 
-Each Code message first becomes a pending request in Native's run store.
-The approval card shows the exact instruction, project, runtime, and two-minute
-limit. Approve background work starts that turn on the host, where it can
-continue after navigation or browser closure. Deny starts no model or tools.
-Every follow-up needs a new decision. Denied instructions do not enter later
-agent context.
+Code work continues on the host after navigation or browser closure, until the
+agent completes, fails, or the user selects Stop. There is no fixed turn deadline.
+The global control shows running work and native requests, including when another
+project is selected. Open conversation returns to the same run and transcript.
+Decline and Stop remain available if its folder becomes unavailable.
 
-The global control shows pending requests, running work, and the latest outcome.
-Open conversation returns to the same run and transcript. Deny and Stop remain
-available if its folder becomes unavailable. Host restart preserves pending
-requests and history, marks interrupted execution honestly, and never starts
-work automatically.
+Host restart marks unfinished work and former launch-approval records interrupted.
+It never replays pending actions or old unsent instructions. Saved history remains
+readable. Start a new turn explicitly to continue.
 
 Each Code invocation uses a separate ordinary Node worker around Native's
-executor. A two-minute work deadline requests cancellation, followed by forced
-cleanup of the owned worker processes. Unverified cleanup blocks further
-admission, including after restart. Native CLI permission and containment
-capabilities still apply to its tools.
+executor. Stop interrupts the native turn before bounded process-tree cleanup.
+Startup and cleanup still have time limits. Unverified cleanup blocks further
+runs, including after restart.
 
 Open **Files** to browse the project tree and select a file. Markdown opens as
 formatted content. Text and source files open for reading. Choose **Edit** to
@@ -161,8 +264,9 @@ The [desktop acceptance register](../../docs/product/multi-project/desktop-accep
 distinguishes the tested private candidate from the complete release target. In
 particular, real Native-provider access and turns remain under issue #50, and
 automation execution/recovery remains under issue #51. The current settings surfaces
-alone are not execution proof. Clean-profile setup, Codex selection/execution under
-issue #38, search, memory, existing-folder adoption, and final self-hosted access remain open.
+alone are not execution proof. Codex selection and file execution passed on the
+locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
+memory, existing-folder adoption, and final self-hosted access remain open.
 
 ## Development preview
 
@@ -190,9 +294,10 @@ interrupted Native records before accepting another message. SQLite and files
 stay in local persistent storage. Multi-instance deployment is unsupported.
 
 Codex 0.153.4 cannot start its default restricted-network sandbox on the current
-Zo host. A bounded diagnostic confirmed that its network-enabled profile retains
-filesystem and PID containment, but Native 0.176.5 exposes no per-run profile
-override. No global CLI configuration or sandbox bypass was applied.
+Zo host. The maintained Native adapter supplies per-run configuration while keeping
+restricted networking and workspace writes. No global CLI configuration change or
+sandbox bypass was applied. File-tool proof comes from the Windows candidate;
+Zo verified real context-only turns and native-session continuity.
 This is a development-host compatibility gap, not a requirement to run Vivary
 on Zo.
 
@@ -212,6 +317,22 @@ node node_modules/tsx/dist/cli.mjs --test tests/local-code-agent.test.ts tests/l
 pnpm build
 pnpm run doctor
 ```
+
+The maintained regression checks (issue #22, packet 06h) run from this
+directory under Node 22, the CI pin recorded in `.node-version`. The native
+SQLite module is built for the Node major that ran `pnpm install`; a mismatch
+fails fast with one sentence naming it.
+
+```console
+pnpm test:maintained
+```
+
+That runs the registry, project-services, shell, mutation, and chat-title
+suites in sequence with disposable proof roots and a disposable database.
+Set `VIVARY_REGISTRY_PROOF_ROOT`, `VIVARY_12H_PROOF_ROOT`,
+`VIVARY_17A_PROOF_ROOT`, or `VIVARY_TEST_CORE_PACKAGE_JSON` to absolute paths
+only when a task needs to own them. Core creates an empty `data/` directory
+under the working directory, which is ignored here.
 
 Exercise changed flows through normal startup. The private handoff preserves
 actual browser and desktop results, including failed attempts. These checks do not

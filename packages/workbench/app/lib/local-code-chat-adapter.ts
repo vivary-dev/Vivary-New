@@ -6,7 +6,6 @@ import {
 import { actionErrorMessage, callAction } from "@agent-native/core/client/hooks";
 import type { NativeActionCaller } from "./native-actions";
 import type {
-  VivaryCodeModel,
   VivaryCodeState,
 } from "../../server/local-code-agent";
 
@@ -44,7 +43,7 @@ export function createLocalCodeChatAdapter(
       }
       const engine = options.engines().find(item => item.engine === options.context.engineRef.current);
       const model = options.context.modelRef.current;
-      if (!engine || !model || !isCodeModel(model) || !engine.models.includes(model)) {
+      if (!engine || !model || !engine.models.includes(model)) {
         throw new Error("Choose an available runtime and model.");
       }
       if (input.abortSignal.aborted) return;
@@ -112,8 +111,4 @@ export function createLocalCodeChatAdapter(
       }
     },
   };
-}
-
-function isCodeModel(value: string): value is VivaryCodeModel | "default" {
-  return value === "sonnet" || value === "opus" || value === "fable" || value === "default";
 }

@@ -11,16 +11,20 @@ import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 
 const preset = z.enum(["coding", "second-brain", "knowledge-work", "writing"]);
 const requestDocument = z.string().min(1).max(65_536);
+// tropo and ozone read their one positional right after the verb and refuse a
+// `--` terminator, so a value that looks like an option cannot be passed safely.
+const notOptionLike = (value: string) => !value.startsWith("-");
+const optionLikeMessage = { message: "The text must not start with a dash." };
 const commandSchema = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("create"), preset: preset.default("coding") }).strict(),
   z.object({ verb: z.literal("adopt"), preset: preset.optional() }).strict(),
   z.object({ verb: z.literal("doctor") }).strict(),
   z.object({ verb: z.literal("capabilities"), preset: preset.default("coding") }).strict(),
   z.object({ verb: z.literal("check") }).strict(),
-  z.object({ verb: z.literal("find"), query: z.string().trim().min(1).max(4_000), budget: z.number().int().min(1).max(16_000).default(2_000) }).strict(),
+  z.object({ verb: z.literal("find"), query: z.string().trim().min(1).max(4_000).refine(notOptionLike, optionLikeMessage), budget: z.number().int().min(1).max(16_000).default(2_000) }).strict(),
   z.object({ verb: z.literal("decide"), request: requestDocument }).strict(),
   z.object({ verb: z.literal("review") }).strict(),
-  z.object({ verb: z.literal("impact"), nodeId: z.string().trim().min(1).max(256) }).strict(),
+  z.object({ verb: z.literal("impact"), nodeId: z.string().trim().min(1).max(256).refine(notOptionLike, optionLikeMessage) }).strict(),
   z.object({ verb: z.literal("control"), request: requestDocument }).strict(),
 ]);
 
@@ -40,10 +44,10 @@ export function originalCommandArguments(command: OriginalCommand, root: string,
     case "doctor": return { args: ["doctor", root, "--json"], stdin: "" };
     case "capabilities": return { args: ["capabilities", "--preset", command.preset, "--json"], stdin: "" };
     case "check": return { args: ["check", "--root", root, "--json"], stdin: "" };
-    case "find": return { args: ["find", "--root", root, "--json", "--mode", "text", "--budget", String(command.budget), "--", command.query], stdin: "" };
+    case "find": return { args: ["find", command.query, "--root", root, "--json", "--mode", "text", "--budget", String(command.budget)], stdin: "" };
     case "decide": return { args: ["decide", "--governed", "--json", "--strict", "-"], stdin: command.request };
     case "review": return { args: ["review", "--root", root, "--json", "--pack", "structure"], stdin: "" };
-    case "impact": return { args: ["impact", "--root", root, "--json", "--", command.nodeId], stdin: "" };
+    case "impact": return { args: ["impact", command.nodeId, "--root", root, "--json"], stdin: "" };
     case "control": {
       if (!controlRequestPath) throw new Error("A private control request file is required.");
       return { args: ["control", "--governed", "--json", "--strict", controlRequestPath], stdin: "" };
@@ -144,6 +148,8 @@ async function validateGovernedRequest(command: OriginalCommand, workspace: Loca
   }
 }
 
+class OriginalCommandOutputLimitError extends Error {}
+
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
 type CommandHost = { closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
@@ -208,7 +214,7 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     signal?.addEventListener("abort", abort, { once: true });
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > OUTPUT_BYTES) stop(new Error("The original Vivary command exceeded its output limit."));
+      if (bytes > OUTPUT_BYTES) stop(new OriginalCommandOutputLimitError("The original Vivary command exceeded its output limit."));
       else target.push(chunk);
     };
     child.stdout.on("data", collect(output));
@@ -312,6 +318,11 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
       }
       return { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result };
+    } catch (error) {
+      if (error instanceof OriginalCommandOutputLimitError) {
+        commandError(error.message, "vivary_original_output_limit", 413);
+      }
+      throw error;
     } finally {
       if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true });
     }

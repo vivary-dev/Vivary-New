@@ -23,6 +23,9 @@
 .file-notice[role=alert] { color:hsl(var(--foreground)); border-left:3px solid hsl(var(--destructive)); }
 .file-reading-surface { flex:1; width:100%; max-width:1050px; margin:0 auto; padding:clamp(1rem,4vw,3rem); overflow-wrap:anywhere; min-width:0; }
 .file-reading-surface pre, .file-conflict pre { white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; font: .85rem/1.7 ui-monospace, monospace; }
+.file-source-lines .file-line { display:block; position:relative; padding-left:3.4rem; }
+.file-source-lines .file-line-number { position:absolute; left:0; width:2.8rem; text-align:right; color:hsl(var(--muted-foreground)); user-select:none; }
+.file-source-lines .file-line.is-target { background:hsl(var(--accent)); color:hsl(var(--accent-foreground)); box-shadow:inset 2px 0 hsl(var(--primary)); }
 .file-reading-surface .tiptap { min-height:0; }
 .file-reading-surface .tiptap h1 { font-size:2rem; line-height:1.2; margin:1rem 0; }
 .file-reading-surface .tiptap h2 { font-size:1.45rem; margin:1.2rem 0 .75rem; }

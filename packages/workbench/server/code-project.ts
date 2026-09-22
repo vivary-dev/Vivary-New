@@ -48,3 +48,18 @@ export async function resolveVivaryCodeProjectHistory(
     });
   }
 }
+
+
+/** Discover runtime configuration from a connected folder without changing history access. */
+export async function resolveVivaryCodeProjectDiscoveryRoot(
+  context: ActionRunContext | undefined,
+  projectId: string | undefined,
+): Promise<string | undefined> {
+  if (!projectId) return undefined;
+  try {
+    return (await resolveLocalProjectWorkspace(context, projectId)).root;
+  } catch (error) {
+    preserveAccessDenial(error);
+    return undefined;
+  }
+}

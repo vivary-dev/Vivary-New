@@ -18,6 +18,12 @@ evidence that a given artifact reached a registry. Exact current source and regi
 versions live in the [original CLI release status](/original-cli/#release-status).
 [MIGRATION-STATUS.md](/migration-status/) owns maturity classifications.
 
+Run applicable repository CI commands on the exact candidate commit on Zo, as
+required by [the contributor guide](https://github.com/vivary-dev/Vivary-New/blob/dev/CONTRIBUTING.md). Record the tested head,
+results, evidence, and platform omissions separately from GitHub Actions status.
+Zo verification can satisfy the CI gate; it does not replace independent review,
+packaged Windows acceptance, or the separate approval to publish artifacts.
+
 ## 1. Name the train and decide the release scope
 
 Versions are independent per package — there is no single "Vivary X.Y.Z".

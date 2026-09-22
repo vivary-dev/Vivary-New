@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { callAction, notifySessionInvalidated, useSession } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, callAction, notifySessionInvalidated, useSession } from "@agent-native/core/client/hooks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { isValidSessionToken, sessionToken } from "./native-state";
 import { isRejectedSessionToken, rejectSessionToken } from "./native-session-rejections";
@@ -7,6 +7,15 @@ import { VIVARY_OWNER_ACTIONS, type VivaryOwnerAction } from "../../shared/owner
 
 export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>) => Promise<T>;
 const actionTimeout = (name: VivaryOwnerAction) => name === "vivary-connect-project-folder" ? 130_000 : 30_000;
+
+export function folderConnectionErrorMessage(failure: unknown): string {
+  if (failure instanceof Error && (failure.name === "TimeoutError"
+    || ("status" in failure && failure.status === 408)
+    || ("timedOut" in failure && failure.timedOut === true))) {
+    return "Folder selection timed out. Close the folder chooser and try again.";
+  }
+  return actionErrorMessage(failure) ?? "The folder could not be connected. Try again.";
+}
 
 type Session = Pick<ReturnType<typeof useSession>, "session" | "status">;
 type Dependencies = {
@@ -54,7 +63,7 @@ export function createNativeActionCaller(dependencies: Dependencies): NativeActi
         ? ("message" in result && typeof result.message === "string" ? result.message
           : "error" in result && typeof result.error === "string" ? result.error : undefined)
         : undefined;
-      throw Object.assign(new Error(detail ?? "The action could not finish. Try again."), { status: response.status });
+      throw Object.assign(new Error(detail ?? "The action could not finish. Try again."), { status: response.status, actionMessage: detail });
     }
     // Action schemas own the response contract, as with Native's callAction<T>.
     return result as T;

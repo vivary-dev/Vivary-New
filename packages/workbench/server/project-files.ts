@@ -23,11 +23,11 @@ import type {
 } from "../app/lib/project-file-schema.ts";
 import { resolveLocalProjectWorkspace } from "./project-services.mjs";
 
-const MAX_FILE_BYTES = 256 * 1024;
+export const MAX_FILE_BYTES = 256 * 1024;
 const MAX_LISTED_FILES = 400;
 const MAX_SCANNED_ENTRIES = 4_000;
 const MAX_SCAN_DEPTH = 8;
-const SKIPPED_DIRECTORIES = new Set([
+export const SKIPPED_DIRECTORIES = new Set([
   ".aws", ".azure", ".git", ".gnupg", ".next", ".ssh", ".turbo", ".vercel",
   "build", "coverage", "dist", "node_modules", "out", "vendor",
 ]);
@@ -43,7 +43,7 @@ const EDITABLE_EXTENSIONS = new Map<string, ProjectFile["kind"]>([
   [".ts", "source"], [".tsx", "source"], [".xml", "source"], [".yaml", "source"], [".yml", "source"],
 ]);
 
-type Workspace = Readonly<{
+export type Workspace = Readonly<{
   root: string;
   label: string;
   projectId?: string;
@@ -53,7 +53,7 @@ type Workspace = Readonly<{
   rootId?: string;
 }>;
 
-type Resolver = (context: ActionRunContext | undefined, projectId: string) => Promise<Workspace | undefined>;
+export type Resolver = (context: ActionRunContext | undefined, projectId: string) => Promise<Workspace | undefined>;
 
 class ProjectFileBoundaryError extends Error {
   readonly statusCode = 400;
@@ -63,7 +63,7 @@ class ProjectFileBoundaryError extends Error {
   }
 }
 
-function projectIdentity(workspace: Workspace): ProjectFileIdentity {
+export function projectIdentity(workspace: Workspace): ProjectFileIdentity {
   if (!workspace.projectId || !workspace.bindingId || !workspace.rootId
     || !workspace.bindingRevision || !workspace.policyRevision) {
     throw new Error("The selected project binding is incomplete.");
@@ -78,13 +78,13 @@ function projectIdentity(workspace: Workspace): ProjectFileIdentity {
   };
 }
 
-function sameProject(left: ProjectFileIdentity, right: ProjectFileIdentity): boolean {
+export function sameProject(left: ProjectFileIdentity, right: ProjectFileIdentity): boolean {
   return left.projectId === right.projectId && left.rootId === right.rootId
     && left.bindingId === right.bindingId && left.bindingRevision === right.bindingRevision
     && left.policyRevision === right.policyRevision;
 }
 
-function isSecretName(name: string): boolean {
+export function isSecretName(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === ".env" || lower.startsWith(".env.") || lower === ".npmrc"
     || lower === ".netrc" || lower === ".pypirc" || lower === "credentials"
@@ -105,11 +105,11 @@ function relativeParts(requestedPath: string): string[] {
   return parts;
 }
 
-function portablePath(root: string, absolute: string): string {
+export function portablePath(root: string, absolute: string): string {
   return path.relative(root, absolute).split(path.sep).join("/");
 }
 
-function contained(root: string, candidate: string): boolean {
+export function contained(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
@@ -136,7 +136,7 @@ async function resolvePathWithoutLinks(root: string, requestedPath: string, allo
   return canonical;
 }
 
-function kindFor(filePath: string): ProjectFile["kind"] | null {
+export function kindFor(filePath: string): ProjectFile["kind"] | null {
   return EDITABLE_EXTENSIONS.get(path.extname(filePath).toLowerCase()) ?? null;
 }
 
@@ -149,7 +149,7 @@ function versionFor(project: ProjectFileIdentity, filePath: string, info: Stats,
   return `pf_${digest}`;
 }
 
-function decodeText(bytes: Buffer): string | null {
+export function decodeText(bytes: Buffer): string | null {
   if (bytes.includes(0)) return null;
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -158,7 +158,7 @@ function decodeText(bytes: Buffer): string | null {
   }
 }
 
-async function readBoundedFile(absolute: string): Promise<Buffer> {
+export async function readBoundedFile(absolute: string): Promise<Buffer> {
   const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
   const handle = await open(absolute, "r");
   let offset = 0;
