@@ -13,7 +13,7 @@ const hooks = registerHooks({
     return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
   },
 });
-const { attachProjectFolderChooser, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
+const { createExternalWindowHandler, attachProjectFolderChooser, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -125,4 +125,81 @@ test("packaged startup uses its own original runtime and does not inherit data o
   for (const key of ["VIVARY_DATA_DIR", "VIVARY_RECEIPT_LOG", "APP_URL"]) assert.equal(environment[key], undefined);
   assert.equal(environment.PATH, "host-tools");
   assert.equal(localChildEnvironment({ VIVARY_ORIGINAL_RUNTIME: "relative" }, false).VIVARY_ORIGINAL_RUNTIME, undefined);
+});
+
+test("preview links open the exact HTTP address only after native confirmation", async () => {
+  for (const url of ["http://127.0.0.1:4321/page?q=one#two", "https://example.org/app"]) {
+    const opened = [];
+    const response = Promise.withResolvers();
+    const window = { isDestroyed: () => false };
+    const handler = createExternalWindowHandler(window, {
+      openExternal: async (...args) => opened.push(args),
+    }, {
+      showMessageBox: (parent, options) => {
+        assert.equal(parent, window);
+        assert.equal(options.detail, url);
+        assert.equal(options.cancelId, 0);
+        assert.equal(options.defaultId, 0);
+        return response.promise;
+      },
+    });
+    assert.deepEqual(handler({ url }), { action: "deny" });
+    assert.deepEqual(opened, []);
+    handler({ url: "https://other.test" });
+    response.resolve({ response: 1 });
+    await setImmediate();
+    assert.deepEqual(opened, [[url, { activate: true }]]);
+  }
+});
+
+test("preview cancellation and parent closure never launch a browser", async () => {
+  for (const response of [0, 1]) {
+    let destroyed = false;
+    const handler = createExternalWindowHandler({ isDestroyed: () => destroyed }, {
+      openExternal: () => assert.fail("unexpected browser launch"),
+    }, {
+      showMessageBox: async () => { destroyed = response === 1; return { response }; },
+    });
+    handler({ url: "https://example.org" });
+    await setImmediate();
+  }
+});
+
+test("external window requests reject unsafe schemes, credentials, malformed URLs and POST", () => {
+  const handler = createExternalWindowHandler({ isDestroyed: () => false }, {}, {
+    showMessageBox: () => assert.fail("unsafe URL reached confirmation"),
+  });
+  for (const url of ["file:///tmp/page", "javascript:alert(1)", "data:text/html,hello", "mailto:a@example.org", "vivary://open", "https://user:secret@example.org", "bad url"]) {
+    assert.deepEqual(handler({ url }), { action: "deny" });
+  }
+  assert.deepEqual(handler({ url: "https://example.org", postBody: { data: [] } }), { action: "deny" });
+});
+
+test("browser failure gives recovery and permits the next request", async () => {
+  let attempts = 0;
+  let errors = 0;
+  const handler = createExternalWindowHandler({ isDestroyed: () => false }, {
+    openExternal: async () => { attempts++; throw new Error("launch failed"); },
+  }, {
+    showMessageBox: async () => ({ response: 1 }),
+    showErrorBox: (title, message) => { errors++; assert.match(message, /Copy the address/); },
+  });
+  for (let i = 0; i < 2; i++) {
+    handler({ url: "http://localhost:4321/" });
+    await setImmediate();
+  }
+  assert.equal(attempts, 2);
+  assert.equal(errors, 2);
+});
+
+test("allowlisted provider setup links retain direct browser opening", async () => {
+  const opened = [];
+  const handler = createExternalWindowHandler({ isDestroyed: () => false }, {
+    openExternal: async url => opened.push(url),
+  }, {
+    showMessageBox: () => assert.fail("setup links do not need confirmation"),
+  });
+  handler({ url: "https://developers.openai.com/codex/auth" });
+  await setImmediate();
+  assert.deepEqual(opened, ["https://developers.openai.com/codex/auth"]);
 });

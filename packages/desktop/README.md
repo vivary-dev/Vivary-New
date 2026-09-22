@@ -47,6 +47,19 @@ the original command surface, and managed creation. They remain historical evide
 The current register supersedes their current-status claims. Credentials are never
 bundled, and a cross-build alone never establishes Windows behavior.
 
+## Preview links in source builds
+
+The preview panel's **Open preview in a new tab** action opens HTTP and HTTPS
+addresses in the default browser after a native confirmation. The dialog shows
+the destination and defaults to Cancel. File URLs, custom protocols, URLs with
+credentials, and POST requests are refused. Provider setup links retain their
+existing direct browser behavior. A failed browser launch shows a copy-address
+fallback. Embedded previews retain their sandbox and cannot create popups.
+
+This source change is not included in the September 21 prerelease ZIP. Its
+installation guide retains the copy-address workaround until a replacement
+package completes Windows verification.
+
 ## Development
 
 Build Workbench first, then install this package's locked development tools:
