@@ -2,7 +2,7 @@ import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@agent-native/toolkit/ui";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigationType } from "react-router";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Header } from "./Header";
 import { CodeRunControl } from "./CodeRunControl";
@@ -18,6 +18,8 @@ function readClosed() {
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const navigationType = useNavigationType();
+  const previousPathname = useRef(location.pathname);
   const settings = location.pathname.startsWith("/settings");
   const narrow = useNarrowLayout();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,7 +41,12 @@ export function Layout({ children }: { children: ReactNode }) {
     if (narrow || collapsed) panel.current?.collapse();
     else panel.current?.resize(readPanelWidth(WIDTH_KEY, width, 200, 400));
   }, [narrow, collapsed, width, shellWidth]);
-  useEffect(() => { setMobileOpen(false); }, [location.pathname, location.search]);
+  useEffect(() => {
+    const changedPage = previousPathname.current !== location.pathname;
+    previousPathname.current = location.pathname;
+    // Conversation restoration replaces query state without a navigation choice.
+    if (changedPage || navigationType !== "REPLACE") setMobileOpen(false);
+  }, [location.key, location.pathname, navigationType]);
 
   function changeCollapsed(next: boolean) {
     setCollapsed(next);
