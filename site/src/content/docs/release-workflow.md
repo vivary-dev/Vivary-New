@@ -24,6 +24,28 @@ results, evidence, and platform omissions separately from GitHub Actions status.
 Zo verification can satisfy the CI gate; it does not replace independent review,
 packaged Windows acceptance, or the separate approval to publish artifacts.
 
+## Desktop prerelease distribution
+
+An explicitly approved desktop prerelease can publish an incomplete Windows
+portable archive without publishing the original CLI package train. Keep the
+remaining acceptance gaps visible. Do not reuse stable-release claims.
+
+1. Pin the reviewed source commit and verify the archive checksum, contents,
+   runtime/license inventory, and absence of private profile or credential payloads.
+2. Keep build metadata truthful. Disclose unsigned binaries, prebuilt provenance
+   limits, failed checks, and differences between native and browser evidence.
+3. Update the README, desktop package record, acceptance register, changelog,
+   and installation guide. Preserve historical candidate evidence.
+4. Review the exact artifact and docs, then create a draft GitHub prerelease with
+   its Windows ZIP, checksum, installation instructions, release notes, and build metadata.
+5. Publish under the owner's specific release authorization, with prerelease enabled
+   and Latest disabled. Do not change repository visibility or publish registry packages.
+6. Verify the public release, tag target, asset sizes and digests, and download links.
+
+The [Windows preview guide](/desktop-preview/) owns installation and preservation
+instructions. Public assets must exclude private handoffs, profiles, credentials,
+transcripts, and screenshots containing private user material.
+
 ## 1. Name the train and decide the release scope
 
 Versions are independent per package — there is no single "Vivary X.Y.Z".

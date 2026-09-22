@@ -11,42 +11,34 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-Checkpoint: 2026-09-16. The published private Windows x64 preview is built from
-`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. The unsigned portable archive is
-available as a [private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16)
-to people with repository access. It is incomplete and is not ready for public
-release. The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
-is the concise authority for verified capabilities and remaining gaps.
+Checkpoint: 2026-09-21. The publicly downloadable
+[Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) pins source `250aaa0567104541127767501de3bcf0d1c3549b`.
+Its tree matches the PR #76 merge. Follow the
+[installation guide](../../docs/desktop-preview.md) for extraction, launch,
+runtime setup, profile preservation, upgrades, rollback limits, and troubleshooting.
 
-The broad `31d9afc` Windows pass exercised managed five-file creation, project
-files, the preserved-profile Usage surface, restart persistence, a real approved
-Claude Code follow-up, Stop, second-instance reuse, and idle and active cleanup. The
-focused final `26798df` retest extracted and hash-matched all 3,110 files, verified the
-read-only runtime identity with no provider fallback, ran one approved Claude Code
-file read, retained its conversation through a second launch, and removed every
-observed process on close. See the register for the exact evidence split.
+The unsigned portable ZIP is 236,048,361 bytes with SHA-256 `2b5b0c51bc0c85d8a3383783906dddb21e093a3787413717aa120f61df14946d`.
+It retains development metadata version `0.0.0`, channel `private-preview`, and
+prebuilt Workbench `sourceCommitVerified: false`. These labels describe the tested
+artifact. They do not prevent its authorized publication as a development prerelease.
 
-Windows acceptance fixed five concrete defects: long cache paths in the Python stage,
-generic invalid-rename errors, hidden project-name rules, first-run Usage table setup,
-and a Code model control that routed CLI aliases into Native provider setup. In that published preview, the Code
-composer displays the effective CLI identity as read-only text and leaves runtime
-setup in Settings. Current source adds explicit runtime and native model selection.
+Direct Windows checks covered launch, preserved navigation/history, and native
+chooser timeout recovery. Browser checks against the running package covered
+exact setup proposals with unchanged fixture hashes, project-owned page previews,
+cross-project clearing, Files/chat navigation, reload, and a 390-pixel layout.
+The owner approved the screenshots and requested publication.
 
-That published preview reports Codex readiness but cannot select it for a new Code
-conversation. Current source includes PR #59's merged Codex integration. Separate
-Windows prototypes through `98515c9` verified runtime/model selection, subscription
-file tools, configured MCP, actual subagent output, native-session follow-ups,
-a command beyond two minutes, action approvals, permission modes, Stop, restart,
-and cleanup across the recorded journeys. The final retest covered the corrected
-approval display and persistence; it did not repeat every earlier journey. See the
-[Workbench integration record](../workbench/README.md) and acceptance register for
-the evidence split. The published archive has not been replaced by these prototypes.
+The package includes merged Codex integration and adoption-request replay.
+Earlier Windows candidates exercised real runtime tools, approvals, follow-ups,
+Stop, and restart. Those journeys were not repeated on this exact artifact.
+Seven candidate GitHub CI jobs passed. The separate Entire approval gate failed
+because it recorded zero of one required reviewer approvals.
 
-This does not establish public release readiness. Real Native-provider turns, automation
-execution, clean-profile setup, full populated-folder adoption, search, memory,
-responsive self-hosted access, integrated preview/debugging, upgrade/removal behavior,
-and release approval remain unaccepted. A portable archive satisfies the current
-distribution shape. Signing and an installer are future choices. macOS is later work.
+The [acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
+owns evidence boundaries. Clean-profile first run, full native restart and
+registration on this candidate, upgrade/removal acceptance, Native-provider
+turns, automations, and remaining desktop/web journeys stay open. There is no
+general GUI Apply action for existing-folder setup. macOS remains later work.
 
 ### Earlier packaged proofs
 

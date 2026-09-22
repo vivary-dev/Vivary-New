@@ -4,19 +4,18 @@ description: "Install Vivary and run your first agent workspace."
 editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/GETTING-STARTED.md"
 ---
 
-This page installs the original command-line engine. A tested, unsigned
-[private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16)
-is available to people with repository access. It is incomplete and is not ready
-for public release. Before using it, read the [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/main/docs/product/multi-project/desktop-acceptance-status.md),
-then use [Workbench source setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source)
-or [desktop development and packaging](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development).
-Real Native-provider acceptance is tracked in [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50),
-automation execution and recovery in [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51),
-and remaining runtime integration in [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38).
-Current source includes the merged Codex runtime/model selector, native tools and
-action approvals. Windows prototypes through `98515c9` have separate acceptance
-records; those changes are not in the published `26798df` preview. See the
-[Workbench integration record](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md) for current behavior.
+For the Windows application, use the public
+[September 21 prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21)
+and the [Windows installation guide](/desktop-preview/). The unsigned portable
+`250aaa0` package includes Codex conversations, project-file search, project health,
+setup previews, and project-owned page previews. Full desktop acceptance remains open.
+
+The rest of this page installs the original command-line engine. Its pinned
+registry versions remain separate from the desktop package. See the
+[desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
+for candidate-specific evidence and remaining gaps. Source contributors can use
+[Workbench setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source) or
+[desktop development](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development).
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and
