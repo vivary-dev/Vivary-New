@@ -323,15 +323,15 @@ automations in #51 remain open.
 | Area | Verified now | Still required |
 | --- | --- | --- |
 | Code conversations | Windows `2f4a5df` file work, session continuity, MCP call, real subagent card, 125.19-second command, native Allow/Decline, active-command Stop, and shutdown | Linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Further connection-specific journeys, and broader issue #38 scope. The published `26798df` binary still lacks this integration |
+| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Further connection-specific journeys and broader issue #38 scope. The published `250aaa0` includes this integration, with real-turn evidence from earlier candidates |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and Windows `43ae417` registration of an existing non-Git folder | Full populated-folder adoption/apply, the rest of the setup/pattern journey, and the folder-picker timeout message in [issue #68](https://github.com/vivary-dev/Vivary-New/issues/68) |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, and clean shutdown | File search, chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
+| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, Windows `43ae417` registration of an existing non-Git folder, and native `250aaa0` chooser timeout recovery | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
-| Web and preview | Private authenticated Zo preview and basic isolated page preview | Clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
-| Distribution | Exact unsigned Windows x64 portable artifact, licenses, checksum, and process cleanup | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and release approval |
+| Web and preview | Authenticated Zo preview and `250aaa0` browser checks for project-owned preview retention/clearing and a 390-pixel layout | Desktop external-preview opening, clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
+| Distribution | Public `250aaa0` portable prerelease, licenses, checksum, and anonymous download verification. Process cleanup evidence is from earlier candidates | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
 The Windows checks used an existing authorized profile. They do not establish a
 clean-profile first-run journey. Credentials are never bundled. Claude Code, Codex,
@@ -341,7 +341,10 @@ installer are future distribution choices. They are not requirements for the cur
 Windows milestone.
 macOS is later roadmap work outside the active Windows milestone.
 
-## Evidence boundaries
+## Historical packaging evidence boundaries
+
+The following build and CI notes describe the September 16 candidate. The current
+`250aaa0` evidence and seven passing GitHub jobs are recorded above.
 
 The candidate's Workbench output was built in a clean isolated checkout and 620
 compiled files matched the fresh build. The Windows SQLite binding and runtime marker

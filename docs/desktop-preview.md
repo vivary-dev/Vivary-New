@@ -112,8 +112,11 @@ Switching projects clears the URL, embedded page, and new-tab target. Returning
 to the first project also starts empty. This prevents another project's page from
 appearing under the wrong owner.
 
-Some pages and sign-in flows refuse embedding. Use **Open preview in a new tab**
-when appropriate. The preview accepts HTTP and HTTPS addresses, not local file URLs.
+Some pages and sign-in flows refuse embedding. In browser access, use
+**Open preview in a new tab** when appropriate. This Windows executable blocks
+arbitrary preview URLs from opening externally, so that button is not a working
+desktop fallback. Copy the address into your normal browser instead. The preview
+accepts HTTP and HTTPS addresses, not local file URLs.
 
 ### Project search and health
 
@@ -161,7 +164,7 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 | Browser Open folder fails | Use the Windows app's folder chooser. |
 | Existing project says Unavailable | Restore access to its original folder and refresh. The app retains its saved conversations. |
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
-| Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Try its new-tab link. |
+| Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. In browser access, try its new-tab link. In the Windows app, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
