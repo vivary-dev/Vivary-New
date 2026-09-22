@@ -57,11 +57,19 @@ describe("preview start recovery", () => {
       status: 409, errorCode: "vivary_project_preview_refused",
     }))).toBe(true);
   });
+  it.each([400, 403, 404, 422])("allows a fresh review after authored pre-launch HTTP %s", status => {
+    expect(previewStartRefused(Object.assign(new Error("Project folder access changed."), {
+      status, actionMessage: "Project folder access changed.",
+    }))).toBe(true);
+  });
   it.each([
     new Error("Connection lost"),
     Object.assign(new Error("Timeout"), { status: 408 }),
     Object.assign(new Error("Unreadable response"), { status: 200 }),
-    Object.assign(new Error("Sign in"), { status: 401 }),
+    Object.assign(new Error("Sign in"), { status: 401, actionMessage: "Sign in" }),
+    Object.assign(new Error("Busy"), { status: 429, actionMessage: "Rate limited" }),
+    Object.assign(new Error("Unreadable forbidden response"), { status: 403 }),
+    Object.assign(new Error("Empty forbidden response"), { status: 403, actionMessage: "" }),
     Object.assign(new Error("Proxy response"), { status: 409 }),
     Object.assign(new Error("Server failed"), { status: 500, errorCode: "vivary_project_preview_refused" }),
   ])("retains the request when completion is uncertain: %s", error => {

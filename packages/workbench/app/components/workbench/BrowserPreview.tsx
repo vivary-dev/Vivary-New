@@ -70,9 +70,15 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
     setHost(result.host);
     if (isLaunch(result)) {
       setRun(result);
-      if (result.code === "ready" && !result.staleBinding) {
-        if (selectionMode.current === "managed") setPage({ url: result.url, host: result.host, embedding: result.embedding, checked: true, launchId: result.launchId });
-      } else if (result.code !== "starting") setPage(current => current?.launchId === result.launchId ? null : current);
+      if (result.staleBinding || result.code === "stopped" || !result.processRunning) {
+        setPage(current => {
+          const sameServer = current?.host === result.host
+            && new URL(current.url).origin === new URL(result.url).origin;
+          return current?.launchId === result.launchId || sameServer ? null : current;
+        });
+      } else if (result.code === "ready" && selectionMode.current === "managed") {
+        setPage({ url: result.url, host: result.host, embedding: result.embedding, checked: true, launchId: result.launchId });
+      }
     } else if (result.code === "idle") setRun(null);
     else if (result.code === "discovered") {
       setDiscovery(result);
@@ -140,7 +146,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
       setPage(null);
       try {
         const result = await invoke({ operation: "start", projectId, script: approval.review.script,
-          url: approval.review.url, requestId: approval.requestId, acceptedManifestDigest: approval.review.manifestDigest });
+          url: approval.review.url, requestId: approval.requestId, acceptedManifestDigest: approval.review.manifestDigest, reviewExpiresAt: approval.review.reviewExpiresAt });
         if (!mounted.current) return;
         receive(result);
         setPendingStart(null);
@@ -206,6 +212,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
         <p className="break-all text-xs">{review.folder} on {review.host}</p>
         <pre className="whitespace-pre-wrap break-all text-xs">{review.command}{"\n"}{review.scriptText}</pre>
         <p className="break-all text-xs">Address to check: {review.url}</p>
+        <p className="text-xs text-muted-foreground">Review expires at {new Date(review.reviewExpiresAt).toLocaleTimeString()}.</p>
         <details className="text-xs"><summary className="cursor-pointer">Installed launcher</summary><p className="break-all">{review.launcher}</p></details>
         <p className="text-xs text-muted-foreground">This runs project code with your host account's file access. Scripts may run other project files. Opening a preview does not approve this command.</p>
         <div className="flex flex-wrap gap-2">

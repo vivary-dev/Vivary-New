@@ -175,7 +175,19 @@ remain in the foreground. Packaged Windows acceptance remains under issue #8.
 
 A lost start response can check the same request without launching twice.
 An explicit start refusal permits a fresh review. An uncertain response keeps
-the same request. Restarting Vivary does not recover or kill a process from a saved PID.
+the same request. Reviews expire after ten minutes. Restarting Vivary invalidates
+unapplied reviews and never recovers or kills a process from a saved PID.
+
+The host reserves each managed preview port before checking and launching.
+Another project must choose a free port or wait for verified cleanup.
+The instance retains live requests and unexpired retry records within a fixed
+128-request limit. It removes only expired records whose processes are settled.
+If the limit is full, new starts wait for capacity. Existing retries and Stop
+remain available. Expired, removed requests cannot execute again.
+
+A failed readiness probe shows an unavailable message without replacing a page
+whose process is still alive. Recovery preserves the page's input and script
+state. Stop, process exit, or a changed folder binding unloads the managed page.
 
 Closing and reopening the panel preserves its page. Changing projects, host scope,
 or folder binding unloads it. Returning can restore a still-owned running preview

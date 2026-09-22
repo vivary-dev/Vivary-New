@@ -51,6 +51,8 @@ export function previewInspectionContext(preview: PreviewInspection): string {
 
 
 export function previewStartRefused(error: unknown): boolean {
-  return error instanceof Error && "status" in error && error.status === 409
-    && "errorCode" in error && error.errorCode === "vivary_project_preview_refused";
+  if (!(error instanceof Error) || !("status" in error) || typeof error.status !== "number") return false;
+  if (error.status === 409 && "errorCode" in error && error.errorCode === "vivary_project_preview_refused") return true;
+  return [400, 403, 404, 422].includes(error.status)
+    && "actionMessage" in error && typeof error.actionMessage === "string" && error.actionMessage.trim().length > 0;
 }

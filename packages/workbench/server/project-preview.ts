@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, realpath, stat } from "node:fs/promises";
+import { access, lstat, open, realpath, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
@@ -31,19 +31,24 @@ type Entry = {
   embedding: "blocked" | "unknown";
   reason?: string;
   logTail: string;
+  retiredAt?: number;
+  reservationToken: symbol;
   stopPromise?: Promise<void>;
   exitCleanup?: Promise<boolean>;
 };
 type HostState = {
+  generation: string;
   current: Map<string, Entry>;
   byRequest: Map<string, Entry>;
+  reservedPorts: Map<number, symbol>;
   pending: Map<string, { requestId: string; script: ProjectPreviewScript; url: string;
-    digest: string; promise: Promise<ProjectPreviewResult> }>;
+    digest: string; reviewExpiresAt: number; promise: Promise<ProjectPreviewResult> }>;
   closing: boolean;
   shutdown: Promise<void> | null;
 };
 function newHostState(): HostState {
-  return { current: new Map(), byRequest: new Map(), pending: new Map(),
+  return { generation: randomUUID(), current: new Map(), byRequest: new Map(),
+    reservedPorts: new Map(), pending: new Map(),
     closing: false, shutdown: null };
 }
 const hostKey = Symbol.for("vivary.workbench.project-preview-host");
@@ -54,6 +59,8 @@ const PACKAGE_MAX_BYTES = 65_536;
 const SCRIPT_MAX_LENGTH = 4096;
 const LOG_TAIL_BYTES = 4096;
 const READY_DEADLINE_MS = 8_000;
+const REVIEW_LIFETIME_MS = 10 * 60_000;
+const MAX_RETAINED_REQUESTS = 128;
 const PROBE_TIMEOUT_MS = 900;
 const SCRIPTS = ["dev", "start", "preview"] as const;
 
@@ -152,10 +159,27 @@ async function readPackage(root: string): Promise<{ bytes: Uint8Array; scripts: 
 async function isFile(candidate: string): Promise<boolean> {
   try { return (await stat(candidate)).isFile(); } catch { return false; }
 }
-async function resolveLauncher(manager: Launcher["manager"], root: string): Promise<Launcher | null> {
+async function isNativeExecutable(candidate: string): Promise<boolean> {
+  let handle;
+  try { handle = await open(candidate, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+    | (constants.O_NONBLOCK ?? 0)); } catch { return false; }
+  try {
+    if (!(await handle.stat()).isFile()) return false;
+    if (process.platform !== "win32") {
+      try { await access(candidate, constants.X_OK); } catch { return false; }
+    }
+    const signature = Buffer.alloc(4);
+    if ((await handle.read(signature, 0, 4, 0)).bytesRead !== 4) return false;
+    if (process.platform === "win32") return signature[0] === 0x4d && signature[1] === 0x5a;
+    return (signature[0] === 0x7f && signature.toString("ascii", 1) === "ELF")
+      || [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(signature.readUInt32BE(0));
+  } finally { await handle.close(); }
+}
+export async function resolveLauncher(manager: Launcher["manager"], root: string,
+  searchDirs?: readonly string[]): Promise<Launcher | null> {
   // guard:allow-env-credential - PATH locates existing package managers; project-owned entries are excluded.
   const rawPath = process.env.PATH ?? process.env.Path ?? "";
-  const dirs = [...new Set([path.dirname(process.execPath), ...rawPath.split(path.delimiter)]
+  const dirs = [...new Set((searchDirs ?? [path.dirname(process.execPath), ...rawPath.split(path.delimiter)])
     .filter(dir => path.isAbsolute(dir) && !inside(root, dir)))];
   for (const dir of dirs) {
     const candidates = process.platform === "win32"
@@ -176,19 +200,11 @@ async function resolveLauncher(manager: Launcher["manager"], root: string): Prom
           || normalized.endsWith("/pnpm/dist/pnpm.cjs")
           || normalized.endsWith("/corepack/dist/pnpm.js"));
       if (knownJs) return { manager, executable: process.execPath, prefix: [resolved] };
-      if (manager === "bun" && process.platform === "win32"
-        && normalized.endsWith("/bun.exe")) {
+      const nativeName = manager === "pnpm" || manager === "bun"
+        ? manager + (process.platform === "win32" ? ".exe" : "") : null;
+      if (nativeName && path.basename(candidate).toLowerCase() === nativeName
+        && await isNativeExecutable(resolved)) {
         return { manager, executable: resolved, prefix: [] };
-      }
-      if (manager === "bun" && process.platform !== "win32") {
-        let handle;
-        try { handle = await open(resolved, "r"); } catch { continue; }
-        const first = Buffer.alloc(4);
-        try { await handle.read(first, 0, 4, 0); } finally { await handle.close(); }
-        if ((first[0] === 0x7f && first.toString("ascii", 1) === "ELF")
-          || [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(first.readUInt32BE(0))) {
-          return { manager, executable: resolved, prefix: [] };
-        }
       }
     }
   }
@@ -219,7 +235,8 @@ function commandText(launcher: Launcher, script: ProjectPreviewScript): string {
   return launcher.manager + " run " + script;
 }
 async function reviewFor(workspace: LocalProjectWorkspace, script: ProjectPreviewScript,
-  rawUrl: string, resolver: typeof resolveLauncher, host: string): Promise<Prepared> {
+  rawUrl: string, resolver: typeof resolveLauncher, host: string,
+  reviewExpiresAt: number, generation: string): Promise<Prepared> {
   const url = checkedUrl(rawUrl);
   const project = await readPackage(workspace.root);
   if (!project || !project.scripts[script]) {
@@ -230,7 +247,7 @@ async function reviewFor(workspace: LocalProjectWorkspace, script: ProjectPrevie
   const scriptText = project.scripts[script];
   const command = commandText(launcher, script);
   const manifestDigest = sha256(JSON.stringify({
-    schema: "vivary.project-preview-manifest.v1",
+    schema: "vivary.project-preview-manifest.v1", generation,
     workspace: {
       root: workspace.root, actorId: workspace.actorId, projectId: workspace.projectId,
       bindingId: workspace.bindingId, bindingRevision: workspace.bindingRevision,
@@ -239,12 +256,12 @@ async function reviewFor(workspace: LocalProjectWorkspace, script: ProjectPrevie
     },
     packageHash: sha256(project.bytes),
     manager: project.manager, executable: launcher.executable, prefix: launcher.prefix,
-    script, scriptText, url: url.href, envPolicy: "preview-scrubbed-v1",
+    script, scriptText, url: url.href, reviewExpiresAt, envPolicy: "preview-scrubbed-v1",
   }));
   return { review: { code: "review", projectId: workspace.projectId, host, folder: workspace.root,
     script, scriptText, command,
     launcher: [launcher.executable, ...launcher.prefix].join(" "),
-    url: url.href, manifestDigest }, launcher };
+    url: url.href, manifestDigest, reviewExpiresAt }, launcher };
 }
 function appendLog(entry: Entry, chunk: Buffer): void {
   const next = entry.logTail + chunk.toString("utf8");
@@ -256,6 +273,9 @@ function snapshot(entry: Entry, staleBinding: boolean): LaunchResult {
     script: entry.review.script, scriptText: entry.review.scriptText,
     command: entry.review.command, launcher: entry.review.launcher,
     url: entry.review.url, manifestDigest: entry.review.manifestDigest,
+    reviewExpiresAt: entry.review.reviewExpiresAt,
+    processRunning: !!entry.child && entry.child.pid != null
+      && entry.child.exitCode === null && entry.child.signalCode === null,
     requestId: entry.requestId, launchId: entry.launchId, pid: entry.pid, staleBinding,
   };
   switch (entry.state) {
@@ -322,12 +342,24 @@ async function waitReady(entry: Entry, probe: typeof probeUrl): Promise<void> {
     entry.reason = "The approved command started but the preview URL did not become ready.";
   }
 }
-async function stopOwned(entry: Entry): Promise<void> {
+async function portClosed(occupied: typeof portOccupied, port: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 8 && await occupied(port); attempt++) await delay(100);
+  return !await occupied(port);
+}
+async function stopOwned(entry: Entry, occupied: typeof portOccupied, onSettled: () => void): Promise<void> {
+  if (entry.retiredAt !== undefined) {
+    entry.state = "stopped";
+    return;
+  }
   entry.stopPromise ??= (async () => {
     const child = entry.child;
     try {
       if (entry.exitCleanup && !await entry.exitCleanup) {
         throw new Error("The exited preview command's process tree could not be verified.");
+      }
+      if (entry.retiredAt !== undefined) {
+        entry.state = "stopped";
+        return;
       }
       if (child?.pid) {
         const workerExited = child.exitCode !== null || child.signalCode !== null;
@@ -343,9 +375,9 @@ async function stopOwned(entry: Entry): Promise<void> {
       }
       entry.child = null;
       const port = Number(new URL(entry.review.url).port);
-      for (let attempt = 0; attempt < 8 && await portOccupied(port); attempt++) await delay(100);
-      if (await portOccupied(port)) throw new Error("The preview port still responds after cleanup.");
+      if (!await portClosed(occupied, port)) throw new Error("The preview port still responds after cleanup.");
       entry.state = "stopped";
+      onSettled();
     } catch {
       entry.state = "unavailable";
       entry.reason = "The owned preview process could not be stopped completely.";
@@ -363,6 +395,8 @@ type Dependencies = {
   portOccupied: typeof portOccupied;
   mode: () => string | undefined;
   host: () => string;
+  now: () => number;
+  maxRetainedRequests: number;
 };
 const defaults: Dependencies = {
   resolveWorkspace: resolveLocalProjectWorkspace,
@@ -372,11 +406,30 @@ const defaults: Dependencies = {
   portOccupied,
   mode: () => process.env.VIVARY_ACCESS_MODE, // guard:allow-env-credential - Deployment access mode, not a user credential.
   host: hostname,
+  now: Date.now,
+  maxRetainedRequests: MAX_RETAINED_REQUESTS,
 };
 export function createProjectPreviewService(
   dependencies: Partial<Dependencies> = {}, state: HostState = newHostState(),
 ) {
   const deps = { ...defaults, ...dependencies };
+  function releasePort(port: number, reservationToken: symbol): void {
+    if (state.reservedPorts.get(port) === reservationToken) state.reservedPorts.delete(port);
+  }
+  function settle(entry: Entry): void {
+    entry.retiredAt ??= deps.now();
+    releasePort(Number(new URL(entry.review.url).port), entry.reservationToken);
+  }
+  function pruneExpired(): void {
+    const now = deps.now();
+    for (const [request, entry] of state.byRequest) {
+      if (entry.retiredAt !== undefined && entry.review.reviewExpiresAt <= now) {
+        state.byRequest.delete(request);
+        const key = keyFor(entry.identity, entry.workspace.projectId);
+        if (state.current.get(key) === entry) state.current.delete(key);
+      }
+    }
+  }
   async function bindingStale(entry: Entry, context?: ActionRunContext): Promise<boolean> {
     try {
       const current = await deps.resolveWorkspace(context, entry.workspace.projectId);
@@ -388,6 +441,7 @@ export function createProjectPreviewService(
     const owner = identity(context, deps.mode());
     const host = deps.host();
     const key = keyFor(owner, input.projectId);
+    pruneExpired();
     if (input.operation === "discover") {
       const workspace = await deps.resolveWorkspace(context, input.projectId);
       const pkg = await readPackage(workspace.root);
@@ -409,7 +463,8 @@ export function createProjectPreviewService(
     }
     if (input.operation === "review") {
       const workspace = await deps.resolveWorkspace(context, input.projectId);
-      return (await reviewFor(workspace, input.script, input.url, deps.resolveLauncher, host)).review;
+      return (await reviewFor(workspace, input.script, input.url, deps.resolveLauncher, host,
+        deps.now() + REVIEW_LIFETIME_MS, state.generation)).review;
     }
     if (input.operation === "status") {
       const entry = state.current.get(key);
@@ -439,7 +494,7 @@ export function createProjectPreviewService(
         && candidate.workspace.projectId === input.projectId
         && candidate.launchId === input.launchId);
       if (!entry) return refuse("That preview launch is not owned by this project.");
-      await stopOwned(entry);
+      await stopOwned(entry, deps.portOccupied, () => settle(entry));
       return snapshot(entry, await bindingStale(entry, context));
     }
     if (state.closing) return refuse("The preview host is shutting down.");
@@ -447,7 +502,8 @@ export function createProjectPreviewService(
     const prior = state.byRequest.get(requestKey(key, input.requestId));
     if (prior) {
       if (prior.review.manifestDigest !== input.acceptedManifestDigest
-        || prior.review.script !== input.script || prior.review.url !== requestedUrl) {
+        || prior.review.script !== input.script || prior.review.url !== requestedUrl
+        || prior.review.reviewExpiresAt !== input.reviewExpiresAt) {
         return refuse("That request ID belongs to a different reviewed preview.");
       }
       return snapshot(prior, await bindingStale(prior, context));
@@ -455,19 +511,38 @@ export function createProjectPreviewService(
     const pending = state.pending.get(key);
     if (pending) {
       if (pending.requestId !== input.requestId || pending.script !== input.script
-        || pending.url !== requestedUrl || pending.digest !== input.acceptedManifestDigest) {
+        || pending.url !== requestedUrl || pending.digest !== input.acceptedManifestDigest
+        || pending.reviewExpiresAt !== input.reviewExpiresAt) {
         return refuse("A different preview request is already starting for this project.");
       }
       return pending.promise;
+    }
+    if (input.reviewExpiresAt <= deps.now()
+      || input.reviewExpiresAt > deps.now() + REVIEW_LIFETIME_MS) {
+      return refuse("The preview review expired. Review the command again.");
     }
     const existing = state.current.get(key);
     if (existing && existing.state !== "stopped"
       && (existing.exitCleanup || (existing.child?.exitCode === null && existing.child.signalCode === null))) {
       return refuse("Stop this project's existing owned preview before starting another.");
     }
+    const pendingOnly = [...state.pending].filter(([pendingKey, value]) =>
+      !state.byRequest.has(requestKey(pendingKey, value.requestId))).length;
+    if (state.byRequest.size + pendingOnly >= deps.maxRetainedRequests) {
+      return refuse("Too many preview requests are retained. Wait for a review to expire.");
+    }
+    const port = Number(new URL(requestedUrl).port);
+    const reservation = requestKey(key, input.requestId);
+    if (state.reservedPorts.has(port)) {
+      return refuse("That host-local preview port is already in use or reserved.");
+    }
+    const reservationToken = Symbol("preview-port");
+    state.reservedPorts.set(port, reservationToken);
+    let created = false;
     const promise = (async (): Promise<ProjectPreviewResult> => {
       const workspace = await deps.resolveWorkspace(context, input.projectId);
-      const prepared = await reviewFor(workspace, input.script, requestedUrl, deps.resolveLauncher, host);
+      const prepared = await reviewFor(workspace, input.script, requestedUrl, deps.resolveLauncher, host,
+        input.reviewExpiresAt, state.generation);
       const reviewed = prepared.review;
       if (reviewed.manifestDigest !== input.acceptedManifestDigest) {
         return refuse("The project script, launcher, address, or folder changed. Review it again.");
@@ -477,10 +552,11 @@ export function createProjectPreviewService(
         return refuse("The reviewed project folder changed. Review it again.");
       }
       const url = new URL(reviewed.url);
-      if (await deps.portOccupied(Number(url.port))) {
+      if (await deps.portOccupied(port)) {
         return refuse("That host-local preview port is already in use. Choose another address.");
       }
-      const final = await reviewFor(current, input.script, requestedUrl, deps.resolveLauncher, host);
+      const final = await reviewFor(current, input.script, requestedUrl, deps.resolveLauncher, host,
+        input.reviewExpiresAt, state.generation);
       if (final.review.manifestDigest !== reviewed.manifestDigest) {
         return refuse("The reviewed package contents or launcher changed. Review it again.");
       }
@@ -489,6 +565,9 @@ export function createProjectPreviewService(
         return refuse("The reviewed project folder changed before launch. Review it again.");
       }
       if (state.closing) return refuse("The preview host is shutting down.");
+      if (input.reviewExpiresAt <= deps.now()) {
+        return refuse("The preview review expired. Review the command again.");
+      }
       const launcher = final.launcher;
       const child = deps.spawn(launcher.executable, [...launcher.prefix, "run", input.script], {
         cwd: last.root, env: childEnvironment(url, launcher, last.root),
@@ -498,10 +577,11 @@ export function createProjectPreviewService(
       const entry: Entry = {
         identity: owner, workspace: last, review: reviewed,
         requestId: input.requestId, launchId: randomUUID(), pid: child.pid ?? null,
-        child, state: "starting", embedding: "unknown", logTail: "",
+        child, state: "starting", embedding: "unknown", logTail: "", reservationToken,
       };
       state.current.set(key, entry);
-      state.byRequest.set(requestKey(key, input.requestId), entry);
+      state.byRequest.set(reservation, entry);
+      created = true;
       for (const stream of [child.stdout, child.stderr]) {
         stream?.on("data", (chunk: Buffer) => appendLog(entry, chunk));
       }
@@ -509,6 +589,7 @@ export function createProjectPreviewService(
         if (entry.state !== "stopped") {
           entry.state = "unavailable";
           entry.reason = "The approved preview command could not start.";
+          void stopOwned(entry, deps.portOccupied, () => settle(entry)).catch(() => {});
         }
       });
       child.once("exit", () => {
@@ -516,11 +597,20 @@ export function createProjectPreviewService(
           entry.state = "unavailable";
           entry.reason = "The preview process exited.";
         }
-        // Clean the live owned group at exit. A later Stop must never signal a saved PID.
+        // Clean the owned group at exit. A later Stop must never signal a saved PID.
         if (!entry.stopPromise) {
-          entry.exitCleanup = hardStopWorkerTree(child, true).then(() => true, () => {
+          const cleanup = (async () => {
+            await hardStopWorkerTree(child, true);
+            if (!await portClosed(deps.portOccupied, port)) throw new Error("The preview port remains open.");
+            settle(entry);
+            return true;
+          })().catch(() => {
             entry.reason = "The preview command exited before its process tree could be stopped.";
             return false;
+          });
+          entry.exitCleanup = cleanup.then(ok => {
+            if (ok) entry.exitCleanup = undefined;
+            return ok;
           });
         }
         entry.child = null;
@@ -529,12 +619,17 @@ export function createProjectPreviewService(
       return snapshot(entry, false);
     })();
     state.pending.set(key, { requestId: input.requestId, script: input.script,
-      url: requestedUrl, digest: input.acceptedManifestDigest, promise });
-    try { return await promise; } finally { state.pending.delete(key); }
+      url: requestedUrl, digest: input.acceptedManifestDigest,
+      reviewExpiresAt: input.reviewExpiresAt, promise });
+    try { return await promise; } finally {
+      state.pending.delete(key);
+      if (!created) releasePort(port, reservationToken);
+    }
   }
   function shutdown(): Promise<void> {
     state.closing = true;
-    state.shutdown ??= Promise.allSettled([...state.current.values()].map(stopOwned)).then(results => {
+    state.shutdown ??= Promise.allSettled([...state.current.values()].map(entry =>
+      stopOwned(entry, deps.portOccupied, () => settle(entry)))).then(results => {
       if (results.some(result => result.status === "rejected")) {
         throw new Error("An owned preview process could not be stopped.");
       }

@@ -13,7 +13,7 @@ launcher, and address before owner approval. Start rechecks that review. Retries
 retain their request identity. A stale manifest refusal permits a fresh review.
 Stop targets the owned command even after its project binding changes.
 
-The final production build passed 25 normal-app browser checks. These cover
+The integrated production build passed 25 normal-app browser checks. These cover
 module execution, credential and referrer isolation, desktop and 390-pixel
 layouts, draft preservation, no automatic send, exact host confirmation,
 blocked and unavailable pages, manual selection during status polling,
@@ -61,13 +61,35 @@ independent review. Integration checks also caught manual-page replacement by
 status polling, controls locked after a refused start, and a delayed status
 response reviving a stopped command. Focused regressions cover these cases.
 
-The five process tests use real local servers. The suite includes immediate
-POSIX group cleanup on launcher exit and a probe paused across Stop. Shell tests,
-owner-transport tests, TypeScript, Native transcript tests, and the production
-build passed. The pull request records final workflow checks and review results.
+Automatic pull-request review found five more issues: unrecoverable pre-launch
+refusals, unbounded request retention, concurrent port claims, transient probe
+failures replacing the page, and standalone pnpm rejection. Focused fixes release
+authored refusal states, reserve ports before asynchronous checks, and keep a
+live page during a failed probe. Native executable signatures permit standalone
+pnpm without enabling text or batch shims.
+
+The final focused browser journey passed 33 checks after those fixes. A real one-shot
+HTTP 503 preserved the iframe node, document marker, and typed input through
+recovery. Actual child exit removed its page after manual reopening and permitted cleanup.
+Independent review caught and fixed that manual-page ownership gap.
+The authored-403 UI check injects a response at the real action boundary.
+A separate backend test proves permission refusal occurs before process spawn.
+
+Reviews expire after ten minutes and become invalid when the host restarts.
+The host retains at most 128 requests, including pending starts. It removes only
+expired records with verified process cleanup. A removed request cannot start
+again. Existing live retries and Stop remain available when capacity is full.
+
+The 11 focused process tests cover real servers, concurrent port claims,
+request retention and expiry, host restart, permission refusal, and launcher
+resolution. The suite includes immediate POSIX group cleanup on launcher exit
+and a probe paused across Stop. All 36 shell tests, TypeScript, Native doctor,
+and the production build passed. The pull request records final workflow checks
+and review results.
 
 Private evidence remains in the existing `.tmp/existing-folder-private-recovery/`
-directory, including `preview-ui-run-integrated/` and `agent-proof-20260922-c/`.
+directory, including `preview-ui-run-integrated/`,
+`preview-ui-pr82-review-proof-run-4/`, and `agent-proof-20260922-c/`.
 Profiles, source fixtures, screenshots, and transcripts remain private.
 
 ## Remaining acceptance

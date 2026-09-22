@@ -9,7 +9,7 @@ what a new contributor or tester can rely on now.
 
 [Issue #31's receipt](receipts/11e-live-project-preview.md) records reviewed
 project commands, owned-process Stop, isolated module-capable preview, and a real
-Codex/Astra repair loop on Zo. The final build passed 25 browser checks.
+Codex/Astra repair loop on Zo. The integrated and focused review browser journeys passed.
 The agent captured screenshots and inspected console/request failures, repaired
 one import, and verified the page. Its image-viewing tool failed in Zo's sandbox,
 which the conversation reported. The lead inspected the captured images.

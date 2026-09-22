@@ -102,6 +102,6 @@ remain unaccepted until demonstrated through a supported interface.
 
 - 2026-09-22: Claimed issue #31 after PR #81 merged. Added reviewed process
   ownership, isolated module-capable preview, and project-scoped Code context.
-  The final normal-app browser journey passed 25 checks. Codex/Astra captured
+  The integrated and focused review browser journeys passed. Codex/Astra captured
   the failure, repaired the fixture, and verified its page. Independent review
   fixes passed. Image viewing and packaged platform limits remain explicit.

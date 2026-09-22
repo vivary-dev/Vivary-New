@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 
 import { projectPreviewResult } from "../shared/project-preview.ts";
-import { createProjectPreviewService } from "../server/project-preview.ts";
+import { createProjectPreviewService, resolveLauncher } from "../server/project-preview.ts";
 
 const owner = { userEmail: "owner@local.vivary.test", orgId: "local", caller: "frontend" } satisfies ActionRunContext;
 const workspace = (root: string, projectId: string) => ({
@@ -68,7 +68,7 @@ test("reviewed package preview runs under its project owner, reports readiness, 
       assert.match(reviewed.command, /run dev/);
       const requestId = "d4390ca5-803b-4a0e-9dc4-14cd38724376";
       const input = { operation: "start" as const, projectId: "alpha", script: "dev" as const,
-        url, requestId, acceptedManifestDigest: reviewed.manifestDigest };
+        url, requestId, acceptedManifestDigest: reviewed.manifestDigest, reviewExpiresAt: reviewed.reviewExpiresAt };
       const started = projectPreviewResult.parse(await service.run(input, owner));
       assert.equal(started.code, "ready");
       if (started.code !== "ready") return;
@@ -94,7 +94,7 @@ test("reviewed package preview runs under its project owner, reports readiness, 
       await assert.rejects(service.run({
         operation: "start", projectId: "beta", script: "dev", url,
         requestId: "30eaa9d9-d111-436d-9c03-574df167d589",
-        acceptedManifestDigest: occupiedReview.manifestDigest,
+        acceptedManifestDigest: occupiedReview.manifestDigest, reviewExpiresAt: occupiedReview.reviewExpiresAt,
       }, owner), /already in use/);
       const betaUrl = "http://127.0.0.1:" + await freePort() + "/";
       const betaReview = projectPreviewResult.parse(await service.run(
@@ -104,7 +104,7 @@ test("reviewed package preview runs under its project owner, reports readiness, 
       const beta = projectPreviewResult.parse(await service.run({
         operation: "start", projectId: "beta", script: "dev", url: betaUrl,
         requestId: "6db87a2f-8dd1-40db-86cd-82837e7c41e2",
-        acceptedManifestDigest: betaReview.manifestDigest,
+        acceptedManifestDigest: betaReview.manifestDigest, reviewExpiresAt: betaReview.reviewExpiresAt,
       }, owner));
       assert.equal(beta.code, "ready");
       assert.equal(await (await fetch(betaUrl)).text(), "clean");
@@ -174,7 +174,7 @@ test("shutdown blocks an in-flight reviewed start before it spawns",
       const starting = service.run({
         operation: "start", projectId: "shutdown", script: "dev", url,
         requestId: "4afba4c8-8052-41ee-b190-e5c9b3370f7d",
-        acceptedManifestDigest: reviewed.manifestDigest,
+        acceptedManifestDigest: reviewed.manifestDigest, reviewExpiresAt: reviewed.reviewExpiresAt,
       }, owner);
       await waiting;
       await service.shutdown();
@@ -215,10 +215,21 @@ test("the complete package manifest is checked after the port probe",
       await assert.rejects(service.run({
         operation: "start", projectId: "manifest", script: "dev", url,
         requestId: "7b739814-1369-4736-8843-54f54e576482",
-        acceptedManifestDigest: reviewed.manifestDigest,
+        acceptedManifestDigest: reviewed.manifestDigest, reviewExpiresAt: reviewed.reviewExpiresAt,
       }, owner), /package contents or launcher changed/);
       assert.equal((await service.run({ operation: "status", projectId: "manifest" }, owner)).code, "idle");
       await assert.rejects(fetch(url));
+      alterOnPortCheck = false;
+      const fresh = await service.run({ operation: "review", projectId: "manifest", script: "dev", url }, owner);
+      assert.equal(fresh.code, "review");
+      if (fresh.code === "review") {
+        const started = await service.run({ operation: "start", projectId: "manifest", script: "dev", url,
+          requestId: "e2c84727-5c39-43cb-bd77-25b6b36d6963",
+          acceptedManifestDigest: fresh.manifestDigest, reviewExpiresAt: fresh.reviewExpiresAt }, owner);
+        assert.equal(started.code, "ready", "the refused start releases its port reservation");
+        if ("launchId" in started) await service.run(
+          { operation: "stop", projectId: "manifest", launchId: started.launchId }, owner);
+      }
     } finally {
       await service.shutdown();
       await rm(root, { recursive: true, force: true });
@@ -253,7 +264,7 @@ test("status rechecks a live preview URL and recovers when it responds again",
       const started = projectPreviewResult.parse(await service.run({
         operation: "start", projectId: "status", script: "dev", url,
         requestId: "c4548bcb-759b-4785-9aac-b11472ad4f84",
-        acceptedManifestDigest: reviewed.manifestDigest,
+        acceptedManifestDigest: reviewed.manifestDigest, reviewExpiresAt: reviewed.reviewExpiresAt,
       }, owner));
       assert.equal(started.code, "ready");
       reachable = false;
@@ -304,7 +315,7 @@ test("a launcher exit cleans its background server before a later Stop",
       assert.equal(review.code, "review");
       if (review.code !== "review") return;
       const started = await service.run({ operation: "start", projectId: project.projectId, script: "dev", url,
-        requestId: "e8755927-609f-4d85-8ea1-e7c3e9ba3125", acceptedManifestDigest: review.manifestDigest }, owner);
+        requestId: "e8755927-609f-4d85-8ea1-e7c3e9ba3125", acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt }, owner);
       assert.ok("launchId" in started);
       if (!("launchId" in started)) return;
       launchPid = started.pid;
@@ -327,5 +338,229 @@ test("a launcher exit cleans its background server before a later Stop",
         if (launchPid) { try { process.kill(-launchPid, "SIGKILL"); } catch { /* Already gone. */ } }
         await rm(root, { recursive: true, force: true });
       }
+    }
+  });
+
+
+test("concurrent projects cannot claim the same host preview port while launch checks are pending",
+  { timeout: 12_000 }, async () => {
+    const alphaRoot = await mkdtemp(path.join(tmpdir(), "vivary-preview-reserve-alpha-"));
+    const betaRoot = await mkdtemp(path.join(tmpdir(), "vivary-preview-reserve-beta-"));
+    await fixture(alphaRoot);
+    await fixture(betaRoot);
+    let unblock = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>(resolve => { unblock = resolve; });
+    const checking = new Promise<void>(resolve => { entered = resolve; });
+    let held = true;
+    const service = createProjectPreviewService({
+      mode: () => "local",
+      resolveWorkspace: async (_context, projectId) => workspace(projectId === "alpha" ? alphaRoot : betaRoot, projectId),
+      portOccupied: async () => {
+        if (held) { held = false; entered(); await gate; }
+        return false;
+      },
+    });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const alphaReview = await service.run({ operation: "review", projectId: "alpha", script: "dev", url }, owner);
+      const betaReview = await service.run({ operation: "review", projectId: "beta", script: "dev", url }, owner);
+      assert.equal(alphaReview.code, "review");
+      assert.equal(betaReview.code, "review");
+      if (alphaReview.code !== "review" || betaReview.code !== "review") return;
+      const starting = service.run({ operation: "start", projectId: "alpha", script: "dev", url,
+        requestId: "32dd8f0b-a253-4460-9d2a-18472edf81c5",
+        acceptedManifestDigest: alphaReview.manifestDigest,
+        reviewExpiresAt: alphaReview.reviewExpiresAt }, owner);
+      await checking;
+      await assert.rejects(service.run({ operation: "start", projectId: "alpha", script: "dev", url,
+        requestId: "32dd8f0b-a253-4460-9d2a-18472edf81c5",
+        acceptedManifestDigest: alphaReview.manifestDigest,
+        reviewExpiresAt: alphaReview.reviewExpiresAt - 1 }, owner), /different preview request/);
+      await assert.rejects(service.run({ operation: "start", projectId: "beta", script: "dev", url,
+        requestId: "0ef8118a-59a4-413b-bbb6-959754c9ded3",
+        acceptedManifestDigest: betaReview.manifestDigest,
+        reviewExpiresAt: betaReview.reviewExpiresAt }, owner), /already in use or reserved/);
+      assert.equal((await service.run({ operation: "status", projectId: "beta" }, owner)).code, "idle");
+      unblock();
+      const started = await starting;
+      assert.equal(started.code, "ready");
+      if (started.code === "ready") {
+        assert.equal(started.processRunning, true);
+        assert.equal(await (await fetch(url)).text(), "clean");
+      }
+    } finally {
+      unblock();
+      await service.shutdown();
+      await rm(alphaRoot, { recursive: true, force: true });
+      await rm(betaRoot, { recursive: true, force: true });
+    }
+  });
+
+
+test("settled request history stays bounded without relaunching an expired request ID",
+  { timeout: 12_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-expiry-"));
+    await fixture(root);
+    let clock = Date.now();
+    const service = createProjectPreviewService({
+      mode: () => "local", now: () => clock, maxRetainedRequests: 1,
+      resolveWorkspace: async () => workspace(root, "expiry"),
+    });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "expiry", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      const oldInput = { operation: "start" as const, projectId: "expiry", script: "dev" as const,
+        url, requestId: "ec8fac49-0a9d-4243-a8d7-df5b77af70fe",
+        acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt };
+      const first = await service.run(oldInput, owner);
+      assert.equal(first.code, "ready");
+      if (!("launchId" in first)) return;
+      const stopped = await service.run({ operation: "stop", projectId: "expiry", launchId: first.launchId }, owner);
+      assert.equal(stopped.code, "stopped");
+      if (stopped.code === "stopped") assert.equal(stopped.processRunning, false);
+      assert.equal((await service.run(oldInput, owner)).code, "stopped");
+      await assert.rejects(service.run({ ...oldInput,
+        requestId: "339d77e7-6c94-42c6-8e4e-17a963177977" }, owner), /Too many preview requests/);
+      clock = review.reviewExpiresAt + 1;
+      await assert.rejects(service.run(oldInput, owner), /review expired/);
+      assert.equal((await service.run({ operation: "status", projectId: "expiry" }, owner)).code, "idle");
+      const renewed = await service.run({ operation: "review", projectId: "expiry", script: "dev", url }, owner);
+      assert.equal(renewed.code, "review");
+      if (renewed.code !== "review") return;
+      const replacement = await service.run({ ...oldInput,
+        acceptedManifestDigest: renewed.manifestDigest, reviewExpiresAt: renewed.reviewExpiresAt }, owner);
+      assert.equal(replacement.code, "ready");
+      if (replacement.code === "ready") {
+        assert.notEqual(replacement.launchId, first.launchId);
+        await assert.rejects(service.run(oldInput, owner), /different reviewed preview/);
+        await service.run({ operation: "stop", projectId: "expiry", launchId: replacement.launchId }, owner);
+      }
+    } finally {
+      await service.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+test("native pnpm binaries resolve while a text shim is rejected",
+  { timeout: 5_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-pnpm-project-"));
+    const bin = await mkdtemp(path.join(tmpdir(), "vivary-preview-pnpm-bin-"));
+    const file = path.join(bin, process.platform === "win32" ? "pnpm.exe" : "pnpm");
+    try {
+      const signature = process.platform === "win32"
+        ? Buffer.from([0x4d, 0x5a, 0x00, 0x00])
+        : Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
+      await writeFile(file, signature);
+      if (process.platform !== "win32") await chmod(file, 0o755);
+      const launcher = await resolveLauncher("pnpm", root, [bin]);
+      assert.deepEqual(launcher, { manager: "pnpm", executable: file, prefix: [] });
+      await writeFile(file, "#!/bin/sh\necho unsafe\n");
+      assert.equal(await resolveLauncher("pnpm", root, [bin]), null);
+      await writeFile(path.join(bin, "pnpm.cmd"), "echo unsafe\n");
+      assert.equal(await resolveLauncher("pnpm", root, [bin]), null);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(bin, { recursive: true, force: true });
+    }
+  });
+
+
+test("a revoked project refuses start with 403 before spawn",
+  { timeout: 5_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-revoked-"));
+    await fixture(root);
+    let denied = false;
+    let spawnCount = 0;
+    const service = createProjectPreviewService({
+      mode: () => "local",
+      resolveWorkspace: async () => denied
+        ? fail("Project access revoked.", { statusCode: 403, errorCode: "vivary_project_access" })
+        : workspace(root, "revoked"),
+      spawn: () => { spawnCount++; throw new Error("Spawn must not run"); },
+    });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "revoked", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      denied = true;
+      await assert.rejects(service.run({ operation: "start", projectId: "revoked", script: "dev", url,
+        requestId: "13fdf62f-6623-4699-92f3-5c95f19ad1ef",
+        acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt }, owner),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /Project access revoked/);
+        assert.equal("statusCode" in error && error.statusCode, 403);
+        return true;
+      });
+      assert.equal(spawnCount, 0);
+    } finally {
+      await service.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+test("a new host generation refuses an old reviewed digest before spawn",
+  { timeout: 5_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-generation-"));
+    await fixture(root);
+    let spawnCount = 0;
+    const dependencies = { mode: () => "local",
+      resolveWorkspace: async () => workspace(root, "generation") };
+    const oldHost = createProjectPreviewService(dependencies);
+    const newHost = createProjectPreviewService({ ...dependencies,
+      spawn: () => { spawnCount++; throw new Error("Spawn must not run"); } });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await oldHost.run({ operation: "review", projectId: "generation", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      const renewed = await newHost.run({ operation: "review", projectId: "generation", script: "dev", url }, owner);
+      assert.equal(renewed.code, "review");
+      if (renewed.code === "review") assert.notEqual(renewed.manifestDigest, review.manifestDigest);
+      await assert.rejects(newHost.run({ operation: "start", projectId: "generation", script: "dev", url,
+        requestId: "722d7dd4-178f-4eca-8960-c1ea89ddd9d2",
+        acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt }, owner),
+      /script, launcher, address, or folder changed/);
+      assert.equal(spawnCount, 0);
+    } finally {
+      await oldHost.shutdown();
+      await newHost.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+test("an active launch replays its original request after review expiry without spawning again",
+  { timeout: 12_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-live-replay-"));
+    await fixture(root);
+    let clock = Date.now();
+    const service = createProjectPreviewService({ mode: () => "local", now: () => clock,
+      resolveWorkspace: async () => workspace(root, "replay") });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "replay", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      const input = { operation: "start" as const, projectId: "replay", script: "dev" as const,
+        url, requestId: "68af7dc9-a454-4818-aefe-d90618dcf1e1",
+        acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt };
+      const first = await service.run(input, owner);
+      assert.equal(first.code, "ready");
+      if (!("launchId" in first)) return;
+      clock = review.reviewExpiresAt + 1;
+      const replay = await service.run(input, owner);
+      assert.equal(replay.code, "ready");
+      if (replay.code === "ready") assert.equal(replay.launchId, first.launchId);
+      await service.run({ operation: "stop", projectId: "replay", launchId: first.launchId }, owner);
+      await assert.rejects(service.run(input, owner), /review expired/);
+    } finally {
+      await service.shutdown();
+      await rm(root, { recursive: true, force: true });
     }
   });

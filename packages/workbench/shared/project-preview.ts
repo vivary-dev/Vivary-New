@@ -11,7 +11,7 @@ export const projectPreviewInput = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("inspect"), projectId, url: previewUrl }),
   z.strictObject({ operation: z.literal("review"), projectId, script, url: previewUrl }),
   z.strictObject({ operation: z.literal("start"), projectId, script, url: previewUrl,
-    requestId, acceptedManifestDigest: digest }),
+    requestId, acceptedManifestDigest: digest, reviewExpiresAt: z.number().int().positive() }),
   z.strictObject({ operation: z.literal("status"), projectId }),
   z.strictObject({ operation: z.literal("stop"), projectId, launchId: z.string().uuid() }),
 ]);
@@ -26,9 +26,11 @@ const launch = {
   launcher: z.string(),
   url: previewUrl,
   manifestDigest: digest,
+  reviewExpiresAt: z.number().int().positive(),
   requestId,
   launchId: z.string().uuid(),
   pid: z.number().int().positive().nullable(),
+  processRunning: z.boolean(),
   staleBinding: z.boolean(),
 };
 
@@ -42,7 +44,7 @@ export const projectPreviewResult = z.discriminatedUnion("code", [
   z.strictObject({ code: z.literal("unsupported"), ...base, reason: z.string() }),
   z.strictObject({ code: z.literal("review"), ...base, folder: z.string(), script,
     scriptText: z.string(), command: z.string(), launcher: z.string(),
-    url: previewUrl, manifestDigest: digest }),
+    url: previewUrl, manifestDigest: digest, reviewExpiresAt: z.number().int().positive() }),
   z.strictObject({ code: z.literal("starting"), ...launch }),
   z.strictObject({ code: z.literal("ready"), ...launch,
     checkedAt: z.string(), embedding: z.enum(["blocked", "unknown"]) }),
