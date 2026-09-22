@@ -373,25 +373,25 @@ class ThinAdoptPlanTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "-f",
                 "project/.vivary/runtime/tracked.json"], check=True)
             marker = root / "hook-called"
-            if os.name == "nt":
-                hook = root / "fsmonitor-hook.cmd"
-                hook.write_text('@echo off\r\necho called>>"' + str(marker)
-                    + '"\r\necho /\r\n', encoding="utf-8")
-            else:
-                hook = root / "fsmonitor-hook.sh"
-                hook.write_text("#!/bin/sh\necho called >> \"" + str(marker)
-                    + "\"\nprintf '/\\0'\n", encoding="utf-8")
-                hook.chmod(0o700)
-            subprocess.run(["git", "-C", str(root), "config", "core.fsmonitor", str(hook)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "core.fsmonitorHookVersion", "1"], check=True)
-            subprocess.run(["git", "-C", str(root), "update-index", "--fsmonitor"], check=True,
-                capture_output=True)
+            hook = root / "fsmonitor-hook.sh"
+            hook.write_text("#!/bin/sh\necho called >> hook-called\nprintf '/\\0'\n",
+                encoding="utf-8", newline="\n")
+            hook.chmod(0o700)
+            def fixture_git(*args):
+                result = subprocess.run(["git", "-C", str(root), *args],
+                    text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0,
+                    f"git {' '.join(args)} failed: stdout={result.stdout!r} stderr={result.stderr!r}")
+                return result
+            fixture_git("config", "core.fsmonitor", "./fsmonitor-hook.sh")
+            fixture_git("config", "core.fsmonitorHookVersion", "1")
+            output = [fixture_git("update-index", "--fsmonitor")]
             for _attempt in range(3):
-                subprocess.run(["git", "-C", str(root), "status", "--porcelain"], check=True,
-                    capture_output=True)
+                output.append(fixture_git("status", "--porcelain"))
                 if marker.exists():
                     break
-            self.assertTrue(marker.exists(), "configured Git fsmonitor hook did not execute")
+            self.assertTrue(marker.exists(), "configured Git fsmonitor hook did not execute: "
+                + repr([(result.stdout, result.stderr) for result in output]))
             marker.unlink()
             plan = create_vivary.plan_adopt(target, preset="coding")
             self.assertFalse(plan["request_replay"]["ready"])
