@@ -254,6 +254,46 @@ class CreateVivaryTests(unittest.TestCase):
             self.assertEqual(record["receipt_source"], "env")
             self.assertEqual(record["command"], "capabilities")
 
+    def test_privacy_receipt_records_operation_without_argument_values(self):
+        with temp_workspace() as td:
+            target = td / "private-target-sentinel"
+            target.mkdir()
+            (target / "private-file-sentinel").write_text("private-content-sentinel")
+            for index, privacy_arg in enumerate((
+                ["--privacy-request", "private-descriptor-sentinel"],
+                ["--privacy-request=private-descriptor-sentinel"],
+            )):
+                with self.subTest(privacy_arg=privacy_arg):
+                    receipt = td / f"privacy-runs-{index}.jsonl"
+                    with mock.patch.dict(os.environ, {"VIVARY_RECEIPT_LOG": str(receipt)}):
+                        with redirect_stdout(io.StringIO()):
+                            rc = create_vivary.main([
+                                "adopt", str(target), "--json", "--yes",
+                                "--plan", "sha256:" + "0" * 64,
+                                "--request-id", "receipt-private",
+                                "--prepare-privacy", *privacy_arg,
+                            ])
+                    self.assertNotEqual(rc, 0)
+                    record = json.loads(receipt.read_text(encoding="utf-8"))
+                    self.assertEqual(record["command"], "adopt")
+                    self.assertEqual(record["receipt_source"], "env")
+                    self.assertIn("--prepare-privacy", record["flags"])
+                    self.assertIn("--privacy-request", record["flags"])
+                    serialized = json.dumps(record)
+                    for secret in (
+                        "private-target-sentinel", "private-file-sentinel",
+                        "private-content-sentinel", "private-descriptor-sentinel",
+                    ):
+                        self.assertNotIn(secret, serialized)
+
+            self.assertEqual(
+                create_vivary._receipt_flags([
+                    "adopt", str(target), "--prepare-privacy",
+                    "--privacy-request", "--dry-run",
+                ]),
+                ["--prepare-privacy", "--privacy-request"],
+            )
+
     def test_global_receipt_preserves_bare_target_init_shorthand(self):
         with temp_workspace() as td:
             target = td / "agent-workspace"

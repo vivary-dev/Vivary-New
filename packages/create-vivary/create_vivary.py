@@ -167,6 +167,7 @@ RECEIPT_VALUE_FLAGS = {
     "--plan",
     "--size",
     "--privacy",
+    "--privacy-request",
 }
 RECEIPT_KNOWN_FLAGS = RECEIPT_VALUE_FLAGS | {
     "--auto",
@@ -176,6 +177,7 @@ RECEIPT_KNOWN_FLAGS = RECEIPT_VALUE_FLAGS | {
     "--json",
     "--no-wizard",
     "--obsidian",
+    "--prepare-privacy",
     "--reviewed",
     "--repair",
     "--trend",
