@@ -44,18 +44,20 @@ and authentication. Provider accounts are separate.
 
 **Public Windows prerelease available. Full desktop acceptance remains open.**
 
-[Download the Windows preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) and follow the
+[Download the Windows preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) and follow the
 [installation guide](docs/desktop-preview.md). The portable ZIP includes
 `Vivary.exe` and its runtime files. There is no setup wizard in this release.
 
-The `250aaa0` artifact contains the application tree merged through PR #76:
-Codex conversations, folder-picker recovery, exact setup previews, project-owned
-page previews, and adoption-request replay in the bundled CLI.
+The `9884670` artifact includes PR #78's desktop browser-link fix alongside
+Codex conversations, setup previews, project search, and adoption-request replay.
+**Open preview in a new tab** now shows a native confirmation before opening an
+HTTP or HTTPS address in your default browser. Cancel opens nothing.
 
-The exact candidate passed seven GitHub CI jobs. Direct Windows checks covered
-launch with a preserved profile and chooser recovery. Browser checks covered
-setup previews, project switching, Files/chat navigation, reload persistence,
-and controls at 390 pixels. The separate Entire reviewer-approval gate did not pass.
+Windows checks covered the exact destination, Cancel, confirmed browser launch,
+project-preview clearing, graceful shutdown, and selected-project persistence
+after restart. Earlier setup and model-runtime journeys retain their dated evidence.
+Six applicable GitHub CI jobs passed on the reviewed fix head. The site job skipped.
+The historical Entire trail-approval failure remains separate from those checks.
 
 The [acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
 separates these checks from earlier runtime journeys and unfinished work.
