@@ -4,6 +4,7 @@ import { lstat, mkdir, mkdtemp, open, realpath, rm, writeFile } from "node:fs/pr
 import path from "node:path";
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
+import { adoptionPrivacyRequest } from "../shared/project-adoption";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -36,6 +37,8 @@ export type OriginalCommand = z.infer<typeof commandSchema>;
 
 const planHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 export const adoptionExecutionSchema = z.discriminatedUnion("verb", [
+  z.strictObject({ verb: z.literal("adopt-prepare-privacy"), preset: preset.optional(),
+    planHash, requestId: z.string().uuid(), privacyRequest: adoptionPrivacyRequest }),
   z.strictObject({ verb: z.literal("adopt-apply"), preset: preset.optional(),
     planHash, requestId: z.string().uuid() }),
   z.strictObject({ verb: z.literal("adopt-recovery-preview"), transactionHash: planHash, requestId: z.string().uuid() }),
@@ -57,6 +60,9 @@ export function originalCommandArguments(command: RuntimeCommand, root: string, 
   switch (command.verb) {
     case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", "--dry-run"], stdin: "" };
     case "adopt": return { args: ["adopt", root, "--json", ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
+    case "adopt-prepare-privacy": return { args: ["adopt", root, "--json", "--yes", "--prepare-privacy",
+      "--plan", command.planHash, "--request-id", command.requestId, "--privacy-request", "-",
+      ...(command.preset ? ["--preset", command.preset] : [])], stdin: JSON.stringify(command.privacyRequest) };
     case "adopt-apply": return { args: ["adopt", root, "--json", "--yes", "--plan", command.planHash,
       "--request-id", command.requestId, ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
     case "adopt-recovery-preview": return { args: ["adopt", root, "--json", "--recover", command.transactionHash, "--request-id", command.requestId], stdin: "" };

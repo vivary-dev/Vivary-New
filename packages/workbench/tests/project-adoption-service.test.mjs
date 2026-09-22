@@ -25,7 +25,7 @@ const { createNativeRegistry } = await import("../server/native-registry.mjs");
 const { createProjectCatalog } = await import("../server/project-catalog.mjs");
 const { connectLocalProjectFolder, resolveLocalProjectWorkspace } = await import("../server/project-services.mjs");
 const { createProjectAdoptionService } = await import("../server/project-adoption.ts");
-const { originalCommandArguments } = await import("../server/original-runtime.ts");
+const { originalChildEnvironment, originalCommandArguments, runOriginalProcess } = await import("../server/original-runtime.ts");
 const { evaluateRegistryOperation, deriveMutationKeys } = await import("../../../scripts/registry_contract_model.mjs");
 const { default: action } = await import("../actions/vivary-project-adoption.ts");
 const creator = path.resolve(import.meta.dirname, "../../create-vivary/create_vivary.py");
@@ -61,8 +61,13 @@ f(sys.argv[2],yes=True,plan_hash=sys.argv[3],request_id=sys.argv[4],_crash_after
     assert.fail("crash injection did not run");
   }
   try {
-    const result = await executeFile("python3", ["-B", creator, ...invocation.args], { maxBuffer: 512 * 1024 });
-    output = { exitCode: 0, ...result, signal: null };
+    if (invocation.stdin) {
+      output = await runOriginalProcess("python3", ["-B", creator, ...invocation.args], invocation.stdin,
+        dataDir, originalChildEnvironment(process.env, path.join(dataDir, "original-runtime", "receipts.jsonl"), workspace.root));
+    } else {
+      const result = await executeFile("python3", ["-B", creator, ...invocation.args], { maxBuffer: 512 * 1024 });
+      output = { exitCode: 0, ...result, signal: null };
+    }
   } catch (error) { output = { exitCode: error.code, stdout: error.stdout, stderr: error.stderr, signal: error.signal }; }
   if (loseResponse) { loseResponse = false; throw new Error("injected lost response"); }
   return output;
@@ -117,12 +122,13 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
   try {
     await reopen();
     const folders = {};
-    for (const name of ["Alpha", "Beta", "Unprotected", "Recovery", "Interrupted", "Uncertain", "RecoveryRetry", "Symlink", "RetryRefusal", "ConcurrentRetry"]) {
+    for (const name of ["Alpha", "Beta", "Unprotected", "UnprotectedPresent", "LostPrivacy", "PreparedRecovery", "StaleIgnore", "Tracked", "Recovery", "Interrupted", "Uncertain", "RecoveryRetry", "Symlink", "RetryRefusal", "ConcurrentRetry"]) {
       const root = path.join(directory, name);
       await mkdir(root);
       await writeFile(path.join(root, "AGENTS.md"), "# Existing owner guidance\nKeep these instructions.\n");
       await writeFile(path.join(root, "unrelated.txt"), "Do not change me.\n");
-      if (name !== "Unprotected") await writeFile(path.join(root, ".gitignore"), ".vivary/runtime/\n");
+      if (!["Unprotected", "UnprotectedPresent", "LostPrivacy", "PreparedRecovery", "StaleIgnore"].includes(name)) await writeFile(path.join(root, ".gitignore"), ".vivary/runtime/\n");
+      if (name === "UnprotectedPresent" || name === "StaleIgnore") await writeFile(path.join(root, ".gitignore"), "node_modules/\n");
       const registration = await connectLocalProjectFolder(context, root);
       assert.equal(registration.code, "registered");
       folders[name] = { root, projectId: registration.projectId };
@@ -239,12 +245,96 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       assert.deepEqual(await getDb().select().from(projects), beforeProjects);
       assert.deepEqual(await getDb().select().from(bindings), beforeBindings);
     });
-    await suite.test("unprotected recovery records are explained before confirmation and cannot apply", async () => {
-      const target = folders.Unprotected;
+    await suite.test("missing and existing ignore files require separate exact privacy approval and a fresh setup review", async () => {
+      for (const target of [folders.Unprotected, folders.UnprotectedPresent]) {
+        const before = await snapshot(target.root);
+        const review = await preview(run, target.projectId);
+        assert.equal(review.report.request_replay.ready, false);
+        assert.equal(review.report.privacy_preparation.required, true);
+        assert.equal(review.report.privacy_preparation.ready, true);
+        const approvedIgnore = review.report.content_plan.files.find(file => file.path === ".gitignore");
+        assert.ok(approvedIgnore);
+        assert.deepEqual(await snapshot(target.root), before, "preview must remain read-only");
+
+        const prepared = await run(approval(review, "prepare-privacy"), context);
+        assert.deepEqual(prepared, { code: "privacy-prepared", projectId: target.projectId, replayed: false });
+        assert.equal(await readFile(path.join(target.root, ".gitignore"), "utf8"), approvedIgnore.content);
+        const afterPreparation = await snapshot(target.root);
+        assert.deepEqual(Object.keys(afterPreparation).sort(), [...new Set([...Object.keys(before), ".gitignore"])].sort());
+        for (const [name, value] of Object.entries(before)) {
+          if (name !== ".gitignore") assert.deepEqual(afterPreparation[name], value);
+        }
+        assert.equal((await readdir(target.root)).includes(".vivary"), false,
+          "privacy-only approval must not create setup or recovery files");
+        await assert.rejects(run(approval(review), context), /Finish privacy preparation/);
+        assert.equal((await run({ operation: "resume", projectId: target.projectId }, context)).code, "privacy-prepared");
+
+        const fresh = await preview(run, target.projectId);
+        assert.notEqual(fresh.operationId, review.operationId);
+        assert.equal(fresh.report.request_replay.ready, true);
+        assert.deepEqual(await run(approval(fresh, "cancel"), context), { code: "idle" });
+        assert.deepEqual(await snapshot(target.root), afterPreparation, "cancel after privacy approval keeps the reviewed ignore change");
+      }
+    });
+    await suite.test("privacy preparation keeps one operation across a lost response and restart without writing on resume", async () => {
+      const target = folders.LostPrivacy;
+      const review = await preview(run, target.projectId);
+      const approvedIgnore = review.report.content_plan.files.find(file => file.path === ".gitignore").content;
+      loseResponse = true;
+      await assert.rejects(run(approval(review, "prepare-privacy"), context), /lost response/);
+      const afterWrite = await snapshot(target.root);
+      assert.equal(await readFile(path.join(target.root, ".gitignore"), "utf8"), approvedIgnore);
+      const calls = executions;
+      const resumed = await run({ operation: "resume", projectId: target.projectId }, context);
+      assert.equal(resumed.code, "privacy-pending");
+      assert.equal(resumed.operationId, review.operationId);
+      assert.deepEqual(await snapshot(target.root), afterWrite);
+      assert.equal(executions, calls, "resume must not dispatch another filesystem operation");
+
+      await reopen();
+      run = service();
+      const afterRestart = await run({ operation: "resume", projectId: target.projectId }, context);
+      assert.equal(afterRestart.code, "privacy-pending");
+      assert.equal(afterRestart.operationId, review.operationId);
+      assert.deepEqual(await snapshot(target.root), afterWrite);
+      assert.equal(executions, calls);
+      assert.deepEqual(await run(approval(afterRestart, "prepare-privacy"), context),
+        { code: "privacy-prepared", projectId: target.projectId, replayed: true });
+      assert.deepEqual(await snapshot(target.root), afterWrite);
+    });
+    await suite.test("stale ignore and guidance bytes refuse privacy preparation without overwriting owner edits", async () => {
+      const target = folders.StaleIgnore;
+      let review = await preview(run, target.projectId);
+      const ignorePath = path.join(target.root, ".gitignore");
+      await writeFile(ignorePath, "node_modules/\n# Owner edit after preview\n");
+      let changed = await snapshot(target.root);
+      const staleIgnore = await run(approval(review, "prepare-privacy"), context);
+      assert.equal(staleIgnore.code, "refused");
+      assert.match(staleIgnore.message, /changed|new preview/i);
+      assert.deepEqual(await snapshot(target.root), changed);
+
+      review = await preview(run, target.projectId);
+      await writeFile(path.join(target.root, "AGENTS.md"), "# New owner guidance\nKeep this revision.\n");
+      changed = await snapshot(target.root);
+      const staleGuidance = await run(approval(review, "prepare-privacy"), context);
+      assert.equal(staleGuidance.code, "refused");
+      assert.match(staleGuidance.message, /changed|new preview/i);
+      assert.deepEqual(await snapshot(target.root), changed);
+    });
+    await suite.test("tracked runtime records block setup with a specific explanation and no index or file changes", async () => {
+      const target = folders.Tracked;
+      const runtime = path.join(target.root, ".vivary", "runtime");
+      await mkdir(runtime, { recursive: true });
+      await writeFile(path.join(runtime, "synthetic-record.db"), "fixture only\n");
+      await executeFile("git", ["init", "-q"], { cwd: target.root });
+      await executeFile("git", ["add", "-f", ".vivary/runtime/synthetic-record.db"], { cwd: target.root });
       const before = await snapshot(target.root);
+      const tracked = await executeFile("git", ["ls-files", "--cached", "-z"], { cwd: target.root });
       const review = await preview(run, target.projectId);
       assert.equal(review.report.request_replay.ready, false);
-      assert.match(review.report.request_replay.reason, /ignore|protect/i);
+      assert.match(review.report.request_replay.reason, /tracks|tracked/i);
+      assert.deepEqual(await snapshot(target.root), before);
+      assert.equal((await executeFile("git", ["ls-files", "--cached", "-z"], { cwd: target.root })).stdout, tracked.stdout);
       await assert.rejects(run(approval(review), context));
       assert.deepEqual(await snapshot(target.root), before);
     });
@@ -292,6 +382,40 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
         await rename(held, runtime);
       }
       assert.deepEqual(await snapshot(target.root), interrupted);
+    });
+    await suite.test("recovery preserves the separately approved ignore guard and restores original owner files", async () => {
+      const target = folders.PreparedRecovery;
+      const before = await snapshot(target.root);
+      const privacyReview = await preview(run, target.projectId);
+      const approvedIgnore = privacyReview.report.content_plan.files.find(file => file.path === ".gitignore").content;
+      assert.equal((await run(approval(privacyReview, "prepare-privacy"), context)).code, "privacy-prepared");
+      assert.equal(await readFile(path.join(target.root, ".gitignore"), "utf8"), approvedIgnore);
+
+      const setupReview = await preview(run, target.projectId);
+      assert.notEqual(setupReview.operationId, privacyReview.operationId);
+      assert.equal(setupReview.report.request_replay.ready, true);
+      crash = "applying";
+      assert.equal((await run(approval(setupReview), context)).code, "pending");
+      run = service();
+      const recovery = await run(approval(setupReview, "preview-recovery"), context);
+      assert.equal(recovery.code, "recovery-preview");
+      assert.equal(recovery.recovery.recovery_actions.some(action => action.path === ".gitignore"), false,
+        "setup rollback must not undo the separately approved privacy change");
+      const interrupted = await snapshot(target.root);
+      assert.deepEqual(await run({ ...approval(setupReview, "recover"),
+        acceptedRecoveryHash: recovery.recovery.recovery_plan_hash }, context).then(result => result.code), "recovered");
+      const restored = await snapshot(target.root);
+      for (const [name, value] of Object.entries(before)) {
+        assert.equal(restored[name].bytes, value.bytes, name + " bytes should be restored");
+      }
+      assert.equal(await readFile(path.join(target.root, ".gitignore"), "utf8"), approvedIgnore);
+      assert.equal(restored[".vivary/context.md"], undefined);
+      assert.equal(restored[".vivary/workspace.toml"], undefined);
+      assert.equal(restored[".vivary/runtime/adopt-journal.json"], undefined);
+      const receipts = await readdir(path.join(target.root, ".vivary/runtime/adopt-receipts"));
+      assert.deepEqual(receipts, [setupReview.operationId + ".json"]);
+      assert.notDeepEqual(interrupted, restored);
+      assert.equal((await preview(run, target.projectId)).report.request_replay.ready, true);
     });
     await suite.test("incomplete writes require a reviewed recovery and restore original bytes", async () => {
       const target = folders.Interrupted;

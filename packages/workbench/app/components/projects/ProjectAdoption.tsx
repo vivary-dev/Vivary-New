@@ -37,6 +37,9 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
     const current = ++request.current;
     setWorking(true);
     setMessage(undefined);
+    if (input.operation === "prepare-privacy" && state.code === "preview") {
+      setState({ ...state, code: "privacy-pending", message: "Checking the reviewed ignore-file change…" });
+    }
     if (input.operation === "apply" && state.code === "preview") {
       setState({ ...state, code: "pending", message: "Checking the approved setup request…" });
     }
@@ -56,8 +59,10 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
     }
   }
 
-  const review = state.code === "preview" || state.code === "pending" || state.code === "recovery-preview" ? state : null;
-  const pending = state.code === "pending" || state.code === "recovery-preview";
+  const review = state.code === "preview" || state.code === "pending" || state.code === "privacy-pending" || state.code === "recovery-preview" ? state : null;
+  const pending = state.code === "pending" || state.code === "privacy-pending" || state.code === "recovery-preview";
+  const preparePrivacy = Boolean(review?.report.privacy_preparation?.required);
+  const reviewedFiles = review?.report.content_plan.files.filter(file => !preparePrivacy || file.path === ".gitignore") ?? [];
   const unavailable = disabled || !ready || working;
   const approval = review ? { projectId, operationId: review.operationId, acceptedPlanHash: review.planHash } : null;
 
@@ -80,7 +85,7 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
       </select>
       <Button size="sm" variant="outline" disabled={unavailable}
         onClick={() => void perform({ operation: "preview", projectId, preset })}>
-        {working ? "Preparing preview…" : state.code === "idle" ? "Preview Vivary setup" : "Refresh preview"}
+        {working ? "Preparing preview…" : state.code === "privacy-prepared" ? "Review Vivary setup" : state.code === "idle" ? "Preview Vivary setup" : "Refresh preview"}
       </Button>
     </>}
     {message && <p role="alert">{message}</p>}
@@ -90,22 +95,32 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
         {" "}This project keeps its existing files and conversations.</p>
       <p><Link to="/files">Open files</Link>{" · "}<Link to="/">Open chat</Link></p>
     </div>}
+    {state.code === "privacy-prepared" && <p role="status">
+      Ignore-file protection is ready. Review setup again before authorizing its file changes.
+      This protection stays in place if you cancel setup or later recover an incomplete setup.
+    </p>}
     {state.code === "recovered" && <p role="status">Recovery finished. Review a new setup plan before applying again.</p>}
     {review && <div data-agent-native="adoption-preview">
       <p>Folder: <strong>{review.displayName}</strong><br /><code>{review.folder}</code></p>
       <p>Detected preset: <strong>{review.report.preset}</strong></p>
+      {preparePrivacy && <div>
+        <h5>Protect recovery records first</h5>
+        <p>This step changes only <code>.gitignore</code>, preserving its existing text. It adds ignore rules before Vivary stores recovery records in this folder.</p>
+        <p>Review setup separately after this step. The ignore-file change remains if you cancel setup or recover an incomplete setup. Existing tracked files stay tracked.</p>
+      </div>}
       <p role="status">{review.report.conflicts.length > 0 ? "Resolve these conflicts before applying setup."
         : review.report.content_plan.files.length === 0 ? "No setup changes are needed."
-        : `${review.report.content_plan.files.length} proposed file changes.`}</p>
-      {!review.report.request_replay.ready && review.report.content_plan.files.length > 0
+        : `${reviewedFiles.length} proposed file changes.`}</p>
+      {!preparePrivacy && !review.report.request_replay.ready && review.report.content_plan.files.length > 0
         && <p role="alert">{review.report.request_replay.reason}</p>}
+      {preparePrivacy && !review.report.privacy_preparation?.ready && <p role="alert">{review.report.privacy_preparation?.reason}</p>}
       {review.report.conflicts.length > 0 && <div>
         <h5>Conflicts</h5>
         <ul data-agent-native="adoption-conflicts">{review.report.conflicts.map(conflict => <li key={`${conflict.path}:${conflict.reason}`}>
           <code>{conflict.path}</code>: {conflict.reason}
         </li>)}</ul>
       </div>}
-      {review.report.content_plan.files.map(file => <details key={file.path} data-agent-native="adoption-file" data-path={file.path}>
+      {reviewedFiles.map(file => <details key={file.path} data-agent-native="adoption-file" data-path={file.path}>
         <summary><span>{operationLabel[file.operation]} <code>{file.path}</code></span><span>{file.bytes} bytes</span></summary>
         <pre tabIndex={0} aria-label={`Proposed content for ${file.path}`}><code>{file.content}</code></pre>
       </details>)}
@@ -119,11 +134,18 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
         <code data-agent-native="adoption-plan-hash">{review.report.plan_hash}</code>
       </details>
       {approval && state.code === "preview" && <div className="adoption-controls">
-        <p>Confirm authorizes only these reviewed changes in this folder. Changed files require another preview.</p>
-        <Button size="sm" disabled={unavailable || !review.report.request_replay.ready || review.report.conflicts.length > 0}
-          onClick={() => void perform({ operation: "apply", ...approval })}>Confirm and apply</Button>
+        <p>{preparePrivacy ? "Confirm authorizes only the reviewed ignore-file change. Setup requires a new review and confirmation."
+          : "Confirm authorizes only these reviewed changes in this folder. Changed files require another preview."}</p>
+        <Button size="sm" disabled={unavailable || !(preparePrivacy ? review.report.privacy_preparation?.ready : review.report.request_replay.ready) || review.report.conflicts.length > 0}
+          onClick={() => void perform({ operation: preparePrivacy ? "prepare-privacy" : "apply", ...approval })}>
+          {preparePrivacy ? "Confirm privacy preparation" : "Confirm and apply"}</Button>
         <Button size="sm" variant="outline" disabled={unavailable}
           onClick={() => void perform({ operation: "cancel", ...approval })}>Cancel</Button>
+      </div>}
+      {approval && state.code === "privacy-pending" && <div className="adoption-controls">
+        <p role="status">{state.message}</p>
+        <Button size="sm" disabled={unavailable}
+          onClick={() => void perform({ operation: "prepare-privacy", ...approval })}>Retry privacy preparation</Button>
       </div>}
       {approval && state.code === "pending" && <div className="adoption-controls">
         <p role="status">{state.message}</p>

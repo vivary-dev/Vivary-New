@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
-import { createOriginalCommandRunner, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
+import { adoptionExecutionSchema, createOriginalCommandRunner, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
 
 const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 const input = { projectId: "project-a", command: { verb: "doctor" as const } };
@@ -49,6 +49,34 @@ test("arguments preserve the ten owners and place the query or node id directly 
     if (command.verb === "decide") assert.equal(invocation.stdin, "{}");
     if (command.verb === "control") { assert.equal(invocation.stdin, ""); assert.equal(invocation.args.at(-1), "/private/request.json"); }
   }
+});
+
+test("privacy preparation is an internal owner-approved verb with a strict reviewed JSON descriptor", () => {
+  const privacyRequest = {
+    schema: "vivary.adopt-privacy-request.v1",
+    root_hash: "sha256:" + "a".repeat(64),
+    before_hash: null,
+    after_hash: "sha256:" + "b".repeat(64),
+  };
+  const command = adoptionExecutionSchema.parse({
+    verb: "adopt-prepare-privacy", planHash: "sha256:" + "c".repeat(64),
+    requestId: "c86a4ac8-2cd3-4bab-befb-a01aef34a27a", privacyRequest,
+  });
+  const invocation = originalCommandArguments(command, "/granted/project");
+  assert.deepEqual(invocation.args, ["adopt", "/granted/project", "--json", "--yes", "--prepare-privacy",
+    "--plan", command.planHash, "--request-id", command.requestId, "--privacy-request", "-"]);
+  assert.equal(invocation.stdin, JSON.stringify(privacyRequest));
+  assert.equal(originalCommandSchema.safeParse({ projectId: "project-a", command }).success, false);
+  for (const invalid of [
+    { ...privacyRequest, extra: "caller field" },
+    { ...privacyRequest, root_hash: "not-a-digest" },
+    { ...privacyRequest, before_hash: "not-a-digest" },
+    { ...privacyRequest, after_hash: "not-a-digest" },
+    { ...privacyRequest, schema: "other-schema" },
+  ]) {
+    assert.equal(adoptionExecutionSchema.safeParse({ ...command, privacyRequest: invalid }).success, false);
+  }
+  assert.equal(adoptionExecutionSchema.safeParse({ ...command, callerPath: "/outside" }).success, false);
 });
 
 test("child environment excludes credentials and Python injection while owning the receipt location", () => {

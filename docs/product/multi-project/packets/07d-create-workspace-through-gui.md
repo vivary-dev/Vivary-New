@@ -29,9 +29,14 @@ recovery review and confirmation; possible completed work refuses rollback.
 Success opens the existing project's files and chat without registering another
 identity. Project switching removes the prior folder's visible review.
 
-Existing ignore rules must protect the creator's private recovery records before
-retryable apply. The preview explains missing protection and disables Apply.
-Generic unprotected folders and actual Windows acceptance remain outstanding.
+An unprotected folder first shows the exact proposed `.gitignore` change.
+The owner separately confirms privacy preparation, then reviews setup again.
+The ignore change remains after later setup cancellation or recovery. No guidance
+or private recovery record is written during privacy preparation. Lost responses
+retain the original request for retry across reload and restart. Existing runtime
+content, tracked runtime records, unsafe paths, and ignore conflicts block this
+step. Actual packaged Windows acceptance of this two-confirmation flow remains
+outstanding.
 The [Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
 owns the current behavior. Earlier accepted recovery work follows as history.
 

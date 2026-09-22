@@ -5,6 +5,33 @@ Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
 
+## Existing-folder privacy and recovery, September 22
+
+The generic existing-folder setup flow now offers a separately reviewed ignore
+change when private recovery records lack protection. That confirmation changes
+only `.gitignore`. The owner must then preview and confirm setup independently.
+The approved ignore rule remains after subsequent cancellation or rollback.
+
+Focused creator and application checks cover exact reviewed bytes, file
+preservation, stale reviews, retry after a lost response, persisted operation
+identity, tracked-runtime refusal, and interrupted setup recovery. A running local
+app on Zo also passed visible folder registration, preview and cancellation,
+privacy-only confirmation, stale-ignore refusal, refreshed setup apply, and
+same-project/request replay after process restart. This used a disposable profile
+and folder with no model call. The runtime
+keeps uncertain operations pending when it cannot prove their result. External
+edits after a possible write require restoration of the reviewed state before
+retry. A publishing journal without its expected completion receipt still
+refuses both replay and rollback. This increment does not change that boundary.
+
+The owner reported protected-folder Windows acceptance on source `020fe0a5`.
+That evidence does not cover this two-confirmation change. Packaged Windows
+verification of the new flow, clean-profile first launch, Windows lost-response
+and recovery injection, and new agent execution remain open. Broader issues
+[#8](https://github.com/vivary-dev/Vivary-New/issues/8),
+[#14](https://github.com/vivary-dev/Vivary-New/issues/14), and
+[#15](https://github.com/vivary-dev/Vivary-New/issues/15) remain open.
+
 ## Release boundary
 
 The [public Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) contains the tested `9884670`
