@@ -135,8 +135,52 @@ POSIX uses a lock on the held root directory. Windows uses a global named mutex
 keyed by the held directory's volume and file identity. An unavailable lock or
 Windows access denial refuses the operation; it does not fall back to an unsafe
 write. This coordinates current creator processes on one host, not arbitrary
-editors, older binaries, or writers on another machine. It does not add successful
-request replay or a GUI Apply action.
+editors, older binaries, or writers on another machine. A GUI Apply action remains separate.
+
+### Retrying an approved adoption request
+
+For callers that can lose an apply response, ordinary approved adoption accepts
+an optional request ID:
+
+```bash
+create-vivary adopt . --preset coding --yes --plan sha256:<plan-hash> \
+  --request-id setup-attempt-1 --json
+```
+
+Retry with the same request ID, original plan hash, and options. A completed retry
+validates the recorded result against the current folder and returns success
+without rewriting guidance or its completion receipt. JSON adds `request_id` and
+`replayed` only for this opt-in mode. Changed output, retained files, root identity,
+approval, or options refuse replay. Request IDs contain 1 to 128 ASCII letters,
+digits, dots, underscores, or hyphens and begin with a letter or digit. Reserved Windows device names are refused
+on every platform.
+
+Before this mode can write, existing ignore rules must protect the actual journal,
+receipt, and temporary publication paths under `.vivary/runtime/`. The approved
+plan must preserve that protection. A rule covering `.vivary/runtime/` provides
+it unless another applicable rule reopens the directory. Protecting only the final
+JSON filename is insufficient. A refusal does not add a privacy rule or change
+the folder. This restriction keeps backup-bearing crash leftovers private even
+when explicit rollback restores the original `.gitignore`.
+
+Receipts are stored in `.vivary/runtime/adopt-receipts/`. Successful replay reads
+and validates one bounded receipt, checks approved output and retained bytes,
+and runs read-only Doctor. If completion left a redundant journal, retry removes
+only that validated journal. It does not delete temporary publication aliases.
+Receipts and journals each have a 1 MiB limit, checked before setup writes.
+
+Pending work still uses separately approved rollback recovery. Once the journal
+records that receipt publication may have started, recovery refuses rollback.
+Retrying the original request can recognize a valid completion receipt. A missing,
+unreadable, or altered expected receipt leaves completion uncertain and refuses
+both replay and rollback. An ordinary error after publication also cannot undo
+completed guidance. Do not delete transaction records to force a retry.
+
+Request IDs require ordinary `--yes --plan` apply and cannot be combined with
+`--recover` or a dry run. This first version refuses a replay-enabled plan with
+no actions before writing. Legacy adoption remains available without a request
+ID. Validation uses the installed renderer, so replay across renderer versions is
+not guaranteed. Process-crash checks do not establish power-loss durability.
 
 ## Doctor and compatibility
 

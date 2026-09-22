@@ -152,6 +152,7 @@ SUBCOMMANDS = ("init", "doctor", "wizard", "capabilities", "adopt", "record")
 RECEIPT_ENV = "VIVARY_RECEIPT_LOG"
 RECEIPT_SCHEMA = "vivary.run_receipt.v1"
 RECEIPT_VALUE_FLAGS = {
+    "--request-id",
     "--adapter",
     "--receipt",
     "--preset",
@@ -2975,13 +2976,13 @@ def _windows_open_locked_directory(path: Path, *, delete: bool = False):
     return handle, (before.st_dev, inode)
 
 
-def _windows_open_locked_regular_file(path: Path):
+def _windows_open_locked_regular_file(path: Path, *, delete: bool = True):
     before = os.stat(path, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode) or _is_symlink_or_junction(path):
         raise ScaffoldError(f"delete target is not a regular file: {path}")
     handle = _WINDOWS_CREATE_FILE(
         str(path),
-        _WINDOWS_GENERIC_READ | _WINDOWS_FILE_READ_ATTRIBUTES | _WINDOWS_DELETE,
+        _WINDOWS_GENERIC_READ | _WINDOWS_FILE_READ_ATTRIBUTES | (_WINDOWS_DELETE if delete else 0),
         0x00000001 | _WINDOWS_FILE_SHARE_DELETE,
         None,
         _WINDOWS_OPEN_EXISTING,
@@ -3021,9 +3022,15 @@ def _windows_assert_directory_identity(path: Path, identity: tuple[int, int]) ->
         raise ScaffoldError(f"destination parent changed during write: {path}")
 
 
-def _windows_create_temporary_file(parent: Path, destination_name: str) -> int:
+def _windows_create_temporary_file(
+    parent: Path, destination_name: str, *,
+    temporary_name: str | None = None,
+    before_temporary: Callable[[Path], None] | None = None,
+) -> int:
     for _attempt in range(16):
-        temporary = parent / f".{destination_name}.{os.urandom(8).hex()}.vivary-tmp"
+        temporary = parent / (temporary_name or f".{destination_name}.{os.urandom(8).hex()}.vivary-tmp")
+        if before_temporary is not None:
+            before_temporary(temporary)
         handle = _WINDOWS_CREATE_FILE(
             str(temporary),
             _WINDOWS_GENERIC_WRITE | _WINDOWS_DELETE,
@@ -3041,7 +3048,7 @@ def _windows_create_temporary_file(parent: Path, destination_name: str) -> int:
                 raise
             return descriptor
         error = ctypes.get_last_error()
-        if error != 80:  # ERROR_FILE_EXISTS
+        if error != 80 or temporary_name is not None:  # ERROR_FILE_EXISTS
             raise ScaffoldError(
                 f"cannot create temporary file in {parent}: {ctypes.WinError(error)}"
             )
@@ -3239,7 +3246,15 @@ def _atomic_write_bytes_no_follow(
     replace_existing: bool = True,
     on_commit: Callable[[], None] | None = None,
     on_create_directory: Callable[[Path], None] | None = None,
+    temporary_name: str | None = None,
+    before_temporary: Callable[[Path], None] | None = None,
 ) -> None:
+    if temporary_name is not None and (
+        not temporary_name or temporary_name in {".", ".."}
+        or "/" in temporary_name or "\\" in temporary_name
+        or ":" in temporary_name or "\x00" in temporary_name
+    ):
+        raise ScaffoldError("temporary destination must be one safe filename")
     with _safe_destination_parent(
         target, dst, on_create_directory=on_create_directory,
     ) as parent:
@@ -3247,7 +3262,10 @@ def _atomic_write_bytes_no_follow(
             parent_path, parent_handle, parent_identity = parent
             mode = source_mode if source_mode is not None else _existing_regular_file_mode(dst)
             _windows_assert_directory_identity(parent_path, parent_identity)
-            descriptor = _windows_create_temporary_file(parent_path, dst.name)
+            descriptor = _windows_create_temporary_file(
+                parent_path, dst.name, temporary_name=temporary_name,
+                before_temporary=before_temporary,
+            )
             committed = False
             try:
                 file_handle = msvcrt.get_osfhandle(descriptor)
@@ -3284,7 +3302,9 @@ def _atomic_write_bytes_no_follow(
             if source_mode is not None
             else _descriptor_regular_file_mode(parent_fd, dst.name)
         )
-        temp_name = f".{dst.name}.{os.urandom(8).hex()}.vivary-tmp"
+        temp_name = temporary_name or f".{dst.name}.{os.urandom(8).hex()}.vivary-tmp"
+        if before_temporary is not None:
+            before_temporary(dst.parent / temp_name)
         flags = (
             os.O_WRONLY
             | os.O_CREAT
@@ -5969,6 +5989,9 @@ def plan_adopt(
 _ADOPT_JOURNAL_REL = Path(".vivary/runtime/adopt-journal.json")
 _ADOPT_JOURNAL_SCHEMA = "vivary.adopt-journal.v3"
 _ADOPT_JOURNAL_MAX_BYTES = 1024 * 1024
+_ADOPT_REQUEST_JOURNAL_SCHEMA = "vivary.adopt-journal.v4"
+_ADOPT_RECEIPT_SCHEMA = "vivary.adopt-receipt.v1"
+_ADOPT_RECEIPTS_REL = Path(".vivary/runtime/adopt-receipts")
 _ADOPT_RECOVERY_PLAN_SCHEMA = "vivary.adopt-recovery-plan.v1"
 _ADOPT_PREJOURNAL_RE = re.compile(
     rb"# vivary-adopt-prejournal "
@@ -6078,6 +6101,205 @@ def _adopt_journal_payload(
     }
 
 
+def _adopt_request_options(preset: str | None, adapters: tuple[str, ...] | list[str]) -> dict:
+    if preset is not None and (not isinstance(preset, str) or preset not in PRESETS):
+        raise ScaffoldError("request preset is not supported")
+    if not isinstance(adapters, (tuple, list)) or any(
+        not isinstance(adapter, str) or adapter not in _THIN_ADAPTER_PATHS
+        for adapter in adapters
+    ):
+        raise ScaffoldError("request adapters are not supported")
+    if len(set(adapters)) != len(adapters):
+        raise ScaffoldError("each --adapter value may be selected only once")
+    return {"preset": preset, "adapters": sorted(adapters)}
+
+
+def _validate_adopt_request_id(request_id: str) -> None:
+    if not isinstance(request_id, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", request_id
+    ):
+        raise ScaffoldError("request ID must be 1-128 ASCII letters, digits, dots, underscores or hyphens, starting with a letter or digit")
+    if re.match(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", request_id):
+        raise ScaffoldError("request ID must not be a reserved Windows filename")
+
+
+def _validated_adopt_request(payload: dict) -> dict | None:
+    if payload.get("schema") == _ADOPT_JOURNAL_SCHEMA:
+        if "request" in payload:
+            raise ScaffoldError("legacy adoption journal contains unexpected request identity")
+        return None
+    if payload.get("schema") != _ADOPT_REQUEST_JOURNAL_SCHEMA:
+        raise ScaffoldError("adoption journal schema is not supported")
+    request = payload.get("request")
+    if not isinstance(request, dict) or set(request) != {"id", "options"}:
+        raise ScaffoldError("adoption journal request identity is malformed")
+    _validate_adopt_request_id(request["id"])
+    options = request["options"]
+    if not isinstance(options, dict) or set(options) != {"preset", "adapters"}:
+        raise ScaffoldError("adoption journal request options are malformed")
+    normalized = _adopt_request_options(options["preset"], options["adapters"])
+    if options != normalized:
+        raise ScaffoldError("adoption journal request options are not canonical")
+    return request
+
+
+@contextmanager
+def _open_adopt_readonly(target: Path, path: Path):
+    with _safe_destination_parent(target, path, create_missing=False) as parent:
+        if os.name == "nt":
+            handle, _identity = _windows_open_locked_regular_file(path, delete=False)
+            try:
+                descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+            except Exception:
+                _WINDOWS_CLOSE_HANDLE(handle)
+                raise
+        else:
+            descriptor = os.open(
+                path.name, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=parent,
+            )
+        with os.fdopen(descriptor, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ScaffoldError("adoption record or input is not a regular file")
+            yield stream
+
+
+def _read_adopt_record(target: Path, path: Path) -> tuple[dict, bytes] | None:
+    try:
+        with _open_adopt_readonly(target, path) as stream:
+            data = stream.read(_ADOPT_JOURNAL_MAX_BYTES + 1)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ScaffoldError("adoption record cannot be read safely") from exc
+    if len(data) > _ADOPT_JOURNAL_MAX_BYTES:
+        raise ScaffoldError("adoption record exceeds the recovery size limit")
+
+    def closed_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate record key")
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(data.decode("utf-8"), object_pairs_hook=closed_object)
+        if not isinstance(payload, dict):
+            raise ValueError("record must be an object")
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ScaffoldError("adoption record is malformed") from exc
+    return payload, data
+
+
+def _assert_adopt_record_privacy(
+    target: Path, paths: list[Path], *,
+    extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
+) -> None:
+    for path in paths:
+        if not _probe_is_ignored(
+            target, path.relative_to(target).as_posix(),
+            extra_root_rules=extra_root_rules,
+        ):
+            raise ScaffoldError("adoption request privacy does not cover the record and its temporary file")
+
+
+def _validated_adopt_receipt(
+    target: Path, payload: dict, request: dict, plan_hash: str,
+    *, repo_root: str | Path | None,
+) -> tuple[dict, list[dict], dict]:
+    if set(payload) != {"schema", "journal"} or payload["schema"] != _ADOPT_RECEIPT_SCHEMA:
+        raise ScaffoldError("adoption receipt schema is not supported")
+    journal = payload["journal"]
+    if not isinstance(journal, dict) or journal.get("schema") != _ADOPT_REQUEST_JOURNAL_SCHEMA:
+        raise ScaffoldError("adoption receipt journal is malformed")
+    try:
+        recorded_request = _validated_adopt_request(journal)
+        actions, _backups = _validated_journal_state(target, journal, plan_hash)
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as exc:
+        raise ScaffoldError("adoption receipt journal is malformed") from exc
+    if recorded_request != request:
+        raise ScaffoldError("adoption receipt request ID or options do not match")
+    if journal["phase"] != "publishing" or journal["completed"] != len(actions):
+        raise ScaffoldError("adoption receipt is not a completed transaction")
+    expected = [
+        (action["path"], action["after_hash"]) for action in actions
+    ] + [
+        (target / row["path"], row["content_hash"])
+        for row in journal["approval"]["kept"]
+    ]
+    for path, expected_hash in expected:
+        try:
+            with _open_adopt_readonly(target, path) as stream:
+                digest = hashlib.sha256()
+                while chunk := stream.read(65536):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ScaffoldError("adoption receipt output or kept input is missing or unsafe") from exc
+        if "sha256:" + digest.hexdigest() != expected_hash:
+            raise ScaffoldError("adoption receipt output or kept input changed")
+    doctor = doctor_workspace(target, repo_root=repo_root, _allow_adopt_journal=True)
+    if not doctor["ok"]:
+        raise ScaffoldError("Doctor failed while checking the recorded adoption")
+    return journal, actions, doctor
+
+
+def _replay_adopt_request(
+    target: Path, request: dict, plan_hash: str, *, repo_root: str | Path | None,
+) -> dict | None:
+    receipt_path = target / _ADOPT_RECEIPTS_REL / (request["id"] + ".json")
+    record = _read_adopt_record(target, receipt_path)
+    journal_path = target / _ADOPT_JOURNAL_REL
+    pending = _read_adopt_record(target, journal_path)
+    if record is None:
+        if pending is not None:
+            pending_request = _validated_adopt_request(pending[0])
+            if pending_request is not None and pending[0].get("phase") == "publishing":
+                raise ScaffoldError("adoption completion is uncertain: the expected receipt is missing; refusing rollback or new apply")
+            raise ScaffoldError("unfinished adoption journal exists; recover it before applying a new plan")
+        return None
+    journal, actions, doctor = _validated_adopt_receipt(
+        target, record[0], request, plan_hash, repo_root=repo_root,
+    )
+    _assert_adopt_record_privacy(target, [receipt_path])
+    if pending is not None:
+        if pending[0] != journal:
+            raise ScaffoldError("adoption receipt and remaining journal disagree; refusing cleanup")
+        _unlink_no_follow(target, journal_path, expected_hashes={_sha256_prefixed(pending[1])})
+    approval = journal["approval"]
+    result = _recovery_result(target, plan_hash, "", [], recovered=False)
+    created_paths = {row["path"] for row in approval["creates"]}
+    replacements = {row["path"]: row for row in approval["adapter_replacements"]}
+    adapter_paths = {_THIN_ADAPTER_PATHS[adapter] for adapter in approval["adapters"]}
+    creates = [target / row["path"] for row in approval["creates"] if row["path"] not in adapter_paths]
+    projections = []
+    adapter_replacements = []
+    for adapter in approval["adapters"]:
+        relative = _THIN_ADAPTER_PATHS[adapter]
+        text, source_hash, content_hash = _thin_adapter_doc(adapter)
+        projections.append({
+            "adapter": adapter, "path": target / relative,
+            "bytes": len(text.encode("utf-8")),
+            "source_hash": source_hash, "content_hash": content_hash,
+            "status": "create" if relative in created_paths else "replace" if relative in replacements else "clean",
+        })
+        if relative in replacements:
+            adapter_replacements.append({
+                "path": target / relative, "before_hash": replacements[relative]["before_hash"], "text": text,
+            })
+    return {
+        **result, "applied": True, "doctor": doctor,
+        "preset": approval["preset"], "preset_reason": "recorded approved adoption",
+        "capabilities": approval["capabilities"], "creates": creates,
+        "would_create": creates, "optional_projections": projections,
+        "adapter_replacements": adapter_replacements,
+        "patches": [{**row, "path": target / row["path"]} for row in approval["patches"]],
+        "kept": [target / row["path"] for row in approval["kept"]],
+        "plan_hash": plan_hash, "request_id": request["id"], "replayed": True,
+    }
+
+
 def _encode_adopt_journal(payload: dict) -> bytes:
     content = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
     if len(content) > _ADOPT_JOURNAL_MAX_BYTES:
@@ -6085,8 +6307,18 @@ def _encode_adopt_journal(payload: dict) -> bytes:
     return content
 
 
-def _write_adopt_journal(target: Path, payload: dict) -> None:
-    _write_bytes_no_follow(target, target / _ADOPT_JOURNAL_REL, _encode_adopt_journal(payload))
+def _write_adopt_journal(
+    target: Path, payload: dict, *, temporary_name: str | None = None,
+) -> None:
+    path = target / _ADOPT_JOURNAL_REL
+    if payload.get("schema") == _ADOPT_REQUEST_JOURNAL_SCHEMA:
+        _atomic_write_bytes_no_follow(
+            target, path, _encode_adopt_journal(payload),
+            temporary_name=temporary_name,
+            before_temporary=lambda temporary: _assert_adopt_record_privacy(target, [path, temporary]),
+        )
+    else:
+        _write_bytes_no_follow(target, path, _encode_adopt_journal(payload))
 
 
 def _remove_empty_adopt_dirs(target: Path) -> None:
@@ -6276,8 +6508,11 @@ def _validated_journal_state(
     payload: dict,
     recover_hash: str,
 ) -> tuple[list[dict], dict[Path, bytes | None]]:
-    if payload.get("schema") != _ADOPT_JOURNAL_SCHEMA:
-        raise ScaffoldError("adoption journal schema is not supported")
+    request = _validated_adopt_request(payload)
+    if request is not None and set(payload) != {
+        "schema", "plan_hash", "approval", "phase", "completed", "actions", "request",
+    }:
+        raise ScaffoldError("adoption request journal is malformed")
     if payload.get("plan_hash") != recover_hash:
         raise ScaffoldError(
             f"recovery hash mismatch: journal {payload.get('plan_hash')}, "
@@ -6413,11 +6648,19 @@ def _validated_journal_state(
         raise ScaffoldError("adoption journal has no recoverable actions")
     if len(raw_actions) != len(expected_actions):
         raise ScaffoldError("adoption journal actions do not match the approved plan")
-    if payload.get("phase") not in {"planned", "applying"}:
+    phases = {"planned", "applying", "publishing"} if request is not None else {"planned", "applying"}
+    if payload.get("phase") not in phases:
         raise ScaffoldError("adoption journal progress is malformed")
     completed = payload.get("completed")
-    if not isinstance(completed, int) or not 0 <= completed <= len(raw_actions):
+    if type(completed) is not int or not 0 <= completed <= len(raw_actions):
         raise ScaffoldError("adoption journal progress exceeds the action count")
+    if payload["phase"] == "publishing" and completed != len(raw_actions):
+        raise ScaffoldError("adoption publication intent does not cover every action")
+    if request is not None and (
+        request["options"]["adapters"] != approval["adapters"]
+        or (request["options"]["preset"] is not None and request["options"]["preset"] != approval["preset"])
+    ):
+        raise ScaffoldError("adoption request options do not match approval")
 
     action_keys = {
         "path",
@@ -6589,21 +6832,27 @@ def _recover_adopt(
     repo_root: str | Path | None,
 ) -> dict:
     journal_path = target / _ADOPT_JOURNAL_REL
-    if not journal_path.exists():
+    record = _read_adopt_record(target, journal_path)
+    if record is None:
         prejournal = _prejournal_recovery_state(target, recover_hash)
         if prejournal is None:
             raise ScaffoldError("no safe adoption journal exists to recover")
         actions, backups = prejournal
     else:
-        if _is_symlink_or_junction(journal_path) or not journal_path.is_file():
-            raise ScaffoldError("no safe adoption journal exists to recover")
-        if journal_path.stat().st_size > _ADOPT_JOURNAL_MAX_BYTES:
-            raise ScaffoldError("adoption journal exceeds the recovery size limit")
+        payload, _data = record
         try:
-            payload = json.loads(journal_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ScaffoldError(f"adoption journal is unreadable: {exc}") from exc
-        actions, backups = _validated_journal_state(target, payload, recover_hash)
+            actions, backups = _validated_journal_state(target, payload, recover_hash)
+            request = _validated_adopt_request(payload)
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as exc:
+            raise ScaffoldError("adoption journal is malformed") from exc
+        if request is not None:
+            if payload["phase"] == "publishing":
+                raise ScaffoldError("adoption completion is committed or uncertain; retry the original --request-id instead of rollback")
+            receipt = _read_adopt_record(
+                target, target / _ADOPT_RECEIPTS_REL / (request["id"] + ".json"),
+            )
+            if receipt is not None:
+                raise ScaffoldError("adoption completion record exists; refusing rollback")
 
     recovery_plan_hash, recovery_actions = _adopt_recovery_plan(
         target,
@@ -6724,18 +6973,24 @@ def adopt_workspace(
     yes: bool = False,
     plan_hash: str | None = None,
     recover_hash: str | None = None,
+    request_id: str | None = None,
     _fault_after: int | None = None,
     _crash_after: int | None = None,
     _crash_before_journal: bool = False,
     _before_apply: Callable[[], None] | None = None,
 ) -> dict:
     """Plan read-only, or exclusively apply/recover the approved adoption."""
+    if request_id is not None:
+        _validate_adopt_request_id(request_id)
+        _adopt_request_options(preset, adapters)
+        if not yes or plan_hash is None or recover_hash is not None:
+            raise ScaffoldError("--request-id requires ordinary apply with --yes --plan and cannot be used with --recover")
     resolved_target = _resolve_scaffold_target(target)
     exclusion = _exclusive_adoption(resolved_target) if yes else nullcontext()
     with exclusion:
         return _adopt_workspace(
             resolved_target, preset=preset, adapters=adapters, repo_root=repo_root,
-            yes=yes, plan_hash=plan_hash, recover_hash=recover_hash,
+            yes=yes, plan_hash=plan_hash, recover_hash=recover_hash, request_id=request_id,
             _fault_after=_fault_after, _crash_after=_crash_after,
             _crash_before_journal=_crash_before_journal, _before_apply=_before_apply,
         )
@@ -6750,6 +7005,7 @@ def _adopt_workspace(
     yes: bool = False,
     plan_hash: str | None = None,
     recover_hash: str | None = None,
+    request_id: str | None = None,
     _fault_after: int | None = None,
     _crash_after: int | None = None,
     _crash_before_journal: bool = False,
@@ -6765,6 +7021,13 @@ def _adopt_workspace(
             approved_recovery_hash=plan_hash,
             repo_root=repo_root,
         )
+
+    request = None
+    if request_id is not None:
+        request = {"id": request_id, "options": _adopt_request_options(preset, adapters)}
+        replay = _replay_adopt_request(resolved_target, request, plan_hash, repo_root=repo_root)
+        if replay is not None:
+            return replay
 
     plan = plan_adopt(resolved_target, preset=preset, adapters=adapters, repo_root=repo_root)
     target_path = plan["target"]
@@ -6849,6 +7112,24 @@ def _adopt_workspace(
 
     _assert_adopt_kept_inputs(target_path, plan)
     actions = _adopt_actions(plan)
+    if request is not None and not actions:
+        raise ScaffoldError("request replay requires a nonempty adoption plan; no-op apply is not recorded")
+    journal_temporary = None
+    receipt_path = None
+    receipt_temporary = None
+    if request is not None:
+        receipt_path = target_path / _ADOPT_RECEIPTS_REL / (request_id + ".json")
+        journal_temporary = f".{journal_path.name}.{os.urandom(8).hex()}.vivary-tmp"
+        receipt_temporary = f".{receipt_path.name}.{os.urandom(8).hex()}.vivary-tmp"
+        private_paths = [
+            journal_path, journal_path.parent / journal_temporary,
+            receipt_path, receipt_path.parent / receipt_temporary,
+        ]
+        _ensure_safe_destinations(target_path, private_paths, force=False)
+        # Rollback may restore the original ignore rules while a crash leaves a
+        # temporary record behind, so protection must exist before adoption too.
+        _assert_adopt_record_privacy(target_path, private_paths)
+        _assert_adopt_record_privacy(target_path, private_paths, extra_root_rules=simulated_rules)
     backups = _adopt_backups(actions)
     completed = 0
     privacy_is_action = bool(actions and actions[0]["path"] == target_path / ".gitignore")
@@ -6865,9 +7146,15 @@ def _adopt_workspace(
         phase="planned",
         completed=0,
     )
-    # Phase and completed count are the only growing fields. Reserve their
-    # largest state before even the transient privacy write needs recovery.
-    _encode_adopt_journal({**journal, "phase": "applying", "completed": len(actions)})
+    if request is not None:
+        journal.update(schema=_ADOPT_REQUEST_JOURNAL_SCHEMA, request=request)
+    # Reserve both completed records before the first guidance write.
+    final_journal = {**journal, "phase": "publishing" if request else "applying", "completed": len(actions)}
+    _encode_adopt_journal(final_journal)
+    receipt_bytes = None
+    if request is not None:
+        receipt_bytes = _encode_adopt_journal({"schema": _ADOPT_RECEIPT_SCHEMA, "journal": final_journal})
+    publishing = False
 
     try:
         action_offset = 0
@@ -6880,7 +7167,7 @@ def _adopt_workspace(
             )
             if _crash_before_journal:
                 raise KeyboardInterrupt("injected crash after privacy before journal")
-            _write_adopt_journal(target_path, journal)
+            _write_adopt_journal(target_path, journal, temporary_name=journal_temporary)
             current_privacy = privacy_action["path"].read_bytes()
             if _sha256_prefixed(current_privacy) != _sha256_prefixed(
                 privacy_action["transient_after"]
@@ -6894,20 +7181,20 @@ def _adopt_workspace(
             completed = 1
             journal["phase"] = "applying"
             journal["completed"] = completed
-            _write_adopt_journal(target_path, journal)
+            _write_adopt_journal(target_path, journal, temporary_name=journal_temporary)
             if _crash_after is not None and completed == _crash_after:
                 raise KeyboardInterrupt(f"injected crash after replacement {completed}")
             if _fault_after is not None and completed == _fault_after:
                 raise ScaffoldError(f"injected failure after replacement {completed}")
             action_offset = 1
         else:
-            _write_adopt_journal(target_path, journal)
+            _write_adopt_journal(target_path, journal, temporary_name=journal_temporary)
         for action in actions[action_offset:]:
             _apply_adopt_action(target_path, action)
             completed += 1
             journal["phase"] = "applying"
             journal["completed"] = completed
-            _write_adopt_journal(target_path, journal)
+            _write_adopt_journal(target_path, journal, temporary_name=journal_temporary)
             if _crash_after is not None and completed == _crash_after:
                 raise KeyboardInterrupt(f"injected crash after replacement {completed}")
             if _fault_after is not None and completed == _fault_after:
@@ -6922,9 +7209,24 @@ def _adopt_workspace(
             raise ScaffoldError(
                 "Doctor failed after apply: " + "; ".join(doctor["errors"])
             )
+        if request is not None:
+            # An atomic intent write can commit and then raise. Once attempted,
+            # this exception path must never undo a possibly committed request.
+            publishing = True
+            _write_adopt_journal(target_path, final_journal, temporary_name=journal_temporary)
+            _atomic_write_bytes_no_follow(
+                target_path, receipt_path, receipt_bytes, replace_existing=False,
+                temporary_name=receipt_temporary,
+                before_temporary=lambda temporary: _assert_adopt_record_privacy(target_path, [receipt_path, temporary]),
+            )
         _unlink_no_follow(target_path, journal_path)
-        return {**plan, "applied": True, "doctor": doctor}
+        result = {**plan, "applied": True, "doctor": doctor}
+        if request is not None:
+            result.update(request_id=request_id, replayed=False)
+        return result
     except Exception as exc:
+        if publishing:
+            raise ScaffoldError("adoption completion is committed or uncertain; retry the original --request-id; no rollback was attempted") from exc
         try:
             _rollback_adopt(target_path, actions, backups)
         except ScaffoldError as rollback_exc:
@@ -7416,6 +7718,8 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
         payload["doctor"] = result["doctor"]
     if mode == "dry-run":
         payload["content_plan"] = result["content_plan"]
+    if "request_id" in result:
+        payload.update(request_id=result["request_id"], replayed=result["replayed"])
     return payload
 
 
@@ -9338,6 +9642,11 @@ def build_parser(
         ),
     )
     adopt.add_argument(
+        "--request-id",
+        default=None,
+        help="retry identity for ordinary --yes --plan apply; requires existing runtime privacy",
+    )
+    adopt.add_argument(
         "--adapter",
         action="append",
         choices=tuple(_THIN_ADAPTER_PATHS),
@@ -9732,6 +10041,7 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
                 yes=yes,
                 plan_hash=args.plan,
                 recover_hash=args.recover,
+                request_id=args.request_id,
             )
         except ScaffoldError as exc:
             if getattr(args, "json", False):
