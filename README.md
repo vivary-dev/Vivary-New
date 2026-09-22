@@ -42,35 +42,35 @@ and authentication. Provider accounts are separate.
 
 ## Release status
 
-**In development. The tested Windows candidate is not a public release.**
+**Public Windows prerelease available. Full desktop acceptance remains open.**
 
-| Verified in the published private preview (`26798df`) | Still required for release |
-| --- | --- |
-| Explorer launch/extraction, bundled runtimes, second-instance reuse, restart persistence, and owned-process cleanup | Clean-profile first run, upgrade/removal behavior, remaining desktop/web acceptance, and release approval |
-| Managed project creation, project files, clear validation/refusal, retained Code history, and a real approved Claude Code file turn | Existing-folder adoption, search, scoped memory, and complete original-operation GUI flows |
-| CLI runtime readiness and read-only `Claude Code · sonnet` identity | Broader runtime integration, linked conversations, and real Native-provider turns |
-| Private authenticated web preview and basic isolated page preview | Responsive self-hosted phone access and integrated preview/debugging acceptance |
+[Download the Windows preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) and follow the
+[installation guide](docs/desktop-preview.md). The portable ZIP includes
+`Vivary.exe` and its runtime files. There is no setup wizard in this release.
 
-Current source also includes the Codex integration merged in [PR #59](https://github.com/vivary-dev/Vivary-New/pull/59).
-It provides runtime and native model selection, subscription authentication, configured
-tools, action approvals, Normal/Read only/YOLO permissions, and native-session follow-ups.
-Recorded Windows prototypes through `98515c9` verified bounded file, MCP, subagent,
-long-running command, approval, persistence, and Stop journeys. These changes are not
-in the published `26798df` preview and do not complete release acceptance.
+The `250aaa0` artifact contains the application tree merged through PR #76:
+Codex conversations, folder-picker recovery, exact setup previews, project-owned
+page previews, and adoption-request replay in the bundled CLI.
 
-The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
-separates verified behavior from known gaps. The [desktop package record](packages/desktop/README.md#current-acceptance)
-describes the tested artifact. The
-[GitHub milestone](https://github.com/vivary-dev/Vivary-New/milestone/1) owns remaining
-work and acceptance. Mac distribution is optional later work.
+The exact candidate passed seven GitHub CI jobs. Direct Windows checks covered
+launch with a preserved profile and chooser recovery. Browser checks covered
+setup previews, project switching, Files/chat navigation, reload persistence,
+and controls at 390 pixels. The separate Entire reviewer-approval gate did not pass.
+
+The [acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
+separates these checks from earlier runtime journeys and unfinished work.
+Clean-profile onboarding, upgrade/removal acceptance, full native journeys,
+real Native-provider turns, automations, and remaining desktop/web work stay open.
+The executable is unsigned. The preview does not publish new PyPI/npm packages.
 
 ## Start here
 
-This is the private development repository for the app. Development and hosted
+This is the development repository for the app. Development and hosted
 preview run on Zo. Zo is not a product dependency.
 
 | You want to… | Start with |
 | --- | --- |
+| Install the Windows prerelease | [Download and installation](docs/desktop-preview.md) |
 | Build or run the GUI from source | [Workbench setup](packages/workbench/README.md#run-from-source) |
 | Run or package the desktop shell | [Desktop setup](packages/desktop/README.md#development) |
 | Pick up an issue and contribute | [Contributor guide](CONTRIBUTING.md) |
