@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/31
 Parent: 11
-Status: in-progress
+Status: done
 Depends-on: [04a]
 Owner: Root-assigned project preview and Native browser-tool integrator
 Scope: Connect a project's running page and supported browser debugging to its existing agent session.
 Verification-kind: runtime
+Evidence: [Live preview verification](../receipts/11e-live-project-preview.md)
+Verification-result: passed
 Timebox: One real preview, inspect, repair, and refresh loop using existing browser owners.
 
 ## Goal
@@ -34,8 +36,8 @@ Native's Codex adapter now projects real `imageView` events as `view_image`
 transcript records. It does not create image pixels absent from the protocol.
 
 The [Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
-owns the controls and behavior. Real browser isolation and an authorized
-agent repair loop remain under verification before this packet is accepted.
+owns the controls and behavior. The [verification receipt](../receipts/11e-live-project-preview.md) records
+normal-app isolation, the real agent repair loop, and remaining platform limits.
 
 ## Context
 
@@ -100,4 +102,6 @@ remain unaccepted until demonstrated through a supported interface.
 
 - 2026-09-22: Claimed issue #31 after PR #81 merged. Added reviewed process
   ownership, isolated module-capable preview, and project-scoped Code context.
-  Runtime verification and independent review are in progress.
+  The final normal-app browser journey passed 25 checks. Codex/Astra captured
+  the failure, repaired the fixture, and verified its page. Independent review
+  fixes passed. Image viewing and packaged platform limits remain explicit.
