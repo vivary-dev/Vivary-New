@@ -246,10 +246,7 @@ async function createWindow(origin) {
     if (!allow(target)) event.preventDefault();
   });
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalSetupLink(url);
-    return { action: "deny" };
-  });
+  window.webContents.setWindowOpenHandler(createExternalWindowHandler(window));
   window.on("close", (event) => {
     if (!allowQuit) {
       event.preventDefault();
@@ -290,6 +287,50 @@ function openExternalSetupLink(target) {
   void shell.openExternal(target, { activate: true }).catch(() => {
     dialog.showErrorBox("Browser could not open", "Copy the setup link and open it in your browser.");
   });
+}
+
+// Unrestricted destinations require a native confirmation before leaving Electron.
+// This also protects against scripted window.open calls in renderer content.
+export function createExternalWindowHandler(window, browser = shell, dialogs = dialog) {
+  let pending = false;
+  return ({ url, postBody }) => {
+    if (postBody || pending || window.isDestroyed()) return { action: "deny" };
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
+      return { action: "deny" };
+    }
+    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) {
+      return { action: "deny" };
+    }
+    pending = true;
+    void (async () => {
+      try {
+        if (!isExternalSetupUrl(url)) {
+          const result = await dialogs.showMessageBox(window, {
+            type: "question",
+            title: "Open in browser",
+            message: `Open ${target.origin} in your default browser?`,
+            detail: target.href,
+            buttons: ["Cancel", "Open in browser"],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true,
+          });
+          if (result.response !== 1 || window.isDestroyed()) return;
+        }
+        await browser.openExternal(target.href, { activate: true });
+      } catch {
+        if (!window.isDestroyed()) {
+          dialogs.showErrorBox("Browser could not open", "Copy the address and open it in your browser.");
+        }
+      } finally {
+        pending = false;
+      }
+    })();
+    return { action: "deny" };
+  };
 }
 
 export function isProjectFolderRequest(message) {
