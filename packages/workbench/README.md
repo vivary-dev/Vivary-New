@@ -195,7 +195,9 @@ The saved request survives reload and restart. **Retry privacy preparation**
 checks the reviewed result after a lost response without repeating the write.
 If later external edits prevent reconciliation, the request stays pending. Restore
 the reviewed folder and ignore state before retrying. Vivary does not discard an
-approval whose write result remains uncertain.
+approval whose write result remains uncertain. An interrupted append can leave
+part of the proposed ignore text. Review the file and restore the reviewed state
+before retrying. Preparation never replaces or truncates existing ignore text.
 
 The approved ignore change remains if you cancel later setup or recover an
 incomplete setup. **Review Vivary setup** creates a fresh review before any

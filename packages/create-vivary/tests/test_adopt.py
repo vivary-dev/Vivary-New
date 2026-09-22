@@ -174,6 +174,33 @@ class ThinAdoptPlanTests(unittest.TestCase):
                 finally:
                     remove_git_fixture(root)
 
+    def test_privacy_preparation_checks_parent_index_when_target_is_nested_repo(self):
+        root = temp_dir()
+        try:
+            parent = root / "parent"
+            target = parent / "child"
+            target.mkdir(parents=True)
+            tracked = target / ".vivary/runtime/private.json"
+            write(tracked, "private backup")
+            subprocess.run(["git", "-C", str(parent), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(parent), "add", "-f",
+                "child/.vivary/runtime/private.json"], check=True)
+            tracked.unlink()
+            tracked.parent.rmdir()
+            subprocess.run(["git", "-C", str(target), "init", "-q"], check=True)
+
+            plan, kwargs = self.privacy_request(target)
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertIn("tracks", plan["privacy_preparation"]["reason"])
+            with self.assertRaisesRegex(
+                create_vivary.AdoptAttemptRefusal, "Git already tracks"
+            ):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".gitignore").exists())
+            self.assertFalse((target / ".vivary/runtime").exists())
+        finally:
+            remove_git_fixture(root)
+
     def test_privacy_preparation_refuses_other_root_and_legacy_pending_journal(self):
         first = temp_dir()
         second = temp_dir()
@@ -324,30 +351,27 @@ class ThinAdoptPlanTests(unittest.TestCase):
         finally:
             shutil.rmtree(target)
 
-    def test_privacy_preparation_does_not_overwrite_edit_after_temporary_write(self):
+    def test_privacy_preparation_refuses_edit_before_held_append(self):
         target = temp_dir()
         try:
-            (target / ".gitignore").write_bytes(b"# Initial\n")
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Initial\n")
             _plan, kwargs = self.privacy_request(target)
-            original = create_vivary._atomic_write_bytes_no_follow
-            def change_between_checks(*args, **named):
-                before_temporary = named["before_temporary"]
-                def edit_after_first_check(temporary):
-                    before_temporary(temporary)
-                    (target / ".gitignore").write_bytes(b"# External edit\n")
-                named["before_temporary"] = edit_after_first_check
+            original = create_vivary._append_reviewed_bytes_no_follow
+            def change_before_open(*args, **named):
+                ignore.write_bytes(b"# External edit\n")
                 return original(*args, **named)
-            with mock.patch.object(create_vivary, "_atomic_write_bytes_no_follow",
-                side_effect=change_between_checks):
+            with mock.patch.object(create_vivary, "_append_reviewed_bytes_no_follow",
+                side_effect=change_before_open):
                 with self.assertRaisesRegex(create_vivary.AdoptAttemptRefusal, "changed before writes") as caught:
                     create_vivary.prepare_adopt_privacy(target, **kwargs)
             self.assertEqual(caught.exception.attempt["attempt_status"], "refused_before_mutation")
-            self.assertEqual((target / ".gitignore").read_bytes(), b"# External edit\n")
+            self.assertEqual(ignore.read_bytes(), b"# External edit\n")
             self.assertFalse((target / ".vivary").exists())
         finally:
             shutil.rmtree(target)
 
-    def test_privacy_preparation_replaces_hardlinked_ignore_without_touching_other_name(self):
+    def test_privacy_preparation_refuses_hardlinked_ignore_without_touching_other_name(self):
         root = temp_dir()
         try:
             target = root / "project"
@@ -356,12 +380,155 @@ class ThinAdoptPlanTests(unittest.TestCase):
             outside.write_bytes(b"# Keep other name\n")
             (target / ".gitignore").hardlink_to(outside)
             plan, kwargs = self.privacy_request(target)
-            self.assertTrue(plan["privacy_preparation"]["ready"])
-            create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertIn("hard-link", plan["privacy_preparation"]["reason"])
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
             self.assertEqual(outside.read_bytes(), b"# Keep other name\n")
-            self.assertNotEqual((target / ".gitignore").stat().st_ino, outside.stat().st_ino)
+            self.assertEqual((target / ".gitignore").read_bytes(), b"# Keep other name\n")
         finally:
             shutil.rmtree(root)
+
+    def test_privacy_append_refuses_runtime_created_after_preview(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original = create_vivary._append_reviewed_bytes_no_follow
+            def runtime_appears(*args, **named):
+                (target / ".vivary/runtime").mkdir(parents=True)
+                return original(*args, **named)
+            with mock.patch.object(create_vivary, "_append_reviewed_bytes_no_follow",
+                side_effect=runtime_appears):
+                with self.assertRaisesRegex(
+                    create_vivary.AdoptAttemptRefusal, "runtime content needs review"
+                ):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(ignore.read_bytes(), b"# Reviewed\n")
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_create_refuses_runtime_created_after_preview(self):
+        target = temp_dir()
+        try:
+            _plan, kwargs = self.privacy_request(target)
+            original = create_vivary._atomic_write_bytes_no_follow
+            def runtime_appears(*args, **named):
+                (target / ".vivary/runtime").mkdir(parents=True)
+                return original(*args, **named)
+            with mock.patch.object(create_vivary, "_atomic_write_bytes_no_follow",
+                side_effect=runtime_appears):
+                with self.assertRaisesRegex(
+                    create_vivary.AdoptAttemptRefusal, "runtime content needs review"
+                ):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".gitignore").exists())
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "FIFO is a POSIX special file")
+    def test_privacy_append_refuses_fifo_replacing_reviewed_file(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            ignore.unlink()
+            os.mkfifo(ignore)
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".vivary").exists())
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "POSIX editor can write through an open append descriptor")
+    def test_privacy_append_preserves_noncooperating_edit_after_final_check(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            edited = False
+            def editor_then_append(fd, data):
+                nonlocal edited
+                if not edited:
+                    edited = True
+                    with ignore.open("ab") as stream:
+                        stream.write(b"# Editor wrote this\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=editor_then_append):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertTrue(edited)
+            self.assertTrue(ignore.read_bytes().startswith(
+                b"# Reviewed\n# Editor wrote this\n"))
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "POSIX rename can replace a held append path")
+    def test_privacy_append_does_not_replace_new_editor_file(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            moved = target / "editor-preserved-ignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            renamed = False
+            def rename_then_append(fd, data):
+                nonlocal renamed
+                if not renamed:
+                    renamed = True
+                    os.replace(ignore, moved)
+                    ignore.write_bytes(b"# New editor file\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=rename_then_append):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertTrue(renamed)
+            self.assertEqual(ignore.read_bytes(), b"# New editor file\n")
+            self.assertTrue(moved.read_bytes().startswith(b"# Reviewed\n"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_append_partial_write_stays_pending_without_erasing_original(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            def short_write(fd, data):
+                return original_write(fd, data[:max(1, len(data) // 2)])
+            with mock.patch.object(create_vivary.os, "write", side_effect=short_write):
+                with self.assertRaises(create_vivary.ScaffoldError) as caught:
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertNotIsInstance(caught.exception, create_vivary.AdoptAttemptRefusal)
+            self.assertTrue(ignore.read_bytes().startswith(b"# Reviewed\n"))
+            self.assertGreater(len(ignore.read_bytes()), len(b"# Reviewed\n"))
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "Windows sharing rules protect an open append handle")
+    def test_privacy_append_denies_other_windows_writer_while_held(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            def other_writer_is_blocked(fd, data):
+                with self.assertRaises(OSError):
+                    with ignore.open("ab") as stream:
+                        stream.write(b"# Other writer\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=other_writer_is_blocked):
+                self.assertFalse(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+            self.assertNotIn(b"# Other writer", ignore.read_bytes())
+        finally:
+            shutil.rmtree(target)
 
     def test_git_index_probe_does_not_run_configured_fsmonitor_hook(self):
         root = temp_dir()

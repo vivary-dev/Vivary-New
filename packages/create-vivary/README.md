@@ -172,12 +172,20 @@ The caller supplies the reviewed `vivary.adopt-privacy-request.v1` object on std
 This operation changes only the reviewed `.gitignore`. It writes no private
 journal or receipt in the folder. Retrying checks the same root and exact
 resulting bytes. The app persists the request identity in private settings.
+For an existing ignore file, preparation appends only the reviewed suffix. It
+never replaces or truncates existing text. A concurrent edit or interrupted
+append cannot report success unless the resulting bytes exactly match the
+approval. An uncertain or partial write stays pending for inspection and
+restoration of the reviewed state. Hard-linked ignore files require manual
+review. A missing ignore file is created without replacing a file that appears
+during preparation.
 
 After privacy preparation, create and approve a fresh setup plan. The ignore
 change is an independently approved action and stays after subsequent setup
 cancellation or rollback. Conflicting rules, existing runtime content, unsafe
 paths, or Git-tracked runtime records require review before preparation.
-The index check also detects a folder inside a parent repository. It does not
+The index check inspects every enclosing repository, including parent indexes
+when the selected folder has its own nested repository. It does not
 untrack files, run repository fsmonitor hooks, or modify Git configuration.
 An ignore rule protects against ordinary Git additions, not other backup or
 synchronization tools. Recovery records can contain original user file contents.
