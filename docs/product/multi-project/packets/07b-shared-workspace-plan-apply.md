@@ -69,10 +69,23 @@ existing process output bound; content is never silently truncated. The
 [Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
 owns the visible flow and its limit.
 
-This increment adds no adoption write action. General GUI adoption apply and
-its remaining approval, retry, and recovery work stay open under
-[issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
-[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15).
+## Existing-folder owner approval
+
+`vivary-project-adoption` adds a separate Native owner action for review,
+confirmation, apply, and recovery. Private Native settings bind a preview to its
+owner, organization, project/root binding, policy revision, options, complete
+creator report, and original request ID. Confirmation creates a bounded app
+write grant. The original runtime revalidates the binding before invoking the
+creator's request-aware operation. The local-stat provider remains ineligible
+for strict registry mutation admission.
+
+The creator's dry-run report includes request replay readiness. Missing existing
+ignore protection prevents confirmation; the application does not write that
+protection on the user's behalf. Unprotected folders remain outside this apply
+increment. Creator recovery and completion records own rollback and replay.
+[The Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
+owns the visible controls and runtime output limit. Full issues #14 and #15 stay
+open until their remaining folder and desktop acceptance passes.
 
 ## Owned files
 

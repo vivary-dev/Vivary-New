@@ -51,6 +51,51 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class ThinAdoptPlanTests(unittest.TestCase):
+    def test_request_readiness_is_read_only_and_requires_existing_directory_privacy(self):
+        target = temp_dir()
+        try:
+            write(target / "AGENTS.md", "host guidance\n")
+            for rules, ready in [
+                ("", False),
+                (".vivary/runtime/adopt-journal.json\n.vivary/runtime/adopt-receipts/*.json\n", False),
+                (".vivary/runtime/\n", True),
+                (".vivary/runtime/\n!.vivary/runtime/\n", False),
+            ]:
+                with self.subTest(rules=rules):
+                    write(target / ".gitignore", rules)
+                    before = snapshot(target)
+                    directories = sorted(str(p.relative_to(target)) for p in target.rglob("*") if p.is_dir())
+                    rc, output = run_cli(["adopt", str(target), "--preset", "coding", "--json"])
+                    self.assertEqual(rc, 0, output)
+                    readiness = json.loads(output)["request_replay"]
+                    self.assertEqual(readiness["ready"], ready)
+                    self.assertEqual(readiness["reason"] is None, ready)
+                    self.assertEqual(snapshot(target), before)
+                    self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob("*") if p.is_dir()), directories)
+        finally:
+            shutil.rmtree(target)
+
+    def test_request_readiness_refuses_pending_journal_and_no_changes(self):
+        target = temp_dir()
+        try:
+            write(target / ".gitignore", ".vivary/runtime/\n")
+            plan = create_vivary.adopt_workspace(target, preset="coding")
+            self.assertEqual(plan["request_replay"], {"ready": True, "reason": None})
+            applied = create_vivary.adopt_workspace(target, preset="coding", yes=True,
+                plan_hash=plan["plan_hash"], request_id="readiness-test")
+            self.assertNotIn("request_replay", create_vivary._adopt_report_to_json(applied, mode="applied"))
+            no_changes = create_vivary.adopt_workspace(target, preset="coding")
+            self.assertEqual(no_changes["request_replay"], {
+                "ready": False, "reason": "No setup changes need to be applied."})
+            write(target / ".vivary/runtime/adopt-journal.json", "pending")
+            before = snapshot(target)
+            pending = create_vivary.adopt_workspace(target, preset="coding")
+            self.assertEqual(pending["request_replay"], {
+                "ready": False, "reason": "An unfinished adoption needs recovery or its original request retry."})
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
     def test_content_preview_matches_applied_bytes_and_retained_binary(self):
         target = temp_dir()
         try:
@@ -103,9 +148,11 @@ class ThinAdoptPlanTests(unittest.TestCase):
             first = create_vivary._adopt_report_to_json(plan, mode="dry-run")
             self.assertIn("content_plan", first)
             write(target / "AGENTS.md", "changed after planning")
+            write(target / ".gitignore", ".vivary/runtime/\n")
             with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("report reread")), mock.patch.object(Path, "read_text", side_effect=AssertionError("report reread")):
                 second = create_vivary._adopt_report_to_json(plan, mode="dry-run")
             self.assertEqual(first, second)
+            self.assertFalse(second["request_replay"]["ready"])
             self.assertIn("host guidance", next(row["content"] for row in second["content_plan"]["files"] if row["path"] == "AGENTS.md"))
         finally:
             shutil.rmtree(target)
@@ -119,6 +166,8 @@ class ThinAdoptPlanTests(unittest.TestCase):
             self.assertEqual(rc, 1)
             report = json.loads(output)
             self.assertEqual(report["conflicts"], [{"path": "AGENTS.md", "reason": "AGENTS.md is not UTF-8"}])
+            self.assertEqual(report["request_replay"], {
+                "ready": False, "reason": "Resolve the setup conflicts and preview again."})
             self.assertNotIn("AGENTS.md", [row["path"] for row in report["content_plan"]["files"]])
             self.assertEqual(snapshot(target), before)
         finally:
@@ -1449,6 +1498,245 @@ class AdoptionReplayTests(unittest.TestCase):
         return {p.relative_to(self.target).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
                 for p in self.target.rglob('*') if p.is_file()}
 
+    def recovery(self, **overrides):
+        arguments = dict(recover_hash=self.plan['plan_hash'], request_id=self.request_id)
+        arguments.update(overrides)
+        return create_vivary.adopt_workspace(self.target, **arguments)
+
+    def test_nested_runtime_ignore_survives_request_recovery_and_replay(self):
+        for root_ignore in (None, b'# Retain host rules\nnode_modules/\n'):
+            with self.subTest(root_ignore=root_ignore):
+                target = temp_dir()
+                self.addCleanup(shutil.rmtree, target)
+                if root_ignore is not None:
+                    (target / '.gitignore').write_bytes(root_ignore)
+                write(target / '.vivary/.gitignore', 'runtime/\n')
+                (target / 'AGENTS.md').write_bytes(b'# Host guidance\n')
+                before = snapshot(target)
+                plan = create_vivary.plan_adopt(target, preset='coding')
+                self.assertTrue(plan['request_replay']['ready'])
+                with self.assertRaises(KeyboardInterrupt):
+                    create_vivary.adopt_workspace(target, preset='coding', yes=True,
+                        plan_hash=plan['plan_hash'], request_id=self.request_id, _crash_after=2)
+                arguments = dict(recover_hash=plan['plan_hash'], request_id=self.request_id)
+                review = create_vivary.adopt_workspace(target, **arguments)
+                for _ in range(2):
+                    result = create_vivary.adopt_workspace(target, **arguments,
+                        yes=True, plan_hash=review['recovery_plan_hash'])
+                    self.assertTrue(result['recovered'])
+                    self.assertEqual(result['recovery_plan_hash'], review['recovery_plan_hash'])
+                after = snapshot(target)
+                del after['.vivary/runtime/adopt-receipts/' + self.request_id + '.json']
+                self.assertEqual(after, before)
+
+    def test_recovery_rechecks_nested_privacy_under_restored_root_rules(self):
+        (self.target / '.gitignore').write_bytes(b'# Host rules\n')
+        write(self.target / '.vivary/.gitignore', 'runtime/\n')
+        self.plan = create_vivary.plan_adopt(self.target, preset='coding')
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        (self.target / '.vivary/.gitignore').write_bytes(b'!runtime/\n')
+        review = self.recovery()
+        before = self.snapshot()
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'privacy'):
+            self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_cli_pre_mutation_refusal_identifies_only_the_current_attempt(self):
+        runtime = self.target / '.vivary/runtime'
+        outside = temp_dir()
+        self.addCleanup(shutil.rmtree, outside)
+        runtime.parent.mkdir(exist_ok=True)
+        try:
+            runtime.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('directory symlinks unavailable')
+        before = snapshot(self.target)
+        outside_before = snapshot(outside)
+        rc, output = run_cli(['adopt', str(self.target), '--preset', 'coding', '--yes',
+            '--plan', self.plan['plan_hash'], '--request-id', self.request_id, '--json'])
+        self.assertEqual(rc, 1, output)
+        failure = json.loads(output)
+        self.assertFalse(failure['ok'])
+        self.assertEqual(failure['attempt_status'], 'refused_before_mutation')
+        self.assertEqual(failure['root'], str(self.target.resolve()))
+        self.assertEqual(failure['plan_hash'], self.plan['plan_hash'])
+        self.assertEqual(failure['request_id'], self.request_id)
+        self.assertNotIn('request_status', failure)
+        self.assertEqual(snapshot(self.target), before)
+        self.assertEqual(snapshot(outside), outside_before)
+
+    def test_refused_retry_does_not_claim_prior_attempt_made_no_writes(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        before = self.snapshot()
+        rc, output = run_cli(['adopt', str(self.target), '--preset', 'coding', '--yes',
+            '--plan', self.plan['plan_hash'], '--request-id', self.request_id, '--json'])
+        self.assertEqual(rc, 1, output)
+        failure = json.loads(output)
+        self.assertEqual(failure['attempt_status'], 'refused_before_mutation')
+        self.assertNotIn('request_status', failure)
+        self.assertEqual(self.snapshot(), before)
+        self.assertIn('.vivary/runtime/adopt-journal.json', before)
+
+    def test_post_mutation_failure_never_has_pre_mutation_status(self):
+        def failed_journal(*args, **kwargs):
+            raise create_vivary.ScaffoldError('journal write acknowledgement lost')
+        with mock.patch.object(create_vivary, '_write_adopt_journal', side_effect=failed_journal):
+            rc, output = run_cli(['adopt', str(self.target), '--preset', 'coding', '--yes',
+                '--plan', self.plan['plan_hash'], '--request-id', self.request_id, '--json'])
+        self.assertEqual(rc, 1, output)
+        self.assertNotIn('attempt_status', json.loads(output))
+
+    def test_request_journal_precedes_first_write_and_supports_first_action_recovery(self):
+        original_apply = create_vivary._apply_adopt_action
+        observed = []
+        def apply_action(target, action, **kwargs):
+            journal = json.loads((target / '.vivary/runtime/adopt-journal.json').read_text())
+            self.assertEqual(journal['request']['id'], self.request_id)
+            observed.append(action['path'].relative_to(target).as_posix())
+            return original_apply(target, action, **kwargs)
+        with mock.patch.object(create_vivary, '_apply_adopt_action', side_effect=apply_action):
+            with self.assertRaisesRegex(KeyboardInterrupt, 'after replacement 1'):
+                self.apply(_crash_after=1, _crash_before_journal=True)
+        self.assertEqual(observed, ['.gitignore'])
+        before = self.snapshot()
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'unfinished adoption journal'):
+            self.apply()
+        self.assertEqual(self.snapshot(), before)
+        review = self.recovery()
+        result = self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertTrue(result['recovered'])
+        self.assertEqual((self.target / '.gitignore').read_bytes(), b'.vivary/runtime/\n')
+
+    def test_recovery_receipt_replays_lost_response_after_journal_removal(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        review = self.recovery()
+        expected = review['recovery_plan_hash']
+        original_unlink = create_vivary._unlink_no_follow
+        def unlink(target, destination, **kwargs):
+            result = original_unlink(target, destination, **kwargs)
+            if destination.name == 'adopt-journal.json':
+                raise OSError('lost recovery acknowledgement')
+            return result
+        with mock.patch.object(create_vivary, '_unlink_no_follow', side_effect=unlink):
+            with self.assertRaisesRegex(OSError, 'lost recovery'):
+                self.recovery(yes=True, plan_hash=expected)
+        before = self.snapshot()
+        dry_run = self.recovery()
+        self.assertFalse(dry_run['recovered'])
+        self.assertEqual(dry_run['recovery_plan_hash'], expected)
+        replay = self.recovery(yes=True, plan_hash=expected)
+        self.assertTrue(replay['recovered'])
+        self.assertEqual(replay['recovery_actions'], review['recovery_actions'])
+        self.assertEqual(replay['recovery_plan_hash'], expected)
+        self.assertEqual(self.snapshot(), before)
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'was recovered'):
+            self.apply()
+        fresh = create_vivary.plan_adopt(self.target, preset='coding')
+        result = self.apply(plan_hash=fresh['plan_hash'], request_id='new-request-after-recovery')
+        self.assertTrue(result['applied'])
+        after = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.recovery(yes=True, plan_hash=expected)
+        self.assertEqual(self.snapshot(), after)
+
+    def test_recovery_receipt_replays_lost_response_before_journal_cleanup(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        review = self.recovery()
+        original_write = create_vivary._atomic_write_bytes_no_follow
+        def publish(target, destination, data, **kwargs):
+            result = original_write(target, destination, data, **kwargs)
+            if destination.parent.name == 'adopt-receipts':
+                raise OSError('lost receipt acknowledgement')
+            return result
+        with mock.patch.object(create_vivary, '_atomic_write_bytes_no_follow', side_effect=publish):
+            with self.assertRaisesRegex(OSError, 'lost receipt'):
+                self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        before = self.snapshot()
+        self.recovery()
+        self.assertEqual(self.snapshot(), before)
+        replay = self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertTrue(replay['recovered'])
+        del before['.vivary/runtime/adopt-journal.json']
+        self.assertEqual(self.snapshot(), before)
+
+    def test_recovery_receipt_rejects_changed_bytes_wrong_id_and_wrong_approval(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        before = self.snapshot()
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'request ID'):
+            self.recovery(request_id='another-request')
+        self.assertEqual(self.snapshot(), before)
+        review = self.recovery()
+        self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        before = self.snapshot()
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'hash mismatch'):
+            self.recovery(yes=True, plan_hash='sha256:' + '0' * 64)
+        self.assertEqual(self.snapshot(), before)
+        for name in ['AGENTS.md', 'STATE.md']:
+            with self.subTest(name=name):
+                path = self.target / name
+                original = path.read_bytes()
+                path.write_bytes(b'Changed after recovery\n')
+                changed = self.snapshot()
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+                self.assertEqual(self.snapshot(), changed)
+                path.write_bytes(original)
+
+    def test_recovery_receipt_is_bounded_before_rollback(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        review = self.recovery()
+        journal = self.target / '.vivary/runtime/adopt-journal.json'
+        before = self.snapshot()
+        with mock.patch.object(create_vivary, '_ADOPT_JOURNAL_MAX_BYTES', journal.stat().st_size + 1):
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, 'size limit'):
+                self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_recovery_receipt_rejects_copied_root_and_altered_record(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        review = self.recovery()
+        self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        other = temp_dir()
+        self.addCleanup(shutil.rmtree, other)
+        shutil.copytree(self.target, other, dirs_exist_ok=True)
+        before = snapshot(other)
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'different workspace root'):
+            create_vivary.adopt_workspace(other, recover_hash=self.plan['plan_hash'],
+                request_id=self.request_id, yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertEqual(snapshot(other), before)
+        receipt = self.receipt()
+        payload = json.loads(receipt.read_text())
+        payload['recovery_actions'][0]['operation'] = 'delete-created'
+        receipt.write_text(json.dumps(payload))
+        before = self.snapshot()
+        with self.assertRaises(create_vivary.ScaffoldError):
+            self.recovery(yes=True, plan_hash=review['recovery_plan_hash'])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_request_recovery_cli_retains_original_hash_on_replay(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.apply(_crash_after=2)
+        arguments = ['adopt', str(self.target), '--recover', self.plan['plan_hash'],
+            '--request-id', self.request_id, '--json']
+        rc, output = run_cli(arguments)
+        self.assertEqual(rc, 0, output)
+        review = json.loads(output)
+        self.assertEqual(review['mode'], 'recovery-dry-run')
+        arguments += ['--yes', '--plan', review['recovery_plan_hash']]
+        for _ in range(2):
+            rc, output = run_cli(arguments)
+            self.assertEqual(rc, 0, output)
+            result = json.loads(output)
+            self.assertEqual(result['mode'], 'recovered')
+            self.assertEqual(result['recovery_plan_hash'], review['recovery_plan_hash'])
+
     def test_unprotected_runtime_refuses_before_any_effects(self):
         (self.target / '.gitignore').unlink()
         plan = create_vivary.plan_adopt(self.target, preset='coding')
@@ -1562,6 +1850,8 @@ class AdoptionReplayTests(unittest.TestCase):
         before = self.snapshot()
         with self.assertRaises(create_vivary.ScaffoldError):
             create_vivary.adopt_workspace(self.target, recover_hash=self.plan['plan_hash'])
+        with self.assertRaisesRegex(create_vivary.ScaffoldError, 'committed or uncertain'):
+            self.recovery()
         self.assertEqual(self.snapshot(), before)
 
     def test_receipt_and_pending_journal_disagreement_refuses_cleanup(self):
