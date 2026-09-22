@@ -162,17 +162,37 @@ the current page within that project. Changing projects, host scope, or folder
 binding clears the address and unloads the old page. Returning to a project starts
 with an empty preview. The iframe retains its existing sandbox and no-referrer policy.
 
-For a registered folder, **Details > Preview Vivary setup** shows the guidance
-files Vivary would create or update without changing project files. Expand a file
-to inspect its full proposed content and byte count. The preview also lists
-retained files, conflicts, and the plan hash. It uses the existing
-`vivary-original-command` action and the creator's dry-run `content_plan` report.
-See the [adoption content contract](../create-vivary/README.md#existing-repositories-and-vaults)
-for the exact UTF-8 fields. The action's 256 KiB combined output limit rejects an
-oversized preview in full; the UI does not present truncated content as a complete
-plan. General GUI adoption apply remains pending under
-[issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
-[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15).
+For a selected registered folder, **Details > Preview Vivary setup** shows exact
+proposed guidance content, retained files, and conflicts. Select the workspace
+type or use automatic detection, then expand each file to review its full content.
+**Confirm and apply** authorizes only that saved review. **Cancel** discards the
+review without changing project files. Changing the type requires another preview.
+
+The Native owner action `vivary-project-adoption` stores the reviewed target,
+project binding, policy revision, options, content hash, and original request ID
+in private application settings. Apply revalidates project access and delegates
+to the original creator's request-aware adoption. Folder selection and the content
+hash alone do not grant write permission. The public `vivary-original-command`
+action still accepts adoption previews only. Agent and tool callers cannot invoke
+the setup action.
+
+A lost response retains the original request across reload and restart.
+**Retry approved request** checks the creator's completion record without repeating
+completed writes. **Review recovery** shows the creator's proposed restoration
+for incomplete writes and requires a separate confirmation. Possible completed
+work cannot be rolled back. Do not delete recovery records to force another apply.
+Successful setup retains the registered project ID and provides links to files
+and chat.
+
+Retryable apply requires existing ignore rules that protect `.vivary/runtime/`,
+including its temporary records. The preview reports missing protection before
+confirmation. Vivary does not silently add this prerequisite. Folders without
+that protection remain unsupported for this GUI apply path. See the
+[creator contract](../create-vivary/README.md#retrying-an-approved-adoption-request).
+The runtime's 256 KiB combined output limit rejects oversized previews in full.
+Full [issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
+[issue #15](https://github.com/vivary-dev/Vivary-New/issues/15) acceptance remains
+open, including generic unprotected folders and actual Windows verification.
 
 Search opens beside Files and finds file names, literal text, or a regular
 expression inside the selected project only. Results show the path, line,

@@ -15,6 +15,26 @@ Timebox: One Create, preview, apply, register, and reopen journey.
 Choose a folder, review its proposed guidance files, create the workspace, and
 open its agent chat and files without a separate terminal setup step.
 
+## Existing-folder setup increment
+
+After opening a desktop folder or registering an authorized host folder, select
+**Details > Preview Vivary setup**. The review shows the exact destination,
+workspace type, proposed content, retained files, and conflicts. Changing the
+workspace type clears the visible review. **Confirm and apply** submits the
+saved review through the Native owner action. Cancel changes no project files.
+
+The action reuses the creator's request identity after a lost response. Reload
+and restart recover the saved request. Interrupted writes have a separate
+recovery review and confirmation; possible completed work refuses rollback.
+Success opens the existing project's files and chat without registering another
+identity. Project switching removes the prior folder's visible review.
+
+Existing ignore rules must protect the creator's private recovery records before
+retryable apply. The preview explains missing protection and disables Apply.
+Generic unprotected folders and actual Windows acceptance remain outstanding.
+The [Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
+owns the current behavior. Earlier accepted recovery work follows as history.
+
 ## Current recovery increment
 
 Issue #15 is implementing a smaller recovery slice while existing-folder

@@ -34,13 +34,34 @@ export const originalCommandSchema = z.object({
 }).strict();
 export type OriginalCommand = z.infer<typeof commandSchema>;
 
+const planHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+export const adoptionExecutionSchema = z.discriminatedUnion("verb", [
+  z.strictObject({ verb: z.literal("adopt-apply"), preset: preset.optional(),
+    planHash, requestId: z.string().uuid() }),
+  z.strictObject({ verb: z.literal("adopt-recovery-preview"), transactionHash: planHash, requestId: z.string().uuid() }),
+  z.strictObject({ verb: z.literal("adopt-recover"), transactionHash: planHash, planHash, requestId: z.string().uuid() }),
+]);
+type AdoptionExecution = z.infer<typeof adoptionExecutionSchema>;
+type RuntimeCommand = OriginalCommand | AdoptionExecution;
+const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
+  "bindingRevision", "policyRevision", "verificationKind"] as const;
+export function sameOriginalWorkspace(left: LocalProjectWorkspace, right: LocalProjectWorkspace): boolean {
+  return workspaceFields.every(field => left[field] === right[field]);
+}
+
+
 const TIMEOUT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
 
-export function originalCommandArguments(command: OriginalCommand, root: string, controlRequestPath?: string) {
+export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
     case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", "--dry-run"], stdin: "" };
     case "adopt": return { args: ["adopt", root, "--json", ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
+    case "adopt-apply": return { args: ["adopt", root, "--json", "--yes", "--plan", command.planHash,
+      "--request-id", command.requestId, ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
+    case "adopt-recovery-preview": return { args: ["adopt", root, "--json", "--recover", command.transactionHash, "--request-id", command.requestId], stdin: "" };
+    case "adopt-recover": return { args: ["adopt", root, "--json", "--recover", command.transactionHash,
+      "--yes", "--plan", command.planHash, "--request-id", command.requestId], stdin: "" };
     case "doctor": return { args: ["doctor", root, "--json"], stdin: "" };
     case "capabilities": return { args: ["capabilities", "--preset", command.preset, "--json"], stdin: "" };
     case "check": return { args: ["check", "--root", root, "--json"], stdin: "" };
@@ -78,7 +99,7 @@ function commandError(message: string, errorCode: string, statusCode = 409): nev
 }
 
 
-async function validateGovernedRequest(command: OriginalCommand, workspace: LocalProjectWorkspace): Promise<void> {
+async function validateGovernedRequest(command: RuntimeCommand, workspace: LocalProjectWorkspace): Promise<void> {
   if (command.verb !== "decide" && command.verb !== "control") return;
   try {
     if (await realpath(workspace.root) !== workspace.root) throw new Error("project root changed");
@@ -240,13 +261,19 @@ type Dependencies = {
   execute: typeof runOriginalProcess;
 };
 
-export function createOriginalCommandRunner(dependencies: Dependencies = {
+const runtimeDependencies: Dependencies = {
   resolveWorkspace: resolveLocalProjectWorkspace, environment: () => process.env, execute: runOriginalProcess,
-}) {
-  return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
+};
+
+function createRuntimeCommandRunner(dependencies: Dependencies) {
+  return async (input: { projectId: string; command: RuntimeCommand }, context?: ActionRunContext,
+    expectedWorkspace?: LocalProjectWorkspace) => {
     requireVivaryCodeUser(context);
-    const { projectId, command } = originalCommandSchema.parse(input);
+    const { projectId, command } = input;
     const workspace = await dependencies.resolveWorkspace(context, projectId);
+    if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
+      commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
+    }
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME);
     if (!environment.VIVARY_DATA_DIR || !path.isAbsolute(environment.VIVARY_DATA_DIR)) {
@@ -288,8 +315,7 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
       const current = await dependencies.resolveWorkspace(context, projectId);
-      const fields = ["root", "actorId", "projectId", "bindingId", "rootId", "bindingRevision", "policyRevision"] as const;
-      if (!current || fields.some(field => current[field] !== workspace[field])) {
+      if (!current || !sameOriginalWorkspace(current, workspace)) {
         commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
       }
       await validateGovernedRequest(command, current);
@@ -313,7 +339,7 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
         } finally { await receipt.close(); }
       }
       const after = await dependencies.resolveWorkspace(context, projectId);
-      if (fields.some(field => after[field] !== current[field])) {
+      if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
       }
       return { verb: command.verb, projectId, pythonVersion: runtime.version,
@@ -329,4 +355,18 @@ export function createOriginalCommandRunner(dependencies: Dependencies = {
   };
 }
 
+export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
+  const run = createRuntimeCommandRunner(dependencies);
+  return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) =>
+    run(originalCommandSchema.parse(input), context);
+}
+
+/** Internal owner-approved operation. The public original-command schema remains read-only for adoption. */
+export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
+  const run = createRuntimeCommandRunner(dependencies);
+  return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) =>
+    run({ projectId: workspace.projectId, command: adoptionExecutionSchema.parse(command) }, context, workspace);
+}
+
 export const runOriginalCommand = createOriginalCommandRunner();
+export const runAdoptionCommand = createAdoptionCommandRunner();

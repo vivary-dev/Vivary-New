@@ -62,3 +62,9 @@
 .project-adoption ul { padding-left:18px; overflow-wrap:anywhere; }
 .project-adoption-plan > p,.project-adoption-plan > code { display:block; margin:8px 12px; overflow-wrap:anywhere; }
 .project-adoption summary:focus-visible,.project-adoption pre:focus-visible { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
+.project-adoption > label { display:block; margin-bottom:8px; }
+.project-adoption > select { display:block; width:100%; min-height:44px; margin-bottom:12px; padding:8px 12px; border:1px solid hsl(var(--border)); border-radius:6px; background:hsl(var(--background)); color:hsl(var(--foreground)); }
+.project-adoption p code { overflow-wrap:anywhere; }
+.adoption-controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.adoption-controls > p,.adoption-controls > h5,.adoption-controls > ul { flex-basis:100%; }
+.adoption-controls > button { min-height:44px; }
