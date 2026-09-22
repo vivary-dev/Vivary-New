@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, readFile, writeFile, readdir, stat, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, readdir, stat, rm, rename, symlink, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ const { getSetting, mutateSetting, deleteSettingIfValue } = await import("@agent
 const { getDb } = await import("../server/db/index.mjs");
 const { migrateRegistry } = await import("../server/db/migrations.mjs");
 const { projects, bindings } = await import("../server/db/schema.mjs");
+const { eq } = await import("@agent-native/core/db/schema");
 const { createLocalRootProvider } = await import("../server/local-root-provider.mjs");
 const { createNativeRegistry } = await import("../server/native-registry.mjs");
 const { createProjectCatalog } = await import("../server/project-catalog.mjs");
@@ -116,7 +117,7 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
   try {
     await reopen();
     const folders = {};
-    for (const name of ["Alpha", "Beta", "Unprotected", "Recovery", "Interrupted", "Uncertain", "RecoveryRetry"]) {
+    for (const name of ["Alpha", "Beta", "Unprotected", "Recovery", "Interrupted", "Uncertain", "RecoveryRetry", "Symlink", "RetryRefusal", "ConcurrentRetry"]) {
       const root = path.join(directory, name);
       await mkdir(root);
       await writeFile(path.join(root, "AGENTS.md"), "# Existing owner guidance\nKeep these instructions.\n");
@@ -163,6 +164,35 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       const changed = await run(approval(review), context);
       assert.equal(changed.code, "refused");
       assert.match(changed.message, /changed/);
+      assert.deepEqual(await snapshot(alpha.root), before);
+    });
+    await suite.test("refresh replaces an unapproved preview with the requested options and current files", async () => {
+      const old = await preview(run, alpha.projectId, "coding");
+      const writing = await preview(run, alpha.projectId, "writing");
+      assert.equal(writing.preset, "writing");
+      assert.equal(writing.report.preset, "writing");
+      assert.notEqual(writing.operationId, old.operationId);
+      await writeFile(path.join(alpha.root, "unrelated.txt"), "Updated outside setup.\n");
+      await writeFile(path.join(alpha.root, "AGENTS.md"), "# Changed owner guidance\nKeep this revision.\nFresh preview sees this line.\n");
+      const before = await snapshot(alpha.root);
+      const refreshed = await preview(run, alpha.projectId, "writing");
+      assert.notEqual(refreshed.planHash, writing.planHash);
+      assert.match(refreshed.report.content_plan.files.find(file => file.path === "AGENTS.md").content, /Fresh preview sees this line/);
+      assert.deepEqual(await snapshot(alpha.root), before);
+      await assert.rejects(run(approval(writing), context), /does not match/);
+      await run(approval(refreshed, "cancel"), context);
+    });
+    await suite.test("a binding change discards unapproved content and permits a fresh cancellable preview", async () => {
+      const review = await preview(run, alpha.projectId);
+      const workspace = await resolveLocalProjectWorkspace(context, alpha.projectId);
+      const before = await snapshot(alpha.root);
+      await getDb().update(bindings).set({ bindingRevision: workspace.bindingRevision + 1 })
+        .where(eq(bindings.bindingId, workspace.bindingId));
+      assert.deepEqual(await run({ operation: "resume", projectId: alpha.projectId }, context), { code: "idle" });
+      await assert.rejects(run(approval(review), context), /does not match/);
+      const refreshed = await preview(run, alpha.projectId);
+      assert.notEqual(refreshed.planHash, review.planHash);
+      assert.deepEqual(await run(approval(refreshed, "cancel"), context), { code: "idle" });
       assert.deepEqual(await snapshot(alpha.root), before);
     });
     await suite.test("revoked application role prevents writes", async () => {
@@ -218,6 +248,51 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       await assert.rejects(run(approval(review), context));
       assert.deepEqual(await snapshot(target.root), before);
     });
+    await suite.test("a confirmed first-attempt refusal permits another preview and Cancel", async () => {
+      const target = folders.Symlink;
+      const outside = path.join(directory, "symlink-target");
+      await mkdir(outside);
+      await mkdir(path.join(target.root, ".vivary"));
+      await symlink(outside, path.join(target.root, ".vivary/runtime"), "dir");
+      const review = await preview(run, target.projectId);
+      assert.equal(review.report.request_replay.ready, true);
+      const before = await snapshot(target.root);
+      const result = await run(approval(review), context);
+      assert.equal(result.code, "refused", JSON.stringify(result));
+      assert.match(result.message, /outside the selected target directory/);
+      assert.deepEqual(await snapshot(target.root), before);
+      await unlink(path.join(target.root, ".vivary/runtime"));
+      const refreshed = await preview(run, target.projectId);
+      assert.deepEqual(await run(approval(refreshed, "cancel"), context), { code: "idle" });
+      assert.deepEqual(await readdir(outside), []);
+    });
+    await suite.test("a pre-mutation refusal on retry cannot discard earlier incomplete writes", async () => {
+      const target = folders.RetryRefusal;
+      const review = await preview(run, target.projectId);
+      crash = "applying";
+      assert.equal((await run(approval(review), context)).code, "pending");
+      const interrupted = await snapshot(target.root);
+      const runtime = path.join(target.root, ".vivary/runtime");
+      const held = path.join(directory, "held-retry-runtime");
+      const outside = path.join(directory, "empty-retry-runtime");
+      await mkdir(outside);
+      await rename(runtime, held);
+      await symlink(outside, runtime, "dir");
+      try {
+        const result = await run(approval(review), context);
+        assert.equal(result.code, "pending", JSON.stringify(result));
+        assert.match(result.message, /outside the selected target directory/);
+        assert.equal((await run({ operation: "resume", projectId: target.projectId }, context)).operationId, review.operationId);
+        await assert.rejects(run(approval(review, "cancel"), context), /cannot be cancelled/);
+        const refreshed = await run({ operation: "preview", projectId: target.projectId, preset: "writing" }, context);
+        assert.equal(refreshed.code, "pending");
+        assert.equal(refreshed.operationId, review.operationId);
+      } finally {
+        await unlink(runtime);
+        await rename(held, runtime);
+      }
+      assert.deepEqual(await snapshot(target.root), interrupted);
+    });
     await suite.test("incomplete writes require a reviewed recovery and restore original bytes", async () => {
       const target = folders.Interrupted;
       const before = await snapshot(target.root);
@@ -270,6 +345,17 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       assert.deepEqual(await snapshot(target.root), after);
       assert.equal((await run(approval(review), context)).code, "pending");
       assert.deepEqual(await snapshot(target.root), after);
+      const workspace = await resolveLocalProjectWorkspace(context, target.projectId);
+      await getDb().update(bindings).set({ bindingRevision: workspace.bindingRevision + 1 })
+        .where(eq(bindings.bindingId, workspace.bindingId));
+      await assert.rejects(run({ operation: "resume", projectId: target.projectId }, context), /earlier folder connection/);
+      await assert.rejects(preview(run, target.projectId), /earlier folder connection/);
+      await getDb().update(bindings).set({ bindingRevision: workspace.bindingRevision })
+        .where(eq(bindings.bindingId, workspace.bindingId));
+      const resumed = await run({ operation: "resume", projectId: target.projectId }, context);
+      assert.equal(resumed.code, "pending");
+      assert.equal(resumed.operationId, review.operationId);
+      assert.deepEqual(await snapshot(target.root), after);
     });
     await suite.test("concurrent requests do not start another writer", async () => {
       const target = folders.Recovery;
@@ -284,6 +370,47 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       release();
       assert.equal((await running).code, "applied");
       beforeExecute = async () => {};
+    });
+    await suite.test("a first-attempt refusal cannot clear a retry admitted by another service instance", async () => {
+      const target = folders.ConcurrentRetry;
+      const review = await preview(run, target.projectId);
+      const first = service();
+      const second = service();
+      let enteredFirst, enteredSecond, releaseFirst, releaseSecond;
+      const arrivedFirst = new Promise(resolve => { enteredFirst = resolve; });
+      const arrivedSecond = new Promise(resolve => { enteredSecond = resolve; });
+      const waitFirst = new Promise(resolve => { releaseFirst = resolve; });
+      const waitSecond = new Promise(resolve => { releaseSecond = resolve; });
+      let dispatches = 0;
+      beforeExecute = async () => {
+        if (++dispatches === 1) { enteredFirst(); await waitFirst; }
+        else { enteredSecond(); await waitSecond; }
+      };
+      const refused = assert.rejects(first(approval(review), context), /setup request changed/);
+      await arrivedFirst;
+      const retry = second(approval(review), context);
+      await arrivedSecond;
+      const outside = path.join(directory, "concurrent-refusal-target");
+      await mkdir(outside);
+      await mkdir(path.join(target.root, ".vivary"));
+      const runtime = path.join(target.root, ".vivary/runtime");
+      await symlink(outside, runtime, "dir");
+      try {
+        releaseFirst();
+        await refused;
+        const pending = await run({ operation: "resume", projectId: target.projectId }, context);
+        assert.equal(pending.code, "pending");
+        assert.equal(pending.operationId, review.operationId);
+      } finally {
+        await unlink(runtime);
+        releaseSecond();
+        beforeExecute = async () => {};
+      }
+      assert.deepEqual(await retry, { code: "applied", projectId: target.projectId, replayed: false });
+      assert.equal((await run({ operation: "resume", projectId: target.projectId }, context)).code, "applied");
+      for (const file of review.report.content_plan.files) {
+        assert.equal(await readFile(path.join(target.root, file.path), "utf8"), file.content);
+      }
     });
   } finally {
     await provider?.close();

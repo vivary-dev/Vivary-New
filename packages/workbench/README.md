@@ -167,6 +167,9 @@ proposed guidance content, retained files, and conflicts. Select the workspace
 type or use automatic detection, then expand each file to review its full content.
 **Confirm and apply** authorizes only that saved review. **Cancel** discards the
 review without changing project files. Changing the type requires another preview.
+Refreshing rebuilds an unapproved preview from current files and options. A changed
+folder binding invalidates an unapproved review. Approved requests remain preserved
+and cannot execute through a different binding.
 
 The Native owner action `vivary-project-adoption` stores the reviewed target,
 project binding, policy revision, options, content hash, and original request ID

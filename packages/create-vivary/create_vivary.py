@@ -384,6 +384,17 @@ class ScaffoldError(RuntimeError):
     """Raised when a workspace cannot be scaffolded safely."""
 
 
+class AdoptAttemptRefusal(ScaffoldError):
+    """This invocation refused before writes; earlier attempts may have written."""
+
+    def __init__(self, message: str, *, target: Path, plan_hash: str, request_id: str):
+        super().__init__(message)
+        self.attempt = {
+            "attempt_status": "refused_before_mutation",
+            "root": str(target), "plan_hash": plan_hash, "request_id": request_id,
+        }
+
+
 class RepairRefusal(ScaffoldError):
     """Raised when a repair is refused for a reason worth reporting by name.
 
@@ -2503,6 +2514,7 @@ def _probe_is_ignored(
     *,
     include_nested: bool = True,
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
+    root_rules: tuple[tuple[str, bool, str], ...] | None = None,
 ) -> bool:
     """Whether Git would ignore `rel_path` in this workspace.
 
@@ -2517,7 +2529,7 @@ def _probe_is_ignored(
     `extra_root_rules` simulates lines a repair would append to the root file.
     """
     rel_path = rel_path.replace("\\", "/")
-    rules = _privacy_rules_at_base(target, "") + list(extra_root_rules)
+    rules = (_privacy_rules_at_base(target, "") if root_rules is None else list(root_rules)) + list(extra_root_rules)
     if not include_nested:
         return _ignored_by_rules(rules, rel_path)
 
@@ -6201,11 +6213,12 @@ def _read_adopt_record(target: Path, path: Path) -> tuple[dict, bytes] | None:
 def _assert_adopt_record_privacy(
     target: Path, paths: list[Path], *,
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
+    root_rules: tuple[tuple[str, bool, str], ...] | None = None,
 ) -> None:
     for path in paths:
         if not _probe_is_ignored(
             target, path.relative_to(target).as_posix(),
-            extra_root_rules=extra_root_rules,
+            extra_root_rules=extra_root_rules, root_rules=root_rules,
         ):
             raise ScaffoldError("adoption request privacy does not cover the record and its temporary file")
 
@@ -6280,6 +6293,7 @@ def _validated_adopt_receipt(
 
 def _replay_adopt_request(
     target: Path, request: dict, plan_hash: str, *, repo_root: str | Path | None,
+    before_mutation: Callable[[], None] | None = None,
 ) -> dict | None:
     receipt_path = target / _ADOPT_RECEIPTS_REL / (request["id"] + ".json")
     record = _read_adopt_record(target, receipt_path)
@@ -6301,6 +6315,8 @@ def _replay_adopt_request(
     if pending is not None:
         if pending[0] != journal:
             raise ScaffoldError("adoption receipt and remaining journal disagree; refusing cleanup")
+        if before_mutation is not None:
+            before_mutation()
         _unlink_no_follow(target, journal_path, expected_hashes={_sha256_prefixed(pending[1])})
     approval = journal["approval"]
     result = _recovery_result(target, plan_hash, "", [], recovered=False)
@@ -6995,21 +7011,25 @@ def _recover_adopt(
         private_paths = [receipt_path, receipt_path.parent / temporary_name]
         _ensure_safe_destinations(target, private_paths, force=False)
         _assert_adopt_record_privacy(target, private_paths)
-        # Rollback restores the root ignore file. Require its original rules to
-        # exclude the runtime directory so recovery leftovers stay private too.
+        # Evaluate the restored root rules with the retained nested ignore files.
+        # Recovery records must stay private after rollback, including leftovers.
         ignore_path = target / ".gitignore"
         if ignore_path in backups:
             original_ignore = backups[ignore_path]
         else:
-            with _open_adopt_readonly(target, ignore_path) as stream:
-                original_ignore = stream.read()
+            try:
+                with _open_adopt_readonly(target, ignore_path) as stream:
+                    original_ignore = stream.read()
+            except FileNotFoundError:
+                original_ignore = None
         try:
-            original_rules = [("", parsed[0], parsed[1]) for line in (original_ignore or b"").decode("utf-8-sig").splitlines()
-                if (parsed := _parse_gitignore_line(line)) is not None]
+            original_rules = tuple(("", parsed[0], parsed[1]) for line in (original_ignore or b"").decode("utf-8-sig").splitlines()
+                if (parsed := _parse_gitignore_line(line)) is not None)
         except UnicodeError as exc:
             raise ScaffoldError("original recovery ignore rules are not UTF-8") from exc
-        if not _ignored_by_rules(original_rules, ".vivary/runtime"):
-            raise ScaffoldError("request-aware recovery requires original ignore rules protecting .vivary/runtime/")
+        _assert_adopt_record_privacy(target,
+            [journal_path.parent, receipt_path.parent, journal_path, *private_paths],
+            root_rules=original_rules)
         _assert_adopt_kept_inputs(target, {"kept_identities": payload["approval"]["kept"]})
         _rollback_adopt(target, actions, backups, cleanup_journal=False)
         _assert_recovery_restored(target, payload, actions, backups)
@@ -7128,13 +7148,26 @@ def adopt_workspace(
             raise ScaffoldError("request recovery uses the original journal options; omit preset and adapters")
     resolved_target = _resolve_scaffold_target(target)
     exclusion = _exclusive_adoption(resolved_target) if yes else nullcontext()
-    with exclusion:
-        return _adopt_workspace(
-            resolved_target, preset=preset, adapters=adapters, repo_root=repo_root,
-            yes=yes, plan_hash=plan_hash, recover_hash=recover_hash, request_id=request_id,
-            _fault_after=_fault_after, _crash_after=_crash_after,
-            _crash_before_journal=_crash_before_journal, _before_apply=_before_apply,
-        )
+    mutation_attempted = False
+
+    def before_mutation() -> None:
+        nonlocal mutation_attempted
+        mutation_attempted = True
+
+    try:
+        with exclusion:
+            return _adopt_workspace(
+                resolved_target, preset=preset, adapters=adapters, repo_root=repo_root,
+                yes=yes, plan_hash=plan_hash, recover_hash=recover_hash, request_id=request_id,
+                _fault_after=_fault_after, _crash_after=_crash_after,
+                _crash_before_journal=_crash_before_journal, _before_apply=_before_apply,
+                _before_mutation=before_mutation,
+            )
+    except ScaffoldError as exc:
+        if request_id is not None and recover_hash is None and not mutation_attempted:
+            raise AdoptAttemptRefusal(str(exc), target=resolved_target,
+                plan_hash=plan_hash, request_id=request_id) from exc
+        raise
 
 
 def _adopt_workspace(
@@ -7151,6 +7184,7 @@ def _adopt_workspace(
     _crash_after: int | None = None,
     _crash_before_journal: bool = False,
     _before_apply: Callable[[], None] | None = None,
+    _before_mutation: Callable[[], None] | None = None,
 ) -> dict:
     """Plan, or apply/recover reviewed changes under the caller's exclusion."""
     resolved_target = _resolve_scaffold_target(target)
@@ -7167,7 +7201,8 @@ def _adopt_workspace(
     request = None
     if request_id is not None:
         request = {"id": request_id, "options": _adopt_request_options(preset, adapters)}
-        replay = _replay_adopt_request(resolved_target, request, plan_hash, repo_root=repo_root)
+        replay = _replay_adopt_request(resolved_target, request, plan_hash,
+            repo_root=repo_root, before_mutation=_before_mutation)
         if replay is not None:
             return replay
 
@@ -7298,6 +7333,8 @@ def _adopt_workspace(
         receipt_bytes = _encode_adopt_journal({"schema": _ADOPT_RECEIPT_SCHEMA, "journal": final_journal})
     publishing = False
 
+    if _before_mutation is not None:
+        _before_mutation()
     try:
         action_offset = 0
         # Request-aware apply already proved record privacy in the original
@@ -10190,7 +10227,8 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             )
         except ScaffoldError as exc:
             if getattr(args, "json", False):
-                print(json.dumps({"ok": False, "error": str(exc)}))
+                print(json.dumps({"ok": False, "error": str(exc),
+                    **(exc.attempt if isinstance(exc, AdoptAttemptRefusal) else {})}))
             else:
                 print(f"create-vivary adopt: {exc}", file=sys.stderr)
             return 1

@@ -16,6 +16,7 @@ const workspaceSchema = z.strictObject({
 });
 const common = {
   version: z.literal(1), operationId: z.string().uuid(), orgId: z.string(),
+  dispatchId: z.string().uuid().optional(),
   workspace: workspaceSchema, preset: adoptionPreset, planHash: adoptionDigest,
   createdAt: z.number(), report: adoptionReport,
 };
@@ -54,6 +55,10 @@ function parseOutput(output: Awaited<ReturnType<typeof runOriginalCommand>>): un
   catch { return null; }
 }
 const creatorError = z.object({ ok: z.literal(false), error: z.string() });
+const preMutationRefusal = creatorError.extend({
+  attempt_status: z.literal("refused_before_mutation"), root: z.string(),
+  plan_hash: adoptionDigest, request_id: z.string().uuid(),
+});
 const completed = z.object({ ok: z.literal(true), mode: z.literal("applied"), root: z.string(),
   plan_hash: adoptionDigest, request_id: z.string().uuid(), replayed: z.boolean() });
 const recovered = z.object({ ok: z.literal(true), mode: z.literal("recovered"), root: z.string(),
@@ -72,12 +77,20 @@ export function createProjectAdoptionService(dependencies = {
     }
     const workspace = await dependencies.resolveWorkspace(context, input.projectId);
     const key = "vivary-private:adoption-v1:" + hash([context.orgId, workspace.actorId, input.projectId]);
-    const stored = await dependencies.get(key, { bypassCache: true });
-    const previous = stored === null ? null : savedSchema.parse(stored);
-    if (input.operation === "resume") return previous ? present(previous) : { code: "idle" };
     if (active.has(key)) return refuse("Setup is already running for this project. Wait, then retry the same request.");
     active.add(key);
     try {
+      let stored = await dependencies.get(key, { bypassCache: true });
+      let previous = stored === null ? null : savedSchema.parse(stored);
+      if (previous && (previous.orgId !== context.orgId || !sameOriginalWorkspace(previous.workspace, workspace))) {
+        if (unresolved(previous)) {
+          return refuse("An approved setup belongs to an earlier folder connection. Its result must be resolved before setting up this connection. Recovery records have been preserved.");
+        }
+        if (!await dependencies.remove(key, stored)) refuse("The setup request changed. Reopen it.");
+        stored = null;
+        previous = null;
+      }
+      if (input.operation === "resume") return previous ? present(previous) : { code: "idle" };
       async function currentWorkspace() {
         const current = await dependencies.resolveWorkspace(context, input.projectId);
         if (!sameOriginalWorkspace(current, workspace)) refuse("Project access changed. Review the folder again.");
@@ -128,12 +141,15 @@ export function createProjectAdoptionService(dependencies = {
         if (record.stage === "recovery-approved" || record.stage === "recovered") {
           return refuse("Recovery was approved. Finish recovery before preparing a new setup plan.");
         }
-        if (record.stage === "review") {
+        const firstAttempt = record.stage === "review";
+        if (firstAttempt) {
           if (Date.now() - record.createdAt > 30 * 60_000) refuse("This preview expired. Prepare a new preview.");
           if (!record.report.request_replay.ready || record.report.conflicts.length > 0) {
             return refuse(record.report.request_replay.reason ?? "Resolve the setup conflicts before applying.");
           }
-          await save({ ...recordBase(record), stage: "approved" });
+          await save({ ...recordBase(record), stage: "approved", dispatchId: randomUUID() });
+        } else if (record.stage !== "rejected") {
+          await save({ ...record, dispatchId: randomUUID() });
         }
         if (record.stage === "rejected") return present(record);
         const output = await dependencies.execute({ verb: "adopt-apply", planHash: record.report.plan_hash,
@@ -146,9 +162,13 @@ export function createProjectAdoptionService(dependencies = {
           return present(record);
         }
         const error = creatorError.safeParse(value);
-        // The creator rejects a changed reviewed plan before its first write. Other failures retain the request.
-        if (error.success && error.data.error.startsWith("plan hash mismatch:")) {
-          await save({ ...recordBase(record), stage: "rejected", message: "The folder or setup inputs changed. Prepare a new preview." });
+        const refusal = preMutationRefusal.safeParse(value);
+        if (firstAttempt && refusal.success && refusal.data.root === workspace.root
+          && refusal.data.plan_hash === record.report.plan_hash && refusal.data.request_id === record.operationId) {
+          const message = refusal.data.error.startsWith("plan hash mismatch:")
+            ? "The folder or setup inputs changed. Prepare a new preview."
+            : `${refusal.data.error}. Prepare a new preview.`;
+          await save({ ...recordBase(record), stage: "rejected", message });
           return present(record);
         }
         return { ...presentPending(record), message: error.success ? `${error.data.error}. ${pendingMessage}` : pendingMessage };

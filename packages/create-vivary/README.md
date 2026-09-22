@@ -197,8 +197,9 @@ create-vivary adopt . --recover sha256:<original-plan-hash> --request-id setup-a
   --yes --plan sha256:<reviewed-recovery-hash> --json
 ```
 
-This mode validates the journal's original request ID and requires the original
-root ignore rules to protect `.vivary/runtime/`. Before rollback it checks that
+This mode validates the journal's original request ID and checks record privacy
+using the restored root ignore rules together with retained nested ignore files.
+Before rollback it checks that
 the recovery receipt fits the 1 MiB limit. It retains the journal through rollback,
 then publishes a recovery receipt at the original request's receipt path before
 removing the journal. A lost response can be retried with the same hashes and ID.
@@ -212,6 +213,12 @@ A failure before the recovery receipt is published leaves the journal available
 for a new recovery preview and confirmation. Legacy recovery without a request ID
 keeps its existing behavior and does not publish a recovery receipt.
 Ordinary request-aware adoption requires `--yes --plan` and a nonempty plan.
+
+A JSON refusal can include `attempt_status: "refused_before_mutation"`, bound to
+the submitted `root`, `plan_hash`, and `request_id`. This status describes only the
+current invocation. Earlier attempts with that request ID may have written files.
+The GUI discards approval after this refusal only on its first dispatch. A retry
+keeps its pending request and recovery records.
 Validation uses the installed renderer, so replay across renderer versions is
 not guaranteed. Process-crash checks do not establish power-loss durability.
 
