@@ -5,10 +5,11 @@ editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/GETTING-STARTED
 ---
 
 For the Windows application, use the public
-[September 21 prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21)
+[September 22 prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22)
 and the [Windows installation guide](/desktop-preview/). The unsigned portable
-`250aaa0` package includes Codex conversations, project-file search, project health,
-setup previews, and project-owned page previews. Full desktop acceptance remains open.
+`9884670` package includes Codex conversations, project-file search, project health,
+setup previews, and project-owned page previews with confirmed desktop browser opening.
+Full desktop acceptance remains open.
 
 The rest of this page installs the original command-line engine. Its pinned
 registry versions remain separate from the desktop package. See the

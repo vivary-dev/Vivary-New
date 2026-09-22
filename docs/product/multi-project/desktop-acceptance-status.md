@@ -1,26 +1,50 @@
 # Desktop acceptance status
 
-Updated 2026-09-21. This page is the current tracked acceptance register for the
+Updated 2026-09-22. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
 
 ## Release boundary
 
-The [public Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) contains the tested `250aaa0`
+The [public Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) contains the tested `9884670`
 application. Stable desktop and self-hosted web acceptance remain incomplete.
 The repository and download are public. No access invitation is required.
 
-Exact source: `250aaa0567104541127767501de3bcf0d1c3549b`. This tree matches the merged PR #76 commit
-`b4f52297f46e7751f38efd14f510b1323156dc67`. ZIP size: 236,048,361 bytes.
-SHA-256: `2b5b0c51bc0c85d8a3383783906dddb21e093a3787413717aa120f61df14946d`.
+Exact source: `98846706227432e26f519d1b546889261eb08ff1`, the merged PR #78 commit.
+ZIP size: 236,072,825 bytes.
+SHA-256: `e9c0abf09e9e5a66c1dbea9ec3e05d479829138d35372b10c90a34124d1b81a0`.
 
 The executable is unsigned and retains `version: 0.0.0`, `channel: private-preview`,
 and prebuilt Workbench `sourceCommitVerified: false`. The tag pins the binary's
 source, not later documentation commits. See the [install guide](../../desktop-preview.md).
 
-The historical September 16 archive remains available. The candidate sections
-below preserve evidence from their named versions and do not imply current retesting.
+Earlier archives remain available. Dated sections preserve their own candidate
+evidence and do not imply retesting on the replacement.
+
+### September 22 browser-link and lifecycle review of `9884670`
+
+- Native Windows confirmation showed the complete URL and default Cancel choice.
+  Explicit Cancel dismissed it without opening a preview tab.
+- Confirmed Open launched Chrome at the exact path, query, and fragment.
+  Interaction with the resulting page passed.
+- Switching projects cleared the prior preview. Graceful close stopped all
+  observed app processes and released the old listener. Restart retained the
+  selected project and an empty Preview.
+- Backups of 48 application-profile and 1,678 Electron-profile files passed hash
+  verification before launch. Existing projects remained available.
+- The archive checksum and clean source identity matched. Packaged `main.mjs`
+  matched the source byte for byte. Distribution review found no profiles,
+  authentication databases, or private continuity files.
+- Twenty-seven desktop/startup tests and six applicable GitHub CI jobs passed
+  on the reviewed fix head. The site job skipped. Source tests and simulated
+  Electron events remain separate from the actual Windows checks above.
+
+This bounded review does not repeat earlier full UI or model-runtime journeys.
+Clean-profile onboarding, complete existing-folder registration, upgrade/removal
+acceptance, Native-provider turns, and automations remain open. Historical Entire
+trail-approval failures remain recorded. GitHub and Entire source refs were
+verified separately from those approval results.
 
 ### September 21 visual review of `250aaa0`
 
@@ -323,15 +347,15 @@ automations in #51 remain open.
 | Area | Verified now | Still required |
 | --- | --- | --- |
 | Code conversations | Windows `2f4a5df` file work, session continuity, MCP call, real subagent card, 125.19-second command, native Allow/Decline, active-command Stop, and shutdown | Linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Further connection-specific journeys and broader issue #38 scope. The published `250aaa0` includes this integration, with real-turn evidence from earlier candidates |
+| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Further connection-specific journeys and broader issue #38 scope. The published `9884670` includes this integration, with real-turn evidence from earlier candidates |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, Windows `43ae417` registration of an existing non-Git folder, and native `250aaa0` chooser timeout recovery | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
-| Web and preview | Authenticated Zo preview and `250aaa0` browser checks for project-owned preview retention/clearing and a 390-pixel layout | Desktop external-preview opening, clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
-| Distribution | Public `250aaa0` portable prerelease, licenses, checksum, and anonymous download verification. Process cleanup evidence is from earlier candidates | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
+| Web and preview | Authenticated Zo preview and `250aaa0` browser checks for project-owned preview retention/clearing and a 390-pixel layout. Native `9884670` confirmed external browser opening | Clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
+| Distribution | Public `9884670` portable prerelease, licenses, checksum, anonymous download verification, Windows process cleanup, and restart. Earlier runtime journeys remain separately recorded | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
 The Windows checks used an existing authorized profile. They do not establish a
 clean-profile first-run journey. Credentials are never bundled. Claude Code, Codex,
@@ -343,8 +367,7 @@ macOS is later roadmap work outside the active Windows milestone.
 
 ## Historical packaging evidence boundaries
 
-The following build and CI notes describe the September 16 candidate. The current
-`250aaa0` evidence and seven passing GitHub jobs are recorded above.
+The following build and CI notes describe the September 16 candidate. The current `9884670` evidence and the earlier `250aaa0` checks are recorded above.
 
 The candidate's Workbench output was built in a clean isolated checkout and 620
 compiled files matched the fresh build. The Windows SQLite binding and runtime marker

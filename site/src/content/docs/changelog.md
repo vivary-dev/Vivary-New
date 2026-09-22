@@ -15,6 +15,24 @@ the `v0.1.0` line.
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
 
+## [Windows prerelease 9884670] - 2026-09-22
+
+[Download and installation](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22).
+The Windows portable prerelease includes [PR #78](https://github.com/vivary-dev/Vivary-New/pull/78).
+**Open preview in a new tab** now opens HTTP and HTTPS destinations in the default
+browser after native confirmation. The dialog shows the complete URL and defaults
+to Cancel. The tag pins source `98846706227432e26f519d1b546889261eb08ff1`.
+
+The packaged Windows checks verified Cancel without a new tab, confirmed browser
+opening at the exact path/query/fragment, and interaction with the opened page.
+Project switching cleared the old preview. Graceful shutdown stopped observed
+processes and released the listener. Restart retained the selected project and
+an empty Preview. Earlier setup and model-runtime checks retain their own dates.
+
+This unsigned prerelease keeps its development metadata and incomplete desktop
+acceptance. See the [installation guide](/desktop-preview/) for preservation
+steps and known limits. No CLI registry artifacts or PyPI/npm versions change.
+
 ## [Windows prerelease 250aaa0] - 2026-09-21
 
 [Download and installation](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21). This public Windows x64 portable preview

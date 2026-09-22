@@ -11,34 +11,33 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-Checkpoint: 2026-09-21. The publicly downloadable
-[Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) pins source `250aaa0567104541127767501de3bcf0d1c3549b`.
-Its tree matches the PR #76 merge. Follow the
+Checkpoint: 2026-09-22. The publicly downloadable
+[Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) pins source `98846706227432e26f519d1b546889261eb08ff1`.
+This is the merged PR #78 source. Follow the
 [installation guide](../../docs/desktop-preview.md) for extraction, launch,
 runtime setup, profile preservation, upgrades, rollback limits, and troubleshooting.
 
-The unsigned portable ZIP is 236,048,361 bytes with SHA-256 `2b5b0c51bc0c85d8a3383783906dddb21e093a3787413717aa120f61df14946d`.
+The unsigned portable ZIP is 236,072,825 bytes with SHA-256 `e9c0abf09e9e5a66c1dbea9ec3e05d479829138d35372b10c90a34124d1b81a0`.
 It retains development metadata version `0.0.0`, channel `private-preview`, and
 prebuilt Workbench `sourceCommitVerified: false`. These labels describe the tested
 artifact. They do not prevent its authorized publication as a development prerelease.
 
-Direct Windows checks covered launch, preserved navigation/history, and native
-chooser timeout recovery. Browser checks against the running package covered
-exact setup proposals with unchanged fixture hashes, project-owned page previews,
-cross-project clearing, Files/chat navigation, reload, and a 390-pixel layout.
-The owner approved the screenshots and requested publication.
+Direct Windows checks verified the native browser confirmation, Cancel without
+a new tab, confirmed Chrome launch at the exact path/query/fragment, and page
+interaction. Project switching cleared the old preview. Graceful close stopped
+observed processes and released the listener. Restart retained the selected
+project and an empty Preview. Profile backups were hash-verified before launch.
 
-The package includes merged Codex integration and adoption-request replay.
-Earlier Windows candidates exercised real runtime tools, approvals, follow-ups,
-Stop, and restart. Those journeys were not repeated on this exact artifact.
-Seven candidate GitHub CI jobs passed. The separate Entire approval gate failed
-because it recorded zero of one required reviewer approvals.
+The package retains Codex integration and adoption-request replay. Earlier setup,
+chooser, narrow-layout, and real model journeys remain evidence for their named
+candidates. Six applicable GitHub CI jobs passed on the reviewed PR #78 fix head.
+The site job skipped. Historical Entire trail-approval failures remain recorded.
 
 The [acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
-owns evidence boundaries. Clean-profile first run, full native restart and
-registration on this candidate, upgrade/removal acceptance, Native-provider
-turns, automations, and remaining desktop/web journeys stay open. There is no
-general GUI Apply action for existing-folder setup. macOS remains later work.
+owns evidence boundaries. Clean-profile first run, complete native registration,
+upgrade/removal acceptance, Native-provider turns, automations, and remaining
+desktop/web journeys stay open. Existing-folder setup has no general GUI Apply.
+macOS remains later work.
 
 ### Earlier packaged proofs
 
@@ -47,7 +46,7 @@ the original command surface, and managed creation. They remain historical evide
 The current register supersedes their current-status claims. Credentials are never
 bundled, and a cross-build alone never establishes Windows behavior.
 
-## Preview links in source builds
+## Open preview links in your browser
 
 The preview panel's **Open preview in a new tab** action opens HTTP and HTTPS
 addresses in the default browser after a native confirmation. The dialog shows
@@ -56,9 +55,8 @@ credentials, and POST requests are refused. Provider setup links retain their
 existing direct browser behavior. A failed browser launch shows a copy-address
 fallback. Embedded previews retain their sandbox and cannot create popups.
 
-This source change is not included in the September 21 prerelease ZIP. Its
-installation guide retains the copy-address workaround until a replacement
-package completes Windows verification.
+The September 22 prerelease includes this behavior. Its packaged Windows check
+verified both Cancel and confirmed browser launch.
 
 ## Development
 
@@ -225,13 +223,13 @@ supports cross-platform packaging. A successful package build establishes an
 artifact, not Windows runtime acceptance.
 
 The folder must stay together: `vivary.exe` uses its sibling `resources` files.
-For this private preview, extract the archive to a short path such as
+For this portable preview, extract the archive to a short path such as
 `C:\Vivary` or `%USERPROFILE%\Vivary`. Windows Explorer can reject a deeply
 nested destination before the application starts.
 
 Windows users need their own installed and signed-in coding CLI. The package does
-not include credentials. Explorer launch, Claude Code discovery, a bounded real file
-turn, restart persistence, and active cleanup passed on the published preview.
-Codex selection and execution have separate prototype evidence above. Clean-profile
+not include credentials. Earlier candidates verified Claude Code discovery, a real
+file turn, and Codex journeys. The `9884670` package verified confirmed browser
+opening, project-preview clearing, restart, and graceful shutdown. Clean-profile
 setup, upgrade/removal behavior, and the complete release journey remain open before
 this becomes a supported release.
