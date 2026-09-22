@@ -201,6 +201,59 @@ class ThinAdoptPlanTests(unittest.TestCase):
         finally:
             remove_git_fixture(root)
 
+    def test_privacy_preparation_refuses_mixed_case_tracked_runtime(self):
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                root = temp_dir()
+                try:
+                    repo = root / "parent" if nested else root
+                    repo.mkdir(exist_ok=True)
+                    target = repo / "child" if nested else repo
+                    target.mkdir(exist_ok=True)
+                    tracked = (repo / "Child" if nested else target) / ".Vivary/runtime/private.json"
+                    write(tracked, "private backup")
+                    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "config", "core.ignoreCase", "true"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "add", "-f",
+                        str(tracked.relative_to(repo))], check=True)
+                    tracked.unlink()
+                    tracked.parent.rmdir()
+
+                    with mock.patch.dict(os.environ, {"GIT_LITERAL_PATHSPECS": "1"}):
+                        plan = create_vivary.plan_adopt(target, preset="coding")
+                    self.assertFalse(plan["privacy_preparation"]["ready"])
+                    self.assertIn("tracks", plan["privacy_preparation"]["reason"])
+                    self.assertFalse((target / ".gitignore").exists())
+                    self.assertFalse((target / ".vivary/runtime").exists())
+                finally:
+                    remove_git_fixture(root)
+
+    def test_privacy_preview_refuses_dangling_ignore_link(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            missing = target / "missing-ignore-target"
+            try:
+                ignore.symlink_to(missing)
+            except OSError as error:
+                if os.name == "nt" and error.winerror in (50, 1314):
+                    self.skipTest("symlink creation is unavailable")
+                raise
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertTrue(any(
+                item["path"] == ignore and ".gitignore is not a regular file" in item["reason"]
+                for item in plan["conflicts"]
+            ))
+            self.assertFalse(any(
+                item["path"] == ".gitignore" and item["operation"] == "create"
+                for item in plan["content_plan"]["files"]
+            ))
+            self.assertTrue(ignore.is_symlink())
+            self.assertFalse(missing.exists())
+        finally:
+            shutil.rmtree(target)
+
     def test_privacy_preparation_refuses_other_root_and_legacy_pending_journal(self):
         first = temp_dir()
         second = temp_dir()

@@ -5894,7 +5894,7 @@ def plan_adopt(
         accepted_gitignore_blocks += (
             _thin_gitignore_block(active_context="cocoindex-code"),
         )
-    if not gitignore_path.exists():
+    if not os.path.lexists(gitignore_path):
         writes.append((gitignore_path, gitignore_block))
         privacy_status = "planned"
     elif _is_symlink_or_junction(gitignore_path) or not gitignore_path.is_file():
@@ -6355,9 +6355,9 @@ def _assert_adopt_records_untracked(target: Path) -> None:
         runtime_path = (target.relative_to(ancestor) / ".vivary" / "runtime").as_posix()
         try:
             result = subprocess.run(
-                ["git", "-c", "core.fsmonitor=false", "--literal-pathspecs",
-                    "-C", str(ancestor), "ls-files", "--cached", "--error-unmatch",
-                    "--", runtime_path],
+                ["git", "-c", "core.fsmonitor=false", "-C", str(ancestor),
+                    "ls-files", "--cached", "--error-unmatch",
+                    "--", f":(icase,literal){runtime_path}"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False,
                 env={**{key: value for key, value in os.environ.items()
                     if not key.upper().startswith("GIT_")}, "LC_ALL": "C"},
