@@ -63,7 +63,9 @@ export function createNativeActionCaller(dependencies: Dependencies): NativeActi
         ? ("message" in result && typeof result.message === "string" ? result.message
           : "error" in result && typeof result.error === "string" ? result.error : undefined)
         : undefined;
-      throw Object.assign(new Error(detail ?? "The action could not finish. Try again."), { status: response.status, actionMessage: detail });
+      const errorCode = result && typeof result === "object" && "errorCode" in result
+        && typeof result.errorCode === "string" ? result.errorCode : undefined;
+      throw Object.assign(new Error(detail ?? "The action could not finish. Try again."), { status: response.status, actionMessage: detail, errorCode });
     }
     // Action schemas own the response contract, as with Native's callAction<T>.
     return result as T;

@@ -257,13 +257,13 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..c3a40b671a519c7260d4fbbc23afedb2
 +        return;
 +    }
 +    const tool = item.type === "commandExecution" ? "bash" : item.type === "fileChange" ? "file-change"
-+        : item.type === "mcpToolCall" ? item.tool : item.type === "webSearch" ? "web-search" : null;
++        : item.type === "mcpToolCall" ? item.tool : item.type === "webSearch" ? "web-search" : item.type === "imageView" ? "view_image" : null;
 +    if (!tool) return;
 +    appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `${completed ? "Finished" : "Running"} ${tool}.`,
 +        metadata: { ...metadata, tool, toolCallId: itemId, type: completed ? "tool_done" : "tool_start",
-+            ...(completed ? { result: cliTranscriptValue(item.aggregatedOutput ?? item.changes ?? item.result ?? item.error ?? item.status),
++            ...(completed ? { result: cliTranscriptValue(item.type === "imageView" ? { path: item.path } : (item.aggregatedOutput ?? item.changes ?? item.result ?? item.error ?? item.status)),
 +                isError: item.status === "failed" || (typeof item.exitCode === "number" && item.exitCode !== 0) }
-+                : { input: item.type === "commandExecution" ? { command: item.command, cwd: item.cwd }
++                : { input: item.type === "imageView" ? { path: item.path } : item.type === "commandExecution" ? { command: item.command, cwd: item.cwd }
 +                    : item.arguments ?? item.changes ?? { query: item.query } }) } });
 +}
 +

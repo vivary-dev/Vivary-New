@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
   AssistantChat,
+  removeAgentChatContextItem,
   ChatHistoryList,
   buildRepositoryFromCodeAgentTranscript,
   isCodeAgentRunActive,
@@ -21,6 +22,10 @@ import { useProjects } from "../projects/ProjectContext";
 import "@agent-native/toolkit/chat-history.css";
 import "../../local-agent.css";
 
+import { previewInspectionContext, type PreviewChatTarget } from "@/lib/workbench-preview";
+
+type PreviewChatProps = { previewScope: string; onPreviewChatTarget?: (target: PreviewChatTarget | null) => void };
+
 type ModelChoice = { engine: VivaryCodeState["defaultEngine"]; model: string };
 const conversationSelectionSchema = z.object({
   key: z.string().min(1).max(128),
@@ -31,7 +36,7 @@ type ConversationSelection = z.infer<typeof conversationSelectionSchema>;
 const SELECTION_PREFIX = "vivary-code-selection-v1:";
 const example = "Read README.md, then create hello-vivary.txt containing a short greeting. Read the file back and tell me what you changed.";
 
-export default function CodeConversation() {
+export default function CodeConversation({ previewScope, onPreviewChatTarget }: PreviewChatProps) {
   const { activeProject, catalog, checking, workspaceAvailable, historyAvailable, refresh, selectProject } = useProjects();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -109,11 +114,11 @@ export default function CodeConversation() {
     </div>}
     <ProjectCodeWorkspace key={projectScope} projectId={projectId}
       projectLabel={activeProject?.displayName} workspaceAvailable={workspaceAvailable} onOpenActive={openActiveConversation}
-      selection={selection.data ?? null} setSelection={setSelection} />
+      selection={selection.data ?? null} setSelection={setSelection} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget} />
   </>;
 }
 
-function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive }: {
+function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive, previewScope, onPreviewChatTarget }: PreviewChatProps & {
   projectId: string | null;
   projectLabel?: string;
   workspaceAvailable: boolean;
@@ -292,7 +297,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     <div className="local-agent-layout">
       <div className="local-agent-chat">
         {selection && codeState ? <LocalCodeConversation key={selection.key}
-          projectId={projectId} selection={selection} run={run ?? null}
+          projectId={projectId} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
           state={run && selectedState.data?.projectId === projectId && selectedState.data.run?.id === run.id
             ? { ...codeState, engines: selectedState.data.engines } : codeState}
           workspaceAvailable={workspaceAvailable}
@@ -312,7 +317,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
   </section>;
 }
 
-type LocalCodeConversationProps = {
+type LocalCodeConversationProps = PreviewChatProps & {
   projectId: string | null;
   workspaceAvailable: boolean;
   selection: ConversationSelection;
@@ -334,6 +339,26 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   const { call } = useNativeActionCaller();
   const latest = useRef(props);
   latest.current = props;
+  const previewContextKey = JSON.stringify(["vivary-preview", props.previewScope, props.selection.key]);
+  useEffect(() => {
+    const projectId = props.projectId;
+    if (!projectId || !props.workspaceAvailable) {
+      props.onPreviewChatTarget?.(null);
+      return;
+    }
+    let active = true;
+    const contextKey = previewContextKey;
+    props.onPreviewChatTarget?.({ projectId, scope: props.previewScope, attach: preview => {
+      if (!active || preview.projectId !== projectId || latest.current.previewScope !== props.previewScope || !latest.current.workspaceAvailable || !chatRef.current) return false;
+      chatRef.current.setComposerContextItem({
+        key: contextKey, title: "Project preview",
+        contextNamespace: contextKey,
+        context: previewInspectionContext(preview),
+      }, { focus: false });
+      return true;
+    } });
+    return () => { active = false; removeAgentChatContextItem(contextKey); props.onPreviewChatTarget?.(null); };
+  }, [props.projectId, props.previewScope, previewContextKey, props.workspaceAvailable, props.onPreviewChatTarget]);
   const runIdRef = useRef(props.selection.runId);
   runIdRef.current = props.selection.runId;
   const adapterOwnsMessages = useRef(false);
@@ -438,6 +463,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     </div>}
     <AssistantChat key={viewKey.current} ref={chatRef}
     tabId={"vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key}
+    contextNamespace={previewContextKey}
     showHeader={false} className="local-agent-transcript"
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}
     isThreadStateLoading={!!props.selection.runId && !props.run && !props.streaming}

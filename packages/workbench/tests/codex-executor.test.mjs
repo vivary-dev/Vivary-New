@@ -7,7 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { compileFunction } from "node:vm";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Load the real executor with only its external stores and providers replaced.
 const workbench = fileURLToPath(new URL("../", import.meta.url));
@@ -15,6 +15,8 @@ const workbench = fileURLToPath(new URL("../", import.meta.url));
 const core = process.env.VIVARY_CORE_TEST_ROOT
   ?? path.join(workbench, "node_modules/@agent-native/core");
 const executorSource = await readFile(path.join(core, "dist/cli/code-agent-executor.js"), "utf8");
+const { normalizeCodeAgentTranscript } = await import(
+  pathToFileURL(path.join(core, "dist/code-agents/transcript-normalizer.js")).href);
 const source = executorSource.replace(/^import [\s\S]*?;\n/gm, "").replace(/^export /gm, "");
 
 async function fixture(t, { mode = "complete", permissionMode = "auto-edit" } = {}) {
@@ -71,20 +73,36 @@ process.stdin.on("end", () => {
     buildMergedConfig: async () => { mergedReads++; return { servers: { host: { type: "http", url: "https://example.invalid/mcp" } } }; },
     codexMcpConfigArgs: () => ["-c", 'mcp_servers.host.url="https://example.invalid/mcp"'],
   };
-  const create = compileFunction(`${source}\nreturn {executeCodeAgentRun};`, Object.keys(dependencies), {
+  const create = compileFunction(`${source}\nreturn {executeCodeAgentRun, appendCodexAppServerTranscriptEvent};`, Object.keys(dependencies), {
     filename: path.join(core, "dist/cli/code-agent-executor.js"),
   });
-  const { executeCodeAgentRun } = create(...Object.values(dependencies));
+  const { executeCodeAgentRun, appendCodexAppServerTranscriptEvent } = create(...Object.values(dependencies));
   const codexCli = { command: process.execPath, argsPrefix: [script], env: environment, configMode: "native" };
   const execute = overrides => executeCodeAgentRun({
     runId: state.id, prompt: "Read the fixture.", attachments: [], appendUserEvent: false,
     streamToolOutputToStdout: false, ...overrides,
   });
-  return { directory, script, receipt, state, events, launches, codexCli, execute,
+  return { directory, script, receipt, state, events, launches, codexCli, execute, appendCodexAppServerTranscriptEvent,
     mergedReads: () => mergedReads,
     invocation: async () => JSON.parse(await readFile(receipt, "utf8")),
   };
 }
+
+test("native image view is paired as a path-only transcript tool", async t => {
+  const f = await fixture(t);
+  const item = { type: "imageView", id: "screenshot-1", path: "/private/project/screenshot.png" };
+  f.appendCodexAppServerTranscriptEvent(f.state.id, "item/started", { item });
+  f.appendCodexAppServerTranscriptEvent(f.state.id, "item/completed", { item });
+  assert.deepEqual(f.events.map(event => [event.metadata?.type, event.metadata?.tool,
+    event.metadata?.toolCallId]), [
+    ["tool_start", "view_image", item.id], ["tool_done", "view_image", item.id],
+  ]);
+  const [tool] = normalizeCodeAgentTranscript(f.events).items.filter(entry => entry.type === "tool");
+  assert.equal(tool.state, "completed");
+  assert.deepEqual(tool.input, { path: item.path });
+  assert.equal(tool.result, JSON.stringify({ path: item.path }));
+  assert.equal(f.events.some(event => event.metadata?.image || event.metadata?.pixels), false);
+});
 
 function valueAfter(args, flag) { return args[args.indexOf(flag) + 1]; }
 function assertOutputRemoved(args) {
