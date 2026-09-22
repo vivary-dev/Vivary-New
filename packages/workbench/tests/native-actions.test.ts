@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNativeActionCaller } from "../app/lib/native-actions";
+import { createNativeActionCaller, folderConnectionErrorMessage } from "../app/lib/native-actions";
 
 test("owner action sends one bounded same-origin request without redirects", async () => {
   const requests: Request[] = [];
@@ -128,4 +128,40 @@ test("original engine commands use the same private owner-session transport", as
   assert.equal(requests[0].headers.get("x-vivary-session"), "original-owner-test-token");
   assert.equal(requests[0].redirect, "error");
   assert.deepEqual(await requests[0].json(), input);
+});
+
+
+test("folder picker timeouts explain how to recover on both owner transports", async () => {
+  for (const token of ["picker-timeout-owner", undefined]) {
+    const failure = token
+      ? new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      : Object.assign(new Error("Action timed out after 130s"), { timedOut: true, status: 408 });
+    const call = createNativeActionCaller({
+      getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", ...(token ? { token } : {}) } }),
+      cookieAction: async () => { throw failure; },
+      fetch: async () => { throw failure; },
+      locationHref: () => "https://private.example.test/", nativePath: path => path,
+      invalidate: () => { throw new Error("Unexpected invalidation"); },
+    });
+    try {
+      await call("vivary-connect-project-folder", {});
+      assert.fail("The expired picker must reject");
+    } catch (error) {
+      assert.equal(folderConnectionErrorMessage(error), "Folder selection timed out. Close the folder chooser and try again.");
+    }
+  }
+});
+
+test("folder connection preserves the server's safe recovery message", async () => {
+  const call = createNativeActionCaller({
+    getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", token: "picker-server-error-owner" } }),
+    cookieAction: async () => { throw new Error("Unexpected cookie fallback"); },
+    fetch: async () => Response.json({ message: "Close the folder chooser and try again in the desktop app." }, { status: 409 }),
+    locationHref: () => "https://private.example.test/", nativePath: path => path, invalidate: () => undefined,
+  });
+  await assert.rejects(call("vivary-connect-project-folder", {}), error => {
+    assert.equal(folderConnectionErrorMessage(error), "Close the folder chooser and try again in the desktop app.");
+    return true;
+  });
+  assert.equal(folderConnectionErrorMessage(new Error("private unexpected failure")), "The folder could not be connected. Try again.");
 });

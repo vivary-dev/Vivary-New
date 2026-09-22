@@ -8,9 +8,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## Ready packet snapshot
 
-- [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md)
-- [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md)
-- [11c: Search large project trees from the application](packets/11c-fast-project-search.md)
+None.
 
 ## In-progress packet snapshot
 

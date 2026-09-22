@@ -1,8 +1,17 @@
 diff --git a/dist/agent/thread-data-builder.d.ts b/dist/agent/thread-data-builder.d.ts
-index bd348265bcdf57cebf5d611d2741fa9705bf6486..10bcb617c8705f7e8c97d035fad9fd7b5d8d63b9 100644
+index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e537efc0dc 100644
 --- a/dist/agent/thread-data-builder.d.ts
 +++ b/dist/agent/thread-data-builder.d.ts
-@@ -138,6 +138,7 @@ export declare function buildRepositoryFromCodeAgentTranscript(events: readonly
+@@ -6,6 +6,8 @@ import type { EngineMessage } from "./engine/types.js";
+ import type { AgentChatAttachment, RunEvent } from "./types.js";
+ interface ContentPart {
+     type: string;
++    name?: "code-agent-activity";
++    data?: import("../code-agents/transcript-normalizer.js").CodeAgentActivity;
+     text?: string;
+     toolCallId?: string;
+     toolName?: string;
+@@ -138,6 +140,7 @@ export declare function buildRepositoryFromCodeAgentTranscript(events: readonly
   * accepting client-only messages and metadata.
   */
  export interface MergeThreadDataOptions {
@@ -11,7 +20,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..10bcb617c8705f7e8c97d035fad9fd7b
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..ce62599a7ed65788ec9652d83f487b4d72eb279e 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..b13cd995724d8c240923328c18732ac09c865092 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -1117,6 +1117,21 @@ function pruneClaimedQueuedMessages(repo) {
@@ -45,6 +54,16 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..ce62599a7ed65788ec9652d83f487b4d
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+@@ -1353,6 +1368,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+     };
+ }
+ function contentPartForCodeAgentTranscriptItem(item, options) {
++    if (item.type === "activity") {
++        return { type: "data", name: "code-agent-activity", data: item.activity };
++    }
+     if (item.type === "assistant") {
+         return item.text.trim() ? { type: "text", text: item.text } : null;
+     }
 diff --git a/dist/chat-threads/store.d.ts b/dist/chat-threads/store.d.ts
 index 354f2c362706756b805b6ad958816f473a695636..211316ca82539fc0ab7cdbfd2f463b8201a1c550 100644
 --- a/dist/chat-threads/store.d.ts
@@ -126,6 +145,692 @@ index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf
              }
              lastConflict = true;
          }
+diff --git a/dist/cli/code-agent-executor.d.ts b/dist/cli/code-agent-executor.d.ts
+index 57a2f6cba8abdb513bc0155a607e47ff84068793..4a48e7b668f406eefa3984c1bc3ecd20e14ae16e 100644
+--- a/dist/cli/code-agent-executor.d.ts
++++ b/dist/cli/code-agent-executor.d.ts
+@@ -10,6 +10,16 @@ export interface ExecuteCodeAgentRunOptions {
+     appendUserEvent?: boolean;
+     engine?: AgentEngine;
+     model?: string;
++    /** Use the native Codex protocol, configuration, and a host-resolved executable. */
++    codexCli?: {
++        command: string;
++        argsPrefix?: string[];
++        env?: NodeJS.ProcessEnv;
++        configMode: "native";
++        permissionMode: "normal" | "read-only" | "yolo";
++        onRequest: (request: import("./codex-app-server-executor.js").CodexAppServerRequest) => Promise<Record<string, unknown>>;
++        onRequestResolved?: (requestId: string) => void;
++    };
+     reasoningEffort?: ReasoningEffort;
+     attachments?: AgentPromptAttachment[];
+     stdout?: NodeJS.WritableStream;
+diff --git a/dist/cli/code-agent-executor.js b/dist/cli/code-agent-executor.js
+index 911ded5d652659602d5f6050563d27e4c00e8de3..c3a40b671a519c7260d4fbbc23afedb2a4e3ae10 100644
+--- a/dist/cli/code-agent-executor.js
++++ b/dist/cli/code-agent-executor.js
+@@ -1,4 +1,5 @@
+ import { spawn } from "node:child_process";
++import { runCodexAppServer } from "./codex-app-server-executor.js";
+ import fs from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+@@ -112,6 +113,7 @@ export async function executeCodeAgentRun(options) {
+             prompt: executionPrompt,
+             model: options.model ?? metadataString(existing, "model"),
+             permissionMode: existing.permissionMode ?? "full-auto",
++            codexCli: options.codexCli,
+             stdout: options.stdout,
+             streamToolOutputToStdout,
+             signal: options.signal,
+@@ -1219,7 +1221,87 @@ function normalizeOpenCodeVariant(effort) {
+         return undefined;
+     return effort;
+ }
++async function executeCodexAppServerRun(options) {
++    const native = options.codexCli;
++    const model = normalizeCodexCliModel(options.model);
++    let effectiveModel = model;
++    const result = await runCodexAppServer({
++        ...native, cwd: options.run.cwd || process.cwd(), prompt: options.prompt, model,
++        threadId: metadataString(options.run, "codexSessionId") ?? undefined,
++        signal: options.signal,
++        onThread: thread => {
++            effectiveModel = thread.model;
++            updateCodeAgentRunRecord(options.run.id, {
++                metadata: { codexSessionId: thread.threadId, model: thread.model },
++            });
++        },
++        onNotification: (method, params) => appendCodexAppServerTranscriptEvent(options.run.id, method, params),
++    });
++    const status = result.status === "completed" ? "completed" : result.status === "interrupted" ? "paused" : "errored";
++    const phase = status === "completed" ? "complete" : status === "paused" ? "paused" : "error";
++    appendCodeAgentTranscriptEvent({ runId: options.run.id, kind: "status",
++        message: status === "completed" ? "Codex completed the turn." : status === "paused" ? "Codex stopped." : result.error ?? "Codex could not finish the turn.",
++        metadata: { status, phase, engine: CODEX_CLI_ENGINE_NAME, source: "codex-app-server" },
++    });
++    return updateCodeAgentRunRecord(options.run.id, {
++        status, phase, needsApproval: false,
++        progress: { label: status === "completed" ? "Complete" : status === "paused" ? "Stopped" : "Error",
++            completed: status === "completed" ? 1 : 0, total: 1, failed: status === "errored" ? 1 : 0,
++            percent: status === "completed" ? 100 : 0 },
++        metadata: { engine: CODEX_CLI_ENGINE_NAME, model: effectiveModel ?? "codex-default",
++            codexTurnId: result.turnId, codexPermissionMode: native.permissionMode,
++            executionError: result.error, executionCompletedAt: new Date().toISOString() },
++    });
++}
++
++function appendCodexAppServerTranscriptEvent(runId, method, params) {
++    const item = asRecordValue(params.item);
++    if (!item || (method !== "item/started" && method !== "item/completed")) return;
++    const itemId = cliStringValue(item.id);
++    const completed = method === "item/completed";
++    const metadata = { source: "codex-app-server", itemId, cliEventType: method };
++    if (item.type === "agentMessage") {
++        if (completed && typeof item.text === "string" && item.text.trim()) {
++            appendCodeAgentTranscriptEvent({ runId, kind: "system", message: item.text,
++                metadata: { ...metadata, role: "assistant", phase: item.phase } });
++        }
++        return;
++    }
++    if (item.type === "reasoning") {
++        if (completed && Array.isArray(item.summary) && item.summary.length) {
++            appendCodeAgentTranscriptEvent({ runId, kind: "status", message: item.summary.join("\n"),
++                metadata: { ...metadata, type: "thinking" } });
++        }
++        return;
++    }
++    if (item.type === "subAgentActivity" && typeof item.agentThreadId === "string") {
++        const state = asRecordValue(params.agentState);
++        const status = cliStringValue(state?.status) ?? (item.kind === "completed" || item.kind === "interrupted" ? item.kind : "running");
++        appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `Codex subagent ${item.agentPath || item.agentThreadId}: ${status}.`,
++            metadata: { ...metadata, type: "subagent", activityType: "subAgentActivity", activityKind: item.kind,
++                agentThreadId: item.agentThreadId, agentPath: item.agentPath, status,
++                agentsStates: { [item.agentThreadId]: { status, ...(typeof state?.message === "string" ? { message: state.message } : {}) } } } });
++        return;
++    }
++    if (item.type === "collabAgentToolCall") {
++        appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `Codex agent operation: ${item.tool ?? "unknown"}.`,
++            metadata: { ...metadata, type: "subagent", senderThreadId: item.senderThreadId,
++                receiverThreadIds: item.receiverThreadIds, agentsStates: item.agentsStates, tool: item.tool, status: item.status } });
++        return;
++    }
++    const tool = item.type === "commandExecution" ? "bash" : item.type === "fileChange" ? "file-change"
++        : item.type === "mcpToolCall" ? item.tool : item.type === "webSearch" ? "web-search" : null;
++    if (!tool) return;
++    appendCodeAgentTranscriptEvent({ runId, kind: "status", message: `${completed ? "Finished" : "Running"} ${tool}.`,
++        metadata: { ...metadata, tool, toolCallId: itemId, type: completed ? "tool_done" : "tool_start",
++            ...(completed ? { result: cliTranscriptValue(item.aggregatedOutput ?? item.changes ?? item.result ?? item.error ?? item.status),
++                isError: item.status === "failed" || (typeof item.exitCode === "number" && item.exitCode !== 0) }
++                : { input: item.type === "commandExecution" ? { command: item.command, cwd: item.cwd }
++                    : item.arguments ?? item.changes ?? { query: item.query } }) } });
++}
++
+ async function executeCodexCliRun(options) {
++    if (options.codexCli?.configMode === "native") return executeCodexAppServerRun(options);
+     const cwd = options.run.cwd || process.cwd();
+     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-code-codex-"));
+     const outputPath = path.join(outputDir, "last-message.txt");
+@@ -1241,8 +1323,7 @@ async function executeCodexCliRun(options) {
+         "--cd",
+         cwd,
+         "exec",
+-        "--color",
+-        "never",
++        "--color", "never",
+         "--json",
+         "--skip-git-repo-check",
+         "--ignore-user-config",
+@@ -1269,6 +1350,7 @@ async function executeCodexCliRun(options) {
+         const result = await runCodexCliProcess({
+             args,
+             cwd,
++            launch: options.codexCli,
+             prompt: buildCodexCliPrompt(options.run, options.prompt),
+             stdout: options.stdout,
+             streamToolOutputToStdout,
+@@ -1363,6 +1445,7 @@ async function executeCodexCliRun(options) {
+                 attachments: pendingFollowUp.attachments ??
+                     userPromptAttachmentsForEvent(options.run.id, pendingFollowUp.eventId),
+                 appendUserEvent: false,
++                codexCli: options.codexCli,
+                 stdout: options.stdout,
+                 streamToolOutputToStdout: options.streamToolOutputToStdout,
+                 signal: options.signal,
+@@ -1406,10 +1489,14 @@ function runCodexCliProcess(options) {
+         let stderr = "";
+         let pendingJson = "";
+         let settled = false;
+-        const child = spawn("codex", options.args, {
++        const child = spawn(options.launch?.command ?? "codex", [
++            ...(options.launch?.argsPrefix ?? []), ...options.args,
++        ], {
+             cwd: options.cwd,
+             stdio: ["pipe", "pipe", "pipe"],
+-            env: process.env,
++            env: options.launch?.env ?? process.env,
++            shell: false,
++            windowsHide: true,
+         });
+         const finish = (result) => {
+             if (settled)
+@@ -1455,7 +1542,7 @@ function runCodexCliProcess(options) {
+                         : String(err),
+             });
+         });
+-        child.on("exit", (exitCode, exitSignal) => {
++        child.on("close", (exitCode, exitSignal) => {
+             if (pendingJson.trim())
+                 consumeCodexJsonLine(pendingJson, options.onEvent);
+             finish({ exitCode, exitSignal });
+diff --git a/dist/cli/codex-app-server-executor.d.ts b/dist/cli/codex-app-server-executor.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e242551e6527ff0d1cdddf224cddcf06c8508b7d
+--- /dev/null
++++ b/dist/cli/codex-app-server-executor.d.ts
+@@ -0,0 +1,27 @@
++export interface CodexAppServerRequest {
++    requestId: string;
++    method: string;
++    params: Record<string, unknown>;
++}
++export interface CodexAppServerOptions {
++    command: string;
++    argsPrefix?: string[];
++    env?: NodeJS.ProcessEnv;
++    permissionMode: "normal" | "read-only" | "yolo";
++    cwd: string;
++    prompt: string;
++    model?: string;
++    threadId?: string;
++    signal?: AbortSignal;
++    onRequest?: (request: CodexAppServerRequest) => Promise<Record<string, unknown>>;
++    onRequestResolved?: (requestId: string) => void;
++    onNotification?: (method: string, params: Record<string, unknown>) => void;
++    onThread?: (thread: { threadId: string; model: string }) => void;
++}
++export interface CodexAppServerResult {
++    status: "completed" | "interrupted" | "failed";
++    threadId?: string;
++    turnId?: string;
++    error?: string;
++}
++export declare function runCodexAppServer(options: CodexAppServerOptions): Promise<CodexAppServerResult>;
+diff --git a/dist/cli/codex-app-server-executor.js b/dist/cli/codex-app-server-executor.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..b17699cccc0bba6f27eb3b8953d9ef7b20453662
+--- /dev/null
++++ b/dist/cli/codex-app-server-executor.js
+@@ -0,0 +1,468 @@
++import { spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import path from "node:path";
++
++const REQUEST_TIMEOUT_MS = 15_000;
++const INTERRUPT_TIMEOUT_MS = 3_000;
++const MAX_LINE_BYTES = 8 * 1024 * 1024;
++const MAX_TRACKED_THREADS = 128;
++const MAX_CACHED_ITEMS = 256;
++const MAX_CACHED_ITEM_CHARS = 2 * 1024 * 1024;
++const SUPPORTED_REQUESTS = new Set([
++    "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
++    "item/permissions/requestApproval", "mcpServer/elicitation/request", "item/tool/requestUserInput",
++]);
++
++function isRecord(value) {
++    return value !== null && typeof value === "object" && !Array.isArray(value);
++}
++function permissionSettings(mode, cwd) {
++    switch (mode) {
++        case "normal": return { approvalPolicy: "on-request", sandbox: "workspace-write",
++            sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd], networkAccess: false } };
++        case "read-only": return { approvalPolicy: "never", sandbox: "read-only",
++            sandboxPolicy: { type: "readOnly", networkAccess: false } };
++        case "yolo": return { approvalPolicy: "never", sandbox: "danger-full-access",
++            sandboxPolicy: { type: "dangerFullAccess" } };
++        default: throw new Error("Choose Normal, Read only, or YOLO for Codex.");
++    }
++}
++function samePath(left, right) {
++    const normalize = value => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value);
++    return normalize(left) === normalize(right);
++}
++function validateThread(result, options, policy) {
++    if (!isRecord(result) || !isRecord(result.thread) || typeof result.thread.id !== "string"
++        || result.modelProvider !== "openai" || typeof result.cwd !== "string"
++        || !samePath(result.cwd, options.cwd) || (options.model && result.model !== options.model)
++        || result.approvalPolicy !== policy.approvalPolicy || result.approvalsReviewer !== "user"
++        || !isRecord(result.sandbox) || result.sandbox.type !== policy.sandboxPolicy.type) {
++        throw new Error("Codex did not apply the selected project, model, or permissions. No turn was started.");
++    }
++    if (options.threadId && result.thread.id !== options.threadId) {
++        throw new Error("Codex resumed a different conversation. No turn was started.");
++    }
++    if (policy.sandbox !== "danger-full-access") {
++        const roots = result.sandbox.writableRoots ?? [];
++        if (result.sandbox.networkAccess === true || !Array.isArray(roots)
++            || roots.some(root => typeof root !== "string" || !samePath(root, options.cwd))) {
++            throw new Error("Codex returned permissions outside the selected project. No turn was started.");
++        }
++    }
++    return result.thread.id;
++}
++
++/** Run one native Codex turn. The host owns process-tree cleanup and request authorization. */
++export async function runCodexAppServer(options) {
++    const policy = permissionSettings(options.permissionMode, options.cwd);
++    if (options.signal?.aborted) return { status: "interrupted" };
++    const child = spawn(options.command, [...(options.argsPrefix ?? []), "app-server", "--listen", "stdio://"], {
++        cwd: options.cwd, env: options.env ?? process.env, shell: false, windowsHide: true,
++        stdio: ["pipe", "pipe", "pipe"],
++    });
++    let closed = false;
++    let stopping = false;
++    let completed = false;
++    let buffer = "";
++    let stderr = "";
++    let sequence = 0;
++    let threadId;
++    let effectiveModel;
++    let reportedThread = false;
++    let turnId;
++    let startingTurn = false;
++    let interruptTimer;
++    const pendingCalls = new Map();
++    const pendingRequests = new Map();
++    const items = new Map();
++    let itemChars = 0;
++    let rootOutcome;
++    const members = new Set();
++    const checkingThreads = new Map();
++    const threadStates = new Map();
++    const collabItems = new Map();
++    const activityItems = new Map();
++    const summaryReads = new Map();
++    const itemKey = params => JSON.stringify([params.threadId, params.turnId, params.itemId ?? params.item?.id]);
++    function rememberItem(params, item) {
++        const key = itemKey(params);
++        const previous = items.get(key);
++        if (previous) { itemChars -= previous.size; items.delete(key); }
++        const size = JSON.stringify(item).length;
++        if (size > MAX_CACHED_ITEM_CHARS) return;
++        items.set(key, { item, size });
++        itemChars += size;
++        while (items.size > MAX_CACHED_ITEMS || itemChars > MAX_CACHED_ITEM_CHARS) {
++            const oldest = items.keys().next().value;
++            itemChars -= items.get(oldest).size;
++            items.delete(oldest);
++            collabItems.delete(oldest);
++        }
++    }
++    function stateFor(id) {
++        if (!threadStates.has(id)) {
++            if (threadStates.size >= MAX_TRACKED_THREADS) throw new Error("Codex exceeded the supported number of active agent threads.");
++            threadStates.set(id, { active: false });
++        }
++        return threadStates.get(id);
++    }
++    function finishWhenReady() {
++        if (!rootOutcome || completed) return;
++        if (rootOutcome.status === "completed" && (checkingThreads.size || pendingRequests.size || summaryReads.size
++            || [...members].some(id => id !== threadId && threadStates.get(id)?.active))) return;
++        finish(rootOutcome);
++    }
++    function publishCollab(entry) {
++        const agentsStates = { ...entry.params.item.agentsStates };
++        for (const id of entry.params.item.receiverThreadIds ?? []) {
++            const state = threadStates.get(id);
++            if (state?.status) agentsStates[id] = { status: state.status, ...(state.message ? { message: state.message } : {}) };
++        }
++        options.onNotification?.(entry.method, { ...entry.params, item: { ...entry.params.item, agentsStates } });
++    }
++    function publishActivity(entry) {
++        const state = threadStates.get(entry.params.item.agentThreadId);
++        options.onNotification?.(entry.method, { ...entry.params,
++            agentState: { status: state?.status ?? "running", ...(state?.message ? { message: state.message } : {}) } });
++    }
++    function refreshAgentCards(id) {
++        const activity = activityItems.get(id);
++        if (activity) publishActivity(activity);
++        for (const entry of collabItems.values()) {
++            if (entry.params.item.receiverThreadIds?.includes(id)) publishCollab(entry);
++        }
++    }
++    function readChildSummary(id) {
++        const state = stateFor(id);
++        if (state.message || summaryReads.has(id)) return;
++        const expectedTurn = state.turnId;
++        const request = call("thread/turns/list", { threadId: id, limit: 1, sortDirection: "desc", itemsView: "summary" })
++            .then(result => {
++                const turn = result?.data?.[0];
++                if (state.active || !isRecord(turn) || expectedTurn && turn.id !== expectedTurn) return;
++                if (turn.status === "failed") state.status = "errored";
++                else if (turn.status === "interrupted") state.status = "interrupted";
++                const message = Array.isArray(turn.items) ? [...turn.items].reverse().find(item =>
++                    item?.type === "agentMessage" && item.phase !== "commentary" && typeof item.text === "string") : null;
++                if (message) state.message = message.text.slice(0, 32_000);
++                else if (typeof turn.error?.message === "string") state.message = turn.error.message.slice(0, 32_000);
++                refreshAgentCards(id);
++            }).catch(() => undefined).finally(() => { summaryReads.delete(id); finishWhenReady(); });
++        summaryReads.set(id, request);
++    }
++    async function verifyMember(id) {
++        if (members.has(id)) return;
++        if (checkingThreads.has(id)) return checkingThreads.get(id);
++        if (typeof id !== "string" || !id || checkingThreads.size >= MAX_TRACKED_THREADS) throw new Error("Invalid Codex agent identity.");
++        const lookup = (async () => {
++            const chain = new Set();
++            let current = id;
++            while (!members.has(current)) {
++                if (chain.has(current) || chain.size >= 16) throw new Error("Codex agent ancestry is invalid.");
++                chain.add(current);
++                const result = await call("thread/read", { threadId: current, includeTurns: false });
++                const thread = result?.thread;
++                if (!isRecord(thread) || thread.id !== current) throw new Error("Codex could not verify the requesting agent.");
++                const parent = thread.parentThreadId ?? thread.source?.subAgent?.thread_spawn?.parent_thread_id;
++                if (typeof parent !== "string" || !parent) throw new Error("Codex requested access from an unrelated agent.");
++                current = parent;
++            }
++            if (members.size + chain.size > MAX_TRACKED_THREADS) throw new Error("Codex exceeded the supported number of agent threads.");
++            for (const member of chain) members.add(member);
++        })();
++        checkingThreads.set(id, lookup);
++        try { await lookup; }
++        finally { checkingThreads.delete(id); finishWhenReady(); }
++    }
++
++    let resolveResult;
++    const result = new Promise(resolve => { resolveResult = resolve; });
++    let resolveClose;
++    const close = new Promise(resolve => { resolveClose = resolve; });
++    function finish(value) {
++        if (completed) return;
++        completed = true;
++        clearTimeout(interruptTimer);
++        resolveResult(value);
++    }
++    function fail(error) {
++        finish({ status: options.signal?.aborted ? "interrupted" : "failed",
++            error: error instanceof Error ? error.message : String(error) });
++    }
++    function write(message) {
++        if (closed || child.stdin.destroyed || !child.stdin.writable) throw new Error("The Codex connection closed.");
++        child.stdin.write(JSON.stringify(message) + "\n");
++    }
++    function call(method, params) {
++        if (completed) return Promise.reject(new Error("The Codex turn has ended."));
++        const id = `vivary-${++sequence}`;
++        return new Promise((resolve, reject) => {
++            const timer = setTimeout(() => {
++                pendingCalls.delete(id);
++                reject(new Error(`Codex did not respond to ${method}.`));
++            }, REQUEST_TIMEOUT_MS);
++            pendingCalls.set(id, { resolve, reject, timer });
++            try { write({ id, method, params }); }
++            catch (error) { clearTimeout(timer); pendingCalls.delete(id); reject(error); }
++        });
++    }
++    function clearRequest(wireId) {
++        const pending = pendingRequests.get(wireId);
++        if (!pending) return;
++        pendingRequests.delete(wireId);
++        if (pending.exposed) {
++            try { options.onRequestResolved?.(pending.requestId); } catch (error) { fail(error); }
++        }
++        finishWhenReady();
++    }
++    async function handleRequest(message) {
++        if (pendingRequests.has(message.id)) throw new Error("Codex reused an unresolved request ID.");
++        if (pendingRequests.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex requests are waiting for a response.");
++        const requestId = randomUUID();
++        let params = message.params;
++        const pending = { requestId, threadId: params.threadId, exposed: false };
++        pendingRequests.set(message.id, pending);
++        try {
++            if (!SUPPORTED_REQUESTS.has(message.method) || !options.onRequest) {
++                throw new Error(`Unsupported Codex request: ${message.method}`);
++            }
++            if (!members.has(params.threadId)) await verifyMember(params.threadId);
++            if (!pendingRequests.has(message.id) || completed || options.signal?.aborted) return;
++            const nativeTurnId = params.threadId === threadId ? turnId : threadStates.get(params.threadId)?.turnId;
++            if (params.turnId != null && nativeTurnId && params.turnId !== nativeTurnId) {
++                throw new Error("Codex requested approval for another turn.");
++            }
++            if (params.threadId !== threadId) {
++                params = { ...params, agentThreadId: params.threadId };
++                if (params.turnId != null) Object.assign(stateFor(params.threadId), { turnId: params.turnId, active: true });
++            }
++            if (options.permissionMode === "read-only"
++                && ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(message.method)) {
++                write({ id: message.id, result: message.method === "item/permissions/requestApproval"
++                    ? { permissions: {}, scope: "turn" } : { decision: "decline" } });
++                clearRequest(message.id);
++                return;
++            }
++            if (message.method === "item/fileChange/requestApproval") {
++                const item = items.get(itemKey(params))?.item;
++                if (!item || item.type !== "fileChange") throw new Error("Codex requested file approval without the proposed changes.");
++                params = { ...params, item };
++            }
++            pending.exposed = true;
++            const response = await options.onRequest({ requestId, method: message.method, params });
++            if (!pendingRequests.has(message.id) || completed || options.signal?.aborted) return;
++            if (!isRecord(response)) throw new Error("The Codex request response is invalid.");
++            write({ id: message.id, result: response });
++            clearRequest(message.id);
++        } catch (error) {
++            if (!pendingRequests.has(message.id) || completed) return;
++            try { write({ id: message.id, error: { code: -32603, message: "Vivary could not answer this request." } }); } catch {}
++            // Fail before clearing so a completed root cannot hide an invalid child request.
++            fail(error);
++            clearRequest(message.id);
++        }
++    }
++    function recordThread() {
++        if (!reportedThread) {
++            reportedThread = true;
++            options.onThread?.({ threadId, model: effectiveModel });
++        }
++    }
++    function notification(method, params) {
++        const source = params.threadId;
++        if (method === "serverRequest/resolved") {
++            if (pendingRequests.get(params.requestId)?.threadId === source) clearRequest(params.requestId);
++            return;
++        }
++        if (method === "thread/started" && isRecord(params.thread) && members.has(params.thread.parentThreadId)) {
++            if (members.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex agent threads.");
++            members.add(params.thread.id);
++        }
++        if (typeof source !== "string") return;
++        const root = source === threadId;
++        if (method === "turn/started" && isRecord(params.turn) && typeof params.turn.id === "string") {
++            Object.assign(stateFor(source), { turnId: params.turn.id, active: true, status: "running", message: undefined });
++            if (root && startingTurn) { turnId = params.turn.id; recordThread(); }
++            else if (threadId && !members.has(source)) void verifyMember(source).catch(() => undefined);
++        }
++        const observed = threadStates.get(source);
++        if (params.turnId != null && observed?.turnId && params.turnId !== observed.turnId) return;
++        if ((method === "item/started" || method === "item/completed") && isRecord(params.item)) rememberItem(params, params.item);
++        if (method === "item/fileChange/patchUpdated" && typeof params.itemId === "string") {
++            const existing = items.get(itemKey(params))?.item;
++            if (existing) rememberItem(params, { ...existing, changes: params.changes });
++        }
++        const item = params.item;
++        if (isRecord(item) && item.type === "subAgentActivity" && members.has(source)
++            && typeof item.agentThreadId === "string" && (method === "item/started" || method === "item/completed")) {
++            if (!members.has(item.agentThreadId) && members.size >= MAX_TRACKED_THREADS) throw new Error("Too many Codex agent threads.");
++            members.add(item.agentThreadId);
++            const state = stateFor(item.agentThreadId);
++            if (item.kind === "completed" || item.kind === "interrupted") {
++                state.active = false;
++                if (!["errored", "interrupted"].includes(state.status)) state.status = item.kind;
++            } else if (!state.status || state.active) {
++                state.active = true;
++                state.status = "running";
++            }
++            const entry = { method, params };
++            activityItems.set(item.agentThreadId, entry);
++            publishActivity(entry);
++            if (item.kind === "completed") readChildSummary(item.agentThreadId);
++        } else if (isRecord(item) && item.type === "collabAgentToolCall" && members.has(source)
++            && item.senderThreadId === source && (method === "item/started" || method === "item/completed")) {
++            if (item.tool === "spawnAgent" && item.status === "completed") {
++                for (const id of item.receiverThreadIds ?? []) {
++                    if (typeof id !== "string" || members.size >= MAX_TRACKED_THREADS) throw new Error("Invalid Codex child identity.");
++                    members.add(id);
++                    stateFor(id);
++                }
++            }
++            for (const id of item.receiverThreadIds ?? []) {
++                if (!members.has(id) || !isRecord(item.agentsStates?.[id])) continue;
++                const state = stateFor(id);
++                const incoming = item.agentsStates[id];
++                if (!state.status || item.tool !== "spawnAgent" || !["pendingInit", "running"].includes(incoming.status)) {
++                    Object.assign(state, { status: incoming.status, active: ["pendingInit", "running"].includes(incoming.status),
++                        ...(typeof incoming.message === "string" ? { message: incoming.message.slice(0, 32_000) } : {}) });
++                }
++            }
++            const key = itemKey(params);
++            if (!collabItems.has(key) && collabItems.size >= MAX_CACHED_ITEMS) collabItems.delete(collabItems.keys().next().value);
++            const entry = { method, params };
++            if (items.has(key)) collabItems.set(key, entry);
++            publishCollab(entry);
++        } else if (root) options.onNotification?.(method, params);
++        if (!root && method === "item/completed" && item?.type === "agentMessage"
++            && item.phase !== "commentary" && typeof item.text === "string") {
++            stateFor(source).message = item.text.slice(0, 32_000);
++        }
++        if (method === "turn/completed" && isRecord(params.turn)) {
++            const state = stateFor(source);
++            if (state.turnId && params.turn.id !== state.turnId) return;
++            const status = params.turn.status;
++            Object.assign(state, { turnId: params.turn.id, active: false,
++                status: status === "failed" ? "errored" : status,
++                ...(typeof params.turn.error?.message === "string" ? { message: params.turn.error.message } : {}) });
++            if (root && startingTurn) {
++                turnId = params.turn.id;
++                rootOutcome = { status: status === "completed" ? "completed" : status === "interrupted" ? "interrupted" : "failed",
++                    threadId, turnId, ...(status === "failed" ? { error: state.message ?? "Codex could not complete the turn." } : {}) };
++            }
++            if (members.has(source)) refreshAgentCards(source);
++        }
++        finishWhenReady();
++    }
++    function receive(line) {
++        if (!line.trim() || completed) return;
++        const message = JSON.parse(line);
++        if (!isRecord(message)) throw new Error("Codex returned an invalid protocol message.");
++        if (typeof message.method === "string") {
++            const params = message.params ?? {};
++            if (!isRecord(params)) throw new Error("Codex returned invalid request parameters.");
++            if (typeof message.id === "string" || typeof message.id === "number") {
++                void handleRequest({ ...message, params }).catch(fail);
++            } else notification(message.method, params);
++        } else if (pendingCalls.has(message.id)) {
++            const pending = pendingCalls.get(message.id);
++            clearTimeout(pending.timer);
++            pendingCalls.delete(message.id);
++            if (message.error) pending.reject(new Error(message.error.message ?? "Codex rejected a request."));
++            else pending.resolve(message.result);
++        }
++    }
++    function abort() {
++        if (completed) return;
++        for (const id of members) {
++            const activeTurn = id === threadId ? turnId : threadStates.get(id)?.turnId;
++            if (activeTurn && (id === threadId || threadStates.get(id)?.active)) {
++                void call("turn/interrupt", { threadId: id, turnId: activeTurn }).catch(() => undefined);
++            }
++        }
++        interruptTimer ??= setTimeout(() => finish({ status: "interrupted", threadId, turnId }), INTERRUPT_TIMEOUT_MS);
++    }
++    child.stdout.setEncoding("utf8");
++    child.stdout.on("data", chunk => {
++        if (completed) return;
++        buffer += chunk;
++        try {
++            let end;
++            while ((end = buffer.indexOf("\n")) !== -1) {
++                if (end > MAX_LINE_BYTES) throw new Error("A Codex protocol message exceeded the supported size.");
++                const line = buffer.slice(0, end);
++                buffer = buffer.slice(end + 1);
++                receive(line);
++            }
++            if (buffer.length > MAX_LINE_BYTES) throw new Error("A Codex protocol message exceeded the supported size.");
++        } catch (error) { fail(error); }
++    });
++    child.stderr.setEncoding("utf8");
++    child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-4096); });
++    child.stdin.on("error", error => { if (!stopping) fail(error); });
++    child.once("error", fail);
++    child.once("close", () => {
++        closed = true;
++        resolveClose();
++        if (!completed) {
++            try { if (buffer.trim()) receive(buffer); } catch (error) { fail(error); }
++            if (!completed) fail(new Error(stderr.trim() || "Codex disconnected before the turn finished."));
++        }
++    });
++    options.signal?.addEventListener("abort", abort, { once: true });
++    if (options.signal?.aborted) abort();
++    const setup = (async () => {
++        await call("initialize", { clientInfo: { name: "vivary", title: "Vivary", version: "1" }, capabilities: { experimentalApi: true } });
++        if (completed || options.signal?.aborted) return;
++        write({ method: "initialized" });
++        const started = await call(options.threadId ? "thread/resume" : "thread/start", {
++            ...(options.threadId ? { threadId: options.threadId } : {}), cwd: options.cwd, model: options.model,
++            approvalPolicy: policy.approvalPolicy, approvalsReviewer: "user", sandbox: policy.sandbox,
++            config: { sandbox_workspace_write: { writable_roots: [], network_access: false } },
++        });
++        if (completed || options.signal?.aborted) return;
++        threadId = validateThread(started, options, policy);
++        members.add(threadId);
++        effectiveModel = started.model;
++        startingTurn = true;
++        const startedTurn = await call("turn/start", {
++            threadId, input: [{ type: "text", text: options.prompt }], cwd: options.cwd, model: options.model,
++            approvalPolicy: policy.approvalPolicy, approvalsReviewer: "user", sandboxPolicy: policy.sandboxPolicy,
++            collaborationMode: { mode: "default", settings: { model: effectiveModel,
++                reasoning_effort: started.reasoningEffort ?? null, developer_instructions: null } },
++        });
++        if (!isRecord(startedTurn?.turn) || typeof startedTurn.turn.id !== "string") {
++            throw new Error("Codex did not return a turn ID.");
++        }
++        if (turnId && turnId !== startedTurn.turn.id) throw new Error("Codex returned inconsistent turn IDs.");
++        turnId = startedTurn.turn.id;
++        recordThread();
++        if (options.signal?.aborted) abort();
++    })().catch(fail);
++    try {
++        return await result;
++    } finally {
++        stopping = true;
++        clearTimeout(interruptTimer);
++        options.signal?.removeEventListener("abort", abort);
++        for (const pending of pendingCalls.values()) {
++            clearTimeout(pending.timer);
++            pending.reject(new Error("The Codex connection ended."));
++        }
++        pendingCalls.clear();
++        for (const wireId of [...pendingRequests.keys()]) clearRequest(wireId);
++        child.stdin.end();
++        // Windows tree cleanup needs the live Codex ancestor until the host stops the worker tree.
++        const stopSignals = process.platform === "win32" ? [null] : [null, "SIGTERM", "SIGKILL"];
++        for (const signal of stopSignals) {
++            if (closed) break;
++            if (signal) child.kill(signal);
++            let timer;
++            await Promise.race([close, new Promise(resolve => { timer = setTimeout(resolve, 500); })]);
++            clearTimeout(timer);
++        }
++        await setup;
++        if (!closed && process.platform !== "win32") {
++            throw new Error("The Codex process did not stop. The host must stop its process tree.");
++        }
++    }
++}
 diff --git a/dist/client/AssistantChat.d.ts b/dist/client/AssistantChat.d.ts
 index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..a4e8c6088705df943600b198afc5bd0c22408ef3 100644
 --- a/dist/client/AssistantChat.d.ts
@@ -141,7 +846,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..a4e8c6088705df943600b198afc5bd0c
      onGenerateTitle?: (threadId: string, message: string) => void;
      /** Optional content rendered just above the composer input */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..6bca4475d9276bd07fdd8cabecb57f0a6b1d26e0 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..a8068be2c6d8d83958ecc5bdc033f6b992ae874d 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -219,6 +924,15 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..6bca4475d9276bd07fdd8cabecb57f0a
          tabId,
      ]);
      useEffect(() => {
+@@ -4542,7 +4562,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         recordApprovalResolution,
+         showActionTypeApprovalPolicy,
+     ]);
+-    return (_jsx(SuppressInlineOpenAppContext.Provider, { value: suppressInlineOpenApp, children: _jsx(CheckpointContext.Provider, { value: checkpointCtx, children: _jsx(MessageActionsContext.Provider, { value: messageActionsCtx, children: _jsx(ApprovalContext.Provider, { value: approvalCtx, children: _jsx(ChatRunDurationContext.Provider, { value: showRunningInUI ? null : lastChatRunDurationMs, children: _jsx(ServerRunActiveContext.Provider, { value: serverRunActive, children: _jsx(ChatRunningRunIdContext.Provider, { value: activeChatRunId, children: _jsx(ChatRunningTurnIdContext.Provider, { value: activeChatTurnId, children: _jsx(ChatRunningContext.Provider
++    return (_jsx(SuppressInlineOpenAppContext.Provider, { value: suppressInlineOpenApp, children: _jsx(CheckpointContext.Provider, { value: checkpointCtx, children: _jsx(MessageActionsContext.Provider, { value: messageActionsCtx, children: _jsx(ApprovalContext.Provider, { value: approvalCtx, children: _jsx(ChatRunDurationContext.Provider, { value: showRunningInUI ? null : lastChatRunDurationMs, children: _jsx(ServerRunActiveContext.Provider, { value: serverRunActive || externalStreaming, children: _jsx(ChatRunningRunIdContext.Provider, { value: activeChatRunId, children: _jsx(ChatRunningTurnIdContext.Provider, { value: activeChatTurnId, children: _jsx(ChatRunningContext.Provider
+                                     // Keep the current message in a non-complete state while
+                                     // the terminal error card is visible, even if the server
+                                     // still reports the prior run for a short time while its
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
 index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db289c83c82 100644
 --- a/dist/client/MultiTabAssistantChat.js
@@ -251,6 +965,137 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db2
 +                                            : props.composerDisabledPlaceholder })] }, tabId));
                      })] })] }));
  }
+diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
+index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a3454d087 100644
+--- a/dist/client/chat/message-components.d.ts
++++ b/dist/client/chat/message-components.d.ts
+@@ -246,3 +246,8 @@ export declare function RunningActivityStatus({ label }: {
+ export declare function ThinkingIndicator({ label }?: {
+     label?: string;
+ }): React.JSX.Element;
++
++export declare function CodeAgentActivityCard({ part, scopeKey }: {
++    part: Extract<ContentPart, { type: "data" }>;
++    scopeKey?: string;
++}): React.JSX.Element | null;
+diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
+index 440c93db05d0b21745e8c74db76af0ec2de27761..4377652ffc390b7be2b1a6bfdebbff6dabb3e1fc 100644
+--- a/dist/client/chat/message-components.js
++++ b/dist/client/chat/message-components.js
+@@ -985,6 +985,75 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+ function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
+     return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
+ }
++const codeActivityOpen = new Set();
++export function CodeAgentActivityCard({ part, scopeKey }) {
++    if (part.name !== "code-agent-activity") return null;
++    const activity = part.data;
++    if (!activity || (activity.kind !== "progress" && activity.kind !== "subagent")) return null;
++    const subagent = activity.kind === "subagent";
++    const agentName = subagent && typeof activity.agentPath === "string"
++        ? activity.agentPath.split("/").filter(Boolean).at(-1)?.replace(/[_-]+/g, " ") : undefined;
++    const label = subagent ? agentName ? "Subagent · " + agentName : "Subagent activity" : "Progress";
++    const rawText = typeof activity.text === "string" ? activity.text : "";
++    const operationLabels = {
++        spawnAgent: ["Starting subagent", "Started subagent"],
++        sendInput: ["Sending follow-up", "Sent follow-up"],
++        sendMessage: ["Sending follow-up", "Sent follow-up"],
++        followupTask: ["Sending follow-up", "Sent follow-up"],
++        wait: ["Waiting for subagent", "Checked subagent status"],
++        closeAgent: ["Closing subagent", "Closed subagent"],
++        resumeAgent: ["Resuming subagent", "Resumed subagent"],
++        interruptAgent: ["Requesting subagent stop", "Requested subagent stop"],
++        listAgents: ["Checking subagents", "Checked subagents"],
++    };
++    const operation = Object.hasOwn(operationLabels, activity.tool) ? operationLabels[activity.tool] : undefined;
++    const statusLabels = { pendingInit: "Starting", inProgress: "Working", running: "Working",
++        completed: "Completed", interrupted: "Interrupted", errored: "Failed", failed: "Failed",
++        shutdown: "Closed", notFound: "Not found" };
++    const statusLabel = value => Object.hasOwn(statusLabels, value) ? statusLabels[value] : value;
++    const nativeActivityNote = activity.activityType === "subAgentActivity"
++        && ["started", "interacted", "interrupted", "completed"].some(kind => rawText === `Codex subagent ${activity.agentPath}: ${kind}.`);
++    const text = subagent && (rawText === `Codex agent operation: ${activity.tool}.` || nativeActivityNote) ? "" : rawText;
++    const summary = subagent ? activity.activityType === "subAgentActivity" ? statusLabel(activity.status) : operation
++        ? operation[activity.status === "completed" ? 1 : 0] + (activity.status === "failed" ? " · Failed" : "")
++        : statusLabel(activity.status)
++        : text.replace(/\s+/g, " ").slice(0, 180);
++    const disclosureKey = scopeKey ? JSON.stringify([scopeKey, activity.kind, activity.itemId]) : null;
++    return _jsxs("details", {
++        open: disclosureKey ? codeActivityOpen.has(disclosureKey) : undefined,
++        onToggle: event => {
++            if (!disclosureKey) return;
++            if (event.currentTarget.open) {
++                codeActivityOpen.add(disclosureKey);
++                if (codeActivityOpen.size > 256) codeActivityOpen.delete(codeActivityOpen.values().next().value);
++            } else codeActivityOpen.delete(disclosureKey);
++        },
++        "data-code-activity": activity.kind,
++        "aria-label": label,
++        style: { margin: "0.5rem 0", maxWidth: "92%", border: "1px solid hsl(var(--border))",
++            borderRadius: "0.625rem", background: "color-mix(in srgb, hsl(var(--background)) 88%, #000)",
++            color: "hsl(var(--foreground))", fontSize: "0.8125rem", lineHeight: 1.5 },
++        children: [
++            _jsxs("summary", { style: { padding: "0.5rem 0.75rem", cursor: "pointer", overflowWrap: "anywhere" },
++                children: [_jsx("span", { style: { fontWeight: 600 }, children: label }),
++                    _jsx("span", { style: { marginLeft: "0.5rem" }, children: summary })] }),
++            _jsxs("div", { tabIndex: 0, "aria-label": label + " details",
++                style: { padding: "0 0.75rem 0.75rem", maxHeight: "16rem", overflowY: "auto", overflowWrap: "anywhere" },
++                children: [subagent && activity.agentPath && _jsxs("p", { style: { margin: "0.25rem 0" },
++                        children: ["Path: ", _jsx("code", { children: activity.agentPath })] }),
++                    subagent && !operation && activity.tool && _jsxs("p", {
++                        style: { margin: "0.25rem 0" }, children: ["Operation: ", _jsx("code", { children: activity.tool })] }),
++                    text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: text }),
++                    subagent && Array.isArray(activity.agents) && activity.agents.map(agent =>
++                        _jsxs("div", { style: { marginTop: "0.5rem" }, children: [
++                            _jsxs("p", { style: { margin: 0 }, children: ["Agent ",
++                                _jsx("code", { children: agent.id }), " · ", statusLabel(agent.status)] }),
++                            agent.text && _jsx("p", { style: { whiteSpace: "pre-wrap", margin: "0.25rem 0" }, children: agent.text })
++                        ] }, agent.id))]
++            })]
++    });
++}
++
+ export function AssistantMessage() {
+     const t = useT();
+     const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
+@@ -1298,6 +1367,8 @@ export function AssistantMessage() {
+                                             return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
+                                         }
+                                         return _jsx(MarkdownText, {});
++                                    case "data":
++                                        return _jsx(CodeAgentActivityCard, { part, scopeKey: messageRunId }, part.data?.itemId);
+                                     case "reasoning":
+                                         return _jsx(ReasoningMessagePart, {});
+                                     case "tool-call":
+diff --git a/dist/client/code-agent-chat-adapter.js b/dist/client/code-agent-chat-adapter.js
+index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ffe3c03bd3 100644
+--- a/dist/client/code-agent-chat-adapter.js
++++ b/dist/client/code-agent-chat-adapter.js
+@@ -243,6 +243,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+     };
+ }
+ function contentPartForCodeAgentTranscriptItem(item) {
++    if (item.type === "activity") {
++        return { type: "data", name: "code-agent-activity", data: item.activity };
++    }
+     if (item.type === "assistant") {
+         return item.text.trim() ? { type: "text", text: item.text.trim() } : null;
+     }
+diff --git a/dist/client/sse-event-processor.d.ts b/dist/client/sse-event-processor.d.ts
+index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c897bc51865 100644
+--- a/dist/client/sse-event-processor.d.ts
++++ b/dist/client/sse-event-processor.d.ts
+@@ -4,6 +4,10 @@ import type { ActionChatUIConfig } from "../action-ui.js";
+ import type { ArtifactReceipt } from "../artifacts/detect.js";
+ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+ export type ContentPart = {
++    type: "data";
++    name: "code-agent-activity";
++    data: import("../code-agents/transcript-normalizer.js").CodeAgentActivity;
++} | {
+     type: "text";
+     text: string;
+ } | {
 diff --git a/dist/client/thread-save-queue.js b/dist/client/thread-save-queue.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac85dd3af93
@@ -313,6 +1158,166 @@ index a49a21f4f6c6500367bcc2445042669d2a875834..8a64937114afd72e725397bf3015ab75
          }
          catch { }
      }, [apiUrl, historyScope, readKnownThreadScope]);
+diff --git a/dist/code-agents/transcript-normalizer.d.ts b/dist/code-agents/transcript-normalizer.d.ts
+index ecf5d9182ba19d6e57f9fc3236e19fa46bf4440c..7b01c8a6067923b1a71058440b6edb0ea4568296 100644
+--- a/dist/code-agents/transcript-normalizer.d.ts
++++ b/dist/code-agents/transcript-normalizer.d.ts
+@@ -2,7 +2,7 @@ import { type ActionChatUIConfig } from "../action-ui.js";
+ import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
+ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+ export type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
+-export type NormalizedCodeAgentTranscriptItem = NormalizedCodeAgentUserTurn | NormalizedCodeAgentAssistantTurn | NormalizedCodeAgentToolEvent | NormalizedCodeAgentStatusEvent | NormalizedCodeAgentThinkingEvent;
++export type NormalizedCodeAgentTranscriptItem = NormalizedCodeAgentUserTurn | NormalizedCodeAgentAssistantTurn | NormalizedCodeAgentToolEvent | NormalizedCodeAgentStatusEvent | NormalizedCodeAgentThinkingEvent | NormalizedCodeAgentActivityEvent;
+ export interface NormalizedCodeAgentTranscript {
+     items: NormalizedCodeAgentTranscriptItem[];
+     rawEvents: CodeAgentTranscriptEvent[];
+@@ -94,3 +94,13 @@ export declare function isCredentialGapCodeAgentEvent(event: {
+     message?: string;
+ }): boolean;
+ export declare function normalizeCodeAgentTranscript(events: readonly CodeAgentTranscriptEvent[]): NormalizedCodeAgentTranscript;
++
++export type CodeAgentActivity =
++    | { kind: "progress"; itemId: string; text: string }
++    | { kind: "subagent"; itemId: string; text: string; senderThreadId: string; tool: string;
++        activityType?: "subAgentActivity"; agentThreadId?: string; agentPath?: string;
++        status: string; agents: { id: string; status: string; text: string }[] };
++export interface NormalizedCodeAgentActivityEvent extends NormalizedCodeAgentTranscriptBase {
++    type: "activity";
++    activity: CodeAgentActivity;
++}
+diff --git a/dist/code-agents/transcript-normalizer.js b/dist/code-agents/transcript-normalizer.js
+index ebaa5b90b2bdc493428ab08a1e932f3c0161a4c3..5b7d73b82a236cdadc604c18b6867ba8015265d6 100644
+--- a/dist/code-agents/transcript-normalizer.js
++++ b/dist/code-agents/transcript-normalizer.js
+@@ -37,6 +37,26 @@ export function normalizeCodeAgentTranscript(events) {
+             items.push(createUserTurn(event, turnIndex));
+             continue;
+         }
++        const activity = codeAgentActivity(event);
++        if (activity) {
++            const previous = items.find(item => item.type === "activity"
++                && item.turnIndex === currentTurnIndex && item.activity.itemId === activity.itemId
++                && item.activity.kind === activity.kind && item.events[0]?.runId === event.runId);
++            if (previous) {
++                if (activity.activityType === "subAgentActivity") {
++                    activity.agents = activity.agents.map(agent => ({ ...agent,
++                        text: agent.text || previous.activity.agents?.find(previousAgent => previousAgent.id === agent.id)?.text || "" }));
++                }
++                previous.activity = activity;
++                previous.updatedAt = event.createdAt;
++                previous.eventIds.push(event.id);
++                previous.events.push(event);
++            } else {
++                items.push({ type: "activity", activity, id: event.id, createdAt: event.createdAt,
++                    updatedAt: event.createdAt, eventIds: [event.id], events: [event], turnIndex: currentTurnIndex });
++            }
++            continue;
++        }
+         const assistantSource = assistantTextSource(event);
+         if (assistantSource) {
+             const text = assistantTextForEvent(event, assistantSource);
+@@ -125,6 +145,48 @@ function createUserTurn(event, turnIndex) {
+         turnIndex,
+     };
+ }
++
++function boundedActivityText(value, limit = 12000) {
++    if (typeof value !== "string") return "";
++    return value.length > limit ? value.slice(0, limit) + "\n[Display truncated]" : value;
++}
++function codeAgentActivity(event) {
++    const metadata = event.metadata;
++    if (!metadata || metadata.source !== "codex-app-server") return null;
++    const itemId = stringMetadata(metadata, "itemId");
++    if (!itemId) return null;
++    if (metadata.role === "assistant" && metadata.phase === "commentary") {
++        const text = boundedActivityText(event.message);
++        return text.trim() ? { kind: "progress", itemId, text } : null;
++    }
++    if (metadata.type === "subagent" && metadata.activityType === "subAgentActivity") {
++        const agentThreadId = boundedActivityText(metadata.agentThreadId, 200);
++        if (!agentThreadId || typeof metadata.agentThreadId !== "string" || metadata.agentThreadId.length > 200) return null;
++        const state = metadata.agentsStates?.[agentThreadId];
++        const status = boundedActivityText(state?.status, 80) || boundedActivityText(metadata.status, 80) || "unknown";
++        return { kind: "subagent", itemId: "subagent:" + agentThreadId, activityType: "subAgentActivity",
++            agentThreadId, agentPath: boundedActivityText(metadata.agentPath, 200),
++            senderThreadId: boundedActivityText(metadata.senderThreadId, 200), tool: "", status,
++            text: boundedActivityText(event.message),
++            agents: [{ id: agentThreadId, status, text: boundedActivityText(state?.message) }] };
++    }
++    if (metadata.type !== "subagent" || typeof metadata.senderThreadId !== "string"
++        || !Array.isArray(metadata.receiverThreadIds)) return null;
++    const states = metadata.agentsStates && typeof metadata.agentsStates === "object"
++        && !Array.isArray(metadata.agentsStates) ? metadata.agentsStates : {};
++    const receivers = metadata.receiverThreadIds.filter(id => typeof id === "string" && id.length > 0 && id.length <= 200);
++    const ids = [...new Set([...receivers, ...Object.keys(states).filter(id => id.length > 0 && id.length <= 200)])].slice(0, 32);
++    if (!ids.length) return null;
++    const agents = ids.map(id => {
++        const state = states[id];
++        return { id, status: boundedActivityText(state?.status, 80) || "unknown",
++            text: boundedActivityText(state?.message) };
++    });
++    return { kind: "subagent", itemId, senderThreadId: boundedActivityText(metadata.senderThreadId, 200),
++        tool: boundedActivityText(metadata.tool, 80), status: boundedActivityText(metadata.status, 80) || "unknown",
++        text: boundedActivityText(event.message), agents };
++}
++
+ function createAssistantTurn(event, source, turnIndex, text) {
+     return {
+         type: "assistant",
+@@ -194,7 +256,8 @@ function createStatusEvent(event, turnIndex) {
+ }
+ function appendToolEvent(items, event, toolType, turnIndex) {
+     const tool = stringMetadata(event.metadata, "tool");
+-    const item = findOpenToolEvent(items, tool, turnIndex);
++    const toolCallId = stringMetadata(event.metadata, "toolCallId");
++    const item = findOpenToolEvent(items, tool, turnIndex, toolCallId);
+     if (!item) {
+         items.push(createToolEvent(event, toolType, turnIndex));
+         return;
+@@ -266,7 +329,8 @@ function createToolEvent(event, toolType, turnIndex) {
+         turnIndex,
+     };
+ }
+-function findOpenToolEvent(items, tool, turnIndex) {
++function findOpenToolEvent(items, tool, turnIndex, toolCallId) {
++    let legacyMatch = null;
+     for (let index = items.length - 1; index >= 0; index -= 1) {
+         const item = items[index];
+         if (item.type !== "tool")
+@@ -279,9 +343,17 @@ function findOpenToolEvent(items, tool, turnIndex) {
+             continue;
+         if (!tool && item.tool)
+             continue;
+-        return item;
++        if (!toolCallId)
++            return item;
++        const itemToolCallId = item.events
++            .map((event) => stringMetadata(event.metadata, "toolCallId"))
++            .find((id) => id !== undefined);
++        if (itemToolCallId === toolCallId)
++            return item;
++        if (!itemToolCallId && !legacyMatch)
++            legacyMatch = item;
+     }
+-    return null;
++    return legacyMatch;
+ }
+ function isAgentChatClearEvent(event) {
+     return stringMetadata(event.metadata, "agentChatEventType") === "clear";
+diff --git a/dist/code-agents/transcript-order.js b/dist/code-agents/transcript-order.js
+index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f327bc9e0f6 100644
+--- a/dist/code-agents/transcript-order.js
++++ b/dist/code-agents/transcript-order.js
+@@ -28,6 +28,8 @@ export function isCodeAgentRunActive(run) {
+         runnerState === "stopped") {
+         return false;
+     }
++    if (run.status === "needs-approval" && run.phase === "action-approval")
++        return true;
+     return !(run.needsApproval ||
+         run.status === "completed" ||
+         run.status === "errored" ||
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
 index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
 --- a/dist/server/agent-chat-plugin.js

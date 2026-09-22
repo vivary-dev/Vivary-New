@@ -51,21 +51,47 @@ def run_doctor_json(target: Path, *args: str) -> tuple[int, dict]:
     return rc, json.loads(buf.getvalue())
 
 
-def snapshot_workspace(root: Path) -> dict[str, tuple]:
-    """Capture every file's bytes and every entry's modification time."""
+def _capture_workspace(root: Path) -> dict[str, tuple]:
     snapshot = {}
     for path in sorted(root.rglob("*")):
         rel = path.relative_to(root).as_posix()
-        stat_result = path.stat()
         if path.is_dir():
-            snapshot[rel] = ("dir", stat_result.st_mtime_ns)
+            # List before stat so the entry is revalidated first; see
+            # snapshot_workspace for why the order matters.
+            os.listdir(path)
+            snapshot[rel] = ("dir", path.stat().st_mtime_ns)
         elif path.is_file():
-            snapshot[rel] = (
-                "file",
-                stat_result.st_mtime_ns,
-                hashlib.sha256(path.read_bytes()).hexdigest(),
-            )
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            snapshot[rel] = ("file", path.stat().st_mtime_ns, digest)
     return snapshot
+
+
+def snapshot_workspace(root: Path) -> dict[str, tuple]:
+    """Capture every file's bytes and every entry's modification time.
+
+    Read or list each entry before taking its stat, then repeat until two
+    consecutive captures agree. On gVisor's 9p root (the Zo host) the first
+    stat of a freshly written entry can carry a cached timestamp about a
+    millisecond later than the value a later stat returns once the entry has
+    been revalidated, which made read-only doctor runs look like writes under
+    load. Settling the capture keeps the byte-for-byte and
+    timestamp-for-timestamp comparison intact.
+    """
+    earlier = None
+    previous = _capture_workspace(root)
+    for _ in range(4):
+        current = _capture_workspace(root)
+        if current == previous:
+            return current
+        earlier, previous = previous, current
+    changed = sorted(
+        rel
+        for rel in set(earlier) | set(previous)
+        if earlier.get(rel) != previous.get(rel)
+    )
+    raise AssertionError(
+        f"workspace snapshot did not settle after 5 captures; still changing: {changed}"
+    )
 
 def flatten_v01_modules(target: Path) -> None:
     """Turn current generated module routers into the flat published v0.1 layout."""
@@ -2004,6 +2030,59 @@ class CreateVivaryTests(unittest.TestCase):
             self.assertEqual(report["compatibility"]["recommended_missing"], [])
             self.assertEqual(snapshot_workspace(target), before)
 
+    def _init_thin_writing_workspace(self, target: Path) -> None:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = create_vivary.main([
+                "init", str(target), "--preset", "writing", "--no-wizard",
+                "--json", "--repo-root", str(ROOT),
+            ])
+        self.assertEqual(rc, 0, buf.getvalue())
+
+    def test_doctor_keeps_tropo_warnings_out_of_errors(self):
+        # An ordinary typed record with one field the schema does not know is a
+        # Tropo warning (W202). Doctor must report it as a warning, not fail.
+        with temp_workspace() as td:
+            target = Path(td) / "notes-with-warning"
+            self._init_thin_writing_workspace(target)
+            context = target / ".vivary" / "context.md"
+            context.write_text(
+                context.read_text(encoding="utf-8").replace(
+                    "preset: writing\n", "preset: writing\nauthor: Jeff\n", 1
+                ),
+                encoding="utf-8",
+            )
+
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(report["errors"], [])
+            self.assertEqual(
+                [w for w in report["warnings"] if "W202" in w],
+                ["tropo finding: .vivary/context.md:4: warning W202: "
+                 "unknown field 'author' for type 'project'"],
+            )
+
+    def test_doctor_keeps_tropo_errors_as_errors(self):
+        with temp_workspace() as td:
+            target = Path(td) / "notes-with-error"
+            self._init_thin_writing_workspace(target)
+            change = target / "changes" / "bad.md"
+            change.parent.mkdir()
+            change.write_text(
+                "---\nproject: book\nstatus: planned\n---\n# Bad\n", encoding="utf-8"
+            )
+
+            report = create_vivary.doctor_workspace(target, repo_root=ROOT)
+
+            self.assertFalse(report["ok"])
+            self.assertEqual(
+                [e for e in report["errors"] if "E101" in e],
+                ["tropo finding: changes/bad.md:1: error E101: "
+                 "missing required field 'slice' for type 'change'"],
+            )
+            self.assertEqual(report["warnings"], [])
+
     def test_doctor_rejects_corrupt_baseline_and_declared_storage(self):
         with temp_workspace() as td:
             target = Path(td) / "corrupt-workspace"
@@ -2924,7 +3003,8 @@ class CreateVivaryTests(unittest.TestCase):
 
             rc, out = run_doctor_json(target, "--repair", "--yes")
 
-            self.assertEqual(rc, 1)
+            self.assertEqual(rc, 0)  # a redundant title is a warning, not a failure
+            self.assertTrue(any("W210" in w for w in out["warnings"]), out["warnings"])
             actions = [a for a in out["repair"]["actions"] if a["kind"] == "tropo-w210"]
             self.assertEqual(len(actions), 1)
             self.assertEqual(actions[0]["status"], "manual")
@@ -2947,7 +3027,8 @@ class CreateVivaryTests(unittest.TestCase):
 
             rc, out = run_doctor_json(target, "--repair", "--yes")
 
-            self.assertEqual(rc, 1)
+            self.assertEqual(rc, 0)  # a redundant title is a warning, not a failure
+            self.assertTrue(any("W210" in w for w in out["warnings"]), out["warnings"])
             actions = [a for a in out["repair"]["actions"] if a["kind"] == "tropo-w210"]
             self.assertEqual(len(actions), 1)
             self.assertEqual(actions[0]["status"], "manual")
@@ -2979,7 +3060,8 @@ class CreateVivaryTests(unittest.TestCase):
 
             rc, out = run_doctor_json(target, "--repair", "--yes")
 
-            self.assertEqual(rc, 1)
+            self.assertEqual(rc, 0)  # a redundant title is a warning, not a failure
+            self.assertTrue(any("W210" in w for w in out["warnings"]), out["warnings"])
             actions = [a for a in out["repair"]["actions"] if a["kind"] == "tropo-w210"]
             self.assertEqual(len(actions), 1)
             self.assertEqual(actions[0]["status"], "manual")

@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, describe, it } from "node:test";
 import {
   appendCodeAgentTranscriptEvent,
   createCodeAgentRunRecord,
@@ -27,8 +27,20 @@ import {
   resolveVivaryCodeModel,
   isVivaryAppRun,
   sendVivaryCodeMessage,
+  stopVivaryCodeRun,
 } from "../server/local-code-agent.ts";
 
+import { setTimeout as delay } from "node:timers/promises";
+import { getCodePermissionMode, setCodePermissionMode } from "../server/code-permissions.ts";
+
+const stateRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-test-state-"));
+const previousDatabase = process.env.DATABASE_URL; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+process.env.DATABASE_URL = "file:" + path.join(stateRoot, "state.sqlite"); // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+after(async () => {
+  if (previousDatabase === undefined) delete process.env.DATABASE_URL; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+  else process.env.DATABASE_URL = previousDatabase; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+  await rm(stateRoot, { recursive: true, force: true });
+});
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -48,6 +60,8 @@ describe("local Vivary code agent boundaries", () => {
   it("keeps each runtime's model selection in its own model family", () => {
     assert.equal(resolveVivaryCodeModel("claude-cli"), "sonnet");
     assert.equal(resolveVivaryCodeModel("codex-cli"), "default");
+    assert.equal(resolveVivaryCodeModel("codex-cli", "gpt-example", ["gpt-example"]), "gpt-example");
+    assert.throws(() => resolveVivaryCodeModel("codex-cli", "unreported", ["gpt-example"]), { errorCode: "vivary_code_model_unsupported" });
     assert.equal(resolveVivaryCodeModel("claude-cli", "opus"), "opus");
     assert.throws(() => resolveVivaryCodeModel("claude-cli", "default"), { errorCode: "vivary_code_model_unsupported" });
     assert.throws(() => resolveVivaryCodeModel("codex-cli", "opus"), { errorCode: "vivary_code_model_unsupported" });
@@ -107,7 +121,7 @@ describe("local Vivary code agent boundaries", () => {
   it("reads retained project history from stable binding identity without opening the folder", async () => {
     const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-history-test-"));
     temporaryRoots.push(store);
-    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic Native record store.
     const history = {
       label: "Unavailable project",
@@ -154,17 +168,20 @@ describe("local Vivary code agent boundaries", () => {
         ...history, rootId: "root_reconnected", bindingRevision: 5,
       }, "org-history");
       assert.equal(reconnected.run?.id, runId);
+      const moved = await getVivaryCodeState("owner@example.com", runId, history, "org-history", store);
+      assert.equal(moved.run?.id, runId);
+      assert.deepEqual(moved.runs.map(run => run.id), [runId]);
       await assert.rejects(
         getVivaryCodeState("owner@example.com", runId, { ...history, bindingId: "binding_other" }, "org-history"),
         { errorCode: "vivary_code_run_not_found" },
       );
     } finally {
-      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore; // guard:allow-env-credential - Restore prior nonsecret record path.
     }
   });
 
-  it("reopens a Native transcript after reconnection and gates a fresh follow-up", async () => {
+  it("reopens a Native transcript after reconnection and revalidates follow-up custody", async () => {
     const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-store-"));
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-root-"));
     const bin = await mkdtemp(path.join(os.tmpdir(), "vivary-code-reconnected-bin-"));
@@ -175,7 +192,7 @@ if (JSON.stringify(process.argv.slice(2)) !== '["auth","status","--json"]') proc
 process.stdout.write('{"loggedIn":true}');
 `, { mode: 0o755 });
     const previous = {
-      store: process.env.AGENT_NATIVE_CODE_AGENTS_HOME,
+      store: process.env.AGENT_NATIVE_CODE_AGENTS_HOME, // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       path: process.env.PATH, // guard:allow-env-credential - Isolated test runtime configuration.
       mode: process.env.VIVARY_ACCESS_MODE, // guard:allow-env-credential - Isolated test runtime configuration.
     };
@@ -212,39 +229,21 @@ process.stdout.write('{"loggedIn":true}');
         ownerEmail, orgId, runId, message: "A moved path must not continue this run.",
         workspace: { ...freshWorkspace, root: path.join(store, "different-location") },
       }), { errorCode: "vivary_code_run_not_found" });
-      const staged = await sendVivaryCodeMessage({
-        ownerEmail, orgId, runId, message: "Follow up after reconnect.",
-        workspace: freshWorkspace, revalidateWorkspace: async () => freshWorkspace,
-      });
-      assert.equal(staged.run?.id, runId);
-      assert.equal(staged.run?.status, "needs-approval");
-      assert.ok(staged.pendingApproval?.requestId);
-      const pending = getCodeAgentRunRecord(runId)?.metadata?.pendingLaunch;
-      assert.ok(pending && typeof pending === "object" && "workspace" in pending);
-      assert.deepEqual(pending.workspace, freshWorkspace);
-      assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
-      await assert.rejects(approveVivaryCodeMessage({
-        ownerEmail, orgId, runId, requestId: staged.pendingApproval!.requestId,
+      await assert.rejects(sendVivaryCodeMessage({
+        ownerEmail, orgId, runId, message: "Do not continue across a changed binding.",
         workspace: freshWorkspace, revalidateWorkspace: async () => oldWorkspace,
-      }), { errorCode: "vivary_code_approval_project_changed" });
-      const denied = await denyVivaryCodeMessage({
-        ownerEmail, orgId, runId, requestId: staged.pendingApproval!.requestId,
-        projectId: freshWorkspace.projectId,
-      });
-      assert.equal(denied.run?.status, "paused");
-      assert.equal(denied.run?.events.some(event => event.message.includes("BETA-READY")), true);
+      }), { errorCode: "vivary_code_project_changed" });
       assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
-      assert.equal((await getVivaryCodeHostState(ownerEmail, orgId)).busy, false);
       assert.equal(getCodeAgentRunRecord(runId)?.metadata?.rootId, oldWorkspace.rootId);
     } finally {
-      if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previous.store; // guard:allow-env-credential - Restore prior nonsecret Native directory.
       // guard:allow-env-credential - Restore the prior nonsecret runtime path from this test.
-      if (previous.path === undefined) delete process.env.PATH;
+      if (previous.path === undefined) delete process.env.PATH; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       // guard:allow-env-credential - Restore the prior nonsecret runtime path from this test.
       else process.env.PATH = previous.path; // guard:allow-env-credential - Restore prior runtime path.
       // guard:allow-env-credential - Restore the prior nonsecret runtime mode from this test.
-      if (previous.mode === undefined) delete process.env.VIVARY_ACCESS_MODE;
+      if (previous.mode === undefined) delete process.env.VIVARY_ACCESS_MODE; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       // guard:allow-env-credential - Restore the prior nonsecret runtime mode from this test.
       else process.env.VIVARY_ACCESS_MODE = previous.mode; // guard:allow-env-credential - Restore prior runtime mode.
     }
@@ -278,15 +277,15 @@ process.stdout.write('{"loggedIn":true}');
     const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-host-test-"));
     temporaryRoots.push(store);
     // guard:allow-env-credential - Preserve the Native record-store directory around this isolated test.
-    const originalStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    const originalStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     // guard:allow-env-credential - Isolated Native record-store directory, containing synthetic records only.
-    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store;
+    process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     // guard:allow-env-credential - Deliberately missing local workspace verifies that host state never resolves it.
     process.env.VIVARY_LOCAL_AGENT_WORKSPACE = path.join(store, "missing-personal"); // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
     const host: unknown = Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host"));
     assert.ok(host && typeof host === "object" && "activeRuns" in host && host.activeRuns instanceof Map);
     const controller = new AbortController();
-    const timeout = setTimeout(() => undefined, 10_000);
+
     const runId = "host-state-test";
     try {
       assert.deepEqual(await getVivaryCodeHostState("owner@example.com"), {
@@ -297,7 +296,7 @@ process.stdout.write('{"loggedIn":true}');
         cwd: path.join(store, "missing-project"),
         metadata: { app: "vivary-workbench-local-code", ownerEmail: "owner@example.com", projectId: "project_alpha" },
       });
-      host.activeRuns.set(runId, { controller, timeout, ownerEmail: "owner@example.com", execution: null, stopReason: null });
+      host.activeRuns.set(runId, { controller, ownerEmail: "owner@example.com", execution: null, stopReason: null, requests: new Map() });
       assert.deepEqual(await codeStateAction.run({ scope: "host" }, { caller: "frontend", userEmail: "owner@example.com" }), {
         activeRun: { id: runId, title: "Disconnected project", projectId: "project_alpha" },
         pendingApproval: null, recentRun: null, busy: true,
@@ -307,187 +306,82 @@ process.stdout.write('{"loggedIn":true}');
       });
     } finally {
       host.activeRuns.delete(runId);
-      clearTimeout(timeout);
       // guard:allow-env-credential - Restore the previous nonsecret Native store path exactly.
-      if (originalStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      if (originalStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       // guard:allow-env-credential - Restore the previous nonsecret Native store path exactly.
-      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = originalStore;
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = originalStore; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     }
   });
 
-  it("stages an exact approval, revalidates it, and denies without launching or adding a user prompt", async () => {
-    const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-approval-test-"));
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-workspace-test-"));
-    const bin = await mkdtemp(path.join(os.tmpdir(), "vivary-code-bin-test-"));
-    temporaryRoots.push(store, workspaceRoot, bin);
-    const executable = path.join(bin, "claude");
-    await writeFile(executable, `#!/usr/bin/env node
+  it("Send starts immediately, keeps one host slot, snapshots settings, and Stop remains available", async () => {
+    const fixture = await mkdtemp(path.join(os.tmpdir(), "vivary-code-send-"));
+    temporaryRoots.push(fixture);
+    const server = path.join(fixture, ".output", "server");
+    const bin = path.join(fixture, "bin");
+    await mkdir(server, { recursive: true });
+    await mkdir(bin);
+    await writeFile(path.join(bin, "claude"), `#!/usr/bin/env node
 if (JSON.stringify(process.argv.slice(2)) !== '["auth","status","--json"]') process.exit(2);
 process.stdout.write('{"loggedIn":true}');
 `, { mode: 0o755 });
-    const previous = {
-      store: process.env.AGENT_NATIVE_CODE_AGENTS_HOME,
-      path: process.env.PATH, // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      mode: process.env.VIVARY_ACCESS_MODE, // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      workspace: process.env.VIVARY_LOCAL_AGENT_WORKSPACE, // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-    };
-    const workspace = {
-      root: workspaceRoot,
-      label: "Approval project",
-      projectId: "project_approval",
-      bindingId: "binding_approval",
-      rootId: "root_approval",
-      bindingRevision: 3,
-    };
+    await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import {writeFileSync} from "node:fs";
+process.on("message", message => {
+ if(message.type === "vivary:code-worker:start") writeFileSync("started.json", JSON.stringify(message));
+});
+process.send({type:"vivary:code-worker:ready"});
+`);
+    const previousCwd = process.cwd();
+    const previousMode = process.env.VIVARY_ACCESS_MODE; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+    const previousPath = process.env.PATH; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+    let runId: string | undefined;
+    const workspace = { root: fixture, label: "Immediate project", projectId: "immediate",
+      bindingId: "immediate-binding", rootId: "immediate-root", bindingRevision: 1 };
     try {
-      process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store;
-      process.env.PATH = bin + path.delimiter + (previous.path ?? ""); // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      process.env.VIVARY_ACCESS_MODE = "local"; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-
-      const staged = await sendVivaryCodeMessage({
-        ownerEmail: "owner@example.com",
-        orgId: "org-alpha",
-        message: "Change the project after I approve.",
-        engine: "claude-cli",
-        model: "sonnet",
-        workspace,
-        revalidateWorkspace: async () => workspace,
-      });
-      assert.equal(staged.run?.status, "needs-approval");
-      assert.deepEqual(staged.pendingApproval, {
-        runId: staged.run?.id,
-        requestId: staged.pendingApproval?.requestId,
-        title: "Change the project after I approve.",
-        message: "Change the project after I approve.",
-        projectId: "project_approval",
-        workspaceLabel: "Approval project",
-        engine: "claude-cli",
-        engineLabel: "Claude Code",
-        model: "sonnet",
-        timeoutMs: 120_000,
-        continuesAfterBrowserClose: true,
-      });
-      assert.ok(staged.pendingApproval?.requestId);
-      assert.deepEqual(
-        listCodeAgentTranscriptEvents(staged.run!.id).map(event => event.kind),
-        ["status"],
-      );
-      const host = await getVivaryCodeHostState("owner@example.com", "org-alpha");
-      assert.equal(host.busy, true);
-      assert.equal(host.activeRun, null);
-      assert.equal(host.pendingApproval?.requestId, staged.pendingApproval?.requestId);
-      const otherOrg = await getVivaryCodeHostState("owner@example.com", "org-beta");
-      assert.equal(otherOrg.pendingApproval, null);
-      assert.equal(otherOrg.busy, true);
-
-      await assert.rejects(
-        sendVivaryCodeMessage({
-          ownerEmail: "owner@example.com",
-          message: "A second request must not take the host slot.",
-          workspace,
-        }),
-        { errorCode: "vivary_code_run_active" },
-      );
-      await assert.rejects(
-        approveVivaryCodeMessage({
-          ownerEmail: "owner@example.com",
-          orgId: "org-alpha",
-          runId: staged.run!.id,
-          requestId: staged.pendingApproval!.requestId,
-          workspace,
-          revalidateWorkspace: async () => ({ ...workspace, bindingRevision: 4 }),
-        }),
-        { errorCode: "vivary_code_approval_project_changed" },
-      );
-      assert.equal((await getVivaryCodeHostState("owner@example.com", "org-alpha")).activeRun, null);
-      await assert.rejects(
-        denyVivaryCodeMessage({
-          ownerEmail: "other@example.com",
-          orgId: "org-alpha",
-          runId: staged.run!.id,
-          requestId: staged.pendingApproval!.requestId,
-          projectId: workspace.projectId,
-        }),
-        { errorCode: "vivary_code_run_not_found" },
-      );
-
-      await assert.rejects(
-        denyVivaryCodeMessage({
-          ownerEmail: "owner@example.com",
-          orgId: "org-beta",
-          runId: staged.run!.id,
-          requestId: staged.pendingApproval!.requestId,
-          projectId: workspace.projectId,
-        }),
-        { errorCode: "vivary_code_run_not_found" },
-      );
-
-      await rm(workspaceRoot, { recursive: true, force: true });
-      const denied = await denyVivaryCodeMessage({
-        ownerEmail: "owner@example.com",
-        orgId: "org-alpha",
-        runId: staged.run!.id,
-        requestId: staged.pendingApproval!.requestId,
-        projectId: workspace.projectId,
-      });
-      assert.equal(denied.run?.status, "paused");
-      assert.equal(denied.pendingApproval, null);
-      assert.equal((await getVivaryCodeHostState("owner@example.com", "org-alpha")).busy, false);
-      const events = listCodeAgentTranscriptEvents(staged.run!.id);
-      assert.equal(events.some(event => event.kind === "user"), false);
-      assert.match(events.at(-1)?.message ?? "", /No model or tools were started/);
-      await assert.rejects(
-        denyVivaryCodeMessage({
-          ownerEmail: "owner@example.com",
-          orgId: "org-alpha",
-          runId: staged.run!.id,
-          requestId: staged.pendingApproval!.requestId,
-          projectId: workspace.projectId,
-        }),
-        { errorCode: "vivary_code_approval_stale" },
-      );
-      const personalRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-personal-test-"));
-      temporaryRoots.push(personalRoot);
-      process.env.VIVARY_LOCAL_AGENT_WORKSPACE = personalRoot; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      process.env.VIVARY_ACCESS_MODE = "local"; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      const personal = await sendVivaryCodeMessage({
-        ownerEmail: "owner@example.com",
-        orgId: "org-alpha",
-        message: "Personal workspace request.",
-        engine: "claude-cli",
-        model: "sonnet",
-      });
-      process.env.VIVARY_ACCESS_MODE = "hosted"; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      await assert.rejects(
-        codeApproveAction.run({
-          runId: personal.run!.id,
-          requestId: personal.pendingApproval!.requestId,
-        }, {
-          caller: "frontend",
-          userEmail: "owner@example.com",
-          orgId: "org-alpha",
-        }),
-        { errorCode: "vivary_code_runtime_unavailable" },
-      );
-      const deniedPersonal = await codeDenyAction.run({
-        runId: personal.run!.id,
-        requestId: personal.pendingApproval!.requestId,
-      }, {
-        caller: "frontend",
-        userEmail: "owner@example.com",
-        orgId: "org-alpha",
-      });
-      assert.equal(deniedPersonal.run?.status, "paused");
-      assert.equal(deniedPersonal.recentRun?.phase, "approval-denied");
+      process.chdir(fixture);
+      process.env.VIVARY_ACCESS_MODE = "local"; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      process.env.PATH = bin + path.delimiter + (previousPath ?? ""); // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      process.env.AGENT_NATIVE_CODE_AGENTS_HOME = fixture; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      await setCodePermissionMode("immediate@example.com", "read-only", "immediate-org");
+      const state = await sendVivaryCodeMessage({ ownerEmail: "immediate@example.com", orgId: "immediate-org",
+        message: "Inspect this fixture", engine: "claude-cli", model: "sonnet", workspace,
+        revalidateWorkspace: async () => workspace });
+      runId = state.run!.id;
+      assert.equal(state.pendingApproval, null);
+      assert.equal(state.activeRun?.id, runId);
+      assert.equal(state.busy, true);
+      assert.equal(getCodeAgentRunRecord(runId)?.metadata?.pendingLaunch, undefined);
+      assert.equal(listCodeAgentTranscriptEvents(runId).filter(event => event.kind === "user").length, 1);
+      await setCodePermissionMode("immediate@example.com", "yolo", "immediate-org");
+      let invocation;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        try { invocation = JSON.parse(await readFile(path.join(fixture, "started.json"), "utf8")); break; }
+        catch { await delay(20); }
+      }
+      assert.equal(invocation?.permissionMode, "read-only");
+      assert.equal(await getCodePermissionMode("immediate@example.com", "immediate-org"), "yolo");
+      assert.equal(await getCodePermissionMode("different@example.com", "immediate-org"), "normal");
+      await assert.rejects(sendVivaryCodeMessage({ ownerEmail: "immediate@example.com", message: "Second", workspace }),
+        { errorCode: "vivary_code_run_active" });
+      await assert.rejects(stopVivaryCodeRun({ ownerEmail: "different@example.com", runId, projectId: workspace.projectId }),
+        { statusCode: 404 });
+      await stopVivaryCodeRun({ ownerEmail: "immediate@example.com", orgId: "immediate-org", runId, projectId: workspace.projectId });
+      await Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host")).activeRuns.get(runId)?.execution;
+      assert.equal((await getVivaryCodeHostState("immediate@example.com", "immediate-org")).busy, false);
+      assert.equal(getCodeAgentRunRecord(runId)?.status, "paused");
+      runId = undefined;
     } finally {
-      if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
-      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previous.store;
-      if (previous.path === undefined) delete process.env.PATH; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      else process.env.PATH = previous.path; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      if (previous.workspace === undefined) delete process.env.VIVARY_LOCAL_AGENT_WORKSPACE; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      else process.env.VIVARY_LOCAL_AGENT_WORKSPACE = previous.workspace; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      if (previous.mode === undefined) delete process.env.VIVARY_ACCESS_MODE; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
-      else process.env.VIVARY_ACCESS_MODE = previous.mode; // guard:allow-env-credential - Isolated test runtime configuration, not user credentials.
+      if (runId) {
+        const execution = Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host")).activeRuns.get(runId)?.execution;
+        await stopVivaryCodeRun({ ownerEmail: "immediate@example.com", orgId: "immediate-org", runId, projectId: workspace.projectId }).catch(() => undefined);
+        await execution;
+      }
+      process.chdir(previousCwd);
+      if (previousMode === undefined) delete process.env.VIVARY_ACCESS_MODE; else process.env.VIVARY_ACCESS_MODE = previousMode; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     }
   });
 

@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { getCodexModels } from "../server/codex-models";
 import { defineAction, fail, type ActionRunContext } from "@agent-native/core/action";
 import { CLI_REGISTRY } from "@agent-native/core/terminal/server";
 import { z } from "zod";
@@ -33,7 +35,8 @@ export default defineAction({
       getVivaryRuntimeStatus("claude-cli", { refresh }),
       getVivaryRuntimeStatus("codex-cli", { refresh }),
     ]);
-    return { runtimes: [
+    const codexModels = codex.status === "ready" ? await getCodexModels(homedir(), { refresh }) : null;
+    return { codexModels, runtimes: [
       { engine: "claude-cli", label: CLI_REGISTRY.claude.label, ...claude },
       { engine: "codex-cli", label: CLI_REGISTRY.codex.label, ...codex },
     ] };

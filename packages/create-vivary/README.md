@@ -95,8 +95,20 @@ create-vivary adopt . --recover sha256:<plan-hash> \
 ```
 
 The preview reports `creates`, managed `patches`, `optional_projections`, `kept`,
-`conflicts`, privacy checks, and `plan_hash`. Apply accepts only that exact plan and
-revalidates kept files before writing.
+`conflicts`, privacy checks, and `plan_hash`. Ordinary dry-run JSON also includes
+`content_plan` with schema `vivary.adopt-content-plan.v1`. Its `files` list contains
+each proposed create, patch, or replacement, including optional adapter files.
+Each entry has a relative `path`, `operation`, full UTF-8 `content`, `content_hash`,
+and byte count in `bytes`. Patches and replacements also have `before_hash`.
+Encoding `content` as UTF-8 reproduces the proposed bytes, including existing
+BOM and CRLF bytes in patched files. The planner captures this content alongside
+the inputs used for `plan_hash`; reporting does not reread project files.
+`content_plan.kept` lists retained paths and hashes without decoding their contents.
+Conflicts remain in the surrounding report and prevent apply.
+
+The content field is additive and appears only in ordinary dry-run JSON.
+Applied and recovery reports keep their existing contract. Apply accepts only
+that exact plan and revalidates kept files before writing.
 The first recovery command is read-only. It returns the exact recovery plan hash that
 must receive separate approval before the second command rolls the transaction back.
 
@@ -108,13 +120,82 @@ overwrites arbitrary user content. Conflicts fail closed.
 
 Privacy is checked before payload writes. Apply uses a local transaction journal and
 exact-byte backups so an ordinary failure rolls back and an interrupted transaction
-can be recovered explicitly.
+can be recovered explicitly. Before any write, apply checks that the complete
+journal fits the recovery reader's 1 MiB limit, including encoded backups and
+later progress updates. An oversized journal refuses apply without changing the
+folder. The content preview remains read-only and available.
+
+Adoption apply and approved recovery admit one cooperating creator process per
+physical folder. A competing call refuses as busy before planning or writing;
+other folders remain independent. Preview does not acquire mutation ownership or
+write lock files. Process exit releases ownership, while an interrupted journal
+still requires the existing separately approved recovery.
+
+POSIX uses a lock on the held root directory. Windows uses a global named mutex
+keyed by the held directory's volume and file identity. An unavailable lock or
+Windows access denial refuses the operation; it does not fall back to an unsafe
+write. This coordinates current creator processes on one host, not arbitrary
+editors, older binaries, or writers on another machine. A GUI Apply action remains separate.
+
+### Retrying an approved adoption request
+
+For callers that can lose an apply response, ordinary approved adoption accepts
+an optional request ID:
+
+```bash
+create-vivary adopt . --preset coding --yes --plan sha256:<plan-hash> \
+  --request-id setup-attempt-1 --json
+```
+
+Retry with the same request ID, original plan hash, and options. A completed retry
+validates the recorded result against the current folder and returns success
+without rewriting guidance or its completion receipt. JSON adds `request_id` and
+`replayed` only for this opt-in mode. Changed output, retained files, root identity,
+approval, or options refuse replay. Request IDs contain 1 to 128 ASCII letters,
+digits, dots, underscores, or hyphens and begin with a letter or digit. Reserved Windows device names are refused
+on every platform.
+
+Before this mode can write, existing ignore rules must protect the actual journal,
+receipt, and temporary publication paths under `.vivary/runtime/`. The approved
+plan must preserve that protection. A rule covering `.vivary/runtime/` provides
+it unless another applicable rule reopens the directory. Protecting only the final
+JSON filename is insufficient. A refusal does not add a privacy rule or change
+the folder. This restriction keeps backup-bearing crash leftovers private even
+when explicit rollback restores the original `.gitignore`.
+
+Receipts are stored in `.vivary/runtime/adopt-receipts/`. Successful replay reads
+and validates one bounded receipt, checks approved output and retained bytes,
+and runs read-only Doctor. If completion left a redundant journal, retry removes
+only that validated journal. It does not delete temporary publication aliases.
+Receipts and journals each have a 1 MiB limit, checked before setup writes.
+
+Pending work still uses separately approved rollback recovery. Once the journal
+records that receipt publication may have started, recovery refuses rollback.
+Retrying the original request can recognize a valid completion receipt. A missing,
+unreadable, or altered expected receipt leaves completion uncertain and refuses
+both replay and rollback. An ordinary error after publication also cannot undo
+completed guidance. Do not delete transaction records to force a retry.
+
+Request IDs require ordinary `--yes --plan` apply and cannot be combined with
+`--recover` or a dry run. This first version refuses a replay-enabled plan with
+no actions before writing. Legacy adoption remains available without a request
+ID. Validation uses the installed renderer, so replay across renderer versions is
+not guaranteed. Process-crash checks do not establish power-loss durability.
 
 ## Doctor and compatibility
 
 `doctor` validates thin workspace metadata, the context capsule, startup reachability,
 privacy rules, optional adapters, and pending adoption recovery. Plain Doctor is
 read-only; `--trend` is the explicit mode that writes runtime trend state.
+
+Doctor keeps Tropo's own severity. Error-level findings (a missing required
+field, invalid frontmatter) fail Doctor with exit 1. Warning-level findings (a
+field equal to its derived value, an unknown field on a typed record) are
+listed under `warnings` and on their own leave `ok` true, so an ordinary notes
+workspace with a redundant `title:` stays healthy. A dangling `ref` is listed
+as the warning W220, but the same reference is also a broken graph edge, and
+Doctor reports any broken edge as an error. A workspace with no `ref` edges is
+valid; only zero typed nodes is reported, as a warning.
 
 Doctor also reads older full Vivary workspaces without migrating or regenerating
 them. Its versioned compatibility report uses `schema_version = 2`: new workspaces

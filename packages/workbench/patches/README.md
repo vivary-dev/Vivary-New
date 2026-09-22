@@ -65,3 +65,38 @@ behavior. Do not edit files in an installed dependency directory.
 Rolling back this patch restores the known save-order and composer defects.
 The extra repository field requires no schema migration. Keep the private
 preview's prior build available until its replacement passes verification.
+
+## Codex integration
+
+The September 16, 2026 integration adds an explicit `codexCli` option to Core's
+existing executor. Other Core consumers keep their existing launch behavior.
+Vivary supplies the resolved executable and environment to the native app-server
+transport, retains Codex configuration, and skips host MCP overlays. Credentials,
+skills, tools, and configured connections remain owned by Codex.
+
+Per-run permissions are Normal, Read only, or YOLO. Normal allows workspace writes
+with native action approvals; Read only cannot approve broader access; YOLO removes
+the shell sandbox and approval prompts. Normal and Read only validate their effective
+sandbox boundaries. Connected services retain their own access settings. Global
+Codex configuration is unchanged. Each conversation retains its selected model.
+Each turn captures the permission mode selected when it starts. The adapter
+explicitly selects the default collaboration mode.
+
+The executor records the native session ID and resumes it for follow-ups. It has no
+fixed turn deadline. Stop interrupts native work before bounded process-tree cleanup;
+Windows launches use an executable and argument array without shell dispatch.
+Native command, file, permission, and input requests return to the live app-server
+request. Restart does not replay them. Actual subagent identities, lifecycle, and
+public results remain separate from the main assistant answer. Tool events pair by
+native call ID within their turn, with fallback for historical records without IDs.
+
+Run the maintained transport, transcript, approval, and discovery tests:
+
+```sh
+pnpm --dir packages/workbench exec tsx --test tests/codex-executor.test.mjs tests/codex-app-server.test.ts tests/codex-transcript.test.mjs tests/codex-active-state.test.mjs tests/codex-approval.test.ts tests/codex-models.test.ts tests/local-runtime-setup.test.ts
+```
+
+The optional `VIVARY_CODEX_POLICY_PROBE` test setting points to an installed Codex
+executable. It checks effective permission rendering without starting a model turn.
+Successful rendering does not establish operating-system sandbox execution. See the
+[Workbench integration record](../README.md) for actual hosted and Windows proof.

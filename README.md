@@ -44,12 +44,19 @@ and authentication. Provider accounts are separate.
 
 **In development. The tested Windows candidate is not a public release.**
 
-| Verified in the private Windows candidate | Still required for release |
+| Verified in the published private preview (`26798df`) | Still required for release |
 | --- | --- |
 | Explorer launch/extraction, bundled runtimes, second-instance reuse, restart persistence, and owned-process cleanup | Clean-profile first run, upgrade/removal behavior, remaining desktop/web acceptance, and release approval |
 | Managed project creation, project files, clear validation/refusal, retained Code history, and a real approved Claude Code file turn | Existing-folder adoption, search, scoped memory, and complete original-operation GUI flows |
-| CLI runtime readiness and read-only `Claude Code · sonnet` identity | Selectable Codex execution, harness-owned model catalog/switching, and real Native-provider turns |
+| CLI runtime readiness and read-only `Claude Code · sonnet` identity | Broader runtime integration, linked conversations, and real Native-provider turns |
 | Private authenticated web preview and basic isolated page preview | Responsive self-hosted phone access and integrated preview/debugging acceptance |
+
+Current source also includes the Codex integration merged in [PR #59](https://github.com/vivary-dev/Vivary-New/pull/59).
+It provides runtime and native model selection, subscription authentication, configured
+tools, action approvals, Normal/Read only/YOLO permissions, and native-session follow-ups.
+Recorded Windows prototypes through `98515c9` verified bounded file, MCP, subagent,
+long-running command, approval, persistence, and Stop journeys. These changes are not
+in the published `26798df` preview and do not complete release acceptance.
 
 The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
 separates verified behavior from known gaps. The [desktop package record](packages/desktop/README.md#current-acceptance)

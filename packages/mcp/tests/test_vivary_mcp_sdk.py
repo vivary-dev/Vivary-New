@@ -286,12 +286,14 @@ async def test_typed_cancellation_stops_cooperative_producer_before_recovery(mon
     exited = threading.Event()
     cancellation_notification_observed = anyio.Event()
     cancelled_notifications: list[Any] = []
+    producer_threads: list[threading.Thread] = []
     calls = 0
 
     def producer(_tool: str, _root: str, _arguments: dict[str, Any], cancelled: Callable[[], bool]) -> dict[str, Any]:
         nonlocal calls
         calls += 1
         if calls == 1:
+            producer_threads.append(threading.current_thread())
             started.set()
             try:
                 while not cancelled():
@@ -325,6 +327,12 @@ async def test_typed_cancellation_stops_cooperative_producer_before_recovery(mon
             await cancellation_notification_observed.wait()
         await _wait_for_thread_event(cancellation_observed)
         await _wait_for_thread_event(exited)
+        # The producer returns before its one-shot worker validates the result
+        # and releases admission. Join that worker before expecting recovery.
+        await _within_wire_deadline(
+            anyio.to_thread.run_sync(producer_threads[0].join, _WIRE_TIMEOUT_SECONDS)
+        )
+        assert not producer_threads[0].is_alive()
         recovered = await _within_wire_deadline(client.call_tool("vivary_query", _QUERY_ARGUMENTS))
 
     assert recovered.is_error is False

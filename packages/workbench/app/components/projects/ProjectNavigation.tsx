@@ -1,11 +1,11 @@
 import { useNavigate } from "react-router";
 import { useEffect, useRef, useState } from "react";
-import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { Skeleton } from "@agent-native/toolkit/ui";
 import { IconFolderPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useNativeActionCaller } from "@/lib/native-actions";
+import { folderConnectionErrorMessage, useNativeActionCaller } from "@/lib/native-actions";
 import { CreateProjectForm } from "./CreateProjectForm";
 import { ReconnectProjectForm } from "./ReconnectProjectForm";
 import { useProjects } from "./ProjectContext";
@@ -133,7 +133,7 @@ export function ProjectNavigation() {
         setFolderError(registrationMessage(result.code));
       }
     } catch (failure) {
-      setFolderError(actionErrorMessage(failure) ?? "The folder could not be connected. Try again.");
+      setFolderError(folderConnectionErrorMessage(failure));
     } finally {
       setChoosing(false);
     }

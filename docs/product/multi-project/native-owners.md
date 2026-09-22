@@ -23,7 +23,7 @@ Evidence labels have narrow meanings:
 | --- | --- | --- | --- |
 | Agent chat and model loop | Agent chat runtime and shared run manager own model turns, streaming, tools, and transcript projection | Compose Code and Native conversations in the canonical workspace. Keep AI work in the selected Native runtime | Shell composition and the Native saved-head repair are integrated. Real Native-provider turns remain under issue #50. Core contract: `agent-surfaces.mdx`, `using-your-agent.mdx` |
 | Coding harness sessions | `AgentHarness`, `startAgentHarnessRun`, SQL harness sessions, translated events, approval, stop, and opaque resume state | Bind actor, project, root, policy revision, and adapter. Prove a real start, file change, cancellation, and resume in the packet's authorized execution environment | `verified by host tests` for deterministic lifecycle. Real runtime pending. `harness-agents.mdx` |
-| Code and Desktop runs | Code run store, executor, transcript, run controls, `CodeAgentsHost`, and Desktop remote dispatch | The local GUI uses public `executeCodeAgentRun`, Native transcripts, `AssistantChat`, and the Code adapter. Vivary binds the selected folder and bounds worker lifetime | Actual Claude file-tool runs and follow-ups passed in private browser and packaged Windows checks. Codex selection/execution and macOS execution remain unaccepted. `code-agents-ui.mdx` |
+| Code and Desktop runs | Code run store, executor, transcript, run controls, `CodeAgentsHost`, and Desktop remote dispatch | The local GUI uses public `executeCodeAgentRun`, Native transcripts, `AssistantChat`, and the Code adapter. Vivary binds the selected folder and runtime, preserves the native session ID, and relays native action decisions and public activity. Codex turns have no fixed two-minute deadline; startup and shutdown remain bounded | Claude file-tool runs and follow-ups passed in private browser and packaged Windows checks. PR #59 adds verified Codex subscription turns, file tools, MCP, session continuity, native decisions, child activity, long commands, and Stop in the Windows prototype. See the [acceptance register](desktop-acceptance-status.md) for candidate-specific evidence. macOS execution remains unaccepted. `code-agents-ui.mdx` |
 | Delegated tasks | Agent Teams `spawnTask`, task state, follow-ups, persisted events, abort propagation, and depth limits | Map Vivary ticket IDs to native task IDs. Add plan revision, claim, lease, budget, and acceptance rules without copying task state | `documented only`: `agent-teams.mdx` |
 | Visual plans and review | Plan skills, hosted connector, local-file mode, comments, feedback, snapshots, history, and events | Choose hosted or local authority. Bind the exact plan revision to tickets and execution authority. Add dependency and board rules | `documented only`: `plan-plugin.mdx`, `template-plan*.mdx` |
 | Agent resources | Scoped instructions, skills, context, custom agents, memory, jobs, and MCP configuration | Use resources for agent configuration. Do not represent arbitrary project files as SQL resources | `documented only`: `agent-resources.mdx` |
@@ -44,9 +44,15 @@ Evidence labels have narrow meanings:
    dependency, exact plan revision, project binding, lease, or acceptance receipt.
 3. Treat every documented primitive as unavailable until its installed export,
    configuration, identity boundary, and required optional package are checked.
-4. Habitat is the current bounded development environment. BrowserPod is unavailable
-   and inactive under the owner's latest decision. Use the packet-specific environment
-   receipt. An environment result proves only the capabilities observed there.
+4. Zo is the current source, build, automated-test, and hosted-application environment.
+   Use Windows for checks that require the packaged EXE. Earlier Habitat receipts
+   remain historical evidence; BrowserPod remains inactive. Follow [repository
+   practices](../../../AGENTS.md) and record the actual environment for each proof.
+
+Codex native subagent activity is already displayed in compact child cards. This
+does not establish the future Agent Teams ticket orchestration described above.
+Coding runtimes own their existing authentication, tools, skills, and configured
+connections; Vivary discovers and exposes them rather than creating duplicates.
 
 Source basis: `Jeff-Kazzee/littleagent` `docs/product/NATIVE_RUNTIME_PROOF.md`,
 plus the version-matched files under `node_modules/@agent-native/core/docs/content/`.
