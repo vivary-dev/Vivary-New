@@ -167,6 +167,7 @@ RECEIPT_VALUE_FLAGS = {
     "--plan",
     "--size",
     "--privacy",
+    "--privacy-request",
 }
 RECEIPT_KNOWN_FLAGS = RECEIPT_VALUE_FLAGS | {
     "--auto",
@@ -176,6 +177,7 @@ RECEIPT_KNOWN_FLAGS = RECEIPT_VALUE_FLAGS | {
     "--json",
     "--no-wizard",
     "--obsidian",
+    "--prepare-privacy",
     "--reviewed",
     "--repair",
     "--trend",
@@ -3260,6 +3262,7 @@ def _atomic_write_bytes_no_follow(
     on_create_directory: Callable[[Path], None] | None = None,
     temporary_name: str | None = None,
     before_temporary: Callable[[Path], None] | None = None,
+    before_commit: Callable[[], None] | None = None,
 ) -> None:
     if temporary_name is not None and (
         not temporary_name or temporary_name in {".", ".."}
@@ -3290,6 +3293,8 @@ def _atomic_write_bytes_no_follow(
                         except OSError:
                             pass
                 _windows_assert_directory_identity(parent_path, parent_identity)
+                if before_commit is not None:
+                    before_commit()
                 _windows_rename_open_file(
                     file_handle,
                     parent_handle,
@@ -3335,6 +3340,8 @@ def _atomic_write_bytes_no_follow(
                     except OSError:
                         pass
             try:
+                if before_commit is not None:
+                    before_commit()
                 if replace_existing:
                     os.replace(
                         temp_name,
@@ -3365,6 +3372,93 @@ def _atomic_write_bytes_no_follow(
                 os.unlink(temp_name, dir_fd=parent_fd)
             except FileNotFoundError:
                 pass
+
+
+def _append_reviewed_bytes_no_follow(
+    target: Path, dst: Path, before: bytes, suffix: bytes, after: bytes, *,
+    before_write: Callable[[], None], on_write_attempt: Callable[[], None],
+) -> None:
+    """Append to one held file; a changed path or mixed output never counts as success."""
+    if not suffix or before + suffix != after:
+        raise ScaffoldError("reviewed privacy append does not match the approved content")
+    with _safe_destination_parent(target, dst, create_missing=False) as parent:
+        if os.name == "nt":
+            # FILE_APPEND_DATA without FILE_WRITE_DATA cannot overwrite existing bytes.
+            # Share READ only: a writer or renamer cannot coexist with this handle.
+            handle = _WINDOWS_CREATE_FILE(
+                str(dst),
+                _WINDOWS_GENERIC_READ | _WINDOWS_FILE_READ_ATTRIBUTES | 0x00000004,
+                0x00000001,
+                None,
+                _WINDOWS_OPEN_EXISTING,
+                _WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
+            if handle == _WINDOWS_INVALID_HANDLE:
+                raise ScaffoldError(
+                    f"cannot hold reviewed privacy file: {ctypes.WinError(ctypes.get_last_error())}"
+                )
+            try:
+                info = _WindowsDirectoryInformation()
+                if not _WINDOWS_GET_FILE_INFO(handle, ctypes.byref(info)):
+                    raise ScaffoldError("cannot inspect held privacy file")
+                if (info.file_attributes & (_WINDOWS_FILE_ATTRIBUTE_DIRECTORY
+                    | _WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT) or info.number_of_links != 1):
+                    raise ScaffoldError("reviewed privacy file must be a regular file with one name")
+                descriptor = msvcrt.open_osfhandle(
+                    handle, os.O_RDWR | os.O_APPEND | os.O_BINARY,
+                )
+            except Exception:
+                _WINDOWS_CLOSE_HANDLE(handle)
+                raise
+        else:
+            descriptor = os.open(
+                dst.name, os.O_RDWR | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=parent,
+            )
+        try:
+            held = os.fstat(descriptor)
+            if not stat.S_ISREG(held.st_mode) or held.st_nlink != 1:
+                raise ScaffoldError("reviewed privacy file must be a regular file with one name")
+
+            def check_path() -> None:
+                if _is_symlink_or_junction(dst):
+                    raise ScaffoldError("reviewed privacy file changed during append")
+                try:
+                    current = (os.stat(dst, follow_symlinks=False) if os.name == "nt"
+                        else os.stat(dst.name, dir_fd=parent, follow_symlinks=False))
+                except OSError as exc:
+                    raise ScaffoldError("reviewed privacy file changed during append") from exc
+                if (current.st_dev, current.st_ino) != (held.st_dev, held.st_ino):
+                    raise ScaffoldError("reviewed privacy file changed during append")
+
+            def read_held() -> bytes:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                limit = len(after) + 1
+                chunks = bytearray()
+                while len(chunks) < limit:
+                    block = os.read(descriptor, min(65536, limit - len(chunks)))
+                    if not block:
+                        break
+                    chunks.extend(block)
+                return bytes(chunks)
+
+            check_path()
+            if read_held() != before:
+                raise ScaffoldError("the reviewed privacy input changed before writes")
+            before_write()
+            check_path()
+            if os.fstat(descriptor).st_nlink != 1 or read_held() != before:
+                raise ScaffoldError("the reviewed privacy input changed before writes")
+            on_write_attempt()
+            if os.write(descriptor, suffix) != len(suffix):
+                raise ScaffoldError("the reviewed privacy append was incomplete")
+            check_path()
+            if read_held() != after:
+                raise ScaffoldError("the reviewed privacy output changed during append")
+        finally:
+            os.close(descriptor)
 
 
 def _write_text_no_follow(target: Path, dst: Path, text: str) -> None:
@@ -5800,7 +5894,7 @@ def plan_adopt(
         accepted_gitignore_blocks += (
             _thin_gitignore_block(active_context="cocoindex-code"),
         )
-    if not gitignore_path.exists():
+    if not os.path.lexists(gitignore_path):
         writes.append((gitignore_path, gitignore_block))
         privacy_status = "planned"
     elif _is_symlink_or_junction(gitignore_path) or not gitignore_path.is_file():
@@ -5965,8 +6059,51 @@ def plan_adopt(
         "kept": kept_identities,
     }
 
+    privacy_file = next((item for item in content_plan["files"] if item["path"] == ".gitignore"), None)
+    try:
+        _assert_adopt_record_privacy(target, _adopt_record_paths(target))
+        current_record_privacy = True
+    except (ScaffoldError, OSError):
+        current_record_privacy = False
+    privacy_required = not current_record_privacy
+    privacy_ready = privacy_required and privacy_file is not None and not conflicts
+    runtime_path = target / ".vivary" / "runtime"
+    if privacy_ready and os.path.lexists(runtime_path):
+        privacy_ready = False
+        privacy_blocker = "Existing .vivary/runtime content needs review before privacy preparation."
+    else:
+        privacy_blocker = None
+    if privacy_ready:
+        try:
+            if (privacy_file["operation"] == "patch"
+                and gitignore_path.stat().st_nlink != 1):
+                raise ScaffoldError("Existing .gitignore has another hard-link name. Review it before setup.")
+            _assert_adopt_records_untracked(target)
+            _assert_adopt_record_privacy(target, _adopt_record_paths(target),
+                extra_root_rules=simulated_rules)
+        except (ScaffoldError, OSError) as exc:
+            privacy_ready = False
+            privacy_blocker = str(exc)
+    if privacy_ready:
+        privacy_reason = None
+    elif privacy_blocker:
+        privacy_reason = privacy_blocker
+    elif not privacy_required:
+        privacy_reason = "Existing ignore rules already protect private setup records."
+    elif conflicts:
+        privacy_reason = "Resolve the privacy conflicts and preview again."
+    else:
+        privacy_reason = "The proposed .gitignore change cannot protect private setup records."
+    privacy_preparation = {
+        "required": privacy_required, "ready": privacy_ready, "reason": privacy_reason,
+        "root_hash": _thin_approval_hash(_thin_target_identity(target)),
+        "before_hash": privacy_file.get("before_hash") if privacy_file else None,
+        "after_hash": privacy_file["content_hash"] if privacy_file else None,
+    }
+
     return {
         "content_plan": content_plan,
+        "privacy_preparation": privacy_preparation,
         "request_replay": _adopt_request_readiness(
             target, has_changes=bool(content_files), has_conflicts=bool(conflicts),
             extra_root_rules=simulated_rules if privacy_status != "conflict" else (),
@@ -6210,6 +6347,29 @@ def _read_adopt_record(target: Path, path: Path) -> tuple[dict, bytes] | None:
     return payload, data
 
 
+def _assert_adopt_records_untracked(target: Path) -> None:
+    """Ignore rules do not make files already present in any enclosing Git index private."""
+    for ancestor in (target, *target.parents):
+        if not os.path.lexists(ancestor / ".git"):
+            continue
+        runtime_path = (target.relative_to(ancestor) / ".vivary" / "runtime").as_posix()
+        try:
+            result = subprocess.run(
+                ["git", "-c", "core.fsmonitor=false", "-C", str(ancestor),
+                    "ls-files", "--cached", "--error-unmatch",
+                    "--", f":(icase,literal){runtime_path}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False,
+                env={**{key: value for key, value in os.environ.items()
+                    if not key.upper().startswith("GIT_")}, "LC_ALL": "C"},
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ScaffoldError("Git index could not be inspected for private runtime records") from exc
+        if result.returncode == 0:
+            raise ScaffoldError("Git already tracks .vivary/runtime. Review tracked private records before setup")
+        if result.returncode != 1 or b"did not match any file(s) known to git" not in result.stderr:
+            raise ScaffoldError("Git index could not be inspected for private runtime records")
+
+
 def _assert_adopt_record_privacy(
     target: Path, paths: list[Path], *,
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
@@ -6221,6 +6381,17 @@ def _assert_adopt_record_privacy(
             extra_root_rules=extra_root_rules, root_rules=root_rules,
         ):
             raise ScaffoldError("adoption request privacy does not cover the record and its temporary file")
+
+
+def _adopt_record_paths(target: Path) -> list[Path]:
+    journal = target / _ADOPT_JOURNAL_REL
+    receipts = target / _ADOPT_RECEIPTS_REL
+    return [
+        journal.parent, receipts, journal,
+        journal.parent / ".adopt-journal.json.preview.vivary-tmp",
+        receipts / "preview.json",
+        receipts / ".preview.json.preview.vivary-tmp",
+    ]
 
 
 def _adopt_request_readiness(
@@ -6237,16 +6408,14 @@ def _adopt_request_readiness(
         return {"ready": False, "reason": "No setup changes need to be applied."}
     # Directory coverage protects every request ID and random publication name.
     # Checking only an example JSON filename could miss a temporary-file exception.
-    paths = [
-        journal.parent, target / _ADOPT_RECEIPTS_REL, journal,
-        journal.parent / ".adopt-journal.json.preview.vivary-tmp",
-        target / _ADOPT_RECEIPTS_REL / "preview.json",
-        target / _ADOPT_RECEIPTS_REL / ".preview.json.preview.vivary-tmp",
-    ]
+    paths = _adopt_record_paths(target)
     try:
+        _assert_adopt_records_untracked(target)
         _assert_adopt_record_privacy(target, paths)
         _assert_adopt_record_privacy(target, paths, extra_root_rules=extra_root_rules)
-    except (ScaffoldError, OSError):
+    except ScaffoldError as exc:
+        return {"ready": False, "reason": str(exc)}
+    except OSError:
         return {"ready": False, "reason": "Existing ignore rules must protect .vivary/runtime/ and its recovery records before retryable setup. Review those rules and preview again."}
     return {"ready": True, "reason": None}
 
@@ -7123,6 +7292,146 @@ def _exclusive_adoption(target: Path):
                 raise ScaffoldError("cannot release global adoption exclusion")
 
 
+_ADOPT_PRIVACY_REQUEST_SCHEMA = "vivary.adopt-privacy-request.v1"
+_ADOPT_PRIVACY_REQUEST_MAX_BYTES = 2048
+_ADOPT_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def _validated_adopt_privacy_request(value: dict) -> dict:
+    if not isinstance(value, dict) or set(value) != {
+        "schema", "root_hash", "before_hash", "after_hash",
+    } or value["schema"] != _ADOPT_PRIVACY_REQUEST_SCHEMA:
+        raise ScaffoldError("privacy preparation request is malformed")
+    if (not isinstance(value["root_hash"], str)
+        or not isinstance(value["after_hash"], str)
+        or not _ADOPT_DIGEST_RE.fullmatch(value["root_hash"])
+        or not _ADOPT_DIGEST_RE.fullmatch(value["after_hash"])):
+        raise ScaffoldError("privacy preparation digest is malformed")
+    before_hash = value["before_hash"]
+    if before_hash is not None and (
+        not isinstance(before_hash, str) or not _ADOPT_DIGEST_RE.fullmatch(before_hash)
+    ):
+        raise ScaffoldError("privacy preparation digest is malformed")
+    return value
+
+
+def _reviewed_privacy_after(before_hash: str | None, current: bytes) -> bool:
+    """Accept a completed retry only if the suffix is the canonical privacy append."""
+    for active_context in (None, "cocoindex-code"):
+        block = _thin_gitignore_block(active_context=active_context).encode("utf-8")
+        if current == block and before_hash in (None, _sha256_prefixed(b"")):
+            return True
+        if before_hash is None:
+            continue
+        for separator in (b"\n", b"\n\n"):
+            suffix = separator + block
+            if not current.endswith(suffix):
+                continue
+            before = current[:-len(suffix)]
+            if _sha256_prefixed(before) != before_hash:
+                continue
+            if before + _append_patch_text(before, block.decode("utf-8")).encode("utf-8") == current:
+                return True
+    return False
+
+
+def prepare_adopt_privacy(
+    target: str | Path, *,
+    plan_hash: str, request_id: str, privacy_request: dict,
+    preset: str | None = None, adapters: tuple[str, ...] | list[str] = (),
+    repo_root: str | Path | None = None,
+) -> dict:
+    """Apply only the reviewed root ignore rule before any private request record."""
+    resolved = _resolve_scaffold_target(target)
+    attempted = False
+    try:
+        _validate_adopt_request_id(request_id)
+        request = _validated_adopt_privacy_request(privacy_request)
+        if not isinstance(plan_hash, str) or not _ADOPT_DIGEST_RE.fullmatch(plan_hash):
+            raise ScaffoldError("privacy preparation needs the original plan hash")
+        with _exclusive_adoption(resolved):
+            if request["root_hash"] != _thin_approval_hash(_thin_target_identity(resolved)):
+                raise ScaffoldError("the reviewed project folder changed")
+            _assert_adopt_records_untracked(resolved)
+            if os.path.lexists(resolved / ".vivary" / "runtime"):
+                raise ScaffoldError("Existing .vivary/runtime content needs review before privacy preparation")
+            ignore_path = resolved / ".gitignore"
+            try:
+                with _open_adopt_readonly(resolved, ignore_path) as stream:
+                    current = stream.read()
+            except FileNotFoundError:
+                current = None
+            if current is not None and _sha256_prefixed(current) == request["after_hash"]:
+                if not _reviewed_privacy_after(request["before_hash"], current):
+                    raise ScaffoldError("the current privacy file is not the reviewed append")
+                _assert_adopt_record_privacy(resolved, _adopt_record_paths(resolved))
+                return {"root": str(resolved), "plan_hash": plan_hash,
+                    "request_id": request_id, "replayed": True}
+
+            if (None if current is None else _sha256_prefixed(current)) != request["before_hash"]:
+                raise ScaffoldError("the reviewed privacy input changed. Prepare a new preview")
+            plan = plan_adopt(resolved, preset=preset, adapters=adapters, repo_root=repo_root)
+            if plan["plan_hash"] != plan_hash:
+                raise ScaffoldError("the folder or setup inputs changed. Prepare a new preview")
+            privacy = plan["privacy_preparation"]
+            if not privacy["required"] or not privacy["ready"]:
+                raise ScaffoldError(privacy["reason"] or "privacy preparation is unavailable")
+            if any(privacy[field] != request[field] for field in ("root_hash", "before_hash", "after_hash")):
+                raise ScaffoldError("the reviewed privacy change does not match this request")
+            file = next((item for item in plan["content_plan"]["files"]
+                if item["path"] == ".gitignore"), None)
+            if file is None or file["operation"] not in ("create", "patch"):
+                raise ScaffoldError("the reviewed plan has no root privacy change")
+            _assert_adopt_kept_inputs(resolved, plan)
+            _ensure_safe_destinations(resolved, [ignore_path], force=file["operation"] == "patch")
+            def check_project_inputs() -> None:
+                if request["root_hash"] != _thin_approval_hash(_thin_target_identity(resolved)):
+                    raise ScaffoldError("the reviewed project folder changed")
+                _assert_adopt_records_untracked(resolved)
+                if os.path.lexists(resolved / ".vivary" / "runtime"):
+                    raise ScaffoldError("Existing .vivary/runtime content needs review before privacy preparation")
+
+            def check_create_input() -> None:
+                check_project_inputs()
+                if os.path.lexists(ignore_path):
+                    raise ScaffoldError("the reviewed privacy input changed before writes")
+
+            def before_commit() -> None:
+                nonlocal attempted
+                if file["operation"] == "create":
+                    check_create_input()
+                else:
+                    check_project_inputs()
+                # From this point the write may commit without an acknowledgement.
+                attempted = True
+
+            after = file["content"].encode("utf-8")
+            if file["operation"] == "create":
+                _atomic_write_bytes_no_follow(resolved, ignore_path, after,
+                    replace_existing=False,
+                    before_temporary=lambda _temporary: check_create_input(),
+                    before_commit=before_commit)
+            else:
+                patch = next((item for item in plan["patches"]
+                    if item["path"] == ignore_path), None)
+                if patch is None:
+                    raise ScaffoldError("the reviewed plan has no root privacy append")
+                _append_reviewed_bytes_no_follow(
+                    resolved, ignore_path, current, patch["inserted_text"].encode("utf-8"),
+                    after, before_write=check_project_inputs, on_write_attempt=before_commit,
+                )
+            _assert_adopt_record_privacy(resolved, _adopt_record_paths(resolved))
+            return {"root": str(resolved), "plan_hash": plan_hash,
+                "request_id": request_id, "replayed": False}
+    except (ScaffoldError, OSError) as exc:
+        error = exc if isinstance(exc, ScaffoldError) else ScaffoldError(
+            "privacy preparation did not receive a complete filesystem acknowledgement")
+        if not attempted:
+            raise AdoptAttemptRefusal(str(error), target=resolved,
+                plan_hash=plan_hash, request_id=request_id) from exc
+        raise error from exc
+
+
 def adopt_workspace(
     target: str | Path,
     *,
@@ -7303,6 +7612,7 @@ def _adopt_workspace(
             receipt_path, receipt_path.parent / receipt_temporary,
         ]
         _ensure_safe_destinations(target_path, private_paths, force=False)
+        _assert_adopt_records_untracked(target_path)
         # Rollback may restore the original ignore rules while a crash leaves a
         # temporary record behind, so protection must exist before adoption too.
         _assert_adopt_record_privacy(target_path, private_paths)
@@ -7900,6 +8210,7 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
     if mode == "dry-run":
         payload["content_plan"] = result["content_plan"]
         payload["request_replay"] = result["request_replay"]
+        payload["privacy_preparation"] = result["privacy_preparation"]
     if "request_id" in result:
         payload.update(request_id=result["request_id"], replayed=result["replayed"])
     return payload
@@ -9826,8 +10137,12 @@ def build_parser(
     adopt.add_argument(
         "--request-id",
         default=None,
-        help="original request identity for retryable apply or recovery; requires existing runtime privacy",
+        help="original request identity for retryable apply or recovery",
     )
+    adopt.add_argument("--prepare-privacy", action="store_true",
+        help="apply only the reviewed privacy prerequisite before retryable setup")
+    adopt.add_argument("--privacy-request", default=None, metavar="-",
+        help="bounded reviewed privacy descriptor from standard input")
     adopt.add_argument(
         "--adapter",
         action="append",
@@ -10215,6 +10530,35 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
     if args.command == "adopt":
         yes = getattr(args, "yes", False)
         try:
+            if args.prepare_privacy:
+                if not yes or args.recover is not None or args.privacy_request != "-" or args.request_id is None:
+                    raise ScaffoldError("privacy preparation requires --yes --plan --request-id --privacy-request -")
+                raw = sys.stdin.read(_ADOPT_PRIVACY_REQUEST_MAX_BYTES + 1)
+                if len(raw.encode("utf-8")) > _ADOPT_PRIVACY_REQUEST_MAX_BYTES:
+                    raise ScaffoldError("privacy preparation request exceeds the size limit")
+                def closed_object(pairs):
+                    value = {}
+                    for key, item in pairs:
+                        if key in value:
+                            raise ValueError("duplicate privacy request field")
+                        value[key] = item
+                    return value
+                try:
+                    privacy_request = json.loads(raw, object_pairs_hook=closed_object)
+                except (ValueError, UnicodeError, RecursionError) as exc:
+                    raise ScaffoldError("privacy preparation request is malformed") from exc
+                result = prepare_adopt_privacy(
+                    args.target, preset=args.preset, adapters=tuple(args.adapter),
+                    repo_root=args.repo_root, plan_hash=args.plan,
+                    request_id=args.request_id, privacy_request=privacy_request)
+                payload = {"ok": True, "mode": "privacy-prepared", **result}
+                if args.json:
+                    print(json.dumps(payload, indent=2))
+                else:
+                    print(f"create-vivary adopt: prepared reviewed ignore-file protection in {result['root']}")
+                return 0
+            if args.privacy_request is not None:
+                raise ScaffoldError("--privacy-request requires --prepare-privacy")
             result = adopt_workspace(
                 args.target,
                 preset=args.preset,

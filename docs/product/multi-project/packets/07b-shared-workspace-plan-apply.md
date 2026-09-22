@@ -79,10 +79,14 @@ write grant. The original runtime revalidates the binding before invoking the
 creator's request-aware operation. The local-stat provider remains ineligible
 for strict registry mutation admission.
 
-The creator's dry-run report includes request replay readiness. Missing existing
-ignore protection prevents confirmation; the application does not write that
-protection on the user's behalf. Unprotected folders remain outside this apply
-increment. Creator recovery and completion records own rollback and replay.
+The creator's dry-run report includes request replay readiness and a separate
+privacy-preparation proposal. An unprotected folder requires explicit review and
+confirmation of only its `.gitignore` change before a fresh setup review.
+The app saves that operation identity before dispatch. Retry verifies the reviewed
+ignore bytes without creating private recovery records. Setup cannot use the
+privacy step's approval. Its new review must confirm the remaining file changes.
+The separately approved ignore rule stays after later cancellation or rollback.
+Creator recovery and completion records continue to own setup rollback and replay.
 [The Workbench reference](../../../../packages/workbench/README.md#projects-and-conversations)
 owns the visible controls and runtime output limit. Full issues #14 and #15 stay
 open until their remaining folder and desktop acceptance passes.

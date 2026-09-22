@@ -187,15 +187,33 @@ work cannot be rolled back. Do not delete recovery records to force another appl
 Successful setup retains the registered project ID and provides links to files
 and chat.
 
-Retryable apply requires existing ignore rules that protect `.vivary/runtime/`,
-including its temporary records. The preview reports missing protection before
-confirmation. Vivary does not silently add this prerequisite. Folders without
-that protection remain unsupported for this GUI apply path. See the
-[creator contract](../create-vivary/README.md#retrying-an-approved-adoption-request).
+If the folder lacks ignore rules for private recovery records, the first preview
+shows only the proposed `.gitignore` change. **Confirm privacy preparation**
+authorizes that exact change. Existing ignore text remains intact. No setup
+files, recovery journal, or completion receipt are written by this step.
+The saved request survives reload and restart. **Retry privacy preparation**
+checks the reviewed result after a lost response without repeating the write.
+If later external edits prevent reconciliation, the request stays pending. Restore
+the reviewed folder and ignore state before retrying. Vivary does not discard an
+approval whose write result remains uncertain. An interrupted append can leave
+part of the proposed ignore text. Review the file and restore the reviewed state
+before retrying. Preparation never replaces or truncates existing ignore text.
+
+The approved ignore change remains if you cancel later setup or recover an
+incomplete setup. **Review Vivary setup** creates a fresh review before any
+other files can change. Setup still needs its own **Confirm and apply**.
+Changed inputs require another preview. Existing runtime records, tracked runtime
+paths, unsafe files, or conflicting ignore rules block privacy preparation.
+Vivary does not remove existing files from Git tracking.
+
+Retryable setup requires ignore protection for `.vivary/runtime/`, including
+its temporary records. These records can contain original file contents. Git
+ignore rules do not exclude them from ordinary folder backups or synchronization.
+See the [creator contract](../create-vivary/README.md#retrying-an-approved-adoption-request).
 The runtime's 256 KiB combined output limit rejects oversized previews in full.
 Full [issue #14](https://github.com/vivary-dev/Vivary-New/issues/14) and
 [issue #15](https://github.com/vivary-dev/Vivary-New/issues/15) acceptance remains
-open, including generic unprotected folders and actual Windows verification.
+open. The new two-confirmation journey still requires packaged Windows testing.
 
 Search opens beside Files and finds file names, literal text, or a regular
 expression inside the selected project only. Results show the path, line,

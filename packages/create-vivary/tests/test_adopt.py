@@ -35,6 +35,14 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def remove_git_fixture(root: Path) -> None:
+    """Remove only this test's disposable Git repo, including read-only Windows objects."""
+    def writable_retry(operation, name, _error):
+        os.chmod(name, 0o700)
+        operation(name)
+    shutil.rmtree(root, onerror=writable_retry)
+
+
 def snapshot(root: Path) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -51,6 +59,567 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class ThinAdoptPlanTests(unittest.TestCase):
+    def privacy_request(self, target, preset="coding"):
+        plan = create_vivary.plan_adopt(target, preset=preset)
+        privacy = plan["privacy_preparation"]
+        request = {"schema": "vivary.adopt-privacy-request.v1",
+            "root_hash": privacy["root_hash"], "before_hash": privacy["before_hash"],
+            "after_hash": privacy["after_hash"]}
+        return plan, dict(plan_hash=plan["plan_hash"], request_id="privacy-review",
+            privacy_request=request, preset=preset)
+
+    def test_privacy_preparation_replays_ignore_file_line_endings_without_rewrite(self):
+        for original in (b"", b"\xef\xbb\xbf", b"# No newline",
+                         b"# Line ending\n", b"# Windows line ending\r\n"):
+            with self.subTest(original=original):
+                target = temp_dir()
+                try:
+                    (target / ".gitignore").write_bytes(original)
+                    plan, kwargs = self.privacy_request(target)
+                    planned = next(file for file in plan["content_plan"]["files"]
+                        if file["path"] == ".gitignore")
+                    self.assertFalse(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+                    expected = planned["content"].encode("utf-8")
+                    self.assertEqual((target / ".gitignore").read_bytes(), expected)
+                    mtime = (target / ".gitignore").stat().st_mtime_ns
+                    self.assertTrue(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+                    self.assertEqual((target / ".gitignore").read_bytes(), expected)
+                    self.assertEqual((target / ".gitignore").stat().st_mtime_ns, mtime)
+                finally:
+                    shutil.rmtree(target)
+
+    def test_privacy_preparation_preserves_existing_ignore_and_requires_fresh_setup_review(self):
+        target = temp_dir()
+        try:
+            original_ignore = b"# Owner rules\r\nnode_modules/\r\n"
+            (target / ".gitignore").write_bytes(original_ignore)
+            (target / "AGENTS.md").write_bytes(b"# Owner instructions\n")
+            (target / "notes.txt").write_bytes(b"Keep this content\n")
+            before = snapshot(target)
+            plan, kwargs = self.privacy_request(target)
+            self.assertTrue(plan["privacy_preparation"]["ready"])
+            self.assertEqual(snapshot(target), before)
+            approved = plan["content_plan"]["files"]
+            ignore = next(file for file in approved if file["path"] == ".gitignore")
+            result = create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse(result["replayed"])
+            self.assertEqual((target / ".gitignore").read_bytes(), ignore["content"].encode("utf-8"))
+            self.assertEqual((target / "AGENTS.md").read_bytes(), b"# Owner instructions\n")
+            self.assertEqual((target / "notes.txt").read_bytes(), b"Keep this content\n")
+            self.assertEqual(set(snapshot(target)), set(before))
+            fresh = create_vivary.plan_adopt(target, preset="coding")
+            self.assertTrue(fresh["request_replay"]["ready"])
+            self.assertNotEqual(fresh["plan_hash"], plan["plan_hash"])
+            with self.assertRaisesRegex(create_vivary.AdoptAttemptRefusal, "plan hash mismatch"):
+                create_vivary.adopt_workspace(target, preset="coding", yes=True,
+                    plan_hash=plan["plan_hash"], request_id="stale-setup")
+            self.assertEqual((target / ".gitignore").read_bytes(), ignore["content"].encode("utf-8"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_rejects_changed_review_and_retries_postwrite_lost_reply(self):
+        target = temp_dir()
+        try:
+            (target / "AGENTS.md").write_bytes(b"# Owner instructions\n")
+            plan, kwargs = self.privacy_request(target)
+            (target / "AGENTS.md").write_bytes(b"# Owner changed instructions\n")
+            before = snapshot(target)
+            with self.assertRaisesRegex(create_vivary.AdoptAttemptRefusal, "changed"):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(snapshot(target), before)
+            plan, kwargs = self.privacy_request(target)
+            original = create_vivary._atomic_write_bytes_no_follow
+            def lost_reply(*args, **named):
+                original(*args, **named)
+                raise OSError("simulated lost acknowledgement after atomic replacement")
+            with mock.patch.object(create_vivary, "_atomic_write_bytes_no_follow", side_effect=lost_reply):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            after = snapshot(target)
+            self.assertEqual(set(after), {"AGENTS.md", ".gitignore"})
+            self.assertTrue(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+            self.assertEqual(snapshot(target), after)
+            self.assertTrue(create_vivary.plan_adopt(target, preset="coding")["request_replay"]["ready"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_refuses_tracked_runtime_in_child_or_parent_repo(self):
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                root = temp_dir()
+                try:
+                    repo = root / "parent" if nested else root
+                    repo.mkdir(exist_ok=True)
+                    target = repo / "child" if nested else repo
+                    target.mkdir(exist_ok=True)
+                    write(target / ".vivary/runtime/private.json", "private backup")
+                    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "add", "-f",
+                        str((target / ".vivary/runtime/private.json").relative_to(repo))], check=True)
+                    plan = create_vivary.plan_adopt(target, preset="coding")
+                    self.assertFalse(plan["request_replay"]["ready"])
+                    self.assertIn("tracks", plan["request_replay"]["reason"])
+                    self.assertFalse(plan["privacy_preparation"]["ready"])
+                    before = snapshot(target)
+                    (target / ".vivary/runtime/private.json").unlink()
+                    (target / ".vivary/runtime").rmdir()
+                    sparse = create_vivary.plan_adopt(target, preset="coding")
+                    self.assertFalse(sparse["privacy_preparation"]["ready"])
+                    self.assertIn("tracks", sparse["privacy_preparation"]["reason"])
+                    write(target / ".vivary/runtime/private.json", "private backup")
+                    _, kwargs = self.privacy_request(target)
+                    with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                        create_vivary.prepare_adopt_privacy(target, **kwargs)
+                    self.assertEqual(snapshot(target), before)
+                finally:
+                    remove_git_fixture(root)
+
+    def test_privacy_preparation_checks_parent_index_when_target_is_nested_repo(self):
+        root = temp_dir()
+        try:
+            parent = root / "parent"
+            target = parent / "child"
+            target.mkdir(parents=True)
+            tracked = target / ".vivary/runtime/private.json"
+            write(tracked, "private backup")
+            subprocess.run(["git", "-C", str(parent), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(parent), "add", "-f",
+                "child/.vivary/runtime/private.json"], check=True)
+            tracked.unlink()
+            tracked.parent.rmdir()
+            subprocess.run(["git", "-C", str(target), "init", "-q"], check=True)
+
+            plan, kwargs = self.privacy_request(target)
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertIn("tracks", plan["privacy_preparation"]["reason"])
+            with self.assertRaisesRegex(
+                create_vivary.AdoptAttemptRefusal, "Git already tracks"
+            ):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".gitignore").exists())
+            self.assertFalse((target / ".vivary/runtime").exists())
+        finally:
+            remove_git_fixture(root)
+
+    def test_privacy_preparation_refuses_mixed_case_tracked_runtime(self):
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                root = temp_dir()
+                try:
+                    repo = root / "parent" if nested else root
+                    repo.mkdir(exist_ok=True)
+                    target = repo / "child" if nested else repo
+                    target.mkdir(exist_ok=True)
+                    tracked = (repo / "Child" if nested else target) / ".Vivary/runtime/private.json"
+                    write(tracked, "private backup")
+                    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "config", "core.ignoreCase", "true"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "add", "-f",
+                        str(tracked.relative_to(repo))], check=True)
+                    tracked.unlink()
+                    tracked.parent.rmdir()
+
+                    with mock.patch.dict(os.environ, {"GIT_LITERAL_PATHSPECS": "1"}):
+                        plan = create_vivary.plan_adopt(target, preset="coding")
+                    self.assertFalse(plan["privacy_preparation"]["ready"])
+                    self.assertIn("tracks", plan["privacy_preparation"]["reason"])
+                    self.assertFalse((target / ".gitignore").exists())
+                    self.assertFalse((target / ".vivary/runtime").exists())
+                finally:
+                    remove_git_fixture(root)
+
+    def test_privacy_preview_refuses_dangling_ignore_link(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            missing = target / "missing-ignore-target"
+            try:
+                ignore.symlink_to(missing)
+            except OSError as error:
+                if os.name == "nt" and error.winerror in (50, 1314):
+                    self.skipTest("symlink creation is unavailable")
+                raise
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertTrue(any(
+                item["path"] == ignore and ".gitignore is not a regular file" in item["reason"]
+                for item in plan["conflicts"]
+            ))
+            self.assertFalse(any(
+                item["path"] == ".gitignore" and item["operation"] == "create"
+                for item in plan["content_plan"]["files"]
+            ))
+            self.assertTrue(ignore.is_symlink())
+            self.assertFalse(missing.exists())
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_refuses_other_root_and_legacy_pending_journal(self):
+        first = temp_dir()
+        second = temp_dir()
+        try:
+            plan, kwargs = self.privacy_request(first)
+            before = snapshot(second)
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(second, **kwargs)
+            self.assertEqual(snapshot(second), before)
+            journal = first / ".vivary/runtime/adopt-journal.json"
+            journal.parent.mkdir(parents=True)
+            journal.write_bytes(b"prior transaction")
+            blocked = create_vivary.plan_adopt(first, preset="coding")
+            self.assertFalse(blocked["privacy_preparation"]["ready"])
+            self.assertFalse(blocked["request_replay"]["ready"])
+            before = snapshot(first)
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(first, **kwargs)
+            self.assertEqual(snapshot(first), before)
+        finally:
+            shutil.rmtree(first)
+            shutil.rmtree(second)
+
+    def test_privacy_preparation_refuses_linked_ignore_and_runtime(self):
+        root = temp_dir()
+        try:
+            target = root / "project"
+            target.mkdir()
+            outside = root / "outside"
+            outside.write_bytes(b"# Outside\n")
+            (target / ".gitignore").symlink_to(outside)
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            self.assertTrue(plan["conflicts"])
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            (target / ".gitignore").unlink()
+            plan, kwargs = self.privacy_request(target)
+            (target / ".vivary").mkdir()
+            (target / ".vivary/runtime").symlink_to(root, target_is_directory=True)
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".gitignore").exists())
+            self.assertEqual(outside.read_bytes(), b"# Outside\n")
+        finally:
+            shutil.rmtree(root)
+
+    def test_unprotected_folder_prepares_only_reviewed_privacy_then_replays(self):
+        target = temp_dir()
+        try:
+            (target / "notes.txt").write_bytes(b"Existing work\n")
+            report = create_vivary._adopt_report_to_json(
+                create_vivary.plan_adopt(target, preset="coding"), mode="dry-run")
+            privacy = report["privacy_preparation"]
+            self.assertTrue(privacy["required"])
+            self.assertTrue(privacy["ready"])
+            request = {"schema": "vivary.adopt-privacy-request.v1",
+                "root_hash": privacy["root_hash"], "before_hash": privacy["before_hash"],
+                "after_hash": privacy["after_hash"]}
+            kwargs = dict(preset="coding", plan_hash=report["plan_hash"],
+                request_id="privacy-test", privacy_request=request)
+            applied = create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse(applied["replayed"])
+            self.assertEqual(set(snapshot(target)), {"notes.txt", ".gitignore"})
+            self.assertEqual((target / "notes.txt").read_bytes(), b"Existing work\n")
+            self.assertTrue(create_vivary.plan_adopt(target, preset="coding")["request_replay"]["ready"])
+            replay = create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertTrue(replay["replayed"])
+            self.assertEqual(set(snapshot(target)), {"notes.txt", ".gitignore"})
+        finally:
+            shutil.rmtree(target)
+
+    def test_unprotected_folder_recovery_keeps_prepared_privacy_and_restores_other_files(self):
+        for original_ignore in (None, b"# Owner ignore\nnode_modules/\n"):
+            with self.subTest(original_ignore=original_ignore):
+                target = temp_dir()
+                try:
+                    if original_ignore is not None:
+                        (target / ".gitignore").write_bytes(original_ignore)
+                    (target / "AGENTS.md").write_bytes(b"# Original guidance\n")
+                    (target / "notes.txt").write_bytes(b"Private notes\n")
+                    _plan, kwargs = self.privacy_request(target)
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+                    protected = {p.relative_to(target).as_posix(): p.read_bytes()
+                        for p in target.rglob("*") if p.is_file()}
+                    setup = create_vivary.plan_adopt(target, preset="coding")
+                    self.assertTrue(setup["request_replay"]["ready"])
+                    with self.assertRaises(KeyboardInterrupt):
+                        create_vivary.adopt_workspace(target, preset="coding", yes=True,
+                            plan_hash=setup["plan_hash"], request_id="full-setup",
+                            _crash_after=2)
+                    review = create_vivary.adopt_workspace(target,
+                        recover_hash=setup["plan_hash"], request_id="full-setup")
+                    self.assertFalse(review["recovered"])
+                    restored = create_vivary.adopt_workspace(target, yes=True,
+                        recover_hash=setup["plan_hash"], plan_hash=review["recovery_plan_hash"],
+                        request_id="full-setup")
+                    self.assertTrue(restored["recovered"])
+                    user_files = {p.relative_to(target).as_posix(): p.read_bytes()
+                        for p in target.rglob("*") if p.is_file()
+                        and not p.relative_to(target).as_posix().startswith(".vivary/runtime/")}
+                    self.assertEqual(user_files, protected)
+                    receipt = target / ".vivary/runtime/adopt-receipts/full-setup.json"
+                    self.assertTrue(receipt.is_file())
+                    self.assertTrue(create_vivary._probe_is_ignored(target,
+                        receipt.relative_to(target).as_posix()))
+                    replay = create_vivary.adopt_workspace(target, yes=True,
+                        recover_hash=setup["plan_hash"], plan_hash=review["recovery_plan_hash"],
+                        request_id="full-setup")
+                    self.assertTrue(replay["recovered"])
+                    self.assertTrue(create_vivary.plan_adopt(target, preset="coding")["request_replay"]["ready"])
+                finally:
+                    shutil.rmtree(target)
+
+    def test_privacy_preparation_subprocess_retry_preserves_exact_bytes_and_timestamp(self):
+        target = temp_dir()
+        try:
+            (target / "notes.txt").write_bytes(b"Unrelated notes\n")
+            plan, kwargs = self.privacy_request(target)
+            args = [sys.executable, str(PKG / "create_vivary.py"), "adopt",
+                str(target), "--preset", "coding", "--json", "--yes",
+                "--prepare-privacy", "--plan", plan["plan_hash"],
+                "--request-id", kwargs["request_id"], "--privacy-request", "-"]
+            document = json.dumps(kwargs["privacy_request"])
+            first = subprocess.run(args, input=document, text=True, capture_output=True, check=True)
+            self.assertFalse(json.loads(first.stdout)["replayed"])
+            after = {p.relative_to(target).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in target.rglob("*") if p.is_file()}
+            second = subprocess.run(args, input=document, text=True, capture_output=True, check=True)
+            self.assertTrue(json.loads(second.stdout)["replayed"])
+            self.assertEqual(after, {p.relative_to(target).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in target.rglob("*") if p.is_file()})
+            self.assertEqual(set(after), {"notes.txt", ".gitignore"})
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_prewrite_failure_can_retry_same_review(self):
+        target = temp_dir()
+        try:
+            plan, kwargs = self.privacy_request(target)
+            before = snapshot(target)
+            with mock.patch.object(create_vivary, "_atomic_write_bytes_no_follow",
+                side_effect=OSError("simulated failure before replacement")):
+                with self.assertRaises(create_vivary.AdoptAttemptRefusal) as caught:
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(caught.exception.attempt["attempt_status"], "refused_before_mutation")
+            self.assertEqual(snapshot(target), before)
+            self.assertFalse(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+            self.assertTrue(create_vivary.plan_adopt(target, preset="coding")["request_replay"]["ready"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_refuses_edit_before_held_append(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Initial\n")
+            _plan, kwargs = self.privacy_request(target)
+            original = create_vivary._append_reviewed_bytes_no_follow
+            def change_before_open(*args, **named):
+                ignore.write_bytes(b"# External edit\n")
+                return original(*args, **named)
+            with mock.patch.object(create_vivary, "_append_reviewed_bytes_no_follow",
+                side_effect=change_before_open):
+                with self.assertRaisesRegex(create_vivary.AdoptAttemptRefusal, "changed before writes") as caught:
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(caught.exception.attempt["attempt_status"], "refused_before_mutation")
+            self.assertEqual(ignore.read_bytes(), b"# External edit\n")
+            self.assertFalse((target / ".vivary").exists())
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_preparation_refuses_hardlinked_ignore_without_touching_other_name(self):
+        root = temp_dir()
+        try:
+            target = root / "project"
+            target.mkdir()
+            outside = root / "outside-ignore"
+            outside.write_bytes(b"# Keep other name\n")
+            (target / ".gitignore").hardlink_to(outside)
+            plan, kwargs = self.privacy_request(target)
+            self.assertFalse(plan["privacy_preparation"]["ready"])
+            self.assertIn("hard-link", plan["privacy_preparation"]["reason"])
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(outside.read_bytes(), b"# Keep other name\n")
+            self.assertEqual((target / ".gitignore").read_bytes(), b"# Keep other name\n")
+        finally:
+            shutil.rmtree(root)
+
+    def test_privacy_append_refuses_runtime_created_after_preview(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original = create_vivary._append_reviewed_bytes_no_follow
+            def runtime_appears(*args, **named):
+                (target / ".vivary/runtime").mkdir(parents=True)
+                return original(*args, **named)
+            with mock.patch.object(create_vivary, "_append_reviewed_bytes_no_follow",
+                side_effect=runtime_appears):
+                with self.assertRaisesRegex(
+                    create_vivary.AdoptAttemptRefusal, "runtime content needs review"
+                ):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertEqual(ignore.read_bytes(), b"# Reviewed\n")
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_create_refuses_runtime_created_after_preview(self):
+        target = temp_dir()
+        try:
+            _plan, kwargs = self.privacy_request(target)
+            original = create_vivary._atomic_write_bytes_no_follow
+            def runtime_appears(*args, **named):
+                (target / ".vivary/runtime").mkdir(parents=True)
+                return original(*args, **named)
+            with mock.patch.object(create_vivary, "_atomic_write_bytes_no_follow",
+                side_effect=runtime_appears):
+                with self.assertRaisesRegex(
+                    create_vivary.AdoptAttemptRefusal, "runtime content needs review"
+                ):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".gitignore").exists())
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "FIFO is a POSIX special file")
+    def test_privacy_append_refuses_fifo_replacing_reviewed_file(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            ignore.unlink()
+            os.mkfifo(ignore)
+            with self.assertRaises(create_vivary.AdoptAttemptRefusal):
+                create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertFalse((target / ".vivary").exists())
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "POSIX editor can write through an open append descriptor")
+    def test_privacy_append_preserves_noncooperating_edit_after_final_check(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            edited = False
+            def editor_then_append(fd, data):
+                nonlocal edited
+                if not edited:
+                    edited = True
+                    with ignore.open("ab") as stream:
+                        stream.write(b"# Editor wrote this\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=editor_then_append):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertTrue(edited)
+            self.assertTrue(ignore.read_bytes().startswith(
+                b"# Reviewed\n# Editor wrote this\n"))
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipIf(os.name == "nt", "POSIX rename can replace a held append path")
+    def test_privacy_append_does_not_replace_new_editor_file(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            moved = target / "editor-preserved-ignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            renamed = False
+            def rename_then_append(fd, data):
+                nonlocal renamed
+                if not renamed:
+                    renamed = True
+                    os.replace(ignore, moved)
+                    ignore.write_bytes(b"# New editor file\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=rename_then_append):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertTrue(renamed)
+            self.assertEqual(ignore.read_bytes(), b"# New editor file\n")
+            self.assertTrue(moved.read_bytes().startswith(b"# Reviewed\n"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_privacy_append_partial_write_stays_pending_without_erasing_original(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            def short_write(fd, data):
+                return original_write(fd, data[:max(1, len(data) // 2)])
+            with mock.patch.object(create_vivary.os, "write", side_effect=short_write):
+                with self.assertRaises(create_vivary.ScaffoldError) as caught:
+                    create_vivary.prepare_adopt_privacy(target, **kwargs)
+            self.assertNotIsInstance(caught.exception, create_vivary.AdoptAttemptRefusal)
+            self.assertTrue(ignore.read_bytes().startswith(b"# Reviewed\n"))
+            self.assertGreater(len(ignore.read_bytes()), len(b"# Reviewed\n"))
+        finally:
+            shutil.rmtree(target)
+
+    @unittest.skipUnless(os.name == "nt", "Windows sharing rules protect an open append handle")
+    def test_privacy_append_denies_other_windows_writer_while_held(self):
+        target = temp_dir()
+        try:
+            ignore = target / ".gitignore"
+            ignore.write_bytes(b"# Reviewed\n")
+            _plan, kwargs = self.privacy_request(target)
+            original_write = os.write
+            def other_writer_is_blocked(fd, data):
+                with self.assertRaises(OSError):
+                    with ignore.open("ab") as stream:
+                        stream.write(b"# Other writer\n")
+                return original_write(fd, data)
+            with mock.patch.object(create_vivary.os, "write", side_effect=other_writer_is_blocked):
+                self.assertFalse(create_vivary.prepare_adopt_privacy(target, **kwargs)["replayed"])
+            self.assertNotIn(b"# Other writer", ignore.read_bytes())
+        finally:
+            shutil.rmtree(target)
+
+    def test_git_index_probe_does_not_run_configured_fsmonitor_hook(self):
+        root = temp_dir()
+        try:
+            target = root / "project"
+            target.mkdir()
+            write(target / ".vivary/runtime/tracked.json", "private")
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "-f",
+                "project/.vivary/runtime/tracked.json"], check=True)
+            marker = root / "hook-called"
+            hook = root / "fsmonitor-hook.sh"
+            hook.write_text("#!/bin/sh\necho called >> hook-called\nprintf '/\\0'\n",
+                encoding="utf-8", newline="\n")
+            hook.chmod(0o700)
+            def fixture_git(*args):
+                result = subprocess.run(["git", "-C", str(root), *args],
+                    text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0,
+                    f"git {' '.join(args)} failed: stdout={result.stdout!r} stderr={result.stderr!r}")
+                return result
+            fixture_git("config", "core.fsmonitor", "./fsmonitor-hook.sh")
+            fixture_git("config", "core.fsmonitorHookVersion", "1")
+            output = [fixture_git("update-index", "--fsmonitor")]
+            for _attempt in range(3):
+                output.append(fixture_git("status", "--porcelain"))
+                if marker.exists():
+                    break
+            self.assertTrue(marker.exists(), "configured Git fsmonitor hook did not execute: "
+                + repr([(result.stdout, result.stderr) for result in output]))
+            marker.unlink()
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            self.assertFalse(plan["request_replay"]["ready"])
+            self.assertIn("tracks", plan["request_replay"]["reason"])
+            self.assertFalse(marker.exists(), "preview executed repository fsmonitor hook")
+        finally:
+            remove_git_fixture(root)
+
     def test_request_readiness_is_read_only_and_requires_existing_directory_privacy(self):
         target = temp_dir()
         try:
