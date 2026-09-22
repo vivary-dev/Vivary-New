@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout release tag
-        # actions/checkout v7.0.0 pinned to an immutable commit SHA.
+        # actions/checkout v7.0.1 pinned to an immutable commit SHA.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_tag }}
@@ -115,7 +115,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout release tag
-        # actions/checkout v7.0.0 pinned to an immutable commit SHA.
+        # actions/checkout v7.0.1 pinned to an immutable commit SHA.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_tag }}
