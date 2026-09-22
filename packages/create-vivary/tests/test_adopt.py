@@ -35,6 +35,14 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def remove_git_fixture(root: Path) -> None:
+    """Remove only this test's disposable Git repo, including read-only Windows objects."""
+    def writable_retry(operation, name, _error):
+        os.chmod(name, 0o700)
+        operation(name)
+    shutil.rmtree(root, onerror=writable_retry)
+
+
 def snapshot(root: Path) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -164,7 +172,7 @@ class ThinAdoptPlanTests(unittest.TestCase):
                         create_vivary.prepare_adopt_privacy(target, **kwargs)
                     self.assertEqual(snapshot(target), before)
                 finally:
-                    shutil.rmtree(root)
+                    remove_git_fixture(root)
 
     def test_privacy_preparation_refuses_other_root_and_legacy_pending_journal(self):
         first = temp_dir()
@@ -365,20 +373,32 @@ class ThinAdoptPlanTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "-f",
                 "project/.vivary/runtime/tracked.json"], check=True)
             marker = root / "hook-called"
-            hook = root / "fsmonitor-hook.sh"
-            hook.write_text("#!/bin/sh\necho called >> \"" + str(marker) + "\"\nprintf '1\\n'\n", encoding="utf-8")
-            hook.chmod(0o700)
+            if os.name == "nt":
+                hook = root / "fsmonitor-hook.cmd"
+                hook.write_text('@echo off\r\necho called>>"' + str(marker)
+                    + '"\r\necho /\r\n', encoding="utf-8")
+            else:
+                hook = root / "fsmonitor-hook.sh"
+                hook.write_text("#!/bin/sh\necho called >> \"" + str(marker)
+                    + "\"\nprintf '/\\0'\n", encoding="utf-8")
+                hook.chmod(0o700)
             subprocess.run(["git", "-C", str(root), "config", "core.fsmonitor", str(hook)], check=True)
-            subprocess.run(["git", "-C", str(root), "status", "--porcelain"], check=True,
+            subprocess.run(["git", "-C", str(root), "config", "core.fsmonitorHookVersion", "1"], check=True)
+            subprocess.run(["git", "-C", str(root), "update-index", "--fsmonitor"], check=True,
                 capture_output=True)
-            self.assertTrue(marker.exists(), "fixture fsmonitor hook did not execute")
+            for _attempt in range(3):
+                subprocess.run(["git", "-C", str(root), "status", "--porcelain"], check=True,
+                    capture_output=True)
+                if marker.exists():
+                    break
+            self.assertTrue(marker.exists(), "configured Git fsmonitor hook did not execute")
             marker.unlink()
             plan = create_vivary.plan_adopt(target, preset="coding")
             self.assertFalse(plan["request_replay"]["ready"])
             self.assertIn("tracks", plan["request_replay"]["reason"])
             self.assertFalse(marker.exists(), "preview executed repository fsmonitor hook")
         finally:
-            shutil.rmtree(root)
+            remove_git_fixture(root)
 
     def test_request_readiness_is_read_only_and_requires_existing_directory_privacy(self):
         target = temp_dir()
