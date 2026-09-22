@@ -43,6 +43,7 @@ const pages = [
   ['WHITE-PAPER', 'white-paper', 'White paper', 'The technical case for a minimal, portable standard for agent-native workspaces.'],
   ['HOWTO', 'howto', 'Advanced recipes', 'Focused recipes for types, review, coordination, CI, storage, and optional providers.'],
   ['SIGNALS', 'signals', 'Public signals', 'Public npm, PyPI, and GitHub metrics snapshots.'],
+  ['desktop-preview', 'desktop-preview', 'Windows prerelease installation', 'Download, verify, install, preserve data, and review the limits of the Windows portable prerelease.'],
   ['RELEASE-WORKFLOW', 'release-workflow', 'Release workflow', 'End-of-update checklist for Vivary release truth, docs, publishing, and post copy.'],
   ['ARCHITECTURE', 'architecture', 'Architecture', 'The four-layer model and the principles behind Vivary.'],
   ['MIGRATION-STATUS', 'migration-status', 'Migration status', 'Current status of stable, optional, experimental, held, deprecated, and planned Vivary surfaces.'],
@@ -54,7 +55,9 @@ const retiredGeneratedSlugs = ['brand', 'faq', 'product-roadmap'];
 
 // rewrite relative repo-doc links to site routes; off-site files to GitHub blobs
 const rewrite = (s) =>
-  s.replaceAll('](CONCEPTS.md)', '](/concepts/)')
+  s.replaceAll('](desktop-preview.md)', '](/desktop-preview/)')
+   .replaceAll('](docs/desktop-preview.md)', '](/desktop-preview/)')
+   .replaceAll('](CONCEPTS.md)', '](/concepts/)')
    .replaceAll('](GETTING-STARTED.md)', '](/getting-started/)')
    .replaceAll('](GETTING-STARTED.md#', '](/getting-started/#')
    .replaceAll('](ORIGINAL-CLI.md)', '](/original-cli/)')

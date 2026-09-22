@@ -15,6 +15,27 @@ the `v0.1.0` line.
 `vivary-memory-cognee` **0.1.2** · optional `vivary-mcp` **0.1.3**. Versions are
 independent. There is no single "Vivary 0.4.2" release.
 
+## [Windows prerelease 250aaa0] - 2026-09-21
+
+[Download and installation](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21). This public Windows x64 portable preview
+contains the latest merged application tree through PR #76. It adds Codex
+conversations, project-file search with line navigation, project health findings,
+folder-picker recovery, exact read-only setup previews, project-owned page previews,
+adoption process exclusion, bounded journals, and approved adoption-request replay.
+
+The tag pins `250aaa0567104541127767501de3bcf0d1c3549b`. The application tree matches merged `dev` at `b4f5229`.
+The same ZIP passed the September 21 bounded Windows/browser visual review.
+The owner approved its screenshots and authorized this prerelease.
+
+Seven candidate GitHub CI jobs passed. The separate Entire recorded-approval gate
+failed. The binary is unsigned, retains development metadata, and does not establish
+full native, clean-profile, upgrade/removal, or desktop/web acceptance.
+See [installation and limitations](/desktop-preview/).
+
+No PyPI/npm package versions or registry artifacts change. The older entries below
+retain their original checkpoint context. Their then-unreleased features are included
+in this desktop archive where stated above.
+
 ## [Unreleased: Codex integration] - 2026-09-16
 
 [PR #59](https://github.com/vivary-dev/Vivary-New/pull/59) merged into `dev` as

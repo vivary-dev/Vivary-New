@@ -1,24 +1,47 @@
 # Desktop acceptance status
 
-Updated 2026-09-18. This page is the current tracked acceptance register for the
-private Windows desktop and self-hosted Workbench. GitHub issues still own task
+Updated 2026-09-21. This page is the current tracked acceptance register for the
+Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
 
 ## Release boundary
 
-**Vivary is not ready for public release.** The published Windows x64 portable folder
-is a private development candidate built from source commit
-`26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`. It is available as an unsigned
-[private Windows development preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-16).
-Repository access is required to download it. The preview is incomplete and has
-not passed the complete desktop and self-hosted web release journey.
+The [public Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-21) contains the tested `250aaa0`
+application. Stable desktop and self-hosted web acceptance remain incomplete.
+The repository and download are public. No access invitation is required.
 
-The exact private archive tested on Windows was 236,023,078 bytes with SHA-256
-`a987fac00c20fe3b613baabe7b4f2c3d60c87f6a097cd2f8cb1454adf8593a6c`.
-Use those values to verify the downloaded ZIP. The prerelease tag identifies the
-tested `26798df` binary. It is not a suite version and does not imply that a newer
-source merge rebuilt the archive.
+Exact source: `250aaa0567104541127767501de3bcf0d1c3549b`. This tree matches the merged PR #76 commit
+`b4f52297f46e7751f38efd14f510b1323156dc67`. ZIP size: 236,048,361 bytes.
+SHA-256: `2b5b0c51bc0c85d8a3383783906dddb21e093a3787413717aa120f61df14946d`.
+
+The executable is unsigned and retains `version: 0.0.0`, `channel: private-preview`,
+and prebuilt Workbench `sourceCommitVerified: false`. The tag pins the binary's
+source, not later documentation commits. See the [install guide](../../desktop-preview.md).
+
+The historical September 16 archive remains available. The candidate sections
+below preserve evidence from their named versions and do not imply current retesting.
+
+### September 21 visual review of `250aaa0`
+
+- Direct Windows: checksum verification, launch with the existing profile,
+  saved projects/conversation visibility, and real folder-chooser timeout recovery.
+- Browser against the packaged app: setup proposals preserving existing guidance,
+  unchanged fixture hashes, page owner label, interactive embedded page,
+  same-project retention, cross-project clearing, Files/chat navigation, reload,
+  and a 390-pixel layout with readable address-validation errors.
+- The owner approved the screenshots, then authorized a GitHub prerelease.
+- Seven [candidate GitHub CI jobs](https://github.com/vivary-dev/Vivary-New/actions/runs/35671130849) passed,
+  including Windows governed verification and Windows/Linux orientation proof.
+  The separate Entire gate failed on missing recorded reviewer approval, zero of one.
+
+Native restart, minimum-width behavior, full native registration, conflict cases,
+clean-profile first run, upgrade/removal acceptance, and real model turns remain
+unrun on this exact candidate. Browser evidence does not establish native acceptance.
+Setup code requires horizontal scrolling at ordinary split-panel width.
+Browser Open folder still needs the desktop chooser. Setup preview has no GUI Apply.
+
+The older-candidate evidence below remains relevant only to the scope it records.
 
 ## Windows evidence by candidate
 
