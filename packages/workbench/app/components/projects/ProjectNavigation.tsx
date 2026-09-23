@@ -165,13 +165,13 @@ export function ProjectNavigation() {
             aria-pressed={activeProject?.projectId === project.projectId} onClick={() => void chooseProject(project.projectId)}>
             <span>{project.displayName}</span>{project.status !== "available" && <span className="project-unavailable-label">Unavailable</span>}
           </Button>
-          {project.managedReconnectEligible && activeProject?.projectId === project.projectId
+          {project.reconnectEligible && activeProject?.projectId === project.projectId
             && <ReconnectProjectForm key={catalog.scopeKey + ":" + project.projectId}
               projectId={project.projectId} disabled={checking || selecting}
               onReconnected={() => reconnected(project.projectId, project.displayName)} />}
-          {project.status !== "available" && !project.managedReconnectEligible
+          {project.status !== "available" && !project.reconnectEligible
             && activeProject?.projectId === project.projectId
-            && <p role="status">This folder cannot be reconnected here yet. Restore the original folder and refresh,
+            && <p role="status">This folder cannot be reconnected. Restore the original folder and refresh,
               or choose another project. Your conversations are saved.</p>}
         </li>)}</ul>}
       {!creating && <Button size="sm" className="register-project-button" onClick={() => {
@@ -185,8 +185,8 @@ export function ProjectNavigation() {
           setRegistering(true);
         }}>Register existing folder</Button>}
       {!catalog.locations.some(location => location.status === "available")
-        && <p>{catalog.projects.some(project => project.managedReconnectEligible)
-          ? "Select an unavailable managed project to review its connection. You can also create a project here."
+        && <p>{catalog.projects.some(project => project.reconnectEligible)
+          ? "Select an unavailable project to review its connection. You can also create a project here."
           : "No connected folders are available. You can create a managed project here."}</p>}
     </>}
     {creating && <CreateProjectForm disabled={checking || selecting}

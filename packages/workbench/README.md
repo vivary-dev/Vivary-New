@@ -349,10 +349,18 @@ the disk version and preserves the draft when a conflict or failure needs recove
 Binary or unsupported files and files beyond the bounded size limit are refused.
 Viewing a file does not send its content to a model.
 
-**Review connection** can recover one recorded managed-folder binding after an
-explicit review. Cancel changes nothing. It does not relocate a folder or grant
-an arbitrary path. External-folder relocation, full existing-folder setup, file
-search, factory orchestration, and complete Windows release acceptance remain unfinished.
+**Review connection** can recover a project with one recorded local folder,
+including a folder registered outside Vivary's managed Projects directory.
+The review shows the saved host path for an external folder. Check that it is
+the intended folder before confirming a changed identity. Confirmation rechecks
+the reviewed folder, its parent, and the saved access revisions. A changed review
+requires another preview. Cancel changes nothing.
+
+Stop or deny active coding requests before reconnecting. Reconnecting preserves
+the project and its conversations. It changes no project files and starts no agent. It cannot relocate a folder, grant an arbitrary path,
+or reconnect a project with multiple folder bindings. Restore missing or linked
+folders at their recorded paths before review. Complete Windows release
+acceptance remains under issue #23.
 
 ### Current acceptance and gaps
 

@@ -32,6 +32,7 @@ import {
 
 import { setTimeout as delay } from "node:timers/promises";
 import { getCodePermissionMode, setCodePermissionMode } from "../server/code-permissions.ts";
+import { claimProjectReconnection } from "../server/project-reconnection-admission.mjs";
 
 const stateRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-test-state-"));
 const previousDatabase = process.env.DATABASE_URL; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
@@ -55,6 +56,19 @@ describe("local Vivary code agent boundaries", () => {
   it("offers only the supported Claude model aliases", () => {
     assert.deepEqual(VIVARY_CODE_MODELS, ["sonnet", "opus", "fable"]);
     assert.equal(VIVARY_CODE_DEFAULT_MODEL, "sonnet");
+  });
+
+  it("refuses Code admission while a project reconnection owns the root transition", async () => {
+    const release = claimProjectReconnection();
+    assert.ok(release);
+    try {
+      await assert.rejects(sendVivaryCodeMessage({
+        ownerEmail: "owner@example.com", message: "Inspect files",
+        workspace: { root: stateRoot, label: "Fixture" },
+      }), { errorCode: "vivary_code_project_reconnecting", statusCode: 409 });
+    } finally {
+      release();
+    }
   });
 
   it("keeps each runtime's model selection in its own model family", () => {

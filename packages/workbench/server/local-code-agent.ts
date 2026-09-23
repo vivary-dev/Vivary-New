@@ -18,6 +18,7 @@ import {
 } from "@agent-native/core/code-agents";
 
 import { getCodexModels, type CodexModelCatalog } from "./codex-models";
+import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
@@ -706,6 +707,11 @@ function isOwnedIdentity(
 }
 
 function assertCodeHostAvailable(): void {
+  if (projectReconnectionPending()) {
+    fail("Project reconnection is in progress. Retry this coding request after it finishes.", {
+      errorCode: "vivary_code_project_reconnecting", statusCode: 409,
+    });
+  }
   if (hostState.closing) {
     fail("The coding host is stopping or requires process cleanup. Check the latest run before continuing.", {
       errorCode: "vivary_code_host_closing",
