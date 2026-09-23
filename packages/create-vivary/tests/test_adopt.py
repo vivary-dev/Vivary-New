@@ -2656,7 +2656,11 @@ class AdoptionReplayTests(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             self.apply(_crash_after=2)
         arguments = ['adopt', str(self.target), '--recover', self.plan['plan_hash'],
-            '--request-id', self.request_id, '--json']
+            '--request-id', self.request_id]
+        rc, output = run_cli(arguments)
+        self.assertEqual(rc, 0, output)
+        self.assertIn("Would adopt", output)
+        arguments += ['--json']
         rc, output = run_cli(arguments)
         self.assertEqual(rc, 0, output)
         review = json.loads(output)

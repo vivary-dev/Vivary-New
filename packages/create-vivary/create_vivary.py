@@ -8337,10 +8337,10 @@ def _print_adopt_report(result: dict, *, mode: str) -> None:
     for dst in result["kept"]:
         rel = dst.relative_to(target).as_posix()
         print(f"  exists, kept: {rel}")
-    for conflict in result["conflicts"]:
+    for conflict in result.get("conflicts", []):
         rel = conflict["path"].relative_to(target).as_posix()
         print(f"  conflict: {rel}: {conflict['reason']}")
-    for finding in result["validation_findings"]:
+    for finding in result.get("validation_findings", []):
         print(f"  {finding['level']}: {finding['path']}:{finding['line']} "
               f"{finding['code']}: {finding['message']}")
 
