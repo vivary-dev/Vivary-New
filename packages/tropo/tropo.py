@@ -1006,7 +1006,11 @@ class ConfigResolver:
             if overlays:
                 composed = copy.deepcopy(self._base_dict)
                 for ov in overlays:
-                    _merge_config(composed, _rebase_overlay_config(_read_toml(ov), ov, self.root))
+                    try:
+                        _merge_config(composed, _rebase_overlay_config(_read_toml(ov), ov, self.root))
+                    except ConfigError as exc:
+                        exc.config_path = ov
+                        raise
                 self._cache[key] = Config(composed, self.root)
             else:
                 self._cache[key] = self.base
@@ -1038,6 +1042,9 @@ def type_for(full, config):
     d = os.path.dirname(os.path.abspath(full))
     root = os.path.abspath(config.root)
     while True:
+        relative_dir = os.path.relpath(d, root).replace("\\", "/")
+        if relative_dir in config.folder_map:
+            return config.folder_map[relative_dir]
         if os.path.basename(d) in config.folder_map:
             return config.folder_map[os.path.basename(d)]
         if os.path.normcase(os.path.normpath(d)) == os.path.normcase(os.path.normpath(root)):
@@ -1270,7 +1277,7 @@ def analyze_file(full, rel, config, *, text=None, use_git_dates=True, stat_resul
     return doc
 
 
-def analyze(root, paths, config):
+def analyze(root, paths, config, *, additional_documents=()):
     resolver = config if hasattr(config, "for_dir") else _StaticResolver(config)
     docs = []
     for full, rel in iter_markdown(root, paths, resolver.base.exclude):
@@ -1278,6 +1285,7 @@ def analyze(root, paths, config):
         if is_excluded(rel, effective.exclude):
             continue
         docs.append(analyze_file(full, rel, effective))
+    docs.extend(additional_documents)
     ids = set()
     for d in docs:
         ids.add(d.derived.get("id"))

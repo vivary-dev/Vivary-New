@@ -976,6 +976,76 @@ class ThinAdoptApplyTests(unittest.TestCase):
         finally:
             shutil.rmtree(target)
 
+    def test_preview_counts_only_markdown_extensions_tropo_indexes(self):
+        target = temp_dir()
+        try:
+            write(target / "notes" / "lower.md", "# Indexed\n")
+            write(target / "notes" / "UPPER.MD", "# Retained\n")
+            write(target / "notes" / "Mixed.Markdown", "# Retained\n")
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertEqual(plan["content_inventory"],
+                             {"existing_markdown": 1, "existing_non_markdown": 2})
+            self.assertFalse(plan["conflicts"], plan["conflicts"])
+            create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
+            indexed = {doc.rel.replace("\\", "/") for doc in tropo.analyze(str(target), [], resolver)}
+            self.assertIn("notes/lower.md", indexed)
+            self.assertNotIn("notes/UPPER.MD", indexed)
+            self.assertNotIn("notes/Mixed.Markdown", indexed)
+        finally:
+            shutil.rmtree(target)
+
+    def test_malformed_nested_config_reports_its_actual_path(self):
+        target = temp_dir()
+        try:
+            write(target / "notes" / "tropo.toml", "[types.note\n")
+            write(target / "notes" / "ordinary.md", "# Ordinary\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["path"] == "notes/tropo.toml" and row["code"] == "CONFIG"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_preview_resolves_existing_refs_to_proposed_context(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  '[types.note]\nfolder = "notes"\nrequired = {link = "ref"}\n')
+            write(target / "notes" / "linked.md", "---\nlink: context\n---\n# Linked\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertFalse(any(row["path"] == "notes/linked.md" and row["code"] == "W220"
+                                 for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertEqual(snapshot(target), before)
+            self.assertFalse(plan["conflicts"], plan["conflicts"])
+            create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
+            linked = next(doc for doc in tropo.analyze(str(target), [], resolver)
+                          if doc.rel.replace("\\", "/") == "notes/linked.md")
+            self.assertFalse(any(finding.code == "W220" for finding in linked.findings))
+        finally:
+            shutil.rmtree(target)
+
+    def test_text_preview_shows_configured_validation_conflict(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  '[types.memo]\nfolder = "decisions"\n'
+                  'required = {status = "string", date = "date"}\n')
+            write(target / "decisions" / "invalid.md", "---\nstatus: proposed\n---\n# Invalid\n")
+            before = snapshot(target)
+            status, output = run_cli(["adopt", str(target), "--preset", "second-brain"])
+            self.assertEqual(status, 1)
+            self.assertIn("decisions/invalid.md", output)
+            self.assertIn("E101", output)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
     def test_para_folder_names_remain_untyped_and_searchable_after_adoption(self):
         target = temp_dir()
         try:
@@ -1001,6 +1071,15 @@ class ThinAdoptApplyTests(unittest.TestCase):
             self.assertTrue(any(doc.rel.replace("\\", "/") == "areas/journal.md"
                                 for doc in documents))
             self.assertFalse(any(doc.rel.endswith("source.pdf") for doc in documents))
+            for folder, record_type in {
+                "modules": "module", "changes": "change", "decisions": "decision",
+                "verification": "verification", "gates": "gate",
+            }.items():
+                self.assertEqual(tropo.type_for(
+                    str(target / ".vivary" / "records" / folder / "example.md"),
+                    resolver.base), f"vivary_record_{record_type}")
+                self.assertIsNone(tropo.type_for(
+                    str(target / folder / "ordinary.md"), resolver.base))
         finally:
             shutil.rmtree(target)
 

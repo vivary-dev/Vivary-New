@@ -4932,11 +4932,12 @@ class BrownfieldInventory:
             depth = 0 if not rel_dir else rel_dir.count("/") + 1
             owned_tree = bool(rel_dir and rel_dir.split("/", 1)[0] in _ADOPT_VIVARY_OWNED_DIRS)
             for name in filenames:
-                suffix = Path(name).suffix.lower()
-                if suffix in (".md", ".markdown"):
+                raw_suffix = Path(name).suffix
+                if raw_suffix in (".md", ".markdown"):
                     self.preserved_markdown_count += 1
                 else:
                     self.preserved_non_markdown_count += 1
+                suffix = raw_suffix.lower()
                 # Vivary-owned trees and reserved root files do not vote in
                 # the preset heuristic, including on a repeated adoption.
                 if owned_tree or (depth == 0 and name in _ADOPT_RESERVED_ROOT_FILES):
@@ -5453,7 +5454,14 @@ def _thin_workspace_toml(
     # Adoption cannot claim an owner's ordinary folders as typed records merely
     # because their names match Vivary's starter folder names.
     project_folders = '[".vivary"]' if adopted else '[".vivary", "projects"]'
-    other_types = "" if adopted else _THIN_STARTER_TYPES.strip("\n")
+    other_types = _THIN_STARTER_TYPES.strip("\n")
+    if adopted:
+        for folder, record_type in _THIN_RECORD_FOLDERS.items():
+            # Keep the owner's explicit type of the same name authoritative.
+            other_types = other_types.replace(
+                f"[types.{record_type}]", f"[types.vivary_record_{record_type}]")
+            other_types = other_types.replace(
+                f'folder = "{folder}"', f'folder = ".vivary/records/{folder}"')
     return f'''version = 1
 exclude = [{exclude_list}]
 
@@ -5758,16 +5766,17 @@ def _adopt_configured_validation(
                 tropo._merge_config(projected, root_raw)
             resolver = tropo.ConfigResolver(
                 str(target), str(Path(tropo.__file__).parent), base_data=projected)
-        docs = tropo.analyze(str(target), [], resolver)
+        proposed_docs = []
         config_paths = {path for path in (thin_config, root_config, nested_config) if path.is_file()}
         for path, text in planned_writes:
-            if path.suffix.lower() not in (".md", ".markdown") or path.exists():
+            if path.suffix not in (".md", ".markdown") or path.exists():
                 continue
             rel = path.relative_to(target).as_posix()
             effective = resolver.for_dir(str(path.parent))
             if not tropo.is_excluded(rel, effective.exclude):
-                docs.append(tropo.analyze_file(str(path), rel, effective,
+                proposed_docs.append(tropo.analyze_file(str(path), rel, effective,
                     text=text, use_git_dates=False, stat_result=target.stat()))
+        docs = tropo.analyze(str(target), [], resolver, additional_documents=proposed_docs)
         for doc in docs:
             config_paths.update(Path(path) for path in tropo._overlay_paths(
                 str(Path(doc.full).parent), str(target)))
@@ -5783,7 +5792,9 @@ def _adopt_configured_validation(
         findings = [finding.as_dict() for doc in docs for finding in doc.findings]
         return sorted(findings, key=lambda item: (item["path"], item["line"], item["code"])), input_hash
     except Exception as exc:
-        path = thin_config if thin_config.is_file() else root_config if root_config.is_file() else nested_config
+        path = getattr(exc, "config_path", None)
+        path = Path(path) if path is not None else (
+            thin_config if thin_config.is_file() else root_config if root_config.is_file() else nested_config)
         return [{"path": path.relative_to(target).as_posix(), "line": 0,
                  "level": "error", "code": "CONFIG",
                  "message": f"Existing schema could not be checked: {str(exc).replace(str(target), '.')}"}], None
@@ -8041,19 +8052,20 @@ def _validate_record_candidate(
     try:
         resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
         effective = resolver.for_dir(str(destination.parent))
-        with tempfile.TemporaryDirectory(prefix="vivary-record-validate-") as raw:
-            shadow = Path(raw) / destination.parent.name / destination.name
-            shadow.parent.mkdir(parents=True)
-            shadow.write_text(text, encoding="utf-8", newline="\n")
-            doc = tropo.analyze_file(
-                str(shadow),
-                relative,
-                effective,
-                use_git_dates=False,
-            )
+        doc = tropo.analyze_file(
+            str(destination),
+            relative,
+            effective,
+            text=text,
+            use_git_dates=False,
+            stat_result=target.stat(),
+        )
     except (OSError, UnicodeError, ValueError, tropo.ConfigError) as exc:
         raise ScaffoldError("record source could not be validated against workspace policy") from exc
     expected_type = _THIN_RECORD_FOLDERS[destination.parent.name]
+    internal_path = f".vivary/records/{destination.parent.name}"
+    if effective.folder_map.get(internal_path) == f"vivary_record_{expected_type}":
+        expected_type = f"vivary_record_{expected_type}"
     findings = [finding.render() for finding in doc.findings]
     if doc.type != expected_type or findings:
         detail = "; ".join(findings[:5]) or (
@@ -8325,6 +8337,12 @@ def _print_adopt_report(result: dict, *, mode: str) -> None:
     for dst in result["kept"]:
         rel = dst.relative_to(target).as_posix()
         print(f"  exists, kept: {rel}")
+    for conflict in result["conflicts"]:
+        rel = conflict["path"].relative_to(target).as_posix()
+        print(f"  conflict: {rel}: {conflict['reason']}")
+    for finding in result["validation_findings"]:
+        print(f"  {finding['level']}: {finding['path']}:{finding['line']} "
+              f"{finding['code']}: {finding['message']}")
 
     if result["gitignore_followups"]:
         print("\nManual follow-up: your .gitignore exists and was left untouched.")
