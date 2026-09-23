@@ -109,4 +109,3 @@ GUI creation and reconnect scope. Issue #23 still owns full desktop and
 self-hosted release acceptance. No global CLI installation, VCS host, or
 conductor was part of this setup path. Private screenshots, fixture data,
 request records, and profile comparisons remain outside tracked source.
-
