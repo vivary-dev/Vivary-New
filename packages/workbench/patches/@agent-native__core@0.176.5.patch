@@ -864,7 +864,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..722aa1a333d908e2d7adc373dd3b52ea
      composerAreaClassName?: string;
      /** Placeholder for the shared composer in its normal idle state. */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb60d681a1 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..171e6a3d07c86708ae5548066e6499ca79e59b91 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -884,7 +884,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      const t = useT();
      const thread = useThread();
      const threadRuntime = useThreadRuntime();
-@@ -1476,20 +1477,36 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1476,20 +1477,56 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      // Cleared on the next message send.
      const [composerError, setComposerError] = useState(null);
      const composerDraftScope = tabId || threadId;
@@ -899,6 +899,17 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
 +    const initialComposerText = useMemo(() => hostComposerDraft
 +        ? (composerDraftScope ? hostComposerDraft.textForThread(composerDraftScope) : "")
 +        : readAssistantChatComposerDraft(composerDraftScope), [composerDraftScope, hostDraftRevision]);
++    const hostRestoreGuardRef = useRef({ key: null, expected: "", restoring: false });
++    if (hostComposerDraft) {
++        const key = `${composerDraftScope ?? ""}:${hostDraftRevision}`;
++        if (hostRestoreGuardRef.current.key !== key) {
++            hostRestoreGuardRef.current = {
++                key,
++                expected: initialComposerText ?? "",
++                restoring: Boolean(initialComposerText),
++            };
++        }
++    }
      const [composerText, setComposerText] = useState(initialComposerText ?? "");
      useEffect(() => {
          const restoredText = initialComposerText ?? "";
@@ -911,22 +922,31 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
 +            onComposerTextChange?.(restoredText);
 +    }, [initialComposerText, isActiveComposer, onComposerTextChange, hostDraftRevision]);
      const handleComposerTextChange = useCallback((text) => {
-         setComposerText(text);
--        writeAssistantChatComposerDraft(composerDraftScope, text);
 +        if (hostComposerDraft) {
-+            if (hostDraftReady)
-+                hostComposerDraft.onChange(composerDraftScope, text);
++            if (!hostDraftReady)
++                return;
++            const guard = hostRestoreGuardRef.current;
++            if (guard.restoring) {
++                if (text === "")
++                    return;
++                guard.restoring = false;
++            }
++            if (text === hostComposerDraft.textForThread(composerDraftScope))
++                return;
++            hostComposerDraft.onChange(composerDraftScope, text);
 +        }
 +        else {
 +            writeAssistantChatComposerDraft(composerDraftScope, text);
 +        }
+         setComposerText(text);
+-        writeAssistantChatComposerDraft(composerDraftScope, text);
          onComposerTextChange?.(text);
 -    }, [composerDraftScope, onComposerTextChange]);
 +    }, [composerDraftScope, onComposerTextChange, hostComposerDraft, hostDraftReady]);
      const dropDepthRef = useRef(0);
      const handleChatDragEnter = useCallback((e) => {
          if (!Array.from(e.dataTransfer?.types ?? []).includes("Files"))
-@@ -2081,6 +2098,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2081,6 +2118,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const onGenerateTitleRef = useRef(onGenerateTitle);
      onGenerateTitleRef.current = onGenerateTitle;
      const titleGeneratedRef = useRef(false);
@@ -938,7 +958,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      const importThreadData = useCallback((threadData, options) => {
          // Cheap-signal short-circuit: if the raw payload is identical to the
          // last one we imported, there is nothing new to parse, normalize, or
-@@ -2156,6 +2178,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2156,6 +2198,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  queueDirtyRef.current = false;
              }
          }
@@ -950,7 +970,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          if (settled && signature !== null) {
              lastImportedSignatureRef.current = signature;
              lastImportedRepoRef.current = settledRepo;
-@@ -3099,6 +3126,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3099,6 +3146,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              onGenerateTitleRef.current?.(threadId, text.trim());
          }
      }, [messages, threadId]);
@@ -965,7 +985,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      // Periodically save thread data while the agent is running so refreshes
      // don't lose messages. Saves every 5 seconds while running.
      const savedTitleRef = useRef("");
-@@ -3128,8 +3163,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3128,8 +3183,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          lastSaveTimeRef.current = now;
          savedTitleRef.current = title;
          writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -976,7 +996,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      // Persist full thread data after each completed response
      useEffect(() => {
          if (!hasRestoredRef.current)
-@@ -3151,7 +3186,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3151,7 +3206,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              };
              savedTitleRef.current = title;
              writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -985,7 +1005,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          }
          else {
              // Legacy: save to sessionStorage
-@@ -3167,6 +3202,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3167,6 +3222,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          messages,
          isRunning,
          threadId,
@@ -993,7 +1013,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          tabId,
      ]);
      useEffect(() => {
-@@ -3932,7 +3968,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3932,7 +3988,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const visibleQueuedMessages = useMemo(() => queuedMessages.filter((message) => !message.hideUserMessage && !message.promoted), [queuedMessages]);
      const addToQueue = useCallback(async (text, images, references, attachments, requestMode, intent = "queued", recoveryAction, includeComposerContext = false, trackInRunsTray = false, preserveReconnectAutoRecoveryBudget = false, hideUserMessage = false, submitMessageId, approvedToolCalls, continuationTurnId, usageLabel) => {
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -1002,7 +1022,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          const stoppedRunAtSubmitStart = userStoppedRunRef.current;
          if (!preserveReconnectAutoRecoveryBudget) {
              reconnectAutoRecoveryCountRef.current = 0;
-@@ -3961,10 +3997,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3961,10 +4017,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  : t("agentChat.composer.attachmentError");
              setComposerError(msg);
              reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
@@ -1015,7 +1035,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          const imageAttachments = createAgentImageAttachments(images);
          const allAttachments = [
              ...(queuedAttachments ?? []),
-@@ -4034,7 +4070,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4034,7 +4090,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                          const rejected = recompressed[largestIdx];
                          setComposerError(`"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`);
                          reportAgentChatSubmitResult(submitMessageId, false, "attachment-too-large");
@@ -1024,7 +1044,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                      }
                  }
                  messageAttachments = recompressed;
-@@ -4042,7 +4078,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4042,7 +4098,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          }
          // ── End body-size guard ──────────────────────────────────────────
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -1033,7 +1053,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
          // Snapshot the exec mode at enqueue time when the caller didn't
          // pass an explicit override. Without this, a plan-mode message that
          // sits in the queue runs as 'act' if the user flips the global toggle
-@@ -4066,9 +4102,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4066,9 +4122,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -1045,7 +1065,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4089,9 +4125,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4089,9 +4145,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -1057,7 +1077,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4116,7 +4152,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4116,7 +4172,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                      ...(messageAttachments.length > 0
                          ? { attachments: messageAttachments }
                          : {}),
@@ -1066,7 +1086,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                  });
              }
              catch (error) {
-@@ -4144,6 +4180,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4144,6 +4200,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          if (submitted.includesContext) {
              updateComposerContextItems(() => []);
          }
@@ -1074,7 +1094,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      }, [
          applyLocalQueuedMessages,
          buildComposerContextSubmission,
-@@ -4159,6 +4196,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4159,6 +4216,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          t,
          updateComposerContextItems,
      ]);
@@ -1103,7 +1123,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
      const mcpResumeTimerRef = useRef(null);
      const scheduleMcpConnectionResume = useCallback((request) => {
          if (mcpResumeTimerRef.current !== null) {
-@@ -4542,7 +4601,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4542,7 +4621,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          recordApprovalResolution,
          showActionTypeApprovalPolicy,
      ]);
@@ -1112,7 +1132,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                                      // Keep the current message in a non-complete state while
                                      // the terminal error card is visible, even if the server
                                      // still reports the prior run for a short time while its
-@@ -4659,9 +4718,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4659,9 +4738,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                      !showMissingKeySetup &&
                                                                      "opacity-70"), onClick: showMissingKeySetup
                                                                      ? bounceMissingKeySetup
@@ -1124,7 +1144,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                                                                                  ? t("agentChat.setup.connectPlaceholder")
                                                                                  : engineSetupRequired
                                                                                      ? t("agentChat.setup.connectPlaceholder")
-@@ -4674,7 +4733,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4674,7 +4753,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                                      count: queuedMessages.length,
                                                                                                  })
                                                                                                  : t("agentChat.queue.followUp")
@@ -1135,7 +1155,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..208f22723e78c8d44f32879544e25fdb
                                                                                  visibleComposerContextItems.length > 0
                                                                                  ? (text, references, attachments, options) => void addToQueue(text, undefined, references.length > 0
                                                                                      ? references
-@@ -4684,7 +4745,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4684,7 +4765,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                  }), undefined, true)
                                                                                  : undefined, willQueue: engineSetupRequired || isRunning, onSlashCommand: onSlashCommand, execMode: execMode, onExecModeChange: onExecModeChange, planModeDisabled: planModeDisabled, planModeDisabledReason: planModeDisabledReason, selectedModel: selectedModel ?? defaultModel, selectedEffort: selectedEffort, availableModels: availableModels, availableAgents: availableAgents, selectedAgent: selectedAgent, hostedHarness: hostedHarness, modelListLoading: modelListLoading, onModelChange: shouldShowAssistantChatModelSelector(showModelSelector)
                                                                                  ? onModelChange

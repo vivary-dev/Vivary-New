@@ -111,7 +111,11 @@ Issue #9 adds an opt-in `hostComposerDraft` interface to the existing chat
 components. Vivary supplies a draft for the actual selected thread, waits for
 that state before enabling the composer, and uses an explicit reset key when
 restoring or clearing it. Routine autosave acknowledgements do not reset the
-editor. Consumers that omit this interface retain Core's existing behavior.
+editor. The host ignores initial empty callbacks while the editor restores saved
+text. Vivary supplies Core's route-controlled thread adapter so the editor and
+page observe the same selected conversation. Saved host selection loads before
+the chat mounts. Consumers that omit the draft interface retain Core's existing
+behavior.
 
 Host mode disables the browser and toolkit draft stores. Vivary persists text
 through its authenticated `vivary-chat-draft` action and Native application

@@ -1,9 +1,9 @@
 import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 import { Skeleton } from "@agent-native/toolkit/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readClientAppState } from "@agent-native/core/client/hooks";
-import { Navigate, useSearchParams } from "react-router";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useVivaryChatIdentity } from "@/components/layout/use-vivary-chat-identity";
 import { resolveNativeHistoryKind } from "@/lib/native-history-route";
@@ -70,6 +70,8 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
   workspaceAvailable: boolean;
 }) {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const selectedThread = params.get("thread");
   const selectionKey = "vivary-chat-selection-v1:" + btoa(identity.storageKey)
     .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
@@ -79,6 +81,23 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
     queryFn: ({ signal }) => readClientAppState(selectionKey, { signal }),
     retry: false, staleTime: Infinity,
   });
+  const savedSelection = selection.data as { storageKey?: unknown; threadId?: unknown } | null;
+  const savedThread = savedSelection?.storageKey === identity.storageKey
+    && typeof savedSelection.threadId === "string"
+    && /^[A-Za-z0-9_-]{1,128}$/.test(savedSelection.threadId)
+      ? savedSelection.threadId : null;
+  const threadUrlSync = useMemo(() => ({
+    routeThreadId: selectedThread,
+    getPath: (threadId: string | null) => {
+      const next = new URLSearchParams(params);
+      if (threadId) next.set("thread", threadId);
+      else next.delete("thread");
+      const search = next.toString();
+      return location.pathname + (search ? "?" + search : "");
+    },
+    navigate: (path: string, options?: { replace?: boolean }) =>
+      navigate(path, { replace: options?.replace }),
+  }), [selectedThread, params.toString(), location.pathname, navigate]);
   const { ready: selectionWriterReady, writeAppState } = useAppStateWriter();
   const [selectionSaveError, setSelectionSaveError] = useState(false);
   const latestThread = useRef<string | null>(null);
@@ -102,12 +121,9 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
     }
   }, [identity.storageKey, queryClient, selectionKey, selectionWriterReady, writeAppState]);
   useEffect(() => {
-    if (selectedThread || !selection.isSuccess || !selection.data) return;
-    const saved = selection.data as { storageKey?: unknown; threadId?: unknown };
-    const thread = saved.storageKey === identity.storageKey ? saved.threadId : null;
-    if (typeof thread !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(thread)) return;
-    setParams(current => { const next = new URLSearchParams(current); next.set("thread", thread); return next; }, { replace: true });
-  }, [selectedThread, selection.isSuccess, selection.data, setParams]);
+    if (selectedThread || !selection.isSuccess || !savedThread) return;
+    setParams(current => { const next = new URLSearchParams(current); next.set("thread", savedThread); return next; }, { replace: true });
+  }, [selectedThread, selection.isSuccess, savedThread, setParams]);
   useEffect(() => {
     if (!selectedThread) return;
     latestThread.current = selectedThread;
@@ -117,7 +133,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
   const [restoreReview, setRestoreReview] = useState<string | null>(null);
   useEffect(() => { setRestoreReview(null); }, [selectedThread]);
   const error = selectedThread ? draft.statusForThread(selectedThread) : null;
-  if (!selectedThread && selection.isPending) return <OpeningConversation />;
+  if (!selectedThread && (selection.isPending || (selection.isSuccess && savedThread))) return <OpeningConversation />;
   if (!selectedThread && selection.isError) return <div className="panel-empty" role="alert">
     <h1>Conversation could not open</h1>
     <p>Vivary could not load your last conversation. Its history is preserved.</p>
@@ -160,6 +176,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
       hostComposerDraft={draft.hostComposerDraft}
       composerDisabled={!unassigned && !workspaceAvailable}
       composerDisabledPlaceholder="Reconnect this project before continuing. Saved history remains available."
-      showHeader={false} showTabBar={false} threadUrlSync />
+      showHeader={false} showTabBar={false} restoreActiveThread={false}
+      threadUrlSync={threadUrlSync} />
   </section>;
 }
