@@ -1,9 +1,49 @@
 # Desktop acceptance status
 
-Updated 2026-09-22. This page is the current tracked acceptance register for the
+Updated 2026-09-23. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
+
+## Windows first launch and packaged runtime, September 23
+
+The [issue #8 Windows receipt](receipts/23b-windows-desktop-acceptance.md) records
+the unpublished `df4aedc` candidate and its current packaged-app journey.
+The ZIP has 3,108 files, is 221,884,442 bytes, and has SHA-256
+`85263c5dab59977e5c4a5b556e2742624abad01f98d33d135b63e9e30ecd2184`.
+
+Zo build, 27 focused desktop and startup tests, five runtime-status tests,
+and Workbench typecheck passed. Workbench build metadata still labels its
+prebuilt output `sourceCommitVerified: false`.
+
+A fresh application and Electron browser profile under the existing Windows
+account opened without signup. The first-run path contained only Windows system
+directories.
+
+Bundled Node, Python, and SQLite supported the packaged GUI and
+setup without a global Node or Python executable or source checkout. Missing
+coding CLIs and a separate signed-out Codex state showed distinct setup guidance.
+All 2,011 recorded original-profile file hashes matched before and after the run.
+
+The native chooser selected a Unicode folder and Vivary opened its file.
+Separate privacy approval changed only the reviewed ignore file. A later
+four-file setup Apply survived an injected HTTP response loss. Retry reused the
+same operation and left the written bytes, hashes, and modification times
+unchanged.
+
+A real Codex/Astra turn read project files, wrote the requested
+result, and exposed tool output. Stop ended an active shell turn's descendants.
+
+The packaged npm preview rendered in its frame, then Stop cleared the frame,
+stopped the process, and released the port. A second launch reused the first
+instance. Idle and active shutdown released observed processes and listeners.
+Restart preserved the conversation and stopped status with an empty preview.
+
+Earlier Explorer extraction and launch remain evidence for their named
+candidates, not a new Explorer check on `df4aedc`. Independent review
+accepted this candidate. The `df4aedc` ZIP is not the public
+`9884670` prerelease. Full issues #14, #15, and #23 retain their separate
+acceptance.
 
 ## Project preview and debugging, September 22
 
@@ -15,9 +55,10 @@ one import, and verified the page. Its image-viewing tool failed in Zo's sandbox
 which the conversation reported. The lead inspected the captured images.
 
 The original conversation restored after restart and the corrected page appeared
-beside it in Vivary. Phone routing remains under #30. Packaged Windows/macOS
-preview execution and Windows cleanup after an already-exited launcher remain
-unaccepted. This work does not replace the Windows baseline below.
+beside it in Vivary. Phone routing remains under #30. The `df4aedc`
+packaged Windows preview journey is recorded above. macOS preview execution and Windows cleanup after
+an already-exited launcher remain unaccepted. The Zo result remains separate
+from the Windows check.
 
 ## Existing-folder privacy and recovery, September 22
 
@@ -32,19 +73,21 @@ identity, tracked-runtime refusal, and interrupted setup recovery. A running loc
 app on Zo also passed visible folder registration, preview and cancellation,
 privacy-only confirmation, stale-ignore refusal, refreshed setup apply, and
 same-project/request replay after process restart. This used a disposable profile
-and folder with no model call. The runtime
-keeps uncertain operations pending when it cannot prove their result. External
-edits after a possible write require restoration of the reviewed state before
+and folder with no model call.
+
+The runtime keeps uncertain operations pending when it cannot prove their
+result. External edits after a possible write require restoration of the reviewed state before
 retry. A publishing journal without its expected completion receipt still
 refuses both replay and rollback. This increment does not change that boundary.
 
 The owner reported protected-folder Windows acceptance on source `020fe0a5`.
-That evidence does not cover this two-confirmation change. Packaged Windows
-verification of the new flow, clean-profile first launch, Windows lost-response
-and recovery injection, and new agent execution remain open. Broader issues
-[#8](https://github.com/vivary-dev/Vivary-New/issues/8),
-[#14](https://github.com/vivary-dev/Vivary-New/issues/14), and
-[#15](https://github.com/vivary-dev/Vivary-New/issues/15) remain open.
+The `df4aedc` Windows receipt above now covers the two-confirmation flow,
+same-account fresh-profile launch, injected renderer response loss, and a real
+agent turn. It does not replace the creator-to-service lost-result tests or
+complete the broader scopes in [#14](https://github.com/vivary-dev/Vivary-New/issues/14)
+and [#15](https://github.com/vivary-dev/Vivary-New/issues/15). The
+[issue #8 receipt](receipts/23b-windows-desktop-acceptance.md) records its
+separate Windows result.
 
 ## Release boundary
 
@@ -388,18 +431,19 @@ automations in #51 remain open.
 | Area | Verified now | Still required |
 | --- | --- | --- |
 | Code conversations | Windows `2f4a5df` file work, session continuity, MCP call, real subagent card, 125.19-second command, native Allow/Decline, active-command Stop, and shutdown | Linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
-| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. Remote rendering checks | Further connection-specific journeys and broader issue #38 scope. The published `9884670` includes this integration, with real-turn evidence from earlier candidates |
+| Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. The `df4aedc` Windows package completed a real Codex/Astra file turn and Stop | Further connection-specific journeys and broader issue #38 scope. The public `9884670` prerelease retains its earlier-candidate proof boundary |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, Windows `43ae417` registration of an existing non-Git folder, and native `250aaa0` chooser timeout recovery | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey |
+| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and native chooser recovery. The `df4aedc` Windows run selected a Unicode folder and completed separately reviewed privacy and setup writes | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey under issues #14 and #15 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
-| Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra screenshot/error/repair loop on Zo | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, packaged preview journeys, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
-| Distribution | Public `9884670` portable prerelease, licenses, checksum, anonymous download verification, Windows process cleanup, and restart. Earlier runtime journeys remain separately recorded | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
+| Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
+| Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
-The Windows checks used an existing authorized profile. They do not establish a
-clean-profile first-run journey. Credentials are never bundled. Claude Code, Codex,
+Earlier Windows checks used an existing configured profile. Credentials are
+never bundled. Claude Code,
+Codex,
 and Native provider accounts remain separate from access to Vivary. The accepted
 current distribution may be a versioned archive or an installer. Signing and an
 installer are future distribution choices. They are not requirements for the current

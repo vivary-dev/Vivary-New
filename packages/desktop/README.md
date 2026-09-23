@@ -11,7 +11,7 @@ See [Electron's security guidance](https://www.electronjs.org/docs/latest/tutori
 
 ## Current acceptance
 
-Checkpoint: 2026-09-22. The publicly downloadable
+Published checkpoint: 2026-09-22. The publicly downloadable
 [Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) pins source `98846706227432e26f519d1b546889261eb08ff1`.
 This is the merged PR #78 source. Follow the
 [installation guide](../../docs/desktop-preview.md) for extraction, launch,
@@ -33,11 +33,21 @@ chooser, narrow-layout, and real model journeys remain evidence for their named
 candidates. Six applicable GitHub CI jobs passed on the reviewed PR #78 fix head.
 The site job skipped. Historical Entire trail-approval failures remain recorded.
 
+A later unpublished `df4aedc` Windows package completed a fresh application-profile
+journey under the existing Windows account. It showed missing-CLI and sign-in
+guidance, used bundled runtimes, selected a Unicode folder, completed reviewed
+existing-folder setup after an injected HTTP response loss, ran real Codex/Astra
+file tools, displayed and stopped an npm project preview, reused the first
+instance, and cleaned up on idle and active shutdown. Its
+[Windows receipt](../../docs/product/multi-project/receipts/23b-windows-desktop-acceptance.md)
+records the artifact hash, checks, and limits. Independent review accepted
+this candidate's Windows journey. This does not replace the published prerelease.
+
 The [acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
-owns evidence boundaries. Clean-profile first run, complete native registration,
-upgrade/removal acceptance, Native-provider turns, automations, and remaining
-desktop/web journeys stay open. Existing-folder setup has no general GUI Apply.
-macOS remains later work.
+owns evidence boundaries. Full existing-folder and managed-creation acceptance
+under issues #14 and #15, upgrade/removal,
+Native-provider turns, automations, and the remaining desktop/web journey stay
+open. macOS remains later work.
 
 ### Earlier packaged proofs
 
@@ -228,8 +238,9 @@ For this portable preview, extract the archive to a short path such as
 nested destination before the application starts.
 
 Windows users need their own installed and signed-in coding CLI. The package does
-not include credentials. Earlier candidates verified Claude Code discovery, a real
-file turn, and Codex journeys. The `9884670` package verified confirmed browser
-opening, project-preview clearing, restart, and graceful shutdown. Clean-profile
-setup, upgrade/removal behavior, and the complete release journey remain open before
-this becomes a supported release.
+not include credentials. The published `9884670` package verified confirmed
+browser opening, project-preview clearing, restart, and graceful shutdown.
+The unpublished `df4aedc` package verified missing-runtime guidance and a real
+Codex/Astra file turn in a fresh application profile. Its reviewed npm preview
+started, rendered, and stopped. Upgrade/removal behavior and the complete
+release journey remain outside this candidate's acceptance.
