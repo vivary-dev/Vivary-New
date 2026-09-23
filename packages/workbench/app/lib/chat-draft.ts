@@ -250,6 +250,10 @@ export function useNativeChatDraft(scope: Scope) {
       const current = entry(threadId);
       return current.loaded && !current.discarding && !current.error && current.record?.status !== "pending";
     },
+    hasDraftStateForThread: threadId => {
+      const current = entry(threadId);
+      return current.loaded && current.record !== null;
+    },
     ensureThread,
     onChange, beforeSubmit, onAccepted, onRejected,
   }), [entry, ensureThread, onChange, beforeSubmit, onAccepted, onRejected, version]);

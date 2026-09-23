@@ -120,7 +120,11 @@ behavior.
 Host mode disables the browser and toolkit draft stores. Vivary persists text
 through its authenticated `vivary-chat-draft` action and Native application
 state. The key includes the owner, project, chat surface, and conversation.
-Drafts are not messages and restoring one does not start execution.
+Drafts are not messages and restoring one does not start execution. A conversation
+with only an unsent draft may not have a Native thread row yet. If Native reports
+that row missing, authenticated draft state retains its exact conversation ID.
+Existing thread rows still load their message history normally, even when they
+also have an unsent draft.
 
 Each write compares the revision it observed. A cleared draft remains as an
 empty tombstone, so a delayed save cannot recreate it. Before a send, the same
