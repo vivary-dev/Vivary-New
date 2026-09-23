@@ -536,6 +536,33 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
         assert.equal(await readFile(path.join(target.root, file.path), "utf8"), file.content);
       }
     });
+    await suite.test("pattern change uses the registered project approval and preserves user files", async () => {
+      const root = path.join(directory, "PatternWorkspace");
+      const planned = await executeFile("python3", ["-B", creator, "init", root,
+        "--reviewed", "--dry-run", "--json"]);
+      const initHash = JSON.parse(planned.stdout).plan.plan_sha256;
+      await executeFile("python3", ["-B", creator, "init", root, "--reviewed",
+        "--yes", "--plan", initHash, "--json"]);
+      const registered = await connectLocalProjectFolder(context, root);
+      assert.equal(registered.code, "registered");
+      const choices = [{ id: "capture", name: "Intake", path: "inbox/README.md" }];
+      const before = await snapshot(root);
+      await assert.rejects(run({ operation: "preview", projectId: registered.projectId,
+        preset: "coding", patternChoices: choices }, context), /automatic type/);
+      assert.deepEqual(await snapshot(root), before);
+      const review = await run({ operation: "preview", projectId: registered.projectId,
+        preset: "auto", patternChoices: choices }, context);
+      assert.equal(review.code, "preview");
+      assert.deepEqual(review.patternChoices, choices);
+      assert.equal(review.report.pattern_choices[0].name, "Intake");
+      assert.deepEqual(await snapshot(root), before);
+      assert.deepEqual(await run(approval(review, "cancel"), context), { code: "idle" });
+      const approved = await run({ operation: "preview", projectId: registered.projectId,
+        preset: "auto", patternChoices: choices }, context);
+      assert.equal((await run(approval(approved), context)).code, "applied");
+      assert.match(await readFile(path.join(root, "inbox/README.md"), "utf8"), /^# Intake/);
+      assert.equal((await run({ operation: "resume", projectId: registered.projectId }, context)).code, "applied");
+    });
   } finally {
     await provider?.close();
     delete globalThis[Symbol.for("vivary.local-project-services.v1")];

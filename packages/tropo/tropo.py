@@ -613,10 +613,15 @@ def _read_toml(path):
         raise ConfigError(f"{path}: {e}")
 
 
-def _read_pack(name, root, script_dir):
+def _read_pack(name, root, script_dir, read_toml=None):
+    if (not isinstance(name, str) or not name or name in (".", "..")
+        or any(char in "/\\:" or ord(char) < 32 or ord(char) == 127
+               for char in name)):
+        raise ConfigError("pack name must be a single installed filename")
+    reader = read_toml or _read_toml
     local_pack = os.path.join(root, ".tropo", "packs", name + ".toml")
     if os.path.isfile(local_pack):
-        return _read_toml(local_pack)
+        return reader(local_pack)
     if name in BUNDLED_PACKS:
         try:
             return tomllib.loads(BUNDLED_PACKS[name])
@@ -624,7 +629,7 @@ def _read_pack(name, root, script_dir):
             raise ConfigError(f"bundled pack {name!r}: {e}")
     repo_pack = os.path.join(script_dir, "packs", name + ".toml")
     if os.path.isfile(repo_pack):
-        return _read_toml(repo_pack)
+        return reader(repo_pack)
     raise ConfigError(f"pack {name!r} not found (looked in .tropo/packs and bundled packs)")
 
 
@@ -656,6 +661,9 @@ WORKSPACE_FILE_ROLES = ("law", "map", "record", "memory", "boundary")
 # [workspace]. Recognized legacy assignments still describe roles, while
 # unrelated or malformed workspace.patterns/workspace.roles values stay ignored.
 WORKSPACE_VIVARY_METADATA_VERSION = 1
+WORKSPACE_BUILTIN_PATTERNS = {
+    "thin-context", "capture", "source-reference", "navigation", "project-brief",
+}
 
 
 def resolve_workspace_roles(workspace, protected_paths=None):
@@ -732,10 +740,10 @@ def _workspace_role_assignments(table, field):
     patterns = table.get("patterns", ["thin-context"])
     if (
         not isinstance(patterns, list)
-        or any(pattern != "thin-context" for pattern in patterns)
+        or any(pattern not in WORKSPACE_BUILTIN_PATTERNS for pattern in patterns)
         or len(patterns) != len(set(patterns))
     ):
-        raise ConfigError(f"{field}.patterns may contain thin-context once")
+        raise ConfigError(f"{field}.patterns must name distinct installed patterns")
     overrides = table.get("roles", {})
     if not isinstance(overrides, dict) or any(
         role not in WORKSPACE_FILE_ROLES for role in overrides
@@ -906,12 +914,13 @@ class Config:
         return required, known
 
 
-def _compose(root, script_dir, config_path=None):
+def _compose(root, script_dir, config_path=None, *, read_toml=None):
+    reader = read_toml or _read_toml
     thin_path = os.path.join(root, THIN_CONFIG_REL)
     selected_path = config_path or (
         thin_path if os.path.isfile(thin_path) else os.path.join(root, CONFIG_NAME)
     )
-    raw = _read_toml(selected_path)
+    raw = reader(selected_path)
     workspace_roles = None
     if (
         config_path is None
@@ -926,7 +935,7 @@ def _compose(root, script_dir, config_path=None):
         workspace_roles = _validate_thin_workspace(raw, thin_path, root)
     composed = {"base": {}, "types": {}, "exclude": [], "workspace_roles": workspace_roles}
     for pack in raw.get("packs", []):
-        _merge_config(composed, _read_pack(pack, root, script_dir))
+        _merge_config(composed, _read_pack(pack, root, script_dir, reader))
     _merge_config(composed, raw)  # _merge_config normalizes each type's raw `folder`
     root_overlay = os.path.join(root, CONFIG_NAME)
     if (
@@ -935,7 +944,7 @@ def _compose(root, script_dir, config_path=None):
         == os.path.normcase(os.path.abspath(thin_path))
         and os.path.isfile(root_overlay)
     ):
-        _merge_config(composed, _read_toml(root_overlay))
+        _merge_config(composed, reader(root_overlay))
     return composed
 
 
@@ -989,12 +998,14 @@ class ConfigResolver:
     """Resolves the effective Config at any directory by composing overlays
     (nested tropo.toml, SPEC §5.5) onto the root config — tighten-only, cached."""
 
-    def __init__(self, root, script_dir, config_path=None, *, base_data=None):
+    def __init__(self, root, script_dir, config_path=None, *, base_data=None,
+                 read_toml=None):
+        self._read_toml = read_toml or _read_toml
         self.root = os.path.abspath(root)
         self.script_dir = script_dir
         self._base_dict = (
             copy.deepcopy(base_data) if base_data is not None
-            else _compose(root, script_dir, config_path)
+            else _compose(root, script_dir, config_path, read_toml=self._read_toml)
         )
         self.base = Config(copy.deepcopy(self._base_dict), self.root)
         self._cache = {}
@@ -1007,7 +1018,7 @@ class ConfigResolver:
                 composed = copy.deepcopy(self._base_dict)
                 for ov in overlays:
                     try:
-                        _merge_config(composed, _rebase_overlay_config(_read_toml(ov), ov, self.root))
+                        _merge_config(composed, _rebase_overlay_config(self._read_toml(ov), ov, self.root))
                     except ConfigError as exc:
                         exc.config_path = ov
                         raise
@@ -1277,14 +1288,23 @@ def analyze_file(full, rel, config, *, text=None, use_git_dates=True, stat_resul
     return doc
 
 
-def analyze(root, paths, config, *, additional_documents=()):
+def analyze(root, paths, config, *, additional_documents=(), read_document=None):
     resolver = config if hasattr(config, "for_dir") else _StaticResolver(config)
+    additional_documents = tuple(additional_documents)
+    proposed_paths = {doc.rel.replace("\\", "/") for doc in additional_documents}
     docs = []
     for full, rel in iter_markdown(root, paths, resolver.base.exclude):
+        if rel.replace("\\", "/") in proposed_paths:
+            continue
         effective = resolver.for_dir(os.path.dirname(full))
         if is_excluded(rel, effective.exclude):
             continue
-        docs.append(analyze_file(full, rel, effective))
+        if read_document is None:
+            docs.append(analyze_file(full, rel, effective))
+        else:
+            text, stat_result = read_document(full)
+            docs.append(analyze_file(full, rel, effective, text=text,
+                                     stat_result=stat_result))
     docs.extend(additional_documents)
     ids = set()
     for d in docs:

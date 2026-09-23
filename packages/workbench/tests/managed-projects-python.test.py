@@ -59,6 +59,34 @@ class ManagedProjectBridgeTests(unittest.TestCase):
                 })
             self.assertEqual(extra.read_text(encoding="utf-8"), "not approved\n")
 
+    def test_installed_choices_extend_exact_preview_and_apply(self):
+        with tempfile.TemporaryDirectory(prefix="vivary-managed-patterns-") as temporary:
+            target = Path(temporary) / "projects" / "sample"
+            catalog = managed_request({"operation": "catalog"})
+            self.assertEqual(catalog["code"], "catalog")
+            self.assertEqual(len(catalog["patterns"]), 4)
+            choices = [
+                {"id": "capture", "name": "My inbox", "path": "notes/inbox.md"},
+                {"id": "source-reference", "name": "Sources", "path": "sources/index.md"},
+            ]
+            request = {"operation": "plan", "target": str(target), "patternChoices": choices,
+                       "preset": "second-brain"}
+            preview = managed_request(request)
+            self.assertEqual(len(preview["plan"]["files"]), 7)
+            self.assertEqual(preview["plan"]["preset"], "second-brain")
+            self.assertFalse(target.exists())
+            target.parent.mkdir()
+            result = managed_request({"operation": "apply", "target": str(target),
+                                      "patternChoices": choices, "preset": "second-brain",
+                                      "acceptedPlanSha256": preview["plan"]["plan_sha256"]})
+            self.assertEqual(result["code"], "created")
+            for row in preview["plan"]["files"]:
+                self.assertEqual((target / row["path"]).read_bytes(),
+                                 row["content"].encode("utf-8"))
+            changed = managed_request({"operation": "plan", "target": str(target.parent / "another"),
+                                       "patternChoices": choices[:1]})
+            self.assertNotEqual(changed["plan"]["plan_sha256"], preview["plan"]["plan_sha256"])
+
     def test_cli_and_managed_bridge_consume_the_same_creator_plan(self):
         with tempfile.TemporaryDirectory(prefix="vivary-shared-init-") as temporary:
             target = Path(temporary) / "projects" / "sample"

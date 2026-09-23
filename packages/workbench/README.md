@@ -146,11 +146,21 @@ connects that folder through the existing Native-backed project registry.
 Folder selection expires after two minutes. The app identifies an expired
 selection and asks you to close the chooser before trying again. A selection
 returned after the chooser expires does not register a project.
-New project previews the original creator's five guidance files before creating
-a separate folder under the app data directory's `projects` folder. It then
+New project offers a workspace type and optional Capture, Sources, Navigation,
+and Project brief guidance. Names and file locations are editable. It previews
+the original creator's exact files before creating a separate folder under the app data directory's `projects` folder. It then
 registers and selects that project. Cancel writes nothing. Existing files and
 unavailable folder grants are preserved. Browser startup can also connect its
 initial folder with `--workspace`.
+
+For an existing thin workspace, open Project details and choose **Review guidance
+change** after editing the optional guidance choices. Review the proposed file
+contents, retained files, conflicts, and retired guidance before confirming.
+Cancel changes no project files. Retired guidance stays in the folder. Unchanged
+choices preserve authored guidance, and reconfiguration preserves `STATE.md`,
+project identity, and conversations. A lost response can retry the same approved
+request without repeating completed writes. These built-in choices are installed
+with the creator and require no external catalog.
 
 The canonical `/` workspace keeps the selected conversation in the center.
 Project details, files, and page preview open only when requested. Panels can

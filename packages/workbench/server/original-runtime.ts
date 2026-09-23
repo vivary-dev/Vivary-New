@@ -5,6 +5,7 @@ import path from "node:path";
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
+import { workspacePatternChoices } from "../shared/workspace-patterns.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -18,7 +19,9 @@ const notOptionLike = (value: string) => !value.startsWith("-");
 const optionLikeMessage = { message: "The text must not start with a dash." };
 const commandSchema = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("create"), preset: preset.default("coding") }).strict(),
-  z.object({ verb: z.literal("adopt"), preset: preset.optional() }).strict(),
+  z.object({ verb: z.literal("adopt"), preset: preset.optional(),
+    patternChoices: workspacePatternChoices.optional() }).strict(),
+  z.object({ verb: z.literal("pattern-state") }).strict(),
   z.object({ verb: z.literal("doctor") }).strict(),
   z.object({ verb: z.literal("capabilities"), preset: preset.default("coding") }).strict(),
   z.object({ verb: z.literal("check") }).strict(),
@@ -40,6 +43,7 @@ export const adoptionExecutionSchema = z.discriminatedUnion("verb", [
   z.strictObject({ verb: z.literal("adopt-prepare-privacy"), preset: preset.optional(),
     planHash, requestId: z.string().uuid(), privacyRequest: adoptionPrivacyRequest }),
   z.strictObject({ verb: z.literal("adopt-apply"), preset: preset.optional(),
+    patternChoices: workspacePatternChoices.optional(),
     planHash, requestId: z.string().uuid() }),
   z.strictObject({ verb: z.literal("adopt-recovery-preview"), transactionHash: planHash, requestId: z.string().uuid() }),
   z.strictObject({ verb: z.literal("adopt-recover"), transactionHash: planHash, planHash, requestId: z.string().uuid() }),
@@ -59,12 +63,19 @@ const OUTPUT_BYTES = 256 * 1024;
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
     case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", "--dry-run"], stdin: "" };
-    case "adopt": return { args: ["adopt", root, "--json", ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
+    case "adopt": return { args: ["adopt", root, "--json",
+      ...(command.patternChoices ? ["--pattern-choices", "-"] : []),
+      ...(command.preset ? ["--preset", command.preset] : [])],
+      stdin: command.patternChoices ? JSON.stringify(command.patternChoices) : "" };
+    case "pattern-state": return { args: ["adopt", root, "--json", "--pattern-state"], stdin: "" };
     case "adopt-prepare-privacy": return { args: ["adopt", root, "--json", "--yes", "--prepare-privacy",
       "--plan", command.planHash, "--request-id", command.requestId, "--privacy-request", "-",
       ...(command.preset ? ["--preset", command.preset] : [])], stdin: JSON.stringify(command.privacyRequest) };
     case "adopt-apply": return { args: ["adopt", root, "--json", "--yes", "--plan", command.planHash,
-      "--request-id", command.requestId, ...(command.preset ? ["--preset", command.preset] : [])], stdin: "" };
+      "--request-id", command.requestId,
+      ...(command.patternChoices ? ["--pattern-choices", "-"] : []),
+      ...(command.preset ? ["--preset", command.preset] : [])],
+      stdin: command.patternChoices ? JSON.stringify(command.patternChoices) : "" };
     case "adopt-recovery-preview": return { args: ["adopt", root, "--json", "--recover", command.transactionHash, "--request-id", command.requestId], stdin: "" };
     case "adopt-recover": return { args: ["adopt", root, "--json", "--recover", command.transactionHash,
       "--yes", "--plan", command.planHash, "--request-id", command.requestId], stdin: "" };

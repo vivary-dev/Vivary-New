@@ -4,8 +4,11 @@ import { Button } from "@agent-native/toolkit/ui";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { adoptionResult, adoptionPreset, type AdoptionInput, type AdoptionResult,
   type AdoptionPreset } from "../../../shared/project-adoption";
+import { workspacePatternState, type WorkspacePatternChoice,
+  type WorkspacePatternDefinition } from "../../../shared/workspace-patterns.ts";
+import { WorkspacePatternChoices } from "./WorkspacePatternChoices";
 
-const operationLabel = { create: "Create", patch: "Append managed block", replace: "Replace managed adapter" };
+const operationLabel = { create: "Create", patch: "Append managed block", replace: "Replace reviewed file" };
 const recoveryLabel = { "no-op": "Keep", restore: "Restore original", "delete-created": "Remove setup-created file" };
 
 export function ProjectAdoption({ projectId, disabled }: { projectId: string; disabled: boolean }) {
@@ -13,6 +16,9 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
   const [state, setState] = useState<AdoptionResult>({ code: "idle" });
   const [preset, setPreset] = useState<AdoptionPreset>("auto");
   const [working, setWorking] = useState(false);
+  const [catalog, setCatalog] = useState<WorkspacePatternDefinition[] | null>(null);
+  const [patternStatePending, setPatternStatePending] = useState(true);
+  const [patternChoices, setPatternChoices] = useState<WorkspacePatternChoice[]>([]);
   const [message, setMessage] = useState<string>();
   const request = useRef(0);
   useEffect(() => {
@@ -20,15 +26,41 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
     setState({ code: "idle" });
     setMessage(undefined);
     setWorking(false);
+    setCatalog(null);
+    setPatternChoices([]);
+    setPatternStatePending(true);
     if (ready && !disabled) {
-      void call<unknown>("vivary-project-adoption", { operation: "resume", projectId }).then(value => {
+      void (async () => {
+        let reviewedChoices: WorkspacePatternChoice[] | undefined;
+        try {
+          const value = await call<unknown>("vivary-project-adoption",
+            { operation: "resume", projectId });
+          if (request.current !== current) return;
+          const result = adoptionResult.parse(value);
+          setState(result);
+          if ("preset" in result) setPreset(result.preset);
+          if ("patternChoices" in result && result.patternChoices) {
+            reviewedChoices = result.patternChoices;
+            setPatternChoices(reviewedChoices);
+          }
+        } catch (error) {
+          if (request.current === current) {
+            setMessage(error instanceof Error ? error.message : "Setup status is unavailable.");
+          }
+        }
         if (request.current !== current) return;
-        const result = adoptionResult.parse(value);
-        setState(result);
-        if ("preset" in result) setPreset(result.preset);
-      }).catch(error => {
-        if (request.current === current) setMessage(error instanceof Error ? error.message : "Setup status is unavailable.");
-      });
+        try {
+          const output = await call<{ stdout: string; exitCode: number | null }>(
+            "vivary-original-command", { projectId, command: { verb: "pattern-state" } });
+          if (request.current !== current || output.exitCode !== 0) return;
+          const value = workspacePatternState.parse(JSON.parse(output.stdout));
+          setCatalog(value.catalog);
+          if (!reviewedChoices) setPatternChoices(value.choices);
+        } catch { /* A folder without a thin workspace still uses setup. */ }
+        finally {
+          if (request.current === current) setPatternStatePending(false);
+        }
+      })();
     }
     return () => { request.current += 1; };
   }, [projectId, ready, disabled, call]);
@@ -45,7 +77,18 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
     }
     try {
       const result = adoptionResult.parse(await call<unknown>("vivary-project-adoption", input));
-      if (request.current === current) setState(result);
+      if (request.current === current) {
+        setState(result);
+        if (result.code === "applied" || result.code === "recovered") {
+          void call<{ stdout: string; exitCode: number | null }>("vivary-original-command",
+            { projectId, command: { verb: "pattern-state" } }).then(output => {
+            if (request.current !== current || output.exitCode !== 0) return;
+            const value = workspacePatternState.parse(JSON.parse(output.stdout));
+            setCatalog(value.catalog);
+            setPatternChoices(value.choices);
+          }).catch(() => undefined);
+        }
+      }
     } catch (error) {
       if (request.current === current) {
         setMessage(error instanceof Error ? error.message : "The response was lost. Retry the same request to check its result.");
@@ -69,7 +112,8 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
   return <section className="project-adoption" aria-label="Vivary setup" aria-busy={working}>
     <h4>Vivary setup</h4>
     <p>Review the exact guidance files before authorizing changes to this folder. Preview and Cancel change no project files.</p>
-    {!pending && <>
+    {!pending && !patternStatePending && <>
+      {!catalog && <>
       <label htmlFor="adoption-preset">Workspace type</label>
       <select id="adoption-preset" value={preset} disabled={unavailable} onChange={event => {
         request.current += 1;
@@ -87,6 +131,19 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
         onClick={() => void perform({ operation: "preview", projectId, preset })}>
         {working ? "Preparing preview…" : state.code === "privacy-prepared" ? "Review Vivary setup" : state.code === "idle" ? "Preview Vivary setup" : "Refresh preview"}
       </Button>
+      </>}
+      {catalog && <div className="mb-3">
+        <WorkspacePatternChoices catalog={catalog} value={patternChoices}
+          disabled={unavailable} onChange={next => {
+            request.current += 1;
+            setPatternChoices(next);
+            setState({ code: "idle" });
+            setMessage(undefined);
+          }} />
+        <Button size="sm" variant="outline" disabled={unavailable}
+          onClick={() => void perform({ operation: "preview", projectId, preset: "auto",
+            patternChoices })}>Review guidance change</Button>
+      </div>}
     </>}
     {message && <p role="alert">{message}</p>}
     {state.code === "refused" && <p role="alert">{state.message}</p>}
@@ -135,6 +192,10 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
         <summary><span>{operationLabel[file.operation]} <code>{file.path}</code></span><span>{file.bytes} bytes</span></summary>
         <pre tabIndex={0} aria-label={`Proposed content for ${file.path}`}><code>{file.content}</code></pre>
       </details>)}
+      {review.report.retired_kept && review.report.retired_kept.length > 0 && <div>
+        <h5>Removed from active guidance, kept in this folder</h5>
+        <ul>{review.report.retired_kept.map(path => <li key={path}><code>{path}</code></li>)}</ul>
+      </div>}
       {review.report.content_plan.kept.length > 0 && <div>
         <h5>Kept unchanged</h5>
         <ul data-agent-native="adoption-kept">{review.report.content_plan.kept.map(file => <li key={file.path}><code>{file.path}</code></li>)}</ul>

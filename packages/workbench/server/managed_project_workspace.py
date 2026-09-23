@@ -14,9 +14,12 @@ import create_vivary
 
 
 def managed_request(payload):
-    target = Path(payload["target"])
     operation = payload["operation"]
-    options = dict(preset="coding", adapters=(), active_context=None)
+    if operation == "catalog":
+        return {"code": "catalog", "patterns": create_vivary.builtin_pattern_catalog()}
+    target = Path(payload["target"])
+    options = dict(preset=payload.get("preset", "coding"), adapters=(), active_context=None,
+                   pattern_choices=payload.get("patternChoices", ()))
     if operation == "plan":
         return {"code": "preview", "plan": create_vivary.plan_thin_workspace(
             target, **options
@@ -37,7 +40,7 @@ def managed_request(payload):
 if __name__ == "__main__":
     try:
         request = json.loads(sys.stdin.read())
-        if set(request) - {"operation", "target", "acceptedPlanSha256"}:
+        if set(request) - {"operation", "target", "acceptedPlanSha256", "patternChoices", "preset"}:
             raise ValueError("unexpected request field")
         print(json.dumps(managed_request(request), separators=(",", ":")))
     except (KeyError, TypeError, ValueError, create_vivary.ScaffoldError) as exc:

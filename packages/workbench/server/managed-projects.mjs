@@ -124,9 +124,19 @@ async function managedTarget(context, name, createParent, dependencies = {}) {
   return { childName, parent, target };
 }
 
+export async function installedPatternCatalog(context, dependencies = {}) {
+  const getAccess = dependencies.getAccess ?? getLocalProjectAccess;
+  if ((await getAccess(context)).code !== "catalog") {
+    throw Object.assign(new Error("Project access is unavailable."), { statusCode: 403 });
+  }
+  return runCreator({ operation: "catalog" }, dependencies);
+}
+
 export async function previewManagedProject(context, input, dependencies = {}) {
   const { target } = await managedTarget(context, input.name, false, dependencies);
-  return runCreator({ operation: "plan", target }, dependencies);
+  return runCreator({ operation: "plan", target,
+    patternChoices: input.patternChoices ?? [],
+    preset: input.preset ?? "coding" }, dependencies);
 }
 
 export async function createManagedProject(context, input, dependencies = {}) {
@@ -145,6 +155,8 @@ export async function createManagedProject(context, input, dependencies = {}) {
       operation: "apply",
       target,
       acceptedPlanSha256,
+      patternChoices: input.patternChoices ?? [],
+      preset: input.preset ?? "coding",
     }, dependencies);
     if (!["created", "already-created"].includes(result.code)) return result;
     const canonicalTarget = await (dependencies.realpath ?? realpath)(target);

@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { workspacePatternChoices } from "./workspace-patterns.ts";
 
 export const adoptionPreset = z.enum(["auto", "coding", "second-brain", "knowledge-work", "writing"]);
 export const adoptionDigest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const projectId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const approved = { projectId, operationId: z.string().uuid(), acceptedPlanHash: adoptionDigest };
 export const adoptionInput = z.discriminatedUnion("operation", [
-  z.strictObject({ operation: z.literal("preview"), projectId, preset: adoptionPreset }),
+  z.strictObject({ operation: z.literal("preview"), projectId, preset: adoptionPreset,
+    patternChoices: workspacePatternChoices.optional() }),
   z.strictObject({ operation: z.literal("resume"), projectId }),
   z.strictObject({ operation: z.literal("cancel"), ...approved }),
   z.strictObject({ operation: z.literal("apply"), ...approved }),
@@ -33,6 +35,8 @@ export const adoptionReport = z.object({
   conflicts: z.array(z.object({ path: relativePath, reason: z.string() })),
   validation_findings: z.array(z.object({ path: relativePath, line: z.number().int().nonnegative(),
     level: z.enum(["error", "warning"]), code: z.string(), message: z.string() })).default([]),
+  pattern_choices: workspacePatternChoices.optional(),
+  retired_kept: z.array(relativePath).optional(),
   content_inventory: z.object({ existing_markdown: z.number().int().nonnegative(),
     existing_non_markdown: z.number().int().nonnegative() }).optional(),
   request_replay: z.object({ ready: z.boolean(), reason: z.string().nullable() }),
@@ -53,7 +57,8 @@ export const adoptionRecoveryReport = z.object({
     current_hash: adoptionDigest.nullable(), restore_hash: adoptionDigest.nullable() })),
 });
 const review = { projectId, operationId: z.string().uuid(), planHash: adoptionDigest,
-  displayName: z.string(), folder: z.string(), preset: adoptionPreset, report: adoptionReport };
+  displayName: z.string(), folder: z.string(), preset: adoptionPreset,
+  patternChoices: workspacePatternChoices.optional(), report: adoptionReport };
 export const adoptionResult = z.discriminatedUnion("code", [
   z.object({ code: z.literal("idle") }),
   z.object({ code: z.literal("preview"), ...review }),

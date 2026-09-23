@@ -841,6 +841,39 @@ def _graph_tree(tmp_path, files):
     return tropo.analyze(str(tmp_path), [], res(str(tmp_path)))
 
 
+def test_proposed_nested_markdown_replaces_windows_style_enumerated_path(tmp_path):
+    (tmp_path / "tropo.toml").write_text("[base]\nallow_untyped = true\n")
+    nested = tmp_path / "notes"
+    nested.mkdir()
+    source = nested / "guide.md"
+    source.write_text("# Original\n")
+    resolver = res(str(tmp_path))
+    proposed = tropo.analyze_file(
+        str(source), "notes/guide.md", resolver.for_dir(str(nested)),
+        text="# Reviewed replacement\n", use_git_dates=False,
+        stat_result=source.stat())
+    with mock.patch.object(tropo, "iter_markdown",
+                           return_value=iter([(str(source), "notes\\guide.md")])):
+        docs = tropo.analyze(str(tmp_path), [], resolver,
+                             additional_documents=[proposed])
+    assert len(docs) == 1
+    assert docs[0] is proposed
+
+
+def test_pack_names_keep_unicode_spaces_but_refuse_path_escape(tmp_path):
+    packs = tmp_path / ".tropo" / "packs"
+    packs.mkdir(parents=True)
+    (packs / "my notes ü.toml").write_text("[base]\nallow_untyped = true\n",
+                                          encoding="utf-8")
+    assert tropo._read_pack("my notes ü", str(tmp_path), SCRIPT_DIR)["base"]["allow_untyped"]
+    for name in ("../outside", "nested\\outside", "C:outside", ".", "..", "bad\x00name"):
+        try:
+            tropo._read_pack(name, str(tmp_path), SCRIPT_DIR)
+            assert False, f"expected ConfigError for {name!r}"
+        except tropo.ConfigError:
+            pass
+
+
 def test_build_graph_real_vault():
     nodes, edges = tropo.build_graph(tropo.analyze(VAULT, [], res()))
     assert set(nodes) == {"jeff", "tropo", "2026-06-12-kickoff", "0001-folder-as-type"}
