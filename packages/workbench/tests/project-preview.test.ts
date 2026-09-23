@@ -564,3 +564,61 @@ test("an active launch replays its original request after review expiry without 
       await rm(root, { recursive: true, force: true });
     }
   });
+
+
+test("a legacy bun.lockb selects Bun when packageManager is absent",
+  { timeout: 5_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-bun-lockb-"));
+    await fixture(root);
+    await writeFile(path.join(root, "bun.lockb"), "legacy fixture");
+    const service = createProjectPreviewService({
+      mode: () => "local",
+      resolveWorkspace: async () => workspace(root, "legacy-bun"),
+      resolveLauncher: async manager => ({ manager, executable: process.execPath, prefix: [] }),
+    });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "legacy-bun", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code === "review") assert.equal(review.command, "bun run dev");
+    } finally {
+      await service.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+
+test("legacy bun.lockb starts and stops with an installed Bun launcher",
+  { timeout: 15_000 }, async context => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-bun-runtime-"));
+    await fixture(root);
+    await writeFile(path.join(root, "bun.lockb"), Buffer.alloc(0));
+    const launcher = await resolveLauncher("bun", root);
+    if (!launcher) {
+      context.skip("No supported Bun launcher is installed on this host");
+      await rm(root, { recursive: true, force: true });
+      return;
+    }
+    const service = createProjectPreviewService({
+      mode: () => "local", resolveWorkspace: async () => workspace(root, "legacy-bun-runtime"),
+    });
+    try {
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "legacy-bun-runtime", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      assert.equal(review.command, "bun run dev");
+      const started = await service.run({ operation: "start", projectId: "legacy-bun-runtime", script: "dev", url,
+        requestId: "f4ced5d2-3ad4-4078-a536-ce0be8f6e1c1",
+        acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt }, owner);
+      assert.equal(started.code, "ready");
+      if (started.code !== "ready") return;
+      assert.equal(await (await fetch(url)).text(), "clean");
+      assert.equal((await service.run({ operation: "stop", projectId: "legacy-bun-runtime",
+        launchId: started.launchId }, owner)).code, "stopped");
+      await assert.rejects(fetch(url));
+    } finally {
+      await service.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });

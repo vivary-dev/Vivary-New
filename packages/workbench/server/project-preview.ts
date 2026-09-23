@@ -151,7 +151,10 @@ async function readPackage(root: string): Promise<{ bytes: Uint8Array; scripts: 
     manager = name;
   } else {
     try { await lstat(path.join(root, "pnpm-lock.yaml")); manager = "pnpm"; } catch {
-      try { await lstat(path.join(root, "bun.lock")); manager = "bun"; } catch { /* npm fallback */ }
+      for (const file of ["bun.lock", "bun.lockb"]) {
+        try { await lstat(path.join(root, file)); manager = "bun"; break; }
+        catch { /* npm fallback */ }
+      }
     }
   }
   return { bytes, scripts, manager };

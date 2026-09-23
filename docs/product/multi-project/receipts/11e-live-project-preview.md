@@ -66,7 +66,11 @@ refusals, unbounded request retention, concurrent port claims, transient probe
 failures replacing the page, and standalone pnpm rejection. Focused fixes release
 authored refusal states, reserve ports before asynchronous checks, and keep a
 live page during a failed probe. Native executable signatures permit standalone
-pnpm without enabling text or batch shims.
+pnpm without enabling text or batch shims. The next review found that legacy
+`bun.lockb` projects selected npm. Detection now includes that lockfile while
+preserving explicit package-manager settings and pnpm precedence. Its regression
+failed before the fix and passes afterward. Zo's installed Bun also reviewed,
+started, served, and stopped a disposable legacy-lockfile fixture. Its port closed.
 
 The final focused browser journey passed 33 checks after those fixes. A real one-shot
 HTTP 503 preserved the iframe node, document marker, and typed input through
@@ -80,7 +84,7 @@ The host retains at most 128 requests, including pending starts. It removes only
 expired records with verified process cleanup. A removed request cannot start
 again. Existing live retries and Stop remain available when capacity is full.
 
-The 11 focused process tests cover real servers, concurrent port claims,
+The 13 focused process tests cover real servers, concurrent port claims,
 request retention and expiry, host restart, permission refusal, and launcher
 resolution. The suite includes immediate POSIX group cleanup on launcher exit
 and a probe paused across Stop. All 36 shell tests, TypeScript, Native doctor,
