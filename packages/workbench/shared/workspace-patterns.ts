@@ -3,10 +3,11 @@ import { z } from "zod";
 export const workspacePatternId = z.enum([
   "capture", "source-reference", "navigation", "project-brief",
 ]);
+const codePointLength = (value: string) => Array.from(value).length;
 export const workspacePatternChoice = z.strictObject({
   id: workspacePatternId,
-  name: z.string().min(1).max(80),
-  path: z.string().min(1).max(240),
+  name: z.string().min(1).refine(value => codePointLength(value) <= 80),
+  path: z.string().min(1).refine(value => codePointLength(value) <= 240),
 });
 export const workspacePatternChoices = z.array(workspacePatternChoice).max(4);
 export const workspacePatternCatalog = z.strictObject({

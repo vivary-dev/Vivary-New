@@ -6064,6 +6064,31 @@ def _adopt_configured_validation(
                  "message": f"Existing schema could not be checked: {str(exc).replace(str(target), '.')}"}], None
 
 
+def _installed_pattern_selection(workspace: dict) -> tuple[tuple[dict, ...], dict[str, str], dict | None]:
+    metadata = workspace.get("vivary")
+    if metadata is None:
+        # Older thin-v0.3 workspaces used role metadata without an output ledger.
+        # Keep the effective role mapping, but claim no generated guidance files.
+        tropo = _load_tropo(default_repo_root())
+        roles = tropo.resolve_workspace_roles(workspace)["roles"]
+        return (), {}, roles
+    rows = metadata.get("pattern_outputs", [])
+    if not isinstance(rows, list):
+        raise ValueError("pattern outputs are malformed")
+    choices = _normalize_pattern_choices(tuple(
+        {"id": row["id"], "name": row["name"], "path": row["path"]}
+        for row in rows))
+    hashes = {row["id"]: row["generated_hash"] for row in rows}
+    if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+           for value in hashes.values()):
+        raise ValueError("pattern output hash is malformed")
+    if any(not _pattern_known_hash(row, hashes[row["id"]]) for row in choices):
+        raise ValueError("managed output ledger differs from supported renderers")
+    if metadata.get("patterns") != ["thin-context", *(row["id"] for row in choices)]:
+        raise ValueError("pattern list and generated-output ledger disagree")
+    return choices, hashes, None
+
+
 def workspace_pattern_state(target: str | Path) -> dict:
     """Read installed choices without claiming any file by its name alone."""
     import tomllib as _toml
@@ -6073,17 +6098,11 @@ def workspace_pattern_state(target: str | Path) -> dict:
     if not config.is_file() or _is_symlink_or_junction(config):
         raise ScaffoldError("this project has no regular Vivary workspace configuration")
     try:
-        raw = _toml.loads(_read_adopt_regular_bytes(root, config).decode("utf-8"))
+        raw = _toml.loads(_read_adopt_regular_bytes(root, config).decode("utf-8-sig"))
         workspace = raw["workspace"]
         if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
             raise ValueError("unsupported workspace contract")
-        metadata = workspace["vivary"]
-        choices = _normalize_pattern_choices([
-            {"id": row["id"], "name": row["name"], "path": row["path"]}
-            for row in metadata.get("pattern_outputs", [])
-        ])
-        if metadata["patterns"] != ["thin-context", *(row["id"] for row in choices)]:
-            raise ValueError("selection and output ledger disagree")
+        choices, _hashes, _legacy_roles = _installed_pattern_selection(workspace)
     except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
         raise ScaffoldError(f"pattern configuration needs review: {exc}") from exc
     return {"ok": True, "catalog": builtin_pattern_catalog(), "choices": list(choices)}
@@ -6099,9 +6118,20 @@ def _canonical_managed_lines(text: str) -> str:
 
 def _pattern_config_update(text: str, previous: tuple[dict, ...],
                            selected: tuple[dict, ...], previous_hashes: dict[str, str],
-                           output_hashes: dict[str, str] | None = None) -> str:
+                           output_hashes: dict[str, str] | None = None,
+                           legacy_roles: dict | None = None) -> str:
     current = _pattern_config_block(previous, previous_hashes)
     desired = _pattern_config_block(selected, output_hashes)
+    if legacy_roles is not None:
+        newline = _managed_newline_style(text)
+        separator = "" if text.endswith(newline * 2) else newline if text.endswith(newline) else newline * 2
+        roles = "".join(
+            f"{role} = {json.dumps(paths, ensure_ascii=False)}{newline}"
+            for role, paths in legacy_roles.items())
+        return (text + separator + "[workspace.vivary]" + newline
+                + "version = 1" + newline
+                + desired.replace("\n", newline) + newline
+                + "[workspace.vivary.roles]" + newline + roles)
     begin, end = "# >>> vivary pattern selection >>>", "# <<< vivary pattern selection <<<"
     if text.count(begin) == 1 and text.count(end) == 1:
         start = text.index(begin)
@@ -6172,26 +6202,11 @@ def plan_workspace_change(
     try:
         config_text = config_bytes.decode("utf-8")
         context_text = context_bytes.decode("utf-8")
-        raw = _toml.loads(config_text)
+        raw = _toml.loads(config_text.removeprefix("\ufeff"))
         workspace = raw["workspace"]
         if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
             raise ValueError("not a thin workspace")
-        metadata = workspace["vivary"]
-        rows = metadata.get("pattern_outputs", [])
-        if not isinstance(rows, list):
-            raise ValueError("pattern outputs are malformed")
-        previous = _normalize_pattern_choices(tuple(
-            {"id": row["id"], "name": row["name"], "path": row["path"]}
-            for row in rows))
-        previous_hashes = {row["id"]: row["generated_hash"] for row in rows}
-        if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
-               for value in previous_hashes.values()):
-            raise ValueError("pattern output hash is malformed")
-        if any(not _pattern_known_hash(row, previous_hashes[row["id"]])
-               for row in previous):
-            raise ValueError("managed output ledger differs from the installed renderer")
-        if metadata.get("patterns") != ["thin-context", *(row["id"] for row in previous)]:
-            raise ValueError("pattern list and generated-output ledger disagree")
+        previous, previous_hashes, legacy_roles = _installed_pattern_selection(workspace)
         preset = workspace["preset"]
         adapters = tuple(workspace.get("adapters", []))
         capabilities = workspace.get("capabilities", [])
@@ -6204,7 +6219,7 @@ def plan_workspace_change(
             and next(old for old in previous if old["id"] == row["id"]) == row
         }
         new_config = _pattern_config_update(
-            config_text, previous, selected, previous_hashes, retained_hashes)
+            config_text, previous, selected, previous_hashes, retained_hashes, legacy_roles)
         new_context = _pattern_context_update(context_text, previous, selected)
     except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
         raise ScaffoldError(f"pattern configuration needs review: {exc}") from exc
@@ -7402,23 +7417,11 @@ def _reconfiguration_journal_policy(target: Path, approval: dict, payload: dict
             return data
         config = original(".vivary/workspace.toml").decode("utf-8")
         context = original(".vivary/context.md").decode("utf-8")
-        raw = _toml.loads(config)
+        raw = _toml.loads(config.removeprefix("\ufeff"))
         workspace = raw["workspace"]
         if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
             raise ValueError("workspace contract changed")
-        metadata = workspace["vivary"]
-        rows = metadata.get("pattern_outputs", [])
-        previous = _normalize_pattern_choices(tuple(
-            {"id": row["id"], "name": row["name"], "path": row["path"]}
-            for row in rows))
-        hashes = {row["id"]: row["generated_hash"] for row in rows}
-        if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
-               for value in hashes.values()):
-            raise ValueError("managed output hash is malformed")
-        if any(not _pattern_known_hash(row, hashes[row["id"]]) for row in previous):
-            raise ValueError("managed output ledger differs from supported renderers")
-        if metadata["patterns"] != ["thin-context", *(row["id"] for row in previous)]:
-            raise ValueError("pattern selection and outputs disagree")
+        previous, hashes, legacy_roles = _installed_pattern_selection(workspace)
         if workspace["preset"] != approval["preset"] or sorted(workspace.get("adapters", [])) != approval["adapters"]:
             raise ValueError("workspace policy differs from approval")
         if sorted(workspace.get("capabilities", [])) != approval["capabilities"]:
@@ -7443,7 +7446,7 @@ def _reconfiguration_journal_policy(target: Path, approval: dict, payload: dict
             selected_files[row["path"]] = _pattern_approved_file(row, digest).encode("utf-8")
         expected = {
             ".vivary/workspace.toml": _pattern_config_update(
-                config, previous, selected, hashes, selected_hashes).encode("utf-8"),
+                config, previous, selected, hashes, selected_hashes, legacy_roles).encode("utf-8"),
             ".vivary/context.md": _pattern_context_update(context, previous, selected).encode("utf-8"),
         }
         expected.update(selected_files)

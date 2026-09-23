@@ -933,6 +933,80 @@ class ThinAdoptPlanTests(unittest.TestCase):
 
 
 class PatternReconfigurationTests(unittest.TestCase):
+    def test_bom_legacy_roles_migrate_by_review_without_losing_original_bytes(self):
+        target = temp_dir()
+        choice = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            text = config.read_text(encoding="utf-8")
+            begin = text.index("[workspace.vivary]")
+            end = text.index("[base]", begin)
+            legacy = ('patterns = ["thin-context"]\n'
+                      '[workspace.roles]\nmemory = ["notes/log.md"]\n\n')
+            config.write_bytes(bytes((239, 187, 191)) +
+                               (text[:begin] + legacy + text[end:]).encode("utf-8"))
+            original = snapshot(target)
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [])
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            self.assertEqual(review["conflicts"], [])
+            self.assertEqual(review["validation_findings"], [])
+            self.assertEqual(snapshot(target), original)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, intent="reconfigure", pattern_choices=(choice,), yes=True,
+                    plan_hash=review["plan_hash"], repo_root=ROOT, _crash_after=1)
+            recovery = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"], repo_root=ROOT)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"],
+                plan_hash=recovery["recovery_plan_hash"], yes=True, repo_root=ROOT)
+            self.assertTrue(result["recovered"])
+            self.assertEqual(snapshot(target), original)
+            fresh = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            applied = create_vivary.apply_workspace_change(
+                target, pattern_choices=(choice,), yes=True,
+                plan_hash=fresh["plan_hash"], repo_root=ROOT)
+            self.assertTrue(applied["applied"])
+            data = config.read_bytes()
+            self.assertTrue(data.startswith(bytes((239, 187, 191))))
+            self.assertIn(legacy.encode("utf-8"), data)
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [choice])
+            doctor = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(doctor["ok"], doctor["errors"])
+            self.assertEqual(doctor["workspace_roles"]["roles"]["memory"], ["notes/log.md"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_legacy_empty_pattern_roles_keep_their_meaning(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            text = config.read_text(encoding="utf-8")
+            begin = text.index("[workspace.vivary]")
+            end = text.index("[base]", begin)
+            legacy = ('patterns = []\n'
+                      '[workspace.roles]\nlaw = ["handbook.md"]\n\n')
+            config.write_text(text[:begin] + legacy + text[end:], encoding="utf-8")
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [])
+            choice = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            self.assertFalse(review["conflicts"], review["conflicts"])
+            applied = create_vivary.apply_workspace_change(
+                target, pattern_choices=(choice,), yes=True,
+                plan_hash=review["plan_hash"], repo_root=ROOT)
+            self.assertTrue(applied["applied"])
+            doctor = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(doctor["ok"], doctor["errors"])
+            self.assertEqual(doctor["workspace_roles"]["roles"]["law"], ["handbook.md"])
+            self.assertIn(legacy, config.read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(target)
+
     def test_frozen_v1_default_output_hashes(self):
         expected = {
             ("capture", "Capture", "inbox/README.md"):
