@@ -134,7 +134,8 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
     </div>}
     {error && selectedThread && <div className="local-agent-notice" role="alert">
       <span>{error}</span>
-      <Button variant="outline" size="sm" onClick={() => draft.retry(selectedThread)}>Retry draft</Button>
+      <Button variant="outline" size="sm" onClick={() => draft.retry(selectedThread)}>{draft.hasConflictForThread(selectedThread)
+        ? "Reload saved draft" : "Retry draft"}</Button>
       {draft.hasPendingForThread(selectedThread) && (restoreReview === selectedThread
         ? <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" aria-label="I checked this conversation and queued follow-ups"

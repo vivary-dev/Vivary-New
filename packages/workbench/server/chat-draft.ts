@@ -3,6 +3,7 @@ import { compareAndSetAppState, readAppState } from "@agent-native/core/applicat
 import { getThread } from "@agent-native/core/server";
 import { fail } from "@agent-native/core/action";
 import { z } from "zod";
+import { hasOwnedVivaryCodeSubmit, type VivaryCodeReadScope } from "./local-code-agent";
 import type { VivaryChatIdentity } from "../app/lib/chat-scope";
 
 const revision = z.string().uuid();
@@ -18,7 +19,12 @@ export const chatDraftNextSchema = z.discriminatedUnion("status", [
 ]);
 export type ChatDraftRecord = z.infer<typeof chatDraftRecordSchema>;
 
-export function chatDraftKey(identity: VivaryChatIdentity, threadId: string): string {
+export function createCodeDraftIdentity(ownerEmail: string, orgId: string, projectId: string | null) {
+  const key = createHash("sha256").update(JSON.stringify([ownerEmail.toLowerCase(), orgId, projectId])).digest("hex");
+  return { storageKey: "vivary-code-draft-v1:" + key };
+}
+
+export function chatDraftKey(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): string {
   const hash = createHash("sha256").update(JSON.stringify([identity.storageKey, threadId])).digest("hex");
   return "vivary-chat-draft-v1:" + hash;
 }
@@ -43,13 +49,13 @@ export async function assertChatDraftThread(identity: VivaryChatIdentity, thread
   return thread;
 }
 
-export async function readChatDraft(identity: VivaryChatIdentity, threadId: string): Promise<ChatDraftRecord | null> {
+export async function readChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): Promise<ChatDraftRecord | null> {
   const raw = await readAppState(chatDraftKey(identity, threadId));
   if (raw && !parseChatDraft(raw)) throw new Error("The saved draft could not be verified.");
   return parseChatDraft(raw);
 }
 
-export async function changeChatDraft(identity: VivaryChatIdentity, threadId: string,
+export async function changeChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string,
   expected: ChatDraftRecord | null, next: z.infer<typeof chatDraftNextSchema>): Promise<{ record: ChatDraftRecord | null; changed: boolean }> {
   const key = chatDraftKey(identity, threadId);
   const record = chatDraftRecordSchema.parse({ ...next, revision: randomUUID() });
@@ -86,6 +92,19 @@ export async function reconcileChatDraft(identity: VivaryChatIdentity, threadId:
   if (!current || current.status !== "pending" || !current.submitId) return { record: current, saved: false };
   const thread = await assertChatDraftThread(identity, threadId, ownerEmail, orgId);
   if (!thread || !savedThreadHasSubmit(thread.threadData, current.submitId)) return { record: current, saved: false };
+  const result = await changeChatDraft(identity, threadId, current,
+    { text: "", status: "cleared", submitId: null });
+  return { record: result.record, saved: result.changed };
+}
+
+
+export async function reconcileCodeDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string,
+  ownerEmail: string, orgId: string, scope: VivaryCodeReadScope | undefined) {
+  const current = await readChatDraft(identity, threadId);
+  if (!current || current.status !== "pending" || !current.submitId) return { record: current, saved: false };
+  if (!hasOwnedVivaryCodeSubmit(ownerEmail, orgId, scope, threadId, current.submitId)) {
+    return { record: current, saved: false };
+  }
   const result = await changeChatDraft(identity, threadId, current,
     { text: "", status: "cleared", submitId: null });
   return { record: result.record, saved: result.changed };

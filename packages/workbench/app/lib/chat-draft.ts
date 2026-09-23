@@ -8,7 +8,7 @@ type RecordState = {
   status: "draft" | "pending" | "cleared";
   submitId: string | null;
 };
-type Scope = { kind: "project" | "unassigned"; projectId: string | null };
+type Scope = { kind: "project" | "unassigned" | "code"; projectId: string | null };
 type Entry = {
   loaded: boolean;
   record: RecordState | null;
@@ -18,6 +18,8 @@ type Entry = {
   timer: ReturnType<typeof setTimeout> | null;
   generation: number;
   error: string | null;
+  conflict: boolean;
+  discarding: boolean;
 };
 type DraftResponse = { record: RecordState | null; changed?: boolean; saved?: boolean };
 type DraftObservation = { generation: number; revision: string | null; submitId: string | null };
@@ -48,7 +50,7 @@ export function useNativeChatDraft(scope: Scope) {
   const entry = useCallback((threadId: string) => {
     let current = entries.current.get(threadId);
     if (!current) {
-      current = { loaded: false, record: null, text: "", reset: 0, saving: null, timer: null, generation: 0, error: null };
+      current = { loaded: false, record: null, text: "", reset: 0, saving: null, timer: null, generation: 0, error: null, conflict: false, discarding: false };
       entries.current.set(threadId, current);
     }
     return current;
@@ -87,12 +89,14 @@ export function useNativeChatDraft(scope: Scope) {
     const result = await call<DraftResponse>("vivary-chat-draft",
       { operation: "change", ...params(threadId), expected, next });
     if (!result.changed || !result.record || current.generation !== generation) {
-      current.error = "The draft changed in another window. Refresh it before editing.";
+      current.error = "The draft changed in another window. Copy your text before loading the saved version.";
+      current.conflict = true;
       changed();
       throw new Error(current.error);
     }
     current.record = result.record;
     current.error = null;
+    current.conflict = false;
     changed();
   }, [call, changed, entry, params]);
 
@@ -115,12 +119,12 @@ export function useNativeChatDraft(scope: Scope) {
 
   const onChange = useCallback((threadId: string, text: string) => {
     const current = entry(threadId);
-    if (!current.loaded || current.error || current.record?.status === "pending") return;
+    if (!current.loaded || current.discarding || current.error || current.record?.status === "pending") return;
     if (current.record?.status === "cleared" && text === "") return;
     current.text = text;
     if (current.timer) clearTimeout(current.timer);
     current.timer = setTimeout(() => { void flush(threadId).catch(() => {
-      current.error = "Your draft could not be saved. Retry before leaving this conversation.";
+      if (!current.conflict) current.error = "Your draft could not be saved. Retry before leaving this conversation.";
       changed();
     }); }, 350);
   }, [changed, entry, flush]);
@@ -210,16 +214,28 @@ export function useNativeChatDraft(scope: Scope) {
 
   const discard = useCallback(async (threadId: string) => {
     const current = entry(threadId);
-    if (!current.loaded || current.saving) return;
+    if (current.discarding) return;
+    current.discarding = true;
+    changed();
     if (current.timer) { clearTimeout(current.timer); current.timer = null; }
+    if (current.saving) {
+      try { await current.saving; } catch { /* CAS below reports a conflict if the write landed. */ }
+    }
+    if (!current.loaded) {
+      current.error = "The saved draft is still loading. Retry discard after it opens.";
+      current.discarding = false;
+      changed();
+      return;
+    }
     const generation = ++current.generation;
     try {
       await change(threadId, current.record, { status: "cleared", text: "", submitId: null }, generation);
       current.text = "";
       current.reset++;
-      changed();
     } catch {
       current.error = "The draft could not be discarded. Retry.";
+    } finally {
+      current.discarding = false;
       changed();
     }
   }, [change, changed, entry]);
@@ -232,7 +248,7 @@ export function useNativeChatDraft(scope: Scope) {
     resetKeyForThread: threadId => entry(threadId).reset,
     isReady: threadId => {
       const current = entry(threadId);
-      return current.loaded && !current.error && current.record?.status !== "pending";
+      return current.loaded && !current.discarding && !current.error && current.record?.status !== "pending";
     },
     ensureThread,
     onChange, beforeSubmit, onAccepted, onRejected,
@@ -240,6 +256,7 @@ export function useNativeChatDraft(scope: Scope) {
   return {
     hostComposerDraft,
     statusForThread: (threadId: string) => entry(threadId).error,
+    hasConflictForThread: (threadId: string) => entry(threadId).conflict,
     hasPendingForThread: (threadId: string) => entry(threadId).record?.status === "pending",
     restorePending,
     hasDraftForThread: (threadId: string) => {
@@ -248,8 +265,24 @@ export function useNativeChatDraft(scope: Scope) {
     },
     retry: (threadId: string) => {
       const current = entry(threadId);
-      if (current.record?.status === "pending") void reconcile(threadId);
-      else { current.loaded = false; current.error = null; void ensureThread(threadId); }
+      if (current.record?.status === "pending") { void reconcile(threadId); return; }
+      if (current.conflict) {
+        current.loaded = false;
+        current.error = null;
+        current.conflict = false;
+        void ensureThread(threadId);
+        return;
+      }
+      if (current.loaded) {
+        current.error = null;
+        void flush(threadId).catch(() => {
+          current.error = "Your draft could not be saved. Retry before leaving this conversation.";
+          changed();
+        });
+      } else {
+        current.error = null;
+        void ensureThread(threadId);
+      }
     },
     discard,
   };

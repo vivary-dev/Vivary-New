@@ -88,7 +88,7 @@ export type VivaryCodeWorkspace = Readonly<{
   bindingRevision?: number;
 }>;
 
-type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
+export type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
 
 export type VivaryCodePendingApproval = CodexActionRequest & {
   runId: string;
@@ -271,6 +271,18 @@ export async function getVivaryCodeHostState(
   };
 }
 
+export function hasOwnedVivaryCodeSubmit(
+  ownerEmail: string, orgId: string | undefined, scope: VivaryCodeReadScope | undefined,
+  draftThreadId: string, submitId: string,
+): boolean {
+  const runs = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).filter(run =>
+    scope ? isOwnedRun(run, ownerEmail, orgId, scope)
+      : isOwnedIdentity(run, ownerEmail, orgId) && metadataString(run, "projectId") === null);
+  return runs.some(run => listCodeAgentTranscriptEvents(run.id).some(event =>
+    event.kind === "user" && event.metadata?.draftThreadId === draftThreadId
+      && event.metadata?.draftSubmitId === submitId));
+}
+
 export async function getVivaryCodeState(
   ownerEmail: string,
   runId?: string,
@@ -331,6 +343,8 @@ export async function sendVivaryCodeMessage(input: {
   model?: string;
   engine?: VivaryCodeEngine;
   runId?: string;
+  draftSubmitId?: string;
+  draftThreadId?: string;
   workspace?: VivaryCodeWorkspace;
   revalidateWorkspace?: () => Promise<VivaryCodeWorkspace | undefined>;
 }): Promise<VivaryCodeState> {
@@ -402,7 +416,9 @@ export async function sendVivaryCodeMessage(input: {
   const executionMessage = existing && !(selectedEngine === "codex-cli" && metadataString(run, "codexSessionId"))
     ? buildVivaryCodeFollowUpPrompt(listCodeAgentTranscriptEvents(run.id), input.message) : input.message;
   appendCodeAgentTranscriptEvent({ runId: run.id, kind: "user", message: input.message,
-    metadata: { source: "vivary-workbench", permissionMode } });
+    metadata: { source: "vivary-workbench", permissionMode,
+      ...(input.draftSubmitId && input.draftThreadId ? { draftSubmitId: input.draftSubmitId,
+        draftThreadId: input.draftThreadId } : {}) } });
   updateCodeAgentRunRecord(run.id, { status: "queued", phase: "queued", needsApproval: false,
     metadata: { pendingLaunch: undefined, codexPermissionMode: permissionMode } });
   startVivaryCodeRun({ runId: run.id, message: executionMessage, engine: selectedEngine, model: selectedModel,

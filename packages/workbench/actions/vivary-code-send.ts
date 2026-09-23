@@ -16,12 +16,14 @@ export default defineAction({
     model: z.string().trim().min(1).max(128).optional(),
     engine: z.enum(VIVARY_CODE_ENGINES).optional(),
     runId: z.string().trim().min(1).max(128).optional(),
+    draftSubmitId: z.string().uuid().optional(),
+    draftThreadId: z.string().regex(/^[A-Za-z0-9_:-]{1,200}$/).optional(),
   }),
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
   toolCallable: false,
-  run: async ({ message, model, engine, runId, projectId }, ctx?: ActionRunContext) =>
+  run: async ({ message, model, engine, runId, projectId, draftSubmitId, draftThreadId }, ctx?: ActionRunContext) =>
     sendVivaryCodeMessage({
       ownerEmail: requireVivaryCodeUser(ctx),
       orgId: ctx?.orgId ?? undefined,
@@ -31,5 +33,7 @@ export default defineAction({
       model,
       engine,
       runId,
+      draftSubmitId,
+      draftThreadId,
     }),
 });

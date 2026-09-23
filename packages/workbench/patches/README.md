@@ -2,8 +2,9 @@
 
 Jeff approved this dependency patch on September 15, 2026, for
 [project conversations, issue #6](https://github.com/vivary-dev/Vivary-New/issues/6).
-This approval supersedes the earlier restriction against patching Core for these
-two defects. Native still owns conversations, storage, requests, and execution.
+This approval supersedes the earlier restriction against patching Core for those
+defects. Later feature work extends the same maintained patch as described below.
+Native still owns conversations, storage, requests, and execution.
 
 `pnpm-workspace.yaml` applies `@agent-native__core@0.176.5.patch` to the pinned
 Core package. The lockfile records the patch hash. Install with
@@ -103,3 +104,39 @@ The optional `VIVARY_CODEX_POLICY_PROBE` test setting points to an installed Cod
 executable. It checks effective permission rendering without starting a model turn.
 Successful rendering does not establish operating-system sandbox execution. See the
 [Workbench integration record](../README.md) for actual hosted and Windows proof.
+
+## Host-owned conversation drafts
+
+Issue #9 adds an opt-in `hostComposerDraft` interface to the existing chat
+components. Vivary supplies a draft for the actual selected thread, waits for
+that state before enabling the composer, and uses an explicit reset key when
+restoring or clearing it. Routine autosave acknowledgements do not reset the
+editor. Consumers that omit this interface retain Core's existing behavior.
+
+Host mode disables the browser and toolkit draft stores. Vivary persists text
+through its authenticated `vivary-chat-draft` action and Native application
+state. The key includes the owner, project, chat surface, and conversation.
+Drafts are not messages and restoring one does not start execution.
+
+Each write compares the revision it observed. A cleared draft remains as an
+empty tombstone, so a delayed save cannot recreate it. Before a send, the same
+record retains a unique submission ID. Native carries that ID through its
+existing queue and into the saved user message. A matching persisted message
+or queued item settles the draft. An in-memory queue acknowledgement alone
+cannot establish persistence. Code chat carries the same submission ID and
+conversation key through its existing send action into the owned user event.
+Reconciliation reads those existing run events without adding a transcript store.
+
+If delivery remains uncertain, the UI retains a pending draft and offers Retry.
+Restoring its text requires an explicit action with a duplicate-send warning.
+Normal Discard draft also persists a tombstone. Request audit metadata remains
+enabled, while the draft action excludes text inputs from the audit record.
+
+Run the focused state and ownership checks with:
+
+```sh
+pnpm --dir packages/workbench test:chat-draft
+```
+
+These checks are included in `test:maintained`. Real application restart and
+packaged desktop acceptance remain separate requirements under issue #9.

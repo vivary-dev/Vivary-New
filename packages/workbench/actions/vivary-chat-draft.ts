@@ -3,11 +3,12 @@ import { z } from "zod";
 import { createVivaryChatIdentity } from "../server/chat-identity";
 import { requireVivaryCodeUser } from "../server/local-code-agent";
 import { resolveVivaryCodeProjectHistory } from "../server/code-project";
-import { assertChatDraftThread, changeChatDraft, chatDraftNextSchema, chatDraftRecordSchema, readChatDraft, reconcileChatDraft } from "../server/chat-draft";
+import { assertChatDraftThread, changeChatDraft, chatDraftNextSchema, chatDraftRecordSchema,
+  createCodeDraftIdentity, readChatDraft, reconcileChatDraft, reconcileCodeDraft } from "../server/chat-draft";
 
-const threadId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const threadId = z.string().regex(/^[A-Za-z0-9_:-]{1,200}$/);
 const projectId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).nullable();
-const scope = z.object({ kind: z.enum(["project", "unassigned"]), projectId, threadId }).strict();
+const scope = z.object({ kind: z.enum(["project", "unassigned", "code"]), projectId, threadId }).strict();
 export default defineAction({
   description: "Read or update this owner's conversation draft in Native application state.",
   schema: z.discriminatedUnion("operation", [
@@ -22,6 +23,15 @@ export default defineAction({
     const owner = requireVivaryCodeUser(ctx);
     const orgId = ctx?.orgId;
     if (!orgId) fail("The conversation owner could not be verified.", { statusCode: 403 });
+    if (input.kind === "code") {
+      const project = input.projectId
+        ? await resolveVivaryCodeProjectHistory(ctx, input.projectId)
+        : undefined;
+      const identity = createCodeDraftIdentity(owner, orgId, project?.projectId ?? null);
+      if (input.operation === "read") return { record: await readChatDraft(identity, input.threadId) };
+      if (input.operation === "reconcile") return reconcileCodeDraft(identity, input.threadId, owner, orgId, project);
+      return changeChatDraft(identity, input.threadId, input.expected, input.next);
+    }
     const target = input.kind === "unassigned"
       ? { kind: "unassigned" as const }
       : { kind: "project" as const, projectId: input.projectId,

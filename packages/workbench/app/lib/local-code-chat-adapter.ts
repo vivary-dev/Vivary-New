@@ -13,6 +13,7 @@ type LocalCodeChatOptions = {
   context: AssistantChatAdapterContext;
   call: NativeActionCaller;
   projectId: string | null;
+  draftThreadId: string;
   runIdRef: { current: string | null };
   engines: () => VivaryCodeState["engines"];
   onStarted: (runId: string) => void;
@@ -31,6 +32,8 @@ export function createLocalCodeChatAdapter(
   return {
     async *run(input) {
       const userMessage = input.messages.findLast(message => message.role === "user");
+      const marker = input.runConfig?.custom?.agentNativeQueuedMessageId;
+      const draftSubmitId = typeof marker === "string" ? marker : undefined;
       const message = userMessage?.content
         .filter(part => part.type === "text")
         .map(part => part.text)
@@ -52,7 +55,8 @@ export function createLocalCodeChatAdapter(
       try {
         const starting = options.runIdRef.current === null;
         if (starting) {
-          const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, message, model, engine: engine.engine }));
+          const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, message, model, engine: engine.engine,
+            draftSubmitId, draftThreadId: draftSubmitId ? options.draftThreadId : undefined }));
           if (state.error) throw new Error(state.error);
           if (!state.run) throw new Error("The agent did not return a conversation.");
           options.runIdRef.current = state.run.id;
@@ -79,7 +83,8 @@ export function createLocalCodeChatAdapter(
           },
           sendFollowUp: async ({ runId, prompt, mode }) => {
             if (mode === "queued") return { ok: false, error: "Wait for the current response or stop it before sending another message." };
-            const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, runId, message: prompt, model, engine: engine.engine }));
+            const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, runId, message: prompt, model, engine: engine.engine,
+              draftSubmitId, draftThreadId: draftSubmitId ? options.draftThreadId : undefined }));
             return { ok: !state.error && !!state.run, run: state.run, error: state.error };
           },
           control: async ({ runId, command }) => {

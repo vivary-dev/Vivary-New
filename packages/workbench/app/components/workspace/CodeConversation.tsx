@@ -14,6 +14,7 @@ import {
 import { actionErrorMessage, readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useAppStateWriter } from "@/lib/native-state";
+import { useNativeChatDraft } from "@/lib/chat-draft";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconHistory, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
 import type { VivaryCodeRunState, VivaryCodeState } from "../../../server/local-code-agent";
@@ -359,6 +360,11 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     } });
     return () => { active = false; removeAgentChatContextItem(contextKey); props.onPreviewChatTarget?.(null); };
   }, [props.projectId, props.previewScope, previewContextKey, props.workspaceAvailable, props.onPreviewChatTarget]);
+  const draftThreadId = "vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key;
+  const draft = useNativeChatDraft({ kind: "code", projectId: props.projectId });
+  const draftError = draft.statusForThread(draftThreadId);
+  const [restoreReview, setRestoreReview] = useState(false);
+  const [restoreAcknowledged, setRestoreAcknowledged] = useState(false);
   const runIdRef = useRef(props.selection.runId);
   runIdRef.current = props.selection.runId;
   const adapterOwnsMessages = useRef(false);
@@ -372,7 +378,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
 
   const createAdapter = useCallback<NonNullable<AssistantChatProps["createAdapter"]>>(context =>
     createLocalCodeChatAdapter({
-      context, call, runIdRef, projectId: props.projectId,
+      context, call, runIdRef, projectId: props.projectId, draftThreadId,
       engines: () => latest.current.state.engines,
       onStarted: runId => latest.current.onStarted(runId),
       onStreaming: value => {
@@ -383,7 +389,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
         adapterOwnsMessages.current = false;
         latest.current.onSettled();
       },
-    }), [props.projectId, call]);
+    }), [props.projectId, call, draftThreadId]);
   const loadHistoryRepository = useCallback<NonNullable<AssistantChatProps["loadHistoryRepository"]>>(async () => {
     // Canonical replay uses different message IDs. Import only while history owns
     // this view; replacing live IDs invalidates mounted assistant-ui bindings.
@@ -429,6 +435,29 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   }
 
   return <>
+    {!draftError && draft.hasDraftForThread(draftThreadId) && <div className="local-agent-notice">
+      <span>Draft saved for this conversation.</span>
+      <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
+    </div>}
+    {draftError && <div className="local-agent-notice" role="alert">
+      <span>{draftError}</span>
+      <Button variant="outline" size="sm" onClick={() => draft.retry(draftThreadId)}>{draft.hasConflictForThread(draftThreadId)
+        ? "Reload saved draft" : "Retry draft"}</Button>
+      {draft.hasPendingForThread(draftThreadId) && (!restoreReview
+        ? <Button variant="outline" size="sm" onClick={() => setRestoreReview(true)}>Review before restoring</Button>
+        : !restoreAcknowledged
+          ? <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" aria-label="I checked this conversation and queued follow-ups"
+              onChange={event => setRestoreAcknowledged(event.target.checked)} />
+            I checked this conversation and queued follow-ups. The message could still appear later, so sending this draft again could duplicate it.
+          </label>
+          : <Button variant="outline" size="sm" onClick={() => {
+            setRestoreReview(false);
+            setRestoreAcknowledged(false);
+            void draft.restorePending(draftThreadId);
+          }}>Restore draft for editing</Button>)}
+      <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
+    </div>}
     {!props.selection.runId && <div className="local-agent-notice">
       <label className="flex items-center gap-2 text-sm">
         Runtime
@@ -462,7 +491,8 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       </label>
     </div>}
     <AssistantChat key={viewKey.current} ref={chatRef}
-    tabId={"vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key}
+    tabId={draftThreadId}
+    hostComposerDraft={draft.hostComposerDraft}
     contextNamespace={previewContextKey}
     showHeader={false} className="local-agent-transcript"
     createAdapter={createAdapter} loadHistoryRepository={loadHistoryRepository}

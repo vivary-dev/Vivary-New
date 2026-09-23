@@ -17,7 +17,8 @@ const { createThread, updateThreadData, ensureChatThreadTables } = await import(
   new URL("../../chat-threads/store.js", import.meta.resolve("@agent-native/core/client/agent-chat")),
 );
 const { createVivaryChatIdentity } = await import("../server/chat-identity.ts");
-const { assertChatDraftThread, changeChatDraft, chatDraftKey, chatDraftNextSchema, readChatDraft,
+const { assertChatDraftThread, changeChatDraft, chatDraftKey, chatDraftNextSchema,
+  createCodeDraftIdentity, readChatDraft,
   reconcileChatDraft, savedThreadHasSubmit } = await import("../server/chat-draft.ts");
 const { draftObservation, applyReconciledDraft } = await import("../app/lib/chat-draft.ts");
 const owner = "owner@example.test";
@@ -31,6 +32,10 @@ test("Native draft CAS retains pending evidence and a tombstone across stale wri
   assert.equal(await assertChatDraftThread(identity, threadId, owner, orgId), null);
   const otherIdentity = createVivaryChatIdentity(owner, orgId, { kind: "project", projectId: "p2", label: "Other" });
   assert.notEqual(chatDraftKey(identity, threadId), chatDraftKey(otherIdentity, threadId));
+  const codeIdentity = createCodeDraftIdentity(owner, orgId, "p1");
+  assert.notEqual(chatDraftKey(identity, threadId), chatDraftKey(codeIdentity, threadId));
+  assert.notEqual(chatDraftKey(codeIdentity, threadId),
+    chatDraftKey(createCodeDraftIdentity(owner, orgId, "p2"), threadId));
   const first = await changeChatDraft(identity, threadId, null,
     { status: "draft", text: "Alpha", submitId: null });
   assert.equal(first.changed, true);
