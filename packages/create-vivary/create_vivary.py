@@ -4897,11 +4897,9 @@ _ADOPT_VIVARY_OWNED_DIRS = {
 class BrownfieldInventory:
     """Read-only snapshot of an existing directory tree for `adopt`.
 
-    Never mutates disk. Walks `target` once, skipping the fixed skip-list dirs,
-    any dotdir, and any directory Vivary itself would have created, and records
-    just enough to plan an adopt: whether root contract files already exist, how
-    markdown- vs code-heavy the tree is, and which directories look like
-    undocumented "modules" worth a router.
+    Never mutates disk. Walks `target` once, skipping dependency and hidden
+    directories. It counts files in scanned folders for preview while omitting
+    Vivary-owned paths from the preset and module-router heuristic.
     """
 
     def __init__(self, target: Path):
@@ -4913,6 +4911,8 @@ class BrownfieldInventory:
         self.markdown_count = 0
         self.code_count = 0
         self.other_count = 0
+        self.preserved_markdown_count = 0
+        self.preserved_non_markdown_count = 0
         self.candidate_modules: list[str] = []
         self._scan()
 
@@ -4927,19 +4927,20 @@ class BrownfieldInventory:
                 d for d in dirnames
                 if d not in _ADOPT_SKIP_DIRS
                 and not d.startswith(".")
-                and not (rel_dir == "" and d in _ADOPT_VIVARY_OWNED_DIRS)
             )
 
             depth = 0 if not rel_dir else rel_dir.count("/") + 1
+            owned_tree = bool(rel_dir and rel_dir.split("/", 1)[0] in _ADOPT_VIVARY_OWNED_DIRS)
             for name in filenames:
-                # Root files owned by (or reserved for) the Vivary scaffold
-                # don't vote in the preset heuristic — otherwise re-running
-                # adopt on an adopted tree would count its own README/SOUL/
-                # STATE contract files as markdown and flip the detected
-                # preset, the same reason Vivary-owned dirs are pruned above.
-                if depth == 0 and name in _ADOPT_RESERVED_ROOT_FILES:
-                    continue
                 suffix = Path(name).suffix.lower()
+                if suffix in (".md", ".markdown"):
+                    self.preserved_markdown_count += 1
+                else:
+                    self.preserved_non_markdown_count += 1
+                # Vivary-owned trees and reserved root files do not vote in
+                # the preset heuristic, including on a repeated adoption.
+                if owned_tree or (depth == 0 and name in _ADOPT_RESERVED_ROOT_FILES):
+                    continue
                 if suffix in (".md", ".markdown"):
                     self.markdown_count += 1
                     if depth >= 1 and depth <= 2:
@@ -6182,8 +6183,8 @@ def plan_adopt(
         "content_plan": content_plan,
         "validation_findings": validation_findings,
         "content_inventory": {
-            "existing_markdown": inventory.markdown_count,
-            "existing_non_markdown": inventory.code_count + inventory.other_count,
+            "existing_markdown": inventory.preserved_markdown_count,
+            "existing_non_markdown": inventory.preserved_non_markdown_count,
         },
         "privacy_preparation": privacy_preparation,
         "request_replay": _adopt_request_readiness(

@@ -947,6 +947,32 @@ class ThinAdoptApplyTests(unittest.TestCase):
         finally:
             shutil.rmtree(target)
 
+    def test_preview_counts_visible_preserved_files_not_only_preset_votes(self):
+        target = temp_dir()
+        try:
+            write(target / "STATE.md", "# Existing state\n")
+            write(target / "projects" / "ordinary.md", "---\ntype: project\n---\n# Ordinary\n")
+            write(target / "decisions" / "valid.md",
+                  "---\nstatus: accepted\ndate: 2026-09-23\n---\n# Valid\n")
+            write(target / "decisions" / "invalid.md",
+                  "---\nstatus: proposed\n---\n# Invalid\n")
+            write(target / "tropo.toml",
+                  'version = 1\n[base]\nallow_untyped = true\n'
+                  '[types.decision]\nfolder = "decisions"\n'
+                  'required = {status = "string", date = "date"}\n')
+            (target / "source.pdf").write_bytes(b"%PDF-1.4\nfixture\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertEqual(plan["content_inventory"],
+                             {"existing_markdown": 4, "existing_non_markdown": 2})
+            self.assertEqual(plan["inventory"].markdown_count, 1)
+            self.assertEqual(plan["inventory"].other_count, 1)
+            self.assertTrue(any(row["path"] == "decisions/invalid.md" and row["code"] == "E101"
+                                for row in plan["validation_findings"]))
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
     def test_para_folder_names_remain_untyped_and_searchable_after_adoption(self):
         target = temp_dir()
         try:

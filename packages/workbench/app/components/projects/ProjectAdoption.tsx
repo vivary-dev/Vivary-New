@@ -104,8 +104,8 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
       <p>Folder: <strong>{review.displayName}</strong><br /><code>{review.folder}</code></p>
       <p>Detected preset: <strong>{review.report.preset}</strong></p>
       {review.report.content_inventory && <p>
-        {review.report.content_inventory.existing_markdown} existing Markdown files remain searchable unless the saved configuration excludes them. They stay unchanged except for the reviewed changes below.
-        {" "}{review.report.content_inventory.existing_non_markdown} other files stay unchanged. They are not included in the Markdown index.
+        {review.report.content_inventory.existing_markdown} existing Markdown files in the scanned folders remain searchable unless the saved configuration excludes them. They stay unchanged except for the reviewed changes below.
+        {" "}{review.report.content_inventory.existing_non_markdown} other files in those folders stay unchanged. They are not included in the Markdown index.
       </p>}
       {review.report.validation_findings.length > 0 && <div>
         <h5>Expected validation findings</h5>
