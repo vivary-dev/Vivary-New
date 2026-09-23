@@ -2,12 +2,11 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/9
 Parent: 17
-Status: needs-info
+Status: in-progress
 Depends-on: [04a, 06g]
 Owner: Root-assigned Workbench continuity integrator
 Scope: Persist project/session selection and unsent text through Native state across desktop origins.
 Verification-kind: runtime
-Needs: 04a acceptance and a supported per-thread draft load/clear seam on Native AgentChatSurface. Installed Core 0.176.5 exposes only a text-change callback.
 Timebox: One restart-continuity increment with focused state checks and the real desktop journey.
 
 ## Goal
@@ -65,6 +64,12 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
 ## Log
 
 - 2026-09-13: Drafted. Cross-origin draft restoration is not accepted.
+
+- 2026-09-23: Activated after #16 completed. Dependencies #5 and #6 are
+  accepted. Published Core still lacks a public draft restoration API. Extend
+  the existing versioned Native patch at its owning composer components, then
+  persist drafts through the existing authenticated application-state writer.
+  Keep Native storage and execution ownership. All draft acceptance remains open.
 
 ## Shared desktop and web behavior
 

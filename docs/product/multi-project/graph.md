@@ -14,7 +14,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
 Frontier snapshot: none.
-In-progress snapshot: none.
+In-progress snapshot: 17a.
 
 ## Packet references
 
@@ -50,7 +50,7 @@ In-progress snapshot: none.
 | [11e: Preview and debug a running project with the agent](packets/11e-live-project-preview.md) | 11 | done | [04a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
-| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | needs-info | [04a, 06g] |
+| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | in-progress | [04a, 06g] |
 | [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) | 18 | needs-info | [04a, 11a, 09b] |
 | [19a: Connect an approved external pattern catalog after its hold is lifted](packets/19a-held-external-pattern-catalog.md) | 19 | needs-info | [07c, 08a] |
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |

@@ -12,7 +12,7 @@ None.
 
 ## In-progress packet snapshot
 
-None.
+- [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md)
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.
