@@ -110,6 +110,53 @@ No new model call was part of this #14 run. The earlier #8 Codex turn read the
 created guidance and context. Issue #15 still owns its separate GUI creation
 and reconnect journey. Full release acceptance remains under #23.
 
+## GUI workspace setup and reconnection, September 23
+
+The [issue #15 receipt](receipts/07d-gui-workspace-creation.md) records the
+exact `27499cf` Workbench build and the hosted GUI journey. A managed project
+created the five reviewed files. An authorized external folder registered,
+previewed retained and proposed content, canceled without a write, refused a
+stale review, and applied a fresh approved plan. Files and chat opened from the
+selected project.
+
+A same-path folder replacement required an explicit connection review at phone
+width. Cancel preserved file bytes and modification times. Confirming restored
+access under the same project identity. Two app restarts retained selection and
+Files access. A project-scoped Native user message was fixture-seeded after the
+first restart. The GUI showed it before and after a later reconnection and after
+one subsequent restart. It was not a UI-authored or model-produced message.
+
+A second same-process replacement showed **Review connection** after the owner
+used **Refresh projects**. One earlier run lacked that control while the page
+was still loading, without enough captured client state to classify it. The
+settled refresh path passed.
+
+The exact-source unpublished Windows EXE then created the managed workspace
+through GUI review. Its five file hashes matched the Native preview. The
+system chooser registered a separate long Unicode external folder and Files
+opened its existing guidance. After a same-path, byte-identical folder
+replacement and normal restart, the selected project showed **Review
+connection**. The GUI displayed the full saved path and identity warning.
+Cancel preserved all four files. Fresh confirmation returned Native HTTP 200
+for the same project ID with binding revision 2. A second normal restart
+restored Files access and kept the managed project selectable. The original
+account profile's 2,011 recorded files retained their hashes and counts. The
+package ZIP SHA-256 is
+`d041f0aca7fe2edcb170259eea282476b80ee083f5d6d471f439605cbcbad6c6`.
+Workbench metadata still reports `sourceCommitVerified: false`. No Windows
+model or conversation-history persistence claim follows from this run. The
+[issue #8 Windows receipt](receipts/23b-windows-desktop-acceptance.md) and
+[issue #14 receipt](receipts/07b-shared-workspace-plan-apply.md) retain their
+separate candidate and capture limits. PR merge and issue closure remain
+pending.
+
+The later `8fb3ed0` candidate fixes picker-selected children of the managed
+Projects directory whose names do not meet creator naming rules. Its focused
+Windows check passed saved-path review, explicit reconnection, same-project file
+access, and file/profile preservation. The [#15 receipt](receipts/07d-gui-workspace-creation.md)
+records this correction separately from the full `27499cf` journey.
+
+
 ## Release boundary
 
 The [public Windows prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) contains the tested `9884670`
@@ -456,7 +503,7 @@ automations in #51 remain open.
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and native chooser recovery. Issue #14 accepted shared Native/CLI plans, existing-folder conflicts, exact Apply/retry, and reviewed recovery. The `df4aedc` Windows package passed the affected conflict, stale-review, Apply, and restart journey | The separate GUI creation and reconnect scope under #15, plus later populated-folder and pattern work under #17 and #16 |
+| Projects | Managed five-file creation, saved selection, and native chooser recovery. Issue #14 accepted shared Native/CLI plans and the `df4aedc` Windows conflict, stale-review, Apply, and restart journey. The exact `27499cf` hosted and packaged Windows GUI passed external setup, explicit reconnect, files, and restart under #15 | Populated-folder and pattern work under #17 and #16 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |

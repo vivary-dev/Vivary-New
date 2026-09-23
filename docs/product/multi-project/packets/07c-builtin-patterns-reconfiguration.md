@@ -2,12 +2,11 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/16
 Parent: 07
-Status: needs-info
+Status: ready-for-agent
 Depends-on: [07d]
 Owner: Root-assigned creator and setup UI writer
 Scope: Use the shared plan for useful built-in starter content and explicit pattern/role reconfiguration without replacing the workspace.
 Verification-kind: runtime
-Needs: 07d supplies the working create UI over the shared plan. This packet adds reconfiguration. Preserve authored content in built-in pattern changes.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -78,6 +77,9 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: Included in the desktop release after 07d. Existing preset aliases remain compatible.
+- 2026-09-23: The 07d GUI and packaged Windows creation journey passed.
+  This packet is ready to claim after issue #15 merges. Keep existing user
+  content and preset aliases through reconfiguration.
 
 ## Shared desktop and web behavior
 

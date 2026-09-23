@@ -2,12 +2,11 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/17
 Parent: 08
-Status: needs-info
+Status: ready-for-agent
 Depends-on: [07b]
 Owner: Root-assigned adoption integrator, sole writer
 Scope: Fix verified folder-name/type collisions and plan/apply disagreement, then expose preservation-focused adoption in the GUI.
 Verification-kind: runtime
-Needs: 07b provides the shared plan/apply operation. Start by reproducing the named type-collision cases and preserve explicit existing declarations.
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -75,6 +74,11 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
   unresolved. No implementation or runtime acceptance is claimed.
 
 - 2026-09-13: Required by the desktop release. Use the original adoption plan and journals through the same packaged Native action and project identity.
+
+- 2026-09-23: Issue #14 accepted the shared plan and apply operation, so
+  this packet's only recorded dependency is complete. Start with the named
+  type-collision reproduction. Issue #15 remains the active ticket until its
+  reviewed fix and acceptance record merge. Start #17 after that merge.
 
 ## Shared desktop and web behavior
 

@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/15
 Parent: 07
-Status: ready-for-agent
+Status: done
 Depends-on: [07b, 06g]
 Owner: Coordinating Codex, sole workspace-setup UI and action writer
 Scope: Compose the accepted shared creator plan and apply operations into the existing project setup flow.
 Verification-kind: runtime
+Evidence: [GUI workspace creation and reconnection acceptance](../receipts/07d-gui-workspace-creation.md)
+Verification-result: passed
 Timebox: One Create, preview, apply, register, and reopen journey.
 
 ## Goal
@@ -172,6 +174,29 @@ installed toolkit before writing setup widgets. Do not introduce a conductor.
   packaged Windows conflict and stale-review checks. Issue #5 is accepted.
   The packet's dependency hold ended. This packet is ready for its separate
   complete GUI journey and remains unaccepted.
+
+- 2026-09-23: The exact `27499cf` Workbench build passed the hosted GUI
+  managed Create, existing-folder setup, changed-input refusal, explicit
+  external-folder reconnection, Files, and restart journey. A later same-process
+  replacement showed **Review connection** after settled refresh at phone width.
+  The project-scoped Native history marker was fixture-seeded after the first
+  restart, then remained visible through a later reconnect and one restart.
+  The [GUI receipt](../receipts/07d-gui-workspace-creation.md) keeps the
+  hosted evidence and its limits separate from packaged Windows proof.
+- 2026-09-23: The exact-source unpublished Windows EXE passed GUI managed
+  creation with five matching file hashes, native chooser registration of a
+  long Unicode external path, explicit same-path reconnection after a
+  filesystem identity change, and two normal restarts. Cancel preserved the
+  external four-file fixture. Confirmation retained the project ID and Files
+  access. The original account profile stayed byte-identical. See the
+  [GUI receipt](../receipts/07d-gui-workspace-creation.md) for boundaries.
+  This packet is accepted. PR merge and issue closure remain separate.
+
+- 2026-09-23: Review correction `8fb3ed0` reuses provider classification for
+  picker-selected folders beside managed projects. Eleven recovery tests,
+  applicable CI, hosted confirmation and Files resume, and the focused
+  Windows picker-child journey passed. The receipt records the narrow follow-up
+  separately from the full `27499cf` acceptance.
 
 ## Shared desktop and web behavior
 

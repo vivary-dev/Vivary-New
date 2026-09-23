@@ -8,7 +8,8 @@ The packet lists below are snapshots of recorded metadata.
 
 ## Ready packet snapshot
 
-- [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md)
+- [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md)
+- [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md)
 
 ## In-progress packet snapshot
 

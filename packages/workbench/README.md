@@ -358,8 +358,8 @@ requires another preview. Cancel changes nothing.
 
 Stop or deny active coding requests before reconnecting. Reconnecting preserves
 the project and its conversations. It changes no project files and starts no agent. It cannot relocate a folder, grant an arbitrary path,
-or reconnect a project with multiple folder bindings. Missing or linked folders
-must be restored at their recorded paths before review. Complete Windows release
+or reconnect a project with multiple folder bindings. Restore missing or linked
+folders at their recorded paths before review. Complete Windows release
 acceptance remains under issue #23.
 
 ### Current acceptance and gaps
