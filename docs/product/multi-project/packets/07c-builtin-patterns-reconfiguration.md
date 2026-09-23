@@ -96,6 +96,10 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
   accepted the product and retained evidence. See the linked receipt for
   source checks and the final-artifact boundary under #23.
 
+- 2026-09-23: Compatibility source `1ae19565` passed installed-runtime and
+  hosted legacy/BOM migration, 41-emoji guidance names, exact writes, authored
+  role preservation, and same-project restart.
+
 ## Shared desktop and web behavior
 
 The existing built-in pattern selection and preview/apply workflow must be usable in desktop and narrow browser layouts against the same host-side operations.

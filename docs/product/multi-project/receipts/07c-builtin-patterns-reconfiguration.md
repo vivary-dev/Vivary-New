@@ -3,8 +3,9 @@
 Evidence-record: 07c
 Date: 2026-09-23
 Issue: [#16](https://github.com/vivary-dev/Vivary-New/issues/16)
-Product source: `7784b8d9f55df1146b18e7aa032e05f4eea7d084`
-Hosted result: passed on this source
+Full journey source: `7784b8d9f55df1146b18e7aa032e05f4eea7d084`
+Compatibility source: `1ae195658c56e41ca205f4c0c2bcfc212e6e169d`
+Hosted result: both journeys passed as described below
 Packaged Windows result: reserved for final artifact acceptance under #23
 
 ## Result
@@ -54,6 +55,27 @@ and browser restart, the same project retained Capture and Navigation. Capture,
 The new Navigation file and updated configuration matched the approved bytes.
 No model call was requested.
 
+## Legacy and Unicode compatibility
+
+A fresh installed runtime and Workbench built from clean `1ae19565` passed a
+second hosted journey. Registration opened an existing thin-v0.3 workspace with
+a UTF-8 BOM, authored configuration comments, and a custom memory role.
+The pattern controls read its legacy metadata and offered a reviewed change.
+A Capture name containing 41 emoji passed through Native's request and state
+schemas, which count Unicode code points consistently with the creator.
+
+Preview changed no files. Apply wrote exactly the reviewed Capture, context,
+and configuration content. The configuration retained its BOM and original
+text, then appended versioned guidance metadata with the effective legacy roles.
+The existing instructions, state, memory note, and ignore file stayed unchanged.
+After server and browser restart, the same project retained its guidance name
+and opened the new file. No model call was requested.
+
+The creator regressions also covered interrupted legacy migration and recovery,
+empty legacy pattern selections, and a custom law role. The later compatibility
+changes leave the earlier composition and replay journey in place. That full
+journey's source remains recorded separately above.
+
 ## Verification and limits
 
 All 13 applicable source workflow steps passed on clean `7784b8d9`. They cover
@@ -70,8 +92,9 @@ They preserve old output ownership when adding newer patterns and recover an
 interrupted older journal without accepting arbitrary journal content.
 Windows governed verification and both platform orientation jobs passed on
 `7784b8d9`. An unrelated Codex child-request timing test failed in that commit's
-Linux CI job and passed its isolated 24-case rerun. Final PR checks record the
-merge candidate separately.
+Linux CI job and passed its isolated 24-case rerun. All seven GitHub jobs then passed on documentation checkpoint `d4b1892`.
+The focused compatibility checks, maintained Workbench suite, and all seven
+GitHub jobs passed on `1ae19565`. Final PR checks record the merge candidate separately.
 
 The private continuation handoff holds commands, logs, GUI captures, and
 synthetic fixture evidence. The retained evidence also has an off-host backup.

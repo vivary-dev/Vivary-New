@@ -54,7 +54,9 @@ brief compose with editable names and paths. The journey created a workspace,
 edited its files, retired Sources, added Navigation, and reopened the same
 project. Authored Capture and state survived. A changed choice invalidated its
 preview, and retry recovered a lost Apply response without another write.
-Desktop and 390-pixel layouts passed. No model call was requested.
+Desktop and 390-pixel layouts passed. A focused `1ae19565` journey also passed
+legacy configuration migration, UTF-8 BOM preservation, long Unicode names,
+and restart. No model call was requested.
 
 The installed creator matched source and passed exact-file and Doctor checks.
 Windows CI covered governed operations and orientation. This source has no
