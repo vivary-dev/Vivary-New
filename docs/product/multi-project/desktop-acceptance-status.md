@@ -11,13 +11,16 @@ The [issue #8 Windows receipt](receipts/23b-windows-desktop-acceptance.md) recor
 the unpublished `df4aedc` candidate and its current packaged-app journey.
 The ZIP has 3,108 files, is 221,884,442 bytes, and has SHA-256
 `85263c5dab59977e5c4a5b556e2742624abad01f98d33d135b63e9e30ecd2184`.
+
 Zo build, 27 focused desktop and startup tests, five runtime-status tests,
 and Workbench typecheck passed. Workbench build metadata still labels its
 prebuilt output `sourceCommitVerified: false`.
 
 A fresh application and Electron browser profile under the existing Windows
 account opened without signup. The first-run path contained only Windows system
-directories. Bundled Node, Python, and SQLite supported the packaged GUI and
+directories.
+
+Bundled Node, Python, and SQLite supported the packaged GUI and
 setup without a global Node or Python executable or source checkout. Missing
 coding CLIs and a separate signed-out Codex state showed distinct setup guidance.
 All 2,011 recorded original-profile file hashes matched before and after the run.
@@ -26,8 +29,11 @@ The native chooser selected a Unicode folder and Vivary opened its file.
 Separate privacy approval changed only the reviewed ignore file. A later
 four-file setup Apply survived an injected HTTP response loss. Retry reused the
 same operation and left the written bytes, hashes, and modification times
-unchanged. A real Codex/Astra turn read project files, wrote the requested
+unchanged.
+
+A real Codex/Astra turn read project files, wrote the requested
 result, and exposed tool output. Stop ended an active shell turn's descendants.
+
 The packaged npm preview rendered in its frame, then Stop cleared the frame,
 stopped the process, and released the port. A second launch reused the first
 instance. Idle and active shutdown released observed processes and listeners.
@@ -67,9 +73,10 @@ identity, tracked-runtime refusal, and interrupted setup recovery. A running loc
 app on Zo also passed visible folder registration, preview and cancellation,
 privacy-only confirmation, stale-ignore refusal, refreshed setup apply, and
 same-project/request replay after process restart. This used a disposable profile
-and folder with no model call. The runtime
-keeps uncertain operations pending when it cannot prove their result. External
-edits after a possible write require restoration of the reviewed state before
+and folder with no model call.
+
+The runtime keeps uncertain operations pending when it cannot prove their
+result. External edits after a possible write require restoration of the reviewed state before
 retry. A publishing journal without its expected completion receipt still
 refuses both replay and rollback. This increment does not change that boundary.
 
