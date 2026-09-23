@@ -103,6 +103,17 @@ export function ProjectAdoption({ projectId, disabled }: { projectId: string; di
     {review && <div data-agent-native="adoption-preview">
       <p>Folder: <strong>{review.displayName}</strong><br /><code>{review.folder}</code></p>
       <p>Detected preset: <strong>{review.report.preset}</strong></p>
+      {review.report.content_inventory && <p>
+        {review.report.content_inventory.existing_markdown} existing Markdown files in the scanned folders remain searchable unless the saved configuration excludes them. They stay unchanged except for the reviewed changes below.
+        {" "}{review.report.content_inventory.existing_non_markdown} other files in those folders stay unchanged except for the reviewed changes below. They are not included in the Markdown index.
+      </p>}
+      {review.report.validation_findings.length > 0 && <div>
+        <h5>Expected validation findings</h5>
+        <ul data-agent-native="adoption-validation-findings">{review.report.validation_findings.map(finding =>
+          <li key={`${finding.path}:${finding.line}:${finding.code}`}>
+            <code>{finding.path}</code>: {finding.level} {finding.code}: {finding.message}
+          </li>)}</ul>
+      </div>}
       {preparePrivacy && <div>
         <h5>Protect recovery records first</h5>
         <p>This step changes only <code>.gitignore</code>, preserving its existing text. It adds ignore rules before Vivary stores recovery records in this folder.</p>

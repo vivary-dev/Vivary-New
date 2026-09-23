@@ -240,6 +240,29 @@ def test_nesting_resolves_to_nearest_ancestor():
     assert tropo.type_for(readme, c) == "project"
 
 
+def test_proposed_markdown_uses_the_existing_validator_without_a_disk_file(tmp_path):
+    raw = {"base": {"allow_untyped": True}, "types": {"decision": {
+        "folders": ["decisions"], "required": {"status": "string"}, "optional": {}}}}
+    resolver = tropo.ConfigResolver(str(tmp_path), ROOT, base_data=raw)
+    proposed = tmp_path / "decisions" / "planned.md"
+    doc = tropo.analyze_file(str(proposed), "decisions/planned.md",
+                             resolver.for_dir(str(proposed.parent)),
+                             text="# Planned\n", use_git_dates=False,
+                             stat_result=tmp_path.stat())
+    assert not proposed.exists()
+    assert doc.type == "decision"
+    assert [finding.code for finding in doc.findings] == ["E101"]
+
+
+def test_path_scoped_type_does_not_claim_same_named_ordinary_folders(tmp_path):
+    raw = {"base": {"allow_untyped": True}, "types": {"change": {
+        "folders": [".vivary/records/changes"], "required": {}, "optional": {}}}}
+    config = tropo.Config(raw, str(tmp_path))
+    assert tropo.type_for(str(tmp_path / ".vivary/records/changes/one.md"), config) == "change"
+    assert tropo.type_for(str(tmp_path / "changes/ordinary.md"), config) is None
+    assert tropo.type_for(str(tmp_path / "notes/changes/ordinary.md"), config) is None
+
+
 def test_untyped_outside_type_roots():
     c = cfg()
     assert tropo.type_for(os.path.join(VAULT, "loose-note.md"), c) is None

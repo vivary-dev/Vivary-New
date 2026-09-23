@@ -989,10 +989,13 @@ class ConfigResolver:
     """Resolves the effective Config at any directory by composing overlays
     (nested tropo.toml, SPEC §5.5) onto the root config — tighten-only, cached."""
 
-    def __init__(self, root, script_dir, config_path=None):
+    def __init__(self, root, script_dir, config_path=None, *, base_data=None):
         self.root = os.path.abspath(root)
         self.script_dir = script_dir
-        self._base_dict = _compose(root, script_dir, config_path)
+        self._base_dict = (
+            copy.deepcopy(base_data) if base_data is not None
+            else _compose(root, script_dir, config_path)
+        )
         self.base = Config(copy.deepcopy(self._base_dict), self.root)
         self._cache = {}
 
@@ -1003,7 +1006,11 @@ class ConfigResolver:
             if overlays:
                 composed = copy.deepcopy(self._base_dict)
                 for ov in overlays:
-                    _merge_config(composed, _rebase_overlay_config(_read_toml(ov), ov, self.root))
+                    try:
+                        _merge_config(composed, _rebase_overlay_config(_read_toml(ov), ov, self.root))
+                    except ConfigError as exc:
+                        exc.config_path = ov
+                        raise
                 self._cache[key] = Config(composed, self.root)
             else:
                 self._cache[key] = self.base
@@ -1035,6 +1042,9 @@ def type_for(full, config):
     d = os.path.dirname(os.path.abspath(full))
     root = os.path.abspath(config.root)
     while True:
+        relative_dir = os.path.relpath(d, root).replace("\\", "/")
+        if relative_dir in config.folder_map:
+            return config.folder_map[relative_dir]
         if os.path.basename(d) in config.folder_map:
             return config.folder_map[os.path.basename(d)]
         if os.path.normcase(os.path.normpath(d)) == os.path.normcase(os.path.normpath(root)):
@@ -1074,10 +1084,10 @@ def _derive_id(full):
     return slugify(base)
 
 
-def derive(full, body, *, use_git_dates=True):
+def derive(full, body, *, use_git_dates=True, stat_result=None):
     created, updated = _git_dates(full) if use_git_dates else (None, None)
     if not updated:
-        st = os.stat(full)
+        st = stat_result if stat_result is not None else os.stat(full)
         created = datetime.date.fromtimestamp(min(st.st_mtime, st.st_ctime)).isoformat()
         updated = datetime.date.fromtimestamp(st.st_mtime).isoformat()
     sid = _derive_id(full)
@@ -1181,7 +1191,7 @@ def iter_markdown(root, paths, exclude):
                     yield full, rel
 
 
-def analyze_file(full, rel, config, *, text=None, use_git_dates=True):
+def analyze_file(full, rel, config, *, text=None, use_git_dates=True, stat_result=None):
     doc = Doc()
     doc.full, doc.rel = full, rel
     doc.findings, doc.refs, doc.declared, doc.noise = [], [], {}, []
@@ -1197,7 +1207,8 @@ def analyze_file(full, rel, config, *, text=None, use_git_dates=True):
             return doc
 
     yaml_text, body = extract_frontmatter(text)
-    doc.derived = derive(full, body, use_git_dates=use_git_dates)
+    doc.derived = derive(full, body, use_git_dates=use_git_dates,
+                         stat_result=stat_result)
 
     fields, key_lines = {}, {}
     if yaml_text is not None:
@@ -1266,7 +1277,7 @@ def analyze_file(full, rel, config, *, text=None, use_git_dates=True):
     return doc
 
 
-def analyze(root, paths, config):
+def analyze(root, paths, config, *, additional_documents=()):
     resolver = config if hasattr(config, "for_dir") else _StaticResolver(config)
     docs = []
     for full, rel in iter_markdown(root, paths, resolver.base.exclude):
@@ -1274,6 +1285,7 @@ def analyze(root, paths, config):
         if is_excluded(rel, effective.exclude):
             continue
         docs.append(analyze_file(full, rel, effective))
+    docs.extend(additional_documents)
     ids = set()
     for d in docs:
         ids.add(d.derived.get("id"))

@@ -18,10 +18,13 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 PKG = ROOT / "packages" / "create-vivary"
+TROPO = ROOT / "packages" / "tropo"
 
 sys.path.insert(0, str(PKG))
+sys.path.insert(0, str(TROPO))
 
 import create_vivary  # noqa: E402
+import tropo  # noqa: E402
 
 
 def temp_dir() -> Path:
@@ -944,6 +947,366 @@ class ThinAdoptApplyTests(unittest.TestCase):
             self.assertEqual(snapshot(target), before)
             payload = json.loads(out)
             self.assertIn("--plan", payload["error"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_preview_counts_visible_preserved_files_not_only_preset_votes(self):
+        target = temp_dir()
+        try:
+            write(target / "STATE.md", "# Existing state\n")
+            write(target / "projects" / "ordinary.md", "---\ntype: project\n---\n# Ordinary\n")
+            write(target / "decisions" / "valid.md",
+                  "---\nstatus: accepted\ndate: 2026-09-23\n---\n# Valid\n")
+            write(target / "decisions" / "invalid.md",
+                  "---\nstatus: proposed\n---\n# Invalid\n")
+            write(target / "tropo.toml",
+                  'version = 1\n[base]\nallow_untyped = true\n'
+                  '[types.decision]\nfolder = "decisions"\n'
+                  'required = {status = "string", date = "date"}\n')
+            (target / "source.pdf").write_bytes(b"%PDF-1.4\nfixture\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertEqual(plan["content_inventory"],
+                             {"existing_markdown": 4, "existing_non_markdown": 2})
+            self.assertEqual(plan["inventory"].markdown_count, 1)
+            self.assertEqual(plan["inventory"].other_count, 1)
+            self.assertTrue(any(row["path"] == "decisions/invalid.md" and row["code"] == "E101"
+                                for row in plan["validation_findings"]))
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_preview_counts_only_markdown_extensions_tropo_indexes(self):
+        target = temp_dir()
+        try:
+            write(target / "notes" / "lower.md", "# Indexed\n")
+            write(target / "notes" / "UPPER.MD", "# Retained\n")
+            write(target / "notes" / "Mixed.Markdown", "# Retained\n")
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertEqual(plan["content_inventory"],
+                             {"existing_markdown": 1, "existing_non_markdown": 2})
+            self.assertFalse(plan["conflicts"], plan["conflicts"])
+            create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
+            indexed = {doc.rel.replace("\\", "/") for doc in tropo.analyze(str(target), [], resolver)}
+            self.assertIn("notes/lower.md", indexed)
+            self.assertNotIn("notes/UPPER.MD", indexed)
+            self.assertNotIn("notes/Mixed.Markdown", indexed)
+        finally:
+            shutil.rmtree(target)
+
+    def test_malformed_nested_config_reports_its_actual_path(self):
+        target = temp_dir()
+        try:
+            write(target / "notes" / "tropo.toml", "[types.note\n")
+            write(target / "notes" / "ordinary.md", "# Ordinary\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["path"] == "notes/tropo.toml" and row["code"] == "CONFIG"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_preview_resolves_existing_refs_to_proposed_context(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  '[types.note]\nfolder = "notes"\nrequired = {link = "ref"}\n')
+            write(target / "notes" / "linked.md", "---\nlink: context\n---\n# Linked\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertFalse(any(row["path"] == "notes/linked.md" and row["code"] == "W220"
+                                 for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertEqual(snapshot(target), before)
+            self.assertFalse(plan["conflicts"], plan["conflicts"])
+            create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
+            linked = next(doc for doc in tropo.analyze(str(target), [], resolver)
+                          if doc.rel.replace("\\", "/") == "notes/linked.md")
+            self.assertFalse(any(finding.code == "W220" for finding in linked.findings))
+        finally:
+            shutil.rmtree(target)
+
+    def test_text_preview_shows_configured_validation_conflict(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  '[types.memo]\nfolder = "decisions"\n'
+                  'required = {status = "string", date = "date"}\n')
+            write(target / "decisions" / "invalid.md", "---\nstatus: proposed\n---\n# Invalid\n")
+            before = snapshot(target)
+            status, output = run_cli(["adopt", str(target), "--preset", "second-brain"])
+            self.assertEqual(status, 1)
+            self.assertIn("decisions/invalid.md", output)
+            self.assertIn("E101", output)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_para_folder_names_remain_untyped_and_searchable_after_adoption(self):
+        target = temp_dir()
+        try:
+            write(target / "projects" / "ordinary.md", "---\ntype: project\nowner: me\n---\n# Ordinary project\nNeedle notes.\n")
+            write(target / "areas" / "journal.md", "# Journal\nNeedle notes.\n")
+            pdf = target / "resources" / "source.pdf"
+            pdf.parent.mkdir(parents=True)
+            pdf.write_bytes(b"%PDF-1.4\nfixture\n")
+            original = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertFalse(plan["conflicts"])
+            self.assertEqual(snapshot(target), original)
+            applied = create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            self.assertTrue(applied["doctor"]["ok"], applied["doctor"]["errors"])
+            for relative, digest in original.items():
+                self.assertEqual(snapshot(target)[relative], digest)
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
+            documents = tropo.analyze(str(target), [], resolver)
+            ordinary = next(doc for doc in documents if doc.rel.replace("\\", "/") == "projects/ordinary.md")
+            self.assertIsNone(ordinary.type)
+            self.assertFalse(ordinary.findings)
+            self.assertTrue(any(doc.rel.replace("\\", "/") == "areas/journal.md"
+                                for doc in documents))
+            self.assertFalse(any(doc.rel.endswith("source.pdf") for doc in documents))
+            for folder, record_type in {
+                "modules": "module", "changes": "change", "decisions": "decision",
+                "verification": "verification", "gates": "gate",
+            }.items():
+                self.assertEqual(tropo.type_for(
+                    str(target / ".vivary" / "records" / folder / "example.md"),
+                    resolver.base), f"vivary_record_{record_type}")
+                self.assertIsNone(tropo.type_for(
+                    str(target / folder / "ordinary.md"), resolver.base))
+        finally:
+            shutil.rmtree(target)
+
+    def test_declared_type_validation_is_visible_before_apply(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  'version = 1\n[base]\nallow_untyped = true\n'
+                  '[types.decision]\nfolder = "decisions"\n'
+                  'required = {status = "string", date = "date"}\n')
+            write(target / "decisions" / "valid.md",
+                  "---\nstatus: accepted\ndate: 2026-09-23\n---\n# Valid\n")
+            invalid = target / "decisions" / "invalid.md"
+            write(invalid, "---\nstatus: proposed\n---\n# Missing date\n")
+            original = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["path"] == "decisions/invalid.md" and row["code"] == "E101"
+                                for row in plan["validation_findings"]))
+            self.assertTrue(any(item["path"] == invalid for item in plan["conflicts"]))
+            self.assertEqual(snapshot(target), original)
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "conflicts"):
+                create_vivary.adopt_workspace(
+                    target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), original)
+            write(invalid, "---\nstatus: proposed\ndate: 2026-09-23\n---\n# Valid now\n")
+            fresh = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertFalse(fresh["conflicts"], fresh["conflicts"])
+            self.assertFalse(any(row["level"] == "error" for row in fresh["validation_findings"]))
+            write(target / "decisions" / "valid.md",
+                  "---\nstatus: accepted\ndate: 2026-09-23\n---\n# Changed after preview\n")
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "plan hash mismatch"):
+                create_vivary.adopt_workspace(
+                    target, preset="second-brain", yes=True, plan_hash=fresh["plan_hash"])
+            fresh = create_vivary.plan_adopt(target, preset="second-brain")
+            before = snapshot(target)
+            result = create_vivary.adopt_workspace(
+                target, preset="second-brain", yes=True, plan_hash=fresh["plan_hash"])
+            self.assertTrue(result["doctor"]["ok"], result["doctor"]["errors"])
+            for relative, digest in before.items():
+                self.assertEqual(snapshot(target)[relative], digest)
+        finally:
+            shutil.rmtree(target)
+
+    def test_existing_root_schema_that_cannot_compose_is_a_preview_conflict(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml",
+                  'version = 1\n[base]\nstrict = false\nallow_untyped = true\n'
+                  '[types.project]\nfolder = "projects"\n'
+                  'required = {status = "string"}\n')
+            write(target / "projects" / "valid.md", "---\nstatus: accepted\n---\n# Valid\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["code"] == "CONFIG" and row["path"] == "tropo.toml"
+                                for row in plan["validation_findings"]))
+            self.assertTrue(any(item["path"] == target / "tropo.toml"
+                                for item in plan["conflicts"]))
+            self.assertEqual(snapshot(target), before)
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "conflicts"):
+                create_vivary.adopt_workspace(
+                    target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_legacy_approval_journal_recovers_original_generated_config(self):
+        target = temp_dir()
+        try:
+            plan = create_vivary.plan_adopt(target, preset="coding")
+            approval = json.loads(json.dumps(plan["approval_payload"]))
+            approval.pop("validation_inputs_hash")
+            original_config = create_vivary._thin_workspace_toml("coding").encode("utf-8")
+            for row in approval["creates"]:
+                if row["path"] == ".vivary/workspace.toml":
+                    row["content_hash"] = create_vivary._sha256_prefixed(original_config)
+            legacy_hash = create_vivary._thin_approval_hash(approval)
+            actions = create_vivary._adopt_actions(plan)
+            for action in actions:
+                if action["path"] == target / ".vivary" / "workspace.toml":
+                    action["after"] = original_config
+                if action["path"] == target / ".gitignore":
+                    action["transient_after"] = create_vivary._prejournal_privacy_bytes(
+                        action, None, legacy_hash)
+            backups = create_vivary._adopt_backups(actions)
+            legacy_plan = {**plan, "approval_payload": approval, "plan_hash": legacy_hash}
+            journal = create_vivary._adopt_journal_payload(
+                legacy_plan, actions, backups, phase="planned", completed=0)
+            journal_path = target / ".vivary" / "runtime" / "adopt-journal.json"
+            journal_path.parent.mkdir(parents=True)
+            journal_path.write_bytes(create_vivary._encode_adopt_journal(journal))
+            checked, checked_backups = create_vivary._validated_journal_state(
+                target, journal, legacy_hash)
+            self.assertEqual([row["path"] for row in checked],
+                             [row["path"] for row in actions])
+            self.assertEqual(checked_backups, backups)
+            recovery = create_vivary.adopt_workspace(target, recover_hash=legacy_hash)
+            self.assertFalse(recovery["recovered"])
+            restored = create_vivary.adopt_workspace(
+                target, recover_hash=legacy_hash, yes=True,
+                plan_hash=recovery["recovery_plan_hash"])
+            self.assertTrue(restored["recovered"])
+            self.assertFalse(journal_path.exists())
+        finally:
+            shutil.rmtree(target)
+
+    def test_root_schema_packs_need_review_before_thin_creation(self):
+        target = temp_dir()
+        try:
+            write(target / "tropo.toml", 'version = 1\npacks = ["dev-project"]\n')
+            write(target / "decisions" / "valid.md",
+                  "---\nstatus: accepted\ndate: 2026-09-23\n---\n# Valid\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["code"] == "CONFIG" and "packs" in row["message"]
+                                for row in plan["validation_findings"]))
+            self.assertEqual(snapshot(target), before)
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "conflicts"):
+                create_vivary.adopt_workspace(
+                    target, preset="second-brain", yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_existing_thin_pack_change_invalidates_review_without_schema_errors(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            config.write_text(config.read_text(encoding="utf-8").replace(
+                "version = 1\n", 'version = 1\npacks = ["owner-fields"]\n', 1),
+                encoding="utf-8")
+            pack = target / ".tropo" / "packs" / "owner-fields.toml"
+            write(pack, '[base.optional]\nowner = "string"\n')
+            plan = create_vivary.plan_adopt(target, preset="coding", repo_root=ROOT)
+            self.assertFalse(plan["conflicts"], plan["conflicts"])
+            self.assertFalse(any(row["level"] == "error" for row in plan["validation_findings"]))
+            before = snapshot(target)
+            write(pack, '[base.optional]\nowner = "date"\n')
+            self.assertFalse(create_vivary.plan_adopt(target, preset="coding", repo_root=ROOT)["conflicts"])
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "plan hash mismatch"):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", repo_root=ROOT, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(
+                {name: digest for name, digest in snapshot(target).items() if name != ".tropo/packs/owner-fields.toml"},
+                {name: digest for name, digest in before.items() if name != ".tropo/packs/owner-fields.toml"})
+        finally:
+            shutil.rmtree(target)
+
+    def test_custom_thin_schema_checks_proposed_context_before_writing(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            config.write_text(config.read_text(encoding="utf-8").replace(
+                'required = { status = "enum:idea|active|paused|shipped|archived" }',
+                'required = { status = "enum:idea|active|paused|shipped|archived", owner = "string" }'),
+                encoding="utf-8")
+            (target / ".vivary" / "context.md").unlink()
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="coding", repo_root=ROOT)
+            self.assertTrue(any(row["path"] == ".vivary/context.md" and row["code"] == "E101"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertTrue(any(item["path"] == target / ".vivary" / "context.md"
+                                for item in plan["conflicts"]))
+            self.assertEqual(snapshot(target), before)
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "conflicts"):
+                create_vivary.adopt_workspace(
+                    target, preset="coding", repo_root=ROOT, yes=True, plan_hash=plan["plan_hash"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_custom_thin_policy_checks_proposed_state_before_writing(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            config = target / ".vivary" / "workspace.toml"
+            config.write_text(config.read_text(encoding="utf-8").replace(
+                "allow_untyped = true", "allow_untyped = false"), encoding="utf-8")
+            (target / "STATE.md").unlink()
+            plan = create_vivary.plan_adopt(target, preset="coding", repo_root=ROOT)
+            self.assertTrue(any(row["path"] == "STATE.md" and row["code"] == "W201"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertTrue(any(item["path"] == target / "STATE.md" for item in plan["conflicts"]))
+        finally:
+            shutil.rmtree(target)
+
+    def test_nested_schema_collision_is_previewed_before_thin_creation(self):
+        target = temp_dir()
+        try:
+            write(target / ".vivary" / "tropo.toml",
+                  '[types.other]\nfolder = ".vivary"\nrequired = {owner = "string"}\n')
+            write(target / "projects" / "ordinary.md", "# Ordinary\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["code"] == "CONFIG" and row["path"] == ".vivary/tropo.toml"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertTrue(plan["conflicts"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_arbitrary_nested_schema_is_checked_without_root_config(self):
+        target = temp_dir()
+        try:
+            write(target / "projects" / "tropo.toml",
+                  "[base]\nallow_untyped = false\n")
+            write(target / "projects" / "ordinary.md", "# Ordinary\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["path"] == "projects/ordinary.md" and row["code"] == "W201"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertTrue(any(row["path"] == target / "projects" / "ordinary.md"
+                                for row in plan["conflicts"]))
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_malformed_existing_markdown_is_visible_without_schema_files(self):
+        target = temp_dir()
+        try:
+            write(target / "notes" / "broken.md", "---\nitems: first\nitems: second\n---\n# Broken\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_adopt(target, preset="second-brain")
+            self.assertTrue(any(row["path"] == "notes/broken.md" and row["code"] == "E001"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertEqual(snapshot(target), before)
         finally:
             shutil.rmtree(target)
 
@@ -2293,7 +2656,11 @@ class AdoptionReplayTests(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             self.apply(_crash_after=2)
         arguments = ['adopt', str(self.target), '--recover', self.plan['plan_hash'],
-            '--request-id', self.request_id, '--json']
+            '--request-id', self.request_id]
+        rc, output = run_cli(arguments)
+        self.assertEqual(rc, 0, output)
+        self.assertIn("Would adopt", output)
+        arguments += ['--json']
         rc, output = run_cli(arguments)
         self.assertEqual(rc, 0, output)
         review = json.loads(output)
@@ -2382,6 +2749,9 @@ class AdoptionReplayTests(unittest.TestCase):
         malformed = json.loads(original)
         malformed['journal']['approval']['creates'][0]['path'] = []
         variants.append(json.dumps(malformed).encode('utf-8'))
+        changed_input_hash = json.loads(original)
+        changed_input_hash['journal']['approval']['validation_inputs_hash'] = 'sha256:' + '0' * 64
+        variants.append(json.dumps(changed_input_hash).encode('utf-8'))
         for content in variants:
             with self.subTest(content=content[:50]):
                 receipt.write_bytes(content)

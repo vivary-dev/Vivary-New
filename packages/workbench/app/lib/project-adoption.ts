@@ -18,6 +18,10 @@ const report = z.object({
   preset_reason: z.string(),
   plan_hash: digest,
   conflicts: z.array(z.object({ path: relativePath, reason: z.string() })),
+  validation_findings: z.array(z.object({ path: relativePath, line: z.number().int().nonnegative(),
+    level: z.enum(["error", "warning"]), code: z.string(), message: z.string() })).default([]),
+  content_inventory: z.object({ existing_markdown: z.number().int().nonnegative(),
+    existing_non_markdown: z.number().int().nonnegative() }).optional(),
   content_plan: z.object({
     schema: z.literal("vivary.adopt-content-plan.v1"),
     files: z.array(plannedFile),
@@ -29,7 +33,9 @@ type AdoptionReport = z.infer<typeof report>;
 export type AdoptionPreview =
   | { kind: "report"; preset: AdoptionReport["preset"]; presetReason: string; planHash: string;
       files: AdoptionReport["content_plan"]["files"]; kept: AdoptionReport["content_plan"]["kept"];
-      conflicts: AdoptionReport["conflicts"] }
+      conflicts: AdoptionReport["conflicts"];
+      validationFindings: AdoptionReport["validation_findings"];
+      contentInventory: AdoptionReport["content_inventory"] }
   | { kind: "unreadable"; message: string };
 
 export function summarizeAdoptionOutput(output: OriginalCommandOutput): AdoptionPreview {
@@ -40,7 +46,8 @@ export function summarizeAdoptionOutput(output: OriginalCommandOutput): Adoption
     const value = result.data;
     return { kind: "report", preset: value.preset, presetReason: value.preset_reason,
       planHash: value.plan_hash, files: value.content_plan.files, kept: value.content_plan.kept,
-      conflicts: value.conflicts };
+      conflicts: value.conflicts, validationFindings: value.validation_findings,
+      contentInventory: value.content_inventory };
   }
   const failure = z.object({ error: z.string().min(1) }).safeParse(parsed);
   return { kind: "unreadable", message: failure.success

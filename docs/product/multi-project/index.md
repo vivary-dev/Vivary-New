@@ -9,7 +9,6 @@ The packet lists below are snapshots of recorded metadata.
 ## Ready packet snapshot
 
 - [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md)
-- [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md)
 
 ## In-progress packet snapshot
 
