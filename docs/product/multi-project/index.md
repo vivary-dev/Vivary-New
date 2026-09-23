@@ -12,7 +12,7 @@ None.
 
 ## In-progress packet snapshot
 
-- [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.
