@@ -1165,10 +1165,89 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..171e6a3d07c86708ae5548066e6499ca
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
-index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db289c83c82 100644
+index 24eb57b9a053b7205f14e29b94c03a91151a1200..9219fe4a5a0141d71322a8cbc5450196276dae37 100644
 --- a/dist/client/MultiTabAssistantChat.js
 +++ b/dist/client/MultiTabAssistantChat.js
-@@ -1852,12 +1852,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -576,6 +576,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+         switchThreadState(threadId);
+         writeThreadUrl(threadId, options);
+     }, [switchThreadState, writeThreadUrl]);
++    // A host-owned draft needs the optimistic new thread ID in the route before
++    // it can display status or restore that exact composer after a restart.
++    useEffect(() => {
++        if (!props.hostComposerDraft || !threadRouteControlsActiveThread || !activeThreadId ||
++            urlThreadId || !isNewThread(activeThreadId))
++            return;
++        writeThreadUrl(activeThreadId, { replace: true });
++    }, [props.hostComposerDraft, threadRouteControlsActiveThread, activeThreadId,
++        urlThreadId, isNewThread, writeThreadUrl]);
+     // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
+     const keyPrefix = storageKey ? `:${storageKey}` : "";
+     const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
+@@ -1050,7 +1059,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+         if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
+             void createThread().then((id) => {
+                 if (id)
+-                    writeThreadUrl(null);
++                    writeThreadUrl(props.hostComposerDraft ? id : null);
+             });
+         }
+     }, [
+@@ -1103,7 +1112,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+             }
+             newThreadIds.current.add(id);
+             setOpenTabIds([id]);
+-            writeThreadUrl(null, { replace: true });
++            writeThreadUrl(props.hostComposerDraft ? id : null, { replace: true });
+         });
+     }, [
+         activeThreadId,
+@@ -1122,7 +1131,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                 if (id) {
+                     newThreadIds.current.add(id);
+                     setOpenTabIds([id]);
+-                    writeThreadUrl(null, { replace: true });
++                    writeThreadUrl(props.hostComposerDraft ? id : null, { replace: true });
+                 }
+             });
+         }
+@@ -1533,7 +1542,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+         const id = await createThread();
+         if (id) {
+             newThreadIds.current.add(id);
+-            writeThreadUrl(null);
++            writeThreadUrl(props.hostComposerDraft ? id : null);
+         }
+         return id;
+     }, [createThread, writeThreadUrl]);
+@@ -1588,7 +1597,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                     if (newId) {
+                         newThreadIds.current.add(newId);
+                         setOpenTabIds([newId]);
+-                        writeThreadUrl(null);
++                        writeThreadUrl(props.hostComposerDraft ? newId : null);
+                     }
+                 }
+                 catch (error) {
+@@ -1654,7 +1663,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+             newThreadIds.current.add(id);
+             setOpenTabIds([id]);
+             switchThreadState(id);
+-            writeThreadUrl(null);
++            writeThreadUrl(props.hostComposerDraft ? id : null);
+             dismissedSubAgentTabsRef.current.clear();
+             // Clean up all old refs
+             chatRefs.current.clear();
+@@ -1711,7 +1720,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                     if (!createdId)
+                         return;
+                     setOpenTabIds((prev) => prev.includes(createdId) ? prev : [...prev, createdId]);
+-                    writeThreadUrl(null);
++                    writeThreadUrl(props.hostComposerDraft ? createdId : null);
+                 });
+                 return;
+             }
+@@ -1852,12 +1861,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          });
      }, [generateTitle, saveThreadData]);
      const handleSaveThread = useCallback((threadId, data) => {
@@ -1183,7 +1262,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..821393e8ce0e689f298294b9ba829db2
      }, [saveThreadData, writeThreadUrl]);
      // ─── Slash command handler ──────────────────────────────────────────
      const [helpVisible, setHelpVisible] = useState(false);
-@@ -2061,10 +2062,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2061,10 +2071,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                      // sub-agent tab would start a fresh run on that thread and kill
                                      // the in-flight team chunk. Disable the composer and show a
                                      // hint so users know to send via the orchestrator chat instead.
