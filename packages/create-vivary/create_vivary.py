@@ -6041,6 +6041,14 @@ def workspace_pattern_state(target: str | Path) -> dict:
     return {"ok": True, "catalog": builtin_pattern_catalog(), "choices": list(choices)}
 
 
+def _managed_newline_style(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\r" if "\r" in text else "\n"
+
+
+def _canonical_managed_lines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _pattern_config_update(text: str, previous: tuple[dict, ...],
                            selected: tuple[dict, ...], previous_hashes: dict[str, str]) -> str:
     current = _pattern_config_block(previous, previous_hashes)
@@ -6049,9 +6057,10 @@ def _pattern_config_update(text: str, previous: tuple[dict, ...],
     if text.count(begin) == 1 and text.count(end) == 1:
         start = text.index(begin)
         stop = text.index(end, start) + len(end)
-        if text[start:stop] != current:
+        region = text[start:stop]
+        if _canonical_managed_lines(region) != current:
             raise ScaffoldError("the managed pattern selection was edited; review it before reconfiguration")
-        return text[:start] + desired + text[stop:]
+        return text[:start] + desired.replace("\n", _managed_newline_style(region)) + text[stop:]
     if begin in text or end in text:
         raise ScaffoldError("the managed pattern selection markers are incomplete")
     if previous:
@@ -6059,7 +6068,7 @@ def _pattern_config_update(text: str, previous: tuple[dict, ...],
     marker = 'patterns = ["thin-context"]'
     if text.count(marker) != 1:
         raise ScaffoldError("legacy pattern selection needs a reviewed migration")
-    return text.replace(marker, desired, 1)
+    return text.replace(marker, desired.replace("\n", _managed_newline_style(text)), 1)
 
 
 def _pattern_context_update(text: str, previous: tuple[dict, ...],
@@ -6069,14 +6078,18 @@ def _pattern_context_update(text: str, previous: tuple[dict, ...],
     if text.count(begin) == 1 and text.count(end) == 1:
         start = text.index(begin)
         stop = text.index(end, start) + len(end)
-        if text[start:stop] + "\n" != _pattern_context_block(previous):
+        region = text[start:stop]
+        if _canonical_managed_lines(region) != _pattern_context_block(previous).rstrip("\n"):
             raise ScaffoldError("the managed guidance links were edited; review them before reconfiguration")
-        return text[:start] + desired.rstrip("\n") + text[stop:]
+        rendered = desired.rstrip("\n").replace("\n", _managed_newline_style(region))
+        return text[:start] + rendered + text[stop:]
     if begin in text or end in text:
         raise ScaffoldError("the managed guidance link markers are incomplete")
     if previous:
         raise ScaffoldError("pattern guidance links are missing")
-    return text.rstrip("\n") + "\n\n" + desired
+    newline = _managed_newline_style(text)
+    separator = "" if text.endswith(newline * 2) else newline if text.endswith(newline) else newline * 2
+    return text + separator + desired.replace("\n", newline)
 
 
 def _pattern_case_collision(target: Path, relative: str) -> bool:

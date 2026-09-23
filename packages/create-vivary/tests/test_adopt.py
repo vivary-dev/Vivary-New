@@ -1190,6 +1190,48 @@ class PatternReconfigurationTests(unittest.TestCase):
         finally:
             shutil.rmtree(target)
 
+    def test_crlf_managed_regions_keep_surrounding_authored_bytes(self):
+        target = temp_dir()
+        first = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        changed = ({"id": "navigation", "name": "Navigation", "path": "START-HERE.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, preset="coding", pattern_choices=first, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            context = target / ".vivary/context.md"
+            config_bytes = config.read_bytes().replace(b"\n", b"\r\n")
+            config_bytes = config_bytes.replace(
+                b"[workspace.vivary]\r\n",
+                b"[workspace.vivary]\r\nowner_note = \"Keep this text\"\r\n", 1)
+            config.write_bytes(config_bytes)
+            context_bytes = context.read_bytes().replace(b"\n", b"\r\n")
+            context_bytes = context_bytes.replace(
+                b"---\r\n# ", b"---\r\nOwner preface.\r\n\r\n# ", 1)
+            context.write_bytes(context_bytes)
+            before = snapshot(target)
+            unchanged = create_vivary.plan_workspace_change(
+                target, pattern_choices=first, repo_root=ROOT)
+            self.assertFalse(unchanged["conflicts"], unchanged["conflicts"])
+            self.assertEqual(unchanged["writes"], [])
+            self.assertEqual(unchanged["adapter_replacements"], [])
+            self.assertEqual(snapshot(target), before)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=changed, repo_root=ROOT)
+            self.assertFalse(review["conflicts"], review["conflicts"])
+            result = create_vivary.apply_workspace_change(
+                target, pattern_choices=changed, yes=True,
+                plan_hash=review["plan_hash"], repo_root=ROOT)
+            self.assertTrue(result["applied"])
+            for path in (config, context):
+                data = path.read_bytes()
+                self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+            self.assertIn(b'owner_note = "Keep this text"\r\n', config.read_bytes())
+            self.assertIn(b"Owner preface.\r\n\r\n# ", context.read_bytes())
+            self.assertTrue((target / "inbox/README.md").is_file())
+            self.assertTrue((target / "START-HERE.md").is_file())
+        finally:
+            shutil.rmtree(target)
+
     def test_unchanged_edited_choice_is_kept_without_conflict(self):
         target = temp_dir()
         choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)

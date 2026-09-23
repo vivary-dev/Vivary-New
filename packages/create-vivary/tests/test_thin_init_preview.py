@@ -221,10 +221,10 @@ class ThinInitPreviewTests(unittest.TestCase):
         accepted = cv.plan_thin_workspace(target)['plan_sha256']
         render = cv._thin_context_doc
         calls = 0
-        def change_between_checks(project, preset):
+        def change_between_checks(project, preset, pattern_choices=()):
             nonlocal calls
             calls += 1
-            text = render(project, preset)
+            text = render(project, preset, pattern_choices)
             return text if calls == 1 else text + 'changed after approval\n'
         with mock.patch.object(cv, '_thin_context_doc', side_effect=change_between_checks):
             with self.assertRaisesRegex(cv.ScaffoldError, 'plan changed before writing'):
