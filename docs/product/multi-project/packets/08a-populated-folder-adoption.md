@@ -2,7 +2,7 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/17
 Parent: 08
-Status: ready-for-agent
+Status: in-progress
 Depends-on: [07b]
 Owner: Root-assigned adoption integrator, sole writer
 Scope: Fix verified folder-name/type collisions and plan/apply disagreement, then expose preservation-focused adoption in the GUI.
@@ -57,7 +57,7 @@ Assert file preservation and truthful outcomes, not an invented minimum edge cou
 
 ```console
 python -m unittest discover -s packages/create-vivary/tests -p test_adopt.py
-python -m pytest packages/tropo/tests/test_tropo.py -q
+python packages/tropo/tests/test_tropo.py
 pnpm --dir packages/workbench typecheck
 git diff --check
 ```
@@ -79,6 +79,13 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
   this packet's only recorded dependency is complete. Start with the named
   type-collision reproduction. Issue #15 remains the active ticket until its
   reviewed fix and acceptance record merge. Start #17 after that merge.
+
+- 2026-09-23: Activated after #15 merged through PR #85. Source inspection
+  reproduced implicit folder typing in a new thin adoption. Implementation
+  keeps existing schema declarations authoritative and removes unintended
+  type inference from newly adopted ordinary folders. Preview and apply must
+  report the same validation blockers and unsupported-content boundary.
+  Acceptance remains pending.
 
 ## Shared desktop and web behavior
 

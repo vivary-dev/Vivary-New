@@ -9,11 +9,10 @@ The packet lists below are snapshots of recorded metadata.
 ## Ready packet snapshot
 
 - [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md)
-- [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md)
 
 ## In-progress packet snapshot
 
-None.
+- [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md)
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.

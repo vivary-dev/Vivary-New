@@ -5406,11 +5406,40 @@ credentials, authority expansion, and any ambiguity the evidence cannot resolve.
 """
 
 
+_THIN_STARTER_TYPES = """
+[types.module]
+folder = "modules"
+required = { project = "string", status = "enum:active|draft|blocked|archived", module_area = "string" }
+optional = { related_modules = "ref-list", related_changes = "ref-list", verification = "ref-list", gates = "ref-list", source_files = "string-list", test_files = "string-list" }
+
+[types.change]
+folder = "changes"
+required = { project = "string", status = "enum:planned|active|done|blocked|deferred", slice = "string" }
+optional = { branch = "string", related_modules = "ref-list", related_changes = "ref-list", verification = "ref-list", gates = "ref-list" }
+
+[types.decision]
+folder = "decisions"
+required = { project = "string", status = "enum:proposed|accepted|deferred|superseded", date = "date" }
+optional = { supersedes = "ref", superseded_by = "ref", related_modules = "ref-list", related_changes = "ref-list", rationale = "string" }
+
+[types.verification]
+folder = "verification"
+required = { project = "string", status = "enum:planned|passed|failed|blocked|deferred", target = "string" }
+optional = { command = "string", evidence = "any", related_modules = "ref-list", related_changes = "ref-list" }
+
+[types.gate]
+folder = "gates"
+required = { project = "string", status = "enum:open|approved|rejected|deferred", gate = "string" }
+optional = { approver = "string", approved_at = "datetime", command_intent = "string", related_modules = "ref-list", related_changes = "ref-list" }
+"""
+
+
 def _thin_workspace_toml(
     preset: str,
     adapters: tuple[str, ...] | list[str] = (),
     *,
     active_context: str | None = None,
+    adopted: bool = False,
 ) -> str:
     adapter_list = ", ".join(json.dumps(adapter) for adapter in sorted(adapters))
     capability_list = json.dumps(active_context) if active_context is not None else ""
@@ -5420,6 +5449,10 @@ def _thin_workspace_toml(
     exclude_list = ", ".join(json.dumps(path) for path in excludes)
     boundary = [".gitignore", ".vivary/private", ".vivary/runtime", *capability_storage]
     boundary_list = ", ".join(json.dumps(path) for path in boundary)
+    # Adoption cannot claim an owner's ordinary folders as typed records merely
+    # because their names match Vivary's starter folder names.
+    project_folders = '[".vivary"]' if adopted else '[".vivary", "projects"]'
+    other_types = "" if adopted else _THIN_STARTER_TYPES.strip("\n")
     return f'''version = 1
 exclude = [{exclude_list}]
 
@@ -5454,34 +5487,11 @@ allow_untyped = true
 optional = {{ tags = "string-list" }}
 
 [types.project]
-folder = [".vivary", "projects"]
+folder = {project_folders}
 required = {{ status = "enum:idea|active|paused|shipped|archived" }}
 optional = {{ preset = "string", repo = "url", target_ship = "date" }}
 
-[types.module]
-folder = "modules"
-required = {{ project = "string", status = "enum:active|draft|blocked|archived", module_area = "string" }}
-optional = {{ related_modules = "ref-list", related_changes = "ref-list", verification = "ref-list", gates = "ref-list", source_files = "string-list", test_files = "string-list" }}
-
-[types.change]
-folder = "changes"
-required = {{ project = "string", status = "enum:planned|active|done|blocked|deferred", slice = "string" }}
-optional = {{ branch = "string", related_modules = "ref-list", related_changes = "ref-list", verification = "ref-list", gates = "ref-list" }}
-
-[types.decision]
-folder = "decisions"
-required = {{ project = "string", status = "enum:proposed|accepted|deferred|superseded", date = "date" }}
-optional = {{ supersedes = "ref", superseded_by = "ref", related_modules = "ref-list", related_changes = "ref-list", rationale = "string" }}
-
-[types.verification]
-folder = "verification"
-required = {{ project = "string", status = "enum:planned|passed|failed|blocked|deferred", target = "string" }}
-optional = {{ command = "string", evidence = "any", related_modules = "ref-list", related_changes = "ref-list" }}
-
-[types.gate]
-folder = "gates"
-required = {{ project = "string", status = "enum:open|approved|rejected|deferred", gate = "string" }}
-optional = {{ approver = "string", approved_at = "datetime", command_intent = "string", related_modules = "ref-list", related_changes = "ref-list" }}
+{other_types}
 '''
 
 
@@ -5723,6 +5733,61 @@ def _thin_approval_hash(payload: dict) -> str:
     return _sha256_prefixed(encoded)
 
 
+def _adopt_configured_validation(
+    target: Path, repo_root: Path, proposed_config: str,
+    planned_writes: list[tuple[Path, str]],
+) -> tuple[list[dict], str | None]:
+    """Check existing and proposed Markdown against the effective future schema."""
+    thin_config = target / ".vivary" / "workspace.toml"
+    root_config = target / "tropo.toml"
+    nested_config = target / ".vivary" / "tropo.toml"
+    tropo = _load_tropo(repo_root)
+    try:
+        projected = None
+        if thin_config.is_file():
+            resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+        else:
+            import tomllib as _toml
+            projected = {"base": {}, "types": {}, "exclude": []}
+            tropo._merge_config(projected, _toml.loads(proposed_config))
+            if root_config.is_file():
+                root_raw = tropo._read_toml(str(root_config))
+                if root_raw.get("packs"):
+                    raise tropo.ConfigError("root-only packs need a reviewed schema migration")
+                tropo._merge_config(projected, root_raw)
+            resolver = tropo.ConfigResolver(
+                str(target), str(Path(tropo.__file__).parent), base_data=projected)
+        docs = tropo.analyze(str(target), [], resolver)
+        config_paths = {path for path in (thin_config, root_config, nested_config) if path.is_file()}
+        for path, text in planned_writes:
+            if path.suffix.lower() not in (".md", ".markdown") or path.exists():
+                continue
+            rel = path.relative_to(target).as_posix()
+            effective = resolver.for_dir(str(path.parent))
+            if not tropo.is_excluded(rel, effective.exclude):
+                docs.append(tropo.analyze_file(str(path), rel, effective,
+                    text=text, use_git_dates=False, stat_result=target.stat()))
+        for doc in docs:
+            config_paths.update(Path(path) for path in tropo._overlay_paths(
+                str(Path(doc.full).parent), str(target)))
+        inputs = sorted({Path(doc.full) for doc in docs if Path(doc.full).is_file()} | config_paths)
+        input_hash = _thin_approval_hash({
+            "effective_policy": resolver._base_dict,
+            "validation_inputs": [
+                {"path": path.relative_to(target).as_posix(),
+                 "hash": _sha256_prefixed(path.read_bytes())}
+                for path in inputs
+            ],
+        })
+        findings = [finding.as_dict() for doc in docs for finding in doc.findings]
+        return sorted(findings, key=lambda item: (item["path"], item["line"], item["code"])), input_hash
+    except Exception as exc:
+        path = thin_config if thin_config.is_file() else root_config if root_config.is_file() else nested_config
+        return [{"path": path.relative_to(target).as_posix(), "line": 0,
+                 "level": "error", "code": "CONFIG",
+                 "message": f"Existing schema could not be checked: {str(exc).replace(str(target), '.')}"}], None
+
+
 def plan_adopt(
     target: str | Path,
     *,
@@ -5772,6 +5837,7 @@ def plan_adopt(
         target / ".vivary" / "workspace.toml": _thin_workspace_toml(
             chosen_preset,
             selected_adapters,
+            adopted=True,
         ),
         target / "STATE.md": _thin_state_doc(),
     }
@@ -6010,6 +6076,16 @@ def plan_adopt(
         for path in kept
         if path.is_file() and not _is_symlink_or_junction(path)
     ]
+    validation_findings, validation_input_hash = _adopt_configured_validation(
+        target, root, desired[target / ".vivary" / "workspace.toml"],
+        writes + projection_writes)
+    conflicted_paths = {item["path"] for item in conflicts}
+    for finding in validation_findings:
+        path = target / finding["path"]
+        if finding["level"] == "error" and path not in conflicted_paths:
+            conflicts.append({"path": path,
+                "reason": f"{finding['code']}: {finding['message']}"})
+            conflicted_paths.add(path)
     conflicts.sort(key=lambda item: item["path"])
     creates = [path for path, _ in writes]
     approval_payload = _thin_plan_payload(
@@ -6022,6 +6098,7 @@ def plan_adopt(
         adapter_replacements=adapter_replacements,
         kept_identities=kept_identities,
     )
+    approval_payload["validation_inputs_hash"] = validation_input_hash
     plan_hash = _thin_approval_hash(approval_payload)
 
     # Capture the reviewed bytes now; reporting must not reread changed files.
@@ -6103,6 +6180,11 @@ def plan_adopt(
 
     return {
         "content_plan": content_plan,
+        "validation_findings": validation_findings,
+        "content_inventory": {
+            "existing_markdown": inventory.markdown_count,
+            "existing_non_markdown": inventory.code_count + inventory.other_count,
+        },
         "privacy_preparation": privacy_preparation,
         "request_replay": _adopt_request_readiness(
             target, has_changes=bool(content_files), has_conflicts=bool(conflicts),
@@ -6702,6 +6784,8 @@ def _adopt_expected_generated_bytes(
     preset: str,
     adapters: tuple[str, ...],
     active_context: str | None,
+    *,
+    adopted: bool,
 ) -> dict[str, bytes]:
     project = target.name or "vivary-workspace"
     expected = {
@@ -6713,6 +6797,7 @@ def _adopt_expected_generated_bytes(
             preset,
             adapters,
             active_context=active_context,
+            adopted=adopted,
         ).encode("utf-8"),
         "AGENTS.md": ("# AGENTS.md\n\n" + _thin_agents_block()).encode("utf-8"),
         "STATE.md": _thin_state_doc().encode("utf-8"),
@@ -6750,8 +6835,15 @@ def _validated_journal_state(
         "adapter_replacements",
         "kept",
     }
-    if not isinstance(approval, dict) or set(approval) != approval_keys:
+    if not isinstance(approval, dict):
         raise ScaffoldError("adoption journal approval payload is malformed")
+    legacy_approval = set(approval) == approval_keys
+    if not legacy_approval and set(approval) != approval_keys | {"validation_inputs_hash"}:
+        raise ScaffoldError("adoption journal approval payload is malformed")
+    if not legacy_approval:
+        value = approval["validation_inputs_hash"]
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)):
+            raise ScaffoldError("adoption journal validation input hash is malformed")
     if approval["contract"] != THIN_WORKSPACE_CONTRACT:
         raise ScaffoldError("adoption journal approval contract is not supported")
     if approval["target"] != _thin_target_identity(target):
@@ -6783,6 +6875,7 @@ def _validated_journal_state(
         preset,
         adapters,
         active_context,
+        adopted=not legacy_approval,
     )
     allowed_paths = set(expected_bytes)
     expected_actions: dict[str, dict] = {}
@@ -8196,6 +8289,8 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
             }
             for conflict in result.get("conflicts", [])
         ],
+        "validation_findings": result.get("validation_findings", []),
+        "content_inventory": result.get("content_inventory"),
         "privacy": result.get("privacy"),
         "plan_hash": result.get("plan_hash"),
         "recovery_plan_hash": result.get("recovery_plan_hash"),
