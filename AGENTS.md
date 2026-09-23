@@ -112,9 +112,11 @@ alignment. State repair [#5](https://github.com/vivary-dev/Vivary-New/issues/5) 
 runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are accepted.
 [Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) records
 verified project conversations, Native persistence, and history controls.
-[Windows acceptance #8](https://github.com/vivary-dev/Vivary-New/issues/8) retains
-unmet acceptance. The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
-separates the tested private candidate from remaining release gates. Follow
+[Windows first-launch #8](https://github.com/vivary-dev/Vivary-New/issues/8)
+has accepted candidate evidence in the
+[Windows receipt](docs/product/multi-project/receipts/23b-windows-desktop-acceptance.md).
+The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
+separates that result from the remaining full-release gates under #23. Follow
 [the issue-led delivery rule](ENGINEERING.md#issue-led-delivery). A new active
 task must advance this release or fix a demonstrated blocker. Broader product
 outcomes retain their later milestones and evidence.

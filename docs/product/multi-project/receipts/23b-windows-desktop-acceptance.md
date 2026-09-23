@@ -4,7 +4,10 @@ Evidence-record: 23b
 Date: 2026-09-23
 Issue: [#8](https://github.com/vivary-dev/Vivary-New/issues/8)
 Candidate source: `df4aedc998580a5040ffb670dfdba821541bff9a`
-Review status: Independent review accepted this candidate's Windows journey.
+Review status: Owner-selected GPT-6 Luna independently accepted this candidate's
+Windows journey. The owner requested Sol for implementation work and Luna for
+bounded independent review on this run, overriding the default Astra reviewer
+choice.
 
 ## Candidate and build
 
@@ -63,10 +66,12 @@ observed listeners. Reopening retained the project and conversation history,
 showed the stopped run as stopped, and opened with an empty preview.
 
 Earlier Windows candidates proved extraction and Explorer launch, including
-deep-path extraction on a named prior candidate. The `df4aedc` run used a
-controlled launch to isolate application data. The earlier Explorer evidence
-remains historical and does not become a fresh Explorer check for this
-candidate.
+deep-path extraction. The owner directed valid completed checks to carry
+forward. A source comparison from `020fe0a5ac79ecffe1907d49f19d0584d1710053`
+to `df4aedc998580a5040ffb670dfdba821541bff9a` found no changes under
+`packages/desktop`, including the launcher and packager. This run used a
+controlled launch to isolate application data. The earlier Explorer check
+carries forward for unchanged desktop code. It was not rerun on this candidate.
 
 ## Acceptance boundary
 
