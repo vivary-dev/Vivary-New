@@ -30,10 +30,14 @@ export function Workspace() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const priorProject = useRef<string | null>(null);
-  const changingProject = !checking && priorProject.current !== null
-    && priorProject.current !== (activeProject?.projectId ?? "personal");
   const projectId = activeProject?.projectId ?? null;
+  const currentProjectKey = catalog?.scopeKey
+    ? JSON.stringify([catalog.scopeKey, projectId ?? "personal"]) : null;
+  const [readyProjectKey, setReadyProjectKey] = useState<string | null>(null);
+  const changingProject = !checking && readyProjectKey !== null
+    && readyProjectKey !== currentProjectKey;
+  const projectRouteReady = !checking && currentProjectKey !== null
+    && readyProjectKey === currentProjectKey;
   const native = params.get("runtime") === "native";
   const explicitSurface = requestedConversationSurface(params);
   const surfaceKey = catalog?.scopeKey
@@ -44,7 +48,7 @@ export function Workspace() {
       if (!surfaceKey) throw new Error("The project identity is still loading.");
       return readClientAppState(surfaceKey, { signal });
     },
-    enabled: Boolean(surfaceKey && !checking && !changingProject),
+    enabled: Boolean(surfaceKey && projectRouteReady),
     retry: false, staleTime: Infinity,
   });
   const stored = surfaceQuery.data as { surface?: unknown; scopeKey?: unknown; projectId?: unknown } | null;
@@ -79,27 +83,27 @@ export function Workspace() {
     }
   }, [queryClient, surfaceWriterReady, writeAppState]);
   useEffect(() => {
-    if (!explicitSurface || !surfaceKey || !catalog?.scopeKey || checking || changingProject) return;
+    if (!explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady) return;
     latestSurface.current = { key: surfaceKey, scopeKey: catalog.scopeKey,
       projectId, surface: explicitSurface };
     void saveSurface();
-  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, checking, changingProject, saveSurface]);
+  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady, saveSurface]);
   useEffect(() => {
-    if (explicitSurface || checking || changingProject || !surfaceQuery.isSuccess || savedSurface !== "native") return;
+    if (explicitSurface || !projectRouteReady || !surfaceQuery.isSuccess || savedSurface !== "native") return;
     setParams(current => {
       const next = new URLSearchParams(current);
       next.set("runtime", "native");
       return next;
     }, { replace: true });
-  }, [explicitSurface, checking, changingProject, surfaceQuery.isSuccess, savedSurface, setParams]);
+  }, [explicitSurface, projectRouteReady, surfaceQuery.isSuccess, savedSurface, setParams]);
   useEffect(() => {
-    if (explicitSurface || !surfaceKey || !catalog?.scopeKey || checking || changingProject
+    if (explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady
       || !surfaceQuery.isSuccess || restoredSurface) return;
     latestSurface.current = { key: surfaceKey, scopeKey: catalog.scopeKey, projectId, surface: "code" };
     void saveSurface();
-  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, checking, changingProject,
+  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady,
     surfaceQuery.isSuccess, restoredSurface, saveSurface]);
-  const openingSurface = checking || changingProject || !surfaceKey || (!explicitSurface &&
+  const openingSurface = !projectRouteReady || !surfaceKey || (!explicitSurface &&
     (surfaceQuery.isPending || (surfaceQuery.isSuccess && restoredSurface === "native")));
   const unassigned = native && params.get("history") === "unassigned";
   const opened = surface(params.get("panel"));
@@ -156,20 +160,26 @@ export function Workspace() {
     if (opened === "search") setSearchVisited(true);
   }, [opened, location.pathname]);
   useEffect(() => {
-    if (checking) return;
-    const project = activeProject?.projectId ?? "personal";
-    if (priorProject.current === null) { priorProject.current = project; return; }
-    if (priorProject.current !== project) {
-      priorProject.current = project;
+    if (checking || currentProjectKey === null) return;
+    if (readyProjectKey === null) {
+      setReadyProjectKey(currentProjectKey);
+      return;
+    }
+    if (readyProjectKey === currentProjectKey) return;
+    const routeKeys = ["panel", "path", "project", "runtime", "thread", "history",
+      "run", "draft", "line"];
+    if (routeKeys.some(key => params.has(key))) {
       setMaximized(false);
       setParams(current => {
         const next = new URLSearchParams(current);
-        next.delete("panel"); next.delete("path"); next.delete("project"); next.delete("runtime"); next.delete("thread"); next.delete("history");
-        next.delete("run"); next.delete("draft"); next.delete("line");
+        for (const key of routeKeys) next.delete(key);
         return next;
       }, { replace: true });
+      return;
     }
-  }, [activeProject?.projectId, checking, setParams]);
+    // Only admit the new project's conversation after the old URL is gone.
+    setReadyProjectKey(currentProjectKey);
+  }, [checking, readyProjectKey, currentProjectKey, params.toString(), setParams]);
 
   useEffect(() => {
     if (!panel.current || !conversation.current) return;
