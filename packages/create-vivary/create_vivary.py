@@ -142,11 +142,9 @@ if os.name == "nt":
 __version__ = "0.4.4"
 
 PRESETS = ("coding", "second-brain", "knowledge-work", "writing")
-BUILTIN_PATTERNS = {
-    "capture": {
-        "label": "Capture", "path": "inbox/README.md",
-        "description": "Quick intake now, deliberate triage later.",
-        "body": """Use this page for quick intake. Record an idea, request, or observation
+# Frozen v1 output bodies. Add a new renderer revision for content changes.
+BUILTIN_PATTERN_V1_BODIES = {
+    "capture": """Use this page for quick intake. Record an idea, request, or observation
 before deciding where it belongs. Later, triage each entry into a real project,
 source, action, or archive. Keep the original wording when it matters.
 
@@ -157,11 +155,7 @@ source, action, or archive. Keep the original wording when it matters.
 - What needs attention:
 - Next triage step:
 """,
-    },
-    "source-reference": {
-        "label": "Sources", "path": "sources/index.md",
-        "description": "Attribute source statements and separate your interpretation.",
-        "body": """Keep a list of sources that this workspace actually uses.
+    "source-reference": """Keep a list of sources that this workspace actually uses.
 For each source, record its title, origin, date when known, and a link or local
 path. Attribute claims to the source. Label your interpretation separately and
 leave an uncertainty visible rather than turning it into a source statement.
@@ -175,11 +169,7 @@ leave an uncertainty visible rather than turning it into a source statement.
 - My interpretation:
 - Open question:
 """,
-    },
-    "navigation": {
-        "label": "Navigation", "path": "START-HERE.md",
-        "description": "Guide people to files that actually exist.",
-        "body": """Link the files that exist in this workspace and explain when
+    "navigation": """Link the files that exist in this workspace and explain when
 to open them. Add links as you create or adopt real files. Do not list a planned
 document as though it already exists.
 
@@ -188,11 +178,7 @@ document as though it already exists.
 - File or folder:
 - Use it for:
 """,
-    },
-    "project-brief": {
-        "label": "Project brief", "path": "brief.md",
-        "description": "Record purpose, outcome, known inputs, and the next step.",
-        "body": """Describe this project's purpose and intended outcome using
+    "project-brief": """Describe this project's purpose and intended outcome using
 known facts. Keep unknowns as prompts until you can answer them. Link known
 inputs and name the next concrete step.
 
@@ -202,6 +188,23 @@ inputs and name the next concrete step.
 - Next step:
 - Open questions:
 """,
+}
+BUILTIN_PATTERNS = {
+    "capture": {
+        "label": "Capture", "path": "inbox/README.md",
+        "description": "Quick intake now, deliberate triage later.",
+    },
+    "source-reference": {
+        "label": "Sources", "path": "sources/index.md",
+        "description": "Attribute source statements and separate your interpretation.",
+    },
+    "navigation": {
+        "label": "Navigation", "path": "START-HERE.md",
+        "description": "Guide people to files that actually exist.",
+    },
+    "project-brief": {
+        "label": "Project brief", "path": "brief.md",
+        "description": "Record purpose, outcome, known inputs, and the next step.",
     },
 }
 
@@ -753,12 +756,12 @@ def _normalize_pattern_choices(choices) -> tuple[dict[str, str], ...]:
         if not isinstance(identifier, str) or identifier not in BUILTIN_PATTERNS or identifier in ids:
             raise ScaffoldError("pattern choice is unknown or repeated")
         if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 80
-            or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+            or any(ord(char) < 32 or ord(char) == 127 or 0xD800 <= ord(char) <= 0xDFFF for char in name)):
             raise ScaffoldError("pattern name must be 1-80 single-line characters")
         if (not isinstance(path, str) or len(path) > 240 or not path.endswith(".md")
             or "\\" in path or path.startswith("/") or re.match(r"^[A-Za-z]:", path)
             or any(part in ("", ".", "..") for part in path.split("/"))
-            or any(ord(char) < 32 or ord(char) == 127 or char in '<>:"|?*'
+            or any(ord(char) < 32 or ord(char) == 127 or 0xD800 <= ord(char) <= 0xDFFF or char in '<>:"|?*'
                    for char in path)
             or any(part.startswith(".") or part.endswith((" ", ".")) or ":" in part
                    for part in path.split("/"))
@@ -805,8 +808,30 @@ def _read_pattern_choices_request(value: str | None):
         raise ScaffoldError("pattern choices request is malformed") from exc
 
 
-def _pattern_file(choice: dict[str, str]) -> str:
-    return f"# {choice['name']}\n\n{BUILTIN_PATTERNS[choice['id']]['body']}"
+# Retain prior renderers so a later catalog edit cannot reinterpret an approved
+# output or make an unchanged installed choice appear authored.
+PATTERN_RENDERERS = {"v1": BUILTIN_PATTERN_V1_BODIES}
+CURRENT_PATTERN_RENDERER = "v1"
+
+
+def _pattern_file(choice: dict[str, str], revision: str | None = None) -> str:
+    body = PATTERN_RENDERERS[revision or CURRENT_PATTERN_RENDERER][choice["id"]]
+    return f"# {choice['name']}\n\n{body}"
+
+
+def _pattern_known_hash(choice: dict[str, str], digest: str) -> bool:
+    return any(
+        digest == _sha256_prefixed(_pattern_file(choice, revision).encode("utf-8"))
+        for revision in PATTERN_RENDERERS
+    )
+
+
+def _pattern_approved_file(choice: dict[str, str], digest: str) -> str:
+    for revision in PATTERN_RENDERERS:
+        text = _pattern_file(choice, revision)
+        if digest == _sha256_prefixed(text.encode("utf-8")):
+            return text
+    raise ValueError("managed output differs from supported renderers")
 
 
 def _pattern_context_block(choices: tuple[dict[str, str], ...]) -> str:
@@ -824,12 +849,12 @@ def _pattern_config_block(choices: tuple[dict[str, str], ...],
     patterns = ["thin-context", *(choice["id"] for choice in choices)]
     rows = [
         {"id": choice["id"], "name": choice["name"], "path": choice["path"],
-         "generated_hash": (output_hashes or {}).get(
-             choice["id"], _sha256_prefixed(_pattern_file(choice).encode("utf-8")))}
+         "generated_hash": (output_hashes or {}).get(choice["id"])
+             or _sha256_prefixed(_pattern_file(choice).encode("utf-8"))}
         for choice in choices
     ]
     entries = ", ".join(
-        "{ " + ", ".join(f"{key} = {json.dumps(value)}" for key, value in row.items()) + " }"
+        "{ " + ", ".join(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in row.items()) + " }"
         for row in rows
     )
     return ("# >>> vivary pattern selection >>>\n"
@@ -900,6 +925,29 @@ def _prepare_thin_workspace(
 
     paths = [path for path, _text in writes]
     _ensure_safe_destinations(target, paths, force=False)
+    if pattern_choices:
+        # Apply's Doctor uses this same Tropo policy. Validate the proposed
+        # Markdown before approving a destination that becomes a typed record.
+        import tomllib as _toml
+        tropo = _load_tropo(default_repo_root())
+        config_text = next(text for path, text in writes
+                           if path == target / ".vivary" / "workspace.toml")
+        projected = {"base": {}, "types": {}, "exclude": []}
+        tropo._merge_config(projected, _toml.loads(config_text))
+        effective = tropo.Config(projected, str(target))
+        existing_parent = next(parent for parent in target.parents if parent.exists())
+        for choice in pattern_choices:
+            path = target / choice["path"]
+            document = tropo.analyze_file(
+                str(path), choice["path"], effective, text=_pattern_file(choice),
+                use_git_dates=False, stat_result=existing_parent.stat())
+            errors = [finding for finding in document.findings
+                      if finding.level == "error"]
+            if errors:
+                first = errors[0]
+                raise ScaffoldError(
+                    f"pattern destination {choice['path']} fails validation "
+                    f"({first.code}): {first.message}")
     return target, writes
 
 def plan_thin_workspace(
@@ -6050,9 +6098,10 @@ def _canonical_managed_lines(text: str) -> str:
 
 
 def _pattern_config_update(text: str, previous: tuple[dict, ...],
-                           selected: tuple[dict, ...], previous_hashes: dict[str, str]) -> str:
+                           selected: tuple[dict, ...], previous_hashes: dict[str, str],
+                           output_hashes: dict[str, str] | None = None) -> str:
     current = _pattern_config_block(previous, previous_hashes)
-    desired = _pattern_config_block(selected)
+    desired = _pattern_config_block(selected, output_hashes)
     begin, end = "# >>> vivary pattern selection >>>", "# <<< vivary pattern selection <<<"
     if text.count(begin) == 1 and text.count(end) == 1:
         start = text.index(begin)
@@ -6138,8 +6187,8 @@ def plan_workspace_change(
         if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
                for value in previous_hashes.values()):
             raise ValueError("pattern output hash is malformed")
-        if any(previous_hashes[row["id"]] != _sha256_prefixed(
-               _pattern_file(row).encode("utf-8")) for row in previous):
+        if any(not _pattern_known_hash(row, previous_hashes[row["id"]])
+               for row in previous):
             raise ValueError("managed output ledger differs from the installed renderer")
         if metadata.get("patterns") != ["thin-context", *(row["id"] for row in previous)]:
             raise ValueError("pattern list and generated-output ledger disagree")
@@ -6148,7 +6197,14 @@ def plan_workspace_change(
         capabilities = workspace.get("capabilities", [])
         if preset not in PRESETS or not isinstance(capabilities, list):
             raise ValueError("workspace options are malformed")
-        new_config = _pattern_config_update(config_text, previous, selected, previous_hashes)
+        retained_hashes = {
+            row["id"]: previous_hashes[row["id"]]
+            for row in selected
+            if row["id"] in {old["id"] for old in previous}
+            and next(old for old in previous if old["id"] == row["id"]) == row
+        }
+        new_config = _pattern_config_update(
+            config_text, previous, selected, previous_hashes, retained_hashes)
         new_context = _pattern_context_update(context_text, previous, selected)
     except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
         raise ScaffoldError(f"pattern configuration needs review: {exc}") from exc
@@ -7359,20 +7415,38 @@ def _reconfiguration_journal_policy(target: Path, approval: dict, payload: dict
         if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
                for value in hashes.values()):
             raise ValueError("managed output hash is malformed")
-        if any(hashes[row["id"]] != _sha256_prefixed(
-               _pattern_file(row).encode("utf-8")) for row in previous):
-            raise ValueError("managed output ledger differs from the installed renderer")
+        if any(not _pattern_known_hash(row, hashes[row["id"]]) for row in previous):
+            raise ValueError("managed output ledger differs from supported renderers")
         if metadata["patterns"] != ["thin-context", *(row["id"] for row in previous)]:
             raise ValueError("pattern selection and outputs disagree")
         if workspace["preset"] != approval["preset"] or sorted(workspace.get("adapters", [])) != approval["adapters"]:
             raise ValueError("workspace policy differs from approval")
         if sorted(workspace.get("capabilities", [])) != approval["capabilities"]:
             raise ValueError("workspace capabilities differ from approval")
+        previous_by_id = {row["id"]: row for row in previous}
+        approved_outputs = {
+            row["path"]: row["content_hash"]
+            for key in ("creates", "adapter_replacements")
+            for row in approval[key]
+        }
+        selected_hashes = {}
+        selected_files = {}
+        for row in selected:
+            prior = previous_by_id.get(row["id"])
+            if prior == row:
+                digest = hashes[row["id"]]
+            else:
+                digest = approved_outputs.get(row["path"])
+                if digest is None:
+                    raise ValueError("changed pattern output is absent from approval")
+            selected_hashes[row["id"]] = digest
+            selected_files[row["path"]] = _pattern_approved_file(row, digest).encode("utf-8")
         expected = {
-            ".vivary/workspace.toml": _pattern_config_update(config, previous, selected, hashes).encode("utf-8"),
+            ".vivary/workspace.toml": _pattern_config_update(
+                config, previous, selected, hashes, selected_hashes).encode("utf-8"),
             ".vivary/context.md": _pattern_context_update(context, previous, selected).encode("utf-8"),
         }
-        expected.update({row["path"]: _pattern_file(row).encode("utf-8") for row in selected})
+        expected.update(selected_files)
         allowed = {".vivary/workspace.toml", ".vivary/context.md", "AGENTS.md", "STATE.md", ".gitignore"}
         allowed.update(row["path"] for row in previous)
         allowed.update(row["path"] for row in selected)

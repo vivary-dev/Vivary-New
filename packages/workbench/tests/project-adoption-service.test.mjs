@@ -556,11 +556,17 @@ test("registered existing-folder setup uses creator plans, exact owner approval 
       assert.deepEqual(review.patternChoices, choices);
       assert.equal(review.report.pattern_choices[0].name, "Intake");
       assert.deepEqual(await snapshot(root), before);
-      assert.deepEqual(await run(approval(review, "cancel"), context), { code: "idle" });
+      const changedChoices = [{ ...choices[0], name: "Inbox" }];
       const approved = await run({ operation: "preview", projectId: registered.projectId,
-        preset: "auto", patternChoices: choices }, context);
+        preset: "auto", patternChoices: changedChoices }, context);
+      assert.equal(approved.code, "preview");
+      assert.notEqual(approved.operationId, review.operationId);
+      assert.deepEqual(approved.patternChoices, changedChoices);
+      assert.equal(approved.report.pattern_choices[0].name, "Inbox");
+      await assert.rejects(run(approval(review), context), /does not match/);
+      assert.deepEqual(await snapshot(root), before);
       assert.equal((await run(approval(approved), context)).code, "applied");
-      assert.match(await readFile(path.join(root, "inbox/README.md"), "utf8"), /^# Intake/);
+      assert.match(await readFile(path.join(root, "inbox/README.md"), "utf8"), /^# Inbox/);
       assert.equal((await run({ operation: "resume", projectId: registered.projectId }, context)).code, "applied");
     });
   } finally {

@@ -933,6 +933,93 @@ class ThinAdoptPlanTests(unittest.TestCase):
 
 
 class PatternReconfigurationTests(unittest.TestCase):
+    def test_frozen_v1_default_output_hashes(self):
+        expected = {
+            ("capture", "Capture", "inbox/README.md"):
+                "sha256:510838fa9d17932e6eea8c7f5e1fecb07c16c87f51d9309106a4319635b18c4f",
+            ("source-reference", "Sources", "sources/index.md"):
+                "sha256:b574a2d940ec385c46d2b7bdf43a819521d3f89f122417591daf7f67655837f7",
+            ("navigation", "Navigation", "START-HERE.md"):
+                "sha256:6c3dd7fbbd8c2bef5d43fdb71af8e819e21c96edbbe758948fa07673c0499a9f",
+            ("project-brief", "Project brief", "brief.md"):
+                "sha256:60eb1dd8321a0e4b96a16e93e269f5de00727f9f484c746e0d0f0fea1b4a2783",
+        }
+        for (identifier, name, path), digest in expected.items():
+            choice = {"id": identifier, "name": name, "path": path}
+            self.assertEqual(create_vivary._sha256_prefixed(
+                create_vivary._pattern_file(choice, "v1").encode("utf-8")), digest)
+
+    def test_retained_v1_choice_keeps_hash_when_new_choice_uses_v2(self):
+        import tomllib
+        target = temp_dir()
+        capture = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        source = {"id": "source-reference", "name": "Sources", "path": "sources/index.md"}
+        navigation = {"id": "navigation", "name": "Navigation", "path": "START-HERE.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, pattern_choices=(capture, source), repo_root=ROOT)
+            original = (target / capture["path"]).read_bytes()
+            old_hash = create_vivary._sha256_prefixed(original)
+            self.assertNotIn("body", create_vivary.BUILTIN_PATTERNS["capture"])
+            self.assertEqual(
+                create_vivary._pattern_file(capture, "v1").encode("utf-8"),
+                original)
+            upgraded = dict(create_vivary.PATTERN_RENDERERS["v1"])
+            upgraded["navigation"] += "\nNew renderer instruction.\n"
+            upgraded["capture"] += "\nNew capture instruction.\n"
+            with mock.patch.dict(create_vivary.PATTERN_RENDERERS, {"v2": upgraded}), \
+                 mock.patch.object(create_vivary, "CURRENT_PATTERN_RENDERER", "v2"):
+                review = create_vivary.plan_workspace_change(
+                    target, pattern_choices=(capture, navigation), repo_root=ROOT)
+                self.assertFalse(review["conflicts"], review["conflicts"])
+                result = create_vivary.apply_workspace_change(
+                    target, pattern_choices=(capture, navigation), yes=True,
+                    plan_hash=review["plan_hash"], repo_root=ROOT)
+                self.assertTrue(result["applied"])
+                config = tomllib.loads((target / ".vivary/workspace.toml").read_text())
+                hashes = {row["id"]: row["generated_hash"]
+                          for row in config["workspace"]["vivary"]["pattern_outputs"]}
+                self.assertEqual(hashes["capture"], old_hash)
+                self.assertEqual(
+                    hashes["navigation"],
+                    create_vivary._sha256_prefixed(
+                        create_vivary._pattern_file(navigation).encode("utf-8")))
+                self.assertEqual((target / capture["path"]).read_bytes(), original)
+                repeat = create_vivary.plan_workspace_change(
+                    target, pattern_choices=(capture, navigation), repo_root=ROOT)
+                self.assertFalse(repeat["conflicts"], repeat["conflicts"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_v1_interrupted_journal_recovers_after_renderer_upgrade(self):
+        target = temp_dir()
+        capture = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        navigation = {"id": "navigation", "name": "Navigation", "path": "START-HERE.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, pattern_choices=(capture,), repo_root=ROOT)
+            original = snapshot(target)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(capture, navigation), repo_root=ROOT)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, pattern_choices=(capture, navigation), intent="reconfigure",
+                    yes=True, plan_hash=review["plan_hash"], repo_root=ROOT,
+                    _crash_after=1)
+            upgraded = dict(create_vivary.PATTERN_RENDERERS["v1"])
+            upgraded["navigation"] += "\nNew renderer instruction.\n"
+            with mock.patch.dict(create_vivary.PATTERN_RENDERERS, {"v2": upgraded}), \
+                 mock.patch.object(create_vivary, "CURRENT_PATTERN_RENDERER", "v2"):
+                recovery = create_vivary.adopt_workspace(
+                    target, recover_hash=review["plan_hash"], repo_root=ROOT)
+                done = create_vivary.adopt_workspace(
+                    target, recover_hash=review["plan_hash"],
+                    plan_hash=recovery["recovery_plan_hash"], yes=True, repo_root=ROOT)
+                self.assertTrue(done["recovered"])
+            self.assertEqual(snapshot(target), original)
+        finally:
+            shutil.rmtree(target)
+
     def test_retire_edited_capture_and_add_navigation_without_touching_state(self):
         target = temp_dir()
         first = (
