@@ -5,8 +5,11 @@ import {
 } from "../local-code-agent.ts";
 
 import { shutdownOriginalCommands } from "../original-runtime.ts";
+import { shutdownProjectPreviews } from "../project-preview.ts";
 
-const stopLocalWork = () => Promise.all([shutdownVivaryCodeAgent(), shutdownOriginalCommands()]);
+const stopLocalWork = () => Promise.all([
+  shutdownVivaryCodeAgent(), shutdownOriginalCommands(), shutdownProjectPreviews(),
+]);
 
 export default defineNitroPlugin(async (nitroApp) => {
   // guard:allow-env-credential - The direct CLI launcher owns this process's exit.

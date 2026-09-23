@@ -5,6 +5,20 @@ Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
 
+## Project preview and debugging, September 22
+
+[Issue #31's receipt](receipts/11e-live-project-preview.md) records reviewed
+project commands, owned-process Stop, isolated module-capable preview, and a real
+Codex/Astra repair loop on Zo. The integrated and focused review browser journeys passed.
+The agent captured screenshots and inspected console/request failures, repaired
+one import, and verified the page. Its image-viewing tool failed in Zo's sandbox,
+which the conversation reported. The lead inspected the captured images.
+
+The original conversation restored after restart and the corrected page appeared
+beside it in Vivary. Phone routing remains under #30. Packaged Windows/macOS
+preview execution and Windows cleanup after an already-exited launcher remain
+unaccepted. This work does not replace the Windows baseline below.
+
 ## Existing-folder privacy and recovery, September 22
 
 The generic existing-folder setup flow now offers a separately reviewed ignore
@@ -381,7 +395,7 @@ automations in #51 remain open.
 | Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, Windows `43ae417` registration of an existing non-Git folder, and native `250aaa0` chooser timeout recovery | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
-| Web and preview | Authenticated Zo preview and `250aaa0` browser checks for project-owned preview retention/clearing and a 390-pixel layout. Native `9884670` confirmed external browser opening | Clean self-hosted setup, responsive real-phone connection, revocation/reconnect, and integrated agent debugging |
+| Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra screenshot/error/repair loop on Zo | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, packaged preview journeys, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease, licenses, checksum, anonymous download verification, Windows process cleanup, and restart. Earlier runtime journeys remain separately recorded | Clean-profile acceptance under [issue #8](https://github.com/vivary-dev/Vivary-New/issues/8), upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
 The Windows checks used an existing authorized profile. They do not establish a

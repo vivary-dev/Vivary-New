@@ -165,3 +165,18 @@ test("folder connection preserves the server's safe recovery message", async () 
   });
   assert.equal(folderConnectionErrorMessage(new Error("private unexpected failure")), "The folder could not be connected. Try again.");
 });
+
+
+test("preview refusal preserves the Native error code for safe review recovery", async () => {
+  const call = createNativeActionCaller({
+    getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", token: "preview-refusal-test-owner" } }),
+    cookieAction: async () => { throw new Error("Unexpected cookie fallback"); },
+    fetch: async () => Response.json({ message: "The project changed. Review it again.", errorCode: "vivary_project_preview_refused" }, { status: 409 }),
+    locationHref: () => "https://private.example.test/", nativePath: path => path, invalidate: () => undefined,
+  });
+  await assert.rejects(call("vivary-project-preview", {}), error => {
+    assert.equal((error as { status?: number }).status, 409);
+    assert.equal((error as { errorCode?: string }).errorCode, "vivary_project_preview_refused");
+    return true;
+  });
+});

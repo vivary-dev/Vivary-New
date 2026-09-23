@@ -47,7 +47,7 @@ In-progress snapshot: 07b.
 | [11b: Generate a project map and state view without losing authored state](packets/11b-generated-project-views.md) | 11 | needs-info | [07b, 11a] |
 | [11c: Search large project trees from the application](packets/11c-fast-project-search.md) | 11 | done | [03c] |
 | [11d: Evaluate optional local semantic search](packets/11d-evaluate-zvec-search.md) | 11 | needs-info | [11c] |
-| [11e: Preview and debug a running project with the agent](packets/11e-live-project-preview.md) | 11 | needs-info | [04a] |
+| [11e: Preview and debug a running project with the agent](packets/11e-live-project-preview.md) | 11 | done | [04a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
 | [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | needs-info | [04a, 06g] |

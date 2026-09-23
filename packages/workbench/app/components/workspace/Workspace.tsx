@@ -11,6 +11,7 @@ import FilesView from "../../routes/files";
 import CodeConversation from "./CodeConversation";
 import NativeConversation from "./NativeConversation";
 import { BrowserPreview } from "../workbench/BrowserPreview";
+import type { PreviewChatTarget } from "@/lib/workbench-preview";
 import { readPanelWidth, savePanelWidth, useNarrowLayout, type PanelHandle } from "../layout/use-workspace-layout";
 import "../../workspace.css";
 
@@ -30,6 +31,7 @@ export function Workspace() {
   const opened = surface(params.get("panel"));
   const narrow = useNarrowLayout();
   const [maximized, setMaximized] = useState(false);
+  const [previewChatTarget, setPreviewChatTarget] = useState<PreviewChatTarget | null>(null);
   const panel = useRef<PanelHandle>(null);
   const conversation = useRef<PanelHandle>(null);
   const split = useRef<HTMLDivElement>(null);
@@ -148,7 +150,7 @@ export function Workspace() {
             {changingProject ? <div className="local-agent-chat-skeleton" aria-busy="true">
               <Skeleton className="h-8 w-48" /><Skeleton className="h-5 w-3/4" />
               <Skeleton className="mt-auto h-28 w-full" />
-            </div> : native ? <NativeConversation /> : <CodeConversation />}
+            </div> : native ? <NativeConversation /> : <CodeConversation previewScope={previewScope} onPreviewChatTarget={setPreviewChatTarget} />}
           </div>
         </ResizablePanel>
         <ResizableHandle disabled={!opened || showOnlySurface} hidden={!opened || showOnlySurface}
@@ -168,7 +170,7 @@ export function Workspace() {
               <div className="workspace-file-tree" hidden={!fileTreeOpen}><ProjectFiles /></div>
               <div className="workspace-file-document"><FilesView /></div>
             </div>}
-            {previewVisited && <div className="workspace-preview" hidden={opened !== "preview"}><BrowserPreview key={previewScope} projectName={activeProject?.displayName ?? "Personal workspace"} /></div>}
+            {previewVisited && <div className="workspace-preview" hidden={opened !== "preview"}><BrowserPreview key={previewScope} projectId={activeProject?.projectId ?? null} projectName={activeProject?.displayName ?? "Personal workspace"} chatTarget={previewChatTarget?.scope === previewScope && previewChatTarget.projectId === activeProject?.projectId && !native ? previewChatTarget : null} /></div>}
             {searchVisited && <div className="workspace-search" hidden={opened !== "search"}><ProjectSearch /></div>}
             <div className="workspace-details" hidden={opened !== "details"}>
               <h3>{activeProject?.displayName ?? "Personal workspace"}</h3>

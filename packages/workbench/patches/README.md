@@ -89,6 +89,9 @@ Native command, file, permission, and input requests return to the live app-serv
 request. Restart does not replay them. Actual subagent identities, lifecycle, and
 public results remain separate from the main assistant answer. Tool events pair by
 native call ID within their turn, with fallback for historical records without IDs.
+Codex image-view items record the inspected screenshot path as a paired tool
+input and result. The protocol item has no image bytes, so this does not render
+the screenshot pixels in the conversation.
 
 Run the maintained transport, transcript, approval, and discovery tests:
 

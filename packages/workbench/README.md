@@ -157,10 +157,65 @@ Project details, files, and page preview open only when requested. Panels can
 resize, close, reopen, and expand for focused work. The old Agent, Files,
 Workbench, and Full chat URLs redirect to this workspace.
 
-Page preview shows its owning project. Closing and reopening the panel preserves
-the current page within that project. Changing projects, host scope, or folder
-binding clears the address and unloads the old page. Returning to a project starts
-with an empty preview. The iframe retains its existing sandbox and no-referrer policy.
+Page preview shows its owning project and host. **Review command** discovers
+installed launchers for the project's `dev`, `start`, and `preview` package scripts.
+It shows the command, script, folder, and address before **Approve and start**.
+The Native owner action rechecks that review before execution. It refuses
+scripts with pre/post hooks.
+
+Starting never downloads a package manager. The process runs with the host account's file access and a limited
+environment. It is not an operating-system sandbox.
+
+**Stop preview command** targets only the process owned by that project and caller.
+The app keeps ownership until shutdown, even when the folder connection changes.
+On POSIX hosts, an unexpected launcher exit also stops its process group.
+On Windows, cleanup after the launcher has already exited remains unsupported.
+The app reports that failure without targeting a saved PID. Use commands that
+remain in the foreground. Packaged Windows acceptance remains under issue #8.
+
+A lost start response can check the same request without launching twice.
+An explicit start refusal permits a fresh review. An uncertain response keeps
+the same request. Reviews expire after ten minutes. Restarting Vivary invalidates
+unapplied reviews and never recovers or kills a process from a saved PID.
+
+The host reserves each managed preview port before checking and launching.
+Another project must choose a free port or wait for verified cleanup.
+The instance retains live requests and unexpired retry records within a fixed
+128-request limit. It removes only expired records whose processes are settled.
+If the limit is full, new starts wait for capacity. Existing retries and Stop
+remain available. Expired, removed requests cannot execute again.
+
+A failed readiness probe shows an unavailable message without replacing a page
+whose process is still alive. Recovery preserves the page's input and script
+state. Stop, process exit, or a changed folder binding unloads the managed page.
+
+Closing and reopening the panel preserves its page. Changing projects, host scope,
+or folder binding unloads it. Returning can restore a still-owned running preview
+after checking the project binding. A manually opened address stays selected while
+the owned command's status changes. Failed manual navigation does not reopen the
+previous page.
+
+**Open running page** accepts an existing HTTP or HTTPS address without claiming
+its process. Local process start and inspection use numeric `127.0.0.1` addresses.
+You must confirm that the browser runs on the displayed host before embedding
+a host-local page. Phone-to-host routing belongs to issue #30.
+
+The live frame uses a separate, temporary credential store, sandbox restrictions,
+and no referrer. Browsers without credentialless-frame support cannot embed it.
+Project modules can execute in their own origin. Vivary rejects its own origin
+as a preview and refuses framing through response headers, including redirects.
+Preview pages do not receive personal browser cookies or privileged Node access.
+The panel reports blocked embedding without opening your personal browser.
+
+**Attach preview to chat** adds the selected project, host, and address to the
+open Code conversation. It preserves your draft and sends nothing. Send your
+request to ask the selected coding runtime to inspect the page, capture a
+screenshot, and report console errors or failed requests through its supported
+tools. Missing browser tools remain unavailable. Attachment alone grants no
+installation, file-editing, or credential permission.
+
+Each preview attachment belongs to its project, folder binding, and conversation.
+Native chat excludes these attachments.
 
 For a selected registered folder, **Details > Preview Vivary setup** shows exact
 proposed guidance content, retained files, and conflicts. Select the workspace

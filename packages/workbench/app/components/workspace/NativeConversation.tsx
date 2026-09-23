@@ -60,6 +60,7 @@ function ScopedConversation({ unassigned }: { unassigned: boolean }) {
   return <section aria-label="Native chat" className="h-full min-h-0 w-full">
     <AgentChatSurface key={identity.storageKey} mode="page" className="h-full min-h-0"
       storageKey={identity.storageKey} scope={identity.scope} isolateHistoryByScope
+      contextNamespace={`vivary-native:${identity.storageKey}`}
       agentChatSurface="app" chatOnly codeAccess={{ enabled: false }}
       composerDisabled={!unassigned && !workspaceAvailable}
       composerDisabledPlaceholder="Reconnect this project before continuing. Saved history remains available."
