@@ -14,7 +14,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
 Frontier snapshot: none.
-In-progress snapshot: 07c.
+In-progress snapshot: none.
 
 ## Packet references
 
@@ -33,7 +33,7 @@ In-progress snapshot: 07c.
 | [06h: Make the maintained application regression checks reliable](packets/06h-maintained-application-regressions.md) | 06 | done | [03c] |
 | [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | done | [] |
 | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | done | [07a] |
-| [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | in-progress | [07d] |
+| [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | done | [07d] |
 | [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) | 07 | done | [07b, 06g] |
 | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | done | [07b] |
 | [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |

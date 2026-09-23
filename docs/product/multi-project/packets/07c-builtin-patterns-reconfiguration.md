@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/16
 Parent: 07
-Status: in-progress
+Status: done
 Depends-on: [07d]
 Owner: Root-assigned creator and setup UI writer
 Scope: Use the shared plan for useful built-in starter content and explicit pattern/role reconfiguration without replacing the workspace.
 Verification-kind: runtime
+Evidence: [Built-in guidance and reconfiguration acceptance](../receipts/07c-builtin-patterns-reconfiguration.md)
+Verification-result: passed
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -87,6 +89,12 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
   installed patterns and exact reconfiguration plans. Extend existing Native
   review and custody, preserve authored guidance and state, and verify the
   create/edit/reconfigure/reopen journey before accepting this packet.
+
+- 2026-09-23: Clean `7784b8d9` passed installed creator, hosted desktop and
+  narrow-layout creation, edited-choice preview, authored-file preservation,
+  interrupted response retry, and same-project restart. Independent review
+  accepted the product and retained evidence. See the linked receipt for
+  source checks and the final-artifact boundary under #23.
 
 ## Shared desktop and web behavior
 

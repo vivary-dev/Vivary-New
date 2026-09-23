@@ -12,7 +12,7 @@ None.
 
 ## In-progress packet snapshot
 
-- [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.
