@@ -18,10 +18,13 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 PKG = ROOT / "packages" / "create-vivary"
+TROPO = ROOT / "packages" / "tropo"
 
 sys.path.insert(0, str(PKG))
+sys.path.insert(0, str(TROPO))
 
 import create_vivary  # noqa: E402
+import tropo  # noqa: E402
 
 
 def temp_dir() -> Path:
@@ -990,8 +993,7 @@ class ThinAdoptApplyTests(unittest.TestCase):
             self.assertTrue(applied["doctor"]["ok"], applied["doctor"]["errors"])
             for relative, digest in original.items():
                 self.assertEqual(snapshot(target)[relative], digest)
-            import tropo
-            resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+            resolver = tropo.ConfigResolver(str(target), str(TROPO))
             documents = tropo.analyze(str(target), [], resolver)
             ordinary = next(doc for doc in documents if doc.rel.replace("\\", "/") == "projects/ordinary.md")
             self.assertIsNone(ordinary.type)

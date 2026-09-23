@@ -91,8 +91,8 @@ without claiming that response.
 ## Verification and limits
 
 From the repository root on Zo, the eight applicable creator scripts in
-`.github/workflows/ci.yml` passed on clean `f024979`: 370 tests ran, eight
-skipped. Exact-workflow Workbench state transport and maintained checks,
+`.github/workflows/ci.yml` passed on clean `f024979`: 370 tests passed and eight
+were skipped. Exact-workflow Workbench state transport and maintained checks,
 Native doctor, repository contracts, and `git diff --check` also passed.
 The unchanged Tropo direct runner had passed 204 tests during source review.
 The private continuation handoff holds test logs, disposable fixture manifests,
