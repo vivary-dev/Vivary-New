@@ -932,6 +932,625 @@ class ThinAdoptPlanTests(unittest.TestCase):
             shutil.rmtree(parent_b)
 
 
+class PatternReconfigurationTests(unittest.TestCase):
+    def test_bom_legacy_roles_migrate_by_review_without_losing_original_bytes(self):
+        target = temp_dir()
+        choice = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            text = config.read_text(encoding="utf-8")
+            begin = text.index("[workspace.vivary]")
+            end = text.index("[base]", begin)
+            legacy = ('patterns = ["thin-context"]\n'
+                      '[workspace.roles]\nmemory = ["notes/log.md"]\n\n')
+            config.write_bytes(bytes((239, 187, 191)) +
+                               (text[:begin] + legacy + text[end:]).encode("utf-8"))
+            original = snapshot(target)
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [])
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            self.assertEqual(review["conflicts"], [])
+            self.assertEqual(review["validation_findings"], [])
+            self.assertEqual(snapshot(target), original)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, intent="reconfigure", pattern_choices=(choice,), yes=True,
+                    plan_hash=review["plan_hash"], repo_root=ROOT, _crash_after=1)
+            recovery = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"], repo_root=ROOT)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"],
+                plan_hash=recovery["recovery_plan_hash"], yes=True, repo_root=ROOT)
+            self.assertTrue(result["recovered"])
+            self.assertEqual(snapshot(target), original)
+            fresh = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            applied = create_vivary.apply_workspace_change(
+                target, pattern_choices=(choice,), yes=True,
+                plan_hash=fresh["plan_hash"], repo_root=ROOT)
+            self.assertTrue(applied["applied"])
+            data = config.read_bytes()
+            self.assertTrue(data.startswith(bytes((239, 187, 191))))
+            self.assertIn(legacy.encode("utf-8"), data)
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [choice])
+            doctor = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(doctor["ok"], doctor["errors"])
+            self.assertEqual(doctor["workspace_roles"]["roles"]["memory"], ["notes/log.md"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_legacy_empty_pattern_roles_keep_their_meaning(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            text = config.read_text(encoding="utf-8")
+            begin = text.index("[workspace.vivary]")
+            end = text.index("[base]", begin)
+            legacy = ('patterns = []\n'
+                      '[workspace.roles]\nlaw = ["handbook.md"]\n\n')
+            config.write_text(text[:begin] + legacy + text[end:], encoding="utf-8")
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], [])
+            choice = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(choice,), repo_root=ROOT)
+            self.assertFalse(review["conflicts"], review["conflicts"])
+            applied = create_vivary.apply_workspace_change(
+                target, pattern_choices=(choice,), yes=True,
+                plan_hash=review["plan_hash"], repo_root=ROOT)
+            self.assertTrue(applied["applied"])
+            doctor = create_vivary.doctor_workspace(target, repo_root=ROOT)
+            self.assertTrue(doctor["ok"], doctor["errors"])
+            self.assertEqual(doctor["workspace_roles"]["roles"]["law"], ["handbook.md"])
+            self.assertIn(legacy, config.read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(target)
+
+    def test_frozen_v1_default_output_hashes(self):
+        expected = {
+            ("capture", "Capture", "inbox/README.md"):
+                "sha256:510838fa9d17932e6eea8c7f5e1fecb07c16c87f51d9309106a4319635b18c4f",
+            ("source-reference", "Sources", "sources/index.md"):
+                "sha256:b574a2d940ec385c46d2b7bdf43a819521d3f89f122417591daf7f67655837f7",
+            ("navigation", "Navigation", "START-HERE.md"):
+                "sha256:6c3dd7fbbd8c2bef5d43fdb71af8e819e21c96edbbe758948fa07673c0499a9f",
+            ("project-brief", "Project brief", "brief.md"):
+                "sha256:60eb1dd8321a0e4b96a16e93e269f5de00727f9f484c746e0d0f0fea1b4a2783",
+        }
+        for (identifier, name, path), digest in expected.items():
+            choice = {"id": identifier, "name": name, "path": path}
+            self.assertEqual(create_vivary._sha256_prefixed(
+                create_vivary._pattern_file(choice, "v1").encode("utf-8")), digest)
+
+    def test_retained_v1_choice_keeps_hash_when_new_choice_uses_v2(self):
+        import tomllib
+        target = temp_dir()
+        capture = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        source = {"id": "source-reference", "name": "Sources", "path": "sources/index.md"}
+        navigation = {"id": "navigation", "name": "Navigation", "path": "START-HERE.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, pattern_choices=(capture, source), repo_root=ROOT)
+            original = (target / capture["path"]).read_bytes()
+            old_hash = create_vivary._sha256_prefixed(original)
+            self.assertNotIn("body", create_vivary.BUILTIN_PATTERNS["capture"])
+            self.assertEqual(
+                create_vivary._pattern_file(capture, "v1").encode("utf-8"),
+                original)
+            upgraded = dict(create_vivary.PATTERN_RENDERERS["v1"])
+            upgraded["navigation"] += "\nNew renderer instruction.\n"
+            upgraded["capture"] += "\nNew capture instruction.\n"
+            with mock.patch.dict(create_vivary.PATTERN_RENDERERS, {"v2": upgraded}), \
+                 mock.patch.object(create_vivary, "CURRENT_PATTERN_RENDERER", "v2"):
+                review = create_vivary.plan_workspace_change(
+                    target, pattern_choices=(capture, navigation), repo_root=ROOT)
+                self.assertFalse(review["conflicts"], review["conflicts"])
+                result = create_vivary.apply_workspace_change(
+                    target, pattern_choices=(capture, navigation), yes=True,
+                    plan_hash=review["plan_hash"], repo_root=ROOT)
+                self.assertTrue(result["applied"])
+                config = tomllib.loads((target / ".vivary/workspace.toml").read_text())
+                hashes = {row["id"]: row["generated_hash"]
+                          for row in config["workspace"]["vivary"]["pattern_outputs"]}
+                self.assertEqual(hashes["capture"], old_hash)
+                self.assertEqual(
+                    hashes["navigation"],
+                    create_vivary._sha256_prefixed(
+                        create_vivary._pattern_file(navigation).encode("utf-8")))
+                self.assertEqual((target / capture["path"]).read_bytes(), original)
+                repeat = create_vivary.plan_workspace_change(
+                    target, pattern_choices=(capture, navigation), repo_root=ROOT)
+                self.assertFalse(repeat["conflicts"], repeat["conflicts"])
+        finally:
+            shutil.rmtree(target)
+
+    def test_v1_interrupted_journal_recovers_after_renderer_upgrade(self):
+        target = temp_dir()
+        capture = {"id": "capture", "name": "Capture", "path": "inbox/README.md"}
+        navigation = {"id": "navigation", "name": "Navigation", "path": "START-HERE.md"}
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, pattern_choices=(capture,), repo_root=ROOT)
+            original = snapshot(target)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=(capture, navigation), repo_root=ROOT)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, pattern_choices=(capture, navigation), intent="reconfigure",
+                    yes=True, plan_hash=review["plan_hash"], repo_root=ROOT,
+                    _crash_after=1)
+            upgraded = dict(create_vivary.PATTERN_RENDERERS["v1"])
+            upgraded["navigation"] += "\nNew renderer instruction.\n"
+            with mock.patch.dict(create_vivary.PATTERN_RENDERERS, {"v2": upgraded}), \
+                 mock.patch.object(create_vivary, "CURRENT_PATTERN_RENDERER", "v2"):
+                recovery = create_vivary.adopt_workspace(
+                    target, recover_hash=review["plan_hash"], repo_root=ROOT)
+                done = create_vivary.adopt_workspace(
+                    target, recover_hash=review["plan_hash"],
+                    plan_hash=recovery["recovery_plan_hash"], yes=True, repo_root=ROOT)
+                self.assertTrue(done["recovered"])
+            self.assertEqual(snapshot(target), original)
+        finally:
+            shutil.rmtree(target)
+
+    def test_retire_edited_capture_and_add_navigation_without_touching_state(self):
+        target = temp_dir()
+        first = (
+            {"id": "capture", "name": "Capture", "path": "inbox/README.md"},
+            {"id": "source-reference", "name": "Sources", "path": "sources/index.md"},
+        )
+        changed = (
+            first[1],
+            {"id": "navigation", "name": "Navigation", "path": "START-HERE.md"},
+        )
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, preset="second-brain", pattern_choices=first, repo_root=ROOT)
+            write(target / "inbox/README.md", "# My edited capture\n")
+            write(target / "STATE.md", "# My authored state\n")
+            config = target / ".vivary/workspace.toml"
+            config.write_text(config.read_text(encoding="utf-8").replace(
+                '[workspace.vivary]\n', '[workspace.vivary]\nunknown_owner_key = "keep"\n'),
+                encoding="utf-8")
+            context = target / ".vivary/context.md"
+            context.write_text(context.read_text(encoding="utf-8").replace("# ", "# Owner preface\n\n# ", 1),
+                               encoding="utf-8")
+            before = snapshot(target)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=changed, repo_root=ROOT)
+            self.assertEqual(snapshot(target), before)
+            self.assertFalse(review["conflicts"], review["conflicts"])
+            self.assertIn("inbox/README.md", review["retired_kept"])
+            self.assertTrue(any(row["path"] == "START-HERE.md"
+                                for row in review["content_plan"]["files"]))
+            self.assertTrue(any(row["path"] == ".vivary/workspace.toml"
+                                for row in review["content_plan"]["files"]))
+            self.assertTrue(any(row["path"] == ".vivary/context.md"
+                                for row in review["content_plan"]["files"]))
+            result = create_vivary.apply_workspace_change(
+                target, pattern_choices=changed, yes=True,
+                plan_hash=review["plan_hash"], repo_root=ROOT)
+            self.assertTrue(result["applied"])
+            self.assertEqual((target / "inbox/README.md").read_text(), "# My edited capture\n")
+            self.assertEqual((target / "STATE.md").read_text(), "# My authored state\n")
+            self.assertIn('unknown_owner_key = "keep"', config.read_text())
+            self.assertIn("# Owner preface\n\n# ", context.read_text())
+            self.assertIn("START-HERE.md", context.read_text())
+            self.assertNotIn("inbox/README.md", context.read_text())
+        finally:
+            shutil.rmtree(target)
+
+
+    def test_pack_name_cannot_escape_the_project_or_installed_catalog(self):
+        target = temp_dir()
+        outside = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            private_pack = outside / "private.toml"
+            write(private_pack, '[base]\nallow_untyped = false\n')
+            config = target / ".vivary/workspace.toml"
+            pack_name = os.path.relpath(private_pack, target / ".tropo/packs").removesuffix(".toml")
+            config.write_text(f"packs = [{json.dumps(pack_name)}]\n" + config.read_text(),
+                              encoding="utf-8")
+            before = snapshot(target)
+            plan = create_vivary.plan_workspace_change(
+                target, pattern_choices=(), repo_root=ROOT)
+            self.assertTrue(plan["conflicts"])
+            self.assertTrue(any(row["code"] == "CONFIG" for row in plan["validation_findings"]))
+            self.assertIn("single installed filename", str(plan["validation_findings"]))
+            self.assertNotIn(str(private_pack), str(plan))
+            self.assertEqual(snapshot(target), before)
+            self.assertEqual(private_pack.read_text(), '[base]\nallow_untyped = false\n')
+        finally:
+            shutil.rmtree(target)
+            shutil.rmtree(outside)
+
+    def test_validation_refuses_links_swapped_after_secure_reads_or_discovery(self):
+        for stage in ("config", "overlay", "markdown"):
+            with self.subTest(stage=stage):
+                target = temp_dir()
+                outside = temp_dir()
+                swap_path = None
+                backup = None
+                try:
+                    create_vivary.scaffold_thin_workspace(
+                        target, preset="coding", repo_root=ROOT)
+                    if stage == "config":
+                        swap_path = target / ".vivary/workspace.toml"
+                    elif stage == "overlay":
+                        swap_path = target / "inbox/tropo.toml"
+                        write(swap_path, '[types.capture]\nfolder = "inbox"\n')
+                    else:
+                        swap_path = target / "ordinary.md"
+                        write(swap_path, "# Ordinary note\n")
+                    secret = outside / "private.txt"
+                    write(secret, 'outside_secret = "never include this"\n')
+                    backup = swap_path.with_name(swap_path.name + ".original")
+                    def swap():
+                        swap_path.rename(backup)
+                        try:
+                            swap_path.symlink_to(secret)
+                        except OSError:
+                            backup.rename(swap_path)
+                            self.skipTest("file symlinks are unavailable")
+                    tropo = create_vivary._load_tropo(ROOT)
+                    if stage == "config":
+                        original = create_vivary._read_adopt_regular_bytes
+                        swapped = False
+                        def after_first_read(root, path):
+                            nonlocal swapped
+                            data = original(root, path)
+                            if path == swap_path and not swapped:
+                                swapped = True
+                                swap()
+                            return data
+                        patch = mock.patch.object(create_vivary, "_read_adopt_regular_bytes",
+                                                  side_effect=after_first_read)
+                    elif stage == "overlay":
+                        original = tropo._overlay_paths
+                        swapped = False
+                        def after_overlay_discovery(directory, root):
+                            nonlocal swapped
+                            paths = original(directory, root)
+                            if str(swap_path) in paths and not swapped:
+                                swapped = True
+                                swap()
+                            return paths
+                        patch = mock.patch.object(tropo, "_overlay_paths",
+                                                  side_effect=after_overlay_discovery)
+                    else:
+                        original = tropo.iter_markdown
+                        swapped = False
+                        def after_document_discovery(*args):
+                            nonlocal swapped
+                            for full, rel in original(*args):
+                                if Path(full) == swap_path and not swapped:
+                                    swapped = True
+                                    swap()
+                                yield full, rel
+                        patch = mock.patch.object(tropo, "iter_markdown",
+                                                  side_effect=after_document_discovery)
+                    with patch, mock.patch.object(create_vivary, "_load_tropo",
+                                                  return_value=tropo):
+                        plan = create_vivary.plan_workspace_change(
+                            target, pattern_choices=({"id": "capture", "name": "Capture",
+                                                      "path": "inbox/README.md"},),
+                            repo_root=ROOT)
+                    self.assertTrue(plan["conflicts"], plan["validation_findings"])
+                    self.assertNotIn("never include this", str(plan))
+                    self.assertEqual(secret.read_text(), 'outside_secret = "never include this"\n')
+                finally:
+                    if swap_path is not None and swap_path.is_symlink():
+                        swap_path.unlink()
+                    if backup is not None and backup.exists():
+                        backup.rename(swap_path)
+                    shutil.rmtree(target)
+                    shutil.rmtree(outside)
+
+    def test_pattern_reads_refuse_a_link_swapped_after_preflight(self):
+        for read_state in (False, True):
+            with self.subTest(read_state=read_state):
+                target = temp_dir()
+                outside = temp_dir()
+                try:
+                    create_vivary.scaffold_thin_workspace(
+                        target, preset="coding", repo_root=ROOT)
+                    secret = outside / "private.toml"
+                    write(secret, 'secret = "outside project"\n')
+                    config = target / ".vivary/workspace.toml"
+                    original = config.with_suffix(".original")
+                    ensure = create_vivary._ensure_safe_destinations
+                    swapped = False
+                    def swap_after_check(root, paths, force):
+                        nonlocal swapped
+                        result = ensure(root, paths, force)
+                        if not swapped and config in paths:
+                            config.rename(original)
+                            try:
+                                config.symlink_to(secret)
+                            except OSError:
+                                original.rename(config)
+                                self.skipTest("file symlinks are unavailable")
+                            swapped = True
+                        return result
+                    with mock.patch.object(create_vivary, "_ensure_safe_destinations",
+                                           side_effect=swap_after_check):
+                        with self.assertRaises(create_vivary.ScaffoldError) as refusal:
+                            if read_state:
+                                create_vivary.workspace_pattern_state(target)
+                            else:
+                                create_vivary.plan_workspace_change(
+                                    target, pattern_choices=(), repo_root=ROOT)
+                    self.assertNotIn("outside project", str(refusal.exception))
+                    self.assertEqual(secret.read_text(), 'secret = "outside project"\n')
+                finally:
+                    config = target / ".vivary/workspace.toml"
+                    original = config.with_suffix(".original")
+                    if config.is_symlink():
+                        config.unlink()
+                    if original.exists():
+                        original.rename(config)
+                    shutil.rmtree(target)
+                    shutil.rmtree(outside)
+
+    def test_reconfiguration_rejects_ignored_options_and_file_ancestor(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            write(target / "inbox", "An owner file, not a folder.\n")
+            before = snapshot(target)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=choices, repo_root=ROOT)
+            self.assertTrue(any(row["path"] == target / "inbox/README.md"
+                                and "unsafe parent" in row["reason"]
+                                for row in review["conflicts"]), review["conflicts"])
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "preset and adapters"):
+                create_vivary.adopt_workspace(
+                    target, intent="reconfigure", pattern_choices=choices,
+                    preset="writing", repo_root=ROOT)
+            with self.assertRaisesRegex(create_vivary.ScaffoldError, "original pattern choices"):
+                create_vivary.adopt_workspace(
+                    target, recover_hash=review["plan_hash"], pattern_choices=choices,
+                    repo_root=ROOT)
+            with mock.patch("sys.stdin", io.StringIO(json.dumps(choices))):
+                code, output = run_cli(["adopt", str(target), "--json",
+                                        "--recover", review["plan_hash"],
+                                        "--pattern-choices", "-"])
+            self.assertNotEqual(code, 0)
+            self.assertIn("omit --pattern-choices", output)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_cli_pattern_state_preview_and_exact_apply(self):
+        target = temp_dir()
+        choices = [{"id": "capture", "name": "My intake", "path": "inbox/README.md"}]
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            state = create_vivary.workspace_pattern_state(target)
+            self.assertEqual(state["choices"], [])
+            self.assertEqual(len(state["catalog"]), 4)
+            with mock.patch("sys.stdin", io.StringIO(json.dumps(choices))):
+                code, output = run_cli(["adopt", str(target), "--json",
+                                        "--pattern-choices", "-"])
+            self.assertEqual(code, 0, output)
+            preview = json.loads(output)
+            self.assertEqual(preview["pattern_choices"], choices)
+            self.assertEqual(preview["mode"], "dry-run")
+            self.assertEqual(preview["content_plan"]["files"][0]["operation"], "create")
+            with mock.patch("sys.stdin", io.StringIO(json.dumps(choices))):
+                code, output = run_cli(["adopt", str(target), "--json",
+                                        "--pattern-choices", "-", "--yes",
+                                        "--plan", preview["plan_hash"],
+                                        "--request-id", "pattern-cli"])
+            self.assertEqual(code, 0, output)
+            self.assertEqual(json.loads(output)["mode"], "applied")
+            self.assertEqual(create_vivary.workspace_pattern_state(target)["choices"], choices)
+        finally:
+            shutil.rmtree(target)
+
+    def test_crlf_managed_regions_keep_surrounding_authored_bytes(self):
+        target = temp_dir()
+        first = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        changed = ({"id": "navigation", "name": "Navigation", "path": "START-HERE.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, preset="coding", pattern_choices=first, repo_root=ROOT)
+            config = target / ".vivary/workspace.toml"
+            context = target / ".vivary/context.md"
+            config_bytes = config.read_bytes().replace(b"\n", b"\r\n")
+            config_bytes = config_bytes.replace(
+                b"[workspace.vivary]\r\n",
+                b"[workspace.vivary]\r\nowner_note = \"Keep this text\"\r\n", 1)
+            config.write_bytes(config_bytes)
+            context_bytes = context.read_bytes().replace(b"\n", b"\r\n")
+            context_bytes = context_bytes.replace(
+                b"---\r\n# ", b"---\r\nOwner preface.\r\n\r\n# ", 1)
+            context.write_bytes(context_bytes)
+            before = snapshot(target)
+            unchanged = create_vivary.plan_workspace_change(
+                target, pattern_choices=first, repo_root=ROOT)
+            self.assertFalse(unchanged["conflicts"], unchanged["conflicts"])
+            self.assertEqual(unchanged["writes"], [])
+            self.assertEqual(unchanged["adapter_replacements"], [])
+            self.assertEqual(snapshot(target), before)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=changed, repo_root=ROOT)
+            self.assertFalse(review["conflicts"], review["conflicts"])
+            result = create_vivary.apply_workspace_change(
+                target, pattern_choices=changed, yes=True,
+                plan_hash=review["plan_hash"], repo_root=ROOT)
+            self.assertTrue(result["applied"])
+            for path in (config, context):
+                data = path.read_bytes()
+                self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+            self.assertIn(b'owner_note = "Keep this text"\r\n', config.read_bytes())
+            self.assertIn(b"Owner preface.\r\n\r\n# ", context.read_bytes())
+            self.assertTrue((target / "inbox/README.md").is_file())
+            self.assertTrue((target / "START-HERE.md").is_file())
+        finally:
+            shutil.rmtree(target)
+
+    def test_unchanged_edited_choice_is_kept_without_conflict(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, preset="coding", pattern_choices=choices, repo_root=ROOT)
+            write(target / "inbox/README.md", "# Authored capture\n")
+            before = snapshot(target)
+            plan = create_vivary.plan_workspace_change(
+                target, pattern_choices=choices, repo_root=ROOT)
+            self.assertEqual(plan["conflicts"], [])
+            self.assertEqual(plan["writes"], [])
+            self.assertEqual(plan["adapter_replacements"], [])
+            self.assertIn(target / "inbox/README.md", plan["kept"])
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_invalid_typed_destination_is_reported_before_apply(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            write(target / "tropo.toml",
+                  '[types.capture]\nfolder = "inbox"\nrequired = { status = "string" }\n')
+            before = snapshot(target)
+            plan = create_vivary.plan_workspace_change(
+                target, pattern_choices=choices, repo_root=ROOT)
+            self.assertTrue(any(row["path"] == "inbox/README.md" and row["code"] == "E101"
+                                for row in plan["validation_findings"]), plan["validation_findings"])
+            self.assertTrue(plan["conflicts"])
+            self.assertEqual(snapshot(target), before)
+            with self.assertRaises(create_vivary.ScaffoldError):
+                create_vivary.apply_workspace_change(
+                    target, pattern_choices=choices, yes=True,
+                    plan_hash=plan["plan_hash"], repo_root=ROOT)
+            self.assertEqual(snapshot(target), before)
+        finally:
+            shutil.rmtree(target)
+
+    def test_reserved_and_case_colliding_pattern_paths_are_rejected(self):
+        target = temp_dir()
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            for path in ("AGENTS.md", "agents.md", ".vivary/context.md", ".git/config.md",
+                         "STATE.md", "bad?.md", "bad<name>.md", "bad\x00.md", "InBox/README.md"):
+                if path == "InBox/README.md":
+                    write(target / "inbox/README.md", "# Occupied\n")
+                choices = ({"id": "capture", "name": "Capture", "path": path},)
+                if path == "InBox/README.md":
+                    review = create_vivary.plan_workspace_change(
+                        target, pattern_choices=choices, repo_root=ROOT)
+                    self.assertTrue(review["conflicts"])
+                else:
+                    with self.assertRaises(create_vivary.ScaffoldError):
+                        create_vivary.plan_workspace_change(
+                            target, pattern_choices=choices, repo_root=ROOT)
+            for bad in ({"id": [], "name": "Capture", "path": "inbox/README.md"},
+                        {"id": "capture", "name": "Bad\rName", "path": "inbox/README.md"}):
+                with self.assertRaises(create_vivary.ScaffoldError):
+                    create_vivary.plan_workspace_change(
+                        target, pattern_choices=(bad,), repo_root=ROOT)
+        finally:
+            shutil.rmtree(target)
+
+    def test_pattern_request_replays_only_exact_approved_choice(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            plan = create_vivary.plan_workspace_change(
+                target, pattern_choices=choices, repo_root=ROOT)
+            first = create_vivary.apply_workspace_change(
+                target, pattern_choices=choices, yes=True,
+                plan_hash=plan["plan_hash"], request_id="pattern-one", repo_root=ROOT)
+            self.assertTrue(first["applied"])
+            after = snapshot(target)
+            replay = create_vivary.apply_workspace_change(
+                target, pattern_choices=choices, yes=True,
+                plan_hash=plan["plan_hash"], request_id="pattern-one", repo_root=ROOT)
+            self.assertTrue(replay["replayed"])
+            self.assertEqual(snapshot(target), after)
+            with self.assertRaises(create_vivary.ScaffoldError):
+                create_vivary.apply_workspace_change(
+                    target, pattern_choices=({"id": "capture", "name": "Other",
+                                             "path": "inbox/README.md"},), yes=True,
+                    plan_hash=plan["plan_hash"], request_id="pattern-one", repo_root=ROOT)
+            self.assertEqual(snapshot(target), after)
+        finally:
+            shutil.rmtree(target)
+
+    def test_request_aware_pattern_crash_recovers_and_forged_path_refuses(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(target, preset="coding", repo_root=ROOT)
+            original = snapshot(target)
+            plan = create_vivary.plan_workspace_change(
+                target, pattern_choices=choices, repo_root=ROOT)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, pattern_choices=choices, intent="reconfigure", yes=True,
+                    plan_hash=plan["plan_hash"], request_id="pattern-crash",
+                    repo_root=ROOT, _crash_after=1)
+            journal_path = target / ".vivary/runtime/adopt-journal.json"
+            saved = journal_path.read_bytes()
+            forged = json.loads(saved)
+            create = forged["approval"]["creates"][0]
+            old_path = create["path"]
+            create["path"] = "unreviewed.md"
+            for action in forged["actions"]:
+                if action["path"] == old_path:
+                    action["path"] = "unreviewed.md"
+            forged_hash = create_vivary._thin_approval_hash(forged["approval"])
+            forged["plan_hash"] = forged_hash
+            journal_path.write_text(json.dumps(forged), encoding="utf-8")
+            with self.assertRaises(create_vivary.ScaffoldError):
+                create_vivary.adopt_workspace(
+                    target, recover_hash=forged_hash, repo_root=ROOT)
+            journal_path.write_bytes(saved)
+            recovery = create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"],
+                request_id="pattern-crash", repo_root=ROOT)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=plan["plan_hash"],
+                plan_hash=recovery["recovery_plan_hash"], request_id="pattern-crash",
+                yes=True, repo_root=ROOT)
+            self.assertTrue(result["recovered"])
+            self.assertEqual({path: digest for path, digest in snapshot(target).items()
+                              if not path.startswith(".vivary/runtime/")}, original)
+        finally:
+            shutil.rmtree(target)
+
+    def test_interrupted_pattern_change_recovers_original_bytes(self):
+        target = temp_dir()
+        choices = ({"id": "capture", "name": "Capture", "path": "inbox/README.md"},)
+        changed = ({"id": "navigation", "name": "Navigation", "path": "START-HERE.md"},)
+        try:
+            create_vivary.scaffold_thin_workspace(
+                target, preset="coding", pattern_choices=choices, repo_root=ROOT)
+            original = snapshot(target)
+            review = create_vivary.plan_workspace_change(
+                target, pattern_choices=changed, repo_root=ROOT)
+            with self.assertRaises(KeyboardInterrupt):
+                create_vivary.adopt_workspace(
+                    target, pattern_choices=changed, intent="reconfigure", yes=True,
+                    plan_hash=review["plan_hash"], repo_root=ROOT, _crash_after=1)
+            recovery = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"], repo_root=ROOT)
+            result = create_vivary.adopt_workspace(
+                target, recover_hash=review["plan_hash"], yes=True,
+                plan_hash=recovery["recovery_plan_hash"], repo_root=ROOT)
+            self.assertTrue(result["recovered"])
+            self.assertEqual(snapshot(target), original)
+        finally:
+            shutil.rmtree(target)
+
+
 class ThinAdoptApplyTests(unittest.TestCase):
     def test_apply_requires_the_exact_approved_plan_hash_before_any_write(self):
         target = temp_dir()
@@ -1163,7 +1782,7 @@ class ThinAdoptApplyTests(unittest.TestCase):
                 if action["path"] == target / ".gitignore":
                     action["transient_after"] = create_vivary._prejournal_privacy_bytes(
                         action, None, legacy_hash)
-            backups = create_vivary._adopt_backups(actions)
+            backups = create_vivary._adopt_backups(target, actions)
             legacy_plan = {**plan, "approval_payload": approval, "plan_hash": legacy_hash}
             journal = create_vivary._adopt_journal_payload(
                 legacy_plan, actions, backups, phase="planned", completed=0)

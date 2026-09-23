@@ -51,6 +51,30 @@ test("arguments preserve the ten owners and place the query or node id directly 
   }
 });
 
+test("installed guidance choices use bounded stdin and the existing adoption owner", () => {
+  const choices = [{ id: "capture" as const, name: "My intake", path: "notes/inbox.md" }];
+  const preview = originalCommandSchema.parse({
+    projectId: "project-a", command: { verb: "adopt", patternChoices: choices },
+  });
+  const invocation = originalCommandArguments(preview.command, "/granted/project");
+  assert.deepEqual(invocation.args, ["adopt", "/granted/project", "--json",
+    "--pattern-choices", "-"]);
+  assert.deepEqual(JSON.parse(invocation.stdin), choices);
+  const apply = adoptionExecutionSchema.parse({
+    verb: "adopt-apply", planHash: "sha256:" + "a".repeat(64),
+    requestId: "00000000-0000-4000-8000-000000000001", patternChoices: choices,
+  });
+  const approved = originalCommandArguments(apply, "/granted/project");
+  assert.ok(approved.args.includes("--yes"));
+  assert.deepEqual(JSON.parse(approved.stdin), choices);
+  assert.equal(originalCommandSchema.safeParse({
+    projectId: "project-a", command: { verb: "adopt",
+      patternChoices: [{ id: "unknown", name: "Other", path: "other.md" }] },
+  }).success, false);
+  assert.deepEqual(originalCommandArguments({ verb: "pattern-state" }, "/granted/project"),
+    { args: ["adopt", "/granted/project", "--json", "--pattern-state"], stdin: "" });
+});
+
 test("privacy preparation is an internal owner-approved verb with a strict reviewed JSON descriptor", () => {
   const privacyRequest = {
     schema: "vivary.adopt-privacy-request.v1",

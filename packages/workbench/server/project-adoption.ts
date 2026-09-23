@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { getSetting, mutateSetting, deleteSettingIfValue } from "@agent-native/core/settings";
 import { z } from "zod";
+import { workspacePatternChoices } from "../shared/workspace-patterns.ts";
 import { adoptionDigest, adoptionInput, adoptionPreset, adoptionReport, adoptionRecoveryReport, adoptionPrivacyRequest,
   type AdoptionInput, type AdoptionResult } from "../shared/project-adoption";
 import { resolveLocalProjectWorkspace } from "./project-services.mjs";
@@ -17,7 +18,8 @@ const workspaceSchema = z.strictObject({
 const common = {
   version: z.literal(1), operationId: z.string().uuid(), orgId: z.string(),
   dispatchId: z.string().uuid().optional(),
-  workspace: workspaceSchema, preset: adoptionPreset, planHash: adoptionDigest,
+  workspace: workspaceSchema, preset: adoptionPreset,
+  patternChoices: workspacePatternChoices.optional(), planHash: adoptionDigest,
   createdAt: z.number(), report: adoptionReport,
 };
 const savedSchema = z.discriminatedUnion("stage", [
@@ -48,7 +50,7 @@ function present(record: Saved): AdoptionResult {
   if (record.stage === "rejected") return { code: "refused", message: record.message };
   const review = { projectId: record.workspace.projectId, operationId: record.operationId,
     planHash: record.planHash, displayName: record.workspace.label, folder: record.workspace.root,
-    preset: record.preset, report: record.report };
+    preset: record.preset, patternChoices: record.patternChoices, report: record.report };
   if (record.stage === "privacy-approved") return { code: "privacy-pending", ...review, message: privacyPendingMessage };
   if (record.stage === "recovery-review" || record.stage === "recovery-approved") {
     return { code: "recovery-preview", ...review, recovery: record.recovery, approved: record.stage === "recovery-approved" };
@@ -105,9 +107,14 @@ export function createProjectAdoptionService(dependencies = {
         return current;
       }
       if (input.operation === "preview") {
+        if (input.patternChoices && input.preset !== "auto") {
+          return refuse("Guidance changes keep the installed workspace type. Review them with automatic type.");
+        }
         if (previous && unresolved(previous)) return present(previous);
         const output = await dependencies.preview({ projectId: input.projectId,
-          command: { verb: "adopt", ...(input.preset === "auto" ? {} : { preset: input.preset }) } }, context);
+          command: { verb: "adopt",
+            ...(input.patternChoices ? { patternChoices: input.patternChoices }
+              : input.preset === "auto" ? {} : { preset: input.preset }) } }, context);
         const value = parseOutput(output);
         const parsed = adoptionReport.safeParse(value);
         if (!parsed.success || output.exitCode === null || ![0, 1].includes(output.exitCode)) {
@@ -119,8 +126,11 @@ export function createProjectAdoptionService(dependencies = {
         await currentWorkspace();
         if (report.root !== workspace.root) refuse("The preview returned another folder.");
         const record: Saved = { version: 1, stage: "review", operationId: randomUUID(),
-          orgId: context.orgId, workspace, preset: input.preset, createdAt: Date.now(), report,
-          planHash: hash({ orgId: context.orgId, workspace, preset: input.preset, report }) };
+          orgId: context.orgId, workspace, preset: input.preset,
+          patternChoices: input.patternChoices,
+          createdAt: Date.now(), report,
+          planHash: hash({ orgId: context.orgId, workspace, preset: input.preset,
+            patternChoices: input.patternChoices, report }) };
         await dependencies.mutate(key, current => {
           if (!isDeepStrictEqual(current, stored)) refuse("The setup review changed. Reopen it.");
           return record;
@@ -200,7 +210,9 @@ export function createProjectAdoptionService(dependencies = {
         }
         if (record.stage === "rejected") return present(record);
         const output = await dependencies.execute({ verb: "adopt-apply", planHash: record.report.plan_hash,
-          requestId: record.operationId, ...(record.preset === "auto" ? {} : { preset: record.preset }) }, workspace, context);
+          requestId: record.operationId,
+          ...(record.patternChoices ? { patternChoices: record.patternChoices }
+            : record.preset === "auto" ? {} : { preset: record.preset }) }, workspace, context);
         const value = parseOutput(output);
         const result = completed.safeParse(value);
         if (output.exitCode === 0 && result.success && result.data.root === workspace.root

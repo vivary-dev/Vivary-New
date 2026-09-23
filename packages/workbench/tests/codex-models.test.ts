@@ -57,7 +57,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   process.stdout.write(output.slice(0,7));
   process.stdout.write(output.slice(7));
  }
-}).on('close', () => setTimeout(() => writeFileSync('closed.txt', 'graceful'), 500));`);
+}).on('close', () => setImmediate(() => writeFileSync('closed.txt', 'graceful')));`);
   try {
     const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir);
     assert.equal(result.status, "ready");

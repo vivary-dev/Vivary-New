@@ -46,6 +46,22 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
 
+## Built-in guidance, September 23
+
+[Issue #16's receipt](receipts/07c-builtin-patterns-reconfiguration.md) records
+hosted acceptance on clean `7784b8d9`. Capture, Sources, Navigation, and Project
+brief compose with editable names and paths. The journey created a workspace,
+edited its files, retired Sources, added Navigation, and reopened the same
+project. Authored Capture and state survived. A changed choice invalidated its
+preview, and retry recovered a lost Apply response without another write.
+Desktop and 390-pixel layouts passed. A focused `1ae19565` journey also passed
+legacy configuration migration, UTF-8 BOM preservation, long Unicode names,
+and restart. No model call was requested.
+
+The installed creator matched source and passed exact-file and Doctor checks.
+Windows CI covered governed operations and orientation. This source has no
+packaged EXE journey yet. Final artifact acceptance remains under #23.
+
 ## Populated-folder adoption, September 23
 
 [Issue #17's receipt](receipts/08a-populated-folder-adoption.md) records current
@@ -526,7 +542,7 @@ automations in #51 remain open.
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17 | Built-in pattern composition under #16 and remaining parent packet 08 scope |
+| Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |

@@ -142,6 +142,71 @@ if os.name == "nt":
 __version__ = "0.4.4"
 
 PRESETS = ("coding", "second-brain", "knowledge-work", "writing")
+# Frozen v1 output bodies. Add a new renderer revision for content changes.
+BUILTIN_PATTERN_V1_BODIES = {
+    "capture": """Use this page for quick intake. Record an idea, request, or observation
+before deciding where it belongs. Later, triage each entry into a real project,
+source, action, or archive. Keep the original wording when it matters.
+
+## New item
+
+- Captured:
+- Source or origin:
+- What needs attention:
+- Next triage step:
+""",
+    "source-reference": """Keep a list of sources that this workspace actually uses.
+For each source, record its title, origin, date when known, and a link or local
+path. Attribute claims to the source. Label your interpretation separately and
+leave an uncertainty visible rather than turning it into a source statement.
+
+## Source
+
+- Title:
+- Origin and date:
+- Link or path:
+- Source says:
+- My interpretation:
+- Open question:
+""",
+    "navigation": """Link the files that exist in this workspace and explain when
+to open them. Add links as you create or adopt real files. Do not list a planned
+document as though it already exists.
+
+## Routes
+
+- File or folder:
+- Use it for:
+""",
+    "project-brief": """Describe this project's purpose and intended outcome using
+known facts. Keep unknowns as prompts until you can answer them. Link known
+inputs and name the next concrete step.
+
+- Purpose:
+- Intended outcome:
+- Known inputs:
+- Next step:
+- Open questions:
+""",
+}
+BUILTIN_PATTERNS = {
+    "capture": {
+        "label": "Capture", "path": "inbox/README.md",
+        "description": "Quick intake now, deliberate triage later.",
+    },
+    "source-reference": {
+        "label": "Sources", "path": "sources/index.md",
+        "description": "Attribute source statements and separate your interpretation.",
+    },
+    "navigation": {
+        "label": "Navigation", "path": "START-HERE.md",
+        "description": "Guide people to files that actually exist.",
+    },
+    "project-brief": {
+        "label": "Project brief", "path": "brief.md",
+        "description": "Record purpose, outcome, known inputs, and the next step.",
+    },
+}
 
 ACTIVE_CONTEXTS = ("cocoindex-code",)
 
@@ -154,6 +219,7 @@ RECEIPT_SCHEMA = "vivary.run_receipt.v1"
 RECEIPT_VALUE_FLAGS = {
     "--request-id",
     "--adapter",
+    "--pattern-choices",
     "--receipt",
     "--preset",
     "--active-context",
@@ -678,6 +744,125 @@ def _validate_thin_init_target(target: Path, *, force: bool) -> None:
             )
 
 
+def _normalize_pattern_choices(choices) -> tuple[dict[str, str], ...]:
+    if not isinstance(choices, (tuple, list)) or len(choices) > len(BUILTIN_PATTERNS):
+        raise ScaffoldError("choose up to four installed workspace patterns")
+    selected = []
+    ids, paths = set(), set()
+    for choice in choices:
+        if not isinstance(choice, dict) or set(choice) != {"id", "name", "path"}:
+            raise ScaffoldError("pattern choice requires id, name, and path")
+        identifier, name, path = (choice[key] for key in ("id", "name", "path"))
+        if not isinstance(identifier, str) or identifier not in BUILTIN_PATTERNS or identifier in ids:
+            raise ScaffoldError("pattern choice is unknown or repeated")
+        if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 80
+            or any(ord(char) < 32 or ord(char) == 127 or 0xD800 <= ord(char) <= 0xDFFF for char in name)):
+            raise ScaffoldError("pattern name must be 1-80 single-line characters")
+        if (not isinstance(path, str) or len(path) > 240 or not path.endswith(".md")
+            or "\\" in path or path.startswith("/") or re.match(r"^[A-Za-z]:", path)
+            or any(part in ("", ".", "..") for part in path.split("/"))
+            or any(ord(char) < 32 or ord(char) == 127 or 0xD800 <= ord(char) <= 0xDFFF or char in '<>:"|?*'
+                   for char in path)
+            or any(part.startswith(".") or part.endswith((" ", ".")) or ":" in part
+                   for part in path.split("/"))
+            or path.split("/")[0].casefold() in {".vivary", ".git", ".agents"}
+            or path.casefold() in {"agents.md", "state.md", ".gitignore"}
+            or any(re.match(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", part)
+                   for part in path.split("/"))):
+            raise ScaffoldError("pattern path must be a safe project-relative Markdown path")
+        if path.casefold() in paths:
+            raise ScaffoldError("pattern destinations must be distinct")
+        ids.add(identifier)
+        paths.add(path.casefold())
+        selected.append({"id": identifier, "name": name.strip(), "path": path})
+    return tuple(selected)
+
+
+def builtin_pattern_catalog() -> list[dict[str, str]]:
+    return [
+        {"id": identifier, "label": spec["label"],
+         "description": spec["description"], "defaultName": spec["label"],
+         "defaultPath": spec["path"]}
+        for identifier, spec in BUILTIN_PATTERNS.items()
+    ]
+
+
+def _read_pattern_choices_request(value: str | None):
+    if value is None:
+        return None
+    if value != "-":
+        raise ScaffoldError("pattern choices must be read from standard input")
+    raw = sys.stdin.read(4097)
+    if len(raw.encode("utf-8")) > 4096:
+        raise ScaffoldError("pattern choices exceed the input size limit")
+    def closed_object(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("duplicate pattern choice field")
+            result[key] = item
+        return result
+    try:
+        return _normalize_pattern_choices(json.loads(raw, object_pairs_hook=closed_object))
+    except (ValueError, TypeError, RecursionError, UnicodeError) as exc:
+        raise ScaffoldError("pattern choices request is malformed") from exc
+
+
+# Retain prior renderers so a later catalog edit cannot reinterpret an approved
+# output or make an unchanged installed choice appear authored.
+PATTERN_RENDERERS = {"v1": BUILTIN_PATTERN_V1_BODIES}
+CURRENT_PATTERN_RENDERER = "v1"
+
+
+def _pattern_file(choice: dict[str, str], revision: str | None = None) -> str:
+    body = PATTERN_RENDERERS[revision or CURRENT_PATTERN_RENDERER][choice["id"]]
+    return f"# {choice['name']}\n\n{body}"
+
+
+def _pattern_known_hash(choice: dict[str, str], digest: str) -> bool:
+    return any(
+        digest == _sha256_prefixed(_pattern_file(choice, revision).encode("utf-8"))
+        for revision in PATTERN_RENDERERS
+    )
+
+
+def _pattern_approved_file(choice: dict[str, str], digest: str) -> str:
+    for revision in PATTERN_RENDERERS:
+        text = _pattern_file(choice, revision)
+        if digest == _sha256_prefixed(text.encode("utf-8")):
+            return text
+    raise ValueError("managed output differs from supported renderers")
+
+
+def _pattern_context_block(choices: tuple[dict[str, str], ...]) -> str:
+    from urllib.parse import quote
+    lines = ["<!-- vivary:patterns:start -->", "## Selected guidance", ""]
+    for choice in choices:
+        label = choice["name"].replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+        link = "../" + quote(choice["path"], safe="/-._~")
+        lines.append(f"- [{label}]({link})")
+    return "\n".join([*lines, "<!-- vivary:patterns:end -->", ""])
+
+
+def _pattern_config_block(choices: tuple[dict[str, str], ...],
+                          output_hashes: dict[str, str] | None = None) -> str:
+    patterns = ["thin-context", *(choice["id"] for choice in choices)]
+    rows = [
+        {"id": choice["id"], "name": choice["name"], "path": choice["path"],
+         "generated_hash": (output_hashes or {}).get(choice["id"])
+             or _sha256_prefixed(_pattern_file(choice).encode("utf-8"))}
+        for choice in choices
+    ]
+    entries = ", ".join(
+        "{ " + ", ".join(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in row.items()) + " }"
+        for row in rows
+    )
+    return ("# >>> vivary pattern selection >>>\n"
+            f"patterns = {json.dumps(patterns)}\n"
+            f"pattern_outputs = [{entries}]\n"
+            "# <<< vivary pattern selection <<<")
+
+
 def _prepare_thin_workspace(
     target: str | Path,
     *,
@@ -685,6 +870,7 @@ def _prepare_thin_workspace(
     adapters: tuple[str, ...] | list[str],
     active_context: str | None,
     force: bool,
+    pattern_choices=(),
 ) -> tuple[Path, list[tuple[Path, str]]]:
     """Validate thin-init inputs and build the one ordered file list without writes."""
     if preset not in PRESETS:
@@ -692,6 +878,7 @@ def _prepare_thin_workspace(
             f"unknown preset {preset!r}; expected one of {', '.join(PRESETS)}"
         )
     selected_adapters = tuple(adapters)
+    pattern_choices = _normalize_pattern_choices(pattern_choices)
     unknown_adapters = sorted(set(selected_adapters) - set(_THIN_ADAPTER_PATHS))
     if unknown_adapters:
         raise ScaffoldError(
@@ -717,13 +904,14 @@ def _prepare_thin_workspace(
     project = target.name or "vivary-workspace"
     writes: list[tuple[Path, str]] = [
         (target / ".gitignore", _thin_gitignore_block(active_context=active_context)),
-        (target / ".vivary" / "context.md", _thin_context_doc(project, preset)),
+        (target / ".vivary" / "context.md", _thin_context_doc(project, preset, pattern_choices)),
         (
             target / ".vivary" / "workspace.toml",
             _thin_workspace_toml(
                 preset,
                 selected_adapters,
                 active_context=active_context,
+                pattern_choices=pattern_choices,
             ),
         ),
         (target / "AGENTS.md", "# AGENTS.md\n\n" + _thin_agents_block()),
@@ -732,9 +920,34 @@ def _prepare_thin_workspace(
     for adapter in sorted(selected_adapters):
         text, _source_hash, _content_hash = _thin_adapter_doc(adapter)
         writes.append((target / _THIN_ADAPTER_PATHS[adapter], text))
+    for choice in pattern_choices:
+        writes.append((target / choice["path"], _pattern_file(choice)))
 
     paths = [path for path, _text in writes]
     _ensure_safe_destinations(target, paths, force=False)
+    if pattern_choices:
+        # Apply's Doctor uses this same Tropo policy. Validate the proposed
+        # Markdown before approving a destination that becomes a typed record.
+        import tomllib as _toml
+        tropo = _load_tropo(default_repo_root())
+        config_text = next(text for path, text in writes
+                           if path == target / ".vivary" / "workspace.toml")
+        projected = {"base": {}, "types": {}, "exclude": []}
+        tropo._merge_config(projected, _toml.loads(config_text))
+        effective = tropo.Config(projected, str(target))
+        existing_parent = next(parent for parent in target.parents if parent.exists())
+        for choice in pattern_choices:
+            path = target / choice["path"]
+            document = tropo.analyze_file(
+                str(path), choice["path"], effective, text=_pattern_file(choice),
+                use_git_dates=False, stat_result=existing_parent.stat())
+            errors = [finding for finding in document.findings
+                      if finding.level == "error"]
+            if errors:
+                first = errors[0]
+                raise ScaffoldError(
+                    f"pattern destination {choice['path']} fails validation "
+                    f"({first.code}): {first.message}")
     return target, writes
 
 def plan_thin_workspace(
@@ -743,6 +956,7 @@ def plan_thin_workspace(
     preset: str = "coding",
     adapters: tuple[str, ...] | list[str] = (),
     active_context: str | None = None,
+    pattern_choices=(),
 ) -> dict:
     """Preview exact creates; content and target digests grant no write authority.
 
@@ -751,11 +965,12 @@ def plan_thin_workspace(
     A caller must separately validate current target custody before any effect.
     """
     adapters = tuple(adapters)
+    pattern_choices = _normalize_pattern_choices(pattern_choices)
     target, writes = _prepare_thin_workspace(
         target, preset=preset, adapters=adapters,
-        active_context=active_context, force=False,
+        active_context=active_context, force=False, pattern_choices=pattern_choices,
     )
-    return _thin_init_plan(target, writes, preset, adapters, active_context)
+    return _thin_init_plan(target, writes, preset, adapters, active_context, pattern_choices)
 
 
 def _thin_init_plan(
@@ -764,6 +979,7 @@ def _thin_init_plan(
     preset: str,
     adapters: tuple[str, ...],
     active_context: str | None,
+    pattern_choices=(),
 ) -> dict:
     files = []
     for path, text in writes:
@@ -780,6 +996,8 @@ def _thin_init_plan(
         "files": files,
         "content_sha256": _thin_approval_hash({"files": files}),
     }
+    if pattern_choices:
+        plan["pattern_choices"] = list(pattern_choices)
     return {**plan, "plan_sha256": _thin_approval_hash(plan)}
 
 
@@ -843,10 +1061,12 @@ def apply_thin_workspace(
     preset: str = "coding",
     adapters: tuple[str, ...] | list[str] = (),
     active_context: str | None = None,
+    pattern_choices=(),
     repo_root: str | Path | None = None,
 ) -> dict:
     """Apply only the reviewed greenfield init, or recognize its exact retry."""
     adapters = tuple(adapters)
+    pattern_choices = _normalize_pattern_choices(pattern_choices)
     target = _resolve_scaffold_target(target)
     try:
         occupied = target.is_dir() and next(target.iterdir(), None) is not None
@@ -857,7 +1077,7 @@ def apply_thin_workspace(
             scratch = Path(temporary) / target.name
             rendered = plan_thin_workspace(
                 scratch, preset=preset, adapters=adapters,
-                active_context=active_context,
+                active_context=active_context, pattern_choices=pattern_choices,
             )
             plan = {**rendered, "target": str(target)}
             plan["plan_sha256"] = _thin_approval_hash(
@@ -866,7 +1086,7 @@ def apply_thin_workspace(
     else:
         plan = plan_thin_workspace(
             target, preset=preset, adapters=adapters,
-            active_context=active_context,
+            active_context=active_context, pattern_choices=pattern_choices,
         )
     if accepted_plan_sha256 != plan["plan_sha256"]:
         return {"code": "plan-changed"}
@@ -881,8 +1101,8 @@ def apply_thin_workspace(
     # The original init path owns effect-boundary validation, writes, and rollback.
     scaffold_thin_workspace(
         target, preset=preset, adapters=adapters,
-        active_context=active_context, repo_root=repo_root,
-        expected_plan_sha256=accepted_plan_sha256,
+        active_context=active_context, pattern_choices=pattern_choices,
+        repo_root=repo_root, expected_plan_sha256=accepted_plan_sha256,
     )
     return {"code": "created", "target": str(target),
             "plan_sha256": plan["plan_sha256"]}
@@ -894,6 +1114,7 @@ def scaffold_thin_workspace(
     preset: str = "coding",
     adapters: tuple[str, ...] | list[str] = (),
     active_context: str | None = None,
+    pattern_choices=(),
     force: bool = False,
     repo_root: str | Path | None = None,
     dry_run: bool = False,
@@ -908,13 +1129,14 @@ def scaffold_thin_workspace(
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
     adapters = tuple(adapters)
+    pattern_choices = _normalize_pattern_choices(pattern_choices)
     target, writes = _prepare_thin_workspace(
         target, preset=preset, adapters=adapters,
-        active_context=active_context, force=force,
+        active_context=active_context, force=force, pattern_choices=pattern_choices,
     )
     paths = [path for path, _text in writes]
     if expected_plan_sha256 is not None and _thin_init_plan(
-        target, writes, preset, adapters, active_context
+        target, writes, preset, adapters, active_context, pattern_choices
     )["plan_sha256"] != expected_plan_sha256:
         raise ScaffoldError("init plan changed before writing; review a fresh plan")
     if dry_run:
@@ -5370,8 +5592,8 @@ def _thin_gitignore_block(*, active_context: str | None = None) -> str:
 """
 
 
-def _thin_context_doc(project: str, preset: str) -> str:
-    return f"""---
+def _thin_context_doc(project: str, preset: str, pattern_choices=()) -> str:
+    base = f"""---
 status: active
 preset: {preset}
 ---
@@ -5406,6 +5628,7 @@ instead of guessing. Treat a successful tool call as activity, not proof.
 Get deliberate human approval for publishing, external writes, destructive work,
 credentials, authority expansion, and any ambiguity the evidence cannot resolve.
 """
+    return base if not pattern_choices else base + "\n" + _pattern_context_block(pattern_choices)
 
 
 _THIN_STARTER_TYPES = """
@@ -5442,6 +5665,7 @@ def _thin_workspace_toml(
     *,
     active_context: str | None = None,
     adopted: bool = False,
+    pattern_choices=(),
 ) -> str:
     adapter_list = ", ".join(json.dumps(adapter) for adapter in sorted(adapters))
     capability_list = json.dumps(active_context) if active_context is not None else ""
@@ -5462,6 +5686,8 @@ def _thin_workspace_toml(
                 f"[types.{record_type}]", f"[types.vivary_record_{record_type}]")
             other_types = other_types.replace(
                 f'folder = "{folder}"', f'folder = ".vivary/records/{folder}"')
+    pattern_line = ('patterns = ["thin-context"]' if not pattern_choices
+                    else _pattern_config_block(pattern_choices))
     return f'''version = 1
 exclude = [{exclude_list}]
 
@@ -5478,7 +5704,7 @@ capabilities = [{capability_list}]
 # same thin-context defaults.
 [workspace.vivary]
 version = 1
-patterns = ["thin-context"]
+{pattern_line}
 
 # Descriptions only: these paths grant no access and need not exist.
 # The context Routes section is a map, not a generated inventory.
@@ -5745,49 +5971,87 @@ def _thin_approval_hash(payload: dict) -> str:
 def _adopt_configured_validation(
     target: Path, repo_root: Path, proposed_config: str,
     planned_writes: list[tuple[Path, str]],
+    trusted_inputs: dict[Path, bytes] | None = None,
 ) -> tuple[list[dict], str | None]:
     """Check existing and proposed Markdown against the effective future schema."""
     thin_config = target / ".vivary" / "workspace.toml"
     root_config = target / "tropo.toml"
     nested_config = target / ".vivary" / "tropo.toml"
     tropo = _load_tropo(repo_root)
+    import tomllib as _toml
+    captured = dict(trusted_inputs or {})
+
+    def project_bytes(path: Path) -> tuple[bytes, os.stat_result]:
+        data, info = _read_adopt_regular_snapshot(target, path)
+        if path in captured and captured[path] != data:
+            raise ScaffoldError("workspace input changed during validation")
+        captured[path] = data
+        return data, info
+
+    def safe_toml(path: str) -> dict:
+        candidate = Path(os.path.abspath(path))
+        try:
+            candidate.relative_to(target)
+        except ValueError:
+            installed_packs = Path(tropo.__file__).parent / "packs"
+            if (candidate.parent != installed_packs
+                or candidate.suffix != ".toml"
+                or _is_symlink_or_junction(candidate)
+                or candidate.resolve(strict=True).parent != installed_packs.resolve(strict=True)):
+                raise tropo.ConfigError("pack path is outside the installed catalog")
+            return tropo._read_toml(path)
+        data, _info = project_bytes(candidate)
+        try:
+            return _toml.loads(data.decode("utf-8-sig"))
+        except (UnicodeError, _toml.TOMLDecodeError) as exc:
+            raise tropo.ConfigError("workspace configuration is malformed") from exc
+
+    def safe_document(full: str) -> tuple[str, os.stat_result]:
+        data, info = project_bytes(Path(full))
+        return data.decode("utf-8", errors="replace"), info
+
     try:
         projected = None
         if thin_config.is_file():
-            resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+            resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent),
+                                            read_toml=safe_toml)
         else:
-            import tomllib as _toml
             projected = {"base": {}, "types": {}, "exclude": []}
             tropo._merge_config(projected, _toml.loads(proposed_config))
             if root_config.is_file():
-                root_raw = tropo._read_toml(str(root_config))
+                root_raw = safe_toml(str(root_config))
                 if root_raw.get("packs"):
                     raise tropo.ConfigError("root-only packs need a reviewed schema migration")
                 tropo._merge_config(projected, root_raw)
             resolver = tropo.ConfigResolver(
-                str(target), str(Path(tropo.__file__).parent), base_data=projected)
+                str(target), str(Path(tropo.__file__).parent),
+                base_data=projected, read_toml=safe_toml)
         proposed_docs = []
         config_paths = {path for path in (thin_config, root_config, nested_config) if path.is_file()}
         for path, text in planned_writes:
-            if path.suffix not in (".md", ".markdown") or path.exists():
+            if path.suffix not in (".md", ".markdown"):
                 continue
             rel = path.relative_to(target).as_posix()
             effective = resolver.for_dir(str(path.parent))
             if not tropo.is_excluded(rel, effective.exclude):
                 proposed_docs.append(tropo.analyze_file(str(path), rel, effective,
-                    text=text, use_git_dates=False, stat_result=target.stat()))
-        docs = tropo.analyze(str(target), [], resolver, additional_documents=proposed_docs)
+                    text=text, use_git_dates=False,
+                    stat_result=target.stat()))
+        docs = tropo.analyze(str(target), [], resolver,
+                             additional_documents=proposed_docs,
+                             read_document=safe_document)
         for doc in docs:
             config_paths.update(Path(path) for path in tropo._overlay_paths(
                 str(Path(doc.full).parent), str(target)))
         inputs = sorted({Path(doc.full) for doc in docs if Path(doc.full).is_file()} | config_paths)
+        input_rows = []
+        for path in inputs:
+            data, _info = project_bytes(path)
+            input_rows.append({"path": path.relative_to(target).as_posix(),
+                               "hash": _sha256_prefixed(data)})
         input_hash = _thin_approval_hash({
             "effective_policy": resolver._base_dict,
-            "validation_inputs": [
-                {"path": path.relative_to(target).as_posix(),
-                 "hash": _sha256_prefixed(path.read_bytes())}
-                for path in inputs
-            ],
+            "validation_inputs": input_rows,
         })
         findings = [finding.as_dict() for doc in docs for finding in doc.findings]
         return sorted(findings, key=lambda item: (item["path"], item["line"], item["code"])), input_hash
@@ -5798,6 +6062,284 @@ def _adopt_configured_validation(
         return [{"path": path.relative_to(target).as_posix(), "line": 0,
                  "level": "error", "code": "CONFIG",
                  "message": f"Existing schema could not be checked: {str(exc).replace(str(target), '.')}"}], None
+
+
+def _installed_pattern_selection(workspace: dict) -> tuple[tuple[dict, ...], dict[str, str], dict | None]:
+    metadata = workspace.get("vivary")
+    if metadata is None:
+        # Older thin-v0.3 workspaces used role metadata without an output ledger.
+        # Keep the effective role mapping, but claim no generated guidance files.
+        tropo = _load_tropo(default_repo_root())
+        roles = tropo.resolve_workspace_roles(workspace)["roles"]
+        return (), {}, roles
+    rows = metadata.get("pattern_outputs", [])
+    if not isinstance(rows, list):
+        raise ValueError("pattern outputs are malformed")
+    choices = _normalize_pattern_choices(tuple(
+        {"id": row["id"], "name": row["name"], "path": row["path"]}
+        for row in rows))
+    hashes = {row["id"]: row["generated_hash"] for row in rows}
+    if any(not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+           for value in hashes.values()):
+        raise ValueError("pattern output hash is malformed")
+    if any(not _pattern_known_hash(row, hashes[row["id"]]) for row in choices):
+        raise ValueError("managed output ledger differs from supported renderers")
+    if metadata.get("patterns") != ["thin-context", *(row["id"] for row in choices)]:
+        raise ValueError("pattern list and generated-output ledger disagree")
+    return choices, hashes, None
+
+
+def workspace_pattern_state(target: str | Path) -> dict:
+    """Read installed choices without claiming any file by its name alone."""
+    import tomllib as _toml
+    root = _resolve_scaffold_target(target)
+    config = root / ".vivary" / "workspace.toml"
+    _ensure_safe_destinations(root, [config], force=True)
+    if not config.is_file() or _is_symlink_or_junction(config):
+        raise ScaffoldError("this project has no regular Vivary workspace configuration")
+    try:
+        raw = _toml.loads(_read_adopt_regular_bytes(root, config).decode("utf-8-sig"))
+        workspace = raw["workspace"]
+        if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
+            raise ValueError("unsupported workspace contract")
+        choices, _hashes, _legacy_roles = _installed_pattern_selection(workspace)
+    except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
+        raise ScaffoldError(f"pattern configuration needs review: {exc}") from exc
+    return {"ok": True, "catalog": builtin_pattern_catalog(), "choices": list(choices)}
+
+
+def _managed_newline_style(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\r" if "\r" in text else "\n"
+
+
+def _canonical_managed_lines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _pattern_config_update(text: str, previous: tuple[dict, ...],
+                           selected: tuple[dict, ...], previous_hashes: dict[str, str],
+                           output_hashes: dict[str, str] | None = None,
+                           legacy_roles: dict | None = None) -> str:
+    current = _pattern_config_block(previous, previous_hashes)
+    desired = _pattern_config_block(selected, output_hashes)
+    if legacy_roles is not None:
+        newline = _managed_newline_style(text)
+        separator = "" if text.endswith(newline * 2) else newline if text.endswith(newline) else newline * 2
+        roles = "".join(
+            f"{role} = {json.dumps(paths, ensure_ascii=False)}{newline}"
+            for role, paths in legacy_roles.items())
+        return (text + separator + "[workspace.vivary]" + newline
+                + "version = 1" + newline
+                + desired.replace("\n", newline) + newline
+                + "[workspace.vivary.roles]" + newline + roles)
+    begin, end = "# >>> vivary pattern selection >>>", "# <<< vivary pattern selection <<<"
+    if text.count(begin) == 1 and text.count(end) == 1:
+        start = text.index(begin)
+        stop = text.index(end, start) + len(end)
+        region = text[start:stop]
+        if _canonical_managed_lines(region) != current:
+            raise ScaffoldError("the managed pattern selection was edited; review it before reconfiguration")
+        return text[:start] + desired.replace("\n", _managed_newline_style(region)) + text[stop:]
+    if begin in text or end in text:
+        raise ScaffoldError("the managed pattern selection markers are incomplete")
+    if previous:
+        raise ScaffoldError("pattern ownership metadata is missing")
+    marker = 'patterns = ["thin-context"]'
+    if text.count(marker) != 1:
+        raise ScaffoldError("legacy pattern selection needs a reviewed migration")
+    return text.replace(marker, desired.replace("\n", _managed_newline_style(text)), 1)
+
+
+def _pattern_context_update(text: str, previous: tuple[dict, ...],
+                            selected: tuple[dict, ...]) -> str:
+    begin, end = "<!-- vivary:patterns:start -->", "<!-- vivary:patterns:end -->"
+    desired = _pattern_context_block(selected)
+    if text.count(begin) == 1 and text.count(end) == 1:
+        start = text.index(begin)
+        stop = text.index(end, start) + len(end)
+        region = text[start:stop]
+        if _canonical_managed_lines(region) != _pattern_context_block(previous).rstrip("\n"):
+            raise ScaffoldError("the managed guidance links were edited; review them before reconfiguration")
+        rendered = desired.rstrip("\n").replace("\n", _managed_newline_style(region))
+        return text[:start] + rendered + text[stop:]
+    if begin in text or end in text:
+        raise ScaffoldError("the managed guidance link markers are incomplete")
+    if previous:
+        raise ScaffoldError("pattern guidance links are missing")
+    newline = _managed_newline_style(text)
+    separator = "" if text.endswith(newline * 2) else newline if text.endswith(newline) else newline * 2
+    return text + separator + desired.replace("\n", newline)
+
+
+def _pattern_case_collision(target: Path, relative: str) -> bool:
+    parent = target
+    for part in Path(relative).parts:
+        if _is_symlink_or_junction(parent):
+            return True
+        if parent.is_dir():
+            names = {entry.name for entry in os.scandir(parent)}
+            if any(name.casefold() == part.casefold() and name != part for name in names):
+                return True
+        parent /= part
+    return False
+
+
+def plan_workspace_change(
+    target: str | Path, *, pattern_choices, repo_root: str | Path | None = None,
+) -> dict:
+    """Preview a pattern change through the existing adoption action contract."""
+    import tomllib as _toml
+    target = _resolve_scaffold_target(target)
+    selected = _normalize_pattern_choices(pattern_choices)
+    config_path = target / ".vivary" / "workspace.toml"
+    context_path = target / ".vivary" / "context.md"
+    _ensure_safe_destinations(target, [config_path, context_path], force=True)
+    if not target.is_dir() or any(not path.is_file() or _is_symlink_or_junction(path)
+                                  for path in (config_path, context_path)):
+        raise ScaffoldError("reconfiguration requires an existing regular thin workspace")
+    config_bytes = _read_adopt_regular_bytes(target, config_path)
+    context_bytes = _read_adopt_regular_bytes(target, context_path)
+    try:
+        config_text = config_bytes.decode("utf-8")
+        context_text = context_bytes.decode("utf-8")
+        raw = _toml.loads(config_text.removeprefix("\ufeff"))
+        workspace = raw["workspace"]
+        if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
+            raise ValueError("not a thin workspace")
+        previous, previous_hashes, legacy_roles = _installed_pattern_selection(workspace)
+        preset = workspace["preset"]
+        adapters = tuple(workspace.get("adapters", []))
+        capabilities = workspace.get("capabilities", [])
+        if preset not in PRESETS or not isinstance(capabilities, list):
+            raise ValueError("workspace options are malformed")
+        retained_hashes = {
+            row["id"]: previous_hashes[row["id"]]
+            for row in selected
+            if row["id"] in {old["id"] for old in previous}
+            and next(old for old in previous if old["id"] == row["id"]) == row
+        }
+        new_config = _pattern_config_update(
+            config_text, previous, selected, previous_hashes, retained_hashes, legacy_roles)
+        new_context = _pattern_context_update(context_text, previous, selected)
+    except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
+        raise ScaffoldError(f"pattern configuration needs review: {exc}") from exc
+
+    inventory = BrownfieldInventory(target)
+    writes, replacements, kept, retired, conflicts = [], [], [], [], []
+    before = {row["id"]: row for row in previous}
+    requested = {row["id"]: row for row in selected}
+    for old in previous:
+        if old["id"] not in requested or requested[old["id"]]["path"] != old["path"]:
+            old_path = target / old["path"]
+            if old_path.is_file() and not _is_symlink_or_junction(old_path):
+                retired.append(old["path"])
+                kept.append(old_path)
+            elif old_path.exists():
+                conflicts.append({"path": old_path, "reason": "retired output is not a regular file"})
+    for choice in selected:
+        path = target / choice["path"]
+        prior = before.get(choice["id"])
+        same_place = prior is not None and prior["path"] == choice["path"]
+        same_content = same_place and prior["name"] == choice["name"]
+        try:
+            _ensure_safe_destinations(target, [path], force=True)
+        except ScaffoldError:
+            conflicts.append({"path": path, "reason": "pattern destination has an unsafe parent or link"})
+            continue
+        if _pattern_case_collision(target, choice["path"]):
+            conflicts.append({"path": path, "reason": "destination differs only by case"})
+        elif not path.exists():
+            writes.append((path, _pattern_file(choice)))
+        elif _is_symlink_or_junction(path) or not path.is_file():
+            conflicts.append({"path": path, "reason": "pattern destination is not a regular file"})
+        elif same_content:
+            kept.append(path)
+        elif same_place:
+            current_hash = _sha256_prefixed(_read_adopt_regular_bytes(target, path))
+            if current_hash == previous_hashes[choice["id"]]:
+                replacements.append({"path": path, "before_hash": current_hash,
+                                     "text": _pattern_file(choice)})
+            else:
+                conflicts.append({"path": path, "reason": "pattern destination has authored content"})
+        else:
+            conflicts.append({"path": path, "reason": "pattern destination has authored content"})
+    for path, original, updated in ((config_path, config_bytes, new_config),
+                                    (context_path, context_bytes, new_context)):
+        if original != updated.encode("utf-8"):
+            replacements.append({"path": path, "before_hash": _sha256_prefixed(original),
+                                 "text": updated})
+        else:
+            kept.append(path)
+    for relative in ("AGENTS.md", "STATE.md", ".gitignore"):
+        path = target / relative
+        if path.is_file() and not _is_symlink_or_junction(path):
+            kept.append(path)
+        else:
+            conflicts.append({"path": path, "reason": "required workspace file is unavailable"})
+    kept = sorted(set(kept))
+    writes.sort(key=lambda item: item[0])
+    replacements.sort(key=lambda item: item["path"])
+    kept_identities = [{"path": path.relative_to(target).as_posix(),
+                        "content_hash": _sha256_prefixed(_read_adopt_regular_bytes(target, path))} for path in kept]
+    root = Path(repo_root).resolve() if repo_root is not None else default_repo_root().resolve()
+    proposed_markdown = writes + [
+        (row["path"], row["text"]) for row in replacements
+        if row["path"].suffix in (".md", ".markdown")
+    ]
+    validation_findings, validation_input_hash = _adopt_configured_validation(
+        target, root, new_config, proposed_markdown,
+        trusted_inputs={config_path: config_bytes, context_path: context_bytes})
+    conflicted_paths = {row["path"] for row in conflicts}
+    for finding in validation_findings:
+        path = target / finding["path"]
+        if finding["level"] == "error" and path not in conflicted_paths:
+            conflicts.append({"path": path, "reason": f"{finding['code']}: {finding['message']}"})
+            conflicted_paths.add(path)
+    conflicts.sort(key=lambda row: row["path"])
+    approval = _thin_plan_payload(
+        target, preset=preset, adapters=adapters, capabilities=capabilities,
+        writes=writes, patches=[], adapter_replacements=replacements,
+        kept_identities=kept_identities)
+    approval.update(intent="reconfigure", pattern_choices=list(selected),
+                    validation_inputs_hash=validation_input_hash)
+    plan_hash = _thin_approval_hash(approval)
+    content_files = [
+        {"operation": operation, "path": path.relative_to(target).as_posix(),
+         "content": text, "content_hash": _sha256_prefixed(text.encode("utf-8")),
+         "bytes": len(text.encode("utf-8")), **extra}
+        for operation, path, text, extra in (
+            [("create", path, text, {}) for path, text in writes]
+            + [("replace", row["path"], row["text"],
+                {"before_hash": row["before_hash"]}) for row in replacements])
+    ]
+    return {
+        "contract": THIN_WORKSPACE_CONTRACT, "target": target, "preset": preset,
+        "preset_reason": "reviewed built-in pattern change",
+        "capabilities": capabilities, "inventory": inventory,
+        "creates": [path for path, _ in writes],
+        "would_create": [path for path, _ in writes],
+        "followups": [], "excluded_pre_existing": [], "skipped_module_collisions": [],
+        "patches": [], "optional_projections": [], "adapter_replacements": replacements,
+        "kept": kept, "kept_identities": kept_identities, "conflicts": conflicts,
+        "privacy": {"status": "satisfied", "rules": list(_thin_privacy_probes(
+            capabilities[0] if capabilities else None))},
+        "plan_hash": plan_hash, "approval_payload": approval, "writes": writes,
+        "content_plan": {"schema": "vivary.adopt-content-plan.v1", "files": content_files,
+                         "kept": kept_identities},
+        "retired_kept": sorted(retired), "pattern_choices": list(selected),
+        "validation_findings": validation_findings, "content_inventory": {
+            "existing_markdown": inventory.preserved_markdown_count,
+            "existing_non_markdown": inventory.preserved_non_markdown_count,
+        },
+        "privacy_preparation": {"required": False, "ready": False, "reason": None,
+                                "root_hash": None, "before_hash": None, "after_hash": None},
+        "request_replay": _adopt_request_readiness(
+            target, has_changes=bool(writes or replacements), has_conflicts=bool(conflicts),
+            extra_root_rules=()),
+        "would_create": [path for path, _ in writes], "followups": [],
+        "gitignore_followups": [], "excluded_pre_existing": [],
+        "skipped_module_collisions": [],
+    }
 
 
 def plan_adopt(
@@ -6290,9 +6832,10 @@ def _adopt_actions(plan: dict) -> list[dict]:
     )
 
 
-def _adopt_backups(actions: list[dict]) -> dict[Path, bytes | None]:
+def _adopt_backups(target: Path, actions: list[dict]) -> dict[Path, bytes | None]:
     return {
-        action["path"]: action["path"].read_bytes() if action["path"].exists() else None
+        action["path"]: _read_adopt_regular_bytes(target, action["path"])
+        if action["path"].exists() else None
         for action in actions
     }
 
@@ -6303,7 +6846,7 @@ def _assert_adopt_kept_inputs(target: Path, plan: dict) -> None:
         _ensure_within_target(target, [path])
         if _is_symlink_or_junction(path) or not path.is_file():
             raise ScaffoldError(f"approved plan input changed: {identity['path']}")
-        if _sha256_prefixed(path.read_bytes()) != identity["content_hash"]:
+        if _sha256_prefixed(_read_adopt_regular_bytes(target, path)) != identity["content_hash"]:
             raise ScaffoldError(f"approved plan input changed: {identity['path']}")
 
 
@@ -6362,6 +6905,10 @@ def _adopt_request_options(preset: str | None, adapters: tuple[str, ...] | list[
     return {"preset": preset, "adapters": sorted(adapters)}
 
 
+def _pattern_request_options(choices) -> dict:
+    return {"intent": "reconfigure", "pattern_choices": list(_normalize_pattern_choices(choices))}
+
+
 def _validate_adopt_request_id(request_id: str) -> None:
     if not isinstance(request_id, str) or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", request_id
@@ -6383,9 +6930,14 @@ def _validated_adopt_request(payload: dict) -> dict | None:
         raise ScaffoldError("adoption journal request identity is malformed")
     _validate_adopt_request_id(request["id"])
     options = request["options"]
-    if not isinstance(options, dict) or set(options) != {"preset", "adapters"}:
+    if not isinstance(options, dict):
         raise ScaffoldError("adoption journal request options are malformed")
-    normalized = _adopt_request_options(options["preset"], options["adapters"])
+    if set(options) == {"preset", "adapters"}:
+        normalized = _adopt_request_options(options["preset"], options["adapters"])
+    elif set(options) == {"intent", "pattern_choices"} and options.get("intent") == "reconfigure":
+        normalized = _pattern_request_options(options["pattern_choices"])
+    else:
+        raise ScaffoldError("adoption journal request options are malformed")
     if options != normalized:
         raise ScaffoldError("adoption journal request options are not canonical")
     return request
@@ -6411,6 +6963,18 @@ def _open_adopt_readonly(target: Path, path: Path):
             if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                 raise ScaffoldError("adoption record or input is not a regular file")
             yield stream
+
+
+def _read_adopt_regular_snapshot(target: Path, path: Path) -> tuple[bytes, os.stat_result]:
+    try:
+        with _open_adopt_readonly(target, path) as stream:
+            return stream.read(), os.fstat(stream.fileno())
+    except OSError as exc:
+        raise ScaffoldError("workspace input changed during review") from exc
+
+
+def _read_adopt_regular_bytes(target: Path, path: Path) -> bytes:
+    return _read_adopt_regular_snapshot(target, path)[0]
 
 
 def _read_adopt_record(target: Path, path: Path) -> tuple[dict, bytes] | None:
@@ -6820,6 +7384,80 @@ def _adopt_expected_generated_bytes(
     return expected
 
 
+def _reconfiguration_journal_policy(target: Path, approval: dict, payload: dict
+                                    ) -> tuple[dict[str, bytes], set[str], set[str]]:
+    """Rebuild approved output bytes from the original managed config and choices."""
+    import tomllib as _toml
+    try:
+        selected = _normalize_pattern_choices(approval["pattern_choices"])
+        if list(selected) != approval["pattern_choices"]:
+            raise ValueError("pattern choices are not canonical")
+        action_rows = payload["actions"]
+        if not isinstance(action_rows, list):
+            raise ValueError("actions are malformed")
+        by_path = {row["path"]: row for row in action_rows if isinstance(row, dict)
+                   and isinstance(row.get("path"), str)}
+        kept = {row["path"]: row["content_hash"] for row in approval["kept"]
+                if isinstance(row, dict) and isinstance(row.get("path"), str)}
+        def original(relative: str) -> bytes:
+            row = by_path.get(relative)
+            if row is not None:
+                if row.get("kind") != "replace":
+                    raise ValueError("managed document replacement is malformed")
+                data = base64.b64decode(row["before"], validate=True)
+                return data
+            if relative not in kept:
+                raise ValueError("managed document is absent from the approval")
+            path = target / relative
+            if _is_symlink_or_junction(path) or not path.is_file():
+                raise ValueError("managed document is unavailable")
+            data = _read_adopt_regular_bytes(target, path)
+            if _sha256_prefixed(data) != kept[relative]:
+                raise ValueError("managed document changed")
+            return data
+        config = original(".vivary/workspace.toml").decode("utf-8")
+        context = original(".vivary/context.md").decode("utf-8")
+        raw = _toml.loads(config.removeprefix("\ufeff"))
+        workspace = raw["workspace"]
+        if workspace["contract"] != THIN_WORKSPACE_CONTRACT:
+            raise ValueError("workspace contract changed")
+        previous, hashes, legacy_roles = _installed_pattern_selection(workspace)
+        if workspace["preset"] != approval["preset"] or sorted(workspace.get("adapters", [])) != approval["adapters"]:
+            raise ValueError("workspace policy differs from approval")
+        if sorted(workspace.get("capabilities", [])) != approval["capabilities"]:
+            raise ValueError("workspace capabilities differ from approval")
+        previous_by_id = {row["id"]: row for row in previous}
+        approved_outputs = {
+            row["path"]: row["content_hash"]
+            for key in ("creates", "adapter_replacements")
+            for row in approval[key]
+        }
+        selected_hashes = {}
+        selected_files = {}
+        for row in selected:
+            prior = previous_by_id.get(row["id"])
+            if prior == row:
+                digest = hashes[row["id"]]
+            else:
+                digest = approved_outputs.get(row["path"])
+                if digest is None:
+                    raise ValueError("changed pattern output is absent from approval")
+            selected_hashes[row["id"]] = digest
+            selected_files[row["path"]] = _pattern_approved_file(row, digest).encode("utf-8")
+        expected = {
+            ".vivary/workspace.toml": _pattern_config_update(
+                config, previous, selected, hashes, selected_hashes, legacy_roles).encode("utf-8"),
+            ".vivary/context.md": _pattern_context_update(context, previous, selected).encode("utf-8"),
+        }
+        expected.update(selected_files)
+        allowed = {".vivary/workspace.toml", ".vivary/context.md", "AGENTS.md", "STATE.md", ".gitignore"}
+        allowed.update(row["path"] for row in previous)
+        allowed.update(row["path"] for row in selected)
+        return expected, allowed, set(expected)
+    except (KeyError, TypeError, ValueError, UnicodeError, ScaffoldError) as exc:
+        raise ScaffoldError(f"reconfiguration journal policy is malformed: {exc}") from exc
+
+
 def _validated_journal_state(
     target: Path,
     payload: dict,
@@ -6850,7 +7488,10 @@ def _validated_journal_state(
     if not isinstance(approval, dict):
         raise ScaffoldError("adoption journal approval payload is malformed")
     legacy_approval = set(approval) == approval_keys
-    if not legacy_approval and set(approval) != approval_keys | {"validation_inputs_hash"}:
+    reconfigure = set(approval) == approval_keys | {
+        "validation_inputs_hash", "intent", "pattern_choices",
+    } and approval.get("intent") == "reconfigure"
+    if not legacy_approval and not reconfigure and set(approval) != approval_keys | {"validation_inputs_hash"}:
         raise ScaffoldError("adoption journal approval payload is malformed")
     if not legacy_approval:
         value = approval["validation_inputs_hash"]
@@ -6882,14 +7523,14 @@ def _validated_journal_state(
         raise ScaffoldError("adoption journal approval capabilities are malformed")
     adapters = tuple(raw_adapters)
     active_context = raw_capabilities[0] if raw_capabilities else None
-    expected_bytes = _adopt_expected_generated_bytes(
-        target,
-        preset,
-        adapters,
-        active_context,
-        adopted=not legacy_approval,
-    )
-    allowed_paths = set(expected_bytes)
+    if reconfigure:
+        expected_bytes, allowed_paths, replacement_paths = _reconfiguration_journal_policy(
+            target, approval, payload)
+    else:
+        expected_bytes = _adopt_expected_generated_bytes(
+            target, preset, adapters, active_context, adopted=not legacy_approval)
+        allowed_paths = set(expected_bytes)
+        replacement_paths = {_THIN_ADAPTER_PATHS[adapter] for adapter in adapters}
     expected_actions: dict[str, dict] = {}
 
     creates = approval["creates"]
@@ -6900,6 +7541,10 @@ def _validated_journal_state(
         raise ScaffoldError("adoption journal approval actions are malformed")
     if sum(len(rows) for rows in (creates, patches, replacements, kept)) > 32:
         raise ScaffoldError("adoption journal approval exceeds the action limit")
+    if reconfigure and patches:
+        raise ScaffoldError("reconfiguration journal cannot patch unrelated guidance")
+    selected_paths = ({choice["path"] for choice in approval["pattern_choices"]}
+                      if reconfigure else set())
 
     for row in creates:
         if not isinstance(row, dict) or set(row) != {"path", "content_hash"}:
@@ -6907,6 +7552,8 @@ def _validated_journal_state(
         rel = row["path"]
         if (
             rel not in allowed_paths
+            or rel not in expected_bytes
+            or (reconfigure and rel not in selected_paths)
             or row["content_hash"] != _sha256_prefixed(expected_bytes[rel])
             or rel in expected_actions
         ):
@@ -6934,7 +7581,7 @@ def _validated_journal_state(
             raise ScaffoldError("adoption journal approved patch is not canonical")
         expected_actions[rel] = {"kind": "patch", **row}
 
-    adapter_paths = {_THIN_ADAPTER_PATHS[adapter] for adapter in adapters}
+    adapter_paths = replacement_paths
     for row in replacements:
         if not isinstance(row, dict) or set(row) != {
             "path",
@@ -6945,6 +7592,7 @@ def _validated_journal_state(
         rel = row["path"]
         if (
             rel not in adapter_paths
+            or rel not in expected_bytes
             or row["content_hash"] != _sha256_prefixed(expected_bytes[rel])
             or rel in expected_actions
         ):
@@ -6981,11 +7629,15 @@ def _validated_journal_state(
         raise ScaffoldError("adoption journal progress exceeds the action count")
     if payload["phase"] == "publishing" and completed != len(raw_actions):
         raise ScaffoldError("adoption publication intent does not cover every action")
-    if request is not None and (
-        request["options"]["adapters"] != approval["adapters"]
-        or (request["options"]["preset"] is not None and request["options"]["preset"] != approval["preset"])
-    ):
-        raise ScaffoldError("adoption request options do not match approval")
+    if request is not None:
+        options = request["options"]
+        if reconfigure:
+            if options != _pattern_request_options(approval["pattern_choices"]):
+                raise ScaffoldError("reconfiguration request options do not match approval")
+        elif (set(options) != {"preset", "adapters"}
+              or options["adapters"] != approval["adapters"]
+              or (options["preset"] is not None and options["preset"] != approval["preset"])):
+            raise ScaffoldError("adoption request options do not match approval")
 
     action_keys = {
         "path",
@@ -7537,12 +8189,25 @@ def prepare_adopt_privacy(
         raise error from exc
 
 
+def apply_workspace_change(
+    target: str | Path, *, pattern_choices, yes: bool = False,
+    plan_hash: str | None = None, request_id: str | None = None,
+    repo_root: str | Path | None = None,
+) -> dict:
+    """Use the existing adopted-folder journal for reviewed pattern changes."""
+    return adopt_workspace(
+        target, yes=yes, plan_hash=plan_hash, request_id=request_id,
+        repo_root=repo_root, pattern_choices=pattern_choices, intent="reconfigure")
+
+
 def adopt_workspace(
     target: str | Path,
     *,
     preset: str | None = None,
     adapters: tuple[str, ...] | list[str] = (),
     repo_root: str | Path | None = None,
+    pattern_choices=None,
+    intent: str = "adopt",
     yes: bool = False,
     plan_hash: str | None = None,
     recover_hash: str | None = None,
@@ -7553,9 +8218,24 @@ def adopt_workspace(
     _before_apply: Callable[[], None] | None = None,
 ) -> dict:
     """Plan read-only, or exclusively apply/recover the approved adoption."""
+    if intent not in ("adopt", "reconfigure"):
+        raise ScaffoldError("workspace change intent is not supported")
+    if recover_hash is not None and pattern_choices is not None:
+        raise ScaffoldError("recovery uses the original pattern choices; omit new choices")
+    if intent == "reconfigure":
+        if preset is not None or adapters:
+            raise ScaffoldError("guidance changes keep the installed preset and adapters")
+        if recover_hash is not None:
+            raise ScaffoldError("recovery uses the original journal intent")
+        _normalize_pattern_choices(pattern_choices)
+    elif pattern_choices is not None:
+        raise ScaffoldError("pattern choices require reviewed reconfiguration")
     if request_id is not None:
         _validate_adopt_request_id(request_id)
-        _adopt_request_options(preset, adapters)
+        if intent == "reconfigure":
+            _pattern_request_options(pattern_choices)
+        else:
+            _adopt_request_options(preset, adapters)
         if recover_hash is None and (not yes or plan_hash is None):
             raise ScaffoldError("--request-id requires ordinary apply with --yes --plan or an explicit --recover")
         if recover_hash is not None and (preset is not None or adapters):
@@ -7572,6 +8252,7 @@ def adopt_workspace(
         with exclusion:
             return _adopt_workspace(
                 resolved_target, preset=preset, adapters=adapters, repo_root=repo_root,
+                pattern_choices=pattern_choices, intent=intent,
                 yes=yes, plan_hash=plan_hash, recover_hash=recover_hash, request_id=request_id,
                 _fault_after=_fault_after, _crash_after=_crash_after,
                 _crash_before_journal=_crash_before_journal, _before_apply=_before_apply,
@@ -7590,6 +8271,8 @@ def _adopt_workspace(
     preset: str | None = None,
     adapters: tuple[str, ...] | list[str] = (),
     repo_root: str | Path | None = None,
+    pattern_choices=None,
+    intent: str = "adopt",
     yes: bool = False,
     plan_hash: str | None = None,
     recover_hash: str | None = None,
@@ -7614,13 +8297,18 @@ def _adopt_workspace(
 
     request = None
     if request_id is not None:
-        request = {"id": request_id, "options": _adopt_request_options(preset, adapters)}
+        request = {"id": request_id, "options": (
+            _pattern_request_options(pattern_choices) if intent == "reconfigure"
+            else _adopt_request_options(preset, adapters))}
         replay = _replay_adopt_request(resolved_target, request, plan_hash,
             repo_root=repo_root, before_mutation=_before_mutation)
         if replay is not None:
             return replay
 
-    plan = plan_adopt(resolved_target, preset=preset, adapters=adapters, repo_root=repo_root)
+    plan = (plan_workspace_change(resolved_target, pattern_choices=pattern_choices,
+                                  repo_root=repo_root)
+            if intent == "reconfigure" else
+            plan_adopt(resolved_target, preset=preset, adapters=adapters, repo_root=repo_root))
     target_path = plan["target"]
 
     if not yes:
@@ -7646,12 +8334,10 @@ def _adopt_workspace(
 
     if _before_apply is not None:
         _before_apply()
-    verified_plan = plan_adopt(
-        resolved_target,
-        preset=preset,
-        adapters=adapters,
-        repo_root=repo_root,
-    )
+    verified_plan = (plan_workspace_change(
+        resolved_target, pattern_choices=pattern_choices, repo_root=repo_root)
+        if intent == "reconfigure" else plan_adopt(
+            resolved_target, preset=preset, adapters=adapters, repo_root=repo_root))
     if verified_plan["plan_hash"] != plan_hash:
         raise ScaffoldError(
             "approved plan input changed before writes: "
@@ -7722,7 +8408,7 @@ def _adopt_workspace(
         # temporary record behind, so protection must exist before adoption too.
         _assert_adopt_record_privacy(target_path, private_paths)
         _assert_adopt_record_privacy(target_path, private_paths, extra_root_rules=simulated_rules)
-    backups = _adopt_backups(actions)
+    backups = _adopt_backups(target_path, actions)
     completed = 0
     privacy_is_action = bool(actions and actions[0]["path"] == target_path / ".gitignore")
     if privacy_is_action:
@@ -8313,6 +8999,9 @@ def _adopt_report_to_json(result: dict, *, mode: str) -> dict:
         "excluded_pre_existing": result["excluded_pre_existing"],
         "skipped_module_collisions": result["skipped_module_collisions"],
     }
+    for key in ("pattern_choices", "retired_kept"):
+        if key in result:
+            payload[key] = result[key]
     if mode in ("applied", "recovered") and result.get("doctor") is not None:
         payload["doctor"] = result["doctor"]
     if mode == "dry-run":
@@ -10134,6 +10823,8 @@ def build_parser(
         default=None,
         help="Vivary source checkout root (mainly for local development/tests)",
     )
+    init.add_argument("--pattern-choices", metavar="-", default=None,
+                      help="read reviewed built-in guidance choices as JSON from standard input")
     init.add_argument("--json", action="store_true", help="machine-readable output")
     init.add_argument("--dry-run", action="store_true", help="simulate without writing")
     init.add_argument(
@@ -10264,6 +10955,10 @@ def build_parser(
         default=[],
         help="add one bounded runtime projection; repeat for both supported adapters",
     )
+    adopt.add_argument("--pattern-state", action="store_true",
+                       help="read installed guidance choices without writing")
+    adopt.add_argument("--pattern-choices", metavar="-", default=None,
+                       help="review or apply built-in guidance choices from standard input")
     adopt.add_argument("--json", action="store_true", help="machine-readable output")
     adopt.add_argument(
         "--repo-root",
@@ -10644,7 +11339,19 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
     if args.command == "adopt":
         yes = getattr(args, "yes", False)
         try:
+            if args.pattern_state:
+                if yes or args.plan is not None or args.recover is not None or args.pattern_choices is not None:
+                    raise ScaffoldError("pattern state is read-only and accepts no plan or choices")
+                report = workspace_pattern_state(args.target)
+                if args.json:
+                    print(json.dumps(report, indent=2))
+                else:
+                    for row in report["choices"]:
+                        print(f"{row['id']}: {row['name']} -> {row['path']}")
+                return 0
             if args.prepare_privacy:
+                if args.pattern_choices is not None:
+                    raise ScaffoldError("privacy preparation uses its original choices; omit pattern choices")
                 if not yes or args.recover is not None or args.privacy_request != "-" or args.request_id is None:
                     raise ScaffoldError("privacy preparation requires --yes --plan --request-id --privacy-request -")
                 raw = sys.stdin.read(_ADOPT_PRIVACY_REQUEST_MAX_BYTES + 1)
@@ -10673,8 +11380,13 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
                 return 0
             if args.privacy_request is not None:
                 raise ScaffoldError("--privacy-request requires --prepare-privacy")
+            if args.recover is not None and args.pattern_choices is not None:
+                raise ScaffoldError("recovery uses the original pattern choices; omit --pattern-choices")
+            choices = _read_pattern_choices_request(args.pattern_choices)
             result = adopt_workspace(
                 args.target,
+                pattern_choices=choices,
+                intent="reconfigure" if choices is not None and args.recover is None else "adopt",
                 preset=args.preset,
                 adapters=tuple(args.adapter),
                 repo_root=args.repo_root,
@@ -10773,6 +11485,14 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
         return 2
 
     # --- init ---
+    try:
+        selected_patterns = _read_pattern_choices_request(args.pattern_choices)
+    except ScaffoldError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"create-vivary init: {exc}", file=sys.stderr)
+        return 1
     if args.reviewed or args.plan is not None:
         try:
             if not args.reviewed:
@@ -10789,6 +11509,7 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             options = dict(
                 preset=args.preset, adapters=tuple(args.adapter),
                 active_context=args.active_context,
+                pattern_choices=selected_patterns or (),
             )
             if args.dry_run:
                 if args.yes or args.plan is not None:
@@ -10849,6 +11570,7 @@ def _main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             preset=args.preset,
             adapters=tuple(args.adapter),
             active_context=args.active_context,
+            pattern_choices=selected_patterns or (),
             force=args.force,
             repo_root=args.repo_root,
             dry_run=dry_run,

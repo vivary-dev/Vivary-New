@@ -80,6 +80,34 @@ class ThinInitTests(unittest.TestCase):
             if target.exists():
                 shutil.rmtree(target)
 
+    def test_two_built_in_patterns_extend_the_reviewed_plan(self):
+        target = temp_target()
+        choices = (
+            {"id": "capture", "name": "Capture", "path": "inbox/README.md"},
+            {"id": "source-reference", "name": "Sources", "path": "sources/index.md"},
+        )
+        try:
+            plan = create_vivary.plan_thin_workspace(
+                target, preset="second-brain", pattern_choices=choices)
+            self.assertFalse(target.exists())
+            self.assertEqual({row["path"] for row in plan["files"]},
+                {".gitignore", ".vivary/context.md", ".vivary/workspace.toml",
+                 "AGENTS.md", "STATE.md", "inbox/README.md", "sources/index.md"})
+            self.assertIn("inbox/README.md",
+                next(row["content"] for row in plan["files"]
+                     if row["path"] == ".vivary/context.md"))
+            self.assertEqual(create_vivary.apply_thin_workspace(
+                target, plan["plan_sha256"], preset="second-brain",
+                pattern_choices=choices, repo_root=ROOT)["code"], "created")
+            self.assertTrue((target / "inbox/README.md").is_file())
+            self.assertTrue((target / "sources/index.md").is_file())
+            self.assertEqual(create_vivary.apply_thin_workspace(
+                target, plan["plan_sha256"], preset="second-brain",
+                pattern_choices=choices, repo_root=ROOT)["code"], "already-created")
+        finally:
+            if target.exists():
+                shutil.rmtree(target)
+
     def test_cli_init_creates_only_thin_contract_and_is_immediately_healthy(self):
         target = temp_target()
         try:

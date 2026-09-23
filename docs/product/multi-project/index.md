@@ -8,7 +8,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## Ready packet snapshot
 
-- [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md)
+None.
 
 ## In-progress packet snapshot
 

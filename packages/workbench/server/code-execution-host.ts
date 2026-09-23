@@ -1,7 +1,8 @@
 import type { CodePermissionMode } from "./code-permissions";
 import { execFile, fork, type ChildProcess, type ForkOptions, type SpawnOptions } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest, isCodexActionRequest, type CodexActionRequest } from "./code-execution-protocol";
 
@@ -94,6 +95,8 @@ export async function executeVivaryCodeWorker(input: {
               exitTimer = setTimeout(() => rejectExit(new VivaryCodeWorkerCleanupError()), EXIT_TIMEOUT_MS);
             }),
           ]);
+          clearTimeout(exitTimer);
+          if (process.platform === "linux" && child.pid) await waitForLinuxWorkerGroupExit(child.pid);
           finish(failure);
         } catch {
           cleanupBlocked = true;
@@ -177,5 +180,59 @@ export async function hardStopWorkerTree(child: ChildProcess, workerExited: bool
   }
   try { process.kill(-child.pid, "SIGKILL"); } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
+  }
+}
+
+async function linuxWorkerGroupHasLiveMember(groupId: number): Promise<boolean> {
+  let entries: string[];
+  try { entries = await readdir("/proc"); }
+  catch { throw new VivaryCodeWorkerCleanupError(); }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    let raw: string;
+    try { raw = await readFile(`/proc/${entry}/stat`, "utf8"); }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      throw new VivaryCodeWorkerCleanupError();
+    }
+    if (linuxProcStatIsLiveGroupMember(raw, groupId)) return true;
+  }
+  return false;
+}
+
+export function linuxProcStatIsLiveGroupMember(raw: string, groupId: number): boolean {
+  const end = raw.lastIndexOf(")");
+  const fields = end < 0 ? [] : raw.slice(end + 2).trim().split(/\s+/);
+  const state = fields[0];
+  const processGroup = Number(fields[2]);
+  // Kernel threads can have process group zero. They cannot be in our positive group.
+  if (fields.length < 3 || !state || !Number.isSafeInteger(processGroup) || processGroup < 0) {
+    throw new VivaryCodeWorkerCleanupError();
+  }
+  return processGroup === groupId && state !== "Z" && state !== "X";
+}
+
+export async function waitForLinuxWorkerGroupExit(
+  groupId: number, inspect = linuxWorkerGroupHasLiveMember, timeoutMs = EXIT_TIMEOUT_MS,
+): Promise<void> {
+  if (!Number.isSafeInteger(groupId) || groupId < 1) throw new VivaryCodeWorkerCleanupError();
+  const deadline = Date.now() + timeoutMs;
+  let emptyObservations = 0;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new VivaryCodeWorkerCleanupError();
+    const live = await new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new VivaryCodeWorkerCleanupError()), remaining);
+      void inspect(groupId).then(
+        value => { clearTimeout(timer); resolve(value); },
+        error => { clearTimeout(timer); reject(error); },
+      );
+    });
+    if (Date.now() >= deadline) throw new VivaryCodeWorkerCleanupError();
+    emptyObservations = live ? 0 : emptyObservations + 1;
+    // /proc traversal is not atomic. A second empty scan catches a group
+    // member that appeared after the first scan passed its PID.
+    if (emptyObservations === 2) return;
+    await delay(Math.min(20, Math.max(1, deadline - Date.now())));
   }
 }

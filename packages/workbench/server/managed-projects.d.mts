@@ -1,3 +1,4 @@
+import type { WorkspacePatternChoice, WorkspacePreset } from "../shared/workspace-patterns";
 import type { ActionRunContext } from "@agent-native/core/action";
 
 export type ManagedProjectFile = {
@@ -23,13 +24,15 @@ export type ManagedProjectPreview = {
 
 export function previewManagedProject(
   context: ActionRunContext | undefined,
-  input: { name: string },
+  input: { name: string; patternChoices?: WorkspacePatternChoice[];
+    preset?: WorkspacePreset },
   dependencies?: Record<string, unknown>,
 ): Promise<ManagedProjectPreview>;
 
 export function createManagedProject(
   context: ActionRunContext | undefined,
-  input: { name: string; displayName?: string; acceptedPlanSha256: string },
+  input: { name: string; displayName?: string; acceptedPlanSha256: string;
+    patternChoices?: WorkspacePatternChoice[]; preset?: WorkspacePreset },
   dependencies?: Record<string, unknown>,
 ): Promise<
   | { code: "plan-changed" }
@@ -40,3 +43,8 @@ export function createManagedProject(
       registration: Record<string, unknown>;
     }
 >;
+
+export function installedPatternCatalog(
+  context: ActionRunContext | undefined,
+  dependencies?: Record<string, unknown>,
+): Promise<import("../shared/workspace-patterns").WorkspacePatternCatalog>;

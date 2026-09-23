@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { summarizeAdoptionOutput } from "../app/lib/project-adoption.ts";
+import { workspacePatternChoice, workspacePatternState } from "../shared/workspace-patterns.ts";
 
 const hash = "sha256:" + "a".repeat(64);
 const changed = { operation: "patch", path: "AGENTS.md", content: "\ufeff# Owner\r\n\nManaged block\n",
@@ -56,4 +57,12 @@ test("creator refusals explain why the preview failed", () => {
   assert.deepEqual(summarizeAdoptionOutput(output({ ok: false, error: "adopt target does not exist" }, 1)), {
     kind: "unreadable", message: "Setup preview could not be prepared: adopt target does not exist",
   });
+});
+
+test("pattern limits count Unicode code points like the installed creator", () => {
+  const choice = { id: "capture", name: "😀".repeat(41), path: "notes/" + "😀".repeat(115) + ".md" };
+  assert.equal(workspacePatternChoice.safeParse(choice).success, true);
+  assert.equal(workspacePatternChoice.safeParse({ ...choice, name: "😀".repeat(81) }).success, false);
+  assert.equal(workspacePatternChoice.safeParse({ ...choice, path: "😀".repeat(238) + ".md" }).success, false);
+  assert.equal(workspacePatternState.safeParse({ ok: true, catalog: [], choices: [choice] }).success, true);
 });
