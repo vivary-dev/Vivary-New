@@ -42,7 +42,8 @@ Restart preserved the conversation and stopped status with an empty preview.
 Earlier Explorer extraction and launch remain evidence for their named
 candidates, not a new Explorer check on `df4aedc`. Independent review
 accepted this candidate. The `df4aedc` ZIP is not the public
-`9884670` prerelease. Full issues #14, #15, and #23 retain their separate
+`9884670` prerelease. The [shared plan and apply receipt](receipts/07b-shared-workspace-plan-apply.md)
+records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
 
 ## Project preview and debugging, September 22
@@ -83,11 +84,31 @@ refuses both replay and rollback. This increment does not change that boundary.
 The owner reported protected-folder Windows acceptance on source `020fe0a5`.
 The `df4aedc` Windows receipt above now covers the two-confirmation flow,
 same-account fresh-profile launch, injected renderer response loss, and a real
-agent turn. It does not replace the creator-to-service lost-result tests or
-complete the broader scopes in [#14](https://github.com/vivary-dev/Vivary-New/issues/14)
-and [#15](https://github.com/vivary-dev/Vivary-New/issues/15). The
-[issue #8 receipt](receipts/23b-windows-desktop-acceptance.md) records its
-separate Windows result.
+agent turn. The later [#14 receipt](receipts/07b-shared-workspace-plan-apply.md) records
+creator-to-service lost-result recovery and the affected Windows conflict and
+stale-review journey. Issue [#15](https://github.com/vivary-dev/Vivary-New/issues/15)
+retains its GUI creation and reconnect scope. The [issue #8 receipt](receipts/23b-windows-desktop-acceptance.md)
+records its separate first-launch result.
+
+## Shared workspace plan and apply, September 23
+
+[Issue #14's receipt](receipts/07b-shared-workspace-plan-apply.md) accepts the
+shared creator contract for new and existing folders on source `a800094`.
+PR #47's bundled and hosted new-folder checks carried forward. Seven current
+normal-app Zo cases matched Native and CLI existing-folder plans on one
+physical target, then checked exact Apply bytes, a binary retained file,
+conflicts, changed options and retained input, no-write replay, lost creator
+result, and reviewed rollback after interrupted writes.
+
+The unpublished `df4aedc` Windows package has unchanged affected app code.
+Its GUI showed an existing-target conflict with disabled Apply. Changing a
+retained binary file invalidated an approval. A fresh review applied four
+exact files and reopened the same project in the applied state after restart.
+The first Apply HTTP response and post-restart Native HTTP response were not
+captured. The visible state, disk bytes, and creator receipt support the result.
+No new model call was part of this #14 run. The earlier #8 Codex turn read the
+created guidance and context. Issue #15 still owns its separate GUI creation
+and reconnect journey. Full release acceptance remains under #23.
 
 ## Release boundary
 
@@ -435,7 +456,7 @@ automations in #51 remain open.
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and native chooser recovery. The `df4aedc` Windows run selected a Unicode folder and completed separately reviewed privacy and setup writes | Full populated-folder adoption/apply, conflict-case review, and the remaining setup/pattern journey under issues #14 and #15 |
+| Projects | Managed five-file creation, saved selection, reconnection review, unavailable-folder handling, and native chooser recovery. Issue #14 accepted shared Native/CLI plans, existing-folder conflicts, exact Apply/retry, and reviewed recovery. The `df4aedc` Windows package passed the affected conflict, stale-review, Apply, and restart journey | The separate GUI creation and reconnect scope under #15, plus later populated-folder and pattern work under #17 and #16 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
