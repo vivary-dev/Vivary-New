@@ -5,7 +5,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { executeVivaryCodeWorker } from "../server/code-execution-host.ts";
+import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, waitForLinuxWorkerGroupExit,
+  VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 
 const request = {
@@ -38,6 +39,25 @@ async function isAlive(pid: number): Promise<boolean> {
     return true;
   } catch { return false; }
 }
+
+test("Linux worker cleanup waits until every observed group member has stopped", async () => {
+  const observations = [true, false, true, false, false];
+  const checked: number[] = [];
+  await waitForLinuxWorkerGroupExit(12345, async groupId => {
+    checked.push(groupId);
+    return observations.shift() ?? false;
+  });
+  assert.deepEqual(checked, [12345, 12345, 12345, 12345, 12345]);
+});
+
+test("Linux group observation ignores valid kernel pgrp zero and refuses malformed state", async () => {
+  assert.equal(linuxProcStatIsLiveGroupMember("42 (kernel worker) S 2 0 0 0", 12345), false);
+  assert.equal(linuxProcStatIsLiveGroupMember("43 (child) S 2 12345 0 0", 12345), true);
+  assert.equal(linuxProcStatIsLiveGroupMember("43 (child) Z 2 12345 0 0", 12345), false);
+  assert.throws(() => linuxProcStatIsLiveGroupMember("malformed", 12345), VivaryCodeWorkerCleanupError);
+  await assert.rejects(waitForLinuxWorkerGroupExit(
+    12345, () => new Promise<boolean>(() => {}), 10), VivaryCodeWorkerCleanupError);
+});
 
 test("native-complete and aborted workers stop descendants before settling", { timeout: 12_000, skip: process.platform === "win32" }, async () => {
   const originalCwd = process.cwd();
