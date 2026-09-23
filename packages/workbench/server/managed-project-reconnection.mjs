@@ -16,7 +16,6 @@ import { managedProjectDataDirectory } from "./managed-projects.mjs";
 
 const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const managedName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LOCAL = "local-stat-revalidated-v1";
 const OPERATION = "reconnect-managed-folder";
 
@@ -115,17 +114,15 @@ async function loadSnapshot(tx, owner, projectId) {
     registryRevision: Number(revision.revision) };
 }
 
-async function reconnectFolder(grant, dataDir) {
+async function reconnectFolder(grant, dataDir, provider) {
   if (!path.isAbsolute(grant.canonicalPath)) {
     throw refuse("The saved project folder path is invalid.", 409);
   }
   const parent = path.dirname(grant.canonicalPath);
   const name = path.basename(grant.canonicalPath) || path.parse(grant.canonicalPath).root;
   const canonicalData = dataDir && path.isAbsolute(dataDir) ? await realpath(dataDir) : null;
-  const managed = canonicalData !== null && parent === path.join(canonicalData, "projects");
-  if (managed && (!managedName.test(name) || name.endsWith("."))) {
-    throw refuse("The recorded managed project name is invalid.", 409);
-  }
+  const managed = canonicalData !== null && parent === path.join(canonicalData, "projects")
+    && await provider.isManagedLocation(grant.locationRef, dataDir);
   let parentInfo;
   let targetInfo;
   try {
@@ -308,7 +305,7 @@ async function currentRecordedPreview(exec, snapshot, projectId) {
 async function reconcileReplay(exec, owner, request, replay, dataDir) {
   let observed;
   try {
-    const managed = await reconnectFolder(replay.newGrant, dataDir);
+    const managed = await reconnectFolder(replay.newGrant, dataDir, owner.service.provider);
     observed = await owner.service.provider.captureReplacement(owner.owner, managed.target);
     if (localRootIdentity(observed) !== localRootIdentity(replay.newGrant)) {
       throw refuse("The completed project folder changed again. Review its current identity.");
@@ -343,7 +340,7 @@ export async function previewManagedProjectReconnection(context, input, dependen
   try {
     const snapshot = await loadSnapshot(exec, owner, projectId);
     const managed = await reconnectFolder(snapshot.grant,
-      managedProjectDataDirectory(dependencies));
+      managedProjectDataDirectory(dependencies), owner.service.provider);
     observed = await owner.service.provider.captureReplacement(owner.owner, managed.target);
     await assertStillObserved(managed, observed);
     const current = await requireCurrentPreviewSnapshot(exec, owner, projectId, snapshot);
@@ -406,7 +403,7 @@ export async function confirmManagedProjectReconnection(context, input, dependen
 
     const before = await loadSnapshot(exec, owner, projectId);
     const managed = await reconnectFolder(before.grant,
-      managedProjectDataDirectory(dependencies));
+      managedProjectDataDirectory(dependencies), owner.service.provider);
     observed = await owner.service.provider.captureReplacement(owner.owner, managed.target);
     assertReplacement(before, observed);
     await assertStillObserved(managed, observed);
