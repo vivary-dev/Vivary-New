@@ -1488,7 +1488,19 @@ diff --git a/dist/client/use-chat-threads.js b/dist/client/use-chat-threads.js
 index a49a21f4f6c6500367bcc2445042669d2a875834..8a64937114afd72e725397bf3015ab75a02dfc4c 100644
 --- a/dist/client/use-chat-threads.js
 +++ b/dist/client/use-chat-threads.js
-@@ -958,6 +958,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
+@@ -641,8 +641,10 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
+             else if (!savedId && autoCreate) {
+                 // Brand new surface — synthesize a local id so the composer has a
+                 // target. No POST: the server creates the row on first send.
+-                const id = createLocalThreadId();
++                const existingNewId = activeThreadIdRef.current;
++                const id = existingNewId && newlyCreatedRef.current.has(existingNewId)
++                    ? existingNewId : createLocalThreadId();
+                 newlyCreatedRef.current.add(id);
+                 addOptimisticThread(id, scopeRef.current ?? null);
+                 setActiveThreadId(id);
+             }
+@@ -958,6 +960,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
              }
              if (!response.ok)
                  return;
@@ -1496,7 +1508,7 @@ index a49a21f4f6c6500367bcc2445042669d2a875834..8a64937114afd72e725397bf3015ab75
              emitThreadsUpdated();
              // Update local thread list metadata. If the thread isn't in our
              // local list yet (an optimistic-only thread that the server just
-@@ -994,6 +995,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
+@@ -994,6 +997,7 @@ export function useChatThreads(apiUrl = agentNativePath("/_agent-native/agent-ch
                      ...prev,
                  ]);
              });
