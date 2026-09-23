@@ -65,13 +65,15 @@ removed all 20 observed application and child processes and released the
 observed listeners. Reopening retained the project and conversation history,
 showed the stopped run as stopped, and opened with an empty preview.
 
-Earlier Windows candidates proved extraction and Explorer launch, including
-deep-path extraction. The owner directed valid completed checks to carry
-forward. A source comparison from `020fe0a5ac79ecffe1907d49f19d0584d1710053`
-to `df4aedc998580a5040ffb670dfdba821541bff9a` found no changes under
-`packages/desktop`, including the launcher and packager. This run used a
-controlled launch to isolate application data. The earlier Explorer check
-carries forward for unchanged desktop code. It was not rerun on this candidate.
+The owner directed valid completed checks to carry forward. Explorer extraction
+and launch passed on candidate `26798df3b1b4e4f6dd6c3e9eb798a9817ccaab1a`.
+A source comparison with `df4aedc998580a5040ffb670dfdba821541bff9a` confirms
+that the packager and startup paths are unchanged. The intervening desktop
+behavior change adds confirmation for opening external browser links.
+
+This run used a controlled launch to isolate application data. The earlier
+Explorer check carries forward for the unchanged packaging and startup paths.
+It was not rerun on this candidate.
 
 ## Acceptance boundary
 
