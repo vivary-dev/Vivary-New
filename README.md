@@ -59,8 +59,8 @@ after restart. Earlier setup and model-runtime journeys retain their dated evide
 Six applicable GitHub CI jobs passed on the reviewed fix head. The site job skipped.
 The historical Entire trail-approval failure remains separate from those checks.
 
-A later unpublished candidate passed populated-folder adoption in the hosted
-app and actual Windows EXE. See the [#17 receipt](docs/product/multi-project/receipts/08a-populated-folder-adoption.md).
+Later unpublished changes passed populated-folder adoption in the hosted app.
+The completed Windows EXE journey remains qualified evidence for its tested revision. See the [#17 receipt](docs/product/multi-project/receipts/08a-populated-folder-adoption.md).
 The public download above remains the earlier preview. Built-in workspace
 patterns under #16 are the next focused project increment.
 

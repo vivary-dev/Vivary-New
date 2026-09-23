@@ -3,9 +3,9 @@
 Evidence-record: 08a
 Date: 2026-09-23
 Issue: [#17](https://github.com/vivary-dev/Vivary-New/issues/17)
-Accepted source and packaged candidate: `f024979c4cf8371485054a337388d066bb75b43c`
-Hosted result: passed
-Packaged Windows result: passed
+Current product source: `2d620afcfabf7912f69819ac66f6a3e4145d33be`
+Hosted result: passed on current source
+Packaged Windows result: passed on `f024979`, carried forward as qualified below
 
 ## Result
 
@@ -19,12 +19,21 @@ Ordinary folders such as `projects`, `decisions`, and `modules` stay untyped
 unless an existing schema declares their meaning. Frontmatter containing
 `type: project` alone does not assign a schema. Ordinary Markdown stays
 available to the existing Markdown index. PDFs and other non-Markdown files
-remain in the folder but are not added to that index. The preview counts files
+remain in the folder but are not added to that index. The preview counts uppercase Markdown
+extensions as other files, matching the current index policy. The preview counts files
 in scanned folders separately from the heuristic used to suggest a workspace
 type. Hidden and dependency directories retain their scan exclusions.
 
+Vivary's internal record schemas apply only under `.vivary/records/`. Their
+schema names are separate from the owner's definitions, so a configured
+`decision` type retains its meaning. A regression previews and applies an
+internal change record in an adopted workspace, then finds it through search.
+
 Preview validates existing and proposed Markdown under the configuration that
-Apply will use. Nested schemas remain authoritative. Changes to validated
+Apply will use. Reference checks include the proposed documents, so an existing
+link to the proposed context file does not produce a false warning. Invalid
+nested configuration names the actual file. Text-mode CLI previews show the
+same conflicts and validation findings, including the offending path and code. Nested schemas remain authoritative. Changes to validated
 content or effective pack policy invalidate an old approval. Incompatible
 legacy root schemas and root-only packs require a reviewed migration. Old
 incomplete adoption journals still validate and recover with their originally
@@ -33,29 +42,31 @@ covers replay, lost response, and reviewed recovery.
 
 ## Hosted acceptance
 
+A fresh Workbench and bundled creator built from clean `2d620af` passed three
+journeys through the real hosted application. Browser registration selected an
+authorized folder on the connected host.
+
 The representative S2 fixture recreated the documented PARA shape with 400
 ordinary Markdown notes and 12 PDFs. The original research fixture was not
-available. On source `7153a020af8b08bebbc61beac219941150a3251b`, the normal
-Workbench and bundled creator registered without writing, previewed and
-cancelled, then reviewed privacy and setup as separate approvals. The ignore
-file and four setup files matched their Native review. All 412 original files
-kept their hashes, lengths, and modification times. The final tree had 417
-files. Files and guidance opened after Apply and after restart with the same
-selected project. The review controls remained usable at 390 pixels. Doctor
-reported 403 nodes, zero edges, and zero broken links. These plain notes did
-not require graph edges. No model call was requested.
+available. Registration and Preview/Cancel made no project writes. Separate
+privacy and setup approvals wrote the exact reviewed ignore file and four
+setup files. All 412 original files kept their bytes, lengths and modification
+times. The final tree had 417 files. Files and readable guidance opened after
+Apply and after restart with the same selected project. The confirmation
+controls remained usable at 390 pixels. No model call was requested.
 
-Source `f024979` changed only the inventory count and its explanatory wording
-after that S2 journey. Independent review accepted carrying forward the S2
-result for that scenario. A fresh Workbench and creator build at `f024979`
-passed the mixed-schema hosted GUI case. Preview reported four Markdown and
-two other files. It showed E101 for a declared decision missing its required
-date and disabled approval. An ordinary note with `type: project` frontmatter
-and a valid declared decision had no findings. Cancel preserved all six
-existing files, and the findings remained readable at 390 pixels.
+The mixed-schema folder retained its own decision schema. Preview reported
+four Markdown and two other files, displayed E101 for a decision missing its
+required date, and disabled approval. An ordinary note with `type: project`
+frontmatter and a valid declared decision had no findings. Cancel preserved
+all six existing files. The findings remained readable at 390 pixels.
 
-An earlier mixed-case driver stopped because the old preview reported one
-Markdown and one other file. That run is failed evidence, not acceptance.
+A focused preview used an existing `.gitignore`, lowercase Markdown, uppercase
+Markdown extensions and a PDF. It counted one indexed Markdown file and four
+other files. The rendered plan showed the ignore-file append with the owner's
+existing text, and both preservation statements allowed reviewed changes.
+Cancel left all five originals unchanged. The file preview and confirmation
+controls remained usable at 390 pixels.
 
 ## Packaged Windows acceptance
 
@@ -88,13 +99,22 @@ The post-restart Native HTTP response was not captured. The selected GUI
 route, readable guidance, and unchanged disk state support the restart result
 without claiming that response.
 
+The `f024979` EXE journey is retained packaged integration evidence. The later
+schema, validation, CLI, inventory and copy fixes passed current-source hosted
+checks and automated Windows CI. They have not been exercised inside an EXE
+built from `2d620af`. No Native picker, project identity, adoption executor or
+packaging code changed in those fixes. Final ticket #23 still requires its
+complete journey against the exact release artifact.
+
 ## Verification and limits
 
 From the repository root on Zo, the eight applicable creator scripts in
-`.github/workflows/ci.yml` passed on clean `f024979`: 370 tests passed and eight
+`.github/workflows/ci.yml` passed on clean `2d620af`: 375 tests passed and eight
 were skipped. Exact-workflow Workbench state transport and maintained checks,
 Native doctor, repository contracts, and `git diff --check` also passed.
-The unchanged Tropo direct runner had passed 204 tests during source review.
+The updated Tropo direct runner passed 205 tests during source review.
+Independent review approved the product fixes and the text-mode recovery
+compatibility correction. The seven reported PR findings were addressed.
 The private continuation handoff holds test logs, disposable fixture manifests,
 GUI captures, and the Windows evidence manifest. Those records are not shipped
 in this repository.

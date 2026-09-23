@@ -97,6 +97,14 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
   [acceptance receipt](../receipts/08a-populated-folder-adoption.md).
   Parent packet 08 and desktop release acceptance remain open.
 
+- 2026-09-23: PR review fixes accepted on `2d620af` after focused regressions,
+  independent review, fresh hosted S2 adoption, mixed-schema refusal and an
+  existing ignore-file patch preview. All seven GitHub CI jobs passed, including
+  Windows. Internal records retain their own schemas without colliding with
+  owner types. The `f024979` actual-EXE journey carries forward as packaged
+  integration evidence. The final source has not run inside a new EXE. Final
+  ticket #23 still owns its exact release artifact acceptance.
+
 ## Shared desktop and web behavior
 
 Browser adoption selects an authorized folder on the connected host. Narrow layouts must preserve the complete file-change and conflict preview before apply.
