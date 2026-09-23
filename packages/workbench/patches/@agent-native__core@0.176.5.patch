@@ -1219,7 +1219,15 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..653cd535c3ebfa27b8ce229bfd6c4d60
          });
      }, [
          activeThreadId,
-@@ -1122,7 +1131,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1115,15 +1124,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+     useEffect(() => {
+-        if (isLoading || autoCreatingRef.current)
++        if (isLoading || autoCreatingRef.current || props.hostComposerDraft)
+             return;
+         if (openTabIds.length === 0 && !activeThreadId) {
+             autoCreatingRef.current = true;
+             void createThread().then((id) => {
+                 autoCreatingRef.current = false;
                  if (id) {
                      newThreadIds.current.add(id);
                      setOpenTabIds([id]);
@@ -1228,6 +1236,8 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..653cd535c3ebfa27b8ce229bfd6c4d60
                  }
              });
          }
+-    }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl]);
++    }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl, props.hostComposerDraft]);
 @@ -1533,7 +1542,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          const id = await createThread();
          if (id) {
