@@ -120,7 +120,7 @@ async function reconnectFolder(grant, dataDir) {
     throw refuse("The saved project folder path is invalid.", 409);
   }
   const parent = path.dirname(grant.canonicalPath);
-  const name = path.basename(grant.canonicalPath);
+  const name = path.basename(grant.canonicalPath) || path.parse(grant.canonicalPath).root;
   const canonicalData = dataDir && path.isAbsolute(dataDir) ? await realpath(dataDir) : null;
   const managed = canonicalData !== null && parent === path.join(canonicalData, "projects");
   if (managed && (!managedName.test(name) || name.endsWith("."))) {

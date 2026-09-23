@@ -360,6 +360,38 @@ test("an owner explicitly reconnects one recorded local folder", async suite => 
       assert.equal((await catalog.run({}, context)).projects[0].status, "available");
     });
 
+    await suite.test("a filesystem root has a nonempty reviewed folder name", async () => {
+      const rootOrgId = "reconnect-root-test-org";
+      const rootContext = { ...context, orgId: rootOrgId };
+      const rootActionContext = { ...actionContext, orgId: rootOrgId };
+      const filesystemRoot = path.parse(fixture).root;
+      await getDb().insert(organizations).values({ id: rootOrgId, name: "Root path test",
+        createdBy: email, createdAt: Date.now() });
+      await getDb().insert(orgMembers).values({ id: "reconnect_root_test_member", orgId: rootOrgId,
+        email, role: "owner", joinedAt: Date.now() });
+      await provider.resolveGrant(rootContext);
+      const rootGrant = await provider.addGrantedFolder(rootContext, filesystemRoot);
+      const rootCatalog = await catalog.run({}, rootContext);
+      const rootProject = await registry.registration.run({
+        operationId: "reconnect-register-root",
+        expectedPolicyRevision: rootCatalog.policyRevision,
+        expectedRegistryRevision: rootCatalog.registryRevision,
+        locationRef: rootGrant.locationRef, displayName: "Filesystem root",
+        contentIdentity: null, attachProjectId: null,
+      }, rootContext);
+      assert.equal(rootProject.code, "registered");
+      await mutateSetting(localRootInventoryKey(email, rootOrgId), current => ({
+        ...current, grants: current.grants.map(grant => grant.locationRef === rootGrant.locationRef
+          ? { ...grant, ino: grant.ino === "1" ? "2" : "1" } : grant),
+      }));
+      const preview = await previewManagedProjectReconnection(rootActionContext,
+        { projectId: rootProject.projectId });
+      assert.equal(preview.folderName, filesystemRoot);
+      assert.equal(preview.folderPath, filesystemRoot);
+      assert.equal(preview.folderKind, "external");
+      assert.equal(preview.identityChanged, true);
+    });
+
     await suite.test("external folder recovery checks the saved path and changed parent", async () => {
       await rename(alpha, path.join(fixture, "moved-current"));
       await symlink(path.join(fixture, "moved-current"), alpha, "dir");
