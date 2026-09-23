@@ -46,6 +46,25 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
 
+## Populated-folder adoption, September 23
+
+[Issue #17's receipt](receipts/08a-populated-folder-adoption.md) records the
+reviewed `f024979` adoption change and its hosted and unpublished packaged
+Windows journeys. The representative S2 folder had 400 ordinary Markdown
+notes and 12 PDFs. The normal GUI registered it without writes, previewed
+and cancelled, then approved privacy and setup separately. Four reviewed
+setup files matched Native hashes. All original files stayed unchanged.
+Files and guidance opened after Apply and restart under the same project.
+
+A mixed-schema folder showed four Markdown and two other files, reported
+E101 for an invalid declared decision, disabled confirmation, and preserved
+all six existing files after Cancel. Ordinary `type: project` frontmatter
+did not become a schema. The Windows restart retained readable S2 guidance,
+and the original installed profiles remained unchanged. No model call ran.
+The packaged Workbench still reports `sourceCommitVerified: false`, and the
+post-restart Native HTTP response was not captured. The public `9884670`
+prerelease does not contain this unpublished candidate.
+
 ## Project preview and debugging, September 22
 
 [Issue #31's receipt](receipts/11e-live-project-preview.md) records reviewed
@@ -503,7 +522,7 @@ automations in #51 remain open.
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
-| Projects | Managed five-file creation, saved selection, and native chooser recovery. Issue #14 accepted shared Native/CLI plans and the `df4aedc` Windows conflict, stale-review, Apply, and restart journey. The exact `27499cf` hosted and packaged Windows GUI passed external setup, explicit reconnect, files, and restart under #15 | Populated-folder and pattern work under #17 and #16 |
+| Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. The `f024979` hosted and packaged Windows GUI passed populated-folder adoption, preserved originals, and exposed mixed-schema blockers under #17 | Built-in pattern composition under #16 and remaining parent packet 08 scope |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |

@@ -80,6 +80,8 @@ pattern catalogs remain later additions, not blockers for the first useful flow.
 - 2026-09-23: The 07d GUI and packaged Windows creation journey passed.
   This packet is ready to claim after issue #15 merges. Keep existing user
   content and preset aliases through reconfiguration.
+- 2026-09-23: Issues #15 and #17 passed their accepted GUI journeys. This
+  packet is the next ready project increment. Parent packet 07 remains open.
 
 ## Shared desktop and web behavior
 

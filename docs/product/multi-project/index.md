@@ -12,7 +12,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## In-progress packet snapshot
 
-- [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.

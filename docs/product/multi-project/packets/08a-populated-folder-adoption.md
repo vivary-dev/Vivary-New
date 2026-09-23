@@ -2,11 +2,13 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/17
 Parent: 08
-Status: in-progress
+Status: done
 Depends-on: [07b]
 Owner: Root-assigned adoption integrator, sole writer
 Scope: Fix verified folder-name/type collisions and plan/apply disagreement, then expose preservation-focused adoption in the GUI.
 Verification-kind: runtime
+Evidence: [Populated-folder adoption acceptance](../receipts/08a-populated-folder-adoption.md)
+Verification-result: passed
 Timebox: One coherent user-visible increment with focused checks and review.
 
 ## Goal
@@ -86,6 +88,14 @@ Semantic indexing, PDF extraction, and external templates are separate capabilit
   type inference from newly adopted ordinary folders. Preview and apply must
   report the same validation blockers and unsupported-content boundary.
   Acceptance remains pending.
+
+- 2026-09-23: Accepted on source `f024979` after review, exact-workflow checks,
+  representative S2 hosted GUI adoption, mixed-schema refusal, and packaged
+  Windows S2 and mixed-folder journeys. Preview reports retained content and
+  configured validation findings before writes. Original files and the
+  installed profile remained unchanged. See the
+  [acceptance receipt](../receipts/08a-populated-folder-adoption.md).
+  Parent packet 08 and desktop release acceptance remain open.
 
 ## Shared desktop and web behavior
 
