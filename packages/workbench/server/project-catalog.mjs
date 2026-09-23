@@ -80,7 +80,7 @@ export function createProjectCatalog({ readScope, provider, locationLabels, canR
       if (!previous || previous.status !== "available") byProject.set(record.projectId, {
         projectId: record.projectId, displayName: record.displayName,
         bindingRevision: record.bindingRevision, status,
-        managedReconnectEligible: status === "unavailable"
+        reconnectEligible: status === "unavailable"
           && bindingCounts.get(record.projectId) === 1
           && record.verificationKind === "local-stat-revalidated-v1"
           && reconnectable.get(record.locationRef) === true,
