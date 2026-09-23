@@ -139,7 +139,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
     <p>Vivary could not load your last conversation. Its history is preserved.</p>
     <Button variant="outline" onClick={() => void selection.refetch()}>Retry history</Button>
   </div>;
-  return <section aria-label="Native chat" className="h-full min-h-0 w-full">
+  return <section aria-label="Native chat" className="flex h-full min-h-0 w-full flex-col">
     {selectionSaveError && <div className="local-agent-notice" role="alert">
       <span>Your conversation selection could not be saved.</span>
       <Button variant="outline" size="sm" onClick={() => void saveLatestThread()}>Retry selection</Button>
@@ -169,7 +169,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
           </Button>)}
       <Button variant="ghost" size="sm" onClick={() => void draft.discard(selectedThread)}>Discard draft</Button>
     </div>}
-    <AgentChatSurface key={identity.storageKey} mode="page" className="h-full min-h-0"
+    <AgentChatSurface key={identity.storageKey} mode="page" className="min-h-0 flex-1"
       storageKey={identity.storageKey} scope={identity.scope} isolateHistoryByScope
       contextNamespace={`vivary-native:${identity.storageKey}`}
       agentChatSurface="app" chatOnly codeAccess={{ enabled: false }}

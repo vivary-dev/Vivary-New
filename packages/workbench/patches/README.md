@@ -123,6 +123,9 @@ state. The key includes the owner, project, chat surface, and conversation.
 Drafts are not messages and restoring one does not start execution. A conversation
 with only an unsent draft may not have a Native thread row yet. If Native reports
 that row missing, authenticated draft state retains its exact conversation ID.
+Native also retains an ID that its own lifecycle marks as newly created, before
+the first draft or message has been saved. An unknown missing ID keeps the normal
+not-found behavior.
 Existing thread rows still load their message history normally, even when they
 also have an unsent draft.
 

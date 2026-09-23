@@ -953,7 +953,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..8fda488b9e2d9052caa5062944fedd4b
      ]);
 +    useEffect(() => {
 +        if (threadRestoreError !== "not-found" || !hostComposerDraft || !threadId ||
-+            !hostComposerDraft.hasDraftStateForThread(threadId))
++            !(isNewThread || hostComposerDraft.hasDraftStateForThread(threadId)))
 +            return;
 +        // Native intentionally has no thread row for an unsent optimistic tab.
 +        // A host-owned draft or tombstone retains that exact ID after a 404.
@@ -1284,7 +1284,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..653cd535c3ebfa27b8ce229bfd6c4d60
                                          }
                                      }, threadId: tabId, tabId: tabId, browserTabId: browserTabId, contextScope: scope, contextNamespace: contextNamespace, isolateHistoryByScope: isolateHistoryByScope, isActiveComposer: tabId === activeThreadId, apiUrl: apiUrl, isNewThread: newThreadIds.current.has(tabId) || isNewThread(tabId), onThreadRestoreNotFound: tabId === activeThreadId &&
 +                                        (!props.hostComposerDraft || (props.hostComposerDraft.isReady(tabId) &&
-+                                            !props.hostComposerDraft.hasDraftStateForThread(tabId))) &&
++                                            !props.hostComposerDraft.hasDraftStateForThread(tabId) && !newThreadIds.current.has(tabId) && !isNewThread(tabId))) &&
                                          (props.agentChatSurface !== "desktop" ||
                                              props.desktopIdentityAuthenticated === true)
                                          ? clearActiveTab
