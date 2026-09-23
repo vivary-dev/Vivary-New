@@ -82,12 +82,12 @@ See the [current desktop acceptance register](desktop-acceptance-status.md) for 
 | --- | --- | --- |
 | Desktop | Private candidates passed Explorer extraction/launch, packaged runtime use, second-instance reuse, restart continuity, and cleanup | Clean-profile setup, upgrade/removal behavior, and final desktop/web acceptance |
 | Agent loop | Windows Codex file work, session continuity, native action decisions, subagent cards, long commands, active-command Stop, and shutdown. Remote permission-setting and retained activity checks | Broader cross-runtime integration, real Native-provider turns, automation execution, and external provider-log acceptance |
-| Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection | Existing-folder apply/adoption |
+| Projects | Registration, saved selection, reviewed new-folder creation, managed-folder reconnection, and issue #14's shared Native/CLI plan and apply for existing folders | Issue #15's complete GUI setup and reconnect journey, then #17's broader populated-folder adoption |
 | History | Retained Code transcripts, Native storage, and one central workspace | Pagination, content search, and restart drafts |
 | Memory | Original file contracts, Tropo retrieval, optional role metadata | Load, retrieve, save, correct, and forget through actual agent runs |
 | Files | Tree navigation, formatted reading, explicit Edit/Save/Rename, conflict recovery | Exact file search and broader file capabilities under their owning issues |
 | Browser experience | [Issue #31](receipts/11e-live-project-preview.md) verifies reviewed project commands, isolated live preview, responsive controls, and real agent repair on Zo | Explicit authenticated phone routing, packaged preview journeys, and supported agent image viewing |
-| Original Vivary | Bundled ten-verb standalone CLI and bounded preview/evaluation app adapter | Issue #14 accepted shared new-folder and existing-folder plan/apply. Issue #15 retains its separate GUI creation and reconnect scope |
+| Original Vivary | Bundled ten-verb standalone CLI, bounded preview/evaluation app adapter, and issue #14's shared new-folder and existing-folder creator operations | GUI and agent use of the remaining original operations under their owning issues |
 
 Checkpoint, 2026-09-16: the published private `26798df` Windows candidate passed
 the focused journeys in the [acceptance register](desktop-acceptance-status.md).

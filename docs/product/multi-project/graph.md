@@ -13,7 +13,7 @@ This graph is a snapshot of recorded metadata and retained evidence.
 The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
-Frontier snapshot: none.
+Frontier snapshot: 07d.
 In-progress snapshot: none.
 
 ## Packet references
@@ -34,7 +34,7 @@ In-progress snapshot: none.
 | [07a: Describe workspace roles and patterns without changing files](packets/07a-workspace-role-contract.md) | 07 | done | [] |
 | [07b: Share a file-content plan and apply path between GUI and CLI](packets/07b-shared-workspace-plan-apply.md) | 07 | done | [07a] |
 | [07c: Compose built-in workspace patterns and reconfigure an existing project](packets/07c-builtin-patterns-reconfiguration.md) | 07 | needs-info | [07d] |
-| [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) | 07 | needs-info | [07b, 06g] |
+| [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md) | 07 | ready-for-agent | [07b, 06g] |
 | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | needs-info | [07b] |
 | [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |
 | [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) | 09 | done | [] |

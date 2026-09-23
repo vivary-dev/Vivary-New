@@ -8,7 +8,7 @@ The packet lists below are snapshots of recorded metadata.
 
 ## Ready packet snapshot
 
-None.
+- [07d: Create and open a Vivary workspace through the GUI](packets/07d-create-workspace-through-gui.md)
 
 ## In-progress packet snapshot
 
