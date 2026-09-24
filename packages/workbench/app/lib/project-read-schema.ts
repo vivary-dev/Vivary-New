@@ -12,7 +12,7 @@ export type ProjectReadOperation = typeof PROJECT_READ_OPERATIONS[number];
 
 export const projectReadQuerySchema = z.string().trim().min(1).max(4_000)
   // The original CLI reads its query right after the verb and refuses `--`.
-  .refine(value => !value.startsWith("-"), { message: "The question must not start with a dash." });
+  .refine(value => !value.startsWith("-"), { message: "The question must not start with a dash" });
 export const projectReadKSchema = z.number().int().min(1).max(20);
 export const projectReadBudgetSchema = z.number().int().min(64).max(4_000);
 
@@ -38,11 +38,11 @@ function optionsMatchOperation(input: { operation: ProjectReadOperation } & Part
   const allowed: readonly string[] = OPTIONS[input.operation];
   for (const name of OPTION_NAMES) {
     if (input[name] !== undefined && !allowed.includes(name)) {
-      context.addIssue({ code: "custom", path: [name], message: `${name} does not apply to ${input.operation}.` });
+      context.addIssue({ code: "custom", path: [name], message: `${name} does not apply to ${input.operation}` });
     }
   }
   if (input.operation === "find" && input.query === undefined) {
-    context.addIssue({ code: "custom", path: ["query"], message: "find needs a query." });
+    context.addIssue({ code: "custom", path: ["query"], message: "find needs a query" });
   }
 }
 

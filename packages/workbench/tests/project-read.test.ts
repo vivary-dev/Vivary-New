@@ -408,6 +408,12 @@ test("the Native tool refuses caller projects, personal and legacy chats, and ma
     const result = await call(scope("project-a"), input);
     assert.equal(result.status, "failed", JSON.stringify(input));
   }
+  for (const [input, message] of [[{ operation: "find" }, "find needs a query"],
+    [{ operation: "find", query: "--root /outside" }, "The question must not start with a dash"],
+    [{ operation: "doctor", query: "x" }, "query does not apply to doctor"]] as const) {
+    const result = await call(scope("project-a"), input);
+    assert.ok(result.output.includes(`query: ${message}. Received:`), result.output);
+  }
   for (const chatScope of [scope(null), createVivaryChatIdentity(ownerEmail, orgId, { kind: "unassigned" }).scope, undefined]) {
     const result = await call(chatScope, { operation: "doctor" });
     assert.equal(result.status, "failed");
