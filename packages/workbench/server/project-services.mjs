@@ -391,7 +391,6 @@ function localService(context, tool) {
 export async function matchChatProject(context) {
   const tool = context?.caller === "tool";
   const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
-  // Loaded on first use, so the registry scripts that import this module do not load Core's server.
   const { getRequestRunContext } = await import("@agent-native/core/server");
   const scope = getRequestRunContext()?.chatScope;
   if (scope?.type !== "workspace-app") return null;

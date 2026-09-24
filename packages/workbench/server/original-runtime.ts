@@ -245,10 +245,10 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   const required = policy.receipt !== "reads-log" && policy.required;
   // `logs` reads the shared log, and a required receipt must be writable before its command runs.
   if (policy.receipt === "reads-log" || required) await requireReceiptFile(receiptLog);
-  // One private folder per command holds its component's receipt and control's request file.
-  const privateDir = await mkdtemp(path.join(receiptDir, "run-"))
-    .catch(() => required ? receiptDirectoryError() : undefined);
-  const componentLog = privateDir && policy.receipt === "component" ? path.join(privateDir, "receipts.jsonl") : undefined;
+  // A component's private folder holds its receipt, and control's request file.
+  const privateDir = policy.receipt !== "component" ? undefined
+    : await mkdtemp(path.join(receiptDir, "run-")).catch(() => required ? receiptDirectoryError() : undefined);
+  const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
   return {
     privateDir,
     childLog: policy.receipt === "reads-log" ? receiptLog : componentLog,
