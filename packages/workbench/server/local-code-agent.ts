@@ -65,6 +65,7 @@ export type VivaryCodeRunSummary = Pick<
   engine: VivaryCodeEngine;
   engineLabel: string;
   model: string;
+  draftThreadId: string | null;
 };
 
 export type VivaryCodeRunState = VivaryCodeRunSummary & {
@@ -88,7 +89,7 @@ export type VivaryCodeWorkspace = Readonly<{
   bindingRevision?: number;
 }>;
 
-type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
+export type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
 
 export type VivaryCodePendingApproval = CodexActionRequest & {
   runId: string;
@@ -271,6 +272,36 @@ export async function getVivaryCodeHostState(
   };
 }
 
+export function linkedCodeDraftRuns(ownerEmail: string, orgId: string, scope: VivaryCodeReadScope | undefined,
+  draftThreadIds: readonly string[]): Map<string, Pick<VivaryCodeRunSummary, "id" | "title" | "updatedAt" | "engineLabel">> {
+  const wanted = new Set(draftThreadIds);
+  const linked = new Map<string, Pick<VivaryCodeRunSummary, "id" | "title" | "updatedAt" | "engineLabel">>();
+  if (wanted.size === 0) return linked;
+  const runs = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID);
+  for (const run of runs) {
+    if (scope ? !isOwnedRun(run, ownerEmail, orgId, scope)
+      : !isOwnedIdentity(run, ownerEmail, orgId) || metadataString(run, "projectId") !== null) continue;
+    const draftThreadId = runDraftThreadId(run);
+    if (!draftThreadId || !wanted.has(draftThreadId) || linked.has(draftThreadId)) continue;
+    linked.set(draftThreadId, { id: run.id, title: run.title, updatedAt: run.updatedAt,
+      engineLabel: engineLabelFromRun(run) });
+    if (linked.size === wanted.size) break;
+  }
+  return linked;
+}
+
+export function hasOwnedVivaryCodeSubmit(
+  ownerEmail: string, orgId: string | undefined, scope: VivaryCodeReadScope | undefined,
+  draftThreadId: string, submitId: string,
+): boolean {
+  const runs = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID).filter(run =>
+    scope ? isOwnedRun(run, ownerEmail, orgId, scope)
+      : isOwnedIdentity(run, ownerEmail, orgId) && metadataString(run, "projectId") === null);
+  return runs.some(run => listCodeAgentTranscriptEvents(run.id).some(event =>
+    event.kind === "user" && event.metadata?.draftThreadId === draftThreadId
+      && event.metadata?.draftSubmitId === submitId));
+}
+
 export async function getVivaryCodeState(
   ownerEmail: string,
   runId?: string,
@@ -331,6 +362,8 @@ export async function sendVivaryCodeMessage(input: {
   model?: string;
   engine?: VivaryCodeEngine;
   runId?: string;
+  draftSubmitId?: string;
+  draftThreadId?: string;
   workspace?: VivaryCodeWorkspace;
   revalidateWorkspace?: () => Promise<VivaryCodeWorkspace | undefined>;
 }): Promise<VivaryCodeState> {
@@ -396,13 +429,16 @@ export async function sendVivaryCodeMessage(input: {
         bindingRevision: workspace.bindingRevision,
       } : {}),
       codexPermissionMode: permissionMode,
+      ...(input.draftThreadId ? { draftThreadId: input.draftThreadId } : {}),
     },
   });
 
   const executionMessage = existing && !(selectedEngine === "codex-cli" && metadataString(run, "codexSessionId"))
     ? buildVivaryCodeFollowUpPrompt(listCodeAgentTranscriptEvents(run.id), input.message) : input.message;
   appendCodeAgentTranscriptEvent({ runId: run.id, kind: "user", message: input.message,
-    metadata: { source: "vivary-workbench", permissionMode } });
+    metadata: { source: "vivary-workbench", permissionMode,
+      ...(input.draftSubmitId && input.draftThreadId ? { draftSubmitId: input.draftSubmitId,
+        draftThreadId: input.draftThreadId } : {}) } });
   updateCodeAgentRunRecord(run.id, { status: "queued", phase: "queued", needsApproval: false,
     metadata: { pendingLaunch: undefined, codexPermissionMode: permissionMode } });
   startVivaryCodeRun({ runId: run.id, message: executionMessage, engine: selectedEngine, model: selectedModel,
@@ -741,6 +777,27 @@ function metadataNumber(run: Pick<CodeAgentRunRecord, "metadata">, key: string):
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
+const legacyRunDraftIds = new Map<string, { updatedAt: string; draftThreadId: string | null }>();
+
+function runDraftThreadId(run: CodeAgentRunRecord): string | null {
+  const projectId = metadataString(run, "projectId");
+  const prefix = "vivary-code:" + (projectId ? "project:" + projectId + ":" : "");
+  let candidate = metadataString(run, "draftThreadId");
+  if (!candidate) {
+    let cached = legacyRunDraftIds.get(run.id);
+    if (!cached || cached.updatedAt !== run.updatedAt) {
+      const first = listCodeAgentTranscriptEvents(run.id).find(event =>
+        event.kind === "user" && typeof event.metadata?.draftThreadId === "string");
+      cached = { updatedAt: run.updatedAt, draftThreadId: typeof first?.metadata?.draftThreadId === "string"
+        ? first.metadata.draftThreadId : null };
+      legacyRunDraftIds.set(run.id, cached);
+    }
+    candidate = cached.draftThreadId;
+  }
+  return candidate?.startsWith(prefix) && /^[A-Za-z0-9_-]{1,128}$/.test(candidate.slice(prefix.length))
+    ? candidate : null;
+}
+
 function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
   return {
     id: run.id,
@@ -751,6 +808,7 @@ function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
     engine: engineFromRun(run),
     engineLabel: engineLabelFromRun(run),
     model: modelFromRun(run),
+    draftThreadId: runDraftThreadId(run),
   };
 }
 

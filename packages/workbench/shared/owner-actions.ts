@@ -1,6 +1,6 @@
 // Only these owner actions accept the private proxy session transport.
 export const VIVARY_OWNER_ACTIONS = [
-  "vivary-code-send", "vivary-code-stop", "vivary-code-approve", "vivary-code-deny",
+  "vivary-chat-draft", "vivary-code-send", "vivary-code-stop", "vivary-code-approve", "vivary-code-deny",
   "vivary-register-project", "vivary-connect-project-folder",
   "vivary-project-file-save", "vivary-project-file-rename",
   "vivary-preview-new-project", "vivary-create-new-project", "vivary-workspace-pattern-catalog",

@@ -3,10 +3,13 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
+import { codeDraftSelectionKey } from "../../../shared/code-draft";
+import { useChatDraftList } from "@/lib/chat-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
+import { useNativeActionCaller } from "@/lib/native-actions";
 import { useProjects } from "../projects/ProjectContext";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 import { CodeHistory } from "./CodeHistory";
@@ -26,6 +29,12 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   const projectId = activeProject?.projectId ?? null;
   const location = useLocation();
   const navigate = useNavigate();
+  const { call } = useNativeActionCaller();
+  const creationGeneration = useRef(0);
+  const latestLocationKey = useRef(location.key);
+  latestLocationKey.current = location.key;
+  const creatingNative = useRef(false);
+  useEffect(() => () => { creationGeneration.current++; }, [identity.storageKey]);
   const params = new URLSearchParams(location.search);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string>();
@@ -38,6 +47,11 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     placeholderData: previous => previous?.projectId === projectId ? previous : undefined,
   });
   const code = historyAvailable && state.data?.projectId === projectId ? state.data : undefined;
+  const draftList = useChatDraftList({ kind: identity.kind, projectId: identity.projectId },
+    identity.storageKey, historyAvailable);
+  const codeDraftList = useChatDraftList({ kind: "code", projectId },
+    identity.storageKey + ":code", historyAvailable);
+  const recentCodeRunIds = new Set(code?.runs.map(run => run.id));
   const refreshThreads = native.refreshThreads;
   useEffect(() => {
     window.addEventListener("agent-chat:threads-updated", refreshThreads);
@@ -58,21 +72,60 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       titleText: thread.title || thread.preview || "Untitled conversation",
       subtitle: "Native chat", timestamp: undefined, updatedAt: thread.updatedAt, pinned: Boolean(thread.pinnedAt),
     })),
+    ...(draftList.data?.drafts ?? []).filter(draft => !native.threads.some(thread =>
+      thread.id === draft.threadId && thread.messageCount > 0)).map(draft => ({
+      id: `native:${draft.threadId}`, title: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+      titleText: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+      subtitle: "Native chat", timestamp: draft.status === "pending" ? "Review send" : "Draft", updatedAt: draft.createdAt, pinned: false,
+    })),
+    ...(codeDraftList.data?.drafts ?? []).filter(draft => draft.run && !recentCodeRunIds.has(draft.run.id))
+      .map(draft => ({ id: `code:${draft.run!.id}`, title: draft.run!.title, titleText: draft.run!.title,
+        subtitle: draft.run!.engineLabel, timestamp: "Saved follow-up", updatedAt: Date.parse(draft.run!.updatedAt), pinned: false })),
+    ...(codeDraftList.data?.drafts ?? []).filter(draft => !draft.run)
+      .flatMap(draft => {
+        const key = codeDraftSelectionKey(projectId, draft.threadId);
+        return key ? [{ id: `code-draft:${key}`, title: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+          titleText: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+          subtitle: "Code conversation", timestamp: draft.status === "pending" ? "Review send" : "Draft", updatedAt: draft.createdAt, pinned: false }] : [];
+      }),
   ].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   const isNative = params.get("runtime") === "native";
   const selected = isNative
     ? params.get("history") === "unassigned" ? null : `native:${params.get("thread") ?? native.activeThreadId}`
-    : params.get("run") === "new" ? null : `code:${params.get("run") ?? code?.runs.find(isCodeAgentRunActive)?.id ?? code?.run?.id}`;
+    : params.get("run") === "new" ? (params.get("draft") ? `code-draft:${params.get("draft")}` : null)
+      : `code:${params.get("run") ?? code?.runs.find(isCodeAgentRunActive)?.id ?? code?.run?.id}`;
   function newCode() {
+    creationGeneration.current++;
     setMenuOpen(false);
     navigate("/?run=new&draft=" + crypto.randomUUID());
   }
   async function newNative() {
+    if (creatingNative.current) return;
+    creatingNative.current = true;
+    const generation = ++creationGeneration.current;
+    const locationKey = location.key;
+    const stillCurrent = () => generation === creationGeneration.current
+      && latestLocationKey.current === locationKey;
     setMenuOpen(false);
     setError(undefined);
-    const threadId = await native.createThread();
-    if (threadId) navigate(`/?runtime=native&thread=${encodeURIComponent(threadId)}`);
-    else setError("The conversation could not be created. Try again.");
+    try {
+      const threadId = await native.createThread();
+      if (!stillCurrent()) return;
+      if (!threadId) throw new Error("No conversation ID was created.");
+      const scope = { kind: identity.kind, projectId: identity.projectId, threadId };
+      // An empty Native conversation has no server thread row. Record its exact
+      // optimistic ID with the existing draft owner before opening the route.
+      const initialized = await call<{ changed: boolean; record: { status: string } | null }>(
+        "vivary-chat-draft", { operation: "change", ...scope, expected: null,
+          next: { status: "cleared", text: "", submitId: null } });
+      if (!stillCurrent()) return;
+      if (!initialized.changed || initialized.record?.status !== "cleared") throw new Error("Draft initialization failed.");
+      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
+    } catch {
+      if (stillCurrent()) setError("The conversation could not be saved. Try again.");
+    } finally {
+      creatingNative.current = false;
+    }
   }
   const history = useChatHistoryRailController({ items: sessions,
     onNewChat: () => { if (isNative && params.get("history") !== "unassigned") void newNative(); else newCode(); },
@@ -91,17 +144,20 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   async function archiveNative(threadId: string) {
     const archived = await native.archiveThread(threadId);
     const route = new URLSearchParams(window.location.search);
-    if (archived && route.get("runtime") === "native" && route.get("thread") === threadId) navigate("/");
+    if (archived && route.get("runtime") === "native" && route.get("history") !== "unassigned"
+      && route.get("thread") === threadId) navigate("/");
     return archived;
   }
   function selectSession(id: string) {
     if (!sessions.some(item => item.id === id)) return;
+    creationGeneration.current++;
     const [runtime, ...parts] = id.split(":");
     const recordId = parts.join(":");
     if (runtime === "native") {
       native.switchThread(recordId);
-      navigate(`/?runtime=native&thread=${encodeURIComponent(recordId)}`);
-    } else navigate(`/?run=${encodeURIComponent(recordId)}`);
+      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(recordId)}`);
+    } else if (runtime === "code-draft") navigate(`/?run=new&draft=${encodeURIComponent(recordId)}`);
+    else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
   const loading = checking || (state.isLoading && native.isLoading);
   return <section className="vivary-chat-history" aria-label="Project conversations">
@@ -109,9 +165,9 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       <p>{failedAction.message}</p>
       <Button variant="ghost" size="sm" onClick={() => void updateNative(failedAction.retry, failedAction.message)}>Retry change</Button>
     </div>}
-    {(error || codeFailed || native.threadsLoadError) && <div role="alert">
+    {(error || codeFailed || native.threadsLoadError || draftList.isError || codeDraftList.isError) && <div role="alert">
       <p>{error ?? "Some conversations could not be loaded. Your history is preserved."}</p>
-      <Button variant="ghost" size="sm" onClick={() => { setError(undefined); void state.refetch(); refreshThreads(); }}>Retry history</Button>
+      <Button variant="ghost" size="sm" onClick={() => { setError(undefined); void state.refetch(); void draftList.refetch(); void codeDraftList.refetch(); refreshThreads(); }}>Retry history</Button>
     </div>}
     {loading || history.visibleItems.length === 0 ? <ChatHistoryList items={[]} onSelect={selectSession} variant="rail" className="an-chat-history-rail"
       loading={loading}

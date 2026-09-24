@@ -21,6 +21,8 @@ import {
   getVivaryCodeFiles,
   getVivaryCodeHostState,
   getVivaryCodeState,
+  hasOwnedVivaryCodeSubmit,
+  linkedCodeDraftRuns,
   requireVivaryCodeUser,
   VIVARY_CODE_DEFAULT_MODEL,
   VIVARY_CODE_MODELS,
@@ -31,6 +33,8 @@ import {
 } from "../server/local-code-agent.ts";
 
 import { setTimeout as delay } from "node:timers/promises";
+import { changeChatDraft, createCodeDraftIdentity, reconcileCodeDraft } from "../server/chat-draft.ts";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { getCodePermissionMode, setCodePermissionMode } from "../server/code-permissions.ts";
 import { claimProjectReconnection } from "../server/project-reconnection-admission.mjs";
 
@@ -53,6 +57,32 @@ afterEach(async () => {
 });
 
 describe("local Vivary code agent boundaries", () => {
+  it("links a saved follow-up to an older run without expanding the 20-run state page", async () => {
+    const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-old-draft-"));
+    temporaryRoots.push(store);
+    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    try {
+      process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store;
+      for (let index = 0; index < 21; index++) {
+        createCodeAgentRunRecord({ id: `older-draft-run-${index}`, goalId: "vivary-local-code",
+          title: `Conversation ${index}`, status: "completed", cwd: store,
+          metadata: { app: "vivary-workbench-local-code", ownerEmail: "older@example.test",
+            orgId: "older-org", engine: "claude-cli", model: "sonnet", workspaceRoot: store,
+            draftThreadId: `vivary-code:older-draft-${index}` } });
+      }
+      const state = await getVivaryCodeState("older@example.test", undefined,
+        { root: store, label: "Fixture" }, "older-org");
+      assert.equal(state.runs.length, 20);
+      const linked = linkedCodeDraftRuns("older@example.test", "older-org",
+        { root: store, label: "Fixture" }, ["vivary-code:older-draft-0"]);
+      assert.equal(linked.get("vivary-code:older-draft-0")?.id, "older-draft-run-0");
+      assert.equal(linked.size, 1);
+    } finally {
+      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore;
+    }
+  });
+
   it("offers only the supported Claude model aliases", () => {
     assert.deepEqual(VIVARY_CODE_MODELS, ["sonnet", "opus", "fable"]);
     assert.equal(VIVARY_CODE_DEFAULT_MODEL, "sonnet");
@@ -248,6 +278,24 @@ process.stdout.write('{"loggedIn":true}');
         workspace: freshWorkspace, revalidateWorkspace: async () => oldWorkspace,
       }), { errorCode: "vivary_code_project_changed" });
       assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
+      const legacyRunId = "legacy-draft-run";
+      createCodeAgentRunRecord({ id: legacyRunId, goalId: "vivary-local-code",
+        title: "Legacy draft conversation", status: "completed", cwd: workspaceRoot,
+        metadata: { app: "vivary-workbench-local-code", ownerEmail, orgId,
+          engine: "claude-cli", model: "sonnet", workspaceRoot,
+          projectId: oldWorkspace.projectId, bindingId: oldWorkspace.bindingId,
+          rootId: oldWorkspace.rootId, bindingRevision: oldWorkspace.bindingRevision },
+      });
+      appendCodeAgentTranscriptEvent({ runId: legacyRunId, kind: "user", message: "Earlier accepted user message",
+        metadata: { draftThreadId: "vivary-code:project:project_reconnected:legacy-draft",
+          draftSubmitId: "29cf865b-641d-4415-a42d-df12113e6e0c" } });
+      const legacy = await getVivaryCodeState(ownerEmail, legacyRunId, {
+        label: "Alpha", projectId: freshWorkspace.projectId,
+        bindingId: freshWorkspace.bindingId, rootId: freshWorkspace.rootId,
+        bindingRevision: freshWorkspace.bindingRevision,
+      }, orgId);
+      assert.equal(legacy.run?.draftThreadId, "vivary-code:project:project_reconnected:legacy-draft");
+      assert.equal(legacy.runs.find(item => item.id === legacyRunId)?.draftThreadId, legacy.run?.draftThreadId);
       assert.equal(getCodeAgentRunRecord(runId)?.metadata?.rootId, oldWorkspace.rootId);
     } finally {
       if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
@@ -360,13 +408,37 @@ process.send({type:"vivary:code-worker:ready"});
       await setCodePermissionMode("immediate@example.com", "read-only", "immediate-org");
       const state = await sendVivaryCodeMessage({ ownerEmail: "immediate@example.com", orgId: "immediate-org",
         message: "Inspect this fixture", engine: "claude-cli", model: "sonnet", workspace,
+        draftSubmitId: "29cf865b-641d-4415-a42d-df12113e6e0c",
+        draftThreadId: "vivary-code:project:immediate:draft-1",
         revalidateWorkspace: async () => workspace });
       runId = state.run!.id;
+      assert.equal(state.run?.draftThreadId, "vivary-code:project:immediate:draft-1");
+      assert.equal(state.runs.find(item => item.id === runId)?.draftThreadId,
+        "vivary-code:project:immediate:draft-1");
+      assert.equal((await getVivaryCodeState("immediate@example.com", runId, workspace, "immediate-org"))
+        .run?.draftThreadId, "vivary-code:project:immediate:draft-1");
       assert.equal(state.pendingApproval, null);
       assert.equal(state.activeRun?.id, runId);
       assert.equal(state.busy, true);
       assert.equal(getCodeAgentRunRecord(runId)?.metadata?.pendingLaunch, undefined);
       assert.equal(listCodeAgentTranscriptEvents(runId).filter(event => event.kind === "user").length, 1);
+      assert.equal(hasOwnedVivaryCodeSubmit("immediate@example.com", "immediate-org", workspace,
+        "vivary-code:project:immediate:draft-1", "29cf865b-641d-4415-a42d-df12113e6e0c"), true);
+      assert.equal(hasOwnedVivaryCodeSubmit("different@example.com", "immediate-org", workspace,
+        "vivary-code:project:immediate:draft-1", "29cf865b-641d-4415-a42d-df12113e6e0c"), false);
+      assert.equal(hasOwnedVivaryCodeSubmit("immediate@example.com", "immediate-org", workspace,
+        "vivary-code:project:immediate:other", "29cf865b-641d-4415-a42d-df12113e6e0c"), false);
+      const draftIdentity = createCodeDraftIdentity("immediate@example.com", "immediate-org", "immediate");
+      await runWithRequestContext({ userEmail: "immediate@example.com", orgId: "immediate-org" }, async () => {
+        const pendingDraft = await changeChatDraft(draftIdentity, "vivary-code:project:immediate:draft-1", null,
+          { status: "pending", text: "Inspect this fixture",
+            submitId: "29cf865b-641d-4415-a42d-df12113e6e0c" });
+        assert.equal(pendingDraft.changed, true);
+        const settledDraft = await reconcileCodeDraft(draftIdentity, "vivary-code:project:immediate:draft-1",
+          "immediate@example.com", "immediate-org", workspace);
+        assert.equal(settledDraft.saved, true);
+        assert.equal(settledDraft.record?.status, "cleared");
+      });
       await setCodePermissionMode("immediate@example.com", "yolo", "immediate-org");
       let invocation;
       for (let attempt = 0; attempt < 100; attempt++) {

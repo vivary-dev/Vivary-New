@@ -1,11 +1,12 @@
 import { useCallback, useRef } from "react";
-import { actionErrorMessage, callAction, notifySessionInvalidated, useSession } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, callAction, tryCallActionKeepalive, notifySessionInvalidated, useSession } from "@agent-native/core/client/hooks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { isValidSessionToken, sessionToken } from "./native-state";
 import { isRejectedSessionToken, rejectSessionToken } from "./native-session-rejections";
 import { VIVARY_OWNER_ACTIONS, type VivaryOwnerAction } from "../../shared/owner-actions";
 
-export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>) => Promise<T>;
+export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>,
+  options?: { keepalive?: boolean }) => Promise<T>;
 const actionTimeout = (name: VivaryOwnerAction) => name === "vivary-connect-project-folder" ? 130_000 : 30_000;
 
 export function folderConnectionErrorMessage(failure: unknown): string {
@@ -28,7 +29,8 @@ type Dependencies = {
 };
 
 export function createNativeActionCaller(dependencies: Dependencies): NativeActionCaller {
-  return async <T>(name: VivaryOwnerAction, params: Record<string, unknown>): Promise<T> => {
+  return async <T>(name: VivaryOwnerAction, params: Record<string, unknown>,
+    options?: { keepalive?: boolean }): Promise<T> => {
     if (!VIVARY_OWNER_ACTIONS.includes(name)) throw new Error("This action is not available through the owner transport.");
     const location = new URL(dependencies.locationHref());
     const root = new URL(dependencies.nativePath("/_agent-native"), location);
@@ -39,15 +41,18 @@ export function createNativeActionCaller(dependencies: Dependencies): NativeActi
       || root.search || root.hash || target.search || target.hash) {
       throw new Error("The action endpoint must be on this Vivary instance.");
     }
-    const token = sessionToken(dependencies.getSession());
-    if (token === null) return dependencies.cookieAction<T>(name, params);
-    if (isRejectedSessionToken(token)) throw new Error("Retry after the Native session refreshes.");
     const body = JSON.stringify(params);
     if (body === undefined) throw new Error("Action inputs must be JSON.");
+    // Leave room for other in-flight browser keepalive requests. Larger drafts
+    // still use the ordinary transport and the beforeunload dirty-draft prompt.
+    const keepalive = options?.keepalive === true && new TextEncoder().encode(body).byteLength <= 48_000;
+    const token = sessionToken(dependencies.getSession());
+    if (token === null) return dependencies.cookieAction<T>(name, params, { keepalive });
+    if (isRejectedSessionToken(token)) throw new Error("Retry after the Native session refreshes.");
     const response = await dependencies.fetch(target.href, {
       method: "POST", credentials: "same-origin", redirect: "error",
       headers: { "Content-Type": "application/json", "X-Agent-Native-Frontend": "1", "X-Vivary-Session": token },
-      body, signal: AbortSignal.timeout(actionTimeout(name)),
+      body, keepalive, signal: AbortSignal.timeout(actionTimeout(name)),
     });
     if (response.status === 401) {
       rejectSessionToken(token);
@@ -79,11 +84,18 @@ export function useNativeActionCaller() {
   const call = useCallback(createNativeActionCaller({
     getSession: () => latest.current,
     fetch: (input, init) => fetch(input, init),
-    cookieAction: <T>(name: VivaryOwnerAction, params: Record<string, unknown>) => callAction<T>(name, params, { timeoutMs: actionTimeout(name) }),
+    cookieAction: <T>(name: VivaryOwnerAction, params: Record<string, unknown>, options?: { keepalive?: boolean }) => {
+      if (options?.keepalive) {
+        const attempt = tryCallActionKeepalive<T>(name, params, { timeoutMs: actionTimeout(name) });
+        if (attempt.accepted) return attempt.completion;
+      }
+      return callAction<T>(name, params, { timeoutMs: actionTimeout(name) });
+    },
     locationHref: () => window.location.href,
     nativePath: agentNativePath,
     invalidate: notifySessionInvalidated,
   }), []);
-  return { call, retrySession: session.retry, ready: session.status === "authenticated"
+  return { call, retrySession: session.retry, sessionStatus: session.status,
+    ready: session.status === "authenticated"
     && (session.session?.token === undefined || (isValidSessionToken(session.session.token) && !isRejectedSessionToken(session.session.token))) };
 }

@@ -1,6 +1,6 @@
 # Desktop acceptance status
 
-Updated 2026-09-23. This page is the current tracked acceptance register for the
+Updated 2026-09-24. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
@@ -45,6 +45,47 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 `9884670` prerelease. The [shared plan and apply receipt](receipts/07b-shared-workspace-plan-apply.md)
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
+
+## Conversation drafts, September 24
+
+[Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records the
+clean `12c8b354` hosted and packaged draft journeys, including distinct
+Native, Code, and unassigned drafts, exact IDs after changed-port restarts,
+and the manual unsent on-screen keyboard `x` across refresh and restart.
+Later `702f93e` and `1889fe6` fixes received focused fixture observations
+for failed-save recovery, owner rejection, queued selection, older Code
+follow-ups, and page hide. The earlier private hosted receipt files were
+lost in a Modal snapshot rollback. Their reported observations remain
+qualified fixture evidence, not a claim that the files survive.
+
+The first `9682472b` package failed because its installed Core had an older
+patch without the host-owned draft runtime behavior. The frozen lockfile
+was unchanged. Reinstalling its pinned Core and Toolkit patches and
+rebuilding produced a package whose Core chat and history chunks match the
+working `1889fe6` package byte for byte. The initial hosted `9682472b`
+check reached a Native `history=project` route but did not pass a stable
+draft or existing-row check. The stale package is retained as failure
+evidence, not acceptance.
+
+The repaired unpublished Windows archive, SHA-256
+`a4ccb0ebfb6e4788c5a7e0a9019c070b85ff5b859a9ee09495f35569238689e3`,
+passed the affected packaged journey. The unsent keyboard text reopened
+with a stable editor. Under a held SQLite write, choosing an existing
+project Native history row kept its project owner mounted. Alt+F4 waited
+until the lock was released. A changed-port bare-root restart restored the
+exact selected conversation and full unsent draft. Seven tested drafts
+remained unsent. The accepted user and provider counts did not change.
+All 2,011 original-profile files retained their hashes, and candidate
+processes and ports were closed. Workbench prebuilt metadata still says
+`sourceCommitVerified: false`. Separate clean build and package evidence
+carry the source qualification. The fixture did not call a real model.
+
+All seven GitHub checks passed on the source, and the PR review threads are
+resolved. Entire mirror push and ref verification awaits CLI sign-in. Its
+formal trail approval failed separately because a reviewer vote is missing.
+Technical candidate acceptance is complete, while PR #88 and issue #9
+remain open for the reviewed `dev` merge and issue closure.
+Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23
 
@@ -543,7 +584,7 @@ automations in #51 remain open.
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search and scoped memory stay in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |

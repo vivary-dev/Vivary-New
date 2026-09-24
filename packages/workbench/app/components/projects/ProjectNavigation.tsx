@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { Skeleton } from "@agent-native/toolkit/ui";
@@ -82,6 +82,7 @@ function RegistrationForm({ catalog, disabled, onClose }: { catalog: ProjectCata
 
 export function ProjectNavigation() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     catalog, activeProject, checking, workspaceAvailable, selecting, error,
     refresh, selectProject, retrySelection,
@@ -108,7 +109,7 @@ export function ProjectNavigation() {
   async function chooseProject(projectId: string | null) {
     recoveryFocus.current = null;
     setRecoveryNotice(null);
-    if (await selectProject(projectId)) navigate("/");
+    if (await selectProject(projectId) && location.pathname !== "/") navigate("/");
   }
   const [registering, setRegistering] = useState(false);
   const [creating, setCreating] = useState(false);

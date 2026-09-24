@@ -2,11 +2,13 @@
 
 Jeff approved this dependency patch on September 15, 2026, for
 [project conversations, issue #6](https://github.com/vivary-dev/Vivary-New/issues/6).
-This approval supersedes the earlier restriction against patching Core for these
-two defects. Native still owns conversations, storage, requests, and execution.
+This approval supersedes the earlier restriction against patching Core for those
+defects. Later feature work extends the same maintained patch as described below.
+Native still owns conversations, storage, requests, and execution.
 
 `pnpm-workspace.yaml` applies `@agent-native__core@0.176.5.patch` to the pinned
-Core package. The lockfile records the patch hash. Install with
+Core package. Issue #9 also applies `@agent-native__toolkit@0.19.3.patch` to the
+pinned Toolkit package. The lockfile records both patch hashes. Install with
 `pnpm install --frozen-lockfile` from `packages/workbench`.
 
 ## Behavior
@@ -103,3 +105,81 @@ The optional `VIVARY_CODEX_POLICY_PROBE` test setting points to an installed Cod
 executable. It checks effective permission rendering without starting a model turn.
 Successful rendering does not establish operating-system sandbox execution. See the
 [Workbench integration record](../README.md) for actual hosted and Windows proof.
+
+## Host-owned conversation drafts
+
+Issue #9 adds an opt-in `hostComposerDraft` interface to the existing chat
+components. Vivary supplies a draft for the actual selected thread, waits for
+that state before enabling the composer, and uses an explicit reset key when
+restoring or clearing it. Routine autosave acknowledgements do not reset the
+editor. The host ignores initial empty callbacks while the editor restores saved
+text. Vivary supplies Core's route-controlled thread adapter so the editor and
+page observe the same selected conversation. Saved host selection loads before
+the chat mounts. Consumers that omit the draft interface retain Core's existing
+behavior.
+
+Host mode disables the browser and toolkit draft stores. Vivary persists text
+through its authenticated `vivary-chat-draft` action and Native application
+state. The key includes the owner, project, chat surface, and conversation.
+Drafts are not messages and restoring one does not start execution. A conversation
+with only an unsent draft may not have a Native thread row yet. If Native reports
+that row missing, authenticated draft state retains its exact conversation ID.
+Native also retains an ID that its own lifecycle marks as newly created, before
+the first draft or message has been saved. An unknown missing ID keeps the normal
+not-found behavior. In host mode, the Native thread hook allocates the initial
+conversation ID. The tab wrapper defers to that ID instead of allocating another.
+Existing thread rows still load their message history normally, even when they
+also have an unsent draft. Vivary lists ID-only markers from the same
+authenticated application-state owner so an unsent conversation stays in
+history after another one becomes active. The marker holds an ID and timestamp,
+never draft text or a second transcript. History derives its short preview and
+Draft or Review send status from the authoritative draft record. Cleared drafts
+stop appearing as draft-only rows. A started Code run exposes its first accepted
+draft ID so later follow-ups reopen through run history. Older runs recover
+that ID from a saved user event when one exists.
+
+Each write compares the revision it observed. A cleared draft remains as an
+empty tombstone, so a delayed save cannot recreate it. Before a send, the same
+record retains a unique submission ID. Native carries that ID through its
+existing queue and into the saved user message. A matching persisted message
+or queued item settles the draft. An in-memory queue acknowledgement alone
+cannot establish persistence. Code chat carries the same submission ID and
+conversation key through its existing send action into the owned user event.
+Reconciliation reads those existing run events without adding a transcript store.
+
+If delivery remains uncertain, the UI retains a pending draft and offers Retry.
+Restoring its text requires an explicit action with a duplicate-send warning.
+Normal Discard draft also persists a tombstone. Request audit metadata remains
+enabled, while the draft action excludes text inputs from the audit record.
+
+The Toolkit patch adds `preserveDraftText` only for Core's host draft mode. It
+reports line breaks, Unicode, and surrounding whitespace from the editor's
+actual document. It restores that plain text with hard breaks so one saved line
+break remains one visible line break. Consumers without host drafts keep
+Toolkit's existing trimmed callback and paragraph restore behavior. Core keeps
+the text-change callback stable while reading the latest host state. That
+prevents a render from resetting the autosave timer or restoring stale editor
+text after Discard.
+
+The desktop close path waits for pending draft saves. If a save fails or times
+out, the window remains open for retry. A browser can refuse navigation while
+it has unsaved text, but its unload event cannot promise an awaited save. The
+packaged desktop close and changed-port reopen passed on the unpublished
+`250b402f` candidate. On-screen keyboard input remains unverified under #9.
+
+Run the focused state and ownership checks with:
+
+```sh
+pnpm --dir packages/workbench test:chat-draft
+```
+
+These checks are included in `test:maintained`. Hosted restart and packaged
+close checks are recorded in the [continuity receipt](../../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
+A follow-up under review gates host draft reads until the Native session is
+ready. It verifies the exact owned thread before restoring a saved selection,
+retains the unassigned Native history kind, and restores a Code draft after a
+known local send refusal. The first `eb63459f` packaged retest exposed the
+pre-read race. The focused follow-up checks passed on a dirty hosted build.
+Clean-source packaged acceptance remains open.
+
+The Windows keyboard case remains open under issue #9.

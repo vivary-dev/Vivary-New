@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { readClientAppState } from "@agent-native/core/client/hooks";
+import { useAppStateWriter } from "@/lib/native-state";
+import { registerSelectionCloseFlush, trackSelectionWrite, useOrphanedDrafts } from "@/lib/chat-draft";
+import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface, savedNativeHistoryKind, type NativeHistoryKind } from "@/lib/conversation-surface";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, Skeleton } from "@agent-native/toolkit/ui";
 import { IconArrowsMaximize, IconArrowsMinimize, IconFiles, IconInfoCircle, IconSearch, IconWorld, IconX } from "@tabler/icons-react";
@@ -26,7 +31,97 @@ export function Workspace() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const projectId = activeProject?.projectId ?? null;
+  const currentProjectKey = catalog?.scopeKey
+    ? JSON.stringify([catalog.scopeKey, projectId ?? "personal"]) : null;
+  const [readyProjectKey, setReadyProjectKey] = useState<string | null>(null);
+  const changingProject = !checking && readyProjectKey !== null
+    && readyProjectKey !== currentProjectKey;
+  const projectRouteReady = !checking && currentProjectKey !== null
+    && readyProjectKey === currentProjectKey;
   const native = params.get("runtime") === "native";
+  const explicitSurface = requestedConversationSurface(params);
+  const historyKind: NativeHistoryKind = params.get("history") === "unassigned" ? "unassigned" : "project";
+  const surfaceKey = catalog?.scopeKey
+    ? conversationSurfaceStateKey(catalog.scopeKey, projectId) : null;
+  const surfaceQuery = useQuery({
+    queryKey: ["vivary-active-conversation", surfaceKey],
+    queryFn: ({ signal }) => {
+      if (!surfaceKey) throw new Error("The project identity is still loading.");
+      return readClientAppState(surfaceKey, { signal });
+    },
+    enabled: Boolean(surfaceKey && projectRouteReady),
+    retry: false, staleTime: Infinity,
+  });
+  const stored = surfaceQuery.data as { surface?: unknown; historyKind?: unknown; scopeKey?: unknown; projectId?: unknown } | null;
+  const savedSurface = stored?.scopeKey === catalog?.scopeKey && stored?.projectId === projectId
+    ? stored?.surface : null;
+  const restoredSurface = restoredConversationSurface(explicitSurface, savedSurface);
+  const { ready: surfaceWriterReady, writeAppState } = useAppStateWriter();
+  const queryClient = useQueryClient();
+  type SurfaceSelection = { key: string; scopeKey: string; projectId: string | null;
+    surface: "native" | "code"; historyKind: NativeHistoryKind };
+  const pendingSurfaces = useRef(new Map<string, SurfaceSelection>());
+  const savingSurface = useRef<Promise<void> | null>(null);
+  const [surfaceSaveError, setSurfaceSaveError] = useState(false);
+  const surfaceSaveFailed = useRef(false);
+  const orphanedDrafts = useOrphanedDrafts(catalog?.scopeKey ?? null);
+  const saveSurface = useCallback((): Promise<void> => {
+    if (savingSurface.current) return savingSurface.current;
+    if (pendingSurfaces.current.size === 0) return Promise.resolve();
+    if (!surfaceWriterReady) return Promise.reject(new Error("The Native session is not ready to save the surface."));
+    const write = (async () => {
+      try {
+        while (pendingSurfaces.current.size) {
+          const [key, value] = pendingSurfaces.current.entries().next().value!;
+          await writeAppState(value.key, {
+            scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface, historyKind: value.historyKind,
+          }, { keepalive: true });
+          queryClient.setQueryData(["vivary-active-conversation", value.key], {
+            scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface, historyKind: value.historyKind,
+          });
+          surfaceSaveFailed.current = false;
+          setSurfaceSaveError(false);
+          if (pendingSurfaces.current.get(key) === value) pendingSurfaces.current.delete(key);
+        }
+      } catch (error) {
+        surfaceSaveFailed.current = true;
+        setSurfaceSaveError(true);
+        throw error;
+      }
+    })();
+    const tracked = trackSelectionWrite(write);
+    savingSurface.current = tracked;
+    void tracked.finally(() => { if (savingSurface.current === tracked) savingSurface.current = null; }).catch(() => {});
+    return tracked;
+  }, [queryClient, surfaceWriterReady, writeAppState]);
+  useEffect(() => registerSelectionCloseFlush(saveSurface,
+    () => pendingSurfaces.current.size > 0 || savingSurface.current !== null || surfaceSaveFailed.current), [saveSurface]);
+  useEffect(() => {
+    if (!explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady) return;
+    pendingSurfaces.current.set(surfaceKey, { key: surfaceKey, scopeKey: catalog.scopeKey,
+      projectId, surface: explicitSurface, historyKind });
+    void saveSurface().catch(() => {});
+  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady, historyKind, saveSurface]);
+  useEffect(() => {
+    if (explicitSurface || !projectRouteReady || !surfaceQuery.isSuccess || savedSurface !== "native") return;
+    setParams(current => {
+      const next = new URLSearchParams(current);
+      next.set("runtime", "native");
+      next.set("history", savedNativeHistoryKind(stored?.historyKind));
+      return next;
+    }, { replace: true });
+  }, [explicitSurface, projectRouteReady, surfaceQuery.isSuccess, savedSurface, stored?.historyKind, setParams]);
+  useEffect(() => {
+    if (explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady
+      || !surfaceQuery.isSuccess || restoredSurface) return;
+    pendingSurfaces.current.set(surfaceKey, { key: surfaceKey, scopeKey: catalog.scopeKey,
+      projectId, surface: "code", historyKind: "project" });
+    void saveSurface().catch(() => {});
+  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady,
+    surfaceQuery.isSuccess, restoredSurface, saveSurface]);
+  const openingSurface = !projectRouteReady || !surfaceKey || (!explicitSurface &&
+    (surfaceQuery.isPending || (surfaceQuery.isSuccess && restoredSurface === "native")));
   const unassigned = native && params.get("history") === "unassigned";
   const opened = surface(params.get("panel"));
   const narrow = useNarrowLayout();
@@ -57,9 +152,6 @@ export function Workspace() {
   ]);
   const [searchVisited, setSearchVisited] = useState(opened === "search");
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
-  const priorProject = useRef<string | null>(null);
-  const changingProject = !checking && priorProject.current !== null
-    && priorProject.current !== (activeProject?.projectId ?? "personal");
   const showOnlySurface = Boolean(opened) && (narrow || maximized || (splitWidth > 0 && splitWidth < 620));
 
   function changeSurface(next: Surface | null, trigger?: HTMLButtonElement) {
@@ -85,20 +177,26 @@ export function Workspace() {
     if (opened === "search") setSearchVisited(true);
   }, [opened, location.pathname]);
   useEffect(() => {
-    if (checking) return;
-    const project = activeProject?.projectId ?? "personal";
-    if (priorProject.current === null) { priorProject.current = project; return; }
-    if (priorProject.current !== project) {
-      priorProject.current = project;
+    if (checking || currentProjectKey === null) return;
+    if (readyProjectKey === null) {
+      setReadyProjectKey(currentProjectKey);
+      return;
+    }
+    if (readyProjectKey === currentProjectKey) return;
+    const routeKeys = ["panel", "path", "project", "runtime", "thread", "history",
+      "run", "draft", "line"];
+    if (routeKeys.some(key => params.has(key))) {
       setMaximized(false);
       setParams(current => {
         const next = new URLSearchParams(current);
-        next.delete("panel"); next.delete("path"); next.delete("project"); next.delete("runtime"); next.delete("thread"); next.delete("history");
-        next.delete("run"); next.delete("draft"); next.delete("line");
+        for (const key of routeKeys) next.delete(key);
         return next;
       }, { replace: true });
+      return;
     }
-  }, [activeProject?.projectId, checking, setParams]);
+    // Only admit the new project's conversation after the old URL is gone.
+    setReadyProjectKey(currentProjectKey);
+  }, [checking, readyProjectKey, currentProjectKey, params.toString(), setParams]);
 
   useEffect(() => {
     if (!panel.current || !conversation.current) return;
@@ -132,6 +230,22 @@ export function Workspace() {
           <IconSearch size={17} aria-hidden /><span>Search</span></Button>
       </div>
     </header>
+    {surfaceSaveError && <div className="workspace-recovery" role="alert">
+      <span>Your active conversation could not be saved.</span>
+      <Button size="sm" variant="outline" onClick={() => void saveSurface().catch(() => {})}>Retry selection</Button>
+    </div>}
+    {orphanedDrafts.map(draft => <div key={`${draft.kind}:${draft.projectId}:${draft.threadId}`}
+      className="workspace-recovery" role="alert">
+      <span>{draft.saving ? "Saving an edit from a previous" : "An edit in a previous"} {draft.kind === "code" ? "Code" : "Native"} conversation{draft.saving ? ". Keep Vivary open until it finishes." : " did not save. Copy the text or retry its save."}</span>
+      <textarea readOnly aria-label="Unsaved conversation text" value={draft.text} />
+      <Button size="sm" variant="outline" onClick={() => void draft.retry().catch(() => {})}>{draft.discardFailed ? "Retry discard" : "Retry draft"}</Button>
+      <Button size="sm" variant="ghost" onClick={() => void draft.abandon()}>Discard unsaved local edit</Button>
+      {draft.error && <span>{draft.error}</span>}
+    </div>)}
+    {!explicitSurface && !checking && !changingProject && surfaceQuery.isError && <div className="workspace-recovery" role="alert">
+      <span>Your last conversation could not be loaded.</span>
+      <Button size="sm" variant="outline" onClick={() => void surfaceQuery.refetch()}>Retry conversation</Button>
+    </div>}
     {!checking && !workspaceAvailable && <div className="workspace-recovery" role="alert">
       <span>{projectError ?? "This project folder is unavailable. Saved conversations remain separate from folder access."}</span>
       <Button size="sm" variant="outline" onClick={() => void refresh()}>Retry project</Button>
@@ -147,7 +261,7 @@ export function Workspace() {
         <ResizablePanel id="conversation" panelRef={conversation} minSize={showOnlySurface ? 0 : narrow ? 0 : 360}
           collapsible collapsedSize={0}>
           <div className="workspace-conversation" hidden={showOnlySurface}>
-            {changingProject ? <div className="local-agent-chat-skeleton" aria-busy="true">
+            {changingProject || openingSurface || (!explicitSurface && surfaceQuery.isError) ? <div className="local-agent-chat-skeleton" aria-busy="true">
               <Skeleton className="h-8 w-48" /><Skeleton className="h-5 w-3/4" />
               <Skeleton className="mt-auto h-28 w-full" />
             </div> : native ? <NativeConversation /> : <CodeConversation previewScope={previewScope} onPreviewChatTarget={setPreviewChatTarget} />}

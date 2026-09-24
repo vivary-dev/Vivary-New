@@ -4,3 +4,4 @@ allowBuilds:
   better-sqlite3@12.11.1: true
 patchedDependencies:
   '@agent-native/core@0.176.5': patches/@agent-native__core@0.176.5.patch
+  '@agent-native/toolkit@0.19.3': patches/@agent-native__toolkit@0.19.3.patch
