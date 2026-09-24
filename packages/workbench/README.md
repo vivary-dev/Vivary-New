@@ -333,7 +333,10 @@ local server. A file draft also survived a packaged desktop restart in the
 separate file-editing journey. Completed Code transcripts remain in Native's
 persistent run store. The hosted chat-draft journey is recorded in the
 [continuity receipt](../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
-Packaged chat-draft acceptance remains pending.
+The unpublished `250b402f` Windows EXE restored separate Native and Code
+drafts after normal close and a changed-port reopen. It kept the window open
+when a draft save failed, then saved the text on Retry. On-screen keyboard
+input remains unverified, so issue #9 acceptance stays open.
 
 Local folder grants persist in server-only Native settings. Startup reopens
 and rechecks the canonical path, device, inode, and creation time. Filesystems

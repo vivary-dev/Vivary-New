@@ -58,11 +58,27 @@ Discard, an unavailable folder, and the 390-pixel layout passed focused checks.
 A renderer close check waited for an unsaved draft and refused a failed save.
 
 Core and Toolkit use pinned, opt-in patches for host-owned drafts and exact
-line breaks. No real model call was requested. The original Python runtime
-came from an earlier source build, so the receipt names both revisions. The
-ordinary packaged EXE close, packaged changed-port reopen, and packaged
-on-screen keyboard journey remain pending. This section does not mark issue #9 or parent outcome
-17 complete.
+line breaks. No real model call was requested. The hosted journey reused an
+earlier original Python runtime, so the receipt names both revisions.
+
+The actual unpublished `250b402f` Windows EXE restored two separate project
+drafts after normal close and a changed-port bare-root reopen. A held SQLite
+write made Alt+F4 refuse close without losing text. Retry saved the draft, and
+another normal close and changed-port reopen retained it. Native GUI send and
+refresh kept one local fixture reply and the same history. A later Native
+follow-up was saved and discarded without hiding that reply. The Code fixture
+accepted the saved user message, then stopped deliberately at first approval.
+A later Code follow-up was saved, discarded, and absent after refresh while
+the accepted history remained. A read-only disposable-profile audit found one
+Code user event, one Native user message, and three cleared empty drafts. A
+preservation check before the later Code send and discards found all 2,011
+original-profile files unchanged. The post-run check remains pending.
+
+The on-screen keyboard appeared, but higher-integrity UI blocked automated
+text input. That keyboard case remains unverified. The Code fixture did not
+complete its approval flow, and the initial app disappearance before project
+creation remains undiagnosed. This section does not mark issue #9 or parent
+outcome 17 complete.
 
 ## Built-in guidance, September 23
 
@@ -561,7 +577,7 @@ automations in #51 remain open.
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted #9 restored Native and Code drafts across a changed port | Packaged #9 draft and close acceptance, chat-content search, and scoped memory in their owning issues |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted and packaged #9 restored Native and Code drafts after changed-port reopen and refused close during an unsaved write | #9 on-screen keyboard input, chat-content search, and scoped memory in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |

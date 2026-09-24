@@ -79,9 +79,19 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   records two project drafts, Native and Code sends, save failure and retry,
   lost-response recovery, rapid edits, unavailable folders, narrow layout,
   and bare-root restart on a different local port. Core and Toolkit use pinned,
-  opt-in patches. The renderer close check passed, but ordinary packaged window
-  close and the on-screen keyboard remain pending. Keep this packet in progress
-  until the actual EXE journey passes.
+  opt-in patches. The renderer close check passed. The packaged result follows
+  below, and this packet stays in progress while keyboard input is unverified.
+
+- 2026-09-24: The clean `250b402f` Windows EXE restored distinct Native and
+  Code drafts after normal close and a changed-port bare-root reopen. A blocked
+  SQLite save kept the window open. Retry then saved the text, and a second
+  normal close and reopen retained it. One Native GUI send kept its history
+  after refresh. A Code draft was accepted into a run that the fixture stopped
+  at its first approval. The later Code follow-up was saved and explicitly
+  discarded without losing accepted history. The [receipt](../receipts/17a-chat-restart-and-drafts.md)
+  keeps the source metadata and fixture qualifications. The on-screen keyboard
+  appeared but did not deliver input because automation could not control its
+  higher-integrity window. Keep #9 open for that acceptance case and delivery.
 
 ## Shared desktop and web behavior
 

@@ -5,7 +5,8 @@ Date: 2026-09-24
 Issue: [#9](https://github.com/vivary-dev/Vivary-New/issues/9)
 Hosted source: `250b402fd07a22a0596b8a4c60889f1101d6905e`
 Hosted result: passed through the qualified main, continuation, and focused journeys below
-Packaged Windows result: pending actual EXE acceptance
+Packaged Windows result: continuity cases passed
+On-screen keyboard input: pending
 
 ## Result
 
@@ -74,12 +75,66 @@ The renderer close function ran immediately after typing, with no intentional
 autosave wait. It acknowledged the save, and refresh retained the exact text.
 When a save returned HTTP 503, that function refused close. The visible Retry
 saved the text, and a second close check passed. This proves the renderer half
-of the close contract. The packaged EXE must still prove ordinary window close.
+of the close contract. The packaged EXE close result is recorded below.
 
 A new Native conversation's draft initialization returned HTTP 200 while its
 browser response was held. The user chose Code during that wait. Releasing the
 late response left the Code route selected. The test used a copied disposable
 application profile and made no model call.
+
+## Packaged Windows journey
+
+The unpublished Windows ZIP contains a clean source snapshot of `250b402f`.
+It has 3,108 files, is 221,505,755 bytes, and has SHA-256
+`8a287f4fdf199b1b0017e4dddc3ac91c09911595c022297fcefb157cccad9b79`.
+The original runtime came from that source. Workbench was built separately
+from the same clean commit, while its prebuilt metadata still reports
+`sourceCommitVerified: false`.
+
+The Windows run used an isolated application profile and a disposable local
+responder. No real model call was requested.
+
+The actual EXE created two projects through the GUI. Each reviewed a five-file
+creation preview. Alpha's Native chat saved a Unicode draft with a real
+Shift+Enter line break. Beta's Code chat saved different unsent text with a
+simulated Codex model.
+
+A normal close and bare-root reopen changed the local port from 57541 to
+60810. It restored Beta's exact Code draft and conversation. Switching to
+Alpha restored its exact Native conversation and multiline text.
+
+An empty SQLite transaction blocked a draft save for 53.09 seconds and
+changed zero rows. Alt+F4 kept the application open and showed **Draft not
+saved** with **Keep working**. After the test lock was released, **Retry draft**
+saved the retained text.
+
+Another normal close and bare-root reopen changed the port from 60810 to
+61376 and restored Alpha's conversation and recovered text. A Native GUI send
+then received one local fixture reply. Refresh kept the sent history in the
+same conversation with an empty composer. A later Native follow-up was saved
+and explicitly discarded. Refresh left the follow-up absent while retaining
+the reply.
+
+Beta's saved Code draft was submitted once. Its user text reached a Code run,
+then the fixture was deliberately stopped at the first approval. Refresh kept
+the accepted user message with Codex stopped and an empty composer. This does
+not claim a completed Code fixture turn.
+
+A later unsent Code follow-up was saved, explicitly discarded, and absent
+after refresh while the accepted history remained. A read-only audit of the
+disposable profile found one Code user event, one Native user message, and
+three cleared empty draft records. At the 02:07:36 UTC preservation
+checkpoint, before the Code send and later discards, all 2,011 original-profile
+files retained their hashes and counts, with no missing or extra files. A
+post-run preservation check remains pending.
+
+The Windows on-screen keyboard appeared, but the automation helper could not
+inject text into its higher-integrity window. This leaves keyboard input
+unverified rather than proving a draft-input failure. Desktop control also paused when other user
+input was detected. An initial app process disappeared before project
+creation without a diagnosed cause, so this receipt does not classify it as a
+product crash. Issue #9 remains in progress until the keyboard case and final
+delivery review are resolved.
 
 ## Verification and limits
 
@@ -91,8 +146,10 @@ A separate draft retained leading and trailing newlines and spaces in Native
 state. Earlier builds had joined the lines. These checks ran against the
 opt-in composer patch named above.
 
-The private handoff retains the event logs, screenshots, synthetic fixtures,
-and qualified segment results. The original fixture profiles and unrelated
-accounts were not used. This receipt does not claim packaged Windows close,
-on-screen keyboard, published release, or all of parent outcome 17. Those
-checks remain pending until their owning acceptance records pass.
+The private handoff retains event logs, screenshots, synthetic fixtures, and
+qualified segment results. The original fixture profiles and unrelated
+accounts were not used. The Windows evidence is partial because keyboard input
+remains unverified.
+This receipt does not claim a completed Code fixture turn, published release,
+or all of parent outcome 17. The private handoff retains the original Windows
+record and its qualified follow-up results.

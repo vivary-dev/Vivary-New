@@ -157,7 +157,8 @@ text after Discard.
 The desktop close path waits for pending draft saves. If a save fails or times
 out, the window remains open for retry. A browser can refuse navigation while
 it has unsaved text, but its unload event cannot promise an awaited save. The
-packaged desktop close journey remains an acceptance requirement under #9.
+packaged desktop close and changed-port reopen passed on the unpublished
+`250b402f` candidate. On-screen keyboard input remains unverified under #9.
 
 Run the focused state and ownership checks with:
 
@@ -165,5 +166,6 @@ Run the focused state and ownership checks with:
 pnpm --dir packages/workbench test:chat-draft
 ```
 
-These checks are included in `test:maintained`. Real application restart and
-packaged desktop acceptance remain separate requirements under issue #9.
+These checks are included in `test:maintained`. Hosted restart and packaged
+close checks are recorded in the [continuity receipt](../../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
+The Windows keyboard case remains open under issue #9.
