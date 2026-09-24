@@ -57,7 +57,8 @@ function guardFor(
   return createVivaryNativeChatProjectGuard({
     getScope: () => scope,
     getOrgId: overrides.getOrgId ?? (() => orgId),
-    matchChatProject: overrides.matchChatProject ?? matchCatalog,
+    // Project services read the request's pinned scope themselves.
+    matchChatProject: context => (overrides.matchChatProject ?? matchCatalog)(context, scope?.id ?? ""),
     resolveProjectWorkspace: overrides.resolveProjectWorkspace
       ?? (async () => ({ projectId: project.projectId })),
   });

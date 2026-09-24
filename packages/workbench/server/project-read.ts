@@ -239,14 +239,14 @@ async function read(run: typeof runProjectRead, context: ActionRunContext | unde
  */
 export function createProjectRead(dependencies: {
   run: typeof runProjectRead;
-  chatProject: (context: ActionRunContext | undefined) => Promise<{ projectId: string; ownerContext: ActionRunContext }>;
+  chatProject: (context: ActionRunContext | undefined) => Promise<{ projectId: string; projectContext: ActionRunContext }>;
 } = { run: runProjectRead, chatProject: resolveNativeChatProject }) {
   return {
     forOwner: (context: ActionRunContext | undefined, { projectId, ...input }: ProjectReadOwnerInput) =>
       read(dependencies.run, context, projectId, input),
     forChat: async (context: ActionRunContext | undefined, input: ProjectReadToolInput) => {
-      const { projectId, ownerContext } = await dependencies.chatProject(context);
-      return read(dependencies.run, ownerContext, projectId, input);
+      const { projectId, projectContext } = await dependencies.chatProject(context);
+      return read(dependencies.run, projectContext, projectId, input);
     },
   };
 }

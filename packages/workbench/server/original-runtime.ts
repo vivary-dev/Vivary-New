@@ -91,29 +91,32 @@ export function isOriginalRunFailure(error: unknown): error is ActionContractErr
 }
 
 type AccessMode = "read" | "write";
-type CommandPolicy = { access: AccessMode; receipt: "component" | "app" | "none"; required: boolean };
 // One row per command. A write changes one project's files, so it runs alone
-// within that project. `receipt` says who writes the receipt: the component,
-// into a private file the app appends after the command settles, or the app
-// itself when the component writes none. `logs` only reads the shared log. A
-// governed command or a write fails without its receipt.
-export const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
-  create: { access: "read", receipt: "component", required: false },
-  adopt: { access: "read", receipt: "component", required: false },
-  "pattern-state": { access: "read", receipt: "component", required: false },
-  decide: { access: "read", receipt: "app", required: true },
-  review: { access: "read", receipt: "component", required: false },
-  impact: { access: "read", receipt: "component", required: false },
-  control: { access: "write", receipt: "component", required: true },
-  "adopt-prepare-privacy": { access: "write", receipt: "component", required: true },
-  "adopt-apply": { access: "write", receipt: "component", required: true },
-  "adopt-recovery-preview": { access: "read", receipt: "component", required: false },
-  "adopt-recover": { access: "write", receipt: "component", required: true },
-  doctor: { access: "read", receipt: "app", required: false },
-  capabilities: { access: "read", receipt: "component", required: false },
-  find: { access: "read", receipt: "app", required: false },
-  check: { access: "read", receipt: "app", required: false },
-  logs: { access: "read", receipt: "none", required: false },
+// within that project. `tool` means a Native tool call may run it. `receipt`
+// says who records the command: its component, in a private file the app
+// appends after the command settles, or the app itself when the component
+// writes none. `logs` reads the shared log and records nothing. A governed
+// command or a write fails without its receipt.
+type CommandPolicy = { access: AccessMode; tool: boolean } & (
+  | { receipt: "component" | "app"; required: boolean }
+  | { receipt: "reads-log" });
+const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
+  create: { access: "read", tool: false, receipt: "component", required: false },
+  adopt: { access: "read", tool: false, receipt: "component", required: false },
+  "pattern-state": { access: "read", tool: false, receipt: "component", required: false },
+  decide: { access: "read", tool: false, receipt: "app", required: true },
+  review: { access: "read", tool: false, receipt: "component", required: false },
+  impact: { access: "read", tool: false, receipt: "component", required: false },
+  control: { access: "write", tool: false, receipt: "component", required: true },
+  "adopt-prepare-privacy": { access: "write", tool: false, receipt: "component", required: true },
+  "adopt-apply": { access: "write", tool: false, receipt: "component", required: true },
+  "adopt-recovery-preview": { access: "read", tool: false, receipt: "component", required: false },
+  "adopt-recover": { access: "write", tool: false, receipt: "component", required: true },
+  doctor: { access: "read", tool: true, receipt: "app", required: false },
+  capabilities: { access: "read", tool: true, receipt: "component", required: false },
+  find: { access: "read", tool: true, receipt: "app", required: false },
+  check: { access: "read", tool: true, receipt: "app", required: false },
+  logs: { access: "read", tool: true, receipt: "reads-log" },
 };
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
@@ -213,19 +216,22 @@ async function componentReceipts(childLog: string): Promise<string> {
   return lines.endsWith("\n") ? lines : lines + "\n";
 }
 
-// A crash leaves its private directories behind, sometimes with a receipt the
-// app never appended. Old ones have their receipt appended and are removed. A
-// command another request just started keeps its directory.
+// A crash leaves its private folder behind. settle removes a receipt once it
+// is appended, so a receipt still there was never appended. Old folders have
+// their receipt appended and are removed. A folder whose receipt cannot be
+// appended stays for a later sweep, and a command another request just
+// started keeps its folder.
 async function sweepStaleRuns(receiptDir: string, receiptLog: string): Promise<void> {
   const swept = commandHost.sweptDirectories ??= new Set<string>();
   if (swept.has(receiptDir)) return;
   swept.add(receiptDir);
   for (const name of await readdir(receiptDir).catch(() => [])) {
     const entry = path.join(receiptDir, name);
-    const info = /^(run|request)-/.test(name) ? await lstat(entry).catch(() => null) : null;
+    const info = name.startsWith("run-") ? await lstat(entry).catch(() => null) : null;
     if (!info?.isDirectory() || Date.now() - info.mtimeMs <= STALE_RUN_MS) continue;
-    const lines = await componentReceipts(path.join(entry, "receipts.jsonl")).catch(() => "");
-    if (lines) await appendReceipts(receiptLog, lines).catch(() => undefined);
+    const lines = await componentReceipts(path.join(entry, "receipts.jsonl")).catch(() => null);
+    if (lines === null) continue;
+    if (lines && !await appendReceipts(receiptLog, lines).then(() => true, () => false)) continue;
     await rm(entry, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
   }
 }
@@ -236,35 +242,42 @@ type Settled = { durationMs: number } & ({ exitCode: number | null } | { failure
 async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonVersion: string) {
   const policy = commandPolicy[command.verb];
   const receiptLog = path.join(receiptDir, "receipts.jsonl");
+  const required = policy.receipt !== "reads-log" && policy.required;
   // `logs` reads the shared log, and a required receipt must be writable before its command runs.
-  if (policy.receipt === "none" || policy.required) await requireReceiptFile(receiptLog);
-  const privateDir = policy.receipt !== "component" ? undefined
-    : await mkdtemp(path.join(receiptDir, "run-")).catch(() => policy.required ? receiptDirectoryError() : undefined);
-  const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
+  if (policy.receipt === "reads-log" || required) await requireReceiptFile(receiptLog);
+  // One private folder per command holds its component's receipt and control's request file.
+  const privateDir = await mkdtemp(path.join(receiptDir, "run-"))
+    .catch(() => required ? receiptDirectoryError() : undefined);
+  const componentLog = privateDir && policy.receipt === "component" ? path.join(privateDir, "receipts.jsonl") : undefined;
   return {
-    childLog: policy.receipt === "none" ? receiptLog : componentLog,
+    privateDir,
+    childLog: policy.receipt === "reads-log" ? receiptLog : componentLog,
     settle: async (settled: Settled) => {
+      if (policy.receipt === "reads-log") return;
       const recorded = (async () => {
         const component = componentLog ? await componentReceipts(componentLog) : "";
         const succeeded = "exitCode" in settled && settled.exitCode === 0;
-        if (policy.required && policy.receipt === "component" && succeeded && !component) {
+        if (required && policy.receipt === "component" && succeeded && !component) {
           commandError("The command finished but did not record its receipt.", ORIGINAL_RUN_FAILURES.receiptPath);
         }
-        // The app records a command whose component writes none, and one stopped before its component could.
-        const app = policy.receipt === "app" || (policy.receipt === "component" && !component && "failure" in settled)
-          ? JSON.stringify({
-            schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
-            tool: "vivary-workbench", command: command.verb, exit_code: "exitCode" in settled ? settled.exitCode : null,
-            ok: succeeded, duration_ms: settled.durationMs, python: pythonVersion, platform: process.platform,
-            receipt_source: "app", ...("failure" in settled ? { error_type: settled.failure } : {}),
-          }) + "\n" : "";
-        if (component || app) await appendReceipts(receiptLog, component + app);
+        // The app records a command whose component writes none, and one that ended without its component's receipt.
+        const app = policy.receipt === "app" || (!component && !succeeded) ? JSON.stringify({
+          schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
+          tool: "vivary-workbench", command: command.verb, exit_code: "exitCode" in settled ? settled.exitCode : null,
+          ok: succeeded, duration_ms: settled.durationMs, python: pythonVersion, platform: process.platform,
+          receipt_source: "app", ...("failure" in settled ? { error_type: settled.failure } : {}),
+        }) + "\n" : "";
+        if (!component && !app) return;
+        await appendReceipts(receiptLog, component + app);
+        if (componentLog && component) await rm(componentLog, { force: true, maxRetries: 3 }).catch(() => undefined);
       })();
-      await (policy.required ? recorded : recorded.catch(() => undefined));
+      await (required ? recorded : recorded.catch(() => undefined));
     },
-    // Cleanup never decides a command's outcome.
+    // Cleanup never decides a command's outcome. A receipt still here was
+    // never appended, so its folder waits for a later sweep.
     dispose: async () => {
-      if (privateDir) await rm(privateDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+      if (!privateDir || (componentLog && await componentReceipts(componentLog).catch(() => ""))) return;
+      await rm(privateDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
     },
   };
 }
@@ -345,6 +358,8 @@ type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
   running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
+  /** Commands whose child started and whose receipt is not yet recorded. */
+  recording?: Set<Promise<void>>;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
@@ -419,7 +434,9 @@ export function shutdownOriginalCommands(): Promise<void> {
   if (!commandHost.shutdown) {
     const active = [...commandHost.active];
     for (const command of active) command.stop(new Error("Vivary is closing. The original command was stopped."));
-    commandHost.shutdown = Promise.all(active.map(command => command.settled)).then(() => undefined);
+    // A stopped command records its receipt after its child exits, so shutdown waits for that too.
+    commandHost.shutdown = Promise.all(active.map(command => command.settled))
+      .then(() => Promise.allSettled([...commandHost.recording ?? []])).then(() => undefined);
   }
   return commandHost.shutdown;
 }
@@ -509,12 +526,8 @@ const runtimeDependencies: Dependencies = {
 // Resolution and the run are separate steps, so a project read can still name
 // its project when the run fails.
 function createRuntimeCommandRunner(dependencies: Dependencies) {
-  // Only project reads admit a Native tool call. The owner's commands refuse one.
   const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
     requireVivaryCodeUser(context);
-    if (context?.caller === "tool") {
-      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
-    }
     const workspace = await dependencies.resolveWorkspace(context, projectId);
     if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
       commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
@@ -522,6 +535,10 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     return workspace;
   };
   const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
+    const policy = commandPolicy[command.verb];
+    if (context?.caller === "tool" && !policy.tool) {
+      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
+    }
     const { projectId } = workspace;
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
@@ -544,24 +561,24 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     }
     await validateGovernedRequest(command, workspace);
     const receipts = await openReceipts(command, receiptDir, runtime.version);
-    let requestDirectory: string | undefined;
+    let finishRecording: (() => void) | undefined;
     try {
       let controlRequestPath: string | undefined;
       if (command.verb === "control") {
         // Exo refuses stdin when receipts are enabled: give the request its own identity.
-        requestDirectory = await mkdtemp(path.join(receiptDir, "request-")).catch(receiptDirectoryError);
-        controlRequestPath = path.join(requestDirectory, "request.json");
+        controlRequestPath = path.join(receipts.privateDir ?? receiptDirectoryError(), "request.json");
         await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
       }
       const invocation = originalCommandArguments(command, workspace.root, controlRequestPath);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
-      const release = await acquireProject(projectId, commandPolicy[command.verb].access, dependencies.parallelism, context?.signal);
+      const release = await acquireProject(projectId, policy.access, dependencies.parallelism, context?.signal);
       let current: LocalProjectWorkspace;
-      let started: number | undefined;
       let result: Awaited<ReturnType<typeof runOriginalProcess>>;
+      let started = 0;
       let durationMs = 0;
+      let spawned = false;
       try {
         current = await dependencies.resolveWorkspace(context, projectId);
         if (!current || !sameOriginalWorkspace(current, workspace)) {
@@ -571,12 +588,18 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         // Shutdown may arrive while an admitted command re-checks its project.
         if (commandHost.closing) throw closingError();
         started = performance.now();
-        result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
+        const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
           originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
+        // The child started, so shutdown waits for this command's receipt.
+        spawned = true;
+        const recording = new Promise<void>(done => { finishRecording = done; });
+        (commandHost.recording ??= new Set()).add(recording);
+        void recording.then(() => commandHost.recording?.delete(recording));
+        result = await running;
         durationMs = Math.round(performance.now() - started);
       } catch (error) {
-        // A command stopped after it started is still recorded.
-        if (started !== undefined) {
+        // A command whose child started is recorded when it fails or is stopped.
+        if (spawned) {
           await receipts.settle({ failure: isActionContractError(error) ? error.errorCode : "stopped",
             durationMs: Math.round(performance.now() - started) }).catch(() => undefined);
         }
@@ -591,7 +614,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
       await receipts.dispose();
-      if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+      finishRecording?.();
     }
   };
   return { resolve, execute };
@@ -625,8 +648,7 @@ export function createProjectReadRunner(dependencies: Dependencies = runtimeDepe
   const runner = createRuntimeCommandRunner(dependencies);
   return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
     const parsed = projectReadCommandSchema.parse(command);
-    requireVivaryCodeUser(context);
-    const workspace = await dependencies.resolveWorkspace(context, projectId);
+    const workspace = await runner.resolve(context, projectId);
     const project = { id: workspace.projectId, label: workspace.label };
     try {
       const { workspace: after, dataDir, output } = await runner.execute(workspace, parsed, context);

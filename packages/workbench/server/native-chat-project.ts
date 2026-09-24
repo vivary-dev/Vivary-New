@@ -5,13 +5,11 @@ import {
   getRequestRunContext,
 } from "@agent-native/core/server";
 import { createError } from "h3";
-import { createVivaryChatIdentity } from "./chat-identity";
+import { PROJECT_CHAT_SCOPE_PREFIX, projectChatScopeId } from "./chat-project-scope.mjs";
 import {
   matchChatProject,
   resolveLocalProjectWorkspace,
 } from "./project-services.mjs";
-
-const PROJECT_SCOPE_PREFIX = "vivary-project-chat-v2:";
 
 type PrepareRequestDetails = Parameters<
   NonNullable<AgentChatPluginOptions["prepareRequest"]>
@@ -20,9 +18,9 @@ type PrepareRequestDetails = Parameters<
 type NativeChatProjectDependencies = {
   getScope: () => RequestRunContext["chatScope"];
   getOrgId: () => string | undefined;
+  /** Matches the scope of the current request, never one the caller names. */
   matchChatProject: (
     context: ActionRunContext,
-    scopeId: string,
   ) => Promise<{ projectId: string; context: ActionRunContext } | null>;
   resolveProjectWorkspace: (
     context: ActionRunContext,
@@ -42,7 +40,7 @@ function projectConversationError(statusCode: number, statusMessage: string): Er
 }
 
 function projectScopeId(scope: RequestRunContext["chatScope"]): string | null {
-  if (!scope?.id.startsWith(PROJECT_SCOPE_PREFIX)) return null;
+  if (!scope?.id.startsWith(PROJECT_CHAT_SCOPE_PREFIX)) return null;
   if (scope.type !== "workspace-app") {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
@@ -59,7 +57,7 @@ function preserveAuthorizationError(error: unknown): void {
 type ChatScopeMatch =
   | { kind: "not-project" }
   | { kind: "personal" }
-  | { kind: "project"; projectId: string; ownerContext: ActionRunContext };
+  | { kind: "project"; projectId: string; projectContext: ActionRunContext };
 
 // Matches the pinned scope to the owner's current catalog. Native consumed
 // the request body before either caller runs and already normalized its scope.
@@ -79,12 +77,7 @@ async function matchChatScope(
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
 
-  const personal = createVivaryChatIdentity(ownerEmail, orgId, {
-    kind: "project",
-    projectId: null,
-    label: "Personal workspace",
-  });
-  if (requestedScopeId === personal.scope.id) return { kind: "personal" };
+  if (requestedScopeId === projectChatScopeId(ownerEmail, orgId, null)) return { kind: "personal" };
 
   const context: ActionRunContext = {
     caller: identity.caller,
@@ -95,7 +88,7 @@ async function matchChatScope(
   };
   let match: { projectId: string; context: ActionRunContext } | null;
   try {
-    match = await dependencies.matchChatProject(context, requestedScopeId);
+    match = await dependencies.matchChatProject(context);
   } catch (error) {
     preserveAuthorizationError(error);
     throw projectConversationError(409, "Project conversation access is unavailable.");
@@ -103,7 +96,7 @@ async function matchChatScope(
   if (!match) {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
-  return { kind: "project", projectId: match.projectId, ownerContext: match.context };
+  return { kind: "project", projectId: match.projectId, projectContext: match.context };
 }
 
 /**
@@ -118,7 +111,7 @@ export function createVivaryNativeChatProjectGuard(
       { owner: details.ownerEmail, orgId: dependencies.getOrgId(), caller: "http" });
     if (match.kind !== "project") return;
     try {
-      await dependencies.resolveProjectWorkspace(match.ownerContext, match.projectId);
+      await dependencies.resolveProjectWorkspace(match.projectContext, match.projectId);
     } catch (error) {
       preserveAuthorizationError(error);
       throw projectConversationError(
@@ -139,7 +132,7 @@ export const prepareVivaryNativeChatProject =
  */
 export function createVivaryNativeChatProjectResolver(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
-): (context: ActionRunContext | undefined) => Promise<{ projectId: string; ownerContext: ActionRunContext }> {
+): (context: ActionRunContext | undefined) => Promise<{ projectId: string; projectContext: ActionRunContext }> {
   return async context => {
     const match = context?.caller === "tool"
       ? await matchChatScope(dependencies,
@@ -151,7 +144,7 @@ export function createVivaryNativeChatProjectResolver(
         statusCode: 409,
       });
     }
-    return { projectId: match.projectId, ownerContext: match.ownerContext };
+    return { projectId: match.projectId, projectContext: match.projectContext };
   };
 }
 

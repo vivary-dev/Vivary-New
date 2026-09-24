@@ -421,7 +421,8 @@ function tool() {
     getScope: () => getRequestRunContext()?.chatScope,
     getOrgId: getRequestOrgId,
     resolveProjectWorkspace: async () => { throw new Error("The tool path resolves the workspace in the runner."); },
-    matchChatProject: async (context, scopeId) => {
+    matchChatProject: async context => {
+      const scopeId = getRequestRunContext()?.chatScope?.id;
       const match = catalog.projects.find(candidate => scope(candidate.projectId).id === scopeId);
       return match ? { projectId: match.projectId, context } : null;
     },
@@ -469,7 +470,7 @@ test("the Native tool refuses caller projects, personal and legacy chats, and ma
 
 test("a revoked project reaches the model as the resolver's refusal", async () => {
   const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
-  const reads = createProjectRead({ run: async () => { throw revoked; }, chatProject: async () => ({ projectId: "project-a", ownerContext: owner }) });
+  const reads = createProjectRead({ run: async () => { throw revoked; }, chatProject: async () => ({ projectId: "project-a", projectContext: owner }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });
   const result = await runWithRequestContext({ userEmail: ownerEmail, orgId, run: { chatScope: scope("project-a") } },
     () => executeAgentToolCall({ actions, name: "vivary-project-read", input: { operation: "doctor" }, callId: "call-revoked", ownerEmail, orgId }));
@@ -479,7 +480,7 @@ test("a revoked project reaches the model as the resolver's refusal", async () =
 
 test("a repeated read in one agent turn reaches the runner again, so a queue timeout can be retried", async () => {
   let runs = 0;
-  const reads = createProjectRead({ chatProject: async () => ({ projectId: "project-a", ownerContext: owner }), run: async () => {
+  const reads = createProjectRead({ chatProject: async () => ({ projectId: "project-a", projectContext: owner }), run: async () => {
     runs++;
     return { project: { id: "project-a", label: "Project A" }, failure: ORIGINAL_RUN_FAILURES.queueTimeout };
   } });

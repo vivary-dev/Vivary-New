@@ -382,20 +382,25 @@ function localService(context, tool) {
 }
 
 /**
- * Finds the one registered project whose Native chat scope is `scopeId`. The
- * owner's request gets its own context back. A Native tool call gets a
- * context that the read entry points accept for that project only, and it
- * stays a tool call. Null when no project matches.
+ * Finds the one registered project whose Native chat scope is the scope the
+ * current request is pinned to. The scope comes from the request, never from
+ * the caller. The owner's request gets its own context back. A Native tool
+ * call gets a context that the read entry points accept for that project
+ * only, and it stays a tool call. Null when no project matches.
  */
-export async function matchChatProject(context, scopeId) {
+export async function matchChatProject(context) {
   const tool = context?.caller === "tool";
   const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
+  // Loaded on first use, so the registry scripts that import this module do not load Core's server.
+  const { getRequestRunContext } = await import("@agent-native/core/server");
+  const scope = getRequestRunContext()?.chatScope;
+  if (scope?.type !== "workspace-app") return null;
   const catalog = await service.catalog.run({}, owner);
   if (catalog.code !== "catalog") {
     throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
   }
   const matches = catalog.projects.filter(project =>
-    projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scopeId);
+    projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scope.id);
   if (matches.length !== 1) return null;
   const { projectId } = matches[0];
   if (!tool) return { projectId, context };

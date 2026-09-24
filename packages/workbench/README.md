@@ -484,7 +484,7 @@ Use the existing relevant checks:
 ```console
 pnpm typecheck
 pnpm test:project-services
-node --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
+node node_modules/tsx/dist/cli.mjs --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
 node node_modules/tsx/dist/cli.mjs --test tests/local-code-agent.test.ts tests/local-runtime-setup.test.ts tests/code-execution-host.test.ts
 pnpm build
 pnpm run doctor

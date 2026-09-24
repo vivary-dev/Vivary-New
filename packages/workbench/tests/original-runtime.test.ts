@@ -7,7 +7,7 @@ import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
 import { ActionContractError } from "@agent-native/core/action";
-import { adoptionExecutionSchema, commandPolicy, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, ORIGINAL_RUN_FAILURES, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
+import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, ORIGINAL_RUN_FAILURES, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
 
 const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 const input = { projectId: "project-a", command: { verb: "review" as const } };
@@ -171,11 +171,12 @@ async function fixture(inspect?: (args: string[], stdin: string) => Promise<void
       assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
       assert.equal(cwd, data);
       const childLog = environment.VIVARY_RECEIPT_LOG;
-      const source = commandPolicy[args[6] as keyof typeof commandPolicy].receipt;
+      // A component writes a private receipt. The app records decide, doctor, find, and check, and logs reads the shared log.
+      const source = args[6] === "logs" ? "shared" : ["decide", "doctor", "find", "check"].includes(args[6]) ? "app" : "component";
       if (source === "component") {
         assert.ok(childLog && path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
       } else {
-        assert.equal(childLog, source === "none" ? path.join(data, "original-runtime", "receipts.jsonl") : undefined);
+        assert.equal(childLog, source === "shared" ? path.join(data, "original-runtime", "receipts.jsonl") : undefined);
       }
       await inspect?.(args, stdin);
       afterExecute();
@@ -333,7 +334,7 @@ test("control uses a separate private request file and removes it after success 
     const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
     const f = await fixture(async (args, stdin) => {
       requestPath = args.at(-1)!;
-      assert.ok(requestPath.startsWith(path.join(f.data, "original-runtime", "request-")));
+      assert.ok(requestPath.startsWith(path.join(f.data, "original-runtime", "run-")));
       assert.equal(await readFile(requestPath, "utf8"), request);
       assert.equal(stdin, "");
       if (reject) throw new Error("fixture execution failure");
@@ -668,6 +669,78 @@ test("a required component receipt must exist when its command succeeds", async 
   } finally { await f.cleanup(); }
 });
 
+test("the owner's commands refuse a Native tool call, and project reads accept one", async () => {
+  const f = await fixture();
+  const tool: ActionRunContext = { ...context, caller: "tool" };
+  const workspace = projectWorkspace("project-a", f.root);
+  const dependencies = { parallelism: 4, environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => workspace };
+  try {
+    await assert.rejects(f.runner(input, tool), { errorCode: "vivary_original_tool_caller", statusCode: 403 });
+    await assert.rejects(createAdoptionCommandRunner({ ...dependencies, execute: runOriginalProcess })(
+      { verb: "adopt-apply", planHash: "sha256:" + "a".repeat(64), requestId: randomUUID() }, workspace, tool),
+    { errorCode: "vivary_original_tool_caller", statusCode: 403 });
+    assert.equal(f.calls(), 0);
+    const read = await createProjectReadRunner({ ...dependencies,
+      execute: async () => ({ exitCode: 0, stdout: "{}", stderr: "", signal: null }) })("project-a", { verb: "doctor" }, tool);
+    assert.ok("exitCode" in read && read.exitCode === 0);
+  } finally { await f.cleanup(); }
+});
+
+test("a component command that ends without its receipt is recorded by the app", async () => {
+  const f = await fixture();
+  const run = createOriginalCommandRunner({ parallelism: 4,
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+    execute: async () => ({ exitCode: 2, stdout: "", stderr: "", signal: null }) });
+  try {
+    assert.equal((await run(input, context)).exitCode, 2);
+    const receipt = JSON.parse(await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8"));
+    assert.deepEqual([receipt.command, receipt.ok, receipt.exit_code, receipt.receipt_source], ["review", false, 2, "app"]);
+  } finally { await f.cleanup(); }
+});
+
+test("an appended component receipt leaves its private folder before the command returns", async () => {
+  const f = await fixture();
+  let childLog = "";
+  let resolutions = 0;
+  let presentAfterAppend: boolean | undefined;
+  const run = createOriginalCommandRunner({ parallelism: 4,
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => {
+      // The third resolution is the recheck after the receipt was appended.
+      if (++resolutions === 3) presentAfterAppend = await readFile(childLog).then(() => true, () => false);
+      return projectWorkspace("project-a", f.root);
+    },
+    execute: async (_python, _args, _stdin, _cwd, environment) => {
+      childLog = environment.VIVARY_RECEIPT_LOG!;
+      await writeFile(childLog, JSON.stringify({ command: "review", ok: true }) + "\n");
+      return { exitCode: 0, stdout: "{}", stderr: "", signal: null };
+    } });
+  try {
+    await run(input, context);
+    assert.equal(presentAfterAppend, false, "a crash before cleanup cannot append the receipt twice");
+  } finally { await f.cleanup(); }
+});
+
+test("the sweep keeps an old run folder whose receipt it cannot append", async () => {
+  const f = await fixture();
+  const receiptDir = path.join(f.data, "original-runtime");
+  const old = path.join(receiptDir, "run-old");
+  const outside = path.join(f.directory, "outside.jsonl");
+  try {
+    await mkdir(old, { recursive: true });
+    await writeFile(path.join(old, "receipts.jsonl"), JSON.stringify({ command: "adopt", ok: true }) + "\n");
+    const eleven = new Date(Date.now() - 11 * 60_000);
+    await utimes(old, eleven, eleven);
+    await writeFile(outside, "");
+    await link(outside, path.join(receiptDir, "receipts.jsonl"));
+    await f.runner(input, context);
+    assert.ok((await readdir(receiptDir)).includes("run-old"), "the unappended receipt waits for a later sweep");
+    assert.equal(await readFile(outside, "utf8"), "");
+  } finally { await f.cleanup(); }
+});
+
 test("a command stopped after it started is still recorded as failed", async () => {
   const f = await fixture();
   const run = createOriginalCommandRunner({ parallelism: 4,
@@ -836,6 +909,9 @@ test("shutdown stops running children, refuses waiters, and stops an admitted co
     const shutdown = shutdownOriginalCommands();
     assert.equal(shutdownOriginalCommands(), shutdown);
     await shutdown;
+    const recorded = await readFile(path.join(f.directory, "data", "original-runtime", "receipts.jsonl"), "utf8").catch(() => "");
+    assert.ok(recorded.includes('"command":"adopt-apply"') && recorded.includes('"ok":false'),
+      "the stopped write was recorded before shutdown resolved");
     hold.release();
     await Promise.all([stopped, refused, unspawned]);
     assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");

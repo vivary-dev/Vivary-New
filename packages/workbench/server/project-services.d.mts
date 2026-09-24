@@ -22,7 +22,6 @@ export type LocalProjectHistory = Readonly<Pick<
 export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
 export function matchChatProject(
   context: ActionRunContext,
-  scopeId: string,
 ): Promise<{ projectId: string; context: ActionRunContext } | null>;
 export function connectLocalProjectFolder(
   context: ActionRunContext | undefined,
