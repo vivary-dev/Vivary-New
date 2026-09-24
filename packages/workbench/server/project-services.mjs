@@ -398,7 +398,9 @@ export async function connectLocalProjectFolder(context, folder, displayName) {
 
 async function resolveLocalProjectBinding(context, projectId) {
   const { service, owner } = localService(context);
-  if (!identifier.safeParse(projectId).success) throw new Error("Choose a registered project.");
+  if (!identifier.safeParse(projectId).success) {
+    throw Object.assign(new Error("Choose a registered project."), { statusCode: 400 });
+  }
   const scope = await service.registry.readScope(owner);
   if (!scope) throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
   const [{ getDb }, { bindings, projects }, { and, eq, inArray }] = await Promise.all([
@@ -412,7 +414,7 @@ async function resolveLocalProjectBinding(context, projectId) {
       inArray(bindings.locationRef, scope.locationRefs))).limit(2);
   const binding = rows[0];
   if (rows.length !== 1 || binding.verificationKind !== LOCAL_VERIFICATION) {
-    throw new Error("This project does not have one connected local folder.");
+    throw Object.assign(new Error("This project does not have one connected local folder."), { statusCode: 409 });
   }
   return { service, owner, scope, binding };
 }
@@ -439,7 +441,8 @@ export async function resolveLocalProjectWorkspace(context, projectId) {
   const resolved = await service.provider.resolvePath(owner, binding.rootId, binding.locationRef);
   await requireCurrentProjectScope(service, owner, scope);
   if (!resolved) {
-    throw new Error("The project folder is missing or changed. Reconnect it before running an agent.");
+    throw Object.assign(new Error("The project folder is missing or changed. Reconnect it from Projects."),
+      { statusCode: 409 });
   }
   return Object.freeze({ root: resolved.path, label: binding.label, projectId, actorId: scope.actorId,
     bindingId: binding.bindingId, bindingRevision: binding.bindingRevision,

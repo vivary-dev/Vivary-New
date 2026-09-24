@@ -167,6 +167,8 @@ test("local project grants register real folders and reopen without content snap
       assert.equal(resolved.projectId, alphaResult.projectId);
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, orgId: "foreign" }, alphaResult.projectId));
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, caller: "agent" }, alphaResult.projectId));
+      await assert.rejects(resolveLocalProjectWorkspace(actionContext, "../alpha"),
+        { message: "Choose a registered project.", statusCode: 400 });
       assert.equal(betaResult.code, "registered");
       const current = await catalog.run({}, context);
       assert.equal(current.projects.length, 2);
@@ -238,7 +240,8 @@ test("local project grants register real folders and reopen without content snap
         rootId: alphaBinding.rootId,
         bindingRevision: alphaBinding.bindingRevision,
       });
-      await assert.rejects(resolveLocalProjectWorkspace(context, alphaResult.projectId), /missing or changed/);
+      await assert.rejects(resolveLocalProjectWorkspace(context, alphaResult.projectId),
+        { message: /missing or changed/, statusCode: 409 });
       await assert.rejects(provider.addGrantedFolder(context, alpha), /different folder/);
     });
     await suite.test("role removal survives restart and cannot be repaired by ordinary reads", async () => {
