@@ -3,10 +3,11 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
+import { useNativeActionCaller } from "@/lib/native-actions";
 import { useProjects } from "../projects/ProjectContext";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 import { CodeHistory } from "./CodeHistory";
@@ -26,6 +27,12 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   const projectId = activeProject?.projectId ?? null;
   const location = useLocation();
   const navigate = useNavigate();
+  const { call } = useNativeActionCaller();
+  const creationGeneration = useRef(0);
+  const latestLocationKey = useRef(location.key);
+  latestLocationKey.current = location.key;
+  const creatingNative = useRef(false);
+  useEffect(() => () => { creationGeneration.current++; }, [identity.storageKey]);
   const params = new URLSearchParams(location.search);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string>();
@@ -64,15 +71,37 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     ? params.get("history") === "unassigned" ? null : `native:${params.get("thread") ?? native.activeThreadId}`
     : params.get("run") === "new" ? null : `code:${params.get("run") ?? code?.runs.find(isCodeAgentRunActive)?.id ?? code?.run?.id}`;
   function newCode() {
+    creationGeneration.current++;
     setMenuOpen(false);
     navigate("/?run=new&draft=" + crypto.randomUUID());
   }
   async function newNative() {
+    if (creatingNative.current) return;
+    creatingNative.current = true;
+    const generation = ++creationGeneration.current;
+    const locationKey = location.key;
+    const stillCurrent = () => generation === creationGeneration.current
+      && latestLocationKey.current === locationKey;
     setMenuOpen(false);
     setError(undefined);
-    const threadId = await native.createThread();
-    if (threadId) navigate(`/?runtime=native&thread=${encodeURIComponent(threadId)}`);
-    else setError("The conversation could not be created. Try again.");
+    try {
+      const threadId = await native.createThread();
+      if (!stillCurrent()) return;
+      if (!threadId) throw new Error("No conversation ID was created.");
+      const scope = { kind: identity.kind, projectId: identity.projectId, threadId };
+      // An empty Native conversation has no server thread row. Record its exact
+      // optimistic ID with the existing draft owner before opening the route.
+      const initialized = await call<{ changed: boolean; record: { status: string } | null }>(
+        "vivary-chat-draft", { operation: "change", ...scope, expected: null,
+          next: { status: "cleared", text: "", submitId: null } });
+      if (!stillCurrent()) return;
+      if (!initialized.changed || initialized.record?.status !== "cleared") throw new Error("Draft initialization failed.");
+      navigate(`/?runtime=native&thread=${encodeURIComponent(threadId)}`);
+    } catch {
+      if (stillCurrent()) setError("The conversation could not be saved. Try again.");
+    } finally {
+      creatingNative.current = false;
+    }
   }
   const history = useChatHistoryRailController({ items: sessions,
     onNewChat: () => { if (isNative && params.get("history") !== "unassigned") void newNative(); else newCode(); },
@@ -96,6 +125,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   }
   function selectSession(id: string) {
     if (!sessions.some(item => item.id === id)) return;
+    creationGeneration.current++;
     const [runtime, ...parts] = id.split(":");
     const recordId = parts.join(":");
     if (runtime === "native") {
