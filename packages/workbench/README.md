@@ -320,9 +320,11 @@ The Native agent reads the same reports through one Vivary tool,
 `vivary-project-read`. The tool has no project field. Its project comes from
 the chat, and the tool refuses a personal chat. The panel and the tool get the
 same result, capped to fit the tool result limit with true totals. The result
-shows the project root as `.` instead of its host path. The tool call keeps its
-own caller identity. Project services admit it for its chat's project alone,
-and never let it list projects, connect a folder, or reconnect one. Coding runtimes keep their own file tools and do not receive this tool.
+shows the project root as `.` instead of its host path. The tool call keeps
+caller `tool` everywhere outside project services. Project services match the
+chat's pinned scope to one registered project, admit the call for that project
+alone, and look up the owner's registry scope on its behalf. It cannot list
+projects, run the owner's commands, connect a folder, or reconnect one. Coding runtimes keep their own file tools and do not receive this tool.
 
 Original commands never refuse a caller for being busy. Reads run in parallel.
 A command that writes a project's files, such as an approved setup, runs alone
@@ -331,8 +333,10 @@ below four, only makes extra commands wait. A command that still cannot start
 after 30 seconds returns a message asking you to try again. A command whose
 component writes a receipt writes it to a private file, and the app appends
 that file to the shared log after the command ends, so parallel commands cannot
-overwrite each other's receipts. A governed command or a write fails without its
-receipt. A read's report stands without one.
+overwrite each other's receipts. The app writes the receipt itself for a command
+whose component writes none, and for a command stopped after it started. A
+governed command or a write fails without its receipt. A read's report stands
+without one.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs

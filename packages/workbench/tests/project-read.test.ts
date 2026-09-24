@@ -269,6 +269,8 @@ test("host configuration failures are unavailable values that name the project",
     }
     let executed = 0;
     await mkdir(path.dirname(h.receipts), { recursive: true });
+    // The failed runs above recorded themselves, so the link replaces that log.
+    await rm(h.receipts, { force: true });
     await writeFile(path.join(h.directory, "linked.jsonl"), "");
     await link(path.join(h.directory, "linked.jsonl"), h.receipts);
     const counting = h.reads({ execute: async () => { executed++; return { ...coding.find, signal: null }; } });
@@ -346,13 +348,13 @@ test("host paths never appear in any serialized result", async () => {
 
 test("only check findings and find results carry a path, the one field redaction leaves whole", async () => {
   const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
-  const owners: string[] = [];
+  const paths = new Set<string>();
   const walk = (value: unknown, where: string) => {
-    if (Array.isArray(value)) value.forEach(item => walk(item, where));
+    if (Array.isArray(value)) value.forEach(item => walk(item, `${where}[]`));
     else if (value && typeof value === "object") {
       for (const [key, item] of Object.entries(value)) {
-        if (key === "path") owners.push(where);
-        walk(item, key);
+        if (key === "path") paths.add(`${where}.path`);
+        walk(item, `${where}.${key}`);
       }
     }
   };
@@ -360,11 +362,7 @@ test("only check findings and find results carry a path, the one field redaction
     { operation: "capabilities" }, { operation: "receipts" }] as const) {
     walk(reported(await reads.forOwner(owner, { projectId: "project-a", ...input })), input.operation);
   }
-  assert.ok(owners.length > 0);
-  assert.deepEqual([...new Set(owners)].sort(), ["items"]);
-  assert.deepEqual(owners.length, (reported(await reads.forOwner(owner, { projectId: "project-a", operation: "check" })) as
-    { findings: { items: unknown[] } }).findings.items.length + (reported(await reads.forOwner(owner,
-    { projectId: "project-a", operation: "find", query: "sync queue" })) as { results: { items: unknown[] } }).results.items.length);
+  assert.deepEqual([...paths].sort(), ["check.findings.items[].path", "find.results.items[].path"]);
 });
 
 test("worst-case outputs stay under the tool result limit with true totals", async () => {
@@ -422,11 +420,10 @@ function tool() {
   const reads = createProjectRead({ run: fake.run, chatProject: createVivaryNativeChatProjectResolver({
     getScope: () => getRequestRunContext()?.chatScope,
     getOrgId: getRequestOrgId,
-    getProjectAccess: async () => { throw new Error("A tool call reads the catalog only through its admission."); },
     resolveProjectWorkspace: async () => { throw new Error("The tool path resolves the workspace in the runner."); },
-    admitChatProject: async (context, isChatProject) => {
-      const matches = catalog.projects.filter(isChatProject);
-      return matches.length === 1 ? { projectId: matches[0].projectId, context } : null;
+    matchChatProject: async (context, scopeId) => {
+      const match = catalog.projects.find(candidate => scope(candidate.projectId).id === scopeId);
+      return match ? { projectId: match.projectId, context } : null;
     },
   }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });

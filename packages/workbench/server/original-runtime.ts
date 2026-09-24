@@ -73,7 +73,8 @@ const STALE_RUN_MS = 10 * 60_000;
 
 /**
  * Failures after the project resolved in which the original command produced
- * no report. A run returns these as values. Every other failure throws.
+ * no report. The runner throws them, and createProjectReadRunner returns them
+ * as values.
  */
 export const ORIGINAL_RUN_FAILURES = {
   queueTimeout: "vivary_original_queue_timeout",
@@ -90,25 +91,30 @@ export function isOriginalRunFailure(error: unknown): error is ActionContractErr
 }
 
 type AccessMode = "read" | "write";
-// A write changes one project's files, so it runs alone within that project.
-const accessMode: Record<RuntimeCommand["verb"], AccessMode> = {
-  create: "read", adopt: "read", "pattern-state": "read", decide: "read", review: "read", impact: "read", control: "write",
-  "adopt-prepare-privacy": "write", "adopt-apply": "write", "adopt-recovery-preview": "read", "adopt-recover": "write",
-  doctor: "read", capabilities: "read", find: "read", check: "read", logs: "read",
+type CommandPolicy = { access: AccessMode; receipt: "component" | "app" | "none"; required: boolean };
+// One row per command. A write changes one project's files, so it runs alone
+// within that project. `receipt` says who writes the receipt: the component,
+// into a private file the app appends after the command settles, or the app
+// itself when the component writes none. `logs` only reads the shared log. A
+// governed command or a write fails without its receipt.
+export const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
+  create: { access: "read", receipt: "component", required: false },
+  adopt: { access: "read", receipt: "component", required: false },
+  "pattern-state": { access: "read", receipt: "component", required: false },
+  decide: { access: "read", receipt: "app", required: true },
+  review: { access: "read", receipt: "component", required: false },
+  impact: { access: "read", receipt: "component", required: false },
+  control: { access: "write", receipt: "component", required: true },
+  "adopt-prepare-privacy": { access: "write", receipt: "component", required: true },
+  "adopt-apply": { access: "write", receipt: "component", required: true },
+  "adopt-recovery-preview": { access: "read", receipt: "component", required: false },
+  "adopt-recover": { access: "write", receipt: "component", required: true },
+  doctor: { access: "read", receipt: "app", required: false },
+  capabilities: { access: "read", receipt: "component", required: false },
+  find: { access: "read", receipt: "app", required: false },
+  check: { access: "read", receipt: "app", required: false },
+  logs: { access: "read", receipt: "none", required: false },
 };
-// Where each command's receipt comes from. A component writes its own to a
-// private file, which the app appends to the shared log after the command
-// exits. Standalone Strato has no execution log, and the public doctor, find,
-// and check path skips the components' receipt writers, so the app writes one.
-// `logs` only reads the shared log.
-const receiptSource: Record<RuntimeCommand["verb"], "component" | "app" | "none"> = {
-  create: "component", adopt: "component", "pattern-state": "component", decide: "app", review: "component",
-  impact: "component", control: "component", "adopt-prepare-privacy": "component", "adopt-apply": "component",
-  "adopt-recovery-preview": "component", "adopt-recover": "component",
-  doctor: "app", capabilities: "component", find: "app", check: "app", logs: "none",
-};
-// A governed command or a write fails without its receipt. A read's report stands without one.
-const receiptRequired = new Set<RuntimeCommand["verb"]>(["decide", "control", "adopt-prepare-privacy", "adopt-apply", "adopt-recover"]);
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
@@ -147,7 +153,8 @@ export function originalCommandArguments(command: RuntimeCommand, root: string, 
   }
 }
 
-export function originalChildEnvironment(environment: NodeJS.ProcessEnv, receiptLog: string, projectRoot?: string): NodeJS.ProcessEnv {
+/** `receiptLog` is where the child may write or read receipts. A child given none writes none. */
+export function originalChildEnvironment(environment: NodeJS.ProcessEnv, receiptLog: string | undefined, projectRoot?: string): NodeJS.ProcessEnv {
   const child: NodeJS.ProcessEnv = {};
   for (const name of ["PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "TEMP", "TMP", "LANG", "LC_ALL", "TZ"]) {
     if (environment[name]) child[name] = environment[name];
@@ -156,7 +163,7 @@ export function originalChildEnvironment(environment: NodeJS.ProcessEnv, receipt
     .filter(directory => path.isAbsolute(directory) && (!projectRoot || !containsPath(projectRoot, directory)))
     .join(path.delimiter);
   child.PYTHONNOUSERSITE = "1";
-  child.VIVARY_RECEIPT_LOG = receiptLog;
+  if (receiptLog) child.VIVARY_RECEIPT_LOG = receiptLog;
   return child;
 }
 
@@ -174,13 +181,26 @@ const receiptDirectoryError = () => commandError("Vivary's command receipt direc
 const receiptFileError = () => commandError("Vivary's command receipt must be a private application file.",
   ORIGINAL_RUN_FAILURES.receiptPath);
 
+async function requireReceiptFile(receiptLog: string): Promise<void> {
+  const receipt = await lstat(receiptLog)
+    .catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : receiptFileError());
+  if (receipt && (!receipt.isFile() || receipt.nlink !== 1)) receiptFileError();
+}
+
 async function appendReceipts(receiptLog: string, lines: string): Promise<void> {
-  const receipt = await open(receiptLog, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   try {
-    const stat = await receipt.stat();
-    if (!stat.isFile() || stat.nlink !== 1) receiptFileError();
-    await receipt.appendFile(lines, "utf8");
-  } finally { await receipt.close(); }
+    const receipt = await open(receiptLog,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+    try {
+      // Windows has no O_NOFOLLOW, so the opened file must be the path's own regular file.
+      const [opened, named] = await Promise.all([receipt.stat(), lstat(receiptLog)]);
+      if (!named.isFile() || opened.nlink !== 1 || opened.ino !== named.ino || opened.dev !== named.dev) receiptFileError();
+      await receipt.appendFile(lines, "utf8");
+    } finally { await receipt.close(); }
+  } catch (error) {
+    if (isActionContractError(error)) throw error;
+    receiptFileError();
+  }
 }
 
 // Only the app appends to the shared log. Windows emulates append with a
@@ -193,20 +213,61 @@ async function componentReceipts(childLog: string): Promise<string> {
   return lines.endsWith("\n") ? lines : lines + "\n";
 }
 
-// A crash leaves its run directory behind. Only old ones are removed, so a
+// A crash leaves its private directories behind, sometimes with a receipt the
+// app never appended. Old ones have their receipt appended and are removed. A
 // command another request just started keeps its directory.
-async function sweepStaleRuns(receiptDir: string): Promise<void> {
-  if (commandHost.swept) return;
-  commandHost.swept = true;
+async function sweepStaleRuns(receiptDir: string, receiptLog: string): Promise<void> {
+  const swept = commandHost.sweptDirectories ??= new Set<string>();
+  if (swept.has(receiptDir)) return;
+  swept.add(receiptDir);
   for (const name of await readdir(receiptDir).catch(() => [])) {
     const entry = path.join(receiptDir, name);
-    const info = name.startsWith("run-") ? await lstat(entry).catch(() => null) : null;
-    if (info?.isDirectory() && Date.now() - info.mtimeMs > STALE_RUN_MS) {
-      await rm(entry, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
-    }
+    const info = /^(run|request)-/.test(name) ? await lstat(entry).catch(() => null) : null;
+    if (!info?.isDirectory() || Date.now() - info.mtimeMs <= STALE_RUN_MS) continue;
+    const lines = await componentReceipts(path.join(entry, "receipts.jsonl")).catch(() => "");
+    if (lines) await appendReceipts(receiptLog, lines).catch(() => undefined);
+    await rm(entry, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
   }
 }
 
+type Settled = { durationMs: number } & ({ exitCode: number | null } | { failure: string });
+
+// Everything one command does with receipts, driven by its policy row.
+async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonVersion: string) {
+  const policy = commandPolicy[command.verb];
+  const receiptLog = path.join(receiptDir, "receipts.jsonl");
+  // `logs` reads the shared log, and a required receipt must be writable before its command runs.
+  if (policy.receipt === "none" || policy.required) await requireReceiptFile(receiptLog);
+  const privateDir = policy.receipt !== "component" ? undefined
+    : await mkdtemp(path.join(receiptDir, "run-")).catch(() => policy.required ? receiptDirectoryError() : undefined);
+  const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
+  return {
+    childLog: policy.receipt === "none" ? receiptLog : componentLog,
+    settle: async (settled: Settled) => {
+      const recorded = (async () => {
+        const component = componentLog ? await componentReceipts(componentLog) : "";
+        const succeeded = "exitCode" in settled && settled.exitCode === 0;
+        if (policy.required && policy.receipt === "component" && succeeded && !component) {
+          commandError("The command finished but did not record its receipt.", ORIGINAL_RUN_FAILURES.receiptPath);
+        }
+        // The app records a command whose component writes none, and one stopped before its component could.
+        const app = policy.receipt === "app" || (policy.receipt === "component" && !component && "failure" in settled)
+          ? JSON.stringify({
+            schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
+            tool: "vivary-workbench", command: command.verb, exit_code: "exitCode" in settled ? settled.exitCode : null,
+            ok: succeeded, duration_ms: settled.durationMs, python: pythonVersion, platform: process.platform,
+            receipt_source: "app", ...("failure" in settled ? { error_type: settled.failure } : {}),
+          }) + "\n" : "";
+        if (component || app) await appendReceipts(receiptLog, component + app);
+      })();
+      await (policy.required ? recorded : recorded.catch(() => undefined));
+    },
+    // Cleanup never decides a command's outcome.
+    dispose: async () => {
+      if (privateDir) await rm(privateDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+    },
+  };
+}
 
 async function validateGovernedRequest(command: RuntimeCommand, workspace: LocalProjectWorkspace): Promise<void> {
   if (command.verb !== "decide" && command.verb !== "control") return;
@@ -283,7 +344,7 @@ type Waiter = { projectId: string; mode: AccessMode; ceiling: number; start: () 
 type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
-  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; swept?: boolean;
+  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
@@ -448,8 +509,12 @@ const runtimeDependencies: Dependencies = {
 // Resolution and the run are separate steps, so a project read can still name
 // its project when the run fails.
 function createRuntimeCommandRunner(dependencies: Dependencies) {
+  // Only project reads admit a Native tool call. The owner's commands refuse one.
   const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
     requireVivaryCodeUser(context);
+    if (context?.caller === "tool") {
+      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
+    }
     const workspace = await dependencies.resolveWorkspace(context, projectId);
     if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
       commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
@@ -473,38 +538,30 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     const receiptDir = path.join(dataDir, "original-runtime");
     await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
     if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
-    await sweepStaleRuns(receiptDir);
-    const receiptLog = path.join(receiptDir, "receipts.jsonl");
-    const source = receiptSource[command.verb];
-    const required = receiptRequired.has(command.verb);
-    // `logs` reads the shared log, and a required receipt must be writable before its command runs.
-    if (command.verb === "logs" || required) {
-      const receipt = await lstat(receiptLog)
-        .catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : receiptFileError());
-      if (receipt && (!receipt.isFile() || receipt.nlink !== 1)) receiptFileError();
-    }
+    await sweepStaleRuns(receiptDir, path.join(receiptDir, "receipts.jsonl"));
     if ("request" in command && Buffer.byteLength(command.request, "utf8") > 65_536) {
       commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
     }
     await validateGovernedRequest(command, workspace);
-    const runDirectory = source === "component"
-      ? await mkdtemp(path.join(receiptDir, "run-")).catch(receiptDirectoryError) : undefined;
+    const receipts = await openReceipts(command, receiptDir, runtime.version);
+    let requestDirectory: string | undefined;
     try {
-      const childReceiptLog = runDirectory ? path.join(runDirectory, "receipts.jsonl") : receiptLog;
       let controlRequestPath: string | undefined;
-      if (command.verb === "control" && runDirectory) {
+      if (command.verb === "control") {
         // Exo refuses stdin when receipts are enabled: give the request its own identity.
-        controlRequestPath = path.join(runDirectory, "request.json");
+        requestDirectory = await mkdtemp(path.join(receiptDir, "request-")).catch(receiptDirectoryError);
+        controlRequestPath = path.join(requestDirectory, "request.json");
         await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
       }
       const invocation = originalCommandArguments(command, workspace.root, controlRequestPath);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
-      const release = await acquireProject(projectId, accessMode[command.verb], dependencies.parallelism, context?.signal);
+      const release = await acquireProject(projectId, commandPolicy[command.verb].access, dependencies.parallelism, context?.signal);
       let current: LocalProjectWorkspace;
-      let started: number;
+      let started: number | undefined;
       let result: Awaited<ReturnType<typeof runOriginalProcess>>;
+      let durationMs = 0;
       try {
         current = await dependencies.resolveWorkspace(context, projectId);
         if (!current || !sameOriginalWorkspace(current, workspace)) {
@@ -515,26 +572,17 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         if (commandHost.closing) throw closingError();
         started = performance.now();
         result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
-          originalChildEnvironment(environment, childReceiptLog, current.root), context?.signal);
+          originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
+        durationMs = Math.round(performance.now() - started);
       } catch (error) {
-        // A command that failed still keeps the receipt its component wrote.
-        if (runDirectory) {
-          const lines = await componentReceipts(childReceiptLog).catch(() => "");
-          if (lines) await appendReceipts(receiptLog, lines).catch(() => undefined);
+        // A command stopped after it started is still recorded.
+        if (started !== undefined) {
+          await receipts.settle({ failure: isActionContractError(error) ? error.errorCode : "stopped",
+            durationMs: Math.round(performance.now() - started) }).catch(() => undefined);
         }
         throw error;
       } finally { release(); }
-      const duration = Math.round(performance.now() - started);
-      const recorded = (async () => {
-        const lines = (runDirectory ? await componentReceipts(childReceiptLog) : "") + (source === "app" ? JSON.stringify({
-          schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
-          tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
-          ok: result.exitCode === 0, duration_ms: duration,
-          python: runtime.version, platform: process.platform, receipt_source: "app",
-        }) + "\n" : "");
-        if (lines) await appendReceipts(receiptLog, lines);
-      })();
-      await (required ? recorded : recorded.catch(() => undefined));
+      await receipts.settle({ exitCode: result.exitCode, durationMs });
       const after = await dependencies.resolveWorkspace(context, projectId);
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
@@ -542,8 +590,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
-      // Cleanup never decides a command's outcome.
-      if (runDirectory) await rm(runDirectory, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+      await receipts.dispose();
+      if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
     }
   };
   return { resolve, execute };
@@ -577,7 +625,8 @@ export function createProjectReadRunner(dependencies: Dependencies = runtimeDepe
   const runner = createRuntimeCommandRunner(dependencies);
   return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
     const parsed = projectReadCommandSchema.parse(command);
-    const workspace = await runner.resolve(context, projectId);
+    requireVivaryCodeUser(context);
+    const workspace = await dependencies.resolveWorkspace(context, projectId);
     const project = { id: workspace.projectId, label: workspace.label };
     try {
       const { workspace: after, dataDir, output } = await runner.execute(workspace, parsed, context);
