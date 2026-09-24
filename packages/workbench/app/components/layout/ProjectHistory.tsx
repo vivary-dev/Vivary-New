@@ -120,7 +120,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
           next: { status: "cleared", text: "", submitId: null } });
       if (!stillCurrent()) return;
       if (!initialized.changed || initialized.record?.status !== "cleared") throw new Error("Draft initialization failed.");
-      navigate(`/?runtime=native&thread=${encodeURIComponent(threadId)}`);
+      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
     } catch {
       if (stillCurrent()) setError("The conversation could not be saved. Try again.");
     } finally {
@@ -155,7 +155,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     const recordId = parts.join(":");
     if (runtime === "native") {
       native.switchThread(recordId);
-      navigate(`/?runtime=native&thread=${encodeURIComponent(recordId)}`);
+      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(recordId)}`);
     } else if (runtime === "code-draft") navigate(`/?run=new&draft=${encodeURIComponent(recordId)}`);
     else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
