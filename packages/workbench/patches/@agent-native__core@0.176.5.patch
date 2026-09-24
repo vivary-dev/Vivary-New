@@ -1329,13 +1329,22 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..b37965ec2e0f348eb926fe2fbc3caf0da09eec4c 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d8154f923bb 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
 @@ -985,6 +985,84 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
  function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
      return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
  }
++// A finished run can replace the thread while this render still names a parent
++// from before it, and getMessageById throws for an entry the store dropped. The
++// walk stops at a parent the rendered thread no longer holds. Remove this once
++// Core's own parent walk handles a replaced thread.
++function parentMessageState(thread, threadRuntime, parentId) {
++    return thread.messages.some((message) => message.id === parentId)
++        ? threadRuntime.getMessageById(parentId).getState()
++        : null;
++}
 +const codeActivityOpen = new Set();
 +export function CodeAgentActivityCard({ part, scopeKey }) {
 +    if (part.name !== "code-agent-activity") return null;
@@ -1405,15 +1414,6 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b37965ec2e0f348eb926fe2fbc3caf0d
 +    });
 +}
 +
-+// getMessageById throws when a finished run has replaced the parent this render still points at.
-+function parentMessageState(threadRuntime, parentId) {
-+    try {
-+        return threadRuntime.getMessageById(parentId).getState();
-+    }
-+    catch {
-+        return null;
-+    }
-+}
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
@@ -1422,18 +1422,24 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b37965ec2e0f348eb926fe2fbc3caf0d
          let parentId = msg.parentId;
          while (parentId) {
 -            const parentMessage = threadRuntime.getMessageById(parentId).getState();
-+            const parentMessage = parentMessageState(threadRuntime, parentId);
++            const parentMessage = parentMessageState(thread, threadRuntime, parentId);
 +            if (!parentMessage)
 +                break;
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  return displayableUserMessageText(messageTextFromContent(parentMessage.content));
-@@ -1092,7 +1172,9 @@ export function AssistantMessage() {
+@@ -1087,12 +1167,14 @@ export function AssistantMessage() {
+             parentId = parentMessage.parentId;
+         }
+         return "";
+-    }, [msg.parentId, threadRuntime]);
++    }, [msg.parentId, thread.messages, threadRuntime]);
+     const historyMessage = React.useMemo(() => {
          let turnStartedAt = msg.createdAt;
          let parentId = msg.parentId;
          while (parentId) {
 -            const parentMessage = threadRuntime.getMessageById(parentId).getState();
-+            const parentMessage = parentMessageState(threadRuntime, parentId);
++            const parentMessage = parentMessageState(thread, threadRuntime, parentId);
 +            if (!parentMessage)
 +                break;
              if (parentMessage.role === "user" &&
