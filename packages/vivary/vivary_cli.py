@@ -368,7 +368,14 @@ def _draft_path_error(path: Path) -> str | None:
 def cmd_logs(args: argparse.Namespace) -> int:
     try:
         _, records, invalid = _load_receipts(args.path)
-    except (FileNotFoundError, OSError) as exc:
+    except FileNotFoundError as exc:
+        if args.json:
+            # No receipts yet is an answer, so JSON callers get it as a value.
+            print(json.dumps({"summary": _summarize([], 0), "log": None, "records": []}, indent=2))
+            return 0
+        print(f"vivary logs: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
         print(f"vivary logs: {exc}", file=sys.stderr)
         return 1
     selected = _filtered_records(records, failed=args.failed, tail=args.tail)

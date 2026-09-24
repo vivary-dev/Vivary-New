@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { ActionContractError, fail, isActionContractError, type ActionRunContext } from "@agent-native/core/action";
@@ -69,6 +69,7 @@ const TIMEOUT_MS = 30_000;
 const QUEUE_WAIT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
 const CHILD_RECEIPT_BYTES = 64 * 1024;
+const STALE_RUN_MS = 10 * 60_000;
 
 /**
  * Failures after the project resolved in which the original command produced
@@ -84,6 +85,9 @@ export const ORIGINAL_RUN_FAILURES = {
 } as const;
 export type OriginalRunFailure = typeof ORIGINAL_RUN_FAILURES[keyof typeof ORIGINAL_RUN_FAILURES];
 const runFailures = new Set<string>(Object.values(ORIGINAL_RUN_FAILURES));
+export function isOriginalRunFailure(error: unknown): error is ActionContractError & { errorCode: OriginalRunFailure } {
+  return isActionContractError(error) && runFailures.has(error.errorCode);
+}
 
 type AccessMode = "read" | "write";
 // A write changes one project's files, so it runs alone within that project.
@@ -92,12 +96,19 @@ const accessMode: Record<RuntimeCommand["verb"], AccessMode> = {
   "adopt-prepare-privacy": "write", "adopt-apply": "write", "adopt-recovery-preview": "read", "adopt-recover": "write",
   doctor: "read", capabilities: "read", find: "read", check: "read", logs: "read",
 };
-// Standalone Strato has no execution log, and the public doctor, find, and
-// check path skips the components' receipt writers. The app records only its
-// own invocation. A read's report stands even when its receipt cannot be written.
-const appReceipt: Partial<Record<RuntimeCommand["verb"], "required" | "best-effort">> = {
-  decide: "required", doctor: "best-effort", find: "best-effort", check: "best-effort",
+// Where each command's receipt comes from. A component writes its own to a
+// private file, which the app appends to the shared log after the command
+// exits. Standalone Strato has no execution log, and the public doctor, find,
+// and check path skips the components' receipt writers, so the app writes one.
+// `logs` only reads the shared log.
+const receiptSource: Record<RuntimeCommand["verb"], "component" | "app" | "none"> = {
+  create: "component", adopt: "component", "pattern-state": "component", decide: "app", review: "component",
+  impact: "component", control: "component", "adopt-prepare-privacy": "component", "adopt-apply": "component",
+  "adopt-recovery-preview": "component", "adopt-recover": "component",
+  doctor: "app", capabilities: "component", find: "app", check: "app", logs: "none",
 };
+// A governed command or a write fails without its receipt. A read's report stands without one.
+const receiptRequired = new Set<RuntimeCommand["verb"]>(["decide", "control", "adopt-prepare-privacy", "adopt-apply", "adopt-recover"]);
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
@@ -172,14 +183,28 @@ async function appendReceipts(receiptLog: string, lines: string): Promise<void> 
   } finally { await receipt.close(); }
 }
 
-// Each child writes receipts to its own file, and only the app appends to the
-// shared log. Windows emulates append with a seek, so two children appending
-// to one file at once could overwrite each other's line.
-async function moveChildReceipts(childLog: string, receiptLog: string): Promise<void> {
+// Only the app appends to the shared log. Windows emulates append with a
+// seek, so two children appending to one file at once could overwrite each
+// other's line.
+async function componentReceipts(childLog: string): Promise<string> {
   const info = await lstat(childLog).catch(() => null);
-  if (!info?.isFile() || info.nlink !== 1 || info.size === 0 || info.size > CHILD_RECEIPT_BYTES) return;
-  const lines = await readFile(childLog, "utf8");
-  await appendReceipts(receiptLog, lines.endsWith("\n") ? lines : lines + "\n");
+  if (!info?.isFile() || info.nlink !== 1 || info.size === 0 || info.size > CHILD_RECEIPT_BYTES) return "";
+  const lines = await readFile(childLog, "utf8").catch(receiptFileError);
+  return lines.endsWith("\n") ? lines : lines + "\n";
+}
+
+// A crash leaves its run directory behind. Only old ones are removed, so a
+// command another request just started keeps its directory.
+async function sweepStaleRuns(receiptDir: string): Promise<void> {
+  if (commandHost.swept) return;
+  commandHost.swept = true;
+  for (const name of await readdir(receiptDir).catch(() => [])) {
+    const entry = path.join(receiptDir, name);
+    const info = name.startsWith("run-") ? await lstat(entry).catch(() => null) : null;
+    if (info?.isDirectory() && Date.now() - info.mtimeMs > STALE_RUN_MS) {
+      await rm(entry, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+    }
+  }
 }
 
 
@@ -258,7 +283,7 @@ type Waiter = { projectId: string; mode: AccessMode; ceiling: number; start: () 
 type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
-  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[];
+  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; swept?: boolean;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
@@ -420,18 +445,17 @@ const runtimeDependencies: Dependencies = {
   parallelism: Math.max(4, availableParallelism()),
 };
 
-type RunOutcome<Output> = { workspace: LocalProjectWorkspace } & (
-  | { dataDir: string; receiptLogPresent: boolean; output: Output }
-  | { failure: OriginalRunFailure; error: ActionContractError });
-
-function outputOf<Output>(outcome: RunOutcome<Output>): Output {
-  if ("failure" in outcome) throw outcome.error;
-  return outcome.output;
-}
-
-// Resolves the project, then runs one command within the scheduler. A failure
-// in ORIGINAL_RUN_FAILURES comes back as a value that still names the project.
+// Resolution and the run are separate steps, so a project read can still name
+// its project when the run fails.
 function createRuntimeCommandRunner(dependencies: Dependencies) {
+  const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
+    requireVivaryCodeUser(context);
+    const workspace = await dependencies.resolveWorkspace(context, projectId);
+    if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
+      commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
+    }
+    return workspace;
+  };
   const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
     const { projectId } = workspace;
     const environment = dependencies.environment();
@@ -449,20 +473,26 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     const receiptDir = path.join(dataDir, "original-runtime");
     await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
     if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
+    await sweepStaleRuns(receiptDir);
     const receiptLog = path.join(receiptDir, "receipts.jsonl");
-    const receipt = await lstat(receiptLog)
-      .catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : receiptFileError());
-    if (receipt && (!receipt.isFile() || receipt.nlink !== 1)) receiptFileError();
+    const source = receiptSource[command.verb];
+    const required = receiptRequired.has(command.verb);
+    // `logs` reads the shared log, and a required receipt must be writable before its command runs.
+    if (command.verb === "logs" || required) {
+      const receipt = await lstat(receiptLog)
+        .catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : receiptFileError());
+      if (receipt && (!receipt.isFile() || receipt.nlink !== 1)) receiptFileError();
+    }
     if ("request" in command && Buffer.byteLength(command.request, "utf8") > 65_536) {
       commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
     }
     await validateGovernedRequest(command, workspace);
-    const runDirectory = await mkdtemp(path.join(receiptDir, "run-")).catch(receiptDirectoryError);
+    const runDirectory = source === "component"
+      ? await mkdtemp(path.join(receiptDir, "run-")).catch(receiptDirectoryError) : undefined;
     try {
-      // `logs` reads the shared log. Every other command writes its own.
-      const childReceiptLog = command.verb === "logs" ? receiptLog : path.join(runDirectory, "receipts.jsonl");
+      const childReceiptLog = runDirectory ? path.join(runDirectory, "receipts.jsonl") : receiptLog;
       let controlRequestPath: string | undefined;
-      if (command.verb === "control") {
+      if (command.verb === "control" && runDirectory) {
         // Exo refuses stdin when receipts are enabled: give the request its own identity.
         controlRequestPath = path.join(runDirectory, "request.json");
         await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
@@ -486,78 +516,77 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         started = performance.now();
         result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
           originalChildEnvironment(environment, childReceiptLog, current.root), context?.signal);
+      } catch (error) {
+        // A command that failed still keeps the receipt its component wrote.
+        if (runDirectory) {
+          const lines = await componentReceipts(childReceiptLog).catch(() => "");
+          if (lines) await appendReceipts(receiptLog, lines).catch(() => undefined);
+        }
+        throw error;
       } finally { release(); }
-      if (childReceiptLog !== receiptLog) await moveChildReceipts(childReceiptLog, receiptLog).catch(() => undefined);
-      const receiptPolicy = appReceipt[command.verb];
-      if (receiptPolicy) {
-        const appended = appendReceipts(receiptLog, JSON.stringify({
+      const duration = Math.round(performance.now() - started);
+      const recorded = (async () => {
+        const lines = (runDirectory ? await componentReceipts(childReceiptLog) : "") + (source === "app" ? JSON.stringify({
           schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
           tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
-          ok: result.exitCode === 0, duration_ms: Math.round(performance.now() - started),
+          ok: result.exitCode === 0, duration_ms: duration,
           python: runtime.version, platform: process.platform, receipt_source: "app",
-        }) + "\n");
-        await (receiptPolicy === "required" ? appended : appended.catch(() => undefined));
-      }
+        }) + "\n" : "");
+        if (lines) await appendReceipts(receiptLog, lines);
+      })();
+      await (required ? recorded : recorded.catch(() => undefined));
       const after = await dependencies.resolveWorkspace(context, projectId);
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
       }
-      return { workspace: after, dataDir, receiptLogPresent: receipt !== null, output: { verb: command.verb, projectId,
-        pythonVersion: runtime.version,
+      return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
-      await rm(runDirectory, { recursive: true, force: true });
+      // Cleanup never decides a command's outcome.
+      if (runDirectory) await rm(runDirectory, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
     }
   };
-  return async (context: ActionRunContext | undefined, projectId: string, command: RuntimeCommand,
-    expectedWorkspace?: LocalProjectWorkspace): Promise<RunOutcome<Awaited<ReturnType<typeof execute>>["output"]>> => {
-    requireVivaryCodeUser(context);
-    const workspace = await dependencies.resolveWorkspace(context, projectId);
-    if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
-      commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
-    }
-    try {
-      return await execute(workspace, command, context);
-    } catch (error) {
-      if (!isActionContractError(error) || !runFailures.has(error.errorCode)) throw error;
-      return { workspace, failure: error.errorCode as OriginalRunFailure, error };
-    }
-  };
+  return { resolve, execute };
 }
 
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const run = createRuntimeCommandRunner(dependencies);
+  const runner = createRuntimeCommandRunner(dependencies);
   return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
     const { projectId, command } = originalCommandSchema.parse(input);
-    return outputOf(await run(context, projectId, command));
+    return (await runner.execute(await runner.resolve(context, projectId), command, context)).output;
   };
 }
 
 /** Internal owner-approved operation. The public original-command schema remains read-only for adoption. */
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const run = createRuntimeCommandRunner(dependencies);
+  const runner = createRuntimeCommandRunner(dependencies);
   return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) => {
     const parsed = adoptionExecutionSchema.parse(command);
-    return outputOf(await run(context, workspace.projectId, parsed, workspace));
+    return (await runner.execute(await runner.resolve(context, workspace.projectId, workspace), parsed, context)).output;
   };
 }
 
 export type ProjectReadRun = { project: ProjectRef } & (
   | { failure: OriginalRunFailure }
-  | { exitCode: number | null; stdout: string; stderr: string; receiptLogPresent: boolean;
+  | { exitCode: number | null; stdout: string; stderr: string;
       /** Server-only: used to redact output, never serialized. */
       hostPaths: { root: string; dataDir: string } });
 
 /** Run one project read. Access refusals throw, and a run failure is a value. */
 export function createProjectReadRunner(dependencies: Dependencies = runtimeDependencies) {
-  const run = createRuntimeCommandRunner(dependencies);
+  const runner = createRuntimeCommandRunner(dependencies);
   return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
-    const outcome = await run(context, projectId, projectReadCommandSchema.parse(command));
-    const project = { id: outcome.workspace.projectId, label: outcome.workspace.label };
-    if ("failure" in outcome) return { project, failure: outcome.failure };
-    const { exitCode, stdout, stderr } = outcome.output;
-    return { project, exitCode, stdout, stderr, receiptLogPresent: outcome.receiptLogPresent,
-      hostPaths: { root: outcome.workspace.root, dataDir: outcome.dataDir } };
+    const parsed = projectReadCommandSchema.parse(command);
+    const workspace = await runner.resolve(context, projectId);
+    const project = { id: workspace.projectId, label: workspace.label };
+    try {
+      const { workspace: after, dataDir, output } = await runner.execute(workspace, parsed, context);
+      return { project, exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr,
+        hostPaths: { root: after.root, dataDir } };
+    } catch (error) {
+      if (!isOriginalRunFailure(error)) throw error;
+      return { project, failure: error.errorCode };
+    }
   };
 }
 

@@ -169,7 +169,12 @@ async function fixture(inspect?: (args: string[], stdin: string) => Promise<void
       assert.equal(cwd, data);
       const childLog = environment.VIVARY_RECEIPT_LOG!;
       assert.equal(path.basename(childLog), "receipts.jsonl");
-      assert.ok(path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
+      // A component writes its own receipt file. The app writes the rest, and `logs` reads the shared log.
+      if (["decide", "doctor", "find", "check", "logs"].includes(args[6])) {
+        assert.equal(childLog, path.join(data, "original-runtime", "receipts.jsonl"));
+      } else {
+        assert.ok(path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
+      }
       await inspect?.(args, stdin);
       afterExecute();
       return { exitCode: 0, stdout: "result", stderr: "", signal: null };
@@ -211,7 +216,7 @@ test("uses the exact bundle and private receipt path for an unchanged project", 
   } finally { await f.cleanup(); }
 });
 
-test("refuses a hard-linked receipt file and oversized UTF-8 request before execution", async () => {
+test("a required receipt refuses a hard-linked receipt file before execution, and a read still runs", async () => {
   const f = await fixture();
   try {
     await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "decide", request: "é".repeat(40_000) } }, context), /format or size/);
@@ -219,8 +224,13 @@ test("refuses a hard-linked receipt file and oversized UTF-8 request before exec
     const outside = path.join(f.directory, "outside.jsonl");
     await writeFile(outside, "preserve me");
     await link(outside, path.join(receiptDir, "receipts.jsonl"));
-    await assert.rejects(f.runner(input, context), /private application file/);
+    const decision = JSON.stringify({ actor: { kind: "human", id: "actor-owner" }, authority_class: "contributor",
+      scope: { project: "project-a", paths: [f.root] }, capsule: { task: { scope: [f.root] } } });
+    await assert.rejects(f.runner({ projectId: "project-a", command: { verb: "decide", request: decision } }, context),
+      /private application file/);
     assert.equal(f.calls(), 0);
+    assert.equal((await f.runner(input, context)).stdout, "result", "a read's report stands without its receipt");
+    assert.equal(await readFile(outside, "utf8"), "preserve me");
   } finally { await f.cleanup(); }
 });
 
@@ -566,8 +576,7 @@ test("a project read names its project and keeps host paths out of band", async 
   try {
     const exited = await createProjectReadRunner({ ...dependencies,
       execute: async () => ({ exitCode: 0, stdout: "report", stderr: "", signal: null }) })("project-a", { verb: "doctor" }, context);
-    assert.deepEqual(exited, { project, exitCode: 0, stdout: "report", stderr: "", receiptLogPresent: false,
-      hostPaths: { root: f.root, dataDir: f.data } });
+    assert.deepEqual(exited, { project, exitCode: 0, stdout: "report", stderr: "", hostPaths: { root: f.root, dataDir: f.data } });
     for (const failure of Object.values(ORIGINAL_RUN_FAILURES)) {
       assert.deepEqual(await createProjectReadRunner({ ...dependencies, execute: async () => {
         throw new ActionContractError("refused", { errorCode: failure, statusCode: 503 });
@@ -619,8 +628,7 @@ test("children write receipts to their own files and the app moves them into the
       logsEnvironment.push(environment.VIVARY_RECEIPT_LOG!);
       return { exitCode: 0, stdout: "{}", stderr: "", signal: null };
     } });
-    const read = await logs("project-a", { verb: "logs", failedOnly: false }, context);
-    assert.ok("receiptLogPresent" in read && read.receiptLogPresent);
+    await logs("project-a", { verb: "logs", failedOnly: false }, context);
     assert.deepEqual(logsEnvironment, [sharedLog]);
     assert.equal((await readFile(sharedLog, "utf8")).trim().split("\n").length, 2, "logs writes no receipt");
   } finally { await f.cleanup(); }

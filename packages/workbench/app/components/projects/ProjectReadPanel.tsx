@@ -205,7 +205,9 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
       {log && (!log.logPresent ? <p>No command receipts yet.</p> : log.records.total === 0 ? <p>No matching receipts.</p> : <>
         <p className="project-read-heading">{log.failedOnly
           ? `${log.failed} failed command${log.failed === 1 ? "" : "s"}`
-          : `${log.failed} of ${log.total} recent command${log.total === 1 ? "" : "s"} failed`}</p>
+          : `${log.failed} of ${log.total} command${log.total === 1 ? "" : "s"} failed`}</p>
+        {log.records.items.length < log.records.total && <p className="project-read-muted">
+          Showing the latest {log.records.items.length}.</p>}
         <ul>{log.records.items.map((record, index) => <li key={index}>
           {record.ok ? "OK" : "Failed"} · {record.tool} {record.command}
           <span className="project-read-muted"> {record.timestamp}</span>

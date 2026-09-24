@@ -33,7 +33,7 @@ const ownerEmail = "owner@example.test";
 const orgId = "org-a";
 const owner: ActionRunContext = { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" };
 
-type Fake = Output | (Output & { receiptLogPresent: boolean }) | { failure: OriginalRunFailure } | Error;
+type Fake = Output | { failure: OriginalRunFailure } | Error;
 
 function fakeRun(output: (projectId: string, command: ProjectReadCommand) => Fake, paths = hostPaths) {
   const calls: { projectId: string; command: ProjectReadCommand; context: ActionRunContext | undefined }[] = [];
@@ -43,7 +43,7 @@ function fakeRun(output: (projectId: string, command: ProjectReadCommand) => Fak
     if (value instanceof Error) throw value;
     const project = { id: projectId, label: projectId === "project-b" ? "Project B" : "Project A" };
     if ("failure" in value) return { project, failure: value.failure };
-    return { project, receiptLogPresent: true, ...value, hostPaths: paths };
+    return { project, ...value, hostPaths: paths };
   };
   return { run, calls };
 }
@@ -152,7 +152,9 @@ test("receipts report the application log, including an absent one", async () =>
   assert.ok(capped.operation === "receipts");
   assert.deepEqual([capped.total, capped.failed, capped.records.total, capped.records.items.length],
     [500, 120, 500, latest.records.length]);
-  const missing = createProjectRead({ run: fakeRun(() => ({ ...host.logs, receiptLogPresent: false })).run, chatProject: noChat });
+  const absent = { exitCode: 0, stderr: "", stdout: JSON.stringify({ summary: { total: 0, failed: 0, invalid_lines: 0, tools: {} },
+    log: null, records: [] }) };
+  const missing = createProjectRead({ run: fakeRun(() => absent).run, chatProject: noChat });
   assert.deepEqual(reported(await missing.forOwner(owner, { projectId: "project-a", operation: "receipts" })),
     { operation: "receipts", scope: "application", failedOnly: false, logPresent: false, total: 0, failed: 0, invalidLines: 0,
       records: { items: [], total: 0 } });
@@ -269,8 +271,11 @@ test("host configuration failures are unavailable values that name the project",
     await mkdir(path.dirname(h.receipts), { recursive: true });
     await writeFile(path.join(h.directory, "linked.jsonl"), "");
     await link(path.join(h.directory, "linked.jsonl"), h.receipts);
-    const linked = await h.reads({ execute: async () => { executed++; return { ...coding.find, signal: null }; } }).forOwner(owner, findQuery);
-    assert.ok(linked.status === "unavailable" && linked.reason === "app_data_unavailable" && executed === 0, JSON.stringify(linked));
+    const counting = h.reads({ execute: async () => { executed++; return { ...coding.find, signal: null }; } });
+    assert.equal(reported(await counting.forOwner(owner, findQuery)).operation, "find", "a read stands without its receipt");
+    const linked = await counting.forOwner(owner, { projectId: "project-a", operation: "receipts" });
+    assert.ok(linked.status === "unavailable" && linked.reason === "app_data_unavailable" && executed === 1, JSON.stringify(linked));
+    assert.equal(await readFile(path.join(h.directory, "linked.jsonl"), "utf8"), "");
   } finally { await h.cleanup(); }
 });
 
@@ -339,6 +344,29 @@ test("host paths never appear in any serialized result", async () => {
     "receipts in <app data>/original-runtime", "receipts in <app data>\\logs"]);
 });
 
+test("only check findings and find results carry a path, the one field redaction leaves whole", async () => {
+  const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
+  const owners: string[] = [];
+  const walk = (value: unknown, where: string) => {
+    if (Array.isArray(value)) value.forEach(item => walk(item, where));
+    else if (value && typeof value === "object") {
+      for (const [key, item] of Object.entries(value)) {
+        if (key === "path") owners.push(where);
+        walk(item, key);
+      }
+    }
+  };
+  for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "sync queue" },
+    { operation: "capabilities" }, { operation: "receipts" }] as const) {
+    walk(reported(await reads.forOwner(owner, { projectId: "project-a", ...input })), input.operation);
+  }
+  assert.ok(owners.length > 0);
+  assert.deepEqual([...new Set(owners)].sort(), ["items"]);
+  assert.deepEqual(owners.length, (reported(await reads.forOwner(owner, { projectId: "project-a", operation: "check" })) as
+    { findings: { items: unknown[] } }).findings.items.length + (reported(await reads.forOwner(owner,
+    { projectId: "project-a", operation: "find", query: "sync queue" })) as { results: { items: unknown[] } }).results.items.length);
+});
+
 test("worst-case outputs stay under the tool result limit with true totals", async () => {
   // Control characters, quotes, and backslashes cost the most JSON per character, and a cut
   // can land inside a non-BMP character. Every list is longer than its bound.
@@ -357,7 +385,7 @@ test("worst-case outputs stay under the tool result limit with true totals", asy
       capabilities: { preset: "coding", default_capabilities: many(() => long("default")),
         available_capabilities: many(() => ({ id: long("id"), label: long("label"), default: false, requires_approval: true,
           network: long("network"), install_status: "not-installed", missing_install: many(() => long("package")) })) },
-      logs: { summary: { total: 90, failed: 90, invalid_lines: 0 }, log: { total: 90, failed: 90 }, records: many(() => ({ timestamp: long("t"), tool: long("tool"),
+      logs: { summary: { total: 90, failed: 90, invalid_lines: 0 }, log: { total: 90, failed: 90, invalid_lines: 0 }, records: many(() => ({ timestamp: long("t"), tool: long("tool"),
         command: long("command"), ok: false, exit_code: 1, duration_ms: 5, receipt_source: long("source"), error_type: long("type") })) },
     };
     const reads = createProjectRead({ run: fakeRun((_id, command) => ({ exitCode: 1, stderr: "",
@@ -394,8 +422,12 @@ function tool() {
   const reads = createProjectRead({ run: fake.run, chatProject: createVivaryNativeChatProjectResolver({
     getScope: () => getRequestRunContext()?.chatScope,
     getOrgId: getRequestOrgId,
-    getProjectAccess: async () => catalog,
+    getProjectAccess: async () => { throw new Error("A tool call reads the catalog only through its admission."); },
     resolveProjectWorkspace: async () => { throw new Error("The tool path resolves the workspace in the runner."); },
+    admitChatProject: async (context, isChatProject) => {
+      const matches = catalog.projects.filter(isChatProject);
+      return matches.length === 1 ? { projectId: matches[0].projectId, context } : null;
+    },
   }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });
   const call = (chatScope: RequestRunContext["chatScope"], input: unknown) =>
@@ -410,9 +442,8 @@ test("the Native tool reads only the chat's own project, and the owner path retu
   assert.equal(result.status, "completed", result.output);
   const parsed = JSON.parse(result.output) as ProjectReadResult;
   assert.deepEqual(parsed.project, { id: "project-b", label: "Project B" });
-  assert.deepEqual(calls.map(entry => [entry.projectId, entry.context?.caller, entry.context?.appId, entry.context?.userEmail,
-    (entry.context as { chatProjectId?: string } | undefined)?.chatProjectId]),
-  [["project-b", "tool", "workbench", ownerEmail, "project-b"]]);
+  assert.deepEqual(calls.map(entry => [entry.projectId, entry.context?.caller, entry.context?.appId, entry.context?.userEmail]),
+    [["project-b", "tool", "workbench", ownerEmail]]);
   assert.deepEqual(parsed, await reads.forOwner(owner, { projectId: "project-b", operation: "check" }));
 });
 

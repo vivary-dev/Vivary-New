@@ -213,11 +213,16 @@ class VivaryLogsTests(unittest.TestCase):
             self.assertNotIn("C:/Users/example/private/project", text)
 
     def test_logs_missing_file_exits_cleanly(self):
-        rc, out, err = _run(["logs", "missing.jsonl", "--json"])
+        rc, out, err = _run(["logs", "missing.jsonl"])
+        json_rc, json_out, json_err = _run(["logs", "missing.jsonl", "--json"])
 
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("receipt log not found", err)
+        self.assertEqual(json_rc, 0, json_err)
+        payload = json.loads(json_out)
+        self.assertIsNone(payload["log"])
+        self.assertEqual((payload["summary"]["total"], payload["records"]), (0, []))
 
     def test_logs_email_refuses_directory_draft_target(self):
         with tempfile.TemporaryDirectory() as td:

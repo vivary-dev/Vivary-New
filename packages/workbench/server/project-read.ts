@@ -8,7 +8,7 @@ import {
   type ProjectReadResult, type ProjectReadToolInput, type ProjectRef, type UnavailableReason,
 } from "../app/lib/project-read-schema.ts";
 import {
-  ORIGINAL_RUN_FAILURES, runProjectRead, type OriginalRunFailure, type ProjectReadCommand, type ProjectReadRun,
+  ORIGINAL_RUN_FAILURES, runProjectRead, type OriginalRunFailure, type ProjectReadCommand,
 } from "./original-runtime.ts";
 import { resolveNativeChatProject } from "./native-chat-project.ts";
 
@@ -69,12 +69,10 @@ const outputs = {
       install_status: z.enum(["installed", "not-installed", "incompatible", "probe-failed"]),
       missing_install: z.array(z.string()) })) }),
   // The logs helper already keeps only safe receipt fields; their values stay untrusted.
-  // `summary` covers the latest records, `log` the whole file.
-  receipts: z.object({ summary: z.object({ invalid_lines: count }), log: z.object({ total: count, failed: count }),
+  // `log` covers the whole file and is null when there is no log yet.
+  receipts: z.object({ log: z.object({ total: count, failed: count, invalid_lines: count }).nullable(),
     records: z.array(z.record(z.string(), z.unknown())) }),
 };
-
-type ProjectReadOutput = Extract<ProjectReadRun, { stdout: string }>;
 
 function bounded<T>(values: readonly T[]): Bounded<T> {
   return { items: values.slice(0, READ_BOUNDS.items), total: values.length };
@@ -87,7 +85,7 @@ const numberOrNull = (value: unknown) => typeof value === "number" && Number.isF
 // parsed output. `null` means the output was not this command's report.
 const operations: { [Operation in ProjectReadOperation]: {
   command: (input: ProjectReadToolInput) => ProjectReadCommand;
-  report: (stdout: unknown, run: ProjectReadOutput, input: ProjectReadToolInput) => ProjectReadReport | null;
+  report: (stdout: unknown, input: ProjectReadToolInput) => ProjectReadReport | null;
 } } = {
   doctor: {
     command: () => ({ verb: "doctor" }),
@@ -138,18 +136,18 @@ const operations: { [Operation in ProjectReadOperation]: {
   },
   receipts: {
     command: input => ({ verb: "logs", failedOnly: input.failedOnly ?? false }),
-    report: (stdout, run, input) => {
+    report: (stdout, input) => {
       const failedOnly = input.failedOnly ?? false;
-      if (!run.receiptLogPresent) {
+      const parsed = outputs.receipts.safeParse(stdout);
+      if (!parsed.success) return null;
+      const { log, records } = parsed.data;
+      if (!log) {
         return { operation: "receipts", scope: "application", failedOnly, logPresent: false, total: 0, failed: 0, invalidLines: 0,
           records: { items: [], total: 0 } };
       }
-      const parsed = outputs.receipts.safeParse(stdout);
-      if (!parsed.success) return null;
-      const { summary, log, records } = parsed.data;
       // The log lists oldest first. Newest first lets bounding and fitting drop the oldest.
       return { operation: "receipts", scope: "application", failedOnly, logPresent: true, total: log.total,
-        failed: log.failed, invalidLines: summary.invalid_lines,
+        failed: log.failed, invalidLines: log.invalid_lines,
         records: { total: failedOnly ? log.failed : log.total, items: [...records].reverse().slice(0, READ_BOUNDS.items)
           .map(record => ({
             timestamp: stringOr(record.timestamp, "unknown time"),
@@ -188,9 +186,10 @@ function textFor(hostPaths: { root: string; dataDir: string }): (value: string) 
   };
 }
 
-// Every string in a report passes through `text` here, so a new field cannot
-// skip redaction or the length bound. A source path is project-relative
-// already, and it must stay whole to link.
+// Every string in a report passes through `text` here except a `path`, which
+// must stay whole to link. Only check findings and find results carry a
+// `path`, and their output schemas accept only a project-relative one. A test
+// pins that no other report field is named `path`.
 function redacted<T>(value: T, text: (value: string) => string, key?: string): T {
   if (typeof value === "string") return (key === "path" ? value : text(value)) as T;
   if (Array.isArray(value)) return value.map(item => redacted(item, text)) as T;
@@ -227,7 +226,7 @@ async function read(run: typeof runProjectRead, context: ActionRunContext | unde
   const stdout = json(output.stdout);
   const refused = refusal.safeParse(stdout);
   if (refused.success) return unavailable(output.project, input.operation, refused.data.reason);
-  const report = operation.report(stdout, output, input);
+  const report = operation.report(stdout, input);
   return report
     ? fitted(output.project, redacted(report, textFor(output.hostPaths)))
     : unavailable(output.project, input.operation, "unreadable_output");
