@@ -410,8 +410,9 @@ test("the Native tool reads only the chat's own project, and the owner path retu
   assert.equal(result.status, "completed", result.output);
   const parsed = JSON.parse(result.output) as ProjectReadResult;
   assert.deepEqual(parsed.project, { id: "project-b", label: "Project B" });
-  assert.deepEqual(calls.map(entry => [entry.projectId, entry.context?.caller, entry.context?.appId, entry.context?.userEmail]),
-    [["project-b", "http", "workbench", ownerEmail]]);
+  assert.deepEqual(calls.map(entry => [entry.projectId, entry.context?.caller, entry.context?.appId, entry.context?.userEmail,
+    (entry.context as { chatProjectId?: string } | undefined)?.chatProjectId]),
+  [["project-b", "tool", "workbench", ownerEmail, "project-b"]]);
   assert.deepEqual(parsed, await reads.forOwner(owner, { projectId: "project-b", operation: "check" }));
 });
 

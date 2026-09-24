@@ -53,6 +53,10 @@ test("catalog scope shares native authority without observing or broadening it",
       assert.equal(await runtime.readScope(mutable), null);
       assert.equal(observations, 0);
     });
+    await suite.test("a Native tool call reads the same scope as its owner", async () => {
+      assert.deepEqual(await runtime.readScope({ ...original, caller: "tool" }), await runtime.readScope(original));
+      assert.equal(await runtime.readScope({ ...original, caller: "agent" }), null);
+    });
     await suite.test("each scope lookup observes native role and membership removal", async () => {
       assert.notEqual(await runtime.readScope(original), null);
       await assign(null);

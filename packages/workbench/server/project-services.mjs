@@ -353,13 +353,16 @@ export function startProjectServices(nitroApp, dependencies) {
 }
 
 
-function localService(context) {
+// A Native tool call keeps its own caller. It may list the owner's projects
+// and resolve the one project its chat is pinned to, never connect or
+// reconnect a folder.
+function localService(context, admitTool = false) {
   const service = globalThis[LOCAL_SERVICE];
   if (!service || service.controller.snapshot().status !== "open") {
     throw Object.assign(new Error("Local project folders are not ready."), { statusCode: 503 });
   }
   if (!context || !["vivary", "workbench"].includes(context.appId)
-    || !["frontend", "http"].includes(context.caller)
+    || !(["frontend", "http"].includes(context.caller) || (admitTool && context.caller === "tool"))
     || context.userEmail?.trim().toLowerCase() !== "owner@local.vivary.test"
     || !identifier.safeParse(context.orgId).success) {
     throw Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
@@ -374,7 +377,7 @@ export function getLocalProjectReconnectionService(context) {
 }
 
 export async function getLocalProjectAccess(context) {
-  const { service, owner } = localService(context);
+  const { service, owner } = localService(context, true);
   return service.catalog.run({}, owner);
 }
 
@@ -397,7 +400,7 @@ export async function connectLocalProjectFolder(context, folder, displayName) {
 }
 
 async function resolveLocalProjectBinding(context, projectId) {
-  const { service, owner } = localService(context);
+  const { service, owner } = localService(context, context?.chatProjectId === projectId);
   if (!identifier.safeParse(projectId).success) {
     throw Object.assign(new Error("Choose a registered project."), { statusCode: 400 });
   }

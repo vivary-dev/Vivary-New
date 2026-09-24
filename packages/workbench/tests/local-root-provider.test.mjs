@@ -167,6 +167,14 @@ test("local project grants register real folders and reopen without content snap
       assert.equal(resolved.projectId, alphaResult.projectId);
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, orgId: "foreign" }, alphaResult.projectId));
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, caller: "agent" }, alphaResult.projectId));
+      const tool = { ...actionContext, appId: "workbench", caller: "tool" };
+      assert.equal((await getLocalProjectAccess(tool)).code, "catalog");
+      await assert.rejects(resolveLocalProjectWorkspace(tool, alphaResult.projectId), { statusCode: 403 });
+      const pinned = { ...tool, chatProjectId: alphaResult.projectId };
+      assert.equal((await resolveLocalProjectWorkspace(pinned, alphaResult.projectId)).root, alpha);
+      await assert.rejects(resolveLocalProjectWorkspace({ ...tool, chatProjectId: "project_other" }, alphaResult.projectId),
+        { statusCode: 403 });
+      await assert.rejects(connectLocalProjectFolder(pinned, beta, "Beta"), { statusCode: 403 });
       await assert.rejects(resolveLocalProjectWorkspace(actionContext, "../alpha"),
         { message: "Choose a registered project.", statusCode: 400 });
       assert.equal(betaResult.code, "registered");

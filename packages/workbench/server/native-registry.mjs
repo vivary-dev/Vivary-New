@@ -38,16 +38,18 @@ export function createNativeRegistry({ provider, grant, resolveGrant, evaluate, 
     const scope = (local ? localGrantSchema : grantSchema).parse(value);
     return scope.locationRefs.every(ref => provider.locationRefs.includes(ref)) ? scope : null;
   }
+  // A Native tool call may read the scope. Only the owner's own requests change it.
   async function authorizedScope(operation, context) {
-    if (!context || !["register", "admit-mutation", "quarantine-mutation"].includes(operation)
-      || context.appId !== "workbench" || !["frontend", "http"].includes(context.caller)
+    const callers = operation === "read" ? ["frontend", "http", "tool"] : ["frontend", "http"];
+    if (!context || !["read", "register", "admit-mutation", "quarantine-mutation"].includes(operation)
+      || context.appId !== "workbench" || !callers.includes(context.caller)
       || typeof context.userEmail !== "string" || !context.userEmail
-      || (local && operation !== "register")) return null;
+      || (local && !["read", "register"].includes(operation))) return null;
     const scope = await currentScope(context);
     if (!scope || context.orgId !== scope.orgId) return null;
     const role = await access.resolve({ userEmail: context.userEmail, orgId: context.orgId });
     if (role.status !== "assigned") return null;
-    const allowed = operation === "register"
+    const allowed = operation === "read" || operation === "register"
       ? ["project-registrar", "project-mutator"].includes(role.role)
       : role.role === "project-mutator";
     return allowed ? scope : null;
@@ -106,7 +108,7 @@ export function createNativeRegistry({ provider, grant, resolveGrant, evaluate, 
       .map(key => [key, context[key]]));
     if (Object.values(identity).some(value => typeof value !== "string" || value.length === 0)) return null;
     Object.freeze(identity);
-    const scope = await authorizedScope("register", identity);
+    const scope = await authorizedScope("read", identity);
     if (!scope) return null;
     return Object.freeze({ actorId: actorId(identity), collectionId: scope.collectionId,
       deviceId: provider.deviceId, policyRevision: scope.policyRevision,

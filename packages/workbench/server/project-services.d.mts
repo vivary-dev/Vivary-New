@@ -19,6 +19,12 @@ export type LocalProjectHistory = Readonly<Pick<
   "label" | "projectId" | "bindingId" | "rootId" | "bindingRevision"
 >>;
 
+/**
+ * A Native tool call's context after the chat resolver matched its pinned
+ * scope. Project services admit it only for that project.
+ */
+export type ChatProjectContext = ActionRunContext & { chatProjectId: string };
+
 export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
 export function connectLocalProjectFolder(
   context: ActionRunContext | undefined,
