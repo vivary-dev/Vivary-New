@@ -1554,14 +1554,15 @@ def doctor_workspace(
     *,
     repo_root: str | Path | None = None,
     _allow_adopt_journal: bool = False,
-    analyze_notes: bool = True,
+    public: bool = False,
 ) -> dict:
     """Validate that a directory looks like a usable Vivary agent workspace.
 
-    ``analyze_notes=False`` skips the typed-note graph walk and reports no
-    graph. That walk reads every note the config does not exclude, including
-    notes Git ignores, so a caller that must leave private notes out reads
-    notes through Tropo's privacy-filtered check instead.
+    ``public=True`` leaves out every check that names a user-authored path,
+    because such a path may be one Git ignores. It skips the typed-note graph
+    walk and reports no graph, and it counts module index problems without
+    naming them. A caller that must leave private files out reads notes
+    through Tropo's privacy-filtered check instead.
     """
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
@@ -1661,7 +1662,15 @@ def doctor_workspace(
                 f"privacy ignore missing: {pattern}" for pattern in required_missing
             )
         if compatibility["workspace_contract"] != THIN_WORKSPACE_CONTRACT:
-            errors.extend(_module_index_errors(target))
+            module_errors = _module_index_errors(target)
+            if public and module_errors:
+                count = len(module_errors)
+                errors.append(
+                    f"{count} module {'entry needs' if count == 1 else 'entries need'} attention."
+                    " Run doctor without --public on this host to list them"
+                )
+            else:
+                errors.extend(module_errors)
 
     graph = {"nodes": 0, "edges": 0, "broken": 0}
     workspace_roles = None
@@ -1679,7 +1688,7 @@ def doctor_workspace(
         try:
             if resolver is None:
                 tropo, resolver = _doctor_config_context(target, root)
-            if analyze_notes:
+            if not public:
                 docs, nodes, edges = _doctor_graph_context(tropo, resolver, target)
                 graph = {
                     "nodes": len(nodes),
@@ -1716,7 +1725,7 @@ def doctor_workspace(
         "root": str(target),
         "errors": errors,
         "warnings": warnings,
-        "graph": graph if analyze_notes else None,
+        "graph": None if public else graph,
         "backend": backend_name,
         "memory": memory_report,
         "compatibility": compatibility,

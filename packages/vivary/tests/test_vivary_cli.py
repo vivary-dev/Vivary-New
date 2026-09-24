@@ -365,8 +365,7 @@ class VivaryPublicReadTests(unittest.TestCase):
             public_rc, public_out, public_err = _run(
                 ["doctor", "--root", str(workspace), "--public", "--json"])
             after = authored()
-            expected = create_vivary.doctor_workspace(
-                os.path.realpath(workspace), analyze_notes=False)
+            expected = create_vivary.doctor_workspace(os.path.realpath(workspace), public=True)
 
         self.assertIn("acquiring-acme-for-12M", plain_out, plain_err)
         self.assertEqual(plain_rc, 1)
@@ -378,6 +377,26 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertEqual(public_rc, 0 if public["ok"] else 1, public_err)
         self.assertTrue(public["ok"], public["errors"])
         self.assertEqual(after, before)
+
+    def test_public_doctor_counts_a_git_ignored_module_folder_without_naming_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            private = repo / "modules" / "client-acme-offboarding"
+            private.mkdir(parents=True)
+            (private / "notes.md").write_text("# Offboarding\n", encoding="utf-8")
+            (repo / ".gitignore").write_text("modules/client-acme-offboarding/\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+            plain_rc, plain_out, _ = _run(["doctor", str(repo), "--json"])
+            public_rc, public_out, public_err = _run(
+                ["doctor", "--root", str(repo), "--public", "--json"])
+
+        self.assertIn("client-acme-offboarding", plain_out)
+        self.assertNotIn("acme", public_out)
+        public = json.loads(public_out)
+        self.assertIn("1 module entry needs attention. Run doctor without --public on this host"
+                      " to list them", public["errors"])
+        self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
     def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):
         root = str(self.root)
