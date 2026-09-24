@@ -1554,8 +1554,15 @@ def doctor_workspace(
     *,
     repo_root: str | Path | None = None,
     _allow_adopt_journal: bool = False,
+    analyze_notes: bool = True,
 ) -> dict:
-    """Validate that a directory looks like a usable Vivary agent workspace."""
+    """Validate that a directory looks like a usable Vivary agent workspace.
+
+    ``analyze_notes=False`` skips the typed-note graph walk and reports no
+    graph. That walk reads every note the config does not exclude, including
+    notes Git ignores, so a caller that must leave private notes out reads
+    notes through Tropo's privacy-filtered check instead.
+    """
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
     target = Path(target).resolve()
@@ -1672,23 +1679,24 @@ def doctor_workspace(
         try:
             if resolver is None:
                 tropo, resolver = _doctor_config_context(target, root)
-            docs, nodes, edges = _doctor_graph_context(tropo, resolver, target)
-            graph = {
-                "nodes": len(nodes),
-                "edges": len(edges),
-                "broken": sum(1 for edge in edges if edge["broken"]),
-            }
-            # Keep Tropo's own severity. Warnings such as W202 (unknown field)
-            # or W210 (redundant frontmatter) describe ordinary notes, not a
-            # broken workspace; only error-level findings fail Doctor.
-            for doc in docs:
-                for finding in doc.findings:
-                    bucket = errors if finding.level == "error" else warnings
-                    bucket.append(f"tropo finding: {finding.render()}")
-            if graph["broken"]:
-                errors.append(f"graph has {graph['broken']} broken edge(s)")
-            if graph["nodes"] == 0:
-                warnings.append("typed graph has no nodes")
+            if analyze_notes:
+                docs, nodes, edges = _doctor_graph_context(tropo, resolver, target)
+                graph = {
+                    "nodes": len(nodes),
+                    "edges": len(edges),
+                    "broken": sum(1 for edge in edges if edge["broken"]),
+                }
+                # Keep Tropo's own severity. Warnings such as W202 (unknown field)
+                # or W210 (redundant frontmatter) describe ordinary notes, not a
+                # broken workspace; only error-level findings fail Doctor.
+                for doc in docs:
+                    for finding in doc.findings:
+                        bucket = errors if finding.level == "error" else warnings
+                        bucket.append(f"tropo finding: {finding.render()}")
+                if graph["broken"]:
+                    errors.append(f"graph has {graph['broken']} broken edge(s)")
+                if graph["nodes"] == 0:
+                    warnings.append("typed graph has no nodes")
         except Exception as exc:  # keep doctor a report, not a traceback
             errors.append(f"tropo validation failed: {exc}")
 
@@ -1708,7 +1716,7 @@ def doctor_workspace(
         "root": str(target),
         "errors": errors,
         "warnings": warnings,
-        "graph": graph,
+        "graph": graph if analyze_notes else None,
         "backend": backend_name,
         "memory": memory_report,
         "compatibility": compatibility,

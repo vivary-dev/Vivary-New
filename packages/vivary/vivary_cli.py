@@ -22,7 +22,7 @@ import sysconfig
 import urllib.parse
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 __version__ = "0.2.1"
 DEFAULT_RECEIPT_LOG = ".vivary/receipts.jsonl"
@@ -70,11 +70,42 @@ def routed_prog(verb: str) -> str:
     return f"vivary {verb}"
 
 
+def _public_root(path: str) -> str:
+    from vivary_core import normalize_path
+
+    # The facade accepts only Core's spelling of the root, which on Windows
+    # means forward slashes and a lowercase drive letter.
+    return normalize_path(os.path.realpath(path))
+
+
+def _public_find(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
+    root = _public_root(args.root)
+    return module.find_context(
+        root, args.query, k=args.k, budget=args.budget, allowlist=[root]), 0
+
+
+def _public_check(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
+    root = _public_root(args.root)
+    result = module.check_workspace(root, allowlist=[root])
+    return result, 1 if result["errors"] > 0 else 0
+
+
+def _public_doctor(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
+    # Doctor's note walk reads notes Git ignores, so notes stay with
+    # `check --public` and this report covers only the workspace itself.
+    report = module.doctor_workspace(os.path.realpath(args.root), analyze_notes=False)
+    result = {"schema": "vivary.doctor-result/v0", "ok": report["ok"],
+              "errors": report["errors"], "warnings": report["warnings"]}
+    return result, 0 if report["ok"] else 1
+
+
 class Route(NamedTuple):
     verb: str
     module: str
     operation: tuple[str, ...]
     summary: str
+    # Runs the verb's `--public` report, which leaves private files out.
+    public: Callable[[Any, argparse.Namespace], tuple[dict, int]] | None = None
 
 
 ROUTES = (
@@ -83,13 +114,13 @@ ROUTES = (
     Route("adopt", "create_vivary", ("adopt",),
           "Plan governed context for an existing workspace"),
     Route("doctor", "create_vivary", ("doctor",),
-          "Validate a Vivary workspace scaffold"),
+          "Validate a Vivary workspace scaffold", _public_doctor),
     Route("capabilities", "create_vivary", ("capabilities",),
           "List the optional preset capabilities"),
     Route("check", "tropo", ("check",),
-          "Validate the context graph and report errors and warnings"),
+          "Validate the context graph and report errors and warnings", _public_check),
     Route("find", "tropo", ("find",),
-          "Retrieve a token-budgeted context set for a query"),
+          "Retrieve a token-budgeted context set for a query", _public_find),
     Route("decide", "strato", ("decide",),
           "Evaluate one governed decision request"),
     Route("review", "ozone", ("review",),
@@ -296,7 +327,10 @@ def cmd_logs(args: argparse.Namespace) -> int:
     selected = _filtered_records(records, failed=args.failed, tail=args.tail)
     summary = _summarize(selected, invalid)
     if args.json:
-        print(json.dumps({"summary": summary, "records": selected}, indent=2))
+        # `summary` covers the selected records. `log` covers the whole file,
+        # so a caller that reads the latest few still sees true totals.
+        print(json.dumps({"summary": summary, "log": _summarize(records, invalid),
+                          "records": selected}, indent=2))
     else:
         print(_format_text(selected, summary, invalid), end="")
     return 0
@@ -476,14 +510,15 @@ def _prog_keyword(main: Any, route: Route) -> dict[str, str]:
     return {"prog": routed_prog(route.verb)} if accepts else {}
 
 
-def _public_read(module: Any, verb: str, rest: list[str]) -> int:
-    """Run find or check through Tropo's privacy-filtered read facade.
+def _public_read(module: Any, route: Route, rest: list[str]) -> int:
+    """Print one report that leaves private files out.
 
-    Plain find and check read every Markdown file their config does not exclude,
-    so a git-ignored note reaches the output. The facade applies Core's privacy
+    Plain find, check, and doctor read every Markdown file their config does
+    not exclude, so a git-ignored note reaches the output. Find and check read
+    through Tropo's privacy-filtered facade, which applies Core's privacy
     policy and needs no Tropo config. A folder that is neither a Git worktree
-    nor a thin Vivary workspace is refused, because its private files cannot be
-    told apart.
+    nor a thin Vivary workspace is refused, because its private files cannot
+    be told apart. Doctor checks the workspace without reading notes.
     """
 
     def bounded(low: int, high: int):
@@ -496,44 +531,33 @@ def _public_read(module: Any, verb: str, rest: list[str]) -> int:
         return parse
 
     parser = argparse.ArgumentParser(
-        prog=routed_prog(verb),
+        prog=routed_prog(route.verb),
         description=(
-            "Read through the privacy-filtered facade. Files that Git ignores,"
-            " sensitive names, and a thin Vivary workspace's private paths are"
-            " left out. No tropo.toml is needed. Output is always JSON."
+            "Print a report that leaves private files out. Find and check leave"
+            " out files that Git ignores, sensitive names, and a thin Vivary"
+            " workspace's private paths, and need no tropo.toml. Doctor checks"
+            " the workspace without reading notes. Output is always JSON."
         ),
         allow_abbrev=False,
     )
-    parser.add_argument("--root", required=True,
-                        help="a Git worktree or a thin Vivary workspace")
+    parser.add_argument("--root", required=True, help="the project folder")
     parser.add_argument("--public", action="store_true", required=True,
-                        help="read through the privacy-filtered facade")
+                        help="leave private files out")
     parser.add_argument("--json", action="store_true",
                         help="accepted, output is always JSON")
-    if verb == "find":
+    if route.verb == "find":
         parser.add_argument("query", help="the question to rank context for")
         parser.add_argument("--k", type=bounded(1, 20), default=5,
                             help="results to return, 1 to 20 (default 5)")
         parser.add_argument("--budget", type=bounded(64, 4000), default=1200,
                             help="estimated token budget, 64 to 4000 (default 1200)")
     args = parser.parse_args(rest)
-    if verb == "find" and args.query.startswith("-"):
+    if route.verb == "find" and args.query.startswith("-"):
         parser.error("the query must not start with '-'")
 
-    from vivary_core import normalize_path
-
-    # The facade accepts only Core's spelling of the root, which on Windows
-    # means forward slashes and a lowercase drive letter.
-    root = normalize_path(os.path.realpath(args.root))
     try:
-        if verb == "find":
-            result = module.find_context(
-                root, args.query, k=args.k, budget=args.budget, allowlist=[root])
-            code = 0
-        else:
-            result = module.check_workspace(root, allowlist=[root])
-            code = 1 if result["errors"] > 0 else 0
-    except module.TropoFacadeError as error:
+        result, code = route.public(module, args)
+    except getattr(module, "TropoFacadeError", ()) as error:
         result = {"schema": "vivary.read-refusal/v0", "reason": error.reason}
         code = 2
     print(json.dumps(result, indent=2))
@@ -594,8 +618,8 @@ def _dispatch(route: Route, rest: list[str]) -> int:
     argv = [*route.operation, *rest]
     keyword = _prog_keyword(main, route)
     try:
-        if route.verb in ("find", "check") and "--public" in rest:
-            return _public_read(module, route.verb, rest)
+        if route.public is not None and "--public" in rest:
+            return _public_read(module, route, rest)
         try:
             return main(argv, **keyword)
         except TypeError as exc:

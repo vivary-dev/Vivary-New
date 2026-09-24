@@ -14,6 +14,7 @@ for _path in (ROOT, *(ROOT.parent / name for name in ("tropo", "core", "create-v
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+import create_vivary
 import tropo
 import vivary_cli
 from vivary_core import normalize_path
@@ -105,6 +106,27 @@ class VivaryLogsTests(unittest.TestCase):
         self.assertEqual(payload["records"][-1]["tool"], "create-vivary")
         self.assertNotIn("raw_path", payload["records"][-1])
         self.assertNotIn("stdout", payload["records"][-1])
+
+    def test_logs_json_reports_whole_log_totals_beside_the_selection(self):
+        with tempfile.TemporaryDirectory() as td:
+            receipt = Path(td) / "receipts.jsonl"
+            base = {"schema": "vivary.run_receipt.v1", "tool": "tropo", "command": "check"}
+            receipt.write_text("".join(
+                json.dumps({**base, "ok": ok, "exit_code": 0 if ok else 1}) + "\n"
+                for ok in (False, False, True, False, True)), encoding="utf-8")
+
+            rc, out, err = _run(["logs", str(receipt), "--json", "--tail", "2"])
+            failed_rc, failed_out, failed_err = _run(
+                ["logs", str(receipt), "--json", "--tail", "1", "--failed"])
+
+        self.assertEqual(rc, 0, err)
+        payload = json.loads(out)
+        self.assertEqual((payload["summary"]["total"], payload["summary"]["failed"]), (2, 1))
+        self.assertEqual((payload["log"]["total"], payload["log"]["failed"]), (5, 3))
+        self.assertEqual(len(payload["records"]), 2)
+        self.assertEqual(failed_rc, 0, failed_err)
+        failed = json.loads(failed_out)
+        self.assertEqual((failed["summary"]["total"], failed["log"]["failed"]), (1, 3))
 
     def test_logs_failed_tail_text(self):
         with tempfile.TemporaryDirectory() as td:
@@ -321,6 +343,41 @@ class VivaryPublicReadTests(unittest.TestCase):
                     json.loads(out),
                     {"schema": "vivary.read-refusal/v0", "reason": "privacy_policy_unavailable"},
                 )
+
+    def test_public_doctor_reports_the_workspace_without_a_git_ignored_note(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            rc, out, err = _run(["create", str(workspace), "--preset", "coding"])
+            self.assertEqual(rc, 0, err)
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            (workspace / "projects").mkdir(exist_ok=True)
+            (workspace / "projects" / "acme-deal.md").write_text(
+                "---\ntype: project\nstatus: acquiring-acme-for-12M\n---\n# Acme deal\n",
+                encoding="utf-8")
+            with (workspace / ".gitignore").open("a", encoding="utf-8") as ignore:
+                ignore.write("projects/acme-deal.md\n")
+            def authored():
+                return {path: path.read_bytes() for path in workspace.rglob("*")
+                        if path.is_file() and ".git" not in path.relative_to(workspace).parts}
+
+            before = authored()
+            plain_rc, plain_out, plain_err = _run(["doctor", str(workspace), "--json"])
+            public_rc, public_out, public_err = _run(
+                ["doctor", "--root", str(workspace), "--public", "--json"])
+            after = authored()
+            expected = create_vivary.doctor_workspace(
+                os.path.realpath(workspace), analyze_notes=False)
+
+        self.assertIn("acquiring-acme-for-12M", plain_out, plain_err)
+        self.assertEqual(plain_rc, 1)
+        self.assertNotIn("acme", public_out)
+        public = json.loads(public_out)
+        self.assertEqual(public, {"schema": "vivary.doctor-result/v0", "ok": expected["ok"],
+                                  "errors": expected["errors"], "warnings": expected["warnings"]})
+        self.assertIsNone(expected["graph"])
+        self.assertEqual(public_rc, 0 if public["ok"] else 1, public_err)
+        self.assertTrue(public["ok"], public["errors"])
+        self.assertEqual(after, before)
 
     def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):
         root = str(self.root)

@@ -689,6 +689,12 @@ SNAPSHOTS = {
             "    \"invalid_lines\": 0,\n"
             "    \"tools\": {}\n"
             "  },\n"
+            "  \"log\": {\n"
+            "    \"total\": 0,\n"
+            "    \"failed\": 0,\n"
+            "    \"invalid_lines\": 0,\n"
+            "    \"tools\": {}\n"
+            "  },\n"
             "  \"records\": []\n"
             "}\n"
         ),
