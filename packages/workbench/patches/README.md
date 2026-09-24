@@ -7,7 +7,8 @@ defects. Later feature work extends the same maintained patch as described below
 Native still owns conversations, storage, requests, and execution.
 
 `pnpm-workspace.yaml` applies `@agent-native__core@0.176.5.patch` to the pinned
-Core package. The lockfile records the patch hash. Install with
+Core package. Issue #9 also applies `@agent-native__toolkit@0.19.3.patch` to the
+pinned Toolkit package. The lockfile records both patch hashes. Install with
 `pnpm install --frozen-lockfile` from `packages/workbench`.
 
 ## Behavior
@@ -143,6 +144,20 @@ If delivery remains uncertain, the UI retains a pending draft and offers Retry.
 Restoring its text requires an explicit action with a duplicate-send warning.
 Normal Discard draft also persists a tombstone. Request audit metadata remains
 enabled, while the draft action excludes text inputs from the audit record.
+
+The Toolkit patch adds `preserveDraftText` only for Core's host draft mode. It
+reports line breaks, Unicode, and surrounding whitespace from the editor's
+actual document. It restores that plain text with hard breaks so one saved line
+break remains one visible line break. Consumers without host drafts keep
+Toolkit's existing trimmed callback and paragraph restore behavior. Core keeps
+the text-change callback stable while reading the latest host state. That
+prevents a render from resetting the autosave timer or restoring stale editor
+text after Discard.
+
+The desktop close path waits for pending draft saves. If a save fails or times
+out, the window remains open for retry. A browser can refuse navigation while
+it has unsaved text, but its unload event cannot promise an awaited save. The
+packaged desktop close journey remains an acceptance requirement under #9.
 
 Run the focused state and ownership checks with:
 

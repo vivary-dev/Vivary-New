@@ -18,11 +18,13 @@ unsent text draft, even when the local server uses a different port.
 
 Read [the desktop release target](../desktop-release.md),
 [ENGINEERING.md](../../../../ENGINEERING.md), and [Native owners](../native-owners.md).
-Completed Code transcripts persist. Native composer drafts use browser storage
-and do not survive an origin change. Issue #5 repaired selection saves. The
+At activation on 2026-09-23, completed Code transcripts persisted, but Native
+composer drafts used browser storage and did not survive an origin change.
+Issue #5 had repaired selection saves. The
 [read-only integration findings](https://github.com/vivary-dev/Vivary-New/issues/9#issuecomment-5672430467)
-identify the public draft seam still needed. Reuse the existing authenticated state
-writer. Do not copy private browser-storage keys or replace Native history.
+identified the missing public draft seam. The implementation reuses the
+existing authenticated state writer without copying browser-storage keys or
+replacing Native history.
 
 ## Owned files
 
@@ -53,7 +55,8 @@ Test the desktop journey after the corresponding hosted application behavior wor
 ```console
 node --test packages/workbench/tests/startup.test.mjs
 node --test packages/desktop/tests/main.test.mjs
-pnpm --dir packages/workbench typecheck
+pnpm --dir packages/workbench test:chat-draft
+pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
 ```
 
 ## Stop conditions
@@ -70,6 +73,15 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   the existing versioned Native patch at its owning composer components, then
   persist drafts through the existing authenticated application-state writer.
   Keep Native storage and execution ownership. All draft acceptance remains open.
+
+- 2026-09-24: Hosted acceptance passed on clean `250b402f` with the unchanged
+  bundled Python runtime from `079fba00`. The [receipt](../receipts/17a-chat-restart-and-drafts.md)
+  records two project drafts, Native and Code sends, save failure and retry,
+  lost-response recovery, rapid edits, unavailable folders, narrow layout,
+  and bare-root restart on a different local port. Core and Toolkit use pinned,
+  opt-in patches. The renderer close check passed, but ordinary packaged window
+  close and the on-screen keyboard remain pending. Keep this packet in progress
+  until the actual EXE journey passes.
 
 ## Shared desktop and web behavior
 

@@ -323,11 +323,17 @@ preview bridge accepts that header
 only after its existing request and owner checks pass. A rejected token is not
 replayed while Native refreshes the session. Rejected tokens stay only in page memory so every action and state control
 blocks stale retries. Tokens are never written to disk, browser storage, or logs.
-The composer keeps unsent text in browser storage, so drafts survive project
-switching and navigation. A file draft survived a packaged desktop restart with a
-new loopback port in the tested Windows candidate. Completed Code transcripts remain
-in Native's persistent run store. Broader Native per-thread draft acceptance remains
-owned by the restart-continuity issue.
+Native and Code conversation drafts use authenticated Native application state
+under the selected project and conversation. This state survives project switches,
+refresh, and a change in the local server port. Saving a draft does not send it.
+A failed save keeps the text visible for retry. A successful send or explicit
+Discard leaves a versioned empty record so an older save cannot restore the
+text. The desktop window waits for dirty drafts to save before it stops the
+local server. A file draft also survived a packaged desktop restart in the
+separate file-editing journey. Completed Code transcripts remain in Native's
+persistent run store. The hosted chat-draft journey is recorded in the
+[continuity receipt](../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
+Packaged chat-draft acceptance remains pending.
 
 Local folder grants persist in server-only Native settings. Startup reopens
 and rechecks the canonical path, device, inode, and creation time. Filesystems

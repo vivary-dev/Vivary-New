@@ -1,6 +1,6 @@
 # Desktop acceptance status
 
-Updated 2026-09-23. This page is the current tracked acceptance register for the
+Updated 2026-09-24. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
@@ -45,6 +45,24 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 `9884670` prerelease. The [shared plan and apply receipt](receipts/07b-shared-workspace-plan-apply.md)
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
+
+## Conversation drafts, September 24
+
+[Issue #9's hosted receipt](receipts/17a-chat-restart-and-drafts.md) records
+clean `250b402f` Workbench acceptance. Native and Code drafts stayed with their
+project and conversation across refresh, sidebar changes, and a bare-root
+restart on a new local port. A deterministic Native send retained its history
+and cleared the draft. The Code fixture produced one accepted user event.
+Failed saves, a lost browser response after a durable write, delayed edits,
+Discard, an unavailable folder, and the 390-pixel layout passed focused checks.
+A renderer close check waited for an unsaved draft and refused a failed save.
+
+Core and Toolkit use pinned, opt-in patches for host-owned drafts and exact
+line breaks. No real model call was requested. The original Python runtime
+came from an earlier source build, so the receipt names both revisions. The
+ordinary packaged EXE close, packaged changed-port reopen, and packaged
+on-screen keyboard journey remain pending. This section does not mark issue #9 or parent outcome
+17 complete.
 
 ## Built-in guidance, September 23
 
@@ -543,7 +561,7 @@ automations in #51 remain open.
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, restart draft, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0` | Chat-content search, scoped memory, and remaining restart/draft cases in their owning issues |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted #9 restored Native and Code drafts across a changed port | Packaged #9 draft and close acceptance, chat-content search, and scoped memory in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
