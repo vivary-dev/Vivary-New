@@ -55,6 +55,7 @@ function guardFor(
       ?? (async () => ({ code: "catalog", projects: [project] })),
     resolveProjectWorkspace: overrides.resolveProjectWorkspace
       ?? (async () => ({ projectId: project.projectId })),
+    admitChatProject: async () => { throw new Error("The send guard reads the catalog as the owner."); },
   });
 }
 

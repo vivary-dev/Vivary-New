@@ -21,6 +21,7 @@ const { createLocalRootProvider, LOCAL_ROOT_VERIFICATION } = await import("../se
 const { createNativeRegistry } = await import("../server/native-registry.mjs");
 const { createProjectCatalog } = await import("../server/project-catalog.mjs");
 const {
+  admitChatProject,
   getLocalProjectAccess,
   connectLocalProjectFolder,
   resolveLocalProjectHistory,
@@ -168,13 +169,20 @@ test("local project grants register real folders and reopen without content snap
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, orgId: "foreign" }, alphaResult.projectId));
       await assert.rejects(resolveLocalProjectWorkspace({ ...actionContext, caller: "agent" }, alphaResult.projectId));
       const tool = { ...actionContext, appId: "workbench", caller: "tool" };
-      assert.equal((await getLocalProjectAccess(tool)).code, "catalog");
+      await assert.rejects(getLocalProjectAccess(tool), { statusCode: 403 });
       await assert.rejects(resolveLocalProjectWorkspace(tool, alphaResult.projectId), { statusCode: 403 });
-      const pinned = { ...tool, chatProjectId: alphaResult.projectId };
-      assert.equal((await resolveLocalProjectWorkspace(pinned, alphaResult.projectId)).root, alpha);
-      await assert.rejects(resolveLocalProjectWorkspace({ ...tool, chatProjectId: "project_other" }, alphaResult.projectId),
+      await assert.rejects(resolveLocalProjectWorkspace({ ...tool, chatProjectId: alphaResult.projectId }, alphaResult.projectId),
         { statusCode: 403 });
-      await assert.rejects(connectLocalProjectFolder(pinned, beta, "Beta"), { statusCode: 403 });
+      await assert.rejects(admitChatProject(actionContext, () => true), { statusCode: 403 });
+      assert.equal(await admitChatProject(tool, () => true), null, "two matches admit nothing");
+      const admitted = await admitChatProject(tool, project => project.projectId === alphaResult.projectId);
+      assert.equal(admitted.projectId, alphaResult.projectId);
+      assert.equal(admitted.context.caller, "tool");
+      assert.equal((await resolveLocalProjectWorkspace(admitted.context, alphaResult.projectId)).root, alpha);
+      await assert.rejects(resolveLocalProjectWorkspace(admitted.context, betaResult.projectId), { statusCode: 403 });
+      await assert.rejects(resolveLocalProjectWorkspace({ ...admitted.context }, alphaResult.projectId), { statusCode: 403 });
+      await assert.rejects(getLocalProjectAccess(admitted.context), { statusCode: 403 });
+      await assert.rejects(connectLocalProjectFolder(admitted.context, beta, "Beta"), { statusCode: 403 });
       await assert.rejects(resolveLocalProjectWorkspace(actionContext, "../alpha"),
         { message: "Choose a registered project.", statusCode: 400 });
       assert.equal(betaResult.code, "registered");

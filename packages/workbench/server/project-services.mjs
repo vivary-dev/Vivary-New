@@ -353,23 +353,53 @@ export function startProjectServices(nitroApp, dependencies) {
 }
 
 
-// A Native tool call keeps its own caller. It may list the owner's projects
-// and resolve the one project its chat is pinned to, never connect or
-// reconnect a folder.
-function localService(context, admitTool = false) {
+// Native tool call contexts that admitChatProject admitted, each mapped to the
+// one project its chat is pinned to. Only the admitted object itself counts.
+const chatProjects = new WeakMap();
+const CHAT_CATALOG = Symbol("chat catalog");
+
+// `tool` is the project a Native tool call may reach: the chat catalog read
+// inside admitChatProject, or the project admitChatProject admitted it for.
+function localService(context, tool) {
   const service = globalThis[LOCAL_SERVICE];
   if (!service || service.controller.snapshot().status !== "open") {
     throw Object.assign(new Error("Local project folders are not ready."), { statusCode: 503 });
   }
+  const chatTool = context?.caller === "tool" && tool !== undefined
+    && (tool === CHAT_CATALOG || chatProjects.get(context) === tool);
   if (!context || !["vivary", "workbench"].includes(context.appId)
-    || !(["frontend", "http"].includes(context.caller) || (admitTool && context.caller === "tool"))
+    || !(["frontend", "http"].includes(context.caller) || chatTool)
     || context.userEmail?.trim().toLowerCase() !== "owner@local.vivary.test"
     || !identifier.safeParse(context.orgId).success) {
     throw Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
   }
   // Both names belong to this app. Workbench retains its existing role namespace.
+  // The registry reads the owner's scope for an admitted tool call, which
+  // stays "tool" everywhere outside this module.
   return { service, owner: Object.freeze({ userEmail: context.userEmail, orgId: context.orgId,
-    appId: "workbench", caller: context.caller }) };
+    appId: "workbench", caller: chatTool ? "http" : context.caller }) };
+}
+
+/**
+ * Admits a Native tool call to the one registered project `isChatProject`
+ * accepts. The returned context stays a tool call, and the read entry points
+ * accept that object for that project only. Null when no single project matches.
+ */
+export async function admitChatProject(context, isChatProject) {
+  if (context?.caller !== "tool") {
+    throw Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
+  }
+  const { service, owner } = localService(context, CHAT_CATALOG);
+  const catalog = await service.catalog.run({}, owner);
+  if (catalog.code !== "catalog") {
+    throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+  }
+  const matches = catalog.projects.filter(project =>
+    isChatProject({ projectId: project.projectId, displayName: project.displayName }));
+  if (matches.length !== 1) return null;
+  const admitted = Object.freeze({ ...context });
+  chatProjects.set(admitted, matches[0].projectId);
+  return { projectId: matches[0].projectId, context: admitted };
 }
 
 export function getLocalProjectReconnectionService(context) {
@@ -377,7 +407,7 @@ export function getLocalProjectReconnectionService(context) {
 }
 
 export async function getLocalProjectAccess(context) {
-  const { service, owner } = localService(context, true);
+  const { service, owner } = localService(context);
   return service.catalog.run({}, owner);
 }
 
@@ -400,7 +430,7 @@ export async function connectLocalProjectFolder(context, folder, displayName) {
 }
 
 async function resolveLocalProjectBinding(context, projectId) {
-  const { service, owner } = localService(context, context?.chatProjectId === projectId);
+  const { service, owner } = localService(context, projectId);
   if (!identifier.safeParse(projectId).success) {
     throw Object.assign(new Error("Choose a registered project."), { statusCode: 400 });
   }

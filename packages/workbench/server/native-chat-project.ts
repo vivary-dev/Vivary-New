@@ -7,9 +7,9 @@ import {
 import { createError } from "h3";
 import { createVivaryChatIdentity } from "./chat-identity";
 import {
+  admitChatProject,
   getLocalProjectAccess,
   resolveLocalProjectWorkspace,
-  type ChatProjectContext,
 } from "./project-services.mjs";
 
 const PROJECT_SCOPE_PREFIX = "vivary-project-chat-v2:";
@@ -23,6 +23,8 @@ type ProjectCatalogRecord = {
   displayName: string;
 };
 
+type ChatProjectRecord = { projectId: string; displayName: string };
+
 type NativeChatProjectDependencies = {
   getScope: () => RequestRunContext["chatScope"];
   getOrgId: () => string | undefined;
@@ -31,6 +33,10 @@ type NativeChatProjectDependencies = {
     context: ActionRunContext,
     projectId: string,
   ) => Promise<unknown>;
+  admitChatProject: (
+    context: ActionRunContext,
+    isChatProject: (project: ChatProjectRecord) => boolean,
+  ) => Promise<{ projectId: string; context: ActionRunContext } | null>;
 };
 
 const defaultDependencies: NativeChatProjectDependencies = {
@@ -38,6 +44,7 @@ const defaultDependencies: NativeChatProjectDependencies = {
   getOrgId: getRequestOrgId,
   getProjectAccess: getLocalProjectAccess,
   resolveProjectWorkspace: resolveLocalProjectWorkspace,
+  admitChatProject,
 };
 
 function projectConversationError(statusCode: number, statusMessage: string): Error {
@@ -83,11 +90,13 @@ type ChatScopeMatch =
 
 // Matches the pinned scope to the owner's current catalog. Native consumed
 // the request body before either caller runs and already normalized its scope.
-// The owner context keeps the caller that asked: the send guard runs inside
-// an HTTP request, and a tool call stays a tool call.
+// The send guard reads the catalog as the owner's HTTP request. A tool call
+// asks project services to admit it for the one matching project, and stays
+// a tool call.
 async function matchChatScope(
   dependencies: NativeChatProjectDependencies,
-  identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool" },
+  identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
+    signal?: AbortSignal },
 ): Promise<ChatScopeMatch> {
   const requestedScopeId = projectScopeId(dependencies.getScope());
   if (!requestedScopeId) return { kind: "not-project" };
@@ -105,34 +114,38 @@ async function matchChatScope(
   });
   if (requestedScopeId === personal.scope.id) return { kind: "personal" };
 
-  const ownerContext: ActionRunContext = {
+  const context: ActionRunContext = {
     caller: identity.caller,
     userEmail: ownerEmail,
     orgId,
     appId: "workbench",
+    ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  let projects: ProjectCatalogRecord[] | null;
+  const isChatProject = (project: ChatProjectRecord) => createVivaryChatIdentity(ownerEmail, orgId, {
+    kind: "project",
+    projectId: project.projectId,
+    label: project.displayName,
+  }).scope.id === requestedScopeId;
+  let match: { projectId: string; context: ActionRunContext } | null;
   try {
-    projects = catalogProjects(await dependencies.getProjectAccess(ownerContext));
+    if (identity.caller === "tool") {
+      match = await dependencies.admitChatProject(context, isChatProject);
+    } else {
+      const projects = catalogProjects(await dependencies.getProjectAccess(context));
+      if (!projects) {
+        throw projectConversationError(403, "Project conversation access is unavailable.");
+      }
+      const project = projects.find(isChatProject);
+      match = project ? { projectId: project.projectId, context } : null;
+    }
   } catch (error) {
     preserveAuthorizationError(error);
     throw projectConversationError(409, "Project conversation access is unavailable.");
   }
-  if (!projects) {
+  if (!match) {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
-
-  const project = projects.find(candidate =>
-    createVivaryChatIdentity(ownerEmail, orgId, {
-      kind: "project",
-      projectId: candidate.projectId,
-      label: candidate.displayName,
-    }).scope.id === requestedScopeId,
-  );
-  if (!project) {
-    throw projectConversationError(403, "Project conversation access is unavailable.");
-  }
-  return { kind: "project", projectId: project.projectId, ownerContext };
+  return { kind: "project", projectId: match.projectId, ownerContext: match.context };
 }
 
 /**
@@ -163,15 +176,16 @@ export const prepareVivaryNativeChatProject =
 
 /**
  * The project a Native tool call acts on comes only from its chat's pinned
- * scope, never from tool input. The returned context keeps caller "tool" and
- * names that project, so project services admit it for that project alone.
+ * scope, never from tool input. The returned context is the one project
+ * services admitted for that project. It stays a tool call.
  */
 export function createVivaryNativeChatProjectResolver(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
 ): (context: ActionRunContext | undefined) => Promise<{ projectId: string; ownerContext: ActionRunContext }> {
   return async context => {
     const match = context?.caller === "tool"
-      ? await matchChatScope(dependencies, { owner: context.userEmail, orgId: context.orgId, caller: "tool" })
+      ? await matchChatScope(dependencies,
+        { owner: context.userEmail, orgId: context.orgId, caller: "tool", signal: context.signal })
       : { kind: "not-project" as const };
     if (match.kind !== "project") {
       fail("Open this chat from a project to use project tools.", {
@@ -179,10 +193,7 @@ export function createVivaryNativeChatProjectResolver(
         statusCode: 409,
       });
     }
-    const ownerContext: ChatProjectContext = {
-      ...match.ownerContext, signal: context?.signal, chatProjectId: match.projectId,
-    };
-    return { projectId: match.projectId, ownerContext };
+    return { projectId: match.projectId, ownerContext: match.ownerContext };
   };
 }
 
