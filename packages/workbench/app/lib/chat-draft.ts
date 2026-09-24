@@ -176,6 +176,7 @@ export function useNativeChatDraft(scope: Scope) {
     const current = entry(threadId);
     if (!current.loaded || current.discarding || current.error || current.record?.status === "pending") return;
     if (current.record?.status === "cleared" && text === "") return;
+    if (current.text === text) return;
     current.text = text;
     if (current.timer) clearTimeout(current.timer);
     current.timer = setTimeout(() => { void flush(threadId).catch(() => {
