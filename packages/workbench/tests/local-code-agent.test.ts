@@ -22,6 +22,7 @@ import {
   getVivaryCodeHostState,
   getVivaryCodeState,
   hasOwnedVivaryCodeSubmit,
+  linkedCodeDraftRuns,
   requireVivaryCodeUser,
   VIVARY_CODE_DEFAULT_MODEL,
   VIVARY_CODE_MODELS,
@@ -56,6 +57,32 @@ afterEach(async () => {
 });
 
 describe("local Vivary code agent boundaries", () => {
+  it("links a saved follow-up to an older run without expanding the 20-run state page", async () => {
+    const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-old-draft-"));
+    temporaryRoots.push(store);
+    const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+    try {
+      process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store;
+      for (let index = 0; index < 21; index++) {
+        createCodeAgentRunRecord({ id: `older-draft-run-${index}`, goalId: "vivary-local-code",
+          title: `Conversation ${index}`, status: "completed", cwd: store,
+          metadata: { app: "vivary-workbench-local-code", ownerEmail: "older@example.test",
+            orgId: "older-org", engine: "claude-cli", model: "sonnet", workspaceRoot: store,
+            draftThreadId: `vivary-code:older-draft-${index}` } });
+      }
+      const state = await getVivaryCodeState("older@example.test", undefined,
+        { root: store, label: "Fixture" }, "older-org");
+      assert.equal(state.runs.length, 20);
+      const linked = linkedCodeDraftRuns("older@example.test", "older-org",
+        { root: store, label: "Fixture" }, ["vivary-code:older-draft-0"]);
+      assert.equal(linked.get("vivary-code:older-draft-0")?.id, "older-draft-run-0");
+      assert.equal(linked.size, 1);
+    } finally {
+      if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
+      else process.env.AGENT_NATIVE_CODE_AGENTS_HOME = previousStore;
+    }
+  });
+
   it("offers only the supported Claude model aliases", () => {
     assert.deepEqual(VIVARY_CODE_MODELS, ["sonnet", "opus", "fable"]);
     assert.equal(VIVARY_CODE_DEFAULT_MODEL, "sonnet");

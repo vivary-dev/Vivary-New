@@ -29,11 +29,18 @@ function chatDraftIndexPrefix(identity: Pick<VivaryChatIdentity, "storageKey">):
   return "vivary-chat-draft-index-v1:" + hash + ":";
 }
 
-async function indexChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): Promise<void> {
+async function indexChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string,
+  refreshGeneration = false): Promise<void> {
   const key = chatDraftIndexPrefix(identity) + threadId;
-  // Record the ID before its draft CAS. A failed CAS leaves an invisible
-  // pointer, while a successful draft cannot be stranded by a later crash.
-  await compareAndSetAppState(key, null, { threadId, createdAt: Date.now() });
+  for (;;) {
+    const previous = await readAppState(key);
+    if (previous && !refreshGeneration) return;
+    // Index before the draft CAS. Refreshing this generation prevents an older
+    // clear from removing a pointer needed by a concurrent new draft.
+    const marker = { threadId, createdAt: typeof previous?.createdAt === "number"
+      ? previous.createdAt : Date.now(), generation: randomUUID() };
+    if (await compareAndSetAppState(key, previous, marker)) return;
+  }
 }
 
 export async function listChatDrafts(identity: Pick<VivaryChatIdentity, "storageKey">): Promise<Array<{ threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }>> {
@@ -60,8 +67,17 @@ export async function readIndexedChatDraft(identity: Pick<VivaryChatIdentity, "s
 
 export async function changeIndexedChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string,
   expected: ChatDraftRecord | null, next: z.infer<typeof chatDraftNextSchema>) {
-  if (next.status !== "cleared" && next.text) await indexChatDraft(identity, threadId);
-  return changeChatDraft(identity, threadId, expected, next);
+  const indexKey = chatDraftIndexPrefix(identity) + threadId;
+  const markerBeforeClear = next.status === "cleared" ? await readAppState(indexKey) : null;
+  if (next.status !== "cleared" && next.text) await indexChatDraft(identity, threadId, true);
+  const result = await changeChatDraft(identity, threadId, expected, next);
+  if (result.changed && next.status === "cleared" && markerBeforeClear) {
+    // A concurrent edit refreshes the marker before changing the record. Its
+    // new generation defeats this removal and keeps the draft discoverable.
+    try { await compareAndSetAppState(indexKey, markerBeforeClear, null); }
+    catch { /* The cleared record stays authoritative. A stale marker is invisible. */ }
+  }
+  return result;
 }
 
 export function chatDraftKey(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): string {
@@ -147,7 +163,7 @@ export async function reconcileChatDraft(identity: VivaryChatIdentity, threadId:
   if (!current || current.status !== "pending" || !current.submitId) return { record: current, saved: false };
   const thread = await assertChatDraftThread(identity, threadId, ownerEmail, orgId);
   if (!thread || !savedThreadHasSubmit(thread.threadData, current.submitId)) return { record: current, saved: false };
-  const result = await changeChatDraft(identity, threadId, current,
+  const result = await changeIndexedChatDraft(identity, threadId, current,
     { text: "", status: "cleared", submitId: null });
   return { record: result.record, saved: result.changed };
 }
@@ -160,7 +176,7 @@ export async function reconcileCodeDraft(identity: Pick<VivaryChatIdentity, "sto
   if (!hasOwnedVivaryCodeSubmit(ownerEmail, orgId, scope, threadId, current.submitId)) {
     return { record: current, saved: false };
   }
-  const result = await changeChatDraft(identity, threadId, current,
+  const result = await changeIndexedChatDraft(identity, threadId, current,
     { text: "", status: "cleared", submitId: null });
   return { record: result.record, saved: result.changed };
 }

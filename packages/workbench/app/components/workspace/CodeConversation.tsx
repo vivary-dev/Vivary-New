@@ -14,7 +14,7 @@ import {
 import { actionErrorMessage, readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useAppStateWriter } from "@/lib/native-state";
-import { useChatDraftList, useNativeChatDraft } from "@/lib/chat-draft";
+import { registerSelectionCloseFlush, trackSelectionWrite, useChatDraftList, useNativeChatDraft } from "@/lib/chat-draft";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconHistory, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
 import type { VivaryCodeRunState, VivaryCodeState } from "../../../server/local-code-agent";
@@ -64,14 +64,49 @@ export default function CodeConversation({ previewScope, onPreviewChatTarget }: 
     mutationFn: ({ key, value }: { key: string; value: ConversationSelection | null }) =>
       writeAppState(key, value, { keepalive: true }),
   });
-  const save = saveSelection.mutate;
+  const pendingCodeSelections = useRef(new Map<string, ConversationSelection | null>());
+  const savingCodeSelections = useRef<Promise<void> | null>(null);
+  const codeSelectionFailed = useRef(false);
+  const writerReadyRef = useRef(stateWriterReady);
+  writerReadyRef.current = stateWriterReady;
+  const saveRef = useRef(saveSelection.mutateAsync);
+  saveRef.current = saveSelection.mutateAsync;
+  const drainCodeSelections = useCallback((): Promise<void> => {
+    if (savingCodeSelections.current) return savingCodeSelections.current;
+    if (pendingCodeSelections.current.size === 0) return Promise.resolve();
+    if (!writerReadyRef.current) return Promise.reject(new Error("The Native session is not ready to save the Code selection."));
+    const write = (async () => {
+      try {
+        while (pendingCodeSelections.current.size) {
+          const [key, value] = pendingCodeSelections.current.entries().next().value!;
+          await saveRef.current({ key, value });
+          if (pendingCodeSelections.current.get(key) === value) pendingCodeSelections.current.delete(key);
+        }
+        codeSelectionFailed.current = false;
+      } catch (error) {
+        codeSelectionFailed.current = true;
+        throw error;
+      }
+    })();
+    const tracked = trackSelectionWrite(write);
+    savingCodeSelections.current = tracked;
+    void tracked.finally(() => { if (savingCodeSelections.current === tracked) savingCodeSelections.current = null; }).catch(() => {});
+    return tracked;
+  }, []);
+  const queueCodeSelection = useCallback((key: string, value: ConversationSelection | null) => {
+    pendingCodeSelections.current.set(key, value);
+    return drainCodeSelections();
+  }, [drainCodeSelections]);
+  useEffect(() => registerSelectionCloseFlush(drainCodeSelections,
+    () => pendingCodeSelections.current.size > 0 || savingCodeSelections.current !== null || codeSelectionFailed.current),
+  [drainCodeSelections]);
   const setSelection = useCallback<Dispatch<SetStateAction<ConversationSelection | null>>>(update => {
     const previous = queryClient.getQueryData<ConversationSelection | null>([selectionKey]) ?? null;
     const next = typeof update === "function" ? update(previous) : update;
     if (next === previous) return;
     queryClient.setQueryData([selectionKey], next);
-    if (stateWriterReady) save({ key: selectionKey, value: next });
-  }, [queryClient, selectionKey, save, stateWriterReady]);
+    void queueCodeSelection(selectionKey, next).catch(() => {});
+  }, [queryClient, selectionKey, queueCodeSelection, stateWriterReady]);
 
   async function openActiveConversation(active: NonNullable<VivaryCodeState["activeRun"]>) {
     if (active.projectId !== projectId && !await selectProject(active.projectId)) return false;
@@ -79,7 +114,7 @@ export default function CodeConversation({ previewScope, onPreviewChatTarget }: 
     const next = { key: active.id, runId: active.id };
     await queryClient.cancelQueries({ queryKey: [key], exact: true });
     queryClient.setQueryData([key], next);
-    if (stateWriterReady) save({ key, value: next });
+    void queueCodeSelection(key, next).catch(() => {});
     if (mounted.current) setSearchParams({ run: active.id }, { replace: true });
     return true;
   }
@@ -112,17 +147,19 @@ export default function CodeConversation({ previewScope, onPreviewChatTarget }: 
   return <>
     {saveSelection.isError && <div className="local-agent-notice" role="alert">
       <span>Your conversation selection could not be saved.</span>
-      <Button variant="ghost" size="sm" onClick={() => { if (saveSelection.variables) save(saveSelection.variables); }}>Retry</Button>
+      <Button variant="ghost" size="sm" onClick={() => { if (saveSelection.variables) void queueCodeSelection(saveSelection.variables.key, saveSelection.variables.value).catch(() => {}); }}>Retry</Button>
     </div>}
     <ProjectCodeWorkspace key={projectScope} projectId={projectId} draftScopeKey={projectScope}
+      ownerKey={catalog?.scopeKey ?? ""}
       projectLabel={activeProject?.displayName} workspaceAvailable={workspaceAvailable} onOpenActive={openActiveConversation}
       selection={selection.data ?? null} setSelection={setSelection} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget} />
   </>;
 }
 
-function ProjectCodeWorkspace({ projectId, draftScopeKey, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive, previewScope, onPreviewChatTarget }: PreviewChatProps & {
+function ProjectCodeWorkspace({ projectId, draftScopeKey, ownerKey, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive, previewScope, onPreviewChatTarget }: PreviewChatProps & {
   projectId: string | null;
   draftScopeKey: string;
+  ownerKey: string;
   projectLabel?: string;
   workspaceAvailable: boolean;
   selection: ConversationSelection | null;
@@ -263,9 +300,16 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, projectLabel, workspac
       subtitle: item.engineLabel + (item.model ? " · " + item.model : ""),
       timestamp: isCodeAgentRunActive(item) ? "Working" : item.status,
     }));
-  const runDraftIds = new Set(codeState?.runs.map(item => item.draftThreadId).filter(Boolean));
+  const recentRunIds = new Set(codeState?.runs.map(item => item.id));
   for (const draft of draftList.data?.drafts ?? []) {
-    if (runDraftIds.has(draft.threadId)) continue;
+    if (!draft.run || recentRunIds.has(draft.run.id)) continue;
+    if (draft.run.title.toLowerCase().includes(historySearch.trim().toLowerCase())) {
+      history.push({ id: draft.run.id, title: draft.run.title, subtitle: draft.run.engineLabel,
+        timestamp: "Saved follow-up" });
+    }
+  }
+  for (const draft of draftList.data?.drafts ?? []) {
+    if (draft.run) continue;
     const key = codeDraftSelectionKey(projectId, draft.threadId);
     const title = draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft");
     if (key && title.toLowerCase().includes(historySearch.trim().toLowerCase())) {
@@ -317,7 +361,7 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, projectLabel, workspac
     <div className="local-agent-layout">
       <div className="local-agent-chat">
         {selection && codeState && !openingSavedRun ? <LocalCodeConversation key={selection.key}
-          projectId={projectId} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
+          projectId={projectId} ownerKey={ownerKey} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
           state={run && selectedState.data?.projectId === projectId && selectedState.data.run?.id === run.id
             ? { ...codeState, engines: selectedState.data.engines } : codeState}
           workspaceAvailable={workspaceAvailable}
@@ -338,6 +382,7 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, projectLabel, workspac
 }
 
 type LocalCodeConversationProps = PreviewChatProps & {
+  ownerKey: string;
   projectId: string | null;
   workspaceAvailable: boolean;
   selection: ConversationSelection;
@@ -380,7 +425,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     return () => { active = false; removeAgentChatContextItem(contextKey); props.onPreviewChatTarget?.(null); };
   }, [props.projectId, props.previewScope, previewContextKey, props.workspaceAvailable, props.onPreviewChatTarget]);
   const draftThreadId = props.run?.draftThreadId ?? codeDraftThreadId(props.projectId, props.selection.key);
-  const draft = useNativeChatDraft({ kind: "code", projectId: props.projectId });
+  const draft = useNativeChatDraft({ kind: "code", projectId: props.projectId }, props.ownerKey);
   const draftError = draft.statusForThread(draftThreadId);
   const [restoreReview, setRestoreReview] = useState(false);
   const [restoreAcknowledged, setRestoreAcknowledged] = useState(false);

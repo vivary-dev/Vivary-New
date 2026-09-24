@@ -180,3 +180,18 @@ test("preview refusal preserves the Native error code for safe review recovery",
     return true;
   });
 });
+
+
+test("draft keepalive uses the full UTF-8 body budget", async () => {
+  const flags: boolean[] = [];
+  const call = createNativeActionCaller({
+    getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", token: "native-budget-token" } }),
+    cookieAction: async () => { throw new Error("Unexpected cookie fallback"); },
+    fetch: async (_input, init) => { flags.push(Boolean(init?.keepalive)); return Response.json({ accepted: true }); },
+    locationHref: () => "https://private.example.test/agent", nativePath: path => path,
+    invalidate: () => undefined,
+  });
+  await call("vivary-chat-draft", { expected: { text: "a".repeat(32_000) }, next: { text: "a".repeat(32_000) } }, { keepalive: true });
+  await call("vivary-chat-draft", { next: { text: "short" } }, { keepalive: true });
+  assert.deepEqual(flags, [false, true]);
+});

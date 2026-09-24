@@ -9,6 +9,18 @@ import type {
   VivaryCodeState,
 } from "../../server/local-code-agent";
 
+const PRE_APPEND_CODE_REJECTIONS = new Set([
+  "vivary_code_engine_changed", "vivary_code_runtime_unavailable", "vivary_code_models_unavailable",
+  "vivary_code_model_changed", "vivary_code_model_unsupported", "vivary_code_project_changed",
+  "vivary_code_project_reconnecting", "vivary_code_host_closing", "vivary_code_run_active",
+  "vivary_code_workspace_unavailable", "vivary_code_run_not_found", "vivary_code_historical_engine",
+]);
+
+function isPreAppendCodeRejection(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "errorCode" in error
+    && typeof error.errorCode === "string" && PRE_APPEND_CODE_REJECTIONS.has(error.errorCode);
+}
+
 type LocalCodeChatOptions = {
   context: AssistantChatAdapterContext;
   call: NativeActionCaller;
@@ -59,11 +71,19 @@ export function createLocalCodeChatAdapter(
         return;
       }
 
+      const send = async (params: Record<string, unknown>) => {
+        try {
+          return await options.call<VivaryCodeState>("vivary-code-send", params);
+        } catch (error) {
+          if (draftSubmitId && isPreAppendCodeRejection(error)) await options.onKnownRejected(draftSubmitId);
+          throw error;
+        }
+      };
       options.onStreaming(true);
       try {
         const starting = options.runIdRef.current === null;
         if (starting) {
-          const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, message, model, engine: engine.engine,
+          const state = scopedState(await send({ projectId, message, model, engine: engine.engine,
             draftSubmitId, draftThreadId: draftSubmitId ? options.draftThreadId : undefined }));
           if (state.error) throw new Error(state.error);
           if (!state.run) throw new Error("The agent did not return a conversation.");
@@ -91,7 +111,7 @@ export function createLocalCodeChatAdapter(
           },
           sendFollowUp: async ({ runId, prompt, mode }) => {
             if (mode === "queued") return { ok: false, error: "Wait for the current response or stop it before sending another message." };
-            const state = scopedState(await options.call<VivaryCodeState>("vivary-code-send", { projectId, runId, message: prompt, model, engine: engine.engine,
+            const state = scopedState(await send({ projectId, runId, message: prompt, model, engine: engine.engine,
               draftSubmitId, draftThreadId: draftSubmitId ? options.draftThreadId : undefined }));
             return { ok: !state.error && !!state.run, run: state.run, error: state.error };
           },

@@ -10,7 +10,8 @@ type RecordState = {
   submitId: string | null;
 };
 type Scope = { kind: "project" | "unassigned" | "code"; projectId: string | null };
-export type DraftListItem = { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" };
+export type DraftListItem = { threadId: string; createdAt: number; preview: string; status: "draft" | "pending";
+  run?: { id: string; title: string; updatedAt: string; engineLabel: string } | null };
 
 export function useChatDraftList(scope: Scope, scopeKey: string | null, enabled: boolean) {
   const { call, ready } = useNativeActionCaller();
@@ -39,16 +40,79 @@ type Entry = {
 };
 type DraftResponse = { record: RecordState | null; changed?: boolean; saved?: boolean };
 type DraftObservation = { generation: number; revision: string | null; submitId: string | null };
-type DraftFlushController = { flush: () => Promise<void>; isDirty: () => boolean; mounted: boolean };
+type DraftFlushController = { flush: () => Promise<void>; isDirty: () => boolean; mounted: boolean;
+  ownerKey: string; scope: Scope;
+  unsaved: () => Array<{ threadId: string; text: string; error: string | null; saving: boolean; discardFailed: boolean }>;
+  retry: (threadId: string) => Promise<void>;
+  abandon: (threadId: string) => Promise<void> };
+export type OrphanedDraft = { threadId: string; kind: Scope["kind"]; projectId: string | null;
+  text: string; error: string | null; saving: boolean; discardFailed: boolean;
+  retry: () => Promise<void>; abandon: () => Promise<void> };
+const orphanListeners = new Set<() => void>();
+function notifyOrphans() { for (const listener of orphanListeners) listener(); }
+function matchingOrphan(ownerKey: string, scope: Scope, threadId: string) {
+  return [...draftFlushControllers].find(controller => !controller.mounted && controller.isDirty()
+    && controller.ownerKey === ownerKey && controller.scope.kind === scope.kind
+    && controller.scope.projectId === scope.projectId
+    && controller.unsaved().some(item => item.threadId === threadId));
+}
+export function useOrphanedDrafts(ownerKey: string | null): OrphanedDraft[] {
+  const [items, setItems] = useState<OrphanedDraft[]>([]);
+  useEffect(() => {
+    const refresh = () => setItems(ownerKey ? [...draftFlushControllers].flatMap(controller =>
+      !controller.mounted && controller.isDirty() && controller.ownerKey === ownerKey
+        ? controller.unsaved().map(item => ({ ...item, kind: controller.scope.kind,
+          projectId: controller.scope.projectId, retry: async () => {
+            try {
+              await controller.retry(item.threadId);
+              if (!controller.isDirty()) draftFlushControllers.delete(controller);
+            } finally { notifyOrphans(); }
+          }, abandon: async () => {
+            await controller.abandon(item.threadId);
+            if (!controller.isDirty()) draftFlushControllers.delete(controller);
+            notifyOrphans();
+          } })) : []) : []);
+    orphanListeners.add(refresh);
+    refresh();
+    return () => { orphanListeners.delete(refresh); };
+  }, [ownerKey]);
+  return items;
+}
 const draftFlushControllers = new Set<DraftFlushController>();
+type SelectionCloseController = { flush: () => Promise<void>; isDirty: () => boolean; mounted: boolean };
+const selectionFlushers = new Set<SelectionCloseController>();
+const pendingSelectionWrites = new Set<Promise<void>>();
+
+export function registerSelectionCloseFlush(flush: () => Promise<void>, isDirty: () => boolean): () => void {
+  const controller: SelectionCloseController = { flush, isDirty, mounted: true };
+  selectionFlushers.add(controller);
+  return () => {
+    controller.mounted = false;
+    if (!controller.isDirty()) selectionFlushers.delete(controller);
+  };
+}
+
+export function trackSelectionWrite(write: Promise<void>): Promise<void> {
+  pendingSelectionWrites.add(write);
+  void write.finally(() => { pendingSelectionWrites.delete(write); }).catch(() => {});
+  return write;
+}
 
 export async function flushChatDraftsForClose(): Promise<boolean> {
   const controllers = [...draftFlushControllers];
-  const results = await Promise.allSettled(controllers.map(controller => controller.flush()));
+  const results = await Promise.allSettled([
+    ...controllers.map(controller => controller.flush()),
+    ...[...selectionFlushers].map(controller => controller.flush()),
+    ...pendingSelectionWrites,
+  ]);
   for (const controller of controllers) {
     if (!controller.mounted && !controller.isDirty()) draftFlushControllers.delete(controller);
   }
+  for (const controller of selectionFlushers) {
+    if (!controller.mounted && !controller.isDirty()) selectionFlushers.delete(controller);
+  }
   return results.every(result => result.status === "fulfilled")
+    && [...selectionFlushers].every(controller => !controller.isDirty())
     && [...draftFlushControllers].every(controller => !controller.isDirty());
 }
 
@@ -97,6 +161,13 @@ export function draftNeedsCloseAttention(current: Entry): boolean {
       && current.text !== (current.record?.status === "draft" ? current.record.text : ""));
 }
 
+export function needsUnmountedDraftRecovery(current: Entry): boolean {
+  if (!draftNeedsCloseAttention(current)) return false;
+  if (current.discardFailed) return true;
+  if (!current.loaded || current.record?.status === "pending") return false;
+  return current.text !== (current.record?.status === "draft" ? current.record.text : "");
+}
+
 export function acceptLoadedDraft(current: Entry, record: RecordState | null): void {
   current.record = record;
   current.text = record?.status === "draft" ? record.text : "";
@@ -125,7 +196,7 @@ export function applyReconciledDraft(entry: Entry, observed: DraftObservation, r
   return true;
 }
 
-export function useNativeChatDraft(scope: Scope) {
+export function useNativeChatDraft(scope: Scope, ownerKey: string) {
   const { call, ready, retrySession, sessionStatus } = useNativeActionCaller();
   const entries = useRef(new Map<string, Entry>());
   const [version, bump] = useState(0);
@@ -151,6 +222,11 @@ export function useNativeChatDraft(scope: Scope) {
     }
     const current = entry(threadId);
     if (current.loaded || current.saving) return current.saving ?? undefined;
+    if (matchingOrphan(ownerKey, scope, threadId)) {
+      current.error = "An earlier unsaved edit needs recovery. Copy it or retry its save, then retry this conversation.";
+      changed();
+      return;
+    }
     current.saving = (async () => {
       try {
         const read = await call<DraftResponse>("vivary-chat-draft", { operation: "read", ...params(threadId) });
@@ -166,14 +242,14 @@ export function useNativeChatDraft(scope: Scope) {
       }
     })();
     return current.saving;
-  }, [call, changed, entry, params, ready, sessionStatus]);
+  }, [call, changed, entry, ownerKey, params, ready, scope.kind, scope.projectId, sessionStatus]);
 
   const change = useCallback(async (threadId: string, expected: RecordState | null,
     next: Omit<RecordState, "revision">, generation: number) => {
     const current = entry(threadId);
     if (current.generation !== generation) throw new Error("The draft changed while saving.");
     const result = await call<DraftResponse>("vivary-chat-draft",
-      { operation: "change", ...params(threadId), expected, next });
+      { operation: "change", ...params(threadId), expected, next }, { keepalive: true });
     if (!result.changed || !result.record || current.generation !== generation) {
       current.error = "The draft changed in another window. Copy your text before loading the saved version.";
       current.conflict = true;
@@ -345,16 +421,43 @@ export function useNativeChatDraft(scope: Scope) {
     if (isDirty()) throw new Error("A conversation draft still needs to be saved.");
   }, [changed, flush, isDirty]);
   useEffect(() => {
-    const controller = { flush: flushAll, isDirty, mounted: true };
+    const controller: DraftFlushController = { flush: flushAll, isDirty, mounted: true,
+      ownerKey, scope, unsaved: () => [...entries.current].filter(([, current]) =>
+        needsUnmountedDraftRecovery(current))
+        .map(([threadId, current]) => ({ threadId, text: current.text, error: current.error,
+          saving: current.saving !== null || current.timer !== null || current.discardPromise !== null,
+          discardFailed: current.discardFailed })),
+      retry: async threadId => {
+        const current = entries.current.get(threadId);
+        if (!current) return;
+        if (current.discardFailed) {
+          await discard(threadId);
+          if (current.discardFailed) throw new Error("The draft could not be discarded. Retry.");
+          return;
+        }
+        if (current.conflict) throw new Error("Copy this edit before discarding it or resolving the conflict.");
+        current.error = null;
+        await flush(threadId);
+      },
+      abandon: async threadId => {
+        const current = entries.current.get(threadId);
+        if (!current) return;
+        if (current.timer) { clearTimeout(current.timer); current.timer = null; }
+        if (current.saving) { try { await current.saving; } catch { /* The local edit is explicitly abandoned. */ } }
+        if (current.discardPromise) await current.discardPromise;
+        entries.current.delete(threadId);
+      } };
     draftFlushControllers.add(controller);
     return () => {
       controller.mounted = false;
       if (!controller.isDirty()) { draftFlushControllers.delete(controller); return; }
+      notifyOrphans();
       void controller.flush().then(() => {
         if (!controller.isDirty()) draftFlushControllers.delete(controller);
-      }, () => { /* Keep an unsaved controller available for a later close retry. */ });
+        notifyOrphans();
+      }, () => { notifyOrphans(); });
     };
-  }, [flushAll, isDirty]);
+  }, [flushAll, isDirty, ownerKey, scope.kind, scope.projectId]);
 
   const hostComposerDraft = useMemo<NonNullable<AssistantChatProps["hostComposerDraft"]>>(() => ({
     textForThread: threadId => {
@@ -413,7 +516,18 @@ export function useNativeChatDraft(scope: Scope) {
         });
       } else {
         current.error = null;
-        void ensureThread(threadId);
+        const orphan = matchingOrphan(ownerKey, scope, threadId);
+        void (async () => {
+          if (orphan) {
+            await orphan.flush();
+            if (!orphan.isDirty()) draftFlushControllers.delete(orphan);
+            notifyOrphans();
+          }
+          await ensureThread(threadId);
+        })().catch(() => {
+          current.error = "The earlier unsaved edit still needs attention. Copy its text or retry its save above.";
+          changed();
+        });
       }
     },
     discard,

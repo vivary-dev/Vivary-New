@@ -233,8 +233,8 @@ function beginQuit({ skipDraftFlush = false } = {}) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         void dialog.showMessageBox(mainWindow, {
           type: "warning", buttons: ["Keep working"], defaultId: 0,
-          title: "Draft not saved",
-          message: "A conversation draft could not be saved. Keep Vivary open, retry the draft, then close it again.",
+          title: "Conversation changes not saved",
+          message: "A conversation change could not be saved. Keep Vivary open, retry the visible save, then close it again.",
         });
       }
       return false;

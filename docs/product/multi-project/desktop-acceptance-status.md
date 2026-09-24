@@ -48,59 +48,36 @@ acceptance.
 
 ## Conversation drafts, September 24
 
-[Issue #9's hosted receipt](receipts/17a-chat-restart-and-drafts.md) records
-clean `250b402f` Workbench acceptance. Native and Code drafts stayed with their
-project and conversation across refresh, sidebar changes, and a bare-root
-restart on a new local port. A deterministic Native send retained its history
-and cleared the draft. The Code fixture produced one accepted user event.
-Failed saves, a lost browser response after a durable write, delayed edits,
-Discard, an unavailable folder, and the 390-pixel layout passed focused checks.
-A renderer close check waited for an unsaved draft and refused a failed save.
+[Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records clean
+`12c8b354` hosted and isolated packaged Windows results. The hosted Workbench
+build passed five final focused cases while reusing the original Python runtime
+from `079fba00`. The unpublished Windows package restored Native, Code, and
+unassigned drafts with exact IDs and text after normal close and a changed-port
+bare-root restart. It kept an archived conversation out of the rail. Its
+prebuilt Workbench metadata still says `sourceCommitVerified: false`, so the
+receipt keeps the separate clean-build and package identity checks.
 
-Core and Toolkit use pinned, opt-in patches for host-owned drafts and exact
-line breaks. No real model call was requested. The hosted journey reused an
-earlier original Python runtime, so the receipt names both revisions.
+The unassigned rows and initial placeholders were seeded through supported
+owner APIs, then edited through the GUI. Corrected final captures replace the
+earlier misnamed screenshot helper output as standalone evidence. The isolated
+profile audit found six tested drafts unsent, one accepted Code user, three
+accepted Native users, and one synthetic Native provider request. All 2,011
+original-profile files were unchanged.
 
-The actual unpublished `250b402f` Windows EXE restored two separate project
-drafts after normal close and a changed-port bare-root reopen. A held SQLite
-write made Alt+F4 refuse close without losing text. Retry saved the draft, and
-another normal close and changed-port reopen retained it. Native GUI send and
-refresh kept one local fixture reply and the same history. A later Native
-follow-up was saved and discarded without hiding that reply. The Code fixture
-accepted the saved user message, then stopped deliberately at first approval.
-A later Code follow-up was saved, discarded, and absent after refresh while
-the accepted history remained. A read-only disposable-profile audit found one
-Code user event, one Native user message, and three cleared empty drafts. A
-preservation check before the later Code send and discards found all 2,011
-original-profile files unchanged. The post-run check remains pending.
+The separate manual on-screen keyboard check saved an unsent `x`. Refresh
+and normal close followed by a changed-port restart restored the same
+conversation ID and text. No Enter or Send was
+used. The final audit found seven tested drafts unsent and no additional user
+submission or fixture provider request. The keyboard remained visible over the
+app, while the composer, accessibility tree, and owner records supported the
+result. Earlier `x` plus Enter sent-history evidence is separate.
 
-PR #88 review then found that an unsent Native draft lost its history entry
-after another conversation became active. A Code run's follow-up draft also
-used a temporary ID that history did not recover. Both failures were reproduced
-in the original isolated Windows profile without losing the saved records.
-The `eb63459f` hosted regression used the existing Native application-state
-owner to list ID-only draft markers, then listed two Native drafts and
-two Code drafts. After a changed-port restart, it reopened both Native drafts
-and the started Code run's follow-up. The list calls returned HTTP 200 through the authenticated POST
-action. A deterministic Code fixture accepted one user event. No real model
-call or Native responder request occurred in this added regression. Its
-second unsent Code draft was listed and saved, but was not reopened after
-restart. The first `eb63459f` Windows retest recovered an older Code
-follow-up, but switching back to that run from a new draft displayed a load
-error before any draft read reached the server. Retry restored the text.
-The candidate was stopped after evidence capture. A follow-up dirty hosted
-build reproduced the session-readiness race and passed its recovery check.
-It also checked unassigned Native restoration, archived selection refusal,
-optimistic draft restoration, and known local Code refusal. Clean-source
-packaged acceptance remains pending.
-
-The earlier Windows on-screen keyboard appeared, but higher-integrity UI
-blocked automated text input. A later manual tap delivered `x` as a submitted
-message with a local fixture reply. Whether the user also pressed Send is
-unconfirmed, so the unsent keyboard draft case remains unverified. The
-Code fixture in that package did not complete its approval flow, and the
-initial app disappearance before project creation remains undiagnosed. This
-section does not mark issue #9 or parent outcome 17 complete.
+Six later PR #88 review findings cover Code owner rejection, cleared index
+markers, selection writes during close, hosted page unload, older Code runs,
+and failed unmounted saves. Follow-up fixes require independent review and
+affected acceptance on their own source commit. The `12c8b354` result does not
+certify those fixes. Issue #9 remains open for that review, final checks, and
+the merge into `dev`. Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23
 
@@ -599,7 +576,7 @@ automations in #51 remain open.
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted and packaged #9 restored Native and Code drafts after changed-port reopen and refused close during an unsaved write | #9 on-screen keyboard input, chat-content search, and scoped memory in their owning issues |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted and packaged #9 restored Native and Code drafts after changed-port reopen and refused close during an unsaved write | #9 later review fixes and affected retesting, plus chat-content search and scoped memory in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |

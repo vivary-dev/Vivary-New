@@ -21,7 +21,9 @@ const { createVivaryChatIdentity } = await import("../server/chat-identity.ts");
 const { assertChatDraftThread, changeChatDraft, changeIndexedChatDraft, chatDraftKey, chatDraftNextSchema,
   createCodeDraftIdentity, listChatDrafts, listNativeChatDrafts, readChatDraft,
   reconcileChatDraft, savedThreadHasSubmit } = await import("../server/chat-draft.ts");
-const { draftObservation, applyReconciledDraft, drainDraftChanges, draftNeedsCloseAttention, acceptLoadedDraft } = await import("../app/lib/chat-draft.ts");
+const { draftObservation, applyReconciledDraft, drainDraftChanges, draftNeedsCloseAttention, acceptLoadedDraft,
+  flushChatDraftsForClose, registerSelectionCloseFlush, trackSelectionWrite,
+  needsUnmountedDraftRecovery } = await import("../app/lib/chat-draft.ts");
 const owner = "owner@example.test";
 const orgId = "org1";
 const identity = createVivaryChatIdentity(owner, orgId, { kind: "project", projectId: "p1", label: "P" });
@@ -48,7 +50,7 @@ test("Native draft CAS retains pending evidence and a tombstone across stale wri
   assert.equal((await listChatDrafts(identity)).find(item => item.threadId === "unsent-a")?.preview, "Unsent A");
   const marker = (await listAppState("vivary-chat-draft-index-v1:"))
     .find(entry => entry.value.threadId === "unsent-a");
-  assert.deepEqual(Object.keys(marker.value).sort(), ["createdAt", "threadId"]);
+  assert.deepEqual(Object.keys(marker.value).sort(), ["createdAt", "generation", "threadId"]);
   const pendingB = await changeIndexedChatDraft(identity, "unsent-b", draftB.record,
     { status: "pending", text: "Unsent B", submitId: "29cf865b-641d-4415-a42d-df12113e6e0c" });
   assert.equal(pendingB.changed, true);
@@ -66,19 +68,27 @@ test("Native draft CAS retains pending evidence and a tombstone across stale wri
   assert.equal((await changeIndexedChatDraft(identity, "unsent-a", draftA.record,
     { status: "cleared", text: "", submitId: null })).changed, true);
   assert.deepEqual((await listChatDrafts(identity)).map(item => item.threadId), ["unsent-b"]);
+  assert.equal((await listAppState("vivary-chat-draft-index-v1:"))
+    .some(entry => entry.value.threadId === "unsent-a"), false);
   const stale = await changeIndexedChatDraft(identity, "unsent-a", draftA.record,
     { status: "draft", text: "Stale", submitId: null });
   assert.equal(stale.changed, false);
   assert.deepEqual((await listChatDrafts(identity)).map(item => item.threadId), ["unsent-b"]);
-  assert.deepEqual((await listNativeChatDrafts(identity, owner, orgId)).map(item => item.threadId), ["unsent-b"]);
+  const revived = await changeIndexedChatDraft(identity, "unsent-a", stale.record,
+    { status: "draft", text: "Revived", submitId: null });
+  assert.equal(revived.changed, true);
+  assert.equal((await listChatDrafts(identity)).find(item => item.threadId === "unsent-a")?.preview, "Revived");
+  assert.equal((await listChatDrafts(identity)).find(item => item.threadId === "unsent-a")?.createdAt >= marker.value.createdAt, true);
+  assert.deepEqual(new Set((await listNativeChatDrafts(identity, owner, orgId)).map(item => item.threadId)),
+    new Set(["unsent-a", "unsent-b"]));
   await createThread(owner, { id: "unsent-b", orgId, scope: otherIdentity.scope });
-  assert.deepEqual(await listNativeChatDrafts(identity, owner, orgId), []);
+  assert.deepEqual((await listNativeChatDrafts(identity, owner, orgId)).map(item => item.threadId), ["unsent-a"]);
   const archived = await changeIndexedChatDraft(identity, "archived-draft", null,
     { status: "draft", text: "Later archived", submitId: null });
   assert.equal(archived.changed, true);
   await createThread(owner, { id: "archived-draft", orgId, scope: identity.scope });
   assert.equal(await setThreadArchived("archived-draft", true, { ownerEmail: owner }), true);
-  assert.deepEqual(await listNativeChatDrafts(identity, owner, orgId), []);
+  assert.deepEqual((await listNativeChatDrafts(identity, owner, orgId)).map(item => item.threadId), ["unsent-a"]);
   const first = await changeChatDraft(identity, threadId, null,
     { status: "draft", text: "Alpha", submitId: null });
   assert.equal(first.changed, true);
@@ -204,4 +214,42 @@ test("a failed conflict reload retains the in-memory draft behind the close fenc
   assert.equal(draftNeedsCloseAttention(current), true);
   acceptLoadedDraft(current, { revision: "fresh", text: "Saved elsewhere", status: "draft", submitId: null });
   assert.equal(draftNeedsCloseAttention(current), false);
+});
+
+
+test("desktop close waits for queued selection writes and retries an unmounted failure", async () => {
+  const first = Promise.withResolvers();
+  const second = Promise.withResolvers();
+  let dirty = true;
+  const unregister = registerSelectionCloseFlush(async () => {
+    await trackSelectionWrite(second.promise);
+  }, () => dirty);
+  trackSelectionWrite(first.promise);
+  const close = flushChatDraftsForClose();
+  first.resolve();
+  await Promise.resolve();
+  dirty = false;
+  second.resolve();
+  assert.equal(await close, true);
+  unregister();
+
+  let fails = true;
+  const unmount = registerSelectionCloseFlush(async () => {
+    if (fails) throw new Error("selection save refused");
+  }, () => fails);
+  unmount();
+  assert.equal(await flushChatDraftsForClose(), false);
+  fails = false;
+  assert.equal(await flushChatDraftsForClose(), true);
+});
+
+
+test("a pending review entry is not shown as a failed unsaved edit beside another dirty draft", () => {
+  const pending = { loaded: true, record: { status: "pending", text: "Sent", submitId: "submit" },
+    text: "", timer: null, saving: null, discardPromise: null, discardFailed: false,
+    error: "Review the send before restoring." };
+  const dirty = { ...pending, record: { status: "draft", text: "Old", submitId: null },
+    text: "New", error: null };
+  assert.equal(needsUnmountedDraftRecovery(pending), false);
+  assert.equal(needsUnmountedDraftRecovery(dirty), true);
 });

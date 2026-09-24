@@ -1,7 +1,7 @@
 import { defineAction, fail, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { createVivaryChatIdentity } from "../server/chat-identity";
-import { requireVivaryCodeUser } from "../server/local-code-agent";
+import { linkedCodeDraftRuns, requireVivaryCodeUser } from "../server/local-code-agent";
 import { resolveVivaryCodeProjectHistory } from "../server/code-project";
 import { assertChatDraftThread, changeIndexedChatDraft, chatDraftNextSchema, chatDraftRecordSchema,
   createCodeDraftIdentity, listChatDrafts, listNativeChatDrafts, readIndexedChatDraft, reconcileChatDraft, reconcileCodeDraft } from "../server/chat-draft";
@@ -29,7 +29,11 @@ export default defineAction({
         ? await resolveVivaryCodeProjectHistory(ctx, input.projectId)
         : undefined;
       const identity = createCodeDraftIdentity(owner, orgId, project?.projectId ?? null);
-      if (input.operation === "list") return { drafts: await listChatDrafts(identity) };
+      if (input.operation === "list") {
+        const drafts = await listChatDrafts(identity);
+        const linked = linkedCodeDraftRuns(owner, orgId, project, drafts.map(draft => draft.threadId));
+        return { drafts: drafts.map(draft => ({ ...draft, run: linked.get(draft.threadId) ?? null })) };
+      }
       if (input.operation === "read") return { record: await readIndexedChatDraft(identity, input.threadId) };
       if (input.operation === "reconcile") return reconcileCodeDraft(identity, input.threadId, owner, orgId, project);
       return changeIndexedChatDraft(identity, input.threadId, input.expected, input.next);

@@ -51,7 +51,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     identity.storageKey, historyAvailable);
   const codeDraftList = useChatDraftList({ kind: "code", projectId },
     identity.storageKey + ":code", historyAvailable);
-  const codeDraftRunIds = new Set(code?.runs.map(run => run.draftThreadId).filter(Boolean));
+  const recentCodeRunIds = new Set(code?.runs.map(run => run.id));
   const refreshThreads = native.refreshThreads;
   useEffect(() => {
     window.addEventListener("agent-chat:threads-updated", refreshThreads);
@@ -78,7 +78,10 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       titleText: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
       subtitle: "Native chat", timestamp: draft.status === "pending" ? "Review send" : "Draft", updatedAt: draft.createdAt, pinned: false,
     })),
-    ...(codeDraftList.data?.drafts ?? []).filter(draft => !codeDraftRunIds.has(draft.threadId))
+    ...(codeDraftList.data?.drafts ?? []).filter(draft => draft.run && !recentCodeRunIds.has(draft.run.id))
+      .map(draft => ({ id: `code:${draft.run!.id}`, title: draft.run!.title, titleText: draft.run!.title,
+        subtitle: draft.run!.engineLabel, timestamp: "Saved follow-up", updatedAt: Date.parse(draft.run!.updatedAt), pinned: false })),
+    ...(codeDraftList.data?.drafts ?? []).filter(draft => !draft.run)
       .flatMap(draft => {
         const key = codeDraftSelectionKey(projectId, draft.threadId);
         return key ? [{ id: `code-draft:${key}`, title: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),

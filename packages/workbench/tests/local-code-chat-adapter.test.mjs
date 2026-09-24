@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalCodeChatAdapter } from "../app/lib/local-code-chat-adapter.ts";
 
-function adapterForTest(rejections, actions, engine = "codex-cli") {
+function adapterForTest(rejections, actions, engine = "codex-cli", actionError = new Error("No owner action expected")) {
   return createLocalCodeChatAdapter({
     context: { engineRef: { current: engine }, modelRef: { current: "fixture-model" } },
-    call: async (...args) => { actions.push(args); throw new Error("No owner action expected"); },
+    call: async (...args) => { actions.push(args); throw actionError; },
     projectId: "project-one",
     draftThreadId: "original-draft-id",
     runIdRef: { current: null },
@@ -59,4 +59,21 @@ test("an uncertain Code owner failure keeps its pending submission for reconcili
   assert.equal(actions.length, 1);
   assert.equal(actions[0][0], "vivary-code-send");
   assert.deepEqual(rejections, []);
+});
+
+
+test("an explicit pre-append owner rejection restores the same Code draft", async () => {
+  const rejections = [], actions = [];
+  const error = Object.assign(new Error("Runtime unavailable"),
+    { status: 503, errorCode: "vivary_code_runtime_unavailable" });
+  const adapter = adapterForTest(rejections, actions, "codex-cli", error);
+  await assert.rejects(async () => {
+    for await (const _ of adapter.run({
+      messages: [{ role: "user", content: [{ type: "text", text: "try runtime" }] }],
+      runConfig: { custom: { agentNativeQueuedMessageId: "submit-rejected" } },
+      abortSignal: new AbortController().signal,
+    })) {}
+  }, /Runtime unavailable/);
+  assert.deepEqual(rejections, ["submit-rejected"]);
+  assert.equal(actions.length, 1);
 });

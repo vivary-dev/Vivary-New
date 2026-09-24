@@ -1,13 +1,13 @@
 import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 import { Skeleton } from "@agent-native/toolkit/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { readClientAppState } from "@agent-native/core/client/hooks";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useVivaryChatIdentity } from "@/components/layout/use-vivary-chat-identity";
 import { resolveNativeHistoryKind } from "@/lib/native-history-route";
-import { useNativeChatDraft } from "@/lib/chat-draft";
+import { registerSelectionCloseFlush, trackSelectionWrite, useNativeChatDraft } from "@/lib/chat-draft";
 import { nativeChatSelectionKey, savedNativeThreadIsAvailable } from "@/lib/native-chat-selection";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useAppStateWriter } from "@/lib/native-state";
@@ -55,7 +55,7 @@ function ResolveHistory({ params }: { params: URLSearchParams }) {
 
 function ScopedConversation({ unassigned }: { unassigned: boolean }) {
   const query = useVivaryChatIdentity(unassigned ? "unassigned" : "project");
-  const { workspaceAvailable, checking } = useProjects();
+  const { workspaceAvailable, checking, catalog } = useProjects();
   if (!query.identity) {
     if (checking || query.waiting) return <OpeningConversation />;
     return <div className="panel-empty" role="alert"><h1>Conversation could not open</h1>
@@ -63,10 +63,11 @@ function ScopedConversation({ unassigned }: { unassigned: boolean }) {
       <Button variant="outline" onClick={() => void query.refetch()}>Retry history</Button></div>;
   }
   return <DraftedConversation key={query.identity.storageKey} identity={query.identity} unassigned={unassigned}
-    workspaceAvailable={workspaceAvailable} />;
+    workspaceAvailable={workspaceAvailable} ownerKey={catalog?.scopeKey ?? ""} />;
 }
 
-function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
+function DraftedConversation({ identity, unassigned, workspaceAvailable, ownerKey }: {
+  ownerKey: string;
   identity: NonNullable<ReturnType<typeof useVivaryChatIdentity>["identity"]>;
   unassigned: boolean;
   workspaceAvailable: boolean;
@@ -108,38 +109,49 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
   }), [selectedThread, params.toString(), location.pathname, navigate]);
   const { ready: selectionWriterReady, writeAppState } = useAppStateWriter();
   const [selectionSaveError, setSelectionSaveError] = useState(false);
+  const selectionSaveFailed = useRef(false);
   const latestThread = useRef<string | null>(null);
-  const savingThread = useRef(false);
-  const saveLatestThread = useCallback(async () => {
-    if (savingThread.current || !selectionWriterReady) return;
-    savingThread.current = true;
-    try {
-      while (latestThread.current) {
-        const threadId = latestThread.current;
-        const value = { storageKey: identity.storageKey, threadId };
-        await writeAppState(selectionKey, value, { keepalive: true });
-        queryClient.setQueryData(["vivary-chat-selection", selectionKey], value);
-        setSelectionSaveError(false);
-        if (latestThread.current === threadId) break;
+  const savingThread = useRef<Promise<void> | null>(null);
+  const saveLatestThread = useCallback((): Promise<void> => {
+    if (savingThread.current) return savingThread.current;
+    if (!latestThread.current) return Promise.resolve();
+    if (!selectionWriterReady) return Promise.reject(new Error("The Native session is not ready to save the selection."));
+    const write = (async () => {
+      try {
+        while (latestThread.current) {
+          const threadId = latestThread.current;
+          const value = { storageKey: identity.storageKey, threadId };
+          await writeAppState(selectionKey, value, { keepalive: true });
+          queryClient.setQueryData(["vivary-chat-selection", selectionKey], value);
+          selectionSaveFailed.current = false;
+          setSelectionSaveError(false);
+          if (latestThread.current === threadId) latestThread.current = null;
+        }
+      } catch (error) {
+        selectionSaveFailed.current = true;
+        setSelectionSaveError(true);
+        throw error;
       }
-    } catch {
-      setSelectionSaveError(true);
-    } finally {
-      savingThread.current = false;
-    }
+    })();
+    const tracked = trackSelectionWrite(write);
+    savingThread.current = tracked;
+    void tracked.finally(() => { if (savingThread.current === tracked) savingThread.current = null; }).catch(() => {});
+    return tracked;
   }, [identity.storageKey, queryClient, selectionKey, selectionWriterReady, writeAppState]);
+  useEffect(() => registerSelectionCloseFlush(saveLatestThread,
+    () => latestThread.current !== null || savingThread.current !== null || selectionSaveFailed.current), [saveLatestThread]);
   useEffect(() => {
     if (selectedThread || !selection.isSuccess || !savedThread
       || !savedThreadCheck.isSuccess || savedThreadCheck.isFetching || !savedThreadCheck.data) return;
     setParams(current => { const next = new URLSearchParams(current); next.set("thread", savedThread); return next; }, { replace: true });
   }, [selectedThread, selection.isSuccess, savedThread,
     savedThreadCheck.isSuccess, savedThreadCheck.isFetching, savedThreadCheck.data, setParams]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedThread) return;
     latestThread.current = selectedThread;
-    void saveLatestThread();
+    void saveLatestThread().catch(() => {});
   }, [selectedThread, saveLatestThread]);
-  const draft = useNativeChatDraft({ kind: identity.kind, projectId: identity.projectId });
+  const draft = useNativeChatDraft({ kind: identity.kind, projectId: identity.projectId }, ownerKey);
   const [restoreReview, setRestoreReview] = useState<string | null>(null);
   useEffect(() => { setRestoreReview(null); }, [selectedThread]);
   const error = selectedThread ? draft.statusForThread(selectedThread) : null;
@@ -163,7 +175,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
   return <section aria-label="Native chat" className="flex h-full min-h-0 w-full flex-col">
     {selectionSaveError && <div className="local-agent-notice" role="alert">
       <span>Your conversation selection could not be saved.</span>
-      <Button variant="outline" size="sm" onClick={() => void saveLatestThread()}>Retry selection</Button>
+      <Button variant="outline" size="sm" onClick={() => void saveLatestThread().catch(() => {})}>Retry selection</Button>
     </div>}
     {!error && selectedThread && draftSaveStatus && <div className="local-agent-notice" role="status">
       <span>{draftSaveStatus === "saved" ? "Draft saved for this conversation." : "Saving draft…"}</span>

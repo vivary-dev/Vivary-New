@@ -116,6 +116,23 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   Focused hosted checks passed on a dirty Workbench build. A clean-source
   packaged retest and on-screen keyboard case remain open.
 
+- 2026-09-24: Clean `12c8b354` hosted checks passed five focused cases with
+  the original Python runtime from `079fba00`. Its unpublished Windows package
+  restored project Native, Code, and unassigned drafts across a normal close
+  and changed-port bare-root restart. The archived Native thread stayed out
+  of history. Unassigned placeholders were API-seeded, then edited through the
+  GUI. Corrected final captures and the [receipt](../receipts/17a-chat-restart-and-drafts.md)
+  carry the exact qualifications. Workbench prebuilt metadata still reports
+  `sourceCommitVerified: false`.
+
+- 2026-09-24: Manual on-screen keyboard input saved an unsent `x` under its
+  exact conversation ID. Refresh and a changed-port normal restart restored
+  it without a new submission. Seven tested drafts remained unsent in the
+  isolated profile. The earlier `x` plus Enter case was a normal send. Six
+  further PR #88 review findings led to follow-up source fixes, which still
+  need independent review and affected hosted and packaged checks. Keep #9
+  open until those gates and the reviewed `dev` merge finish.
+
 ## Shared desktop and web behavior
 
 Include browser refresh, navigation away and back, interrupted connection, and an on-screen keyboard. Restore drafts through the existing host-owned Native state without automatic sending or a second synchronization system.

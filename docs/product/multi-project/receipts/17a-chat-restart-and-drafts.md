@@ -3,10 +3,11 @@
 Evidence-record: 17a
 Date: 2026-09-24
 Issue: [#9](https://github.com/vivary-dev/Vivary-New/issues/9)
-Hosted source: `eb63459f35de682bf3b8c06d1828d220260f7d11`
-Hosted result: original continuity passed on `250b402f`. Draft-history regression passed on `eb63459f` through qualified segments below
-Packaged Windows result: original `250b402f` continuity cases passed. Current-source retest pending
-On-screen keyboard unsent-draft case: pending
+Latest verified source: `12c8b35448b4d37bac3337109f2fab8a5e07c909`
+Hosted result: five final focused cases passed on clean `12c8b354`, with the original Python runtime from `079fba00`
+Packaged Windows result: focused `12c8b354` restart, history, archive, and draft checks passed in an isolated profile
+On-screen keyboard unsent-draft case: passed on `12c8b354` with manual input, refresh, and changed-port restart
+Delivery status: issue #9 and PR #88 remain open while later review fixes receive independent review and affected retesting
 
 ## Result
 
@@ -224,3 +225,64 @@ not certify the later fixes.
 This receipt does not claim a completed Code fixture turn, published release,
 or all of parent outcome 17. The private handoff retains the original Windows
 record and its qualified follow-up results.
+
+
+## Clean `12c8b354` result and later review
+
+The clean `12c8b354` Workbench build passed five focused hosted cases. Two
+unassigned Native drafts survived switching and a bare-root restart from port
+55300 to 55301 with exact IDs and text. Session-readiness recovery, optimistic
+Native restoration, delayed archive navigation, and the full 8,001-character
+Code local refusal passed. The hosted build reused the original Python runtime
+from `079fba00`. Its fixture Native provider and Code runner were synthetic.
+No real model execution is claimed.
+
+The unpublished `12c8b354` Windows ZIP has SHA-256
+`8c1f9ee3c1c6a04a9ae71ea8865d69a462e9be895d45ce9ee22022528f166d84`.
+The original runtime matches the source. The separately built Workbench prebuilt
+metadata reports `sourceCommitVerified: false`, so source identity rests on the
+recorded clean build and package checks, not that metadata field. In the isolated
+Windows profile, normal close and bare-root restart changed the local port from
+65038 to 61143. Both project Native drafts and both Code draft and follow-up
+records reopened with exact IDs and text and no Retry error. The selected
+unassigned Native draft reopened with its exact ID and GUI-edited text while
+Alpha stayed selected. The other unassigned draft reopened from its visible
+history row. The archived Native thread remained absent from the rail. A
+read-only audit found six tested drafts unsent, one accepted Code user, three
+accepted Native users, and one synthetic Native provider request. All 2,011
+original-profile files remained unchanged. The candidate and fixture processes
+were closed. The private `issue9-final-windows-rest-receipt.json` records the
+corrected captures and cleanup.
+
+The unassigned fixture rows and initial placeholder drafts were created through
+supported authenticated APIs. The GUI appended `-GUI-A` and `-GUI-B`, then the
+restart checks used those complete edited values. Earlier `issue9-12c8` named
+screenshots captured stale initial state because of a saver binding error. They
+are retained with that limitation. The corrected `issue9-final-*` captures,
+live UI observations, and read-only owner audit support the Windows result.
+
+A separate manual on-screen keyboard check entered lowercase `x` without
+pressing Enter or Send. The same conversation ID and unsent `x` survived refresh
+on port 65191 and a normal close and bare-root restart on port 56950. The
+composer showed Draft saved. The final owner audit found seven tested drafts
+unsent, with the Code and Native accepted-user counts and synthetic provider
+request count unchanged. Candidate processes and fixture ports were closed.
+The keyboard remained over the app during the captures. The unobscured composer,
+accessibility tree, and owner audit support the result. The earlier `x` plus
+Enter observation is a separate normal sent-history case. Private evidence is
+listed in `issue9-osk-receipt.json`.
+
+PR #88 subsequently received six valid review findings on the `12c8b354`
+source: definite Code owner rejections, cleared draft-index growth, desktop
+selection writes during close, hosted page unload transport, older Code runs
+with saved follow-ups, and failed unmounted draft saves. Follow-up source fixes
+are in review. The proposed page unload path requests keepalive only when the
+full serialized UTF-8 body is at most 48,000 bytes. Browsers also limit the
+aggregate in-flight keepalive budget. Larger or rejected requests use ordinary
+transport. A beforeunload prompt helps if the user stays on the page, but it
+cannot guarantee persistence after the user confirms leaving. The later fixes
+and this receipt do not promote those changes
+to accepted Windows behavior. Issue #9 stays open until independent review,
+affected hosted and packaged retesting, required checks, and the reviewed merge
+into `dev` finish. This result does not close parent outcome 17 or authorize a
+release.

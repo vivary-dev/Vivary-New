@@ -272,6 +272,24 @@ export async function getVivaryCodeHostState(
   };
 }
 
+export function linkedCodeDraftRuns(ownerEmail: string, orgId: string, scope: VivaryCodeReadScope | undefined,
+  draftThreadIds: readonly string[]): Map<string, Pick<VivaryCodeRunSummary, "id" | "title" | "updatedAt" | "engineLabel">> {
+  const wanted = new Set(draftThreadIds);
+  const linked = new Map<string, Pick<VivaryCodeRunSummary, "id" | "title" | "updatedAt" | "engineLabel">>();
+  if (wanted.size === 0) return linked;
+  const runs = listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID);
+  for (const run of runs) {
+    if (scope ? !isOwnedRun(run, ownerEmail, orgId, scope)
+      : !isOwnedIdentity(run, ownerEmail, orgId) || metadataString(run, "projectId") !== null) continue;
+    const draftThreadId = runDraftThreadId(run);
+    if (!draftThreadId || !wanted.has(draftThreadId) || linked.has(draftThreadId)) continue;
+    linked.set(draftThreadId, { id: run.id, title: run.title, updatedAt: run.updatedAt,
+      engineLabel: engineLabelFromRun(run) });
+    if (linked.size === wanted.size) break;
+  }
+  return linked;
+}
+
 export function hasOwnedVivaryCodeSubmit(
   ownerEmail: string, orgId: string | undefined, scope: VivaryCodeReadScope | undefined,
   draftThreadId: string, submitId: string,
