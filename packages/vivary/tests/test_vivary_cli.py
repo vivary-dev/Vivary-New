@@ -403,7 +403,8 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertIn("client-acme-offboarding", plain_out)
         self.assertNotIn("acme", public_out)
         public = json.loads(public_out)
-        self.assertIn("1 module folder lacks index.md", public["errors"])
+        self.assertIn("a module folder lacks index.md", public["errors"])
+        self.assertNotIn("--", public_out)
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
     def test_public_doctor_names_no_folder_outside_the_project(self):
@@ -425,6 +426,19 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertNotIn(td, public_out)
         self.assertIn("tropo configuration is invalid", json.loads(public_out)["errors"])
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
+
+    def test_every_doctor_rule_has_a_public_sentence_without_a_command(self):
+        import re as regex
+
+        source = Path(create_vivary.__file__).read_text(encoding="utf-8")
+        rules = set(regex.findall(r'report\("(?:error|warning)", "([a-z_]+)"', source))
+        rules |= set(regex.findall(r'\("(module_[a-z_]+)", f"', source))
+        self.assertTrue(rules)
+        self.assertLessEqual(rules, set(create_vivary.DOCTOR_PUBLIC_SENTENCES))
+        for one, several in create_vivary.DOCTOR_PUBLIC_SENTENCES.values():
+            for sentence in (one, several):
+                self.assertNotIn("--", sentence)
+                self.assertNotIn("create-vivary", sentence)
 
     def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):
         root = str(self.root)

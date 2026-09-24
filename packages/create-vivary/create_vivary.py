@@ -1549,6 +1549,58 @@ def _workspace_compatibility(target: Path, memory_report: dict) -> tuple[dict, s
     return compatibility, backend
 
 
+# Public Doctor prints one of these per rule, with a count, and never a detail.
+# A detail may name a path, an exception, or a config value, and a command
+# line is not an observation. Each entry is (one problem, several problems).
+DOCTOR_PUBLIC_SENTENCES: dict[str, tuple[str, str]] = {
+    "workspace_missing": ("the workspace does not exist", "the workspace does not exist"),
+    "workspace_not_directory": ("the workspace is not a directory", "the workspace is not a directory"),
+    "adoption_journal": ("an adoption was interrupted and needs recovery",
+                         "an adoption was interrupted and needs recovery"),
+    "gitignore_unreadable": ("the .gitignore cannot be read", "the .gitignore cannot be read"),
+    "adoption_prejournal": ("an adoption's privacy change was interrupted and needs recovery",
+                            "an adoption's privacy change was interrupted and needs recovery"),
+    "adoption_marker_malformed": ("the .gitignore has a malformed adoption marker",
+                                  "the .gitignore has malformed adoption markers"),
+    "required_file_missing": ("a required workspace file is missing", "{n} required workspace files are missing"),
+    "contract_file_missing": ("a required contract file is missing", "{n} required contract files are missing"),
+    "recommended_file_missing": ("a recommended workspace file is missing",
+                                 "{n} recommended workspace files are missing"),
+    "recommended_upgrade": ("a reviewed adoption can move the workspace to the current contract",
+                            "a reviewed adoption can move the workspace to the current contract"),
+    "privacy_ignore_missing": ("a required privacy ignore is missing from .gitignore",
+                               "{n} required privacy ignores are missing from .gitignore"),
+    "recommended_privacy_ignore_missing": ("a recommended privacy ignore is missing from .gitignore",
+                                           "{n} recommended privacy ignores are missing from .gitignore"),
+    "module_index_missing": ("a module folder lacks index.md", "{n} module folders lack index.md"),
+    "module_legacy_file": ("a legacy module file sits beside a module index",
+                           "{n} legacy module files sit beside a module index"),
+    "tropo_invalid": ("tropo configuration is invalid", "tropo configuration is invalid"),
+    "tropo_finding": ("a typed note has a finding", "{n} typed note findings"),
+    "graph_broken": ("the typed graph has broken links", "the typed graph has broken links"),
+    "graph_empty": ("the typed graph has no nodes", "the typed graph has no nodes"),
+    "capability_invalid": ("a declared capability is invalid", "{n} declared capabilities are invalid"),
+    "memory_misconfigured": ("semantic memory is misconfigured", "semantic memory is misconfigured"),
+    "memory_privacy_failed": ("semantic memory privacy check failed", "semantic memory privacy check failed"),
+    "memory_unavailable": ("the semantic memory provider is unavailable",
+                           "the semantic memory provider is unavailable"),
+}
+
+
+def _doctor_lines(problems: list[tuple[str, str, str]], level: str, public: bool) -> list[str]:
+    if not public:
+        return [detail for problem_level, _, detail in problems if problem_level == level]
+    counts: dict[str, int] = {}
+    for problem_level, rule, _ in problems:
+        if problem_level == level:
+            counts[rule] = counts.get(rule, 0) + 1
+    lines = []
+    for rule, count in counts.items():
+        one, several = DOCTOR_PUBLIC_SENTENCES[rule]
+        lines.append(one if count == 1 else several.format(n=count))
+    return lines
+
+
 def doctor_workspace(
     target: str | Path,
     *,
@@ -1558,21 +1610,24 @@ def doctor_workspace(
 ) -> dict:
     """Validate that a directory looks like a usable Vivary agent workspace.
 
-    ``public=True`` reports only fixed sentences, because a path or an
-    exception's text may name a file Git ignores or a folder outside the
-    workspace. It skips the typed-note graph walk and reports no graph, and it
-    counts module index problems by rule. A caller that must leave private
-    files out reads notes through Tropo's privacy-filtered check instead.
+    ``public=True`` reports each problem rule's fixed sentence from
+    ``DOCTOR_PUBLIC_SENTENCES`` with a count, and never the detail, because a
+    detail may name a file Git ignores or a folder outside the workspace. It
+    skips the typed-note graph walk and reports no graph. A caller that must
+    leave private files out reads notes through Tropo's privacy-filtered check
+    instead.
     """
+    problems: list[tuple[str, str, str]] = []
 
-    def say(public_text: str, detailed_text: str) -> str:
-        return public_text if public else detailed_text
+    def report(level: str, rule: str, detail: str) -> None:
+        problems.append((level, rule, detail))
+
+    def failing() -> bool:
+        return any(level == "error" for level, _, _ in problems)
 
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
     target = Path(target).resolve()
-    errors: list[str] = []
-    warnings: list[str] = []
     memory_report, memory_privacy_requirements = _memory_report(target)
     compatibility = _empty_workspace_compatibility()
     backend_name = "file"
@@ -1582,63 +1637,53 @@ def doctor_workspace(
     )
 
     if not target.exists():
-        errors.append(say("workspace does not exist", f"workspace does not exist: {target}"))
+        report("error", "workspace_missing", f"workspace does not exist: {target}")
     elif not target.is_dir():
-        errors.append(say("workspace is not a directory", f"workspace is not a directory: {target}"))
+        report("error", "workspace_not_directory", f"workspace is not a directory: {target}")
 
     if (
-        not errors
+        not failing()
         and not _allow_adopt_journal
         and (target / ".vivary" / "runtime" / "adopt-journal.json").exists()
     ):
-        errors.append(
-            "unfinished adoption journal exists; run create-vivary adopt <workspace> "
-            "--recover <plan-hash> before continuing"
-        )
+        report("error", "adoption_journal",
+               "unfinished adoption journal exists; run create-vivary adopt <workspace> "
+               "--recover <plan-hash> before continuing")
 
-    if not errors and not _allow_adopt_journal:
+    if not failing() and not _allow_adopt_journal:
         gitignore = target / ".gitignore"
         if gitignore.is_file() and not _is_symlink_or_junction(gitignore):
             try:
                 gitignore_bytes = gitignore.read_bytes()
             except OSError as exc:
-                errors.append(say("cannot inspect .gitignore for interrupted adoption",
-                                  f"cannot inspect .gitignore for interrupted adoption: {exc}"))
+                report("error", "gitignore_unreadable", f"cannot inspect .gitignore for interrupted adoption: {exc}")
             else:
                 prejournal = _prejournal_privacy_match(gitignore_bytes)
                 if prejournal is not None:
                     interrupted_hash = prejournal.group(1).decode("ascii")
-                    errors.append(
-                        "unfinished pre-journal adoption privacy replacement exists; "
-                        "run create-vivary adopt <workspace> "
-                        f"--recover {interrupted_hash} before continuing"
-                    )
+                    report("error", "adoption_prejournal",
+                           "unfinished pre-journal adoption privacy replacement exists; "
+                           "run create-vivary adopt <workspace> "
+                           f"--recover {interrupted_hash} before continuing")
                 elif _ADOPT_PREJOURNAL_MARKER_PREFIX.encode("ascii") in gitignore_bytes:
-                    errors.append("malformed pre-journal adoption marker exists in .gitignore")
+                    report("error", "adoption_marker_malformed",
+                           "malformed pre-journal adoption marker exists in .gitignore")
 
-    if not errors:
+    if not failing():
         compatibility, backend_name = _workspace_compatibility(target, memory_report)
-        errors.extend(
-            f"missing required file: {rel}"
-            for rel in compatibility["baseline_missing"]
-        )
-        errors.extend(
-            f"missing required indexed contract file: {rel}"
-            for rel in compatibility["contract_missing"]
-        )
-        warnings.extend(
-            f"recommended workspace file missing: {rel}"
-            for rel in compatibility["recommended_missing"]
-        )
+        for rel in compatibility["baseline_missing"]:
+            report("error", "required_file_missing", f"missing required file: {rel}")
+        for rel in compatibility["contract_missing"]:
+            report("error", "contract_file_missing", f"missing required indexed contract file: {rel}")
+        for rel in compatibility["recommended_missing"]:
+            report("warning", "recommended_file_missing", f"recommended workspace file missing: {rel}")
         if compatibility["recommended_upgrade"] is not None:
-            warnings.append(compatibility["recommended_upgrade"])
+            report("warning", "recommended_upgrade", compatibility["recommended_upgrade"])
 
         if compatibility["workspace_contract"] == THIN_WORKSPACE_CONTRACT:
             if (target / ".gitignore").exists():
-                errors.extend(
-                    f"privacy ignore missing: {pattern}"
-                    for pattern in _missing_thin_privacy_ignores(target)
-                )
+                for pattern in _missing_thin_privacy_ignores(target):
+                    report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}")
         elif (target / ".gitignore").exists():
             missing = _missing_privacy_ignores(target)
             if memory_report["enabled"]:
@@ -1647,37 +1692,25 @@ def doctor_workspace(
                     for pattern in missing
                     if pattern in memory_privacy_requirements
                 ]
-                warnings.extend(
-                    f"recommended privacy ignore missing: {pattern}; add it to .gitignore"
-                    for pattern in missing
-                    if pattern not in memory_privacy_requirements
-                )
+                for pattern in missing:
+                    if pattern not in memory_privacy_requirements:
+                        report("warning", "recommended_privacy_ignore_missing",
+                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore")
             else:
                 required_missing = [
                     pattern
                     for pattern in missing
                     if pattern in PUBLISHED_BASELINE_PRIVACY_IGNORES
                 ]
-                warnings.extend(
-                    f"recommended privacy ignore missing: {pattern}; add it to .gitignore"
-                    for pattern in missing
-                    if pattern not in PUBLISHED_BASELINE_PRIVACY_IGNORES
-                )
-            errors.extend(
-                f"privacy ignore missing: {pattern}" for pattern in required_missing
-            )
+                for pattern in missing:
+                    if pattern not in PUBLISHED_BASELINE_PRIVACY_IGNORES:
+                        report("warning", "recommended_privacy_ignore_missing",
+                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore")
+            for pattern in required_missing:
+                report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}")
         if compatibility["workspace_contract"] != THIN_WORKSPACE_CONTRACT:
-            module_errors = _module_index_errors(target)
-            if public:
-                missing = sum(1 for error in module_errors if error.startswith("module directory missing index.md"))
-                legacy = len(module_errors) - missing
-                if missing:
-                    errors.append(f"{missing} module {'folder lacks' if missing == 1 else 'folders lack'} index.md")
-                if legacy:
-                    errors.append(f"{legacy} legacy module {'file sits' if legacy == 1 else 'files sit'}"
-                                  " beside a module index")
-            else:
-                errors.extend(module_errors)
+            for rule, detail in _module_index_problems(target):
+                report("error", rule, detail)
 
     graph = {"nodes": 0, "edges": 0, "broken": 0}
     workspace_roles = None
@@ -1690,8 +1723,8 @@ def doctor_workspace(
             tropo, resolver = _doctor_config_context(target, root)
             workspace_roles = resolver.base.workspace_roles
         except Exception as exc:  # keep doctor a report, not a traceback
-            errors.append(say("tropo configuration is invalid", f"tropo validation failed: {exc}"))
-    if not errors:
+            report("error", "tropo_invalid", f"tropo validation failed: {exc}")
+    if not failing():
         try:
             if resolver is None:
                 tropo, resolver = _doctor_config_context(target, root)
@@ -1707,33 +1740,29 @@ def doctor_workspace(
                 # broken workspace; only error-level findings fail Doctor.
                 for doc in docs:
                     for finding in doc.findings:
-                        bucket = errors if finding.level == "error" else warnings
-                        bucket.append(f"tropo finding: {finding.render()}")
+                        report("error" if finding.level == "error" else "warning", "tropo_finding",
+                               f"tropo finding: {finding.render()}")
                 if graph["broken"]:
-                    errors.append(f"graph has {graph['broken']} broken edge(s)")
+                    report("error", "graph_broken", f"graph has {graph['broken']} broken edge(s)")
                 if graph["nodes"] == 0:
-                    warnings.append("typed graph has no nodes")
+                    report("warning", "graph_empty", "typed graph has no nodes")
         except Exception as exc:  # keep doctor a report, not a traceback
-            errors.append(say("tropo configuration is invalid", f"tropo validation failed: {exc}"))
+            report("error", "tropo_invalid", f"tropo validation failed: {exc}")
 
     if target.is_dir():
         # Declaration failures must not suppress graph/trend metrics. The graph is a
         # read-only observation of the workspace, independent of optional providers.
-        problems = compatibility["declared_capability_problems"]
-        if public and problems:
-            errors.append(f"{len(problems)} declared {'capability is' if len(problems) == 1 else 'capabilities are'}"
-                          " invalid")
-        else:
-            errors.extend(problems)
+        for problem in compatibility["declared_capability_problems"]:
+            report("error", "capability_invalid", problem)
         if memory_report["status"] == "misconfigured":
-            errors.append(say("semantic memory is misconfigured",
-                              f"semantic memory misconfigured: {memory_report['detail']}"))
+            report("error", "memory_misconfigured", f"semantic memory misconfigured: {memory_report['detail']}")
         elif memory_report["status"] == "privacy-failed":
-            errors.append("semantic memory privacy check failed")
+            report("error", "memory_privacy_failed", "semantic memory privacy check failed")
         elif memory_report["status"] == "unavailable":
-            warnings.append(say("semantic memory provider is unavailable",
-                                f"semantic memory provider unavailable: {memory_report['provider']}"))
+            report("warning", "memory_unavailable", f"semantic memory provider unavailable: {memory_report['provider']}")
 
+    errors = _doctor_lines(problems, "error", public)
+    warnings = _doctor_lines(problems, "warning", public)
     return {
         "ok": not errors,
         "root": str(target),
@@ -2417,7 +2446,7 @@ def _apply_w210_fix(
 
 def _module_routing_metrics(target: Path) -> tuple[int, int]:
     """Module index count and total file count under modules/, the same
-    directories doctor already walks in `_module_index_errors`. This doubles
+    directories doctor already walks in `_module_index_problems`. This doubles
     as a cheap routing-surface proxy without re-deriving one."""
     modules = target / "modules"
     if not modules.exists():
@@ -3933,21 +3962,21 @@ def _module_index_path(target: Path, module_id: str) -> Path:
     return target / "modules" / module_id / "index.md"
 
 
-def _module_index_errors(target: Path) -> list[str]:
+def _module_index_problems(target: Path) -> list[tuple[str, str]]:
     modules = target / "modules"
     if not modules.exists():
         return []
-    errors: list[str] = []
+    problems: list[tuple[str, str]] = []
     for child in sorted(modules.iterdir()):
         if child.is_dir() and not child.name.startswith(".") and not (child / "index.md").exists():
             rel = child.relative_to(target).as_posix()
-            errors.append(f"module directory missing index.md: {rel}")
+            problems.append(("module_index_missing", f"module directory missing index.md: {rel}"))
         if child.is_file() and child.suffix == ".md" and child.name != "index.md":
             paired_index = modules / child.stem / "index.md"
             if paired_index.exists():
                 rel = child.relative_to(target).as_posix()
-                errors.append(f"legacy module file coexists with module index: {rel}")
-    return errors
+                problems.append(("module_legacy_file", f"legacy module file coexists with module index: {rel}"))
+    return problems
 
 
 def _workspace_readme(
