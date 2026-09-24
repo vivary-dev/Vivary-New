@@ -66,7 +66,8 @@ git diff --check
 refusals throw. Whether the original command produced a report is part of the value.
 Find and check run `vivary find|check --public`, which reaches Tropo's
 privacy-filtered facade. The original runner schedules reads in parallel and runs a
-write alone within its project, so no caller sees a busy error.
+write alone within its project. Callers wait instead of seeing a busy error, and a
+command that cannot start within 30 seconds returns a retryable message.
 
 ## Stop conditions
 
