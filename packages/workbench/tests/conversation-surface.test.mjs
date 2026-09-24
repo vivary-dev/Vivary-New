@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface } from "../app/lib/conversation-surface.ts";
+import { codeDraftSelectionKey, codeDraftThreadId } from "../shared/code-draft.ts";
 
 test("bare root restores the last Native or Code surface while explicit routes win", () => {
   assert.equal(restoredConversationSurface(requestedConversationSurface(new URLSearchParams()), "native"), "native");
@@ -19,4 +20,14 @@ test("active surface keys stay separate by organization and project", () => {
     conversationSurfaceStateKey("org-b", "project-a"));
   assert.notEqual(conversationSurfaceStateKey("org-a", null),
     conversationSurfaceStateKey("org-a", "project-a"));
+});
+
+
+test("Code draft-only IDs stay separate from run and project identities", () => {
+  const original = codeDraftThreadId("project-a", "new-draft");
+  assert.equal(codeDraftSelectionKey("project-a", original), "new-draft");
+  assert.equal(codeDraftSelectionKey("project-b", original), null);
+  assert.equal(codeDraftSelectionKey(null, original), null);
+  assert.equal(codeDraftSelectionKey("project-a", codeDraftThreadId("project-a", "")), null);
+  assert.equal(codeDraftThreadId("project-a", "run-1"), "vivary-code:project:project-a:run-1");
 });

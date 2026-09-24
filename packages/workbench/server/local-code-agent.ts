@@ -65,6 +65,7 @@ export type VivaryCodeRunSummary = Pick<
   engine: VivaryCodeEngine;
   engineLabel: string;
   model: string;
+  draftThreadId: string | null;
 };
 
 export type VivaryCodeRunState = VivaryCodeRunSummary & {
@@ -410,6 +411,7 @@ export async function sendVivaryCodeMessage(input: {
         bindingRevision: workspace.bindingRevision,
       } : {}),
       codexPermissionMode: permissionMode,
+      ...(input.draftThreadId ? { draftThreadId: input.draftThreadId } : {}),
     },
   });
 
@@ -757,6 +759,27 @@ function metadataNumber(run: Pick<CodeAgentRunRecord, "metadata">, key: string):
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
+const legacyRunDraftIds = new Map<string, { updatedAt: string; draftThreadId: string | null }>();
+
+function runDraftThreadId(run: CodeAgentRunRecord): string | null {
+  const projectId = metadataString(run, "projectId");
+  const prefix = "vivary-code:" + (projectId ? "project:" + projectId + ":" : "");
+  let candidate = metadataString(run, "draftThreadId");
+  if (!candidate) {
+    let cached = legacyRunDraftIds.get(run.id);
+    if (!cached || cached.updatedAt !== run.updatedAt) {
+      const first = listCodeAgentTranscriptEvents(run.id).find(event =>
+        event.kind === "user" && typeof event.metadata?.draftThreadId === "string");
+      cached = { updatedAt: run.updatedAt, draftThreadId: typeof first?.metadata?.draftThreadId === "string"
+        ? first.metadata.draftThreadId : null };
+      legacyRunDraftIds.set(run.id, cached);
+    }
+    candidate = cached.draftThreadId;
+  }
+  return candidate?.startsWith(prefix) && /^[A-Za-z0-9_-]{1,128}$/.test(candidate.slice(prefix.length))
+    ? candidate : null;
+}
+
 function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
   return {
     id: run.id,
@@ -767,6 +790,7 @@ function toRunSummary(run: CodeAgentRunRecord): VivaryCodeRunSummary {
     engine: engineFromRun(run),
     engineLabel: engineLabelFromRun(run),
     model: modelFromRun(run),
+    draftThreadId: runDraftThreadId(run),
   };
 }
 

@@ -6,6 +6,7 @@ import { IconArchive, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
+import { codeDraftSelectionKey } from "../../../shared/code-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useProjects } from "../projects/ProjectContext";
@@ -45,6 +46,13 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     placeholderData: previous => previous?.projectId === projectId ? previous : undefined,
   });
   const code = historyAvailable && state.data?.projectId === projectId ? state.data : undefined;
+  const draftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
+    "vivary-chat-draft", { operation: "list", kind: identity.kind, projectId: identity.projectId },
+    { enabled: historyAvailable, refetchInterval: 1000 });
+  const codeDraftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
+    "vivary-chat-draft", { operation: "list", kind: "code", projectId },
+    { enabled: historyAvailable, refetchInterval: 1000 });
+  const codeDraftRunIds = new Set(code?.runs.map(run => run.draftThreadId).filter(Boolean));
   const refreshThreads = native.refreshThreads;
   useEffect(() => {
     window.addEventListener("agent-chat:threads-updated", refreshThreads);
@@ -65,11 +73,25 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       titleText: thread.title || thread.preview || "Untitled conversation",
       subtitle: "Native chat", timestamp: undefined, updatedAt: thread.updatedAt, pinned: Boolean(thread.pinnedAt),
     })),
+    ...(draftList.data?.drafts ?? []).filter(draft => !native.threads.some(thread =>
+      thread.id === draft.threadId && thread.messageCount > 0)).map(draft => ({
+      id: `native:${draft.threadId}`, title: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+      titleText: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+      subtitle: "Native chat", timestamp: draft.status === "pending" ? "Review send" : "Draft", updatedAt: draft.createdAt, pinned: false,
+    })),
+    ...(codeDraftList.data?.drafts ?? []).filter(draft => !codeDraftRunIds.has(draft.threadId))
+      .flatMap(draft => {
+        const key = codeDraftSelectionKey(projectId, draft.threadId);
+        return key ? [{ id: `code-draft:${key}`, title: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+          titleText: draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft"),
+          subtitle: "Code conversation", timestamp: draft.status === "pending" ? "Review send" : "Draft", updatedAt: draft.createdAt, pinned: false }] : [];
+      }),
   ].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   const isNative = params.get("runtime") === "native";
   const selected = isNative
     ? params.get("history") === "unassigned" ? null : `native:${params.get("thread") ?? native.activeThreadId}`
-    : params.get("run") === "new" ? null : `code:${params.get("run") ?? code?.runs.find(isCodeAgentRunActive)?.id ?? code?.run?.id}`;
+    : params.get("run") === "new" ? (params.get("draft") ? `code-draft:${params.get("draft")}` : null)
+      : `code:${params.get("run") ?? code?.runs.find(isCodeAgentRunActive)?.id ?? code?.run?.id}`;
   function newCode() {
     creationGeneration.current++;
     setMenuOpen(false);
@@ -131,7 +153,8 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     if (runtime === "native") {
       native.switchThread(recordId);
       navigate(`/?runtime=native&thread=${encodeURIComponent(recordId)}`);
-    } else navigate(`/?run=${encodeURIComponent(recordId)}`);
+    } else if (runtime === "code-draft") navigate(`/?run=new&draft=${encodeURIComponent(recordId)}`);
+    else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
   const loading = checking || (state.isLoading && native.isLoading);
   return <section className="vivary-chat-history" aria-label="Project conversations">
@@ -139,9 +162,9 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       <p>{failedAction.message}</p>
       <Button variant="ghost" size="sm" onClick={() => void updateNative(failedAction.retry, failedAction.message)}>Retry change</Button>
     </div>}
-    {(error || codeFailed || native.threadsLoadError) && <div role="alert">
+    {(error || codeFailed || native.threadsLoadError || draftList.isError || codeDraftList.isError) && <div role="alert">
       <p>{error ?? "Some conversations could not be loaded. Your history is preserved."}</p>
-      <Button variant="ghost" size="sm" onClick={() => { setError(undefined); void state.refetch(); refreshThreads(); }}>Retry history</Button>
+      <Button variant="ghost" size="sm" onClick={() => { setError(undefined); void state.refetch(); void draftList.refetch(); void codeDraftList.refetch(); refreshThreads(); }}>Retry history</Button>
     </div>}
     {loading || history.visibleItems.length === 0 ? <ChatHistoryList items={[]} onSelect={selectSession} variant="rail" className="an-chat-history-rail"
       loading={loading}

@@ -18,6 +18,7 @@ import { useNativeChatDraft } from "@/lib/chat-draft";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconHistory, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
 import type { VivaryCodeRunState, VivaryCodeState } from "../../../server/local-code-agent";
+import { codeDraftSelectionKey, codeDraftThreadId } from "../../../shared/code-draft";
 import { createLocalCodeChatAdapter } from "../../lib/local-code-chat-adapter";
 import { useProjects } from "../projects/ProjectContext";
 import "@agent-native/toolkit/chat-history.css";
@@ -149,6 +150,9 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     placeholderData: previous => previous?.projectId === projectId ? previous : undefined,
   });
   const codeState = state.data?.projectId === projectId ? state.data : undefined;
+  const draftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
+    "vivary-chat-draft", { operation: "list", kind: "code", projectId },
+    { enabled: !!codeState, refetchInterval: 1000 });
   const runToLoad = requestedRun === "new" ? null : requestedRun ?? selection?.runId;
   const selectedState = useActionQuery<VivaryCodeState>("vivary-code-state", { projectId: projectId ?? undefined, runId: runToLoad ?? undefined }, {
     enabled: !!runToLoad && runToLoad !== codeState?.run?.id,
@@ -159,6 +163,11 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
   const stop = useMutation({ mutationFn: (params: {runId: string; projectId?: string}) => call<VivaryCodeState>("vivary-code-stop", params) });
   const run = selection?.runId === codeState?.run?.id ? codeState?.run
     : selection?.runId === selectedRun?.id ? selectedRun : null;
+  // A saved run selected from history uses its run ID as the temporary
+  // selection key. Wait for its detail before mounting a draft owner with
+  // that fallback ID. A newly started run keeps its original draft UUID
+  // mounted while the accepted send settles.
+  const openingSavedRun = !!selection?.runId && selection.key === selection.runId && !run;
   const activeRun = codeState?.activeRun;
   const error = notice ?? codeState?.error
     ?? (selectedState.isError && selection?.runId !== codeState?.run?.id ? "This conversation could not be loaded. Choose a conversation from history or retry." : undefined)
@@ -214,8 +223,9 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     showInUrl(next);
   }, [selection, codeState, selectedRun, selectedState.isPending, selectedState.isFetching, setSelection, requestKey, requestedRun, requestedDraft, showInUrl]);
 
-  const selectConversation = (runId: string) => {
-    const next = { key: runId, runId };
+  const selectConversation = (id: string) => {
+    const draftKey = id.startsWith("draft:") ? id.slice("draft:".length) : null;
+    const next = draftKey ? { key: draftKey, runId: null } : { key: id, runId: id };
     setSelection(next);
     showInUrl(next);
     setNotice(undefined);
@@ -254,6 +264,16 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
       subtitle: item.engineLabel + (item.model ? " · " + item.model : ""),
       timestamp: isCodeAgentRunActive(item) ? "Working" : item.status,
     }));
+  const runDraftIds = new Set(codeState?.runs.map(item => item.draftThreadId).filter(Boolean));
+  for (const draft of draftList.data?.drafts ?? []) {
+    if (runDraftIds.has(draft.threadId)) continue;
+    const key = codeDraftSelectionKey(projectId, draft.threadId);
+    const title = draft.preview || (draft.status === "pending" ? "Review send" : "Unsent draft");
+    if (key && title.toLowerCase().includes(historySearch.trim().toLowerCase())) {
+      history.push({ id: "draft:" + key, title,
+        subtitle: "Code conversation", timestamp: draft.status === "pending" ? "Review send" : "Draft" });
+    }
+  }
 
   return <section className="local-agent-page" aria-label="Vivary agent">
     <header className="local-agent-header">
@@ -268,7 +288,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
             <Button variant="ghost" size="icon" aria-label="Conversation history"><IconHistory size={18} /></Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="local-agent-history">
-            <ChatHistoryList items={history} activeId={selection?.runId}
+            <ChatHistoryList items={history} activeId={selection?.runId ?? (selection ? "draft:" + selection.key : undefined)}
               onSelect={selectConversation} searchValue={historySearch}
               onSearchChange={setHistorySearch} searchPlaceholder="Search conversations"
               loading={state.isLoading}
@@ -297,7 +317,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     </div>}
     <div className="local-agent-layout">
       <div className="local-agent-chat">
-        {selection && codeState ? <LocalCodeConversation key={selection.key}
+        {selection && codeState && !openingSavedRun ? <LocalCodeConversation key={selection.key}
           projectId={projectId} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
           state={run && selectedState.data?.projectId === projectId && selectedState.data.run?.id === run.id
             ? { ...codeState, engines: selectedState.data.engines } : codeState}
@@ -360,7 +380,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     } });
     return () => { active = false; removeAgentChatContextItem(contextKey); props.onPreviewChatTarget?.(null); };
   }, [props.projectId, props.previewScope, previewContextKey, props.workspaceAvailable, props.onPreviewChatTarget]);
-  const draftThreadId = "vivary-code:" + (props.projectId ? "project:" + props.projectId + ":" : "") + props.selection.key;
+  const draftThreadId = props.run?.draftThreadId ?? codeDraftThreadId(props.projectId, props.selection.key);
   const draft = useNativeChatDraft({ kind: "code", projectId: props.projectId });
   const draftError = draft.statusForThread(draftThreadId);
   const [restoreReview, setRestoreReview] = useState(false);
@@ -422,7 +442,8 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   const stoppedByUser = props.run?.status === "paused"
     && events.findLast(event => event.kind === "status")?.metadata?.reason === "user";
   const runtimeReady = selectedEngine?.configured === true;
-  const disabled = !props.workspaceAvailable || props.active || props.streaming || !runtimeReady;
+  const disabled = !props.workspaceAvailable || props.active || props.streaming || !runtimeReady
+    || (!!props.selection.runId && !props.run);
 
   function chooseRuntime(engineName: string) {
     const engine = props.state.engines.find(item => item.engine === engineName);
@@ -506,7 +527,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       return false;
     }}
     composerDisabled={disabled}
-    composerDisabledPlaceholder={!props.workspaceAvailable ? "This folder is unavailable. You can read this conversation, but project work cannot start." : props.state.pendingApproval ? "Review the pending request above. Approve or deny before sending another message." : !runtimeReady ? "Connect a runtime in Settings to start." : "The agent is working. Stop it before sending another message."}
+    composerDisabledPlaceholder={props.selection.runId && !props.run ? "Opening conversation…" : !props.workspaceAvailable ? "This folder is unavailable. You can read this conversation, but project work cannot start." : props.state.pendingApproval ? "Review the pending request above. Approve or deny before sending another message." : !runtimeReady ? "Connect a runtime in Settings to start." : "The agent is working. Stop it before sending another message."}
     selectedEngine={choice.engine} selectedModel={choice.model} defaultModel={props.state.defaultModel}
     availableModels={availableModels} onModelChange={(model, engine) => {
       const selected = props.state.engines.find(item => item.engine === engine);

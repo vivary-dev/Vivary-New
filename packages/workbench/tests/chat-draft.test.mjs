@@ -13,12 +13,13 @@ Object.assign(process.env, {
   VIVARYCHATDRAFTTEST_DATABASE_URL_UNPOOLED: database,
 });
 const { withMigrationRuntime, closeDbExec } = await import("@agent-native/core/db");
-const { createThread, updateThreadData, ensureChatThreadTables } = await import(
+const { listAppState } = await import("@agent-native/core/application-state");
+const { createThread, setThreadArchived, updateThreadData, ensureChatThreadTables } = await import(
   new URL("../../chat-threads/store.js", import.meta.resolve("@agent-native/core/client/agent-chat")),
 );
 const { createVivaryChatIdentity } = await import("../server/chat-identity.ts");
-const { assertChatDraftThread, changeChatDraft, chatDraftKey, chatDraftNextSchema,
-  createCodeDraftIdentity, readChatDraft,
+const { assertChatDraftThread, changeChatDraft, changeIndexedChatDraft, chatDraftKey, chatDraftNextSchema,
+  createCodeDraftIdentity, listChatDrafts, listNativeChatDrafts, readChatDraft,
   reconcileChatDraft, savedThreadHasSubmit } = await import("../server/chat-draft.ts");
 const { draftObservation, applyReconciledDraft, drainDraftChanges, draftNeedsCloseAttention, acceptLoadedDraft } = await import("../app/lib/chat-draft.ts");
 const owner = "owner@example.test";
@@ -36,6 +37,48 @@ test("Native draft CAS retains pending evidence and a tombstone across stale wri
   assert.notEqual(chatDraftKey(identity, threadId), chatDraftKey(codeIdentity, threadId));
   assert.notEqual(chatDraftKey(codeIdentity, threadId),
     chatDraftKey(createCodeDraftIdentity(owner, orgId, "p2"), threadId));
+  assert.deepEqual(await listChatDrafts(identity), []);
+  const draftA = await changeIndexedChatDraft(identity, "unsent-a", null,
+    { status: "draft", text: "Unsent A", submitId: null });
+  const draftB = await changeIndexedChatDraft(identity, "unsent-b", null,
+    { status: "draft", text: "Unsent B", submitId: null });
+  assert.equal(draftA.changed && draftB.changed, true);
+  assert.deepEqual(new Set((await listChatDrafts(identity)).map(item => item.threadId)),
+    new Set(["unsent-a", "unsent-b"]));
+  assert.equal((await listChatDrafts(identity)).find(item => item.threadId === "unsent-a")?.preview, "Unsent A");
+  const marker = (await listAppState("vivary-chat-draft-index-v1:"))
+    .find(entry => entry.value.threadId === "unsent-a");
+  assert.deepEqual(Object.keys(marker.value).sort(), ["createdAt", "threadId"]);
+  const pendingB = await changeIndexedChatDraft(identity, "unsent-b", draftB.record,
+    { status: "pending", text: "Unsent B", submitId: "29cf865b-641d-4415-a42d-df12113e6e0c" });
+  assert.equal(pendingB.changed, true);
+  assert.equal((await listChatDrafts(identity)).find(item => item.threadId === "unsent-b")?.status, "pending");
+  assert.deepEqual(await listChatDrafts(otherIdentity), []);
+  assert.deepEqual(await listChatDrafts(createVivaryChatIdentity("other@example.test", orgId,
+    { kind: "project", projectId: "p1", label: "P" })), []);
+  assert.deepEqual(await listChatDrafts(createVivaryChatIdentity(owner, "another-org",
+    { kind: "project", projectId: "p1", label: "P" })), []);
+  const codeOnly = await changeIndexedChatDraft(codeIdentity, "vivary-code:project:p1:only", null,
+    { status: "draft", text: "Code unsent", submitId: null });
+  assert.equal(codeOnly.changed, true);
+  assert.deepEqual((await listChatDrafts(codeIdentity)).map(item => item.threadId),
+    ["vivary-code:project:p1:only"]);
+  assert.equal((await changeIndexedChatDraft(identity, "unsent-a", draftA.record,
+    { status: "cleared", text: "", submitId: null })).changed, true);
+  assert.deepEqual((await listChatDrafts(identity)).map(item => item.threadId), ["unsent-b"]);
+  const stale = await changeIndexedChatDraft(identity, "unsent-a", draftA.record,
+    { status: "draft", text: "Stale", submitId: null });
+  assert.equal(stale.changed, false);
+  assert.deepEqual((await listChatDrafts(identity)).map(item => item.threadId), ["unsent-b"]);
+  assert.deepEqual((await listNativeChatDrafts(identity, owner, orgId)).map(item => item.threadId), ["unsent-b"]);
+  await createThread(owner, { id: "unsent-b", orgId, scope: otherIdentity.scope });
+  assert.deepEqual(await listNativeChatDrafts(identity, owner, orgId), []);
+  const archived = await changeIndexedChatDraft(identity, "archived-draft", null,
+    { status: "draft", text: "Later archived", submitId: null });
+  assert.equal(archived.changed, true);
+  await createThread(owner, { id: "archived-draft", orgId, scope: identity.scope });
+  assert.equal(await setThreadArchived("archived-draft", true, { ownerEmail: owner }), true);
+  assert.deepEqual(await listNativeChatDrafts(identity, owner, orgId), []);
   const first = await changeChatDraft(identity, threadId, null,
     { status: "draft", text: "Alpha", submitId: null });
   assert.equal(first.changed, true);

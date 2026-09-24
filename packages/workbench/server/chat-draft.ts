@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { compareAndSetAppState, readAppState } from "@agent-native/core/application-state";
+import { compareAndSetAppState, listAppState, readAppState } from "@agent-native/core/application-state";
 import { getThread } from "@agent-native/core/server";
 import { fail } from "@agent-native/core/action";
 import { z } from "zod";
@@ -24,6 +24,46 @@ export function createCodeDraftIdentity(ownerEmail: string, orgId: string, proje
   return { storageKey: "vivary-code-draft-v1:" + key };
 }
 
+function chatDraftIndexPrefix(identity: Pick<VivaryChatIdentity, "storageKey">): string {
+  const hash = createHash("sha256").update(identity.storageKey).digest("hex");
+  return "vivary-chat-draft-index-v1:" + hash + ":";
+}
+
+async function indexChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): Promise<void> {
+  const key = chatDraftIndexPrefix(identity) + threadId;
+  // Record the ID before its draft CAS. A failed CAS leaves an invisible
+  // pointer, while a successful draft cannot be stranded by a later crash.
+  await compareAndSetAppState(key, null, { threadId, createdAt: Date.now() });
+}
+
+export async function listChatDrafts(identity: Pick<VivaryChatIdentity, "storageKey">): Promise<Array<{ threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }>> {
+  const prefix = chatDraftIndexPrefix(identity);
+  const entries = await listAppState(prefix);
+  const visible = await Promise.all(entries.map(async ({ key, value }) => {
+    const threadId = value.threadId;
+    if (typeof threadId !== "string" || key !== prefix + threadId || !/^[A-Za-z0-9_:-]{1,200}$/.test(threadId)) return null;
+    const record = await readChatDraft(identity, threadId);
+    if (!record || record.status === "cleared" || !record.text) return null;
+    return { threadId, createdAt: typeof value.createdAt === "number" && Number.isFinite(value.createdAt)
+      ? value.createdAt : 0, preview: Array.from(record.text.replace(/\s+/g, " ").trim()).slice(0, 80).join(""),
+      status: record.status };
+  }));
+  return visible.filter((entry): entry is { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" } => entry !== null)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function readIndexedChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string) {
+  const record = await readChatDraft(identity, threadId);
+  if (record && record.status !== "cleared" && record.text) await indexChatDraft(identity, threadId);
+  return record;
+}
+
+export async function changeIndexedChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string,
+  expected: ChatDraftRecord | null, next: z.infer<typeof chatDraftNextSchema>) {
+  if (next.status !== "cleared" && next.text) await indexChatDraft(identity, threadId);
+  return changeChatDraft(identity, threadId, expected, next);
+}
+
 export function chatDraftKey(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): string {
   const hash = createHash("sha256").update(JSON.stringify([identity.storageKey, threadId])).digest("hex");
   return "vivary-chat-draft-v1:" + hash;
@@ -35,18 +75,33 @@ export function parseChatDraft(value: Record<string, unknown> | null): ChatDraft
   return parsed.success ? parsed.data : null;
 }
 
+function matchesChatDraftThread(identity: VivaryChatIdentity,
+  thread: NonNullable<Awaited<ReturnType<typeof getThread>>>, ownerEmail: string, orgId: string): boolean {
+  return thread.ownerEmail.toLowerCase() === ownerEmail.toLowerCase()
+    && (thread.orgId === null || thread.orgId === orgId)
+    && thread.scope?.type === identity.scope.type && thread.scope.id === identity.scope.id;
+}
+
 export async function assertChatDraftThread(identity: VivaryChatIdentity, threadId: string,
   ownerEmail: string, orgId: string) {
   const thread = await getThread(threadId);
   // Native creates a client-side optimistic ID before the first message.
   // An empty conversation may therefore have a draft but no thread row yet.
   if (!thread) return null;
-  if (thread.ownerEmail.toLowerCase() !== ownerEmail.toLowerCase()
-    || (thread.orgId !== null && thread.orgId !== orgId)
-    || thread.scope?.type !== identity.scope.type || thread.scope.id !== identity.scope.id) {
+  if (!matchesChatDraftThread(identity, thread, ownerEmail, orgId)) {
     fail("This conversation does not belong to the selected workspace.", { statusCode: 404 });
   }
   return thread;
+}
+
+export async function listNativeChatDrafts(identity: VivaryChatIdentity, ownerEmail: string, orgId: string) {
+  const drafts = await listChatDrafts(identity);
+  const visible = await Promise.all(drafts.map(async draft => {
+    const thread = await getThread(draft.threadId);
+    return thread && (!matchesChatDraftThread(identity, thread, ownerEmail, orgId) || thread.archivedAt)
+      ? null : draft;
+  }));
+  return visible.filter((draft): draft is { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" } => draft !== null);
 }
 
 export async function readChatDraft(identity: Pick<VivaryChatIdentity, "storageKey">, threadId: string): Promise<ChatDraftRecord | null> {

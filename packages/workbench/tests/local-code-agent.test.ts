@@ -251,6 +251,24 @@ process.stdout.write('{"loggedIn":true}');
         workspace: freshWorkspace, revalidateWorkspace: async () => oldWorkspace,
       }), { errorCode: "vivary_code_project_changed" });
       assert.equal(listCodeAgentTranscriptEvents(runId).some(event => event.kind === "user"), false);
+      const legacyRunId = "legacy-draft-run";
+      createCodeAgentRunRecord({ id: legacyRunId, goalId: "vivary-local-code",
+        title: "Legacy draft conversation", status: "completed", cwd: workspaceRoot,
+        metadata: { app: "vivary-workbench-local-code", ownerEmail, orgId,
+          engine: "claude-cli", model: "sonnet", workspaceRoot,
+          projectId: oldWorkspace.projectId, bindingId: oldWorkspace.bindingId,
+          rootId: oldWorkspace.rootId, bindingRevision: oldWorkspace.bindingRevision },
+      });
+      appendCodeAgentTranscriptEvent({ runId: legacyRunId, kind: "user", message: "Earlier accepted user message",
+        metadata: { draftThreadId: "vivary-code:project:project_reconnected:legacy-draft",
+          draftSubmitId: "29cf865b-641d-4415-a42d-df12113e6e0c" } });
+      const legacy = await getVivaryCodeState(ownerEmail, legacyRunId, {
+        label: "Alpha", projectId: freshWorkspace.projectId,
+        bindingId: freshWorkspace.bindingId, rootId: freshWorkspace.rootId,
+        bindingRevision: freshWorkspace.bindingRevision,
+      }, orgId);
+      assert.equal(legacy.run?.draftThreadId, "vivary-code:project:project_reconnected:legacy-draft");
+      assert.equal(legacy.runs.find(item => item.id === legacyRunId)?.draftThreadId, legacy.run?.draftThreadId);
       assert.equal(getCodeAgentRunRecord(runId)?.metadata?.rootId, oldWorkspace.rootId);
     } finally {
       if (previous.store === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
@@ -367,6 +385,11 @@ process.send({type:"vivary:code-worker:ready"});
         draftThreadId: "vivary-code:project:immediate:draft-1",
         revalidateWorkspace: async () => workspace });
       runId = state.run!.id;
+      assert.equal(state.run?.draftThreadId, "vivary-code:project:immediate:draft-1");
+      assert.equal(state.runs.find(item => item.id === runId)?.draftThreadId,
+        "vivary-code:project:immediate:draft-1");
+      assert.equal((await getVivaryCodeState("immediate@example.com", runId, workspace, "immediate-org"))
+        .run?.draftThreadId, "vivary-code:project:immediate:draft-1");
       assert.equal(state.pendingApproval, null);
       assert.equal(state.activeRun?.id, runId);
       assert.equal(state.busy, true);
