@@ -1,0 +1,129 @@
+diff --git a/dist/composer/TiptapComposer.d.ts b/dist/composer/TiptapComposer.d.ts
+index c4236b795a64fa82e1a983339d202cc4b8aa8099..2b74244bd785f2c33feb48acc5f8fc14a233d879 100644
+--- a/dist/composer/TiptapComposer.d.ts
++++ b/dist/composer/TiptapComposer.d.ts
+@@ -108,6 +108,8 @@ export interface TiptapComposerProps {
+     clearOnSubmit?: boolean;
+     /** Called whenever the plain editor text changes. */
+     onTextChange?: (text: string) => void;
++    /** Report exact draft line breaks and whitespace through onTextChange. */
++    preserveDraftText?: boolean;
+     /** Custom action button (e.g. stop button) to render instead of the default send button. */
+     actionButton?: React.ReactNode;
+     /** Whether the default send action will wait behind existing work. */
+@@ -299,6 +301,6 @@ export interface ComposerImageModelMenu {
+     label?: string;
+ }
+ export declare function getComposerReasoningEffortOptions(model: string): ReasoningEffort[];
+-export declare function TiptapComposer({ placeholder, disabled, maxDocumentAttachmentBytes, documentAttachmentLimitLabel, focusRef, initialText, initialTextKey, onSubmit, onBeforeSubmit, clearOnSubmit, onTextChange, actionButton, willQueue, extraActionButton, stopButton, attachButton, modeControl, toolbarSlot, layoutVariant, slashCommands, slashSkills, includeDefaultSlashCommands, includeDefaultSlashSkills, onSlashCommand, execMode, onExecModeChange, planModeDisabled, planModeDisabledReason, voiceEnabled, selectedModel, selectedEngine, selectedEffort, showAutoModelOption, modelSelectorOpen, availableModels, modelListLoading, onModelChange, onEffortChange, availableAgents, selectedAgent, agentOnly, hostedHarness, onAgentChange, onModelSelectorOpenChange, providerConnectStatusEnabled, onConnectProvider, onConnectLocalRuntime, imageModelMenu, draftScope, contextItems, onRemoveContextItem, plusMenuMode, terminalModeControl, extensionTools, interceptBuildRequestsForBuilder, onAttachmentError, }: TiptapComposerProps): React.JSX.Element;
++export declare function TiptapComposer({ placeholder, disabled, maxDocumentAttachmentBytes, documentAttachmentLimitLabel, focusRef, initialText, initialTextKey, onSubmit, onBeforeSubmit, clearOnSubmit, onTextChange, preserveDraftText, actionButton, willQueue, extraActionButton, stopButton, attachButton, modeControl, toolbarSlot, layoutVariant, slashCommands, slashSkills, includeDefaultSlashCommands, includeDefaultSlashSkills, onSlashCommand, execMode, onExecModeChange, planModeDisabled, planModeDisabledReason, voiceEnabled, selectedModel, selectedEngine, selectedEffort, showAutoModelOption, modelSelectorOpen, availableModels, modelListLoading, onModelChange, onEffortChange, availableAgents, selectedAgent, agentOnly, hostedHarness, onAgentChange, onModelSelectorOpenChange, providerConnectStatusEnabled, onConnectProvider, onConnectLocalRuntime, imageModelMenu, draftScope, contextItems, onRemoveContextItem, plusMenuMode, terminalModeControl, extensionTools, interceptBuildRequestsForBuilder, onAttachmentError, }: TiptapComposerProps): React.JSX.Element;
+ export {};
+ //# sourceMappingURL=TiptapComposer.d.ts.map
+\ No newline at end of file
+diff --git a/dist/composer/TiptapComposer.js b/dist/composer/TiptapComposer.js
+index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbfa306d79a 100644
+--- a/dist/composer/TiptapComposer.js
++++ b/dist/composer/TiptapComposer.js
+@@ -485,8 +485,23 @@ function ComposerModeChip({ mode, onRemove, }) {
+     const Icon = config.icon;
+     return (_jsxs("span", { className: "inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground", children: [_jsx(Icon, { className: "h-3 w-3 text-muted-foreground" }), config.label, _jsx("button", { type: "button", onClick: onRemove, className: "ms-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer", children: _jsx(IconX, { className: "h-3 w-3" }) })] }));
+ }
+-function plainTextToDoc(text) {
++function composerTextForChange(doc, preserveDraftText) {
++    if (!preserveDraftText)
++        return doc.textContent.trim();
++    return doc.textBetween(0, doc.content.size, "\n", node => node.type.name === "hardBreak" ? "\n" : node.textContent);
++}
++function plainTextToDoc(text, preserveDraftText = false) {
+     const lines = text.length > 0 ? text.split(/\r?\n/) : [""];
++    if (preserveDraftText) {
++        const content = [];
++        lines.forEach((line, index) => {
++            if (index > 0)
++                content.push({ type: "hardBreak" });
++            if (line)
++                content.push({ type: "text", text: line });
++        });
++        return { type: "doc", content: [{ type: "paragraph", content }] };
++    }
+     return {
+         type: "doc",
+         content: lines.map((line) => ({
+@@ -1107,7 +1122,7 @@ function ModelSelectorSkeleton() {
+                     defaultValue: "Loading models…",
+                 }) }), ["w-24", "w-32", "w-20", "w-28"].map((width, index) => (_jsxs("div", { className: "flex items-center gap-1.5 px-1 py-1.5", children: [_jsx(Skeleton, { className: "size-3 rounded-sm" }), _jsx(Skeleton, { className: `h-3 ${width}` })] }, index)))] }));
+ }
+-export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES, documentAttachmentLimitLabel = "PDFs", focusRef, initialText, initialTextKey, onSubmit, onBeforeSubmit, clearOnSubmit = true, onTextChange, actionButton, willQueue = false, extraActionButton, stopButton, attachButton, modeControl, toolbarSlot, layoutVariant = "default", slashCommands = [], slashSkills = [], includeDefaultSlashCommands = true, includeDefaultSlashSkills = true, onSlashCommand, execMode, onExecModeChange, planModeDisabled = false, planModeDisabledReason, voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED, selectedModel, selectedEngine, selectedEffort, showAutoModelOption = true, modelSelectorOpen, availableModels, modelListLoading, onModelChange, onEffortChange, availableAgents, selectedAgent, agentOnly = false, hostedHarness, onAgentChange, onModelSelectorOpenChange, providerConnectStatusEnabled, onConnectProvider, onConnectLocalRuntime, imageModelMenu, draftScope, contextItems = [], onRemoveContextItem, plusMenuMode = "full", terminalModeControl, extensionTools = false, interceptBuildRequestsForBuilder = false, onAttachmentError, }) {
++export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES, documentAttachmentLimitLabel = "PDFs", focusRef, initialText, initialTextKey, onSubmit, onBeforeSubmit, clearOnSubmit = true, onTextChange, preserveDraftText = false, actionButton, willQueue = false, extraActionButton, stopButton, attachButton, modeControl, toolbarSlot, layoutVariant = "default", slashCommands = [], slashSkills = [], includeDefaultSlashCommands = true, includeDefaultSlashSkills = true, onSlashCommand, execMode, onExecModeChange, planModeDisabled = false, planModeDisabledReason, voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED, selectedModel, selectedEngine, selectedEffort, showAutoModelOption = true, modelSelectorOpen, availableModels, modelListLoading, onModelChange, onEffortChange, availableAgents, selectedAgent, agentOnly = false, hostedHarness, onAgentChange, onModelSelectorOpenChange, providerConnectStatusEnabled, onConnectProvider, onConnectLocalRuntime, imageModelMenu, draftScope, contextItems = [], onRemoveContextItem, plusMenuMode = "full", terminalModeControl, extensionTools = false, interceptBuildRequestsForBuilder = false, onAttachmentError, }) {
+     const adapters = useComposerRuntimeAdapters();
+     const t = adapters.translate;
+     const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
+@@ -1202,6 +1217,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+     }, []);
+     const onTextChangeRef = useRef(onTextChange);
+     onTextChangeRef.current = onTextChange;
++    const preserveDraftTextRef = useRef(preserveDraftText);
++    preserveDraftTextRef.current = preserveDraftText;
+     const contextItemsRef = useRef(contextItems);
+     contextItemsRef.current = contextItems;
+     const onRemoveContextItemRef = useRef(onRemoveContextItem);
+@@ -1292,7 +1309,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+             // Drive the send button's enabled state from the actual editor contents;
+             // the composer runtime is only synced on submit, so its isEmpty lags.
+             setEditorHasText(composerDocumentHasContent(ed.state.doc));
+-            onTextChangeRef.current?.(ed.state.doc.textContent.trim());
++            onTextChangeRef.current?.(composerTextForChange(ed.state.doc, preserveDraftTextRef.current));
+             scheduleComposerDraftPersist(ed);
+         },
+         onSelectionUpdate: ({ editor: ed }) => {
+@@ -1569,8 +1586,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+     useEffect(() => {
+         if (!isComposerEditorUsable(editor) || !onTextChange)
+             return;
+-        onTextChange(editor.state.doc.textContent.trim());
+-    }, [editor, onTextChange]);
++        onTextChange(composerTextForChange(editor.state.doc, preserveDraftText));
++    }, [editor, onTextChange, preserveDraftText]);
+     const insertReference = useCallback((ref) => {
+         const normalized = adapters.agentChat.normalizeReference(ref);
+         const ed = editor;
+@@ -1675,13 +1692,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+         setText(text) {
+             if (!isComposerEditorUsable(editor))
+                 return;
+-            editor.commands.setContent(plainTextToDoc(text));
++            editor.commands.setContent(plainTextToDoc(text, preserveDraftTextRef.current));
+             editor.commands.focus("end");
+             const trimmed = editor.state.doc.textContent.trim();
+             setEditorHasText(trimmed.length > 0);
+             setSlotReferences([]);
+             composerRuntime.setText(trimmed);
+-            onTextChangeRef.current?.(trimmed);
++            onTextChangeRef.current?.(composerTextForChange(editor.state.doc, preserveDraftTextRef.current));
+             flushComposerDraft();
+         },
+         insertReference,
+@@ -2361,12 +2378,12 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+                     initialTextKeyRef.current = key;
+             }
+             else if (initialText === undefined) {
+-                onTextChangeRef.current?.(editor.state.doc.textContent.trim());
++                onTextChangeRef.current?.(composerTextForChange(editor.state.doc, preserveDraftTextRef.current));
+                 return;
+             }
+             else if (initialTextKeyRef.current !== key) {
+                 initialTextKeyRef.current = key;
+-                editor.commands.setContent(plainTextToDoc(initialText));
++                editor.commands.setContent(plainTextToDoc(initialText, preserveDraftTextRef.current));
+                 editor.commands.focus("end");
+             }
+             else {
+@@ -2375,7 +2392,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+             const trimmed = editor.state.doc.textContent.trim();
+             setEditorHasText(composerDocumentHasContent(editor.state.doc));
+             composerRuntime.setText(trimmed);
+-            onTextChangeRef.current?.(trimmed);
++            onTextChangeRef.current?.(composerTextForChange(editor.state.doc, preserveDraftTextRef.current));
+             scheduleComposerDraftPersist(editor);
+         }
+         catch {

@@ -865,7 +865,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1
      composerAreaClassName?: string;
      /** Placeholder for the shared composer in its normal idle state. */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..f64cc093ad2d33b3732672092e30da3acf01352d 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82e9846ffb 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -1154,7 +1154,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..f64cc093ad2d33b3732672092e30da3a
                                                                      "opacity-70"), onClick: showMissingKeySetup
                                                                      ? bounceMissingKeySetup
 -                                                                    : undefined, children: _jsxs(_Fragment, { children: [_jsx(ComposerAttachmentPreviewStrip, {}), _jsx(TiptapComposer, { focusRef: tiptapRef, initialText: initialComposerText ?? undefined, initialTextKey: composerDraftScope, onTextChange: isActiveComposer
-+                                                                    : undefined, children: _jsxs(_Fragment, { children: [_jsx(ComposerAttachmentPreviewStrip, {}), _jsx(TiptapComposer, { focusRef: tiptapRef, initialText: hostComposerDraft ? (initialComposerText ?? "") : (initialComposerText ?? undefined), initialTextKey: hostComposerDraft ? `${composerDraftScope}:${hostDraftRevision}` : composerDraftScope, onTextChange: isActiveComposer
++                                                                    : undefined, children: _jsxs(_Fragment, { children: [_jsx(ComposerAttachmentPreviewStrip, {}), _jsx(TiptapComposer, { focusRef: tiptapRef, initialText: hostComposerDraft ? (initialComposerText ?? "") : (initialComposerText ?? undefined), initialTextKey: hostComposerDraft ? `${composerDraftScope}:${hostDraftRevision}` : composerDraftScope, preserveDraftText: Boolean(hostComposerDraft), onTextChange: isActiveComposer
                                                                                  ? handleComposerTextChange
 -                                                                                : undefined, disabled: isComposerDisabled || showMissingKeySetup, placeholder: showMissingKeySetup
 +                                                                                : undefined, disabled: isComposerDisabled || showMissingKeySetup || !hostDraftReady, placeholder: showMissingKeySetup
