@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
 import { codeDraftSelectionKey } from "../../../shared/code-draft";
+import { useChatDraftList } from "@/lib/chat-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useProjects } from "../projects/ProjectContext";
@@ -46,12 +47,10 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     placeholderData: previous => previous?.projectId === projectId ? previous : undefined,
   });
   const code = historyAvailable && state.data?.projectId === projectId ? state.data : undefined;
-  const draftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
-    "vivary-chat-draft", { operation: "list", kind: identity.kind, projectId: identity.projectId },
-    { enabled: historyAvailable, refetchInterval: 1000 });
-  const codeDraftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
-    "vivary-chat-draft", { operation: "list", kind: "code", projectId },
-    { enabled: historyAvailable, refetchInterval: 1000 });
+  const draftList = useChatDraftList({ kind: identity.kind, projectId: identity.projectId },
+    identity.storageKey, historyAvailable);
+  const codeDraftList = useChatDraftList({ kind: "code", projectId },
+    identity.storageKey + ":code", historyAvailable);
   const codeDraftRunIds = new Set(code?.runs.map(run => run.draftThreadId).filter(Boolean));
   const refreshThreads = native.refreshThreads;
   useEffect(() => {

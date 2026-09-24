@@ -14,7 +14,7 @@ import {
 import { actionErrorMessage, readClientAppState, useActionQuery } from "@agent-native/core/client/hooks";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { useAppStateWriter } from "@/lib/native-state";
-import { useNativeChatDraft } from "@/lib/chat-draft";
+import { useChatDraftList, useNativeChatDraft } from "@/lib/chat-draft";
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@agent-native/toolkit/ui";
 import { IconHistory, IconPlus, IconSettings, IconSquare } from "@tabler/icons-react";
 import type { VivaryCodeRunState, VivaryCodeState } from "../../../server/local-code-agent";
@@ -114,14 +114,15 @@ export default function CodeConversation({ previewScope, onPreviewChatTarget }: 
       <span>Your conversation selection could not be saved.</span>
       <Button variant="ghost" size="sm" onClick={() => { if (saveSelection.variables) save(saveSelection.variables); }}>Retry</Button>
     </div>}
-    <ProjectCodeWorkspace key={projectScope} projectId={projectId}
+    <ProjectCodeWorkspace key={projectScope} projectId={projectId} draftScopeKey={projectScope}
       projectLabel={activeProject?.displayName} workspaceAvailable={workspaceAvailable} onOpenActive={openActiveConversation}
       selection={selection.data ?? null} setSelection={setSelection} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget} />
   </>;
 }
 
-function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive, previewScope, onPreviewChatTarget }: PreviewChatProps & {
+function ProjectCodeWorkspace({ projectId, draftScopeKey, projectLabel, workspaceAvailable, selection, setSelection, onOpenActive, previewScope, onPreviewChatTarget }: PreviewChatProps & {
   projectId: string | null;
+  draftScopeKey: string;
   projectLabel?: string;
   workspaceAvailable: boolean;
   selection: ConversationSelection | null;
@@ -150,9 +151,7 @@ function ProjectCodeWorkspace({ projectId, projectLabel, workspaceAvailable, sel
     placeholderData: previous => previous?.projectId === projectId ? previous : undefined,
   });
   const codeState = state.data?.projectId === projectId ? state.data : undefined;
-  const draftList = useActionQuery<{ drafts: { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" }[] }>(
-    "vivary-chat-draft", { operation: "list", kind: "code", projectId },
-    { enabled: !!codeState, refetchInterval: 1000 });
+  const draftList = useChatDraftList({ kind: "code", projectId }, draftScopeKey, !!codeState);
   const runToLoad = requestedRun === "new" ? null : requestedRun ?? selection?.runId;
   const selectedState = useActionQuery<VivaryCodeState>("vivary-code-state", { projectId: projectId ?? undefined, runId: runToLoad ?? undefined }, {
     enabled: !!runToLoad && runToLoad !== codeState?.run?.id,

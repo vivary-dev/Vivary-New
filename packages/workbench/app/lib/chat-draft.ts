@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { AssistantChatProps } from "@agent-native/core/client/agent-chat";
 import { useNativeActionCaller } from "./native-actions";
 
@@ -9,6 +10,19 @@ type RecordState = {
   submitId: string | null;
 };
 type Scope = { kind: "project" | "unassigned" | "code"; projectId: string | null };
+export type DraftListItem = { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" };
+
+export function useChatDraftList(scope: Scope, scopeKey: string | null, enabled: boolean) {
+  const { call } = useNativeActionCaller();
+  return useQuery({
+    queryKey: ["vivary-chat-draft-list", scopeKey, scope.kind, scope.projectId],
+    queryFn: () => call<{ drafts: DraftListItem[] }>("vivary-chat-draft", { operation: "list", ...scope }),
+    enabled: enabled && !!scopeKey,
+    refetchInterval: 1000,
+    retry: false,
+  });
+}
+
 type Entry = {
   loaded: boolean;
   record: RecordState | null;
