@@ -865,7 +865,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1
      composerAreaClassName?: string;
      /** Placeholder for the shared composer in its normal idle state. */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..cd472aa3df58aba82e3d17788147cbb3c4eccc5b 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..f64cc093ad2d33b3732672092e30da3acf01352d 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -885,7 +885,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..cd472aa3df58aba82e3d17788147cbb3
      const t = useT();
      const thread = useThread();
      const threadRuntime = useThreadRuntime();
-@@ -1476,20 +1477,59 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1476,18 +1477,57 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      // Cleared on the next message send.
      const [composerError, setComposerError] = useState(null);
      const composerDraftScope = tabId || threadId;
@@ -909,7 +909,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..cd472aa3df58aba82e3d17788147cbb3
 +            hostRestoreGuardRef.current = {
 +                key,
 +                expected: initialComposerText ?? "",
-+                restoring: Boolean(initialComposerText),
++                restoring: true,
 +            };
 +        }
 +    }
@@ -927,11 +927,11 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..cd472aa3df58aba82e3d17788147cbb3
      const handleComposerTextChange = useCallback((text) => {
 +        const hostDraft = hostComposerDraftRef.current;
 +        if (hostDraft) {
-+            if (!hostDraftReady)
++            if (!hostDraft.isReady(composerDraftScope))
 +                return;
 +            const guard = hostRestoreGuardRef.current;
 +            if (guard.restoring) {
-+                if (text === "")
++                if (text !== guard.expected)
 +                    return;
 +                guard.restoring = false;
 +            }
@@ -945,11 +945,8 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..cd472aa3df58aba82e3d17788147cbb3
          setComposerText(text);
 -        writeAssistantChatComposerDraft(composerDraftScope, text);
          onComposerTextChange?.(text);
--    }, [composerDraftScope, onComposerTextChange]);
-+    }, [composerDraftScope, onComposerTextChange, hostDraftReady]);
+     }, [composerDraftScope, onComposerTextChange]);
      const dropDepthRef = useRef(0);
-     const handleChatDragEnter = useCallback((e) => {
-         if (!Array.from(e.dataTransfer?.types ?? []).includes("Files"))
 @@ -2052,6 +2092,15 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          retryThreadRestore,
          threadId,
