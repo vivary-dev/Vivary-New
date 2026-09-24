@@ -133,6 +133,7 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
   const [restoreReview, setRestoreReview] = useState<string | null>(null);
   useEffect(() => { setRestoreReview(null); }, [selectedThread]);
   const error = selectedThread ? draft.statusForThread(selectedThread) : null;
+  const draftSaveStatus = selectedThread ? draft.draftSaveStatusForThread(selectedThread) : null;
   if (!selectedThread && (selection.isPending || (selection.isSuccess && savedThread))) return <OpeningConversation />;
   if (!selectedThread && selection.isError) return <div className="panel-empty" role="alert">
     <h1>Conversation could not open</h1>
@@ -144,14 +145,14 @@ function DraftedConversation({ identity, unassigned, workspaceAvailable }: {
       <span>Your conversation selection could not be saved.</span>
       <Button variant="outline" size="sm" onClick={() => void saveLatestThread()}>Retry selection</Button>
     </div>}
-    {!error && selectedThread && draft.hasDraftForThread(selectedThread) && <div className="local-agent-notice">
-      <span>Draft saved for this conversation.</span>
+    {!error && selectedThread && draftSaveStatus && <div className="local-agent-notice" role="status">
+      <span>{draftSaveStatus === "saved" ? "Draft saved for this conversation." : "Saving draft…"}</span>
       <Button variant="ghost" size="sm" onClick={() => void draft.discard(selectedThread)}>Discard draft</Button>
     </div>}
     {error && selectedThread && <div className="local-agent-notice" role="alert">
       <span>{error}</span>
       <Button variant="outline" size="sm" onClick={() => draft.retry(selectedThread)}>{draft.hasConflictForThread(selectedThread)
-        ? "Reload saved draft" : "Retry draft"}</Button>
+        ? "Reload saved draft" : draft.hasFailedDiscardForThread(selectedThread) ? "Retry discard" : "Retry draft"}</Button>
       {draft.hasPendingForThread(selectedThread) && (restoreReview === selectedThread
         ? <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" aria-label="I checked this conversation and queued follow-ups"

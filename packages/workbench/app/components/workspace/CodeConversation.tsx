@@ -435,14 +435,15 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   }
 
   return <>
-    {!draftError && draft.hasDraftForThread(draftThreadId) && <div className="local-agent-notice">
-      <span>Draft saved for this conversation.</span>
+    {!draftError && draft.draftSaveStatusForThread(draftThreadId) && <div className="local-agent-notice" role="status">
+      <span>{draft.draftSaveStatusForThread(draftThreadId) === "saved"
+        ? "Draft saved for this conversation." : "Saving draft…"}</span>
       <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
     </div>}
     {draftError && <div className="local-agent-notice" role="alert">
       <span>{draftError}</span>
       <Button variant="outline" size="sm" onClick={() => draft.retry(draftThreadId)}>{draft.hasConflictForThread(draftThreadId)
-        ? "Reload saved draft" : "Retry draft"}</Button>
+        ? "Reload saved draft" : draft.hasFailedDiscardForThread(draftThreadId) ? "Retry discard" : "Retry draft"}</Button>
       {draft.hasPendingForThread(draftThreadId) && (!restoreReview
         ? <Button variant="outline" size="sm" onClick={() => setRestoreReview(true)}>Review before restoring</Button>
         : !restoreAcknowledged

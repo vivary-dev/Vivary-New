@@ -13,7 +13,7 @@ const hooks = registerHooks({
     return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
   },
 });
-const { createExternalWindowHandler, attachProjectFolderChooser, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
+const { createExternalWindowHandler, attachProjectFolderChooser, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -202,4 +202,40 @@ test("allowlisted provider setup links retain direct browser opening", async () 
   handler({ url: "https://developers.openai.com/codex/auth" });
   await setImmediate();
   assert.deepEqual(opened, ["https://developers.openai.com/codex/auth"]);
+});
+
+test("desktop close waits for same-origin draft acknowledgement and refuses failure", async () => {
+  const origin = "http://127.0.0.1:4567";
+  const pending = Promise.withResolvers();
+  let executed = 0;
+  const enabled = [];
+  const window = {
+    isDestroyed: () => false,
+    setEnabled: value => enabled.push(value),
+    webContents: {
+      isDestroyed: () => false,
+      getURL: () => origin + "/?runtime=native",
+      executeJavaScript: script => {
+        assert.equal(script, "globalThis.__vivaryFlushChatDraftsForClose?.() ?? true");
+        executed++;
+        return pending.promise;
+      },
+    },
+  };
+  const waiting = flushDraftsBeforeQuit(window, origin, 1000);
+  await setImmediate();
+  assert.equal(executed, 1);
+  pending.resolve(true);
+  assert.equal(await waiting, true);
+  assert.deepEqual(enabled, [false]);
+  window.webContents.executeJavaScript = async () => false;
+  assert.equal(await flushDraftsBeforeQuit(window, origin, 1000), false);
+  assert.deepEqual(enabled, [false, false, true]);
+  window.webContents.getURL = () => "https://other.test/";
+  assert.equal(await flushDraftsBeforeQuit(window, origin, 1000), false);
+  assert.equal(executed, 1);
+  window.webContents.getURL = () => origin + "/";
+  window.webContents.executeJavaScript = () => new Promise(() => undefined);
+  assert.equal(await flushDraftsBeforeQuit(window, origin, 5), false);
+  assert.deepEqual(enabled, [false, false, true, false, true]);
 });

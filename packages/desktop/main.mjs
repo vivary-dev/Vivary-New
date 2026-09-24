@@ -8,6 +8,7 @@ import { app, BrowserWindow, dialog, session, shell } from "electron";
 
 const START_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 15_000;
+const DRAFT_CLOSE_TIMEOUT_MS = 8_000;
 const sourceFile = fileURLToPath(import.meta.url);
 const sourceRoot = path.dirname(sourceFile);
 
@@ -15,6 +16,7 @@ let mainWindow = null;
 let serverChild = null;
 let allowQuit = false;
 let shutdownPromise = null;
+let serverOrigin = null;
 let disposeProjectChooser = () => undefined;
 
 app.setName("Vivary");
@@ -145,7 +147,7 @@ async function startServer() {
         "Vivary stopped",
         `The local server ended unexpectedly (${code ?? signal ?? "unknown"}).`,
       );
-      void beginQuit();
+      void beginQuit({ skipDraftFlush: true });
     }
   });
   return origin;
@@ -199,11 +201,49 @@ async function stopServer() {
   });
 }
 
-function beginQuit() {
-  shutdownPromise ??= stopServer().finally(() => {
+export async function flushDraftsBeforeQuit(window, origin, timeoutMs = DRAFT_CLOSE_TIMEOUT_MS) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return true;
+  const pageUrl = window.webContents.getURL();
+  if (!pageUrl || pageUrl === "about:blank") return true;
+  try {
+    if (new URL(pageUrl).origin !== origin) return false;
+  } catch { return false; }
+  let timer;
+  let saved = false;
+  window.setEnabled(false);
+  try {
+    saved = await Promise.race([
+      window.webContents.executeJavaScript("globalThis.__vivaryFlushChatDraftsForClose?.() ?? true")
+        .then(result => result === true, () => false),
+      new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+    return saved;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    if (!saved && !window.isDestroyed()) window.setEnabled(true);
+  }
+}
+
+function beginQuit({ skipDraftFlush = false } = {}) {
+  shutdownPromise ??= (async () => {
+    const serverAlive = serverChild && serverChild.exitCode === null && serverChild.signalCode === null;
+    if (!skipDraftFlush && serverAlive && !await flushDraftsBeforeQuit(mainWindow, serverOrigin)) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        void dialog.showMessageBox(mainWindow, {
+          type: "warning", buttons: ["Keep working"], defaultId: 0,
+          title: "Draft not saved",
+          message: "A conversation draft could not be saved. Keep Vivary open, retry the draft, then close it again.",
+        });
+      }
+      return false;
+    }
+    await stopServer();
     allowQuit = true;
     app.quit();
-  });
+    return true;
+  })().finally(() => { if (!allowQuit) shutdownPromise = null; });
   return shutdownPromise;
 }
 
@@ -428,6 +468,7 @@ export async function runDesktop() {
   hardenSession();
   try {
     const origin = await startServer();
+    serverOrigin = origin;
     await createWindow(origin);
   } catch (error) {
     await stopServer();

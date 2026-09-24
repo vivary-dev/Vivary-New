@@ -20,7 +20,7 @@ const { createVivaryChatIdentity } = await import("../server/chat-identity.ts");
 const { assertChatDraftThread, changeChatDraft, chatDraftKey, chatDraftNextSchema,
   createCodeDraftIdentity, readChatDraft,
   reconcileChatDraft, savedThreadHasSubmit } = await import("../server/chat-draft.ts");
-const { draftObservation, applyReconciledDraft } = await import("../app/lib/chat-draft.ts");
+const { draftObservation, applyReconciledDraft, drainDraftChanges, draftNeedsCloseAttention, acceptLoadedDraft } = await import("../app/lib/chat-draft.ts");
 const owner = "owner@example.test";
 const orgId = "org1";
 const identity = createVivaryChatIdentity(owner, orgId, { kind: "project", projectId: "p1", label: "P" });
@@ -117,4 +117,48 @@ test("late reconciliation cannot overwrite a newer draft or discard", async () =
   assert.equal(applyReconciledDraft(entry, discardObservation,
     { record: pending, saved: false }), false);
   assert.equal(entry.record.status, "cleared");
+});
+
+test("concurrent flush requests drain each draft edit once", async () => {
+  const firstWrite = Promise.withResolvers();
+  const current = { loaded: true, record: { revision: "r0", text: "", status: "draft", submitId: null },
+    text: "A", generation: 0, saving: null, error: null };
+  const writes = [];
+  const write = async (expected, next) => {
+    writes.push({ expected: expected.revision, text: next.text });
+    if (next.text === "A") await firstWrite.promise;
+    current.record = { ...next, revision: `r${writes.length}` };
+  };
+  const first = drainDraftChanges(current, write, () => undefined);
+  current.text = "B";
+  const close = drainDraftChanges(current, write, () => undefined);
+  const anotherWaiter = drainDraftChanges(current, write, () => undefined);
+  assert.equal(close, first);
+  assert.equal(anotherWaiter, first);
+  firstWrite.resolve();
+  await Promise.all([first, close, anotherWaiter]);
+  assert.deepEqual(writes, [{ expected: "r0", text: "A" }, { expected: "r1", text: "B" }]);
+  assert.equal(current.record.text, "B");
+  assert.equal(current.saving, null);
+});
+
+test("a verified saved reload resolves a failed discard before close", () => {
+  const saved = { revision: "saved-after-refusal", text: "Retained draft", status: "draft", submitId: null };
+  const current = { loaded: true, record: saved, text: "Retained draft", timer: null,
+    saving: null, discardPromise: null, discardFailed: true, error: "The draft could not be discarded. Retry.", reset: 0 };
+  assert.equal(draftNeedsCloseAttention(current), true);
+  acceptLoadedDraft(current, saved);
+  assert.equal(current.discardFailed, false);
+  assert.equal(current.error, null);
+  assert.equal(current.text, saved.text);
+  assert.equal(draftNeedsCloseAttention(current), false);
+});
+
+test("a failed conflict reload retains the in-memory draft behind the close fence", () => {
+  const current = { loaded: false, record: { revision: "stale", text: "Old", status: "draft", submitId: null },
+    text: "Unwritten edit", timer: null, saving: null, discardPromise: null, discardFailed: false,
+    error: "The saved draft could not be loaded. Retry before typing." };
+  assert.equal(draftNeedsCloseAttention(current), true);
+  acceptLoadedDraft(current, { revision: "fresh", text: "Saved elsewhere", status: "draft", submitId: null });
+  assert.equal(draftNeedsCloseAttention(current), false);
 });
