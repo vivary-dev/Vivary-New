@@ -1,7 +1,7 @@
 # Entire for contributors
 
 Entire records supported agent sessions alongside Git checkpoints. GitHub owns
-issues and PR review. The private Entire remote holds source and session
+issues and PR review. The Entire remote holds source and session
 checkpoints. A source push alone does not capture an agent conversation.
 
 This setup was checked with Entire beta 0.10.6. Read the installed
@@ -13,8 +13,8 @@ explain the capture model.
 ## Enable a checkout
 
 Install Entire using its official instructions and authenticate your contributor
-account. Confirm `origin` is private `vivary-dev/Vivary-New` and `entire` points
-to its private Entire mirror. Never put authentication tokens in tracked files.
+account. Confirm `origin` is `vivary-dev/Vivary-New` and `entire` points to its
+Entire mirror. Never put authentication tokens in tracked files.
 
 For a fresh checkout with no checkpoint store, run:
 

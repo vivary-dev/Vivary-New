@@ -25,7 +25,7 @@ No model, storage vendor, hosting plan, default runtime, or payment service is s
 Jeff requested one complete new repository named `Vivary-New` in the Vivary
 organization, connected to GitHub and Entire. His later branching correction
 selects typed topic branches from `dev`, PRs into `dev`, and reviewed promotion
-to `main`. `main` is the default branch. The repository remains private.
+to `main`. `main` is the default branch. The repository was public when checked on 2026-09-24.
 Keep the existing checkout and history. This supersedes the earlier Entire-only
 feature-branch delivery restriction. The original public repository remains separate.
 [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns the workflow and its enforcement limit.
@@ -127,7 +127,7 @@ A paid authentication service is not required.
 Use up to three subagents as needed and make broad real visual/UI testing part
 of normal delivery. Repair failures, repeat the affected journey, and continue
 implementation without expanding verification machinery. The private Zo preview
-is the active development surface. For private Vivary-New, reviewed topic PRs
+is the active development surface. For Vivary-New, reviewed topic PRs
 merge into dev under [the contributor rules](../../../CONTRIBUTING.md). Promotion
 to main and public release retain their separate product-acceptance requirements.
 

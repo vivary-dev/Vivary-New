@@ -5,8 +5,9 @@ keep the implementation narrow enough that the tests and docs can move with it.
 
 ## Active repository
 
-Work in private `vivary-dev/Vivary-New`. The original public `vivary-dev/vivary`
-repository retains its release workflow and is a separate delivery target.
+Work in `vivary-dev/Vivary-New`, which was public when checked on 2026-09-24.
+The original `vivary-dev/vivary` repository retains its release workflow and
+is a separate delivery target.
 
 - `dev` integrates reviewed work.
 - `main` is the default branch and receives reviewed promotions from `dev`.
@@ -17,18 +18,20 @@ repository retains its release workflow and is a separate delivery target.
   (`entire`). Source mirroring does not establish agent-session capture.
 
 Before merging, resolve review findings and require passing applicable CI plus
-one independent approval. Zo is the standing owner-approved CI host. Run the
+one approval. Since 2026-09-24 the Entire gate counts the author's approval, so
+Jeff can approve his own trail. An agent can add technical review but never
+records a human approval. Zo is the standing owner-approved CI host. Run the
 applicable workflow commands and gates on Zo against the exact PR commit. GitHub
 Actions billing or runner failures do not block this verification path. Record
 executed checks, omissions, logs, and review evidence as Zo CI. Keep GitHub service
 failures separate from test failures. Do not relabel an unrun Actions or Windows
 job as successful. Passing applicable Zo CI satisfies the CI gate, subject to the
-same independent review and product acceptance requirements. Promotion to `main` also needs Jeff's acceptance of
+same review and product acceptance requirements. Promotion to `main` also needs Jeff's acceptance of
 the delivered product milestone. This does not authorize a public release.
 
-On 2026-09-13, GitHub refused branch-protection configuration for this private
-repository under the organization's Free plan. These rules remain contributor
-policy. Server enforcement is unavailable until the repository plan supports it.
+On 2026-09-13, GitHub refused branch-protection configuration while this
+repository was private under the organization's Free plan. These rules remain
+contributor policy. On 2026-09-24, `dev` still had no branch protection.
 
 Dependabot reads configuration from `main`. Its version updates target `dev`
 once this configuration reaches `main`. GitHub security updates still target

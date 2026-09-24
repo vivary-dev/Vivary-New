@@ -2,8 +2,9 @@
 
 ## Active repository and product acceptance
 
-Jeff selected a complete new private repository on 2026-09-13:
-`vivary-dev/Vivary-New`. His later branching correction selects typed topic
+Jeff selected a complete new repository on 2026-09-13:
+`vivary-dev/Vivary-New`. It started private and was public when checked on
+2026-09-24. His later branching correction selects typed topic
 branches from `dev`, PRs into `dev`, and reviewed promotion from `dev` to `main`.
 Do not commit directly to either long-lived branch. `main` is the default branch.
 The `origin` remote is that GitHub repository. The `entire` remote is its Entire
@@ -153,7 +154,7 @@ Do not promote this work into the original repository or its release branches.
 Make small, coherent, reviewed commits. Preserve unrelated work, accepted
 evidence, and historical budgets. Keep private handoffs, credentials, transcripts,
 and machine-specific continuity notes outside public source and Git history.
-Private source hosting does not establish agent-session capture. Follow
+Source hosting does not establish agent-session capture. Follow
 [the Entire contributor setup](docs/ENTIRE.md) before supported agent work.
 Verify enabled hooks and the private checkpoint destination. Use Entire session
 and checkpoint commands to confirm capture, then search prior checkpoints when

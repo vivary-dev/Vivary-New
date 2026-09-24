@@ -17,7 +17,7 @@ versions live in the [original CLI release status](ORIGINAL-CLI.md#release-statu
 Run applicable repository CI commands on the exact candidate commit on Zo, as
 required by [the contributor guide](https://github.com/vivary-dev/Vivary-New/blob/dev/CONTRIBUTING.md). Record the tested head,
 results, evidence, and platform omissions separately from GitHub Actions status.
-Zo verification can satisfy the CI gate; it does not replace independent review,
+Zo verification can satisfy the CI gate; it does not replace review,
 packaged Windows acceptance, or the separate approval to publish artifacts.
 
 ## Desktop prerelease distribution
@@ -148,7 +148,7 @@ Commit the regenerated `site/src/content/docs/*` with the source docs — CI's
 site build and the graph review gate both expect them to match. (`sync-docs`
 is dependency-free; plain `node scripts/sync-docs.mjs` works without
 `npm install`.) In the original public repository, its configured Vercel project
-redeploys from `dev` on merge. This private Vivary-New repository has no deployment
+redeploys from `dev` on merge. Vivary-New has no deployment
 hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate

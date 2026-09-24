@@ -5,7 +5,7 @@ remote database. The app uses the pinned Agent-Native shell,
 conversation components, settings, actions, provider storage, and run records.
 
 Follow the root [contributor workflow](../../CONTRIBUTING.md) for branches,
-review, and integration in private Vivary-New. Live
+review, and integration in Vivary-New. Live
 [GitHub issues](https://github.com/vivary-dev/Vivary-New/milestone/1) own task scope,
 acceptance, dependencies, and status, including the planned self-hosted browser
 experience. The [program frontier](../../docs/product/multi-project/index.md)

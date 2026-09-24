@@ -14,7 +14,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
 Frontier snapshot: none.
-In-progress snapshot: 17a.
+In-progress snapshot: 09b.
 
 ## Packet references
 
@@ -38,7 +38,7 @@ In-progress snapshot: 17a.
 | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | done | [07b] |
 | [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |
 | [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) | 09 | done | [] |
-| [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) | 09 | needs-info | [09a, 23a] |
+| [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) | 09 | in-progress | [09a, 23a] |
 | [09c: Expose original review and control tools in Native](packets/09c-original-review-control-tools.md) | 09 | needs-info | [09b, 07d] |
 | [10a: Establish the BrowserPod compatibility boundary](packets/10a-browserpod-compatibility-preflight.md) | 10 | done | [] |
 | [10b: Prove the first BrowserPod toolchain on a disposable fixture](packets/10b-browserpod-toolchain-proof.md) | 10 | needs-info | [10a] |
@@ -50,7 +50,7 @@ In-progress snapshot: 17a.
 | [11e: Preview and debug a running project with the agent](packets/11e-live-project-preview.md) | 11 | done | [04a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
 | [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
-| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | in-progress | [04a, 06g] |
+| [17a: Restore project chats and drafts after restart](packets/17a-chat-restart-and-drafts.md) | 17 | done | [04a, 06g] |
 | [18a: Reload scoped file memory across conversations and restarts](packets/18a-scoped-file-memory.md) | 18 | needs-info | [04a, 11a, 09b] |
 | [19a: Connect an approved external pattern catalog after its hold is lifted](packets/19a-held-external-pattern-catalog.md) | 19 | needs-info | [07c, 08a] |
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |

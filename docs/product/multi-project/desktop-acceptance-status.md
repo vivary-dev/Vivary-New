@@ -81,10 +81,9 @@ processes and ports were closed. Workbench prebuilt metadata still says
 carry the source qualification. The fixture did not call a real model.
 
 All seven GitHub checks passed on the source, and the PR review threads are
-resolved. Entire mirror push and ref verification awaits CLI sign-in. Its
-formal trail approval failed separately because a reviewer vote is missing.
-Technical candidate acceptance is complete, while PR #88 and issue #9
-remain open for the reviewed `dev` merge and issue closure.
+resolved. PR #88 merged into `dev` as `0c8c7eb` on 2026-09-24, and issue #9
+closed. The GitHub and Entire `dev` refs both point at that commit. The
+Entire gate now counts the author's approval.
 Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23

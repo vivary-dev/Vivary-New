@@ -2,12 +2,11 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/19
 Parent: 09
-Status: needs-info
+Status: in-progress
 Depends-on: [09a, 23a]
 Owner: Root-assigned original-command and Native action integrator
 Scope: Expose find, check, doctor, and capabilities through the bundled original packages.
 Verification-kind: runtime
-Needs: Accept 09a behavior and 23a package closure. Select bounded structured inputs and outputs.
 Timebox: One shared read-tool increment with app, agent, and installed checks.
 
 ## Goal
@@ -67,6 +66,9 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. The Native actions are not implemented.
+
+- 2026-09-24: Claimed on `feat/project-read-tools` from merged `dev` `0c8c7eb`.
+  Dependencies #18 and #7 are closed.
 
 ## Shared desktop and web behavior
 
