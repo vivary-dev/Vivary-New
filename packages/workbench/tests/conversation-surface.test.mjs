@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface } from "../app/lib/conversation-surface.ts";
+import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface, savedNativeHistoryKind } from "../app/lib/conversation-surface.ts";
 import { codeDraftSelectionKey, codeDraftThreadId } from "../shared/code-draft.ts";
 
 test("bare root restores the last Native or Code surface while explicit routes win", () => {
@@ -12,6 +12,13 @@ test("bare root restores the last Native or Code surface while explicit routes w
   assert.equal(restoredConversationSurface(requestedConversationSurface(new URLSearchParams()), null), null);
 });
 
+
+test("a saved unassigned Native scope survives a bare-root reopen", () => {
+  assert.equal(savedNativeHistoryKind("unassigned"), "unassigned");
+  assert.equal(savedNativeHistoryKind("project"), "project");
+  assert.equal(savedNativeHistoryKind(undefined), "project");
+  assert.equal(savedNativeHistoryKind("unknown"), "project");
+});
 
 test("active surface keys stay separate by organization and project", () => {
   assert.notEqual(conversationSurfaceStateKey("org-a", "project-a"),

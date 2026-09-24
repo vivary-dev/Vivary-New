@@ -141,7 +141,8 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   async function archiveNative(threadId: string) {
     const archived = await native.archiveThread(threadId);
     const route = new URLSearchParams(window.location.search);
-    if (archived && route.get("runtime") === "native" && route.get("thread") === threadId) navigate("/");
+    if (archived && route.get("runtime") === "native" && route.get("history") !== "unassigned"
+      && route.get("thread") === threadId) navigate("/");
     return archived;
   }
   function selectSession(id: string) {

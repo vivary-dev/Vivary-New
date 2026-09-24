@@ -93,6 +93,29 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   appeared but did not deliver input because automation could not control its
   higher-integrity window. Keep #9 open for that acceptance case and delivery.
 
+- 2026-09-24: PR #88 review found two draft-discovery failures in the
+  `250b402f` candidate. An unsent Native conversation had no thread row to
+  list after its active selection changed. A started Code run did not expose
+  the temporary draft ID needed to reopen a later follow-up. The clean
+  `eb63459f` Workbench build indexes only scoped draft IDs in authenticated
+  Native application state, derives previews from the authoritative text, and
+  carries the accepted Code draft ID through its run. The hosted GUI reopened
+  same-project Native drafts and a Code run's follow-up across a changed port.
+  Its original Python runtime was unchanged from `079fba00`. The
+  [receipt](../receipts/17a-chat-restart-and-drafts.md) separates passing
+  segments, earlier failed runs, and remaining packaged acceptance. Keep this
+  packet in progress until the new Windows journey and keyboard case pass.
+
+- 2026-09-24: The first `eb63459f` Windows retest restored an older Code
+  follow-up, then failed to load it after switching from a new draft.
+  Captured requests show the error occurred before a draft read. A hosted
+  session-refresh interruption reproduced that failure. The follow-up work
+  gates draft loading on Native session readiness, checks the exact owned
+  thread before restoring an archived selection, retains the unassigned
+  history kind, and restores a Code draft after a known local send refusal.
+  Focused hosted checks passed on a dirty Workbench build. A clean-source
+  packaged retest and on-screen keyboard case remain open.
+
 ## Shared desktop and web behavior
 
 Include browser refresh, navigation away and back, interrupted connection, and an on-screen keyboard. Restore drafts through the existing host-owned Native state without automatic sending or a second synchronization system.

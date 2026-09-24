@@ -19,6 +19,7 @@ type LocalCodeChatOptions = {
   onStarted: (runId: string) => void;
   onStreaming: (streaming: boolean) => void;
   onSettled: () => void;
+  onKnownRejected: (submitId: string) => Promise<void>;
 };
 
 export function createLocalCodeChatAdapter(
@@ -34,22 +35,29 @@ export function createLocalCodeChatAdapter(
       const userMessage = input.messages.findLast(message => message.role === "user");
       const marker = input.runConfig?.custom?.agentNativeQueuedMessageId;
       const draftSubmitId = typeof marker === "string" ? marker : undefined;
+      const rejectLocal = async (reason: string) => {
+        if (draftSubmitId) await options.onKnownRejected(draftSubmitId);
+        return new Error(reason);
+      };
       const message = userMessage?.content
         .filter(part => part.type === "text")
         .map(part => part.text)
         .join("\n")
         .trim();
-      if (!message) throw new Error("Enter a message for the agent.");
-      if (message.length > 8_000) throw new Error("Keep the message under 8,000 characters.");
+      if (!message) throw await rejectLocal("Enter a message for the agent.");
+      if (message.length > 8_000) throw await rejectLocal("Keep the message under 8,000 characters.");
       if (userMessage?.attachments?.length || userMessage?.content.some(part => part.type !== "text")) {
-        throw new Error("Attachments are not connected to this runtime yet. Ask the agent to read a file already in the workspace.");
+        throw await rejectLocal("Attachments are not connected to this runtime yet. Ask the agent to read a file already in the workspace.");
       }
       const engine = options.engines().find(item => item.engine === options.context.engineRef.current);
       const model = options.context.modelRef.current;
       if (!engine || !model || !engine.models.includes(model)) {
-        throw new Error("Choose an available runtime and model.");
+        throw await rejectLocal("Choose an available runtime and model.");
       }
-      if (input.abortSignal.aborted) return;
+      if (input.abortSignal.aborted) {
+        if (draftSubmitId) await options.onKnownRejected(draftSubmitId);
+        return;
+      }
 
       options.onStreaming(true);
       try {

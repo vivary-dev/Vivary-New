@@ -335,8 +335,17 @@ persistent run store. The hosted chat-draft journey is recorded in the
 [continuity receipt](../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
 The unpublished `250b402f` Windows EXE restored separate Native and Code
 drafts after normal close and a changed-port reopen. It kept the window open
-when a draft save failed, then saved the text on Retry. On-screen keyboard
-input remains unverified, so issue #9 acceptance stays open.
+when a draft save failed, then saved the text on Retry. PR #88 review found
+that draft-only Native conversations and Code follow-ups could still be lost
+from history after switching conversations. The `eb63459f` Workbench build
+keeps scoped draft IDs in Native application state without copying draft text
+into an index. A started Code run retains its original draft ID. The hosted
+GUI reopened both draft-only Native conversations and the Code run's follow-up
+after a changed-port restart. The first `eb63459f` Windows retest found a
+session-readiness race before a Code draft read. A follow-up dirty hosted build
+restored the draft after session recovery and checked archived and unassigned
+Native selection. Clean-source packaged retest and on-screen keyboard input
+remain pending, so issue #9 acceptance stays open.
 
 Local folder grants persist in server-only Native settings. Startup reopens
 and rechecks the canonical path, device, inode, and creation time. Filesystems

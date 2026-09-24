@@ -74,11 +74,33 @@ Code user event, one Native user message, and three cleared empty drafts. A
 preservation check before the later Code send and discards found all 2,011
 original-profile files unchanged. The post-run check remains pending.
 
-The on-screen keyboard appeared, but higher-integrity UI blocked automated
-text input. That keyboard case remains unverified. The Code fixture did not
-complete its approval flow, and the initial app disappearance before project
-creation remains undiagnosed. This section does not mark issue #9 or parent
-outcome 17 complete.
+PR #88 review then found that an unsent Native draft lost its history entry
+after another conversation became active. A Code run's follow-up draft also
+used a temporary ID that history did not recover. Both failures were reproduced
+in the original isolated Windows profile without losing the saved records.
+The `eb63459f` hosted regression used the existing Native application-state
+owner to list ID-only draft markers, then listed two Native drafts and
+two Code drafts. After a changed-port restart, it reopened both Native drafts
+and the started Code run's follow-up. The list calls returned HTTP 200 through the authenticated POST
+action. A deterministic Code fixture accepted one user event. No real model
+call or Native responder request occurred in this added regression. Its
+second unsent Code draft was listed and saved, but was not reopened after
+restart. The first `eb63459f` Windows retest recovered an older Code
+follow-up, but switching back to that run from a new draft displayed a load
+error before any draft read reached the server. Retry restored the text.
+The candidate was stopped after evidence capture. A follow-up dirty hosted
+build reproduced the session-readiness race and passed its recovery check.
+It also checked unassigned Native restoration, archived selection refusal,
+optimistic draft restoration, and known local Code refusal. Clean-source
+packaged acceptance remains pending.
+
+The earlier Windows on-screen keyboard appeared, but higher-integrity UI
+blocked automated text input. A later manual tap delivered `x` as a submitted
+message with a local fixture reply. Whether the user also pressed Send is
+unconfirmed, so the unsent keyboard draft case remains unverified. The
+Code fixture in that package did not complete its approval flow, and the
+initial app disappearance before project creation remains undiagnosed. This
+section does not mark issue #9 or parent outcome 17 complete.
 
 ## Built-in guidance, September 23
 

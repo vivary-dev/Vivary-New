@@ -84,6 +84,7 @@ export function useNativeActionCaller() {
     nativePath: agentNativePath,
     invalidate: notifySessionInvalidated,
   }), []);
-  return { call, retrySession: session.retry, ready: session.status === "authenticated"
+  return { call, retrySession: session.retry, sessionStatus: session.status,
+    ready: session.status === "authenticated"
     && (session.session?.token === undefined || (isValidSessionToken(session.session.token) && !isRejectedSessionToken(session.session.token))) };
 }

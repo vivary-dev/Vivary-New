@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { readClientAppState } from "@agent-native/core/client/hooks";
 import { useAppStateWriter } from "@/lib/native-state";
-import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface } from "@/lib/conversation-surface";
+import { conversationSurfaceStateKey, requestedConversationSurface, restoredConversationSurface, savedNativeHistoryKind, type NativeHistoryKind } from "@/lib/conversation-surface";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, Skeleton } from "@agent-native/toolkit/ui";
 import { IconArrowsMaximize, IconArrowsMinimize, IconFiles, IconInfoCircle, IconSearch, IconWorld, IconX } from "@tabler/icons-react";
@@ -40,6 +40,7 @@ export function Workspace() {
     && readyProjectKey === currentProjectKey;
   const native = params.get("runtime") === "native";
   const explicitSurface = requestedConversationSurface(params);
+  const historyKind: NativeHistoryKind = params.get("history") === "unassigned" ? "unassigned" : "project";
   const surfaceKey = catalog?.scopeKey
     ? conversationSurfaceStateKey(catalog.scopeKey, projectId) : null;
   const surfaceQuery = useQuery({
@@ -51,14 +52,14 @@ export function Workspace() {
     enabled: Boolean(surfaceKey && projectRouteReady),
     retry: false, staleTime: Infinity,
   });
-  const stored = surfaceQuery.data as { surface?: unknown; scopeKey?: unknown; projectId?: unknown } | null;
+  const stored = surfaceQuery.data as { surface?: unknown; historyKind?: unknown; scopeKey?: unknown; projectId?: unknown } | null;
   const savedSurface = stored?.scopeKey === catalog?.scopeKey && stored?.projectId === projectId
     ? stored?.surface : null;
   const restoredSurface = restoredConversationSurface(explicitSurface, savedSurface);
   const { ready: surfaceWriterReady, writeAppState } = useAppStateWriter();
   const queryClient = useQueryClient();
   const latestSurface = useRef<{ key: string; scopeKey: string; projectId: string | null;
-    surface: "native" | "code" } | null>(null);
+    surface: "native" | "code"; historyKind: NativeHistoryKind } | null>(null);
   const savingSurface = useRef(false);
   const [surfaceSaveError, setSurfaceSaveError] = useState(false);
   const saveSurface = useCallback(async () => {
@@ -68,10 +69,10 @@ export function Workspace() {
       while (latestSurface.current) {
         const value = latestSurface.current;
         await writeAppState(value.key, {
-          scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface,
+          scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface, historyKind: value.historyKind,
         }, { keepalive: true });
         queryClient.setQueryData(["vivary-active-conversation", value.key], {
-          scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface,
+          scopeKey: value.scopeKey, projectId: value.projectId, surface: value.surface, historyKind: value.historyKind,
         });
         setSurfaceSaveError(false);
         if (latestSurface.current === value) break;
@@ -85,21 +86,23 @@ export function Workspace() {
   useEffect(() => {
     if (!explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady) return;
     latestSurface.current = { key: surfaceKey, scopeKey: catalog.scopeKey,
-      projectId, surface: explicitSurface };
+      projectId, surface: explicitSurface,
+      historyKind };
     void saveSurface();
-  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady, saveSurface]);
+  }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady, historyKind, saveSurface]);
   useEffect(() => {
     if (explicitSurface || !projectRouteReady || !surfaceQuery.isSuccess || savedSurface !== "native") return;
     setParams(current => {
       const next = new URLSearchParams(current);
       next.set("runtime", "native");
+      next.set("history", savedNativeHistoryKind(stored?.historyKind));
       return next;
     }, { replace: true });
-  }, [explicitSurface, projectRouteReady, surfaceQuery.isSuccess, savedSurface, setParams]);
+  }, [explicitSurface, projectRouteReady, surfaceQuery.isSuccess, savedSurface, stored?.historyKind, setParams]);
   useEffect(() => {
     if (explicitSurface || !surfaceKey || !catalog?.scopeKey || !projectRouteReady
       || !surfaceQuery.isSuccess || restoredSurface) return;
-    latestSurface.current = { key: surfaceKey, scopeKey: catalog.scopeKey, projectId, surface: "code" };
+    latestSurface.current = { key: surfaceKey, scopeKey: catalog.scopeKey, projectId, surface: "code", historyKind: "project" };
     void saveSurface();
   }, [explicitSurface, surfaceKey, catalog?.scopeKey, projectId, projectRouteReady,
     surfaceQuery.isSuccess, restoredSurface, saveSurface]);

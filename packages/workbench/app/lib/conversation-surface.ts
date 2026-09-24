@@ -1,4 +1,9 @@
 export type ConversationSurface = "native" | "code";
+export type NativeHistoryKind = "project" | "unassigned";
+
+export function savedNativeHistoryKind(value: unknown): NativeHistoryKind {
+  return value === "unassigned" ? "unassigned" : "project";
+}
 
 export function requestedConversationSurface(params: URLSearchParams): ConversationSurface | null {
   if (params.get("runtime") === "native") return "native";

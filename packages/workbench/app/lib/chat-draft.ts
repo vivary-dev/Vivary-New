@@ -13,11 +13,11 @@ type Scope = { kind: "project" | "unassigned" | "code"; projectId: string | null
 export type DraftListItem = { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" };
 
 export function useChatDraftList(scope: Scope, scopeKey: string | null, enabled: boolean) {
-  const { call } = useNativeActionCaller();
+  const { call, ready } = useNativeActionCaller();
   return useQuery({
     queryKey: ["vivary-chat-draft-list", scopeKey, scope.kind, scope.projectId],
     queryFn: () => call<{ drafts: DraftListItem[] }>("vivary-chat-draft", { operation: "list", ...scope }),
-    enabled: enabled && !!scopeKey,
+    enabled: enabled && !!scopeKey && ready,
     refetchInterval: 1000,
     retry: false,
   });
@@ -126,7 +126,7 @@ export function applyReconciledDraft(entry: Entry, observed: DraftObservation, r
 }
 
 export function useNativeChatDraft(scope: Scope) {
-  const { call } = useNativeActionCaller();
+  const { call, ready, retrySession, sessionStatus } = useNativeActionCaller();
   const entries = useRef(new Map<string, Entry>());
   const [version, bump] = useState(0);
   const changed = useCallback(() => bump(value => value + 1), []);
@@ -141,6 +141,14 @@ export function useNativeChatDraft(scope: Scope) {
   }, []);
 
   const ensureThread = useCallback(async (threadId: string) => {
+    if (!ready) {
+      if (sessionStatus !== "loading") {
+        const current = entry(threadId);
+        current.error = "The Native session could not be verified. Retry the session before editing this draft.";
+        changed();
+      }
+      return;
+    }
     const current = entry(threadId);
     if (current.loaded || current.saving) return current.saving ?? undefined;
     current.saving = (async () => {
@@ -158,7 +166,7 @@ export function useNativeChatDraft(scope: Scope) {
       }
     })();
     return current.saving;
-  }, [call, changed, entry, params]);
+  }, [call, changed, entry, params, ready, sessionStatus]);
 
   const change = useCallback(async (threadId: string, expected: RecordState | null,
     next: Omit<RecordState, "revision">, generation: number) => {
@@ -367,6 +375,7 @@ export function useNativeChatDraft(scope: Scope) {
   }), [entry, ensureThread, onChange, beforeSubmit, onAccepted, onRejected, version]);
   return {
     hostComposerDraft,
+    rejectKnownSubmission: onRejected,
     statusForThread: (threadId: string) => entry(threadId).error,
     hasConflictForThread: (threadId: string) => entry(threadId).conflict,
     hasFailedDiscardForThread: (threadId: string) => entry(threadId).discardFailed,
@@ -380,6 +389,12 @@ export function useNativeChatDraft(scope: Scope) {
     },
     retry: (threadId: string) => {
       const current = entry(threadId);
+      if (!ready) {
+        current.error = null;
+        changed();
+        retrySession();
+        return;
+      }
       if (current.conflict) {
         current.discardFailed = false;
         current.loaded = false;

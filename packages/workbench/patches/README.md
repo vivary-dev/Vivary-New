@@ -129,7 +129,14 @@ the first draft or message has been saved. An unknown missing ID keeps the norma
 not-found behavior. In host mode, the Native thread hook allocates the initial
 conversation ID. The tab wrapper defers to that ID instead of allocating another.
 Existing thread rows still load their message history normally, even when they
-also have an unsent draft.
+also have an unsent draft. Vivary lists ID-only markers from the same
+authenticated application-state owner so an unsent conversation stays in
+history after another one becomes active. The marker holds an ID and timestamp,
+never draft text or a second transcript. History derives its short preview and
+Draft or Review send status from the authoritative draft record. Cleared drafts
+stop appearing as draft-only rows. A started Code run exposes its first accepted
+draft ID so later follow-ups reopen through run history. Older runs recover
+that ID from a saved user event when one exists.
 
 Each write compares the revision it observed. A cleared draft remains as an
 empty tombstone, so a delayed save cannot recreate it. Before a send, the same
@@ -168,4 +175,11 @@ pnpm --dir packages/workbench test:chat-draft
 
 These checks are included in `test:maintained`. Hosted restart and packaged
 close checks are recorded in the [continuity receipt](../../../docs/product/multi-project/receipts/17a-chat-restart-and-drafts.md).
+A follow-up under review gates host draft reads until the Native session is
+ready. It verifies the exact owned thread before restoring a saved selection,
+retains the unassigned Native history kind, and restores a Code draft after a
+known local send refusal. The first `eb63459f` packaged retest exposed the
+pre-read race. The focused follow-up checks passed on a dirty hosted build.
+Clean-source packaged acceptance remains open.
+
 The Windows keyboard case remains open under issue #9.

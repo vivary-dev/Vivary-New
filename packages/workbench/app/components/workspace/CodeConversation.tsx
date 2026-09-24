@@ -398,6 +398,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
   const createAdapter = useCallback<NonNullable<AssistantChatProps["createAdapter"]>>(context =>
     createLocalCodeChatAdapter({
       context, call, runIdRef, projectId: props.projectId, draftThreadId,
+      onKnownRejected: submitId => draft.rejectKnownSubmission(draftThreadId, submitId),
       engines: () => latest.current.state.engines,
       onStarted: runId => latest.current.onStarted(runId),
       onStreaming: value => {
@@ -408,7 +409,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
         adapterOwnsMessages.current = false;
         latest.current.onSettled();
       },
-    }), [props.projectId, call, draftThreadId]);
+    }), [props.projectId, call, draftThreadId, draft.rejectKnownSubmission]);
   const loadHistoryRepository = useCallback<NonNullable<AssistantChatProps["loadHistoryRepository"]>>(async () => {
     // Canonical replay uses different message IDs. Import only while history owns
     // this view; replacing live IDs invalidates mounted assistant-ui bindings.
