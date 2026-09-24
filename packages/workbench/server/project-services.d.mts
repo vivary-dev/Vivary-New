@@ -20,9 +20,9 @@ export type LocalProjectHistory = Readonly<Pick<
 >>;
 
 export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
-export function admitChatProject(
+export function matchChatProject(
   context: ActionRunContext,
-  isChatProject: (project: { projectId: string; displayName: string }) => boolean,
+  scopeId: string,
 ): Promise<{ projectId: string; context: ActionRunContext } | null>;
 export function connectLocalProjectFolder(
   context: ActionRunContext | undefined,

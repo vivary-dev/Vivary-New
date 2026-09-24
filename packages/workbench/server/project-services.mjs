@@ -1,3 +1,4 @@
+import { projectChatScopeId } from "./chat-project-scope.mjs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, normalize } from "node:path";
@@ -353,13 +354,13 @@ export function startProjectServices(nitroApp, dependencies) {
 }
 
 
-// Native tool call contexts that admitChatProject admitted, each mapped to the
+// Native tool call contexts that matchChatProject admitted, each mapped to the
 // one project its chat is pinned to. Only the admitted object itself counts.
 const chatProjects = new WeakMap();
 const CHAT_CATALOG = Symbol("chat catalog");
 
-// `tool` is the project a Native tool call may reach: the chat catalog read
-// inside admitChatProject, or the project admitChatProject admitted it for.
+// `tool` is the project a Native tool call may reach: the catalog read inside
+// matchChatProject, or the project matchChatProject admitted it for.
 function localService(context, tool) {
   const service = globalThis[LOCAL_SERVICE];
   if (!service || service.controller.snapshot().status !== "open") {
@@ -381,25 +382,26 @@ function localService(context, tool) {
 }
 
 /**
- * Admits a Native tool call to the one registered project `isChatProject`
- * accepts. The returned context stays a tool call, and the read entry points
- * accept that object for that project only. Null when no single project matches.
+ * Finds the one registered project whose Native chat scope is `scopeId`. The
+ * owner's request gets its own context back. A Native tool call gets a
+ * context that the read entry points accept for that project only, and it
+ * stays a tool call. Null when no project matches.
  */
-export async function admitChatProject(context, isChatProject) {
-  if (context?.caller !== "tool") {
-    throw Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
-  }
-  const { service, owner } = localService(context, CHAT_CATALOG);
+export async function matchChatProject(context, scopeId) {
+  const tool = context?.caller === "tool";
+  const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
   const catalog = await service.catalog.run({}, owner);
   if (catalog.code !== "catalog") {
     throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
   }
   const matches = catalog.projects.filter(project =>
-    isChatProject({ projectId: project.projectId, displayName: project.displayName }));
+    projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scopeId);
   if (matches.length !== 1) return null;
+  const { projectId } = matches[0];
+  if (!tool) return { projectId, context };
   const admitted = Object.freeze({ ...context });
-  chatProjects.set(admitted, matches[0].projectId);
-  return { projectId: matches[0].projectId, context: admitted };
+  chatProjects.set(admitted, projectId);
+  return { projectId, context: admitted };
 }
 
 export function getLocalProjectReconnectionService(context) {

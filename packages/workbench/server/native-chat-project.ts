@@ -7,8 +7,7 @@ import {
 import { createError } from "h3";
 import { createVivaryChatIdentity } from "./chat-identity";
 import {
-  admitChatProject,
-  getLocalProjectAccess,
+  matchChatProject,
   resolveLocalProjectWorkspace,
 } from "./project-services.mjs";
 
@@ -18,33 +17,24 @@ type PrepareRequestDetails = Parameters<
   NonNullable<AgentChatPluginOptions["prepareRequest"]>
 >[0];
 
-type ProjectCatalogRecord = {
-  projectId: string;
-  displayName: string;
-};
-
-type ChatProjectRecord = { projectId: string; displayName: string };
-
 type NativeChatProjectDependencies = {
   getScope: () => RequestRunContext["chatScope"];
   getOrgId: () => string | undefined;
-  getProjectAccess: (context: ActionRunContext) => Promise<unknown>;
+  matchChatProject: (
+    context: ActionRunContext,
+    scopeId: string,
+  ) => Promise<{ projectId: string; context: ActionRunContext } | null>;
   resolveProjectWorkspace: (
     context: ActionRunContext,
     projectId: string,
   ) => Promise<unknown>;
-  admitChatProject: (
-    context: ActionRunContext,
-    isChatProject: (project: ChatProjectRecord) => boolean,
-  ) => Promise<{ projectId: string; context: ActionRunContext } | null>;
 };
 
 const defaultDependencies: NativeChatProjectDependencies = {
   getScope: () => getRequestRunContext()?.chatScope,
   getOrgId: getRequestOrgId,
-  getProjectAccess: getLocalProjectAccess,
+  matchChatProject,
   resolveProjectWorkspace: resolveLocalProjectWorkspace,
-  admitChatProject,
 };
 
 function projectConversationError(statusCode: number, statusMessage: string): Error {
@@ -57,23 +47,6 @@ function projectScopeId(scope: RequestRunContext["chatScope"]): string | null {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
   return scope.id;
-}
-
-function catalogProjects(value: unknown): ProjectCatalogRecord[] | null {
-  if (!value || typeof value !== "object" || !("code" in value) || value.code !== "catalog"
-      || !("projects" in value) || !Array.isArray(value.projects)) {
-    return null;
-  }
-  const records: ProjectCatalogRecord[] = [];
-  for (const project of value.projects) {
-    if (!project || typeof project !== "object"
-        || !("projectId" in project) || typeof project.projectId !== "string"
-        || !("displayName" in project) || typeof project.displayName !== "string") {
-      return null;
-    }
-    records.push({ projectId: project.projectId, displayName: project.displayName });
-  }
-  return records;
 }
 
 function preserveAuthorizationError(error: unknown): void {
@@ -90,9 +63,8 @@ type ChatScopeMatch =
 
 // Matches the pinned scope to the owner's current catalog. Native consumed
 // the request body before either caller runs and already normalized its scope.
-// The send guard reads the catalog as the owner's HTTP request. A tool call
-// asks project services to admit it for the one matching project, and stays
-// a tool call.
+// The context keeps the caller that asked: the send guard runs inside an HTTP
+// request, and a tool call stays a tool call.
 async function matchChatScope(
   dependencies: NativeChatProjectDependencies,
   identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
@@ -121,23 +93,9 @@ async function matchChatScope(
     appId: "workbench",
     ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  const isChatProject = (project: ChatProjectRecord) => createVivaryChatIdentity(ownerEmail, orgId, {
-    kind: "project",
-    projectId: project.projectId,
-    label: project.displayName,
-  }).scope.id === requestedScopeId;
   let match: { projectId: string; context: ActionRunContext } | null;
   try {
-    if (identity.caller === "tool") {
-      match = await dependencies.admitChatProject(context, isChatProject);
-    } else {
-      const projects = catalogProjects(await dependencies.getProjectAccess(context));
-      if (!projects) {
-        throw projectConversationError(403, "Project conversation access is unavailable.");
-      }
-      const project = projects.find(isChatProject);
-      match = project ? { projectId: project.projectId, context } : null;
-    }
+    match = await dependencies.matchChatProject(context, requestedScopeId);
   } catch (error) {
     preserveAuthorizationError(error);
     throw projectConversationError(409, "Project conversation access is unavailable.");

@@ -37,11 +37,17 @@ function projectScope(projectId: string | null, label = "Project A") {
   }).scope;
 }
 
+// The one project in the catalog, matched by its chat scope id as project services do.
+async function matchCatalog(context: ActionRunContext, scopeId: string) {
+  return scopeId === projectScope(project.projectId).id ? { projectId: project.projectId, context } : null;
+}
+
 function guardFor(
   scope: RequestRunContext["chatScope"],
   overrides: Partial<{
     getOrgId: () => string | undefined;
-    getProjectAccess: (context: ActionRunContext) => Promise<unknown>;
+    matchChatProject: (context: ActionRunContext, scopeId: string) =>
+      Promise<{ projectId: string; context: ActionRunContext } | null>;
     resolveProjectWorkspace: (
       context: ActionRunContext,
       projectId: string,
@@ -51,11 +57,9 @@ function guardFor(
   return createVivaryNativeChatProjectGuard({
     getScope: () => scope,
     getOrgId: overrides.getOrgId ?? (() => orgId),
-    getProjectAccess: overrides.getProjectAccess
-      ?? (async () => ({ code: "catalog", projects: [project] })),
+    matchChatProject: overrides.matchChatProject ?? matchCatalog,
     resolveProjectWorkspace: overrides.resolveProjectWorkspace
       ?? (async () => ({ projectId: project.projectId })),
-    admitChatProject: async () => { throw new Error("The send guard reads the catalog as the owner."); },
   });
 }
 
@@ -63,9 +67,9 @@ test("preserves legacy, unscoped, and unrelated Native chat behavior", async () 
   let projectReads = 0;
   const passThrough = async (scope: RequestRunContext["chatScope"]) => {
     const guard = guardFor(scope, {
-      getProjectAccess: async () => {
+      matchChatProject: async (context, scopeId) => {
         projectReads += 1;
-        return { code: "catalog", projects: [project] };
+        return matchCatalog(context, scopeId);
       },
     });
     await guard(details());
@@ -83,9 +87,9 @@ test("preserves legacy, unscoped, and unrelated Native chat behavior", async () 
 test("accepts Personal only through its explicit actor and organization identity", async () => {
   let projectReads = 0;
   await guardFor(projectScope(null), {
-    getProjectAccess: async () => {
+    matchChatProject: async (context, scopeId) => {
       projectReads += 1;
-      return { code: "catalog", projects: [project] };
+      return matchCatalog(context, scopeId);
     },
   })(details());
   assert.equal(projectReads, 0);
@@ -100,9 +104,9 @@ test("matches a v2 scope against the current catalog and reopens its workspace",
   let receivedContext: ActionRunContext | null = null;
   let resolvedProjectId: string | null = null;
   const guard = guardFor(projectScope(project.projectId), {
-    getProjectAccess: async context => {
+    matchChatProject: async (context, scopeId) => {
       receivedContext = context;
-      return { code: "catalog", projects: [project] };
+      return matchCatalog(context, scopeId);
     },
     resolveProjectWorkspace: async (context, projectId) => {
       assert.deepEqual(context, receivedContext);
