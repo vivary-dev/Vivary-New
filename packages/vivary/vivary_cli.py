@@ -236,8 +236,10 @@ def _read_receipts(path: Path) -> tuple[list[dict[str, Any]], int]:
 
 def _load_receipts(path_text: str) -> tuple[Path, list[dict[str, Any]], int]:
     path = Path(path_text).expanduser()
-    if not path.is_file():
+    if not os.path.lexists(path):
         raise FileNotFoundError("receipt log not found")
+    if not path.is_file():
+        raise OSError("receipt log is not a regular file")
     records, invalid = _read_receipts(path)
     return path, records, invalid
 

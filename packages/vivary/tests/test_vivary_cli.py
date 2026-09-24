@@ -223,6 +223,10 @@ class VivaryLogsTests(unittest.TestCase):
         payload = json.loads(json_out)
         self.assertIsNone(payload["log"])
         self.assertEqual((payload["summary"]["total"], payload["records"]), (0, []))
+        with tempfile.TemporaryDirectory() as td:
+            dir_rc, dir_out, dir_err = _run(["logs", td, "--json"])
+        self.assertEqual((dir_rc, dir_out), (1, ""))
+        self.assertIn("not a regular file", dir_err)
 
     def test_logs_email_refuses_directory_draft_target(self):
         with tempfile.TemporaryDirectory() as td:
@@ -399,8 +403,27 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertIn("client-acme-offboarding", plain_out)
         self.assertNotIn("acme", public_out)
         public = json.loads(public_out)
-        self.assertIn("1 module entry needs attention. Run doctor without --public on this host"
-                      " to list them", public["errors"])
+        self.assertIn("1 module folder lacks index.md", public["errors"])
+        self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
+
+    def test_public_doctor_names_no_folder_outside_the_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            outer = Path(td) / "acme-private-holdings"
+            apart = Path(td) / "project"
+            for root in (outer, apart):
+                rc, _, err = _run(["create", str(root), "--preset", "coding"])
+                self.assertEqual(rc, 0, err)
+            # create refuses a root inside another workspace, so nest it afterward.
+            project = apart.rename(outer / "project")
+
+            plain_rc, plain_out, _ = _run(["doctor", str(project), "--json"])
+            public_rc, public_out, public_err = _run(
+                ["doctor", "--root", str(project), "--public", "--json"])
+
+        self.assertIn("acme-private-holdings", plain_out)
+        self.assertNotIn("acme", public_out)
+        self.assertNotIn(td, public_out)
+        self.assertIn("tropo configuration is invalid", json.loads(public_out)["errors"])
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
     def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):

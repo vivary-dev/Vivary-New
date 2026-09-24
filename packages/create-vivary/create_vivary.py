@@ -1558,12 +1558,16 @@ def doctor_workspace(
 ) -> dict:
     """Validate that a directory looks like a usable Vivary agent workspace.
 
-    ``public=True`` leaves out every check that names a user-authored path,
-    because such a path may be one Git ignores. It skips the typed-note graph
-    walk and reports no graph, and it counts module index problems without
-    naming them. A caller that must leave private files out reads notes
-    through Tropo's privacy-filtered check instead.
+    ``public=True`` reports only fixed sentences, because a path or an
+    exception's text may name a file Git ignores or a folder outside the
+    workspace. It skips the typed-note graph walk and reports no graph, and it
+    counts module index problems by rule. A caller that must leave private
+    files out reads notes through Tropo's privacy-filtered check instead.
     """
+
+    def say(public_text: str, detailed_text: str) -> str:
+        return public_text if public else detailed_text
+
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
     target = Path(target).resolve()
@@ -1578,9 +1582,9 @@ def doctor_workspace(
     )
 
     if not target.exists():
-        errors.append(f"workspace does not exist: {target}")
+        errors.append(say("workspace does not exist", f"workspace does not exist: {target}"))
     elif not target.is_dir():
-        errors.append(f"workspace is not a directory: {target}")
+        errors.append(say("workspace is not a directory", f"workspace is not a directory: {target}"))
 
     if (
         not errors
@@ -1598,7 +1602,8 @@ def doctor_workspace(
             try:
                 gitignore_bytes = gitignore.read_bytes()
             except OSError as exc:
-                errors.append(f"cannot inspect .gitignore for interrupted adoption: {exc}")
+                errors.append(say("cannot inspect .gitignore for interrupted adoption",
+                                  f"cannot inspect .gitignore for interrupted adoption: {exc}"))
             else:
                 prejournal = _prejournal_privacy_match(gitignore_bytes)
                 if prejournal is not None:
@@ -1663,12 +1668,14 @@ def doctor_workspace(
             )
         if compatibility["workspace_contract"] != THIN_WORKSPACE_CONTRACT:
             module_errors = _module_index_errors(target)
-            if public and module_errors:
-                count = len(module_errors)
-                errors.append(
-                    f"{count} module {'entry needs' if count == 1 else 'entries need'} attention."
-                    " Run doctor without --public on this host to list them"
-                )
+            if public:
+                missing = sum(1 for error in module_errors if error.startswith("module directory missing index.md"))
+                legacy = len(module_errors) - missing
+                if missing:
+                    errors.append(f"{missing} module {'folder lacks' if missing == 1 else 'folders lack'} index.md")
+                if legacy:
+                    errors.append(f"{legacy} legacy module {'file sits' if legacy == 1 else 'files sit'}"
+                                  " beside a module index")
             else:
                 errors.extend(module_errors)
 
@@ -1683,7 +1690,7 @@ def doctor_workspace(
             tropo, resolver = _doctor_config_context(target, root)
             workspace_roles = resolver.base.workspace_roles
         except Exception as exc:  # keep doctor a report, not a traceback
-            errors.append(f"tropo validation failed: {exc}")
+            errors.append(say("tropo configuration is invalid", f"tropo validation failed: {exc}"))
     if not errors:
         try:
             if resolver is None:
@@ -1707,18 +1714,25 @@ def doctor_workspace(
                 if graph["nodes"] == 0:
                     warnings.append("typed graph has no nodes")
         except Exception as exc:  # keep doctor a report, not a traceback
-            errors.append(f"tropo validation failed: {exc}")
+            errors.append(say("tropo configuration is invalid", f"tropo validation failed: {exc}"))
 
     if target.is_dir():
         # Declaration failures must not suppress graph/trend metrics. The graph is a
         # read-only observation of the workspace, independent of optional providers.
-        errors.extend(compatibility["declared_capability_problems"])
+        problems = compatibility["declared_capability_problems"]
+        if public and problems:
+            errors.append(f"{len(problems)} declared {'capability is' if len(problems) == 1 else 'capabilities are'}"
+                          " invalid")
+        else:
+            errors.extend(problems)
         if memory_report["status"] == "misconfigured":
-            errors.append(f"semantic memory misconfigured: {memory_report['detail']}")
+            errors.append(say("semantic memory is misconfigured",
+                              f"semantic memory misconfigured: {memory_report['detail']}"))
         elif memory_report["status"] == "privacy-failed":
             errors.append("semantic memory privacy check failed")
         elif memory_report["status"] == "unavailable":
-            warnings.append(f"semantic memory provider unavailable: {memory_report['provider']}")
+            warnings.append(say("semantic memory provider is unavailable",
+                                f"semantic memory provider unavailable: {memory_report['provider']}"))
 
     return {
         "ok": not errors,
