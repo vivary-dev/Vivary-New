@@ -306,8 +306,8 @@ sanitized command receipts for every project on this host, with totals for the
 whole log. Each section runs on its own, so several can run at once.
 
 Doctor, find, and check use the front door's `--public` path. Doctor checks the
-workspace's files and settings without reading notes, so typed notes are
-reported only by Note check. Find and check read through the privacy-filtered
+workspace's files and settings and names no path the user authored, so typed
+notes are reported only by Note check. Find and check read through the privacy-filtered
 facade. Files that Git ignores, sensitive file names, and a Vivary workspace's
 private paths stay out of results, and each result counts what it left out. A folder that is neither a
 Git repository nor a Vivary workspace gets a clear refusal instead of results,
@@ -321,18 +321,18 @@ The Native agent reads the same reports through one Vivary tool,
 the chat, and the tool refuses a personal chat. The panel and the tool get the
 same result, capped to fit the tool result limit with true totals. The result
 shows the project root as `.` instead of its host path. The tool call keeps its
-own caller identity. Project services let it list the owner's projects and
-resolve only its chat's project, and never let it connect or reconnect a
-folder. Coding runtimes keep their own file tools and do not receive this tool.
+own caller identity. Project services admit it for its chat's project alone,
+and never let it list projects, connect a folder, or reconnect one. Coding runtimes keep their own file tools and do not receive this tool.
 
 Original commands never refuse a caller for being busy. Reads run in parallel.
 A command that writes a project's files, such as an approved setup, runs alone
 within that project. A limit sized to the machine's processor count, and never
 below four, only makes extra commands wait. A command that still cannot start
-after 30 seconds returns a message asking you to try again. Each command writes
-its receipt to a private file of its own, and the app appends that file to the
-shared log after the command ends, so parallel commands cannot overwrite each
-other's receipts.
+after 30 seconds returns a message asking you to try again. A command whose
+component writes a receipt writes it to a private file, and the app appends
+that file to the shared log after the command ends, so parallel commands cannot
+overwrite each other's receipts. A governed command or a write fails without its
+receipt. A read's report stands without one.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs

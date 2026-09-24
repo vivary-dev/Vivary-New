@@ -118,11 +118,12 @@ Current command surface:
 - `vivary-mcp --workspace ALIAS PATH` from the optional `vivary-mcp` package,
   which stays off by default
 
-`vivary doctor --root PATH --public` runs Doctor without its note walk and prints
-`vivary.doctor-result/v0` with `ok`, `errors`, and `warnings`. Plain Doctor reads every
-note its config does not exclude and reports each finding with the note's path and field
-values, so a Git-ignored note reaches its output. The public path leaves notes to
-`vivary check --public`. It exits 1 when Doctor reports errors and never refuses a folder.
+`vivary doctor --root PATH --public` prints `vivary.doctor-result/v0` with `ok`,
+`errors`, and `warnings`, and names no path the user authored. Plain Doctor reads every
+note its config does not exclude and names notes and module folders that Git may ignore.
+The public path skips the note walk, leaving notes to `vivary check --public`, and counts
+module folder problems without naming them. It exits 1 when Doctor reports errors and
+never refuses a folder.
 
 `vivary find QUERY --root PATH --public` and `vivary check --root PATH --public` read
 through Tropo's privacy-filtered facade instead of the plain Tropo commands. They leave
