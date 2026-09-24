@@ -118,6 +118,12 @@ Current command surface:
 - `vivary-mcp --workspace ALIAS PATH` from the optional `vivary-mcp` package,
   which stays off by default
 
+`vivary doctor --root PATH --public` runs Doctor without its note walk and prints
+`vivary.doctor-result/v0` with `ok`, `errors`, and `warnings`. Plain Doctor reads every
+note its config does not exclude and reports each finding with the note's path and field
+values, so a Git-ignored note reaches its output. The public path leaves notes to
+`vivary check --public`. It exits 1 when Doctor reports errors and never refuses a folder.
+
 `vivary find QUERY --root PATH --public` and `vivary check --root PATH --public` read
 through Tropo's privacy-filtered facade instead of the plain Tropo commands. They leave
 out files that Git ignores, sensitive file names, and the private paths of a thin
@@ -136,8 +142,8 @@ A root that is neither a Git worktree nor a thin Vivary workspace gets
 `PATH`. `find` also returns `path_refused` for a question that contains a file or URL
 path, credential-like text, a control character, or the root path, and a snippet the
 facade cannot show safely is `null`. `vivary find --help` still prints Tropo's help,
-and `vivary find --public --help` prints this path's options. The public path does not
-write a run receipt and does not accept `--receipt`.
+and `vivary find --public --help` prints this path's options. No public path writes a
+run receipt or accepts `--receipt`.
 
 For local debugging and bug reports, the core CLIs accept `--receipt PATH` or
 `VIVARY_RECEIPT_LOG=PATH` to append a dependency-free JSONL run receipt. Receipts stay

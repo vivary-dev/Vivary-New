@@ -64,8 +64,9 @@ git diff --check
 `vivary-project-read-owner` with a project ID, and the Native agent calls it through
 `vivary-project-read`, whose project comes from the chat's pinned scope. Access
 refusals throw. Whether the original command produced a report is part of the value.
-Find and check run `vivary find|check --public`, which reaches Tropo's
-privacy-filtered facade. The original runner schedules reads in parallel and runs a
+Doctor runs `vivary doctor --public`, which checks the workspace without
+reading notes. Find and check run `vivary find|check --public`, which reaches
+Tropo's privacy-filtered facade. The original runner schedules reads in parallel and runs a
 write alone within its project. Callers wait instead of seeing a busy error, and a
 command that cannot start within 30 seconds returns a retryable message.
 

@@ -76,6 +76,7 @@ rather than being ignored. Core artifacts carried through the envelopes use the
 
 | Surface | Request | Success | Refusal / incomplete result | Contract evidence |
 |---|---|---|---|---|
+| `vivary doctor --public --json` | CLI arguments plus an operator-selected root | `vivary.doctor-result/v0`, with no note findings | None. A usage error exits 2 | [Front door regressions](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/vivary/tests/test_vivary_cli.py) |
 | `vivary find --public --json`, `vivary check --public --json` | CLI arguments plus an operator-selected root | `vivary.find-result/v0`, `vivary.check-result/v0` | `vivary.read-refusal/v0` with the facade's reason, exit 2 | [Front door regressions](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/vivary/tests/test_vivary_cli.py) |
 | `tropo find --governed --json` | CLI arguments plus an operator-selected root | `vivary.task-capsule/v0` | Structured CLI error; no partial capsule is presented as complete | [Tropo regressions](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py) |
 | `strato decide --governed --json` | `vivary.strato-decision-request/v0` | `vivary.strato-decision/v0` | `vivary.strato-decision-refusal/v0` | [Strato regressions](https://github.com/vivary-dev/vivary/blob/dev/packages/strato/tests/test_strato.py) |
@@ -179,7 +180,7 @@ text, target ids, and local paths are not copied into the summary.
 |---|---|
 | `logs [PATH]` | Read local JSONL receipts from `PATH`, `VIVARY_RECEIPT_LOG`, or `.vivary/receipts.jsonl` and print a summary. |
 | `logs --failed --tail 10` | Show only recent failed receipts. |
-| `logs --json` | Return `{summary, records}` for agents and bug-report tooling. |
+| `logs --json` | Return `{summary, log, records}` for agents and bug-report tooling. `summary` covers the printed records, and `log` covers the whole file. |
 | `logs email ... --out FILE` | Write a local `.eml` draft; directory targets, symlink targets, symlink/junction ancestors, and Windows device names are refused. |
 | `logs email ...` | Without `--out`, print a `mailto:` URL for the user's mail client. |
 
