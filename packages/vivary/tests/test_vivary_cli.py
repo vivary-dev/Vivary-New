@@ -1,16 +1,30 @@
 import contextlib
 import io
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _path in (ROOT, *(ROOT.parent / name for name in ("tropo", "core", "create-vivary"))):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
+import tropo
 import vivary_cli
+from vivary_core import normalize_path
+
+
+def _run(argv):
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = vivary_cli.main(argv)
+    return rc, out.getvalue(), err.getvalue()
 
 
 class VivaryReleaseMetadataTests(unittest.TestCase):
@@ -31,13 +45,6 @@ class VivaryReleaseMetadataTests(unittest.TestCase):
         )
 
 class VivaryLogsTests(unittest.TestCase):
-    def _run(self, argv):
-        out = io.StringIO()
-        err = io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            rc = vivary_cli.main(argv)
-        return rc, out.getvalue(), err.getvalue()
-
     def _write_receipts(self, path):
         records = [
             {
@@ -88,7 +95,7 @@ class VivaryLogsTests(unittest.TestCase):
             receipt = Path(td) / "receipts.jsonl"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(["logs", str(receipt), "--json"])
+            rc, out, err = _run(["logs", str(receipt), "--json"])
 
         self.assertEqual(rc, 0, err)
         payload = json.loads(out)
@@ -104,7 +111,7 @@ class VivaryLogsTests(unittest.TestCase):
             receipt = Path(td) / "receipts.jsonl"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(["logs", str(receipt), "--failed", "--tail", "1"])
+            rc, out, err = _run(["logs", str(receipt), "--failed", "--tail", "1"])
 
         self.assertEqual(rc, 0, err)
         self.assertIn("total=1", out)
@@ -116,7 +123,7 @@ class VivaryLogsTests(unittest.TestCase):
             receipt = Path(td) / "receipts.jsonl"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(["logs", str(receipt), "--tail", "0", "--json"])
+            rc, out, err = _run(["logs", str(receipt), "--tail", "0", "--json"])
 
         self.assertEqual(rc, 0, err)
         payload = json.loads(out)
@@ -141,7 +148,7 @@ class VivaryLogsTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, err = self._run(["logs", str(receipt), "--json"])
+            rc, out, err = _run(["logs", str(receipt), "--json"])
 
         self.assertEqual(rc, 0, err)
         payload = json.loads(out)
@@ -158,7 +165,7 @@ class VivaryLogsTests(unittest.TestCase):
             draft = Path(td) / "vivary-support.eml"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(
+            rc, out, err = _run(
                 [
                     "logs",
                     "email",
@@ -184,7 +191,7 @@ class VivaryLogsTests(unittest.TestCase):
             self.assertNotIn("C:/Users/example/private/project", text)
 
     def test_logs_missing_file_exits_cleanly(self):
-        rc, out, err = self._run(["logs", "missing.jsonl", "--json"])
+        rc, out, err = _run(["logs", "missing.jsonl", "--json"])
 
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
@@ -195,7 +202,7 @@ class VivaryLogsTests(unittest.TestCase):
             receipt = Path(td) / "receipts.jsonl"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(
+            rc, out, err = _run(
                 [
                     "logs",
                     "email",
@@ -216,7 +223,7 @@ class VivaryLogsTests(unittest.TestCase):
             receipt = Path(td) / "receipts.jsonl"
             self._write_receipts(receipt)
 
-            rc, out, err = self._run(
+            rc, out, err = _run(
                 [
                     "logs",
                     "email",
@@ -229,6 +236,107 @@ class VivaryLogsTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("single-line text", err)
+
+
+class VivaryPublicReadTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name) / "project"
+        (self.root / "decisions").mkdir(parents=True)
+        files = {
+            "tropo.toml": (
+                "version = 1\n\n[base]\nallow_untyped = true\n\n"
+                '[types.decision]\nfolder = "decisions"\n'
+                'required = { status = "enum:proposed|accepted" }\n'
+            ),
+            ".gitignore": "private.md\n",
+            "public.md": "# Public\n\nThe gamma relay notes.\n",
+            "private.md": "# Private\n\nThe gamma relay secret.\n",
+            "decisions/relay.md": "# Relay decision\n\nUse the gamma relay.\n",
+        }
+        for name, content in files.items():
+            (self.root / name).write_text(content, encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self.canonical = normalize_path(os.path.realpath(self.root))
+
+    def _tree(self):
+        return {
+            path.relative_to(self.root).as_posix(): (
+                path.lstat().st_mtime_ns,
+                path.read_bytes() if path.is_file() else None,
+            )
+            for path in self.root.rglob("*")
+        }
+
+    def test_public_reads_print_the_facade_result_and_write_nothing(self):
+        before = self._tree()
+        find_rc, find_out, find_err = _run(
+            ["find", "gamma relay", "--root", str(self.root), "--public", "--json",
+             "--k", "3", "--budget", "500"]
+        )
+        check_rc, check_out, check_err = _run(
+            ["check", "--root", str(self.root), "--public", "--json"]
+        )
+
+        self.assertEqual(self._tree(), before)
+        self.assertEqual(find_rc, 0, find_err)
+        self.assertEqual(
+            json.loads(find_out),
+            tropo.find_context(
+                self.canonical, "gamma relay", k=3, budget=500, allowlist=[self.canonical]
+            ),
+        )
+        check = json.loads(check_out)
+        self.assertEqual(check, tropo.check_workspace(self.canonical, allowlist=[self.canonical]))
+        self.assertEqual(check["errors"], 1)
+        self.assertEqual(check_rc, 1, check_err)
+
+    def test_public_find_leaves_out_a_git_ignored_note_that_plain_find_returns(self):
+        public_rc, public_out, public_err = _run(
+            ["find", "gamma relay", "--root", str(self.root), "--public"]
+        )
+        plain_rc, plain_out, plain_err = _run(
+            ["find", "gamma relay", "--root", str(self.root), "--json"]
+        )
+
+        self.assertEqual(public_rc, 0, public_err)
+        public = json.loads(public_out)
+        self.assertNotIn("private.md", [hit["path"] for hit in public["results"]])
+        self.assertIn(
+            {"kind": "privacy_excluded", "reason": "git_ignored", "count": 1},
+            public["omissions"],
+        )
+        self.assertEqual(plain_rc, 0, plain_err)
+        self.assertIn("private.md", [hit["path"] for hit in json.loads(plain_out)["results"]])
+
+    def test_public_reads_refuse_a_folder_without_a_privacy_policy(self):
+        shutil.rmtree(self.root / ".git")
+        for verb_args in (["find", "gamma relay"], ["check"]):
+            with self.subTest(verb=verb_args[0]):
+                rc, out, err = _run([*verb_args, "--root", str(self.root), "--public"])
+
+                self.assertEqual(rc, 2, err)
+                self.assertEqual(
+                    json.loads(out),
+                    {"schema": "vivary.read-refusal/v0", "reason": "privacy_policy_unavailable"},
+                )
+
+    def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):
+        root = str(self.root)
+        cases = (
+            (["--", "-gamma"], "the query must not start with '-'"),
+            (["-gamma"], "vivary find: error:"),
+            (["gamma", "--k", "21"], "expected an integer from 1 to 20"),
+            (["gamma", "--budget", "63"], "expected an integer from 64 to 4000"),
+        )
+        for tail, message in cases:
+            with self.subTest(tail=tail):
+                rc, out, err = _run(["find", "--root", root, "--public", *tail])
+
+                self.assertEqual(rc, 2)
+                self.assertEqual(out, "")
+                self.assertIn(message, err)
 
 
 if __name__ == "__main__":

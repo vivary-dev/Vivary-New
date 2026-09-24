@@ -476,6 +476,70 @@ def _prog_keyword(main: Any, route: Route) -> dict[str, str]:
     return {"prog": routed_prog(route.verb)} if accepts else {}
 
 
+def _public_read(module: Any, verb: str, rest: list[str]) -> int:
+    """Run find or check through Tropo's privacy-filtered read facade.
+
+    Plain find and check read every Markdown file their config does not exclude,
+    so a git-ignored note reaches the output. The facade applies Core's privacy
+    policy and needs no Tropo config. A folder that is neither a Git worktree
+    nor a thin Vivary workspace is refused, because its private files cannot be
+    told apart.
+    """
+
+    def bounded(low: int, high: int):
+        def parse(text: str) -> int:
+            if not text.isdecimal() or not low <= int(text) <= high:
+                raise argparse.ArgumentTypeError(
+                    f"expected an integer from {low} to {high}")
+            return int(text)
+
+        return parse
+
+    parser = argparse.ArgumentParser(
+        prog=routed_prog(verb),
+        description=(
+            "Read through the privacy-filtered facade. Files that Git ignores,"
+            " sensitive names, and a thin Vivary workspace's private paths are"
+            " left out. No tropo.toml is needed. Output is always JSON."
+        ),
+        allow_abbrev=False,
+    )
+    parser.add_argument("--root", required=True,
+                        help="a Git worktree or a thin Vivary workspace")
+    parser.add_argument("--public", action="store_true", required=True,
+                        help="read through the privacy-filtered facade")
+    parser.add_argument("--json", action="store_true",
+                        help="accepted, output is always JSON")
+    if verb == "find":
+        parser.add_argument("query", help="the question to rank context for")
+        parser.add_argument("--k", type=bounded(1, 20), default=5,
+                            help="results to return, 1 to 20 (default 5)")
+        parser.add_argument("--budget", type=bounded(64, 4000), default=1200,
+                            help="estimated token budget, 64 to 4000 (default 1200)")
+    args = parser.parse_args(rest)
+    if verb == "find" and args.query.startswith("-"):
+        parser.error("the query must not start with '-'")
+
+    from vivary_core import normalize_path
+
+    # The facade accepts only Core's spelling of the root, which on Windows
+    # means forward slashes and a lowercase drive letter.
+    root = normalize_path(os.path.realpath(args.root))
+    try:
+        if verb == "find":
+            result = module.find_context(
+                root, args.query, k=args.k, budget=args.budget, allowlist=[root])
+            code = 0
+        else:
+            result = module.check_workspace(root, allowlist=[root])
+            code = 1 if result["errors"] > 0 else 0
+    except module.TropoFacadeError as error:
+        result = {"schema": "vivary.read-refusal/v0", "reason": error.reason}
+        code = 2
+    print(json.dumps(result, indent=2))
+    return code
+
+
 def _dispatch(route: Route, rest: list[str]) -> int:
     component = COMPONENTS[route.module]
     try:
@@ -530,6 +594,8 @@ def _dispatch(route: Route, rest: list[str]) -> int:
     argv = [*route.operation, *rest]
     keyword = _prog_keyword(main, route)
     try:
+        if route.verb in ("find", "check") and "--public" in rest:
+            return _public_read(module, route.verb, rest)
         try:
             return main(argv, **keyword)
         except TypeError as exc:

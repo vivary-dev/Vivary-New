@@ -122,6 +122,20 @@ Current command surface:
 - `vivary-mcp --workspace ALIAS PATH` from the optional `vivary-mcp` package,
   which stays off by default
 
+`vivary find QUERY --root PATH --public` and `vivary check --root PATH --public` read
+through Tropo's privacy-filtered facade instead of the plain Tropo commands. They leave
+out files that Git ignores, sensitive file names, and the private paths of a thin
+Vivary workspace, and they need no `tropo.toml`. Neither command writes under the root,
+and both always print JSON. The flag is part of the unpublished vivary 0.2.1 source.
+
+`find` prints `vivary.find-result/v0` and `check` prints `vivary.check-result/v0`, and
+each counts what it left out under `omissions`. `find` accepts `--k` from 1 to 20
+(default 5) and `--budget` from 64 to 4000 (default 1200), refuses a query that starts
+with `-`, and exits 0. `check` exits 1 when it reports errors. When the facade refuses a
+root, both print `{"schema": "vivary.read-refusal/v0", "reason": "<reason>"}` and exit 2.
+A root that is neither a Git worktree nor a thin Vivary workspace gets
+`privacy_policy_unavailable`.
+
 For local debugging and bug reports, the core CLIs accept `--receipt PATH` or
 `VIVARY_RECEIPT_LOG=PATH` to append a dependency-free JSONL run receipt. Receipts stay
 local and do not capture stdout, stderr, file contents, raw query text, target ids, or
