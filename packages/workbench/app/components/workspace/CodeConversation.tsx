@@ -147,7 +147,7 @@ export default function CodeConversation({ previewScope, onPreviewChatTarget }: 
   return <>
     {saveSelection.isError && <div className="local-agent-notice" role="alert">
       <span>Your conversation selection could not be saved.</span>
-      <Button variant="ghost" size="sm" onClick={() => { if (saveSelection.variables) void queueCodeSelection(saveSelection.variables.key, saveSelection.variables.value).catch(() => {}); }}>Retry</Button>
+      <Button variant="ghost" size="sm" onClick={() => void drainCodeSelections().catch(() => {})}>Retry</Button>
     </div>}
     <ProjectCodeWorkspace key={projectScope} projectId={projectId} draftScopeKey={projectScope}
       ownerKey={catalog?.scopeKey ?? ""}
