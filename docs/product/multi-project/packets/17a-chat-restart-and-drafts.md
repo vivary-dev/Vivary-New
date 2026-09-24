@@ -133,6 +133,20 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   need independent review and affected hosted and packaged checks. Keep #9
   open until those gates and the reviewed `dev` merge finish.
 
+- 2026-09-24: Reviewed fixes in `702f93e` and `1889fe6` received focused
+  hosted observations for recovery, owner rejection, selection, older Code
+  follow-ups, and latest queued Retry. Their earlier private hosted receipts
+  were lost in a Modal snapshot rollback. The first `9682472b` package failed
+  because its installed Core did not match the tracked patch. Reinstalling
+  from the unchanged frozen lock restored the correct runtime. The repaired
+  exact-source Windows package passed the existing project-row switch under
+  a held SQLite write, pending close, changed-port bare-root restart, and
+  seven-draft audit. The [receipt](../receipts/17a-chat-restart-and-drafts.md)
+  gives the artifact and evidence limits. Technical candidate acceptance is
+  complete. Keep #9 open until PR #88 merges into `dev`. Entire CLI sign-in
+  is needed for mirror push and ref verification. The formal trail approval remains
+  a separate failed check that requires a recorded reviewer vote.
+
 ## Shared desktop and web behavior
 
 Include browser refresh, navigation away and back, interrupted connection, and an on-screen keyboard. Restore drafts through the existing host-owned Native state without automatic sending or a second synchronization system.

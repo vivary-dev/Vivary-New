@@ -48,36 +48,44 @@ acceptance.
 
 ## Conversation drafts, September 24
 
-[Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records clean
-`12c8b354` hosted and isolated packaged Windows results. The hosted Workbench
-build passed five final focused cases while reusing the original Python runtime
-from `079fba00`. The unpublished Windows package restored Native, Code, and
-unassigned drafts with exact IDs and text after normal close and a changed-port
-bare-root restart. It kept an archived conversation out of the rail. Its
-prebuilt Workbench metadata still says `sourceCommitVerified: false`, so the
-receipt keeps the separate clean-build and package identity checks.
+[Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records the
+clean `12c8b354` hosted and packaged draft journeys, including distinct
+Native, Code, and unassigned drafts, exact IDs after changed-port restarts,
+and the manual unsent on-screen keyboard `x` across refresh and restart.
+Later `702f93e` and `1889fe6` fixes received focused fixture observations
+for failed-save recovery, owner rejection, queued selection, older Code
+follow-ups, and page hide. The earlier private hosted receipt files were
+lost in a Modal snapshot rollback. Their reported observations remain
+qualified fixture evidence, not a claim that the files survive.
 
-The unassigned rows and initial placeholders were seeded through supported
-owner APIs, then edited through the GUI. Corrected final captures replace the
-earlier misnamed screenshot helper output as standalone evidence. The isolated
-profile audit found six tested drafts unsent, one accepted Code user, three
-accepted Native users, and one synthetic Native provider request. All 2,011
-original-profile files were unchanged.
+The first `9682472b` package failed because its installed Core had an older
+patch without the host-owned draft runtime behavior. The frozen lockfile
+was unchanged. Reinstalling its pinned Core and Toolkit patches and
+rebuilding produced a package whose Core chat and history chunks match the
+working `1889fe6` package byte for byte. The initial hosted `9682472b`
+check reached a Native `history=project` route but did not pass a stable
+draft or existing-row check. The stale package is retained as failure
+evidence, not acceptance.
 
-The separate manual on-screen keyboard check saved an unsent `x`. Refresh
-and normal close followed by a changed-port restart restored the same
-conversation ID and text. No Enter or Send was
-used. The final audit found seven tested drafts unsent and no additional user
-submission or fixture provider request. The keyboard remained visible over the
-app, while the composer, accessibility tree, and owner records supported the
-result. Earlier `x` plus Enter sent-history evidence is separate.
+The repaired unpublished Windows archive, SHA-256
+`a4ccb0ebfb6e4788c5a7e0a9019c070b85ff5b859a9ee09495f35569238689e3`,
+passed the affected packaged journey. The unsent keyboard text reopened
+with a stable editor. Under a held SQLite write, choosing an existing
+project Native history row kept its project owner mounted. Alt+F4 waited
+until the lock was released. A changed-port bare-root restart restored the
+exact selected conversation and full unsent draft. Seven tested drafts
+remained unsent. The accepted user and provider counts did not change.
+All 2,011 original-profile files retained their hashes, and candidate
+processes and ports were closed. Workbench prebuilt metadata still says
+`sourceCommitVerified: false`. Separate clean build and package evidence
+carry the source qualification. The fixture did not call a real model.
 
-Six later PR #88 review findings cover Code owner rejection, cleared index
-markers, selection writes during close, hosted page unload, older Code runs,
-and failed unmounted saves. Follow-up fixes require independent review and
-affected acceptance on their own source commit. The `12c8b354` result does not
-certify those fixes. Issue #9 remains open for that review, final checks, and
-the merge into `dev`. Parent outcome 17 retains its separate gates.
+All seven GitHub checks passed on the source, and the PR review threads are
+resolved. Entire mirror push and ref verification awaits CLI sign-in. Its
+formal trail approval failed separately because a reviewer vote is missing.
+Technical candidate acceptance is complete, while PR #88 and issue #9
+remain open for the reviewed `dev` merge and issue closure.
+Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23
 
@@ -576,7 +584,7 @@ automations in #51 remain open.
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Hosted and packaged #9 restored Native and Code drafts after changed-port reopen and refused close during an unsaved write | #9 later review fixes and affected retesting, plus chat-content search and scoped memory in their owning issues |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search and scoped memory stay in their owning issues |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |

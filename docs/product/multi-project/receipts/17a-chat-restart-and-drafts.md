@@ -3,11 +3,11 @@
 Evidence-record: 17a
 Date: 2026-09-24
 Issue: [#9](https://github.com/vivary-dev/Vivary-New/issues/9)
-Latest verified source: `12c8b35448b4d37bac3337109f2fab8a5e07c909`
-Hosted result: five final focused cases passed on clean `12c8b354`, with the original Python runtime from `079fba00`
-Packaged Windows result: focused `12c8b354` restart, history, archive, and draft checks passed in an isolated profile
-On-screen keyboard unsent-draft case: passed on `12c8b354` with manual input, refresh, and changed-port restart
-Delivery status: issue #9 and PR #88 remain open while later review fixes receive independent review and affected retesting
+Latest verified source: `9682472b651743e7a1528ad8a89641157fc4812d`
+Hosted result: five focused cases passed on clean `12c8b354` with original Python runtime `079fba00`. Later affected hosted checks on `702f93e` and `1889fe6` used synthetic owners and runtimes. The first `9682472b` hosted build used a stale installed Core patch and is not accepted.
+Packaged Windows result: repaired `9682472b` package passed focused delayed Native selection, close, changed-port restart, and seven-draft preservation checks in an isolated profile
+On-screen keyboard unsent-draft case: passed on `12c8b354` with manual input, refresh, and changed-port restart. The same unsent text was preserved through the `9682472b` Windows retest without another keyboard entry.
+Delivery status: technical candidate acceptance passed. PR #88 and issue #9 remain open pending final delivery and reviewed merge into `dev`. Entire mirror push and ref verification awaits CLI sign-in. The formal trail approval remains a separate failed check.
 
 ## Result
 
@@ -272,17 +272,84 @@ accessibility tree, and owner audit support the result. The earlier `x` plus
 Enter observation is a separate normal sent-history case. Private evidence is
 listed in `issue9-osk-receipt.json`.
 
-PR #88 subsequently received six valid review findings on the `12c8b354`
-source: definite Code owner rejections, cleared draft-index growth, desktop
-selection writes during close, hosted page unload transport, older Code runs
-with saved follow-ups, and failed unmounted draft saves. Follow-up source fixes
-are in review. The proposed page unload path requests keepalive only when the
-full serialized UTF-8 body is at most 48,000 bytes. Browsers also limit the
-aggregate in-flight keepalive budget. Larger or rejected requests use ordinary
-transport. A beforeunload prompt helps if the user stays on the page, but it
-cannot guarantee persistence after the user confirms leaving. The later fixes
-and this receipt do not promote those changes
-to accepted Windows behavior. Issue #9 stays open until independent review,
-affected hosted and packaged retesting, required checks, and the reviewed merge
-into `dev` finish. This result does not close parent outcome 17 or authorize a
+After the `12c8b354` checks, PR #88 received six valid review findings:
+Code owner rejection, cleared draft-index growth, selection writes during
+close, page-unload transport, older Code follow-ups, and failed unmounted
+draft saves. The `12c8b354` Windows result does not certify their later
+fixes. Their review, affected checks, and final repaired package are
+recorded below. This does not close parent outcome 17 or authorize a
 release.
+
+## Reviewed fixes and final candidate
+
+PR #88 addressed the six later findings on the `12c8b354` source. The
+`702f93e` changes cover explicit Code owner rejection, cleared draft-index
+markers, selection writes during close, bounded page-unload transport, older
+Code runs with saved follow-ups, and failed unmounted draft saves. The
+`1889fe6` change makes Code Retry drain the latest queued selection rather
+than replay an older failed value. Focused hosted observations covered an
+unmounted Native save failure with visible, copyable text and Retry, an
+explicit Code owner rejection that restored the draft, a recent edit across
+page hide and refresh, a delayed Native selection save across close and
+bare-root reopen, a saved follow-up on a synthetic run older than the latest
+20, and Code Retry with a newer queued selection. The Code queued-selection Retry case also had no horizontal overflow
+at 390 pixels. These used fixtures, not real models.
+The original private hosted receipts for these cases were lost in a Modal
+snapshot rollback. The results were reported before that rollback, but the
+missing files are not retained artifacts.
+
+Page-unload transport uses keepalive only when the entire serialized UTF-8
+request is at most 48,000 bytes. A browser can still refuse a request because
+of its aggregate in-flight budget. A larger or refused request uses ordinary
+transport. The beforeunload prompt helps when the user stays, but cannot
+guarantee saving after confirmed departure. This is not an unconditional
+unload-save promise.
+
+The first `9682472b` build and Windows package used an installed Core with an
+older patch hash. Its runtime component did not consume the host-owned draft,
+and the Windows composer repeatedly remounted. That package failed and is
+preserved as stale-dependency evidence. A forced install from the unchanged
+frozen lock restored the tracked Core patch hash `948a6a2b` and Toolkit patch
+hash `cc8130b9`. The repaired package's Core chat and history chunks match
+the working `1889fe6` package byte for byte. The clean `9682472b` source snapshot was rebuilt separately and
+packaged again. The stale package result is not counted as acceptance.
+The limited hosted check before the repair saw the new Native route include
+`history=project`, but did not complete a stable draft or existing-row test.
+The repaired packaged Windows journey below supplies the affected runtime
+proof.
+
+The unpublished repaired `9682472b` Windows archive has 3,108 files, is
+223,721,256 bytes, and has SHA-256
+`a4ccb0ebfb6e4788c5a7e0a9019c070b85ff5b859a9ee09495f35569238689e3`.
+The installed chat component matched the tracked patch before the clean
+Workbench build. The package's Workbench metadata still reports
+`sourceCommitVerified: false`, so its source qualification rests on the
+separate clean build, dependency checks, package receipt, and tested archive.
+
+The Windows run reused the isolated profile from the earlier accepted
+on-screen keyboard check. On initial bare-root launch, the same unsent `x`
+opened in the same Native conversation and its editor stayed stable for four
+seconds. No second keyboard entry or submission occurred. An empty SQLite
+transaction then held a write. Choosing an existing project Native history
+row kept `history=project` in the route and mounted the scoped owner. Alt+F4
+left close pending while the write was held. The fixture released the lock
+after 31.8 seconds with zero rows changed, and the window closed normally.
+A bare-root restart on a different local port reopened the exact
+selected conversation with its full unsent draft and Draft saved
+status. A read-only audit found all seven tested drafts unsent, three Native
+user messages, one Code user event, and no new provider request. All 2,011
+original-profile files retained their hashes, with no missing or extra files.
+The candidate and fixture processes stopped, and their tested ports closed.
+Private evidence is in `issue9-windows-9682-repaired/`.
+
+All seven GitHub checks passed on the exact source, and the PR review threads
+are resolved. The combined Zo test run on `1889fe6` had one 15-second timeout in the
+Codex app-server child-start test. Its isolated suite passed 24 of 24 tests,
+and the remaining workflow groups passed. The original combined run remains
+a failed check with no confirmed timeout cause. The formal Entire trail
+approval failed because its required reviewer vote was not recorded. Entire
+CLI sign-in is separately needed for mirror push and ref verification. It
+does not supply that reviewer vote. Technical candidate acceptance is
+complete for issue #9. PR #88 review delivery, the merge into `dev`, and
+issue closure remain pending. This does not accept all of parent outcome 17
+or authorize publication.
