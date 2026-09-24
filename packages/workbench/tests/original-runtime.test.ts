@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
-import { adoptionExecutionSchema, createOriginalCommandRunner, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
+import { ActionContractError } from "@agent-native/core/action";
+import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
 
 const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
-const input = { projectId: "project-a", command: { verb: "doctor" as const } };
+const input = { projectId: "project-a", command: { verb: "review" as const } };
 
 test("command input has no caller-supplied executable, paths, flags or receipt target", () => {
   for (const invalid of [
@@ -28,22 +29,39 @@ test("command input has no caller-supplied executable, paths, flags or receipt t
   ]) assert.equal(originalCommandSchema.safeParse(invalid).success, false);
 });
 
-test("arguments preserve the ten owners and place the query or node id directly after its verb", () => {
+test("the public command action has no unfiltered find or check, and no project read verb", () => {
+  for (const command of [{ verb: "doctor" }, { verb: "capabilities" }, { verb: "check" },
+    { verb: "find", query: "chapter outline" }, { verb: "logs" }]) {
+    assert.equal(originalCommandSchema.safeParse({ projectId: "project-a", command }).success, false, command.verb);
+  }
+});
+
+test("project reads use the privacy-filtered front door and never pass a receipt path", () => {
+  const root = "/granted/project";
+  assert.deepEqual(originalCommandArguments({ verb: "doctor" }, root).args, ["doctor", root, "--json"]);
+  assert.deepEqual(originalCommandArguments({ verb: "capabilities", preset: "writing" }, root).args,
+    ["capabilities", "--preset", "writing", "--json"]);
+  assert.deepEqual(originalCommandArguments({ verb: "find", query: "chapter outline", k: 5, budget: 1200 }, root).args,
+    ["find", "chapter outline", "--root", root, "--public", "--json", "--k", "5", "--budget", "1200"]);
+  assert.deepEqual(originalCommandArguments({ verb: "check" }, root).args, ["check", "--root", root, "--public", "--json"]);
+  assert.deepEqual(originalCommandArguments({ verb: "logs", failedOnly: false }, root).args, ["logs", "--json", "--tail", "40"]);
+  assert.deepEqual(originalCommandArguments({ verb: "logs", failedOnly: true }, root).args, ["logs", "--json", "--tail", "40", "--failed"]);
+});
+
+test("arguments preserve the public owners and place the node id directly after its verb", () => {
   // tropo and ozone parse positionals once, right after the verb; a trailing
   // positional or a `--` terminator after options is rejected by both CLIs.
   const examples = [
-    { verb: "create" }, { verb: "adopt" }, { verb: "doctor" }, { verb: "capabilities" },
-    { verb: "check" }, { verb: "find", query: "chapter outline" },
+    { verb: "create" }, { verb: "adopt" }, { verb: "pattern-state" },
     { verb: "decide", request: "{}" }, { verb: "review" },
     { verb: "impact", nodeId: "outline" }, { verb: "control", request: "{}" },
   ];
   for (const command of examples) {
     const parsed = originalCommandSchema.parse({ projectId: "project-a", command });
     const invocation = originalCommandArguments(parsed.command, "/granted/project", "/private/request.json");
-    assert.equal(invocation.args[0], command.verb);
+    assert.equal(invocation.args[0], command.verb === "pattern-state" ? "adopt" : command.verb);
     if (command.verb === "create") assert.ok(invocation.args.includes("--dry-run"));
     if (command.verb === "adopt") assert.ok(!invocation.args.includes("--yes"));
-    if (command.verb === "find") assert.deepEqual(invocation.args.slice(0, 2), ["find", "chapter outline"]);
     if (command.verb === "impact") assert.deepEqual(invocation.args.slice(0, 2), ["impact", "outline"]);
     assert.ok(!invocation.args.includes("--"), invocation.args.join(" "));
     if (command.verb === "decide") assert.equal(invocation.stdin, "{}");
@@ -116,17 +134,26 @@ test("child executable search excludes the project and relative PATH entries", (
   assert.equal(env.PATH, trusted);
 });
 
-async function fixture(inspect?: (args: string[], stdin: string) => Promise<void>) {
-  const directory = await mkdtemp(path.join(tmpdir(), "vivary-original-"));
+async function bundle(prefix: string) {
+  const directory = await mkdtemp(path.join(tmpdir(), prefix));
   const runtime = path.join(directory, "runtime");
   const data = path.join(directory, "data");
-  const root = path.join(directory, "project");
   const relative = process.platform === "win32" ? "python/python.exe" : "python/bin/python3";
   const executable = path.join(runtime, relative);
-  await Promise.all([mkdir(path.dirname(executable), { recursive: true }), mkdir(data), mkdir(root)]);
+  await Promise.all([mkdir(path.dirname(executable), { recursive: true }), mkdir(data)]);
   await writeFile(executable, "fixture interpreter; execution is injected");
   await writeFile(path.join(runtime, "manifest.json"), JSON.stringify({ schemaVersion: 1, platform: process.platform, arch: process.arch, pythonVersion: "3.12.14", pythonExecutable: relative }));
-  let workspace: LocalProjectWorkspace = { root, actorId: "actor-owner", label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" };
+  return { directory, runtime, data, executable };
+}
+
+const projectWorkspace = (projectId: string, root: string): LocalProjectWorkspace => ({ root, actorId: "actor-owner", label: "Project A",
+  projectId, rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" });
+
+async function fixture(inspect?: (args: string[], stdin: string) => Promise<void>) {
+  const { directory, runtime, data, executable } = await bundle("vivary-original-");
+  const root = path.join(directory, "project");
+  await mkdir(root);
+  let workspace = projectWorkspace("project-a", root);
   let reads = 0;
   let calls = 0;
   let beforeResolve = () => {};
@@ -314,14 +341,205 @@ test("app decisions append a compatible private receipt without request or outpu
   } finally { await f.cleanup(); }
 });
 
-test("only one original process is admitted and cancellation releases the slot", async () => {
-  const controller = new AbortController();
-  const execution = runOriginalProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], "", process.cwd(), process.env, controller.signal);
-  const stopped = assert.rejects(execution, /cancelled/);
+type Execute = NonNullable<Parameters<typeof createOriginalCommandRunner>[0]>["execute"];
+type Submission = { result: Promise<unknown>; signal: AbortSignal; abort: () => void; queued: () => Promise<void> };
+const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+
+// Commands reach the scheduler in any order, so each test observes queue
+// entry through the abort listener the scheduler registers on the caller's
+// signal, and admission through the fake executor that receives that signal.
+async function scheduling(execute?: Execute) {
+  const { directory, runtime, data } = await bundle("vivary-original-queue-");
+  const started: { projectId: string; verb: string; signal?: AbortSignal; finish: () => void }[] = [];
+  const submitted: Submission[] = [];
+  const fake: Execute = (_python, args, _stdin, _cwd, _environment, signal) => new Promise(resolve => started.push({
+    projectId: path.basename(args.find(value => path.dirname(value) === directory)!),
+    verb: args[6] === "adopt" && args.includes("--yes") ? "adopt-apply" : args[6], signal,
+    finish: () => resolve({ exitCode: 0, stdout: "", stderr: "", signal: null }),
+  }));
+  const dependencies = {
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
+    resolveWorkspace: async (_context: ActionRunContext | undefined, projectId: string) =>
+      projectWorkspace(projectId, path.join(directory, projectId)),
+    execute: execute ?? fake,
+  };
+  const read = createOriginalCommandRunner(dependencies);
+  const write = createAdoptionCommandRunner(dependencies);
+  const submit = (run: (signal: AbortSignal) => Promise<unknown>): Submission => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const add = signal.addEventListener.bind(signal);
+    let entered!: () => void;
+    const queued = new Promise<void>(resolve => { entered = resolve; });
+    signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean) => {
+      if (type === "abort") entered();
+      add(type, listener, options);
+    }) as typeof signal.addEventListener;
+    const result = run(signal);
+    result.catch(() => undefined);
+    const submission = { result, signal, abort: () => controller.abort(), queued: () => queued.then(flush) };
+    submitted.push(submission);
+    return submission;
+  };
+  return {
+    directory, started,
+    review: (projectId: string) => submit(signal => read({ projectId, command: { verb: "review" } }, { ...context, signal })),
+    apply: (projectId: string) => submit(signal => write({ verb: "adopt-apply", planHash: "sha256:" + "a".repeat(64),
+      requestId: "00000000-0000-4000-8000-000000000001" }, projectWorkspace(projectId, path.join(directory, projectId)), { ...context, signal })),
+    finish: async (submission: Submission) => {
+      const entry = started.find(candidate => candidate.signal === submission.signal);
+      assert.ok(entry, "the command was admitted");
+      entry.finish();
+      await submission.result;
+      await flush();
+    },
+    running: (...submissions: Submission[]) => submissions.map(submission =>
+      started.some(entry => entry.signal === submission.signal)),
+    // A failed assertion must not leave a project locked for the next test.
+    cleanup: async () => {
+      for (const submission of submitted) submission.abort();
+      for (const entry of started) entry.finish();
+      await Promise.allSettled(submitted.map(submission => submission.result));
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+test("reads in one project overlap and a write waits for them, then holds later reads back", async () => {
+  const f = await scheduling();
   try {
-    assert.throws(() => runOriginalProcess(process.execPath, ["-e", "throw new Error('must not spawn')"], "", process.cwd(), process.env), /Another original Vivary command is running/);
-  } finally { controller.abort(); await stopped; }
-  assert.equal((await runOriginalProcess(process.execPath, ["-e", ""], "", process.cwd(), process.env)).exitCode, 0);
+    const first = f.review("project-a"), second = f.review("project-a");
+    await first.queued(); await second.queued();
+    assert.deepEqual(f.running(first, second), [true, true]);
+    const write = f.apply("project-a");
+    await write.queued();
+    const later = f.review("project-a");
+    await later.queued();
+    assert.deepEqual(f.running(write, later), [false, false], "the write and the read behind it wait for the running reads");
+    const other = f.review("project-b");
+    await other.queued();
+    assert.deepEqual(f.running(other), [true]);
+    await f.finish(first);
+    assert.deepEqual(f.running(write, later), [false, false]);
+    await f.finish(second);
+    assert.deepEqual(f.running(write, later), [true, false]);
+    await f.finish(write);
+    assert.deepEqual(f.running(later), [true]);
+    await Promise.all([f.finish(later), f.finish(other)]);
+  } finally { await f.cleanup(); }
+});
+
+test("a write in one project never waits for another project", async () => {
+  const f = await scheduling();
+  try {
+    const read = f.review("project-a");
+    await read.queued();
+    const write = f.apply("project-b");
+    await write.queued();
+    assert.deepEqual(f.running(read, write), [true, true]);
+    await Promise.all([f.finish(read), f.finish(write)]);
+  } finally { await f.cleanup(); }
+});
+
+test("commands past the machine's parallelism wait for a free child instead of failing", async () => {
+  const f = await scheduling();
+  const capacity = availableParallelism();
+  try {
+    const commands = Array.from({ length: capacity + 1 }, (_, index) => f.review(`project-${index}`));
+    for (const command of commands) await command.queued();
+    const admitted = f.running(...commands);
+    assert.equal(admitted.filter(Boolean).length, capacity);
+    const waiting = commands[admitted.indexOf(false)];
+    await f.finish(commands[admitted.indexOf(true)]);
+    assert.deepEqual(f.running(waiting), [true]);
+    await Promise.all(commands.filter(command => command !== commands[admitted.indexOf(true)]).map(f.finish));
+  } finally { await f.cleanup(); }
+});
+
+test("a cancelled or timed-out waiter leaves the queue without running", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = await scheduling();
+  try {
+    const write = f.apply("project-a");
+    await write.queued();
+    const cancelled = f.review("project-a");
+    await cancelled.queued();
+    cancelled.abort();
+    await assert.rejects(cancelled.result, /cancelled/);
+    const expired = f.review("project-a");
+    await expired.queued();
+    t.mock.timers.tick(30_000);
+    await assert.rejects(expired.result, { errorCode: "vivary_original_queue_timeout", statusCode: 503, message: /still running/ });
+    await f.finish(write);
+    assert.deepEqual(f.running(cancelled, expired), [false, false]);
+    const next = f.review("project-a");
+    await next.queued();
+    assert.deepEqual(f.running(next), [true], "the project lock was released");
+    await f.finish(next);
+  } finally { await f.cleanup(); }
+});
+
+test("a missing bundle and a slow command fail with their own codes", async t => {
+  const f = await fixture();
+  try {
+    const missing = createOriginalCommandRunner({ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }),
+      resolveWorkspace: async () => projectWorkspace("project-a", f.root), execute: runOriginalProcess });
+    await assert.rejects(missing(input, context), { errorCode: "vivary_original_runtime_unavailable", statusCode: 503 });
+  } finally { await f.cleanup(); }
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const slow = runOriginalProcess(process.execPath, ["-e", "setInterval(() => {}, 1000)"], "", process.cwd(),
+    originalChildEnvironment(process.env, path.join(tmpdir(), "unused-original-receipt.jsonl")));
+  t.mock.timers.tick(30_000);
+  await assert.rejects(slow, { errorCode: "vivary_original_timeout", statusCode: 504, message: /30-second limit/ });
+});
+
+test("public find and check append an app receipt without the question, and doctor does not", async () => {
+  const f = await fixture();
+  try {
+    const read = createProjectReadRunner({
+      environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+      resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+      execute: async () => ({ exitCode: 1, stdout: "{}", stderr: "", signal: null }),
+    });
+    await read("project-a", { verb: "find", query: "private question text", k: 5, budget: 1200 }, context);
+    await read("project-a", { verb: "check" }, context);
+    await read("project-a", { verb: "doctor" }, context);
+    const text = await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8");
+    const receipts = text.trim().split("\n").map(line => JSON.parse(line));
+    assert.deepEqual(receipts.map(receipt => [receipt.command, receipt.exit_code, receipt.ok, receipt.receipt_source]),
+      [["find", 1, false, "app"], ["check", 1, false, "app"]]);
+    assert.equal(text.includes("private question text"), false);
+    assert.equal(text.includes(f.root), false);
+  } finally { await f.cleanup(); }
+});
+
+test("a project read names its project and keeps host paths out of band", async () => {
+  const f = await fixture();
+  const dependencies = {
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+  };
+  try {
+    const exited = await createProjectReadRunner({ ...dependencies,
+      execute: async () => ({ exitCode: 0, stdout: "report", stderr: "", signal: null }) })("project-a", { verb: "doctor" }, context);
+    assert.deepEqual(exited, { project: { id: "project-a", label: "Project A" }, outcome: "exited", exitCode: 0,
+      stdout: "report", stderr: "", hostPaths: { root: f.root, dataDir: f.data } });
+    for (const [errorCode, reason] of [["vivary_original_timeout", "timeout"], ["vivary_original_output_limit", "output_limit"],
+      ["vivary_original_queue_timeout", "queue_timeout"]] as const) {
+      const failed = await createProjectReadRunner({ ...dependencies, execute: async () => {
+        throw new ActionContractError("refused", { errorCode, statusCode: 503 });
+      } })("project-a", { verb: "check" }, context);
+      assert.deepEqual(failed, { project: { id: "project-a", label: "Project A" }, outcome: "failed", reason });
+    }
+    const missing = await createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
+      environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }) })("project-a", { verb: "doctor" }, context);
+    assert.deepEqual(missing, { project: { id: "project-a", label: "Project A" }, outcome: "failed", reason: "runtime_unavailable" });
+    const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+    await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
+      resolveWorkspace: async () => { throw revoked; } })("project-a", { verb: "doctor" }, context), error => error === revoked);
+    await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess })(
+      "project-a", { verb: "find", query: "--root /outside", k: 5, budget: 1200 }, context));
+  } finally { await f.cleanup(); }
 });
 
 test("governed requests reject foreign identity, authority and scope before execution", async () => {
@@ -429,29 +647,33 @@ test("matching governed requests preserve submitted evidence and return no execu
   } finally { await f.cleanup(); }
 });
 
-test("shutdown waits for active commands and permanently closes admission", async () => {
+test("shutdown stops running children, refuses waiters and permanently closes admission", async () => {
   const { shutdownOriginalCommands } = await import("../server/original-runtime");
-  const directory = await mkdtemp(path.join(tmpdir(), "vivary-original-shutdown-"));
-  const ready = path.join(directory, "ready");
-  const execution = runOriginalProcess(process.execPath,
-    ["-e", `require("node:fs").writeFileSync(${JSON.stringify(ready)},"ready");setInterval(()=>{},1000)`],
-    "", directory, originalChildEnvironment(process.env, path.join(directory, "receipt.jsonl")));
-  const stopped = assert.rejects(execution, /closing/);
+  const f = await scheduling((_python, args, stdin, cwd, environment, signal) => runOriginalProcess(process.execPath,
+    ["-e", `require("node:fs").writeFileSync(${JSON.stringify(path.join(f.directory, "ready"))},"ready");setInterval(()=>{},1000)`],
+    stdin, cwd, environment, signal));
+  const write = f.apply("project-a");
+  await write.queued();
+  const waiting = f.review("project-a");
+  const stopped = assert.rejects(write.result, /closing. The original command was stopped/);
+  const refused = assert.rejects(waiting.result, /closing. New original commands cannot start/);
   try {
     let started = false;
     for (let attempt = 0; attempt < 40 && !started; attempt++) {
-      try { await readFile(ready); started = true; }
+      try { await readFile(path.join(f.directory, "ready")); started = true; }
       catch { await new Promise(resolve => setTimeout(resolve, 50)); }
     }
     assert.equal(started, true);
+    await waiting.queued();
     const shutdown = shutdownOriginalCommands();
     assert.equal(shutdownOriginalCommands(), shutdown);
     await shutdown;
-    await stopped;
-    assert.throws(() => runOriginalProcess(process.execPath, ["-e", ""], "", directory, {}), /cannot start/);
+    await Promise.all([stopped, refused]);
+    await assert.rejects(f.review("project-b").result, /cannot start/);
+    assert.throws(() => runOriginalProcess(process.execPath, ["-e", ""], "", f.directory, {}), /cannot start/);
   } finally {
     await shutdownOriginalCommands();
-    await stopped;
-    await rm(directory, { recursive: true, force: true });
+    await Promise.allSettled([stopped, refused]);
+    await f.cleanup();
   }
 });

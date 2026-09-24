@@ -1,4 +1,4 @@
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { AgentChatPluginOptions, RequestRunContext } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -75,6 +75,63 @@ function preserveAuthorizationError(error: unknown): void {
   }
 }
 
+type ChatScopeMatch =
+  | { kind: "not-project" }
+  | { kind: "personal" }
+  | { kind: "project"; projectId: string; ownerContext: ActionRunContext };
+
+// Matches the pinned scope to the owner's current catalog. Native consumed
+// the request body before either caller runs and already normalized its scope.
+async function matchChatScope(
+  dependencies: NativeChatProjectDependencies,
+  owner: string | null | undefined,
+): Promise<ChatScopeMatch> {
+  const requestedScopeId = projectScopeId(dependencies.getScope());
+  if (!requestedScopeId) return { kind: "not-project" };
+
+  const ownerEmail = owner?.trim().toLowerCase();
+  const orgId = dependencies.getOrgId();
+  if (!ownerEmail || !orgId) {
+    throw projectConversationError(403, "Project conversation access is unavailable.");
+  }
+
+  const personal = createVivaryChatIdentity(ownerEmail, orgId, {
+    kind: "project",
+    projectId: null,
+    label: "Personal workspace",
+  });
+  if (requestedScopeId === personal.scope.id) return { kind: "personal" };
+
+  const ownerContext: ActionRunContext = {
+    caller: "http",
+    userEmail: ownerEmail,
+    orgId,
+    appId: "workbench",
+  };
+  let projects: ProjectCatalogRecord[] | null;
+  try {
+    projects = catalogProjects(await dependencies.getProjectAccess(ownerContext));
+  } catch (error) {
+    preserveAuthorizationError(error);
+    throw projectConversationError(409, "Project conversation access is unavailable.");
+  }
+  if (!projects) {
+    throw projectConversationError(403, "Project conversation access is unavailable.");
+  }
+
+  const project = projects.find(candidate =>
+    createVivaryChatIdentity(ownerEmail, orgId, {
+      kind: "project",
+      projectId: candidate.projectId,
+      label: candidate.displayName,
+    }).scope.id === requestedScopeId,
+  );
+  if (!project) {
+    throw projectConversationError(403, "Project conversation access is unavailable.");
+  }
+  return { kind: "project", projectId: project.projectId, ownerContext };
+}
+
 /**
  * Revalidate v2 project-scoped Native sends before any model or attachment work.
  * Other scopes retain Agent-Native's existing behavior, including legacy v1 chats.
@@ -83,53 +140,10 @@ export function createVivaryNativeChatProjectGuard(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
 ): (details: PrepareRequestDetails) => Promise<void> {
   return async details => {
-    // Native consumed the body before this hook and already normalized its scope.
-    const requestedScopeId = projectScopeId(dependencies.getScope());
-    if (!requestedScopeId) return;
-
-    const ownerEmail = details.ownerEmail?.trim().toLowerCase();
-    const orgId = dependencies.getOrgId();
-    if (!ownerEmail || !orgId) {
-      throw projectConversationError(403, "Project conversation access is unavailable.");
-    }
-
-    const personal = createVivaryChatIdentity(ownerEmail, orgId, {
-      kind: "project",
-      projectId: null,
-      label: "Personal workspace",
-    });
-    if (requestedScopeId === personal.scope.id) return;
-
-    const context: ActionRunContext = {
-      caller: "http",
-      userEmail: ownerEmail,
-      orgId,
-      appId: "workbench",
-    };
-    let projects: ProjectCatalogRecord[] | null;
+    const match = await matchChatScope(dependencies, details.ownerEmail);
+    if (match.kind !== "project") return;
     try {
-      projects = catalogProjects(await dependencies.getProjectAccess(context));
-    } catch (error) {
-      preserveAuthorizationError(error);
-      throw projectConversationError(409, "Project conversation access is unavailable.");
-    }
-    if (!projects) {
-      throw projectConversationError(403, "Project conversation access is unavailable.");
-    }
-
-    const project = projects.find(candidate =>
-      createVivaryChatIdentity(ownerEmail, orgId, {
-        kind: "project",
-        projectId: candidate.projectId,
-        label: candidate.displayName,
-      }).scope.id === requestedScopeId,
-    );
-    if (!project) {
-      throw projectConversationError(403, "Project conversation access is unavailable.");
-    }
-
-    try {
-      await dependencies.resolveProjectWorkspace(context, project.projectId);
+      await dependencies.resolveProjectWorkspace(match.ownerContext, match.projectId);
     } catch (error) {
       preserveAuthorizationError(error);
       throw projectConversationError(
@@ -142,3 +156,30 @@ export function createVivaryNativeChatProjectGuard(
 
 export const prepareVivaryNativeChatProject =
   createVivaryNativeChatProjectGuard();
+
+/**
+ * The project a Native tool call acts on comes only from its chat's pinned
+ * scope, never from tool input. The returned owner context is the one the
+ * send guard uses, carrying the tool call's cancellation signal.
+ */
+export function createVivaryNativeChatProjectResolver(
+  dependencies: NativeChatProjectDependencies = defaultDependencies,
+): (context: ActionRunContext | undefined) => Promise<{ projectId: string; ownerContext: ActionRunContext }> {
+  return async context => {
+    const match = context?.caller === "tool"
+      ? await matchChatScope(dependencies, context.userEmail)
+      : { kind: "not-project" as const };
+    if (match.kind !== "project") {
+      fail("Open this chat from a project to use project tools.", {
+        errorCode: "vivary_project_read_scope",
+        statusCode: 409,
+      });
+    }
+    return {
+      projectId: match.projectId,
+      ownerContext: { ...match.ownerContext, signal: context?.signal },
+    };
+  };
+}
+
+export const resolveNativeChatProject = createVivaryNativeChatProjectResolver();

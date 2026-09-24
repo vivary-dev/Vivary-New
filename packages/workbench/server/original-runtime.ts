@@ -1,17 +1,19 @@
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
-import { fail, type ActionRunContext } from "@agent-native/core/action";
+import { ActionContractError, fail, isActionContractError, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
-import { workspacePatternChoices } from "../shared/workspace-patterns.ts";
+import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
+import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS,
+  type ProjectRef } from "../app/lib/project-read-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
 import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 
-const preset = z.enum(["coding", "second-brain", "knowledge-work", "writing"]);
 const requestDocument = z.string().min(1).max(65_536);
 // tropo and ozone read their one positional right after the verb and refuse a
 // `--` terminator, so a value that looks like an option cannot be passed safely.
@@ -22,10 +24,6 @@ const commandSchema = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("adopt"), preset: preset.optional(),
     patternChoices: workspacePatternChoices.optional() }).strict(),
   z.object({ verb: z.literal("pattern-state") }).strict(),
-  z.object({ verb: z.literal("doctor") }).strict(),
-  z.object({ verb: z.literal("capabilities"), preset: preset.default("coding") }).strict(),
-  z.object({ verb: z.literal("check") }).strict(),
-  z.object({ verb: z.literal("find"), query: z.string().trim().min(1).max(4_000).refine(notOptionLike, optionLikeMessage), budget: z.number().int().min(1).max(16_000).default(2_000) }).strict(),
   z.object({ verb: z.literal("decide"), request: requestDocument }).strict(),
   z.object({ verb: z.literal("review") }).strict(),
   z.object({ verb: z.literal("impact"), nodeId: z.string().trim().min(1).max(256).refine(notOptionLike, optionLikeMessage) }).strict(),
@@ -49,7 +47,18 @@ export const adoptionExecutionSchema = z.discriminatedUnion("verb", [
   z.strictObject({ verb: z.literal("adopt-recover"), transactionHash: planHash, planHash, requestId: z.string().uuid() }),
 ]);
 type AdoptionExecution = z.infer<typeof adoptionExecutionSchema>;
-type RuntimeCommand = OriginalCommand | AdoptionExecution;
+
+// Project reads have no action schema of their own: `project-read.ts` is the
+// only caller, and find and check always use the privacy-filtered front door.
+const projectReadCommandSchema = z.discriminatedUnion("verb", [
+  z.strictObject({ verb: z.literal("doctor") }),
+  z.strictObject({ verb: z.literal("capabilities"), preset }),
+  z.strictObject({ verb: z.literal("find"), query: projectReadQuerySchema, k: projectReadKSchema, budget: projectReadBudgetSchema }),
+  z.strictObject({ verb: z.literal("check") }),
+  z.strictObject({ verb: z.literal("logs"), failedOnly: z.boolean() }),
+]);
+export type ProjectReadCommand = z.infer<typeof projectReadCommandSchema>;
+type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand;
 const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
   "bindingRevision", "policyRevision", "verificationKind"] as const;
 export function sameOriginalWorkspace(left: LocalProjectWorkspace, right: LocalProjectWorkspace): boolean {
@@ -58,7 +67,19 @@ export function sameOriginalWorkspace(left: LocalProjectWorkspace, right: LocalP
 
 
 const TIMEOUT_MS = 30_000;
+const QUEUE_WAIT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
+
+type AccessMode = "read" | "write";
+// A write changes one project's files, so it runs alone within that project.
+const accessMode: Record<RuntimeCommand["verb"], AccessMode> = {
+  create: "read", adopt: "read", "pattern-state": "read", decide: "read", review: "read", impact: "read", control: "write",
+  "adopt-prepare-privacy": "write", "adopt-apply": "write", "adopt-recovery-preview": "read", "adopt-recover": "write",
+  doctor: "read", capabilities: "read", find: "read", check: "read", logs: "read",
+};
+// Standalone Strato has no execution log, and the public find and check path
+// skips Tropo's receipt writer. The app records only its own invocation.
+const appReceipt = new Set<RuntimeCommand["verb"]>(["decide", "find", "check"]);
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
@@ -81,8 +102,12 @@ export function originalCommandArguments(command: RuntimeCommand, root: string, 
       "--yes", "--plan", command.planHash, "--request-id", command.requestId], stdin: "" };
     case "doctor": return { args: ["doctor", root, "--json"], stdin: "" };
     case "capabilities": return { args: ["capabilities", "--preset", command.preset, "--json"], stdin: "" };
-    case "check": return { args: ["check", "--root", root, "--json"], stdin: "" };
-    case "find": return { args: ["find", command.query, "--root", root, "--json", "--mode", "text", "--budget", String(command.budget)], stdin: "" };
+    case "check": return { args: ["check", "--root", root, "--public", "--json"], stdin: "" };
+    case "find": return { args: ["find", command.query, "--root", root, "--public", "--json",
+      "--k", String(command.k), "--budget", String(command.budget)], stdin: "" };
+    // The receipt log comes only from VIVARY_RECEIPT_LOG, never from an argument.
+    case "logs": return { args: ["logs", "--json", "--tail", String(READ_BOUNDS.items),
+      ...(command.failedOnly ? ["--failed"] : [])], stdin: "" };
     case "decide": return { args: ["decide", "--governed", "--json", "--strict", "-"], stdin: command.request };
     case "review": return { args: ["review", "--root", root, "--json", "--pack", "structure"], stdin: "" };
     case "impact": return { args: ["impact", command.nodeId, "--root", root, "--json"], stdin: "" };
@@ -186,17 +211,82 @@ async function validateGovernedRequest(command: RuntimeCommand, workspace: Local
   }
 }
 
-class OriginalCommandOutputLimitError extends Error {}
-
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
-type CommandHost = { closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null };
+type Waiter = { projectId: string; mode: AccessMode; start: () => void; refuse: (error: Error) => void };
+type ProjectAccess = { reads: number; writing: boolean };
+type CommandHost = {
+  closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
+  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[];
+};
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
 const commandProcess = globalThis as typeof globalThis & { [commandHostKey]?: CommandHost };
-const commandHost = commandProcess[commandHostKey] ??= { closing: false, active: new Set<ActiveCommand>(), shutdown: null };
+const commandHost: CommandHost = commandProcess[commandHostKey] ??= {
+  closing: false, active: new Set<ActiveCommand>(), shutdown: null, running: 0, projects: new Map(), waiting: [],
+};
+const PARALLELISM = availableParallelism();
+const closingError = () => new Error("Vivary is closing. New original commands cannot start.");
+
+// Codex's read/write tool lock, keyed by project. Waiters start in arrival
+// order within a project, so a waiting write holds back the reads behind it.
+function admitWaiting(): void {
+  const blocked = new Set<string>();
+  for (const waiter of [...commandHost.waiting]) {
+    if (commandHost.running >= PARALLELISM) return;
+    const access = commandHost.projects.get(waiter.projectId);
+    if (blocked.has(waiter.projectId) || (waiter.mode === "write" ? access : access?.writing)) {
+      blocked.add(waiter.projectId);
+      continue;
+    }
+    commandHost.waiting.splice(commandHost.waiting.indexOf(waiter), 1);
+    const held = access ?? { reads: 0, writing: false };
+    if (waiter.mode === "write") held.writing = true; else held.reads += 1;
+    commandHost.projects.set(waiter.projectId, held);
+    commandHost.running += 1;
+    waiter.start();
+  }
+}
+
+function acquireProject(projectId: string, mode: AccessMode, signal?: AbortSignal): Promise<() => void> {
+  signal?.throwIfAborted();
+  if (commandHost.closing) throw closingError();
+  return new Promise((resolve, reject) => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const access = commandHost.projects.get(projectId)!;
+      if (mode === "write") access.writing = false; else access.reads -= 1;
+      if (!access.writing && access.reads === 0) commandHost.projects.delete(projectId);
+      commandHost.running -= 1;
+      admitWaiting();
+    };
+    const settle = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); };
+    const waiter: Waiter = {
+      projectId, mode,
+      start: () => { settle(); resolve(release); },
+      refuse: error => { settle(); reject(error); },
+    };
+    const leave = (error: Error) => {
+      const index = commandHost.waiting.indexOf(waiter);
+      if (index < 0) return;
+      commandHost.waiting.splice(index, 1);
+      waiter.refuse(error);
+      admitWaiting();
+    };
+    const timer = setTimeout(() => leave(new ActionContractError(
+      "Earlier original Vivary commands are still running. Try again when they finish.",
+      { errorCode: "vivary_original_queue_timeout", statusCode: 503 })), QUEUE_WAIT_MS);
+    const cancel = () => leave(new Error("The original Vivary command was cancelled."));
+    signal?.addEventListener("abort", cancel, { once: true });
+    commandHost.waiting.push(waiter);
+    admitWaiting();
+  });
+}
 
 export function shutdownOriginalCommands(): Promise<void> {
   commandHost.closing = true;
+  for (const waiter of commandHost.waiting.splice(0)) waiter.refuse(closingError());
   if (!commandHost.shutdown) {
     const active = [...commandHost.active];
     for (const command of active) command.stop(new Error("Vivary is closing. The original command was stopped."));
@@ -207,10 +297,7 @@ export function shutdownOriginalCommands(): Promise<void> {
 
 export function runOriginalProcess(executable: string, args: string[], stdin: string, cwd: string, environment: NodeJS.ProcessEnv, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  if (commandHost.closing) throw new Error("Vivary is closing. New original commands cannot start.");
-  if (commandHost.active.size > 0) {
-    commandError("Another original Vivary command is running. Wait for it to finish, then retry.", "vivary_original_busy");
-  }
+  if (commandHost.closing) throw closingError();
   return new Promise<{ exitCode: number | null; stdout: string; stderr: string; signal: NodeJS.Signals | null }>((resolve, reject) => {
     const child = spawn(executable, args, {
       cwd, env: environment, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
@@ -247,12 +334,14 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     let markSettled!: () => void;
     const active: ActiveCommand = { stop, settled: new Promise<void>(done => { markSettled = done; }) };
     commandHost.active.add(active);
-    const timer = setTimeout(() => stop(new Error("The original Vivary command exceeded its 30-second limit.")), TIMEOUT_MS);
+    const timer = setTimeout(() => stop(new ActionContractError("The original Vivary command exceeded its 30-second limit.",
+      { errorCode: "vivary_original_timeout", statusCode: 504 })), TIMEOUT_MS);
     const abort = () => stop(new Error("The original Vivary command was cancelled."));
     signal?.addEventListener("abort", abort, { once: true });
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > OUTPUT_BYTES) stop(new OriginalCommandOutputLimitError("The original Vivary command exceeded its output limit."));
+      if (bytes > OUTPUT_BYTES) stop(new ActionContractError("The original Vivary command exceeded its output limit.",
+        { errorCode: "vivary_original_output_limit", statusCode: 413 }));
       else target.push(chunk);
     };
     child.stdout.on("data", collect(output));
@@ -292,7 +381,9 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
     }
     const environment = dependencies.environment();
-    const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME);
+    const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
+      "The bundled Vivary runtime is unavailable on this host. Reinstall Vivary, then try again.",
+      "vivary_original_runtime_unavailable", 503));
     if (!environment.VIVARY_DATA_DIR || !path.isAbsolute(environment.VIVARY_DATA_DIR)) {
       commandError("Vivary application data is not configured.", "vivary_original_data_unavailable");
     }
@@ -331,16 +422,21 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
-      const current = await dependencies.resolveWorkspace(context, projectId);
-      if (!current || !sameOriginalWorkspace(current, workspace)) {
-        commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
-      }
-      await validateGovernedRequest(command, current);
-      const started = performance.now();
-      const result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
-        originalChildEnvironment(environment, receiptLog, current.root), context?.signal);
-      if (command.verb === "decide") {
-        // Standalone Strato has no execution log. Record only this app invocation.
+      const release = await acquireProject(projectId, accessMode[command.verb], context?.signal);
+      let current: LocalProjectWorkspace;
+      let started: number;
+      let result: Awaited<ReturnType<typeof runOriginalProcess>>;
+      try {
+        current = await dependencies.resolveWorkspace(context, projectId);
+        if (!current || !sameOriginalWorkspace(current, workspace)) {
+          commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
+        }
+        await validateGovernedRequest(command, current);
+        started = performance.now();
+        result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
+          originalChildEnvironment(environment, receiptLog, current.root), context?.signal);
+      } finally { release(); }
+      if (appReceipt.has(command.verb)) {
         const receipt = await open(receiptLog, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
         try {
           const stat = await receipt.stat();
@@ -349,7 +445,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
           }
           await receipt.appendFile(JSON.stringify({
             schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
-            tool: "vivary-workbench", command: "decide", exit_code: result.exitCode,
+            tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
             ok: result.exitCode === 0, duration_ms: Math.round(performance.now() - started),
             python: runtime.version, platform: process.platform, receipt_source: "app",
           }) + "\n", "utf8");
@@ -359,13 +455,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
       }
-      return { verb: command.verb, projectId, pythonVersion: runtime.version,
-        ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result };
-    } catch (error) {
-      if (error instanceof OriginalCommandOutputLimitError) {
-        commandError(error.message, "vivary_original_output_limit", 413);
-      }
-      throw error;
+      return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
+        ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
       if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true });
     }
@@ -375,15 +466,49 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const run = createRuntimeCommandRunner(dependencies);
   return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) =>
-    run(originalCommandSchema.parse(input), context);
+    (await run(originalCommandSchema.parse(input), context)).output;
 }
 
 /** Internal owner-approved operation. The public original-command schema remains read-only for adoption. */
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const run = createRuntimeCommandRunner(dependencies);
   return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) =>
-    run({ projectId: workspace.projectId, command: adoptionExecutionSchema.parse(command) }, context, workspace);
+    (await run({ projectId: workspace.projectId, command: adoptionExecutionSchema.parse(command) }, context, workspace)).output;
+}
+
+const runFailures = {
+  vivary_original_queue_timeout: "queue_timeout", vivary_original_timeout: "timeout",
+  vivary_original_output_limit: "output_limit", vivary_original_runtime_unavailable: "runtime_unavailable",
+} as const;
+export type ProjectReadRun =
+  | { project: ProjectRef; outcome: "exited"; exitCode: number | null; stdout: string; stderr: string;
+      /** Server-only: used to redact output, never serialized. */
+      hostPaths: { root: string; dataDir: string } }
+  | { project: ProjectRef; outcome: "failed"; reason: typeof runFailures[keyof typeof runFailures] };
+
+/**
+ * Run one project read. Access and project-change refusals throw. A run that
+ * could not produce output (queue wait, time or output limit, missing bundle)
+ * returns its reason, because only the runner knows the resolved project then.
+ */
+export function createProjectReadRunner(dependencies: Dependencies = runtimeDependencies) {
+  return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
+    let resolved: LocalProjectWorkspace | undefined;
+    const run = createRuntimeCommandRunner({ ...dependencies,
+      resolveWorkspace: async (runContext, id) => resolved = await dependencies.resolveWorkspace(runContext, id) });
+    try {
+      const { workspace, dataDir, output } = await run({ projectId, command: projectReadCommandSchema.parse(command) }, context);
+      return { project: { id: workspace.projectId, label: workspace.label }, outcome: "exited",
+        exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr, hostPaths: { root: workspace.root, dataDir } };
+    } catch (error) {
+      const code = isActionContractError(error) ? error.errorCode : undefined;
+      if (!resolved || !code || !(code in runFailures)) throw error;
+      return { project: { id: resolved.projectId, label: resolved.label }, outcome: "failed",
+        reason: runFailures[code as keyof typeof runFailures] };
+    }
+  };
 }
 
 export const runOriginalCommand = createOriginalCommandRunner();
 export const runAdoptionCommand = createAdoptionCommandRunner();
+export const runProjectRead = createProjectReadRunner();

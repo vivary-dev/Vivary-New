@@ -121,7 +121,7 @@ test("original engine commands use the same private owner-session transport", as
     nativePath: path => path,
     invalidate: () => { throw new Error("Unexpected invalidation"); },
   });
-  const input = { projectId: "project-test", command: { verb: "doctor" } };
+  const input = { projectId: "project-test", command: { verb: "pattern-state" } };
   assert.deepEqual(await call("vivary-original-command", input), { exitCode: 0 });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, "https://private.example.test/_agent-native/actions/vivary-original-command");
