@@ -64,11 +64,12 @@ function Outcome({ state, running }: { state: ReadState; running: string }) {
 }
 
 function Section({ title, state, hook, children }: { title: string; state: ReadState; hook?: string; children: ReactNode }) {
-  return <div className="project-read-section" role="group" aria-label={title} aria-busy={state.kind === "running"}
+  const heading = useId();
+  return <section className="project-read-section" aria-labelledby={heading} aria-busy={state.kind === "running"}
     data-agent-native={hook}>
-    <dt>{title}</dt>
-    <dd>{children}</dd>
-  </div>;
+    <h4 id={heading}>{title}</h4>
+    {children}
+  </section>;
 }
 
 export function ProjectReadPanel({ projectId, disabled }: { projectId: string; disabled: boolean }) {
@@ -87,7 +88,7 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
 
   const blocked = (state: ReadState) => disabled || !ready || state.kind === "running";
   // Links open only inside the project this panel shows.
-  const source = (state: ReadState, path: string, line?: number | null) =>
+  const source = (state: ReadState, path: string, line?: number) =>
     state.kind === "done" && state.result.project.id === projectId
       ? <Link to={projectFileHref(projectId, path, params.toString(), line)}>{line ? `${path}:${line}` : path}</Link>
       : <span>{line ? `${path}:${line}` : path}</span>;
@@ -97,6 +98,8 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
   const context = reportOf(find.state, "find");
   const features = reportOf(capabilities.state, "capabilities");
   const log = reportOf(receipts.state, "receipts");
+  const notesExcluded = notes && privateExcluded(notes.omissions);
+  const contextExcluded = context && privateExcluded(context.omissions);
   const query = question.trim();
 
   return <>
@@ -139,7 +142,7 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
             <span className="project-read-muted">{finding.level} {finding.code}: {finding.message}</span>
           </li>)}</ul>
         </>}
-        {privateExcluded(notes.omissions) && <p className="project-read-muted">{privateExcluded(notes.omissions)}</p>}
+        {notesExcluded && <p className="project-read-muted">{notesExcluded}</p>}
         {!notes.complete && <p className="project-read-muted">The check stopped at its limits. Some notes were not read.</p>}
       </>}
       <Button size="sm" variant="outline" disabled={blocked(check.state)} onClick={() => void check.run({ operation: "check" })}>
@@ -167,7 +170,7 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
             {result.snippet && <span className="project-read-snippet">{result.snippet}</span>}
           </li>)}</ul>
         </>}
-        {privateExcluded(context.omissions) && <p className="project-read-muted">{privateExcluded(context.omissions)}</p>}
+        {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
       </>}
     </Section>
 
@@ -202,7 +205,9 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
       </div>
       <Outcome state={receipts.state} running="Reading receipts…" />
       {log && (!log.logPresent ? <p>No command receipts yet.</p> : log.records.total === 0 ? <p>No matching receipts.</p> : <>
-        <p className="project-read-heading">{log.failed} of {log.total} recent command{log.total === 1 ? "" : "s"} failed</p>
+        <p className="project-read-heading">{log.failedOnly
+          ? `${log.failed} failed command${log.failed === 1 ? "" : "s"}`
+          : `${log.failed} of ${log.total} recent command${log.total === 1 ? "" : "s"} failed`}</p>
         <ul>{log.records.items.map((record, index) => <li key={index}>
           {record.ok ? "OK" : "Failed"} · {record.tool} {record.command}
           <span className="project-read-muted"> {record.timestamp}</span>

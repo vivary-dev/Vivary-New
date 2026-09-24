@@ -1,18 +1,20 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { isActionExposedToExternalAgents, type ActionRunContext } from "@agent-native/core/action";
+import { ActionContractError, isActionExposedToExternalAgents, type ActionRunContext } from "@agent-native/core/action";
+import type { AgentEngine } from "@agent-native/core/agent/engine";
 import {
   actionsToEngineTools, executeAgentToolCall, getRequestOrgId, getRequestRunContext,
-  loadActionsFromStaticRegistry, runWithRequestContext, type RequestRunContext,
+  loadActionsFromStaticRegistry, runAgentLoop, runWithRequestContext, type RequestRunContext,
 } from "@agent-native/core/server";
 
 import { defineProjectReadTool } from "../actions/vivary-project-read.ts";
 import { PROJECT_READ_MAX_RESULT_CHARS, READ_BOUNDS, type ProjectReadResult } from "../app/lib/project-read-schema.ts";
 import { createVivaryChatIdentity } from "../server/chat-identity.ts";
 import { createVivaryNativeChatProjectResolver } from "../server/native-chat-project.ts";
-import type { ProjectReadCommand, ProjectReadRun } from "../server/original-runtime.ts";
+import { createProjectReadRunner, runOriginalProcess, type ProjectReadCommand, type ProjectReadRun } from "../server/original-runtime.ts";
 import { createProjectRead } from "../server/project-read.ts";
 
 type Output = { exitCode: number | null; stdout: string; stderr: string };
@@ -21,6 +23,7 @@ const load = async (name: string) => JSON.parse(await readFile(path.join(fixture
 const coding = await load("coding");
 const notes = await load("notes");
 const host = await load("host");
+const unsafeSnippet = await load("unsafe-snippet");
 
 // The captured fixtures replaced their temporary folders with these paths.
 const hostPaths = { root: "/fixture/coding", dataDir: "/fixture/app-data" };
@@ -28,13 +31,13 @@ const ownerEmail = "owner@example.test";
 const orgId = "org-a";
 const owner: ActionRunContext = { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" };
 
-function fakeRun(output: (projectId: string, command: ProjectReadCommand) => Output | ProjectReadRun) {
+function fakeRun(output: (projectId: string, command: ProjectReadCommand) => Output | Error, paths = hostPaths) {
   const calls: { projectId: string; command: ProjectReadCommand; context: ActionRunContext | undefined }[] = [];
   const run = async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
     calls.push({ projectId, command, context });
     const value = output(projectId, command);
-    const project = { id: projectId, label: projectId === "project-b" ? "Project B" : "Project A" };
-    return "outcome" in value ? value : { project, outcome: "exited", ...value, hostPaths };
+    if (value instanceof Error) throw value;
+    return { project: { id: projectId, label: projectId === "project-b" ? "Project B" : "Project A" }, ...value, hostPaths: paths };
   };
   return { run, calls };
 }
@@ -109,21 +112,34 @@ test("captured coding and notes reports keep the original findings, sources and 
   assert.equal(JSON.stringify(find).includes("private-roadmap"), false, "the git-ignored note stays out of context");
 });
 
+test("a hit whose snippet the facade withheld is reported without a snippet", async () => {
+  const reads = createProjectRead({ run: fakeRun(() => unsafeSnippet.find).run, chatProject: noChat });
+  const find = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "find", query: "users endpoint" }));
+  assert.equal(find.operation, "find");
+  if (find.operation !== "find") return;
+  assert.deepEqual(find.results.items.map(hit => [hit.path, hit.snippet]), [
+    ["docs/users.md", "# Users The users endpoint lists every account in pages of fifty."], ["docs/api.md", null]]);
+});
+
 test("receipts report the application log, including an absent one", async () => {
   const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
   const all = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "receipts" }));
   const allRaw = raw(host.logs);
   assert.equal(all.operation, "receipts");
   if (all.operation !== "receipts") return;
-  assert.deepEqual([all.scope, all.logPresent, all.total, all.failed, all.invalidLines, all.records.total],
-    ["application", true, allRaw.summary.total, allRaw.summary.failed, 0, allRaw.records.length]);
-  assert.deepEqual(all.records.items[0], { timestamp: allRaw.records[0].timestamp, tool: "create-vivary", command: "init",
-    ok: true, exitCode: 0, durationMs: allRaw.records[0].duration_ms, source: "env" });
+  assert.deepEqual([all.scope, all.failedOnly, all.logPresent, all.total, all.failed, all.invalidLines, all.records.total],
+    ["application", false, true, allRaw.summary.total, allRaw.summary.failed, 0, allRaw.records.length]);
+  const newest = allRaw.records.at(-1);
+  assert.deepEqual(all.records.items[0], { timestamp: newest.timestamp, tool: "create-vivary", command: newest.command,
+    ok: true, exitCode: 0, durationMs: newest.duration_ms, source: "env" });
+  const timestamps = all.records.items.map(record => record.timestamp);
+  assert.deepEqual(timestamps, [...timestamps].sort().reverse(), "newest first, so fitting drops the oldest");
   const failed = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "receipts", failedOnly: true }));
-  assert.ok(failed.operation === "receipts" && failed.records.items.every(record => !record.ok));
+  assert.ok(failed.operation === "receipts" && failed.failedOnly && failed.records.items.every(record => !record.ok));
   const missing = createProjectRead({ run: fakeRun(() => host.logsMissing).run, chatProject: noChat });
   assert.deepEqual(reported(await missing.forOwner(owner, { projectId: "project-a", operation: "receipts" })),
-    { operation: "receipts", scope: "application", logPresent: false, total: 0, failed: 0, invalidLines: 0, records: { items: [], total: 0 } });
+    { operation: "receipts", scope: "application", failedOnly: false, logPresent: false, total: 0, failed: 0, invalidLines: 0,
+      records: { items: [], total: 0 } });
 });
 
 test("refusals, run failures and unreadable output are unavailable values, access errors throw", async () => {
@@ -132,29 +148,129 @@ test("refusals, run failures and unreadable output are unavailable values, acces
   const privacy = await refused.forOwner(owner, { projectId: "project-a", operation: "find", query: "garden" });
   assert.equal(privacy.status, "unavailable");
   assert.ok(privacy.status === "unavailable" && privacy.reason === "privacy_policy_unavailable"
-    && /neither a Git repository nor a Vivary workspace/.test(privacy.message));
-  for (const reason of ["timeout", "queue_timeout", "output_limit", "runtime_unavailable"] as const) {
-    const reads = createProjectRead({ run: fakeRun(() => ({ project, outcome: "failed", reason })).run, chatProject: noChat });
+    && /private files/.test(privacy.message) && /Git repository on a host with Git installed, or a Vivary workspace/.test(privacy.message));
+  const refusal = (reason: string) => ({ exitCode: 2, stderr: "", stdout: JSON.stringify({ schema: "vivary.read-refusal/v0", reason }) });
+  const messages: Record<string, string> = {};
+  for (const [operation, reason] of [["find", "path_refused"], ["check", "path_refused"], ["check", "work_limit_exceeded"]] as const) {
+    const result = await createProjectRead({ run: fakeRun(() => refusal(reason)).run, chatProject: noChat })
+      .forOwner(owner, operation === "find" ? { projectId: "project-a", operation, query: "garden" } : { projectId: "project-a", operation });
+    assert.ok(result.status === "unavailable" && result.reason === reason, JSON.stringify(result));
+    messages[`${operation} ${reason}`] = result.message;
+  }
+  assert.match(messages["find path_refused"], /question .*file or URL path, credential-like text/);
+  assert.match(messages["check path_refused"], /this project folder/);
+  assert.doesNotMatch(messages["check path_refused"], /question/);
+  assert.match(messages["check work_limit_exceeded"], /larger than .* or check found more than 200 findings/);
+  for (const [errorCode, reason] of [["vivary_original_timeout", "timeout"], ["vivary_original_queue_timeout", "queue_timeout"],
+    ["vivary_original_output_limit", "output_limit"], ["vivary_original_runtime_unavailable", "runtime_unavailable"]] as const) {
+    const failure = new ActionContractError("runner failure", { errorCode, statusCode: 503, details: { project } });
+    const reads = createProjectRead({ run: fakeRun(() => failure).run, chatProject: noChat });
     const result = await reads.forOwner(owner, { projectId: "project-a", operation: "check" });
     assert.ok(result.status === "unavailable" && result.reason === reason && result.operation === "check"
       && result.message.length > 0, reason);
+    assert.deepEqual(result.project, project);
   }
+  const changed = new ActionContractError("The project changed while the command ran.",
+    { errorCode: "vivary_original_project_changed", statusCode: 409, details: { project } });
+  await assert.rejects(createProjectRead({ run: fakeRun(() => changed).run, chatProject: noChat })
+    .forOwner(owner, { projectId: "project-a", operation: "check" }), error => error === changed);
   for (const output of [{ exitCode: 2, stdout: "", stderr: "\nvivary doctor: create-vivary is not installed at /fixture/coding.\n" },
     { exitCode: 0, stdout: "not json", stderr: "" }, { exitCode: 0, stdout: JSON.stringify({ ok: "yes" }), stderr: "" }]) {
     const reads = createProjectRead({ run: fakeRun(() => output).run, chatProject: noChat });
     const result = await reads.forOwner(owner, { projectId: "project-a", operation: "doctor" });
     assert.ok(result.status === "unavailable" && result.reason === "unreadable_output", output.stdout);
   }
-  const detail = await createProjectRead({ run: fakeRun(() => ({ exitCode: 2, stdout: "",
-    stderr: "usage: vivary find [-h] [--root ROOT]\nvivary find: error: unrecognized arguments: --public /fixture/coding\n" })).run,
-  chatProject: noChat }).forOwner(owner, { projectId: "project-a", operation: "find", query: "x" });
-  assert.ok(detail.status === "unavailable" && detail.reason === "unreadable_output"
-    && detail.message.endsWith("vivary find: error: unrecognized arguments: --public ."), JSON.stringify(detail));
+  const stderr = await createProjectRead({ run: fakeRun(() => ({ exitCode: 2, stdout: "",
+    stderr: "Traceback (most recent call last):\n  File \"c:/users/x/proj/tool.py\"\nvivary find: error: unrecognized arguments: --public C:\\Users\\x\\proj\n" }),
+  { root: "C:\\Users\\x\\proj", dataDir: "C:\\Users\\x\\data" }).run, chatProject: noChat })
+    .forOwner(owner, { projectId: "project-a", operation: "find", query: "x" });
+  assert.deepEqual(stderr, { status: "unavailable", project, operation: "find", reason: "unreadable_output",
+    message: "The original command did not return a readable report." }, "stderr never reaches a result");
 
   const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
   const denied = createProjectRead({ run: async () => { throw revoked; }, chatProject: async () => { throw revoked; } });
   await assert.rejects(denied.forOwner(owner, { projectId: "project-a", operation: "doctor" }), error => error === revoked);
   await assert.rejects(denied.forChat({ caller: "tool" }, { operation: "doctor" }), error => error === revoked);
+});
+
+type RunnerDependencies = NonNullable<Parameters<typeof createProjectReadRunner>[0]>;
+
+// The real runner over a fixture bundle. The child is a fake unless a test spawns the fixture interpreter.
+async function realRunner() {
+  const directory = await mkdtemp(path.join(tmpdir(), "vivary-project-read-"));
+  const runtime = path.join(directory, "runtime");
+  const data = path.join(directory, "data");
+  const root = path.join(directory, "project");
+  const interpreter = process.platform === "win32" ? "python/python.exe" : "python/bin/python3";
+  await Promise.all([mkdir(path.join(runtime, path.dirname(interpreter)), { recursive: true }), mkdir(data), mkdir(root)]);
+  await writeFile(path.join(runtime, interpreter), "fixture interpreter, not executable");
+  await writeFile(path.join(runtime, "manifest.json"), JSON.stringify({ schemaVersion: 1, platform: process.platform,
+    arch: process.arch, pythonVersion: "3.12.14", pythonExecutable: interpreter }));
+  const workspace = { root, actorId: "actor-owner", label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a",
+    bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" as const };
+  const reads = (dependencies: Partial<RunnerDependencies> = {}) => createProjectRead({ chatProject: noChat,
+    run: createProjectReadRunner({ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
+      resolveWorkspace: async () => workspace, execute: async () => ({ ...coding.find, signal: null }), parallelism: 4,
+      ...dependencies }) });
+  return { directory, runtime, data, root, workspace, reads, receipts: path.join(data, "original-runtime", "receipts.jsonl"),
+    cleanup: () => rm(directory, { recursive: true, force: true }) };
+}
+const findQuery = { projectId: "project-a", operation: "find", query: "How does the sync queue work?" } as const;
+
+test("a good read survives a receipt that cannot be written", async () => {
+  const h = await realRunner();
+  try {
+    const outside = path.join(h.directory, "outside.jsonl");
+    await writeFile(outside, "preserve me");
+    for (const block of [() => mkdir(h.receipts), () => symlink(outside, h.receipts)]) {
+      await rm(h.receipts, { recursive: true, force: true });
+      const result = await h.reads({ execute: async () => { await block(); return { ...coding.find, signal: null }; } })
+        .forOwner(owner, findQuery);
+      assert.equal(reported(result).operation, "find");
+    }
+    assert.equal(await readFile(outside, "utf8"), "preserve me");
+  } finally { await h.cleanup(); }
+});
+
+test("host configuration failures are unavailable values that name the project", async () => {
+  const h = await realRunner();
+  const project = { id: "project-a", label: "Project A" };
+  try {
+    const cases: [Partial<RunnerDependencies>, string][] = [
+      [{ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: h.runtime }) }, "app_data_unavailable"],
+      [{ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: h.runtime, VIVARY_DATA_DIR: "data" }) }, "app_data_unavailable"],
+      [{ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: h.runtime, VIVARY_DATA_DIR: path.join(h.directory, "absent") }) }, "app_data_unavailable"],
+      [{ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(h.directory, "absent"), VIVARY_DATA_DIR: h.data }) }, "runtime_unavailable"],
+      [{ execute: runOriginalProcess }, "runtime_unavailable"],
+    ];
+    for (const [dependencies, reason] of cases) {
+      const result = await h.reads(dependencies).forOwner(owner, findQuery);
+      assert.ok(result.status === "unavailable" && result.reason === reason && result.message.length > 0, JSON.stringify(result));
+      assert.deepEqual(result.project, project);
+      assert.equal(JSON.stringify(result).includes(h.directory), false);
+    }
+    let executed = 0;
+    await mkdir(path.dirname(h.receipts), { recursive: true });
+    await writeFile(path.join(h.directory, "linked.jsonl"), "");
+    await link(path.join(h.directory, "linked.jsonl"), h.receipts);
+    const linked = await h.reads({ execute: async () => { executed++; return { ...coding.find, signal: null }; } }).forOwner(owner, findQuery);
+    assert.ok(linked.status === "unavailable" && linked.reason === "app_data_unavailable" && executed === 0, JSON.stringify(linked));
+  } finally { await h.cleanup(); }
+});
+
+test("access and project refusals from the runner still throw", async () => {
+  const h = await realRunner();
+  try {
+    const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
+    let resolutions = 0;
+    await assert.rejects(h.reads({ resolveWorkspace: async () => { if (++resolutions > 1) throw revoked; return h.workspace; } })
+      .forOwner(owner, findQuery), error => error === revoked);
+    resolutions = 0;
+    await assert.rejects(h.reads({ resolveWorkspace: async () => ++resolutions > 2 ? { ...h.workspace, policyRevision: 2 } : h.workspace })
+      .forOwner(owner, findQuery), { errorCode: "vivary_original_project_changed", statusCode: 409 });
+    await assert.rejects(h.reads({ resolveWorkspace: async () => ({ ...h.workspace, root: h.directory }) })
+      .forOwner(owner, findQuery), { errorCode: "vivary_original_data_in_project" });
+  } finally { await h.cleanup(); }
 });
 
 test("source paths that could leave the project make the whole report unreadable", async () => {
@@ -193,39 +309,63 @@ test("host paths never appear in any serialized result", async () => {
   const report = reported(results[0]);
   assert.ok(report.operation === "doctor" && report.errors.items.includes("workspace root . is readable")
     && report.errors.items.includes("receipts live in <app data>/original-runtime"));
+
+  const windows = { root: "C:\\Users\\x\\proj", dataDir: "C:\\Users\\x\\AppData\\Roaming\\Vivary" };
+  const spelled = raw(coding.doctor);
+  spelled.errors = ["cannot read c:/users/x/proj/notes.md", "cannot read C:\\Users\\x\\proj\\a.md",
+    "receipts in c:/users/x/appdata/roaming/vivary/original-runtime", "receipts in C:\\USERS\\X\\AppData\\Roaming\\Vivary\\logs"];
+  const windowsRead = createProjectRead({ run: fakeRun(() => ({ exitCode: 1, stdout: JSON.stringify(spelled), stderr: "" }), windows).run,
+    chatProject: noChat });
+  const windowsReport = reported(await windowsRead.forOwner(owner, { projectId: "project-a", operation: "doctor" }));
+  assert.equal(JSON.stringify(windowsReport).toLowerCase().replaceAll("\\\\", "/").includes("users/x"), false);
+  assert.ok(windowsReport.operation === "doctor");
+  assert.deepEqual(windowsReport.errors.items, ["cannot read ./notes.md", "cannot read .\\a.md",
+    "receipts in <app data>/original-runtime", "receipts in <app data>\\logs"]);
 });
 
 test("worst-case outputs stay under the tool result limit with true totals", async () => {
-  const long = (prefix: string) => prefix + "x".repeat(5_000);
-  const sourcePath = (index: number) => `notes/${String(index).padStart(4, "0")}-${"p".repeat(490)}.md`;
-  const omissions = Array.from({ length: 16 }, () => ({ kind: long("kind"), reason: long("reason"), count: 9 }));
-  const worst = {
-    doctor: { ok: false, errors: Array.from({ length: 900 }, () => long("error")), warnings: Array.from({ length: 900 }, () => long("warning")),
-      graph: { nodes: 1, edges: 1, broken: 1 } },
-    check: { schema: "vivary.check-result/v0", checked: 900, clean: 0, errors: 900, warnings: 0, strict: true, complete: false, omissions,
-      findings: Array.from({ length: 200 }, (_, index) => ({ path: sourcePath(index), line: 1, level: "error", code: long("E"), message: long("m") })) },
-    find: { schema: "vivary.find-result/v0", query: long("q"), k: 20, budget: 4000, estimated_tokens: 4000, complete: false, omissions,
-      results: Array.from({ length: 20 }, (_, index) => ({ id: long("id"), type: long("type"), path: sourcePath(index), reason: long("r"), snippet: long("s") })) },
-    capabilities: { preset: "coding", default_capabilities: Array.from({ length: 90 }, () => long("default")),
-      available_capabilities: Array.from({ length: 90 }, () => ({ id: long("id"), label: long("label"), default: false, requires_approval: true,
-        network: true, install_status: "not-installed", missing_install: Array.from({ length: 90 }, () => long("package")) })) },
-    logs: { summary: { total: 40, failed: 40, invalid_lines: 0 }, records: Array.from({ length: 40 }, () => ({ timestamp: long("t"),
-      tool: long("tool"), command: long("command"), ok: false, exit_code: 1, duration_ms: 5, receipt_source: long("source"), error_type: long("type") })) },
-  };
-  const reads = createProjectRead({ run: fakeRun((_id, command) => ({ exitCode: 1, stderr: "",
-    stdout: JSON.stringify(worst[command.verb]) })).run, chatProject: noChat });
-  for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "q" },
-    { operation: "capabilities" }, { operation: "receipts" }] as const) {
-    const result = await reads.forOwner(owner, { projectId: "project-a", ...input });
-    const report = reported(result);
-    assert.ok(JSON.stringify(result, null, 2).length <= PROJECT_READ_MAX_RESULT_CHARS, input.operation);
-    const lists = Object.values(report).filter((value): value is { items: unknown[]; total: number } =>
-      typeof value === "object" && value !== null && "total" in value);
-    assert.ok(lists.some(list => list.items.length < list.total && list.items.length > 0), `${input.operation} keeps its true total`);
-    assert.ok(lists.every(list => list.items.length <= READ_BOUNDS.items));
-    const strings = JSON.stringify(report).match(/"(?:[^"\\]|\\.)*"/g) ?? [];
-    assert.ok(strings.every(value => JSON.parse(value).length <= Math.max(READ_BOUNDS.text, 512)), input.operation);
+  // Control characters, quotes, and backslashes cost the most JSON per character, and a cut
+  // can land inside a non-BMP character. Every list is longer than its bound.
+  for (const unit of ["\u0001\u001b\"\\é😀\u0085", "\\", "\u0001"]) {
+    const long = (prefix: string) => prefix + unit.repeat(Math.ceil(400 / unit.length));
+    const many = <T>(make: (index: number) => T) => Array.from({ length: 90 }, (_, index) => make(index));
+    const sourcePath = (index: number) => `notes/${String(index).padStart(4, "0")}-${"é😀".repeat(160)}.md`;
+    const atOmissionBound = (prefix: string) => prefix + unit.repeat(Math.floor(120 / unit.length));
+    const omissions = Array.from({ length: 40 }, () => ({ kind: atOmissionBound("kind"), reason: atOmissionBound("reason"), count: 9 }));
+    const worst = {
+      doctor: { ok: false, errors: many(() => long("error")), warnings: many(() => long("warning")), graph: { nodes: 1, edges: 1, broken: 1 } },
+      check: { schema: "vivary.check-result/v0", checked: 900, clean: 0, errors: 900, warnings: 0, strict: true, complete: false, omissions,
+        findings: many(index => ({ path: sourcePath(index), line: 1, level: "error", code: long("E"), message: long("m") })) },
+      find: { schema: "vivary.find-result/v0", query: long("q"), k: 20, budget: 4000, estimated_tokens: 4000, complete: false, omissions,
+        results: many(index => ({ id: long("id"), type: long("type"), path: sourcePath(index), reason: long("r"), snippet: long("s") })) },
+      capabilities: { preset: "coding", default_capabilities: many(() => long("default")),
+        available_capabilities: many(() => ({ id: long("id"), label: long("label"), default: false, requires_approval: true,
+          network: long("network"), install_status: "not-installed", missing_install: many(() => long("package")) })) },
+      logs: { summary: { total: 90, failed: 90, invalid_lines: 0 }, records: many(() => ({ timestamp: long("t"), tool: long("tool"),
+        command: long("command"), ok: false, exit_code: 1, duration_ms: 5, receipt_source: long("source"), error_type: long("type") })) },
+    };
+    const reads = createProjectRead({ run: fakeRun((_id, command) => ({ exitCode: 1, stderr: "",
+      stdout: JSON.stringify(worst[command.verb]) })).run, chatProject: noChat });
+    for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "q" },
+      { operation: "capabilities" }, { operation: "receipts" }] as const) {
+      const label = `${input.operation} with ${JSON.stringify(unit)}`;
+      const result = await reads.forOwner(owner, { projectId: "project-a", ...input });
+      const report = reported(result);
+      const size = JSON.stringify(result, null, 2).length;
+      assert.ok(size <= PROJECT_READ_MAX_RESULT_CHARS, `${label} is ${size} characters`);
+      const lists = Object.values(report).filter((value): value is { items: unknown[]; total: number } =>
+        typeof value === "object" && value !== null && "total" in value);
+      assert.ok(lists.length > 0 && lists.every(list => list.total === 90 && list.items.length <= READ_BOUNDS.items), `${label} keeps true totals`);
+      const strings = (JSON.stringify(report).match(/"(?:[^"\\]|\\.)*"/g) ?? []).map(value => JSON.parse(value) as string);
+      assert.ok(strings.every(value => value.length <= 512 && value.isWellFormed()), `${label} strings are bounded and well formed`);
+      assert.ok(strings.every(value => !/\p{Cc}/u.test(value)), `${label} strings are printable`);
+    }
   }
+  const oversized = raw(coding.find);
+  oversized.omissions = [{ kind: "k".repeat(129), reason: "git_ignored", count: 1 }];
+  const beyond = await createProjectRead({ run: fakeRun(() => ({ exitCode: 0, stderr: "", stdout: JSON.stringify(oversized) })).run,
+    chatProject: noChat }).forOwner(owner, findQuery);
+  assert.ok(beyond.status === "unavailable" && beyond.reason === "unreadable_output", "omission text past Tropo's bound");
 });
 
 const catalog = { code: "catalog", projects: [{ projectId: "project-a", displayName: "Project A" },
@@ -284,6 +424,38 @@ test("a revoked project reaches the model as the resolver's refusal", async () =
     () => executeAgentToolCall({ actions, name: "vivary-project-read", input: { operation: "doctor" }, callId: "call-revoked", ownerEmail, orgId }));
   assert.equal(result.status, "failed");
   assert.match(result.output, /Project folder access changed/);
+});
+
+test("a repeated read in one agent turn reaches the runner again, so a queue timeout can be retried", async () => {
+  let runs = 0;
+  const reads = createProjectRead({ chatProject: async () => ({ projectId: "project-a", ownerContext: owner }), run: async () => {
+    runs++;
+    throw new ActionContractError("Earlier original Vivary commands are still running.", { errorCode: "vivary_original_queue_timeout",
+      statusCode: 503, details: { project: { id: "project-a", label: "Project A" } } });
+  } });
+  const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });
+  let requests = 0;
+  const engine: AgentEngine = { name: "fake", label: "Fake", defaultModel: "fake-model", supportedModels: ["fake-model"],
+    capabilities: { thinking: false, promptCaching: false, vision: false, computerUse: false, parallelToolCalls: false },
+    async *stream() {
+      requests++;
+      if (requests <= 2) {
+        const call = { type: "tool-call" as const, id: `call-${requests}`, name: "vivary-project-read", input: { operation: "doctor" } };
+        yield call;
+        yield { type: "assistant-content", parts: [call] };
+        yield { type: "stop", reason: "tool_use" };
+      } else {
+        yield { type: "assistant-content", parts: [{ type: "text", text: "Vivary is still busy." }] };
+        yield { type: "stop", reason: "end_turn" };
+      }
+    } };
+  const results: string[] = [];
+  await runWithRequestContext({ userEmail: ownerEmail, orgId, run: {} }, () => runAgentLoop({ engine, model: "fake-model",
+    systemPrompt: "", tools: actionsToEngineTools(actions), actions, signal: new AbortController().signal,
+    messages: [{ role: "user", content: [{ type: "text", text: "Check the project health, then try again." }] }],
+    send: event => { if (event.type === "tool_done") results.push(event.result); } }));
+  assert.equal(runs, 2, "the second identical call was not served from the turn's read cache");
+  assert.deepEqual(results.map(result => (JSON.parse(result) as ProjectReadResult).status), ["unavailable", "unavailable"]);
 });
 
 test("the model sees one Vivary tool with no project field and the observations rule", async () => {

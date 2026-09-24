@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir, symlink } from "node:fs/promises";
-import { availableParallelism, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
@@ -159,6 +159,7 @@ async function fixture(inspect?: (args: string[], stdin: string) => Promise<void
   let beforeResolve = () => {};
   let afterExecute = () => {};
   const runner = createOriginalCommandRunner({
+    parallelism: 4,
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
     resolveWorkspace: async () => { reads++; beforeResolve(); return workspace; },
     execute: async (python, args, stdin, cwd, environment) => {
@@ -348,10 +349,12 @@ const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 // Commands reach the scheduler in any order, so each test observes queue
 // entry through the abort listener the scheduler registers on the caller's
 // signal, and admission through the fake executor that receives that signal.
-async function scheduling(execute?: Execute) {
+async function scheduling(options: { execute?: Execute; parallelism?: number } = {}) {
   const { directory, runtime, data } = await bundle("vivary-original-queue-");
   const started: { projectId: string; verb: string; signal?: AbortSignal; finish: () => void }[] = [];
   const submitted: Submission[] = [];
+  const resolutions = new Map<string, number>();
+  const holds = new Map<string, { reached: () => void; released: Promise<void> }>();
   const fake: Execute = (_python, args, _stdin, _cwd, _environment, signal) => new Promise(resolve => started.push({
     projectId: path.basename(args.find(value => path.dirname(value) === directory)!),
     verb: args[6] === "adopt" && args.includes("--yes") ? "adopt-apply" : args[6], signal,
@@ -359,9 +362,16 @@ async function scheduling(execute?: Execute) {
   }));
   const dependencies = {
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
-    resolveWorkspace: async (_context: ActionRunContext | undefined, projectId: string) =>
-      projectWorkspace(projectId, path.join(directory, projectId)),
-    execute: execute ?? fake,
+    resolveWorkspace: async (_context: ActionRunContext | undefined, projectId: string) => {
+      const count = (resolutions.get(projectId) ?? 0) + 1;
+      resolutions.set(projectId, count);
+      // A command resolves its project a second time right after the scheduler admits it.
+      const hold = holds.get(projectId);
+      if (count === 2 && hold) { hold.reached(); await hold.released; }
+      return projectWorkspace(projectId, path.join(directory, projectId));
+    },
+    execute: options.execute ?? fake,
+    parallelism: options.parallelism ?? 4,
   };
   const read = createOriginalCommandRunner(dependencies);
   const write = createAdoptionCommandRunner(dependencies);
@@ -395,6 +405,14 @@ async function scheduling(execute?: Execute) {
     },
     running: (...submissions: Submission[]) => submissions.map(submission =>
       started.some(entry => entry.signal === submission.signal)),
+    // Holds the next command for a project after admission, before it reaches the executor.
+    hold: (projectId: string) => {
+      let reached!: () => void;
+      let release!: () => void;
+      const admitted = new Promise<void>(resolve => { reached = resolve; });
+      holds.set(projectId, { reached, released: new Promise<void>(resolve => { release = resolve; }) });
+      return { admitted, release };
+    },
     // A failed assertion must not leave a project locked for the next test.
     cleanup: async () => {
       for (const submission of submitted) submission.abort();
@@ -441,18 +459,39 @@ test("a write in one project never waits for another project", async () => {
   } finally { await f.cleanup(); }
 });
 
-test("commands past the machine's parallelism wait for a free child instead of failing", async () => {
-  const f = await scheduling();
-  const capacity = availableParallelism();
+test("at a ceiling of one child, a second command waits for the first instead of failing", async () => {
+  const f = await scheduling({ parallelism: 1 });
   try {
-    const commands = Array.from({ length: capacity + 1 }, (_, index) => f.review(`project-${index}`));
-    for (const command of commands) await command.queued();
-    const admitted = f.running(...commands);
-    assert.equal(admitted.filter(Boolean).length, capacity);
-    const waiting = commands[admitted.indexOf(false)];
-    await f.finish(commands[admitted.indexOf(true)]);
-    assert.deepEqual(f.running(waiting), [true]);
-    await Promise.all(commands.filter(command => command !== commands[admitted.indexOf(true)]).map(f.finish));
+    const first = f.review("project-a");
+    await first.queued();
+    const second = f.review("project-b");
+    await second.queued();
+    assert.deepEqual(f.running(first, second), [true, false]);
+    await f.finish(first);
+    assert.deepEqual(f.running(second), [true]);
+    await f.finish(second);
+  } finally { await f.cleanup(); }
+});
+
+test("a write waiting at the ceiling starts first, and reads of other projects pass the project it holds", async () => {
+  const f = await scheduling({ parallelism: 2 });
+  try {
+    const b = f.review("project-b"), c = f.review("project-c");
+    await b.queued(); await c.queued();
+    const write = f.apply("project-a");
+    await write.queued();
+    const behind = f.review("project-a");
+    await behind.queued();
+    const other = f.review("project-d");
+    await other.queued();
+    assert.deepEqual(f.running(b, c, write, behind, other), [true, true, false, false, false]);
+    await f.finish(b);
+    assert.deepEqual(f.running(write, behind, other), [true, false, false], "the write was first in line");
+    await f.finish(c);
+    assert.deepEqual(f.running(behind, other), [false, true]);
+    await f.finish(write);
+    assert.deepEqual(f.running(behind), [true]);
+    await Promise.all([f.finish(behind), f.finish(other)]);
   } finally { await f.cleanup(); }
 });
 
@@ -483,7 +522,7 @@ test("a missing bundle and a slow command fail with their own codes", async t =>
   const f = await fixture();
   try {
     const missing = createOriginalCommandRunner({ environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }),
-      resolveWorkspace: async () => projectWorkspace("project-a", f.root), execute: runOriginalProcess });
+      resolveWorkspace: async () => projectWorkspace("project-a", f.root), execute: runOriginalProcess, parallelism: 4 });
     await assert.rejects(missing(input, context), { errorCode: "vivary_original_runtime_unavailable", statusCode: 503 });
   } finally { await f.cleanup(); }
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -497,6 +536,7 @@ test("public find and check append an app receipt without the question, and doct
   const f = await fixture();
   try {
     const read = createProjectReadRunner({
+      parallelism: 4,
       environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
       resolveWorkspace: async () => projectWorkspace("project-a", f.root),
       execute: async () => ({ exitCode: 1, stdout: "{}", stderr: "", signal: null }),
@@ -518,22 +558,21 @@ test("a project read names its project and keeps host paths out of band", async 
   const dependencies = {
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
     resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+    parallelism: 4,
   };
+  const project = { id: "project-a", label: "Project A" };
   try {
     const exited = await createProjectReadRunner({ ...dependencies,
       execute: async () => ({ exitCode: 0, stdout: "report", stderr: "", signal: null }) })("project-a", { verb: "doctor" }, context);
-    assert.deepEqual(exited, { project: { id: "project-a", label: "Project A" }, outcome: "exited", exitCode: 0,
-      stdout: "report", stderr: "", hostPaths: { root: f.root, dataDir: f.data } });
-    for (const [errorCode, reason] of [["vivary_original_timeout", "timeout"], ["vivary_original_output_limit", "output_limit"],
-      ["vivary_original_queue_timeout", "queue_timeout"]] as const) {
-      const failed = await createProjectReadRunner({ ...dependencies, execute: async () => {
+    assert.deepEqual(exited, { project, exitCode: 0, stdout: "report", stderr: "", hostPaths: { root: f.root, dataDir: f.data } });
+    for (const errorCode of ["vivary_original_timeout", "vivary_original_output_limit", "vivary_original_queue_timeout"]) {
+      await assert.rejects(createProjectReadRunner({ ...dependencies, execute: async () => {
         throw new ActionContractError("refused", { errorCode, statusCode: 503 });
-      } })("project-a", { verb: "check" }, context);
-      assert.deepEqual(failed, { project: { id: "project-a", label: "Project A" }, outcome: "failed", reason });
+      } })("project-a", { verb: "check" }, context), { errorCode, statusCode: 503, message: "refused", details: { project } });
     }
-    const missing = await createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
-      environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }) })("project-a", { verb: "doctor" }, context);
-    assert.deepEqual(missing, { project: { id: "project-a", label: "Project A" }, outcome: "failed", reason: "runtime_unavailable" });
+    await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
+      environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }) })(
+      "project-a", { verb: "doctor" }, context), { errorCode: "vivary_original_runtime_unavailable", details: { project } });
     const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
     await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
       resolveWorkspace: async () => { throw revoked; } })("project-a", { verb: "doctor" }, context), error => error === revoked);
@@ -647,16 +686,24 @@ test("matching governed requests preserve submitted evidence and return no execu
   } finally { await f.cleanup(); }
 });
 
-test("shutdown stops running children, refuses waiters and permanently closes admission", async () => {
+// Closing is permanent for the process, so this test runs last.
+test("shutdown stops running children, refuses waiters, and stops an admitted command before it spawns", async () => {
   const { shutdownOriginalCommands } = await import("../server/original-runtime");
-  const f = await scheduling((_python, args, stdin, cwd, environment, signal) => runOriginalProcess(process.execPath,
-    ["-e", `require("node:fs").writeFileSync(${JSON.stringify(path.join(f.directory, "ready"))},"ready");setInterval(()=>{},1000)`],
-    stdin, cwd, environment, signal));
+  const executed: string[] = [];
+  const f = await scheduling({ execute: (_python, args, stdin, cwd, environment, signal) => {
+    executed.push(path.basename(args.find(value => path.dirname(value) === f.directory)!));
+    return runOriginalProcess(process.execPath,
+      ["-e", `require("node:fs").writeFileSync(${JSON.stringify(path.join(f.directory, "ready"))},"ready");setInterval(()=>{},1000)`],
+      stdin, cwd, environment, signal);
+  } });
   const write = f.apply("project-a");
   await write.queued();
   const waiting = f.review("project-a");
+  const hold = f.hold("project-c");
+  const admitted = f.review("project-c");
   const stopped = assert.rejects(write.result, /closing. The original command was stopped/);
   const refused = assert.rejects(waiting.result, /closing. New original commands cannot start/);
+  const unspawned = assert.rejects(admitted.result, /closing. New original commands cannot start/);
   try {
     let started = false;
     for (let attempt = 0; attempt < 40 && !started; attempt++) {
@@ -665,15 +712,19 @@ test("shutdown stops running children, refuses waiters and permanently closes ad
     }
     assert.equal(started, true);
     await waiting.queued();
+    await hold.admitted;
     const shutdown = shutdownOriginalCommands();
     assert.equal(shutdownOriginalCommands(), shutdown);
     await shutdown;
-    await Promise.all([stopped, refused]);
+    hold.release();
+    await Promise.all([stopped, refused, unspawned]);
+    assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");
     await assert.rejects(f.review("project-b").result, /cannot start/);
     assert.throws(() => runOriginalProcess(process.execPath, ["-e", ""], "", f.directory, {}), /cannot start/);
   } finally {
+    hold.release();
     await shutdownOriginalCommands();
-    await Promise.allSettled([stopped, refused]);
+    await Promise.allSettled([stopped, refused, unspawned]);
     await f.cleanup();
   }
 });

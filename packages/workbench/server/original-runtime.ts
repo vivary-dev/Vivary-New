@@ -7,8 +7,7 @@ import { ActionContractError, fail, isActionContractError, type ActionRunContext
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
 import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
-import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS,
-  type ProjectRef } from "../app/lib/project-read-schema.ts";
+import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS } from "../app/lib/project-read-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -78,8 +77,11 @@ const accessMode: Record<RuntimeCommand["verb"], AccessMode> = {
   doctor: "read", capabilities: "read", find: "read", check: "read", logs: "read",
 };
 // Standalone Strato has no execution log, and the public find and check path
-// skips Tropo's receipt writer. The app records only its own invocation.
-const appReceipt = new Set<RuntimeCommand["verb"]>(["decide", "find", "check"]);
+// skips Tropo's receipt writer. The app records only its own invocation. A
+// read's report stands even when its receipt cannot be written.
+const appReceipt: Partial<Record<RuntimeCommand["verb"], "required" | "best-effort">> = {
+  decide: "required", find: "best-effort", check: "best-effort",
+};
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
   switch (command.verb) {
@@ -138,6 +140,20 @@ function containsPath(root: string, candidate: string): boolean {
 
 function commandError(message: string, errorCode: string, statusCode = 409): never {
   return fail(message, { errorCode, statusCode });
+}
+
+const receiptDirectoryError = () => commandError("Vivary's command receipt directory must stay in application data.",
+  "vivary_original_receipt_path");
+const receiptFileError = () => commandError("Vivary's command receipt must be a private application file.",
+  "vivary_original_receipt_path");
+
+async function appendAppReceipt(receiptLog: string, record: Record<string, unknown>): Promise<void> {
+  const receipt = await open(receiptLog, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+  try {
+    const stat = await receipt.stat();
+    if (!stat.isFile() || stat.nlink !== 1) receiptFileError();
+    await receipt.appendFile(JSON.stringify(record) + "\n", "utf8");
+  } finally { await receipt.close(); }
 }
 
 
@@ -212,7 +228,7 @@ async function validateGovernedRequest(command: RuntimeCommand, workspace: Local
 }
 
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
-type Waiter = { projectId: string; mode: AccessMode; start: () => void; refuse: (error: Error) => void };
+type Waiter = { projectId: string; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
 type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
@@ -224,7 +240,6 @@ const commandProcess = globalThis as typeof globalThis & { [commandHostKey]?: Co
 const commandHost: CommandHost = commandProcess[commandHostKey] ??= {
   closing: false, active: new Set<ActiveCommand>(), shutdown: null, running: 0, projects: new Map(), waiting: [],
 };
-const PARALLELISM = availableParallelism();
 const closingError = () => new Error("Vivary is closing. New original commands cannot start.");
 
 // Codex's read/write tool lock, keyed by project. Waiters start in arrival
@@ -232,13 +247,15 @@ const closingError = () => new Error("Vivary is closing. New original commands c
 function admitWaiting(): void {
   const blocked = new Set<string>();
   for (const waiter of [...commandHost.waiting]) {
-    if (commandHost.running >= PARALLELISM) return;
+    if (commandHost.running >= waiter.ceiling) return;
     const access = commandHost.projects.get(waiter.projectId);
     if (blocked.has(waiter.projectId) || (waiter.mode === "write" ? access : access?.writing)) {
       blocked.add(waiter.projectId);
       continue;
     }
-    commandHost.waiting.splice(commandHost.waiting.indexOf(waiter), 1);
+    const index = commandHost.waiting.indexOf(waiter);
+    if (index < 0) continue;
+    commandHost.waiting.splice(index, 1);
     const held = access ?? { reads: 0, writing: false };
     if (waiter.mode === "write") held.writing = true; else held.reads += 1;
     commandHost.projects.set(waiter.projectId, held);
@@ -247,7 +264,7 @@ function admitWaiting(): void {
   }
 }
 
-function acquireProject(projectId: string, mode: AccessMode, signal?: AbortSignal): Promise<() => void> {
+function acquireProject(projectId: string, mode: AccessMode, ceiling: number, signal?: AbortSignal): Promise<() => void> {
   signal?.throwIfAborted();
   if (commandHost.closing) throw closingError();
   return new Promise((resolve, reject) => {
@@ -263,7 +280,7 @@ function acquireProject(projectId: string, mode: AccessMode, signal?: AbortSigna
     };
     const settle = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); };
     const waiter: Waiter = {
-      projectId, mode,
+      projectId, mode, ceiling,
       start: () => { settle(); resolve(release); },
       refuse: error => { settle(); reject(error); },
     };
@@ -346,7 +363,9 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     };
     child.stdout.on("data", collect(output));
     child.stderr.on("data", collect(errors));
-    child.on("error", error => { failure ??= error; });
+    // Without IPC or ChildProcess.kill, a child error means the spawn failed.
+    child.on("error", () => { failure ??= new ActionContractError("The bundled Vivary runtime could not start. Reinstall Vivary, then try again.",
+      { errorCode: "vivary_original_runtime_unavailable", statusCode: 503 }); });
     child.stdin.on("error", error => { if ((error as NodeJS.ErrnoException).code !== "EPIPE") stop(error); });
     child.on("close", async (exitCode, exitSignal) => {
       clearTimeout(timer);
@@ -365,21 +384,29 @@ type Dependencies = {
   resolveWorkspace: (context: ActionRunContext | undefined, projectId: string) => Promise<LocalProjectWorkspace>;
   environment: () => NodeJS.ProcessEnv;
   execute: typeof runOriginalProcess;
+  /** Concurrent original children. Callers past it wait, they are never refused. */
+  parallelism: number;
 };
 
 const runtimeDependencies: Dependencies = {
   resolveWorkspace: resolveLocalProjectWorkspace, environment: () => process.env, execute: runOriginalProcess,
+  // The floor lets the Details panel's sections run together on a one or two core machine.
+  parallelism: Math.max(4, availableParallelism()),
 };
 
+// Resolution and the run are separate steps, so a caller that resolved the
+// project can still name it when the run fails.
 function createRuntimeCommandRunner(dependencies: Dependencies) {
-  return async (input: { projectId: string; command: RuntimeCommand }, context?: ActionRunContext,
-    expectedWorkspace?: LocalProjectWorkspace) => {
+  const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
     requireVivaryCodeUser(context);
-    const { projectId, command } = input;
     const workspace = await dependencies.resolveWorkspace(context, projectId);
     if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
       commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
     }
+    return workspace;
+  };
+  const run = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
+    const { projectId } = workspace;
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
       "The bundled Vivary runtime is unavailable on this host. Reinstall Vivary, then try again.",
@@ -387,24 +414,18 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     if (!environment.VIVARY_DATA_DIR || !path.isAbsolute(environment.VIVARY_DATA_DIR)) {
       commandError("Vivary application data is not configured.", "vivary_original_data_unavailable");
     }
-    const dataDir = await realpath(environment.VIVARY_DATA_DIR);
+    const dataDir = await realpath(environment.VIVARY_DATA_DIR).catch(() => commandError(
+      "Vivary application data is unavailable on this host.", "vivary_original_data_unavailable"));
     if (containsPath(workspace.root, dataDir)) {
       commandError("Choose a project that does not contain Vivary's private application data.", "vivary_original_data_in_project");
     }
     const receiptDir = path.join(dataDir, "original-runtime");
-    await mkdir(receiptDir, { recursive: true, mode: 0o700 });
-    if (await realpath(receiptDir) !== receiptDir) {
-      commandError("Vivary's command receipt directory must stay in application data.", "vivary_original_receipt_path");
-    }
+    await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
+    if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
     const receiptLog = path.join(receiptDir, "receipts.jsonl");
-    try {
-      const receipt = await lstat(receiptLog);
-      if (!receipt.isFile() || receipt.nlink !== 1) {
-        commandError("Vivary's command receipt must be a private application file.", "vivary_original_receipt_path");
-      }
-    } catch (error) {
-      if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
-    }
+    const receipt = await lstat(receiptLog)
+      .catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : receiptFileError());
+    if (receipt && (!receipt.isFile() || receipt.nlink !== 1)) receiptFileError();
     if ("request" in command && Buffer.byteLength(command.request, "utf8") > 65_536) {
       commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
     }
@@ -422,7 +443,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
-      const release = await acquireProject(projectId, accessMode[command.verb], context?.signal);
+      const release = await acquireProject(projectId, accessMode[command.verb], dependencies.parallelism, context?.signal);
       let current: LocalProjectWorkspace;
       let started: number;
       let result: Awaited<ReturnType<typeof runOriginalProcess>>;
@@ -432,24 +453,21 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
           commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
         }
         await validateGovernedRequest(command, current);
+        // Shutdown may arrive while an admitted command re-checks its project.
+        if (commandHost.closing) throw closingError();
         started = performance.now();
         result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
           originalChildEnvironment(environment, receiptLog, current.root), context?.signal);
       } finally { release(); }
-      if (appReceipt.has(command.verb)) {
-        const receipt = await open(receiptLog, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
-        try {
-          const stat = await receipt.stat();
-          if (!stat.isFile() || stat.nlink !== 1) {
-            commandError("Vivary's command receipt must be a private application file.", "vivary_original_receipt_path");
-          }
-          await receipt.appendFile(JSON.stringify({
-            schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
-            tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
-            ok: result.exitCode === 0, duration_ms: Math.round(performance.now() - started),
-            python: runtime.version, platform: process.platform, receipt_source: "app",
-          }) + "\n", "utf8");
-        } finally { await receipt.close(); }
+      const receiptPolicy = appReceipt[command.verb];
+      if (receiptPolicy) {
+        const appended = appendAppReceipt(receiptLog, {
+          schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
+          tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
+          ok: result.exitCode === 0, duration_ms: Math.round(performance.now() - started),
+          python: runtime.version, platform: process.platform, receipt_source: "app",
+        });
+        await (receiptPolicy === "required" ? appended : appended.catch(() => undefined));
       }
       const after = await dependencies.resolveWorkspace(context, projectId);
       if (!sameOriginalWorkspace(after, current)) {
@@ -461,50 +479,50 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true });
     }
   };
+  return { resolve, run };
 }
 
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const run = createRuntimeCommandRunner(dependencies);
-  return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) =>
-    (await run(originalCommandSchema.parse(input), context)).output;
+  const runner = createRuntimeCommandRunner(dependencies);
+  return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
+    const { projectId, command } = originalCommandSchema.parse(input);
+    return (await runner.run(await runner.resolve(context, projectId), command, context)).output;
+  };
 }
 
 /** Internal owner-approved operation. The public original-command schema remains read-only for adoption. */
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const run = createRuntimeCommandRunner(dependencies);
-  return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) =>
-    (await run({ projectId: workspace.projectId, command: adoptionExecutionSchema.parse(command) }, context, workspace)).output;
+  const runner = createRuntimeCommandRunner(dependencies);
+  return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) => {
+    const parsed = adoptionExecutionSchema.parse(command);
+    return (await runner.run(await runner.resolve(context, workspace.projectId, workspace), parsed, context)).output;
+  };
 }
 
-const runFailures = {
-  vivary_original_queue_timeout: "queue_timeout", vivary_original_timeout: "timeout",
-  vivary_original_output_limit: "output_limit", vivary_original_runtime_unavailable: "runtime_unavailable",
-} as const;
-export type ProjectReadRun =
-  | { project: ProjectRef; outcome: "exited"; exitCode: number | null; stdout: string; stderr: string;
-      /** Server-only: used to redact output, never serialized. */
-      hostPaths: { root: string; dataDir: string } }
-  | { project: ProjectRef; outcome: "failed"; reason: typeof runFailures[keyof typeof runFailures] };
+export type ProjectReadRun = {
+  project: { id: string; label: string }; exitCode: number | null; stdout: string; stderr: string;
+  /** Server-only: used to redact output, never serialized. */
+  hostPaths: { root: string; dataDir: string };
+};
 
 /**
- * Run one project read. Access and project-change refusals throw. A run that
- * could not produce output (queue wait, time or output limit, missing bundle)
- * returns its reason, because only the runner knows the resolved project then.
+ * Run one project read and return the original command's output. Every
+ * failure throws. A coded failure after the project resolved carries that
+ * project as `details.project`.
  */
 export function createProjectReadRunner(dependencies: Dependencies = runtimeDependencies) {
+  const runner = createRuntimeCommandRunner(dependencies);
   return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
-    let resolved: LocalProjectWorkspace | undefined;
-    const run = createRuntimeCommandRunner({ ...dependencies,
-      resolveWorkspace: async (runContext, id) => resolved = await dependencies.resolveWorkspace(runContext, id) });
+    const parsed = projectReadCommandSchema.parse(command);
+    const resolved = await runner.resolve(context, projectId);
     try {
-      const { workspace, dataDir, output } = await run({ projectId, command: projectReadCommandSchema.parse(command) }, context);
-      return { project: { id: workspace.projectId, label: workspace.label }, outcome: "exited",
-        exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr, hostPaths: { root: workspace.root, dataDir } };
+      const { workspace, dataDir, output } = await runner.run(resolved, parsed, context);
+      return { project: { id: workspace.projectId, label: workspace.label }, exitCode: output.exitCode,
+        stdout: output.stdout, stderr: output.stderr, hostPaths: { root: workspace.root, dataDir } };
     } catch (error) {
-      const code = isActionContractError(error) ? error.errorCode : undefined;
-      if (!resolved || !code || !(code in runFailures)) throw error;
-      return { project: { id: resolved.projectId, label: resolved.label }, outcome: "failed",
-        reason: runFailures[code as keyof typeof runFailures] };
+      if (!isActionContractError(error)) throw error;
+      throw new ActionContractError(error.message, { errorCode: error.errorCode, statusCode: error.statusCode,
+        details: { ...error.details, project: { id: resolved.projectId, label: resolved.label } } });
     }
   };
 }

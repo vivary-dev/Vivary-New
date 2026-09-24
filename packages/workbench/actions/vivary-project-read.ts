@@ -13,10 +13,11 @@ export function defineProjectReadTool(reads: ReturnType<typeof createProjectRead
     toolCallable: false,
     // The runner schedules concurrent reads, so same-turn calls may run together.
     readOnly: true,
+    // A result such as a queue timeout must not be served from Core's per-turn read cache on a retry.
+    dedupe: false,
     maxResultChars: PROJECT_READ_MAX_RESULT_CHARS,
     // Queue wait plus the command's own limit, with margin.
     timeoutMs: 70_000,
-    audit: { recordInputs: false, target: () => ({ visibility: "private" }) },
     run: (input, context) => reads.forChat(context, input),
   });
 }

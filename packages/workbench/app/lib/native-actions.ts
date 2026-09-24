@@ -7,9 +7,10 @@ import { VIVARY_OWNER_ACTIONS, type VivaryOwnerAction } from "../../shared/owner
 
 export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>,
   options?: { keepalive?: boolean }) => Promise<T>;
+// These reach the original runner, which may queue a command for 30 seconds before its own 30-second run.
+const ORIGINAL_RUNNER_ACTIONS: readonly VivaryOwnerAction[] = ["vivary-original-command", "vivary-project-adoption", "vivary-project-read-owner"];
 const actionTimeout = (name: VivaryOwnerAction) => name === "vivary-connect-project-folder" ? 130_000
-  // A project read may wait for earlier original commands before its own 30-second run.
-  : name === "vivary-project-read-owner" ? 70_000 : 30_000;
+  : ORIGINAL_RUNNER_ACTIONS.includes(name) ? 70_000 : 30_000;
 
 export function folderConnectionErrorMessage(failure: unknown): string {
   if (failure instanceof Error && (failure.name === "TimeoutError"

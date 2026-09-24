@@ -290,8 +290,8 @@ export function Workspace() {
               <h3>{activeProject?.displayName ?? "Personal workspace"}</h3>
               <dl><dt>Execution</dt><dd>The connected Vivary host</dd>
                 <dt>Project folder</dt><dd>{activeProject ? workspaceAvailable ? "Connected and available" : "Unavailable" : "Personal host workspace"}</dd>
-                <dt>Files and history</dt><dd>Stay on this host. Opening a file does not send it to a model.</dd>
-                {activeProject && <ProjectReadPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}</dl>
+                <dt>Files and history</dt><dd>Stay on this host. Opening a file does not send it to a model.</dd></dl>
+              {activeProject && <ProjectReadPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               {activeProject && <ProjectAdoption key={activeProject.projectId} projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               <p>Open Files to read a document. Choose Edit when you want to change it.</p>
               <Button variant="outline" size="sm" onClick={() => navigate("/settings/runtimes")}>Runtime settings</Button>

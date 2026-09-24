@@ -308,7 +308,9 @@ its own, so several can run at once.
 Find and check use the front door's `--public` facade. Files that Git ignores,
 sensitive file names, and a Vivary workspace's private paths stay out of
 results, and each result counts what it left out. A folder that is neither a
-Git repository nor a Vivary workspace gets a clear refusal instead of results.
+Git repository nor a Vivary workspace gets a clear refusal instead of results,
+and so does a Git repository on a host without Git. A question that contains a
+file or URL path or credential-like text is refused with its own message.
 Findings and results link to files in the same project. Every report is an
 observation. It never repairs, installs, or runs anything.
 
@@ -319,10 +321,11 @@ same result, capped to fit the tool result limit with true totals. The result
 shows the project root as `.` instead of its host path. Coding runtimes keep
 their own file tools and do not receive this tool.
 
-Original commands never refuse a caller as busy. Reads run in parallel. A
-command that writes a project's files, such as an approved setup, runs alone
-within that project. A limit sized to the machine's processor count only makes
-extra commands wait.
+Original commands never refuse a caller for being busy. Reads run in parallel.
+A command that writes a project's files, such as an approved setup, runs alone
+within that project. A limit sized to the machine's processor count, and never
+below four, only makes extra commands wait. A command that still cannot start
+after 30 seconds returns a message asking you to try again.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs

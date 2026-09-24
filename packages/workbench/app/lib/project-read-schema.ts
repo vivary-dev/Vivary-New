@@ -56,8 +56,10 @@ export type ProjectReadOwnerInput = z.infer<typeof projectReadOwnerInputSchema>;
 export type Bounded<T> = { items: T[]; total: number };
 export type ProjectRef = { id: string; label: string };
 export type Omission = { kind: string; reason: string; count: number };
-export type CheckFinding = { path: string; line: number | null; level: "error" | "warning"; code: string; message: string };
-export type FindResult = { id: string; type: string | null; path: string; reason: string; snippet: string };
+// `line` is 0 when a finding covers the whole file.
+export type CheckFinding = { path: string; line: number; level: "error" | "warning"; code: string; message: string };
+// `snippet` is null when Tropo withheld text that looked like a path or a credential.
+export type FindResult = { id: string; type: string | null; path: string; reason: string; snippet: string | null };
 export type CapabilityStatus = "installed" | "not-installed" | "incompatible" | "probe-failed";
 // `network` is a description when the answer depends on configuration.
 export type Capability = { id: string; label: string; isDefault: boolean; requiresApproval: boolean; network: boolean | string;
@@ -73,11 +75,12 @@ export type ProjectReadReport =
   | { operation: "find"; query: string; k: number; budget: number; estimatedTokens: number; complete: boolean;
       results: Bounded<FindResult>; omissions: Omission[] }
   | { operation: "capabilities"; preset: WorkspacePreset; defaults: string[]; capabilities: Bounded<Capability> }
-  | { operation: "receipts"; scope: "application"; logPresent: boolean; total: number; failed: number;
+  | { operation: "receipts"; scope: "application"; failedOnly: boolean; logPresent: boolean; total: number; failed: number;
       invalidLines: number; records: Bounded<Receipt> };
 
 export type UnavailableReason = "privacy_policy_unavailable" | "path_refused" | "work_limit_exceeded"
-  | "producer_unavailable" | "timeout" | "queue_timeout" | "output_limit" | "runtime_unavailable" | "unreadable_output";
+  | "producer_unavailable" | "timeout" | "queue_timeout" | "output_limit" | "runtime_unavailable" | "app_data_unavailable"
+  | "unreadable_output";
 
 export type ProjectReadResult =
   | { status: "reported"; project: ProjectRef; notice: string; report: ProjectReadReport }
