@@ -104,13 +104,11 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
 
   return <>
     <Section title="Project health" state={health.state} hook="project-health">
-      {health.state.kind === "idle" && <p>Not checked yet. Doctor validates this project's workspace files and typed notes on this host.</p>}
+      {health.state.kind === "idle" && <p>Not checked yet. Doctor validates this project's workspace files and settings on this host. Note check covers typed notes.</p>}
       <Outcome state={health.state} running="Checking project health…" />
       {doctor && <>
         <p data-agent-native="project-health-status" data-health={doctor.ok ? "ok" : "failed"}>
           <strong>{doctor.ok ? "Healthy" : "Needs attention"}</strong>
-          {" · "}{doctor.graph.nodes} typed note{doctor.graph.nodes === 1 ? "" : "s"}, {doctor.graph.edges} link{doctor.graph.edges === 1 ? "" : "s"}
-          {doctor.graph.broken > 0 && `, ${doctor.graph.broken} broken`}
         </p>
         {doctor.errors.total > 0 && <>
           <p className="project-read-heading">{heading("error", doctor.errors)}</p>

@@ -68,8 +68,7 @@ export type Receipt = { timestamp: string; tool: string; command: string; ok: bo
   durationMs: number | null; source: string | null; errorType?: string };
 
 export type ProjectReadReport =
-  | { operation: "doctor"; ok: boolean; graph: { nodes: number; edges: number; broken: number };
-      errors: Bounded<string>; warnings: Bounded<string> }
+  | { operation: "doctor"; ok: boolean; errors: Bounded<string>; warnings: Bounded<string> }
   | { operation: "check"; checked: number; clean: number; errorCount: number; warningCount: number;
       strict: boolean; complete: boolean; findings: Bounded<CheckFinding>; omissions: Omission[] }
   | { operation: "find"; query: string; k: number; budget: number; estimatedTokens: number; complete: boolean;

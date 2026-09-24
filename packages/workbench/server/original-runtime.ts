@@ -1,13 +1,13 @@
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { ActionContractError, fail, isActionContractError, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
 import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
-import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS } from "../app/lib/project-read-schema.ts";
+import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS, type ProjectRef } from "../app/lib/project-read-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -68,6 +68,22 @@ export function sameOriginalWorkspace(left: LocalProjectWorkspace, right: LocalP
 const TIMEOUT_MS = 30_000;
 const QUEUE_WAIT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
+const CHILD_RECEIPT_BYTES = 64 * 1024;
+
+/**
+ * Failures after the project resolved in which the original command produced
+ * no report. A run returns these as values. Every other failure throws.
+ */
+export const ORIGINAL_RUN_FAILURES = {
+  queueTimeout: "vivary_original_queue_timeout",
+  timeout: "vivary_original_timeout",
+  outputLimit: "vivary_original_output_limit",
+  runtimeUnavailable: "vivary_original_runtime_unavailable",
+  dataUnavailable: "vivary_original_data_unavailable",
+  receiptPath: "vivary_original_receipt_path",
+} as const;
+export type OriginalRunFailure = typeof ORIGINAL_RUN_FAILURES[keyof typeof ORIGINAL_RUN_FAILURES];
+const runFailures = new Set<string>(Object.values(ORIGINAL_RUN_FAILURES));
 
 type AccessMode = "read" | "write";
 // A write changes one project's files, so it runs alone within that project.
@@ -76,11 +92,11 @@ const accessMode: Record<RuntimeCommand["verb"], AccessMode> = {
   "adopt-prepare-privacy": "write", "adopt-apply": "write", "adopt-recovery-preview": "read", "adopt-recover": "write",
   doctor: "read", capabilities: "read", find: "read", check: "read", logs: "read",
 };
-// Standalone Strato has no execution log, and the public find and check path
-// skips Tropo's receipt writer. The app records only its own invocation. A
-// read's report stands even when its receipt cannot be written.
+// Standalone Strato has no execution log, and the public doctor, find, and
+// check path skips the components' receipt writers. The app records only its
+// own invocation. A read's report stands even when its receipt cannot be written.
 const appReceipt: Partial<Record<RuntimeCommand["verb"], "required" | "best-effort">> = {
-  decide: "required", find: "best-effort", check: "best-effort",
+  decide: "required", doctor: "best-effort", find: "best-effort", check: "best-effort",
 };
 
 export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
@@ -102,7 +118,7 @@ export function originalCommandArguments(command: RuntimeCommand, root: string, 
     case "adopt-recovery-preview": return { args: ["adopt", root, "--json", "--recover", command.transactionHash, "--request-id", command.requestId], stdin: "" };
     case "adopt-recover": return { args: ["adopt", root, "--json", "--recover", command.transactionHash,
       "--yes", "--plan", command.planHash, "--request-id", command.requestId], stdin: "" };
-    case "doctor": return { args: ["doctor", root, "--json"], stdin: "" };
+    case "doctor": return { args: ["doctor", "--root", root, "--public", "--json"], stdin: "" };
     case "capabilities": return { args: ["capabilities", "--preset", command.preset, "--json"], stdin: "" };
     case "check": return { args: ["check", "--root", root, "--public", "--json"], stdin: "" };
     case "find": return { args: ["find", command.query, "--root", root, "--public", "--json",
@@ -143,17 +159,27 @@ function commandError(message: string, errorCode: string, statusCode = 409): nev
 }
 
 const receiptDirectoryError = () => commandError("Vivary's command receipt directory must stay in application data.",
-  "vivary_original_receipt_path");
+  ORIGINAL_RUN_FAILURES.receiptPath);
 const receiptFileError = () => commandError("Vivary's command receipt must be a private application file.",
-  "vivary_original_receipt_path");
+  ORIGINAL_RUN_FAILURES.receiptPath);
 
-async function appendAppReceipt(receiptLog: string, record: Record<string, unknown>): Promise<void> {
+async function appendReceipts(receiptLog: string, lines: string): Promise<void> {
   const receipt = await open(receiptLog, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   try {
     const stat = await receipt.stat();
     if (!stat.isFile() || stat.nlink !== 1) receiptFileError();
-    await receipt.appendFile(JSON.stringify(record) + "\n", "utf8");
+    await receipt.appendFile(lines, "utf8");
   } finally { await receipt.close(); }
+}
+
+// Each child writes receipts to its own file, and only the app appends to the
+// shared log. Windows emulates append with a seek, so two children appending
+// to one file at once could overwrite each other's line.
+async function moveChildReceipts(childLog: string, receiptLog: string): Promise<void> {
+  const info = await lstat(childLog).catch(() => null);
+  if (!info?.isFile() || info.nlink !== 1 || info.size === 0 || info.size > CHILD_RECEIPT_BYTES) return;
+  const lines = await readFile(childLog, "utf8");
+  await appendReceipts(receiptLog, lines.endsWith("\n") ? lines : lines + "\n");
 }
 
 
@@ -293,7 +319,7 @@ function acquireProject(projectId: string, mode: AccessMode, ceiling: number, si
     };
     const timer = setTimeout(() => leave(new ActionContractError(
       "Earlier original Vivary commands are still running. Try again when they finish.",
-      { errorCode: "vivary_original_queue_timeout", statusCode: 503 })), QUEUE_WAIT_MS);
+      { errorCode: ORIGINAL_RUN_FAILURES.queueTimeout, statusCode: 503 })), QUEUE_WAIT_MS);
     const cancel = () => leave(new Error("The original Vivary command was cancelled."));
     signal?.addEventListener("abort", cancel, { once: true });
     commandHost.waiting.push(waiter);
@@ -352,20 +378,20 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     const active: ActiveCommand = { stop, settled: new Promise<void>(done => { markSettled = done; }) };
     commandHost.active.add(active);
     const timer = setTimeout(() => stop(new ActionContractError("The original Vivary command exceeded its 30-second limit.",
-      { errorCode: "vivary_original_timeout", statusCode: 504 })), TIMEOUT_MS);
+      { errorCode: ORIGINAL_RUN_FAILURES.timeout, statusCode: 504 })), TIMEOUT_MS);
     const abort = () => stop(new Error("The original Vivary command was cancelled."));
     signal?.addEventListener("abort", abort, { once: true });
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > OUTPUT_BYTES) stop(new ActionContractError("The original Vivary command exceeded its output limit.",
-        { errorCode: "vivary_original_output_limit", statusCode: 413 }));
+        { errorCode: ORIGINAL_RUN_FAILURES.outputLimit, statusCode: 413 }));
       else target.push(chunk);
     };
     child.stdout.on("data", collect(output));
     child.stderr.on("data", collect(errors));
     // Without IPC or ChildProcess.kill, a child error means the spawn failed.
     child.on("error", () => { failure ??= new ActionContractError("The bundled Vivary runtime could not start. Reinstall Vivary, then try again.",
-      { errorCode: "vivary_original_runtime_unavailable", statusCode: 503 }); });
+      { errorCode: ORIGINAL_RUN_FAILURES.runtimeUnavailable, statusCode: 503 }); });
     child.stdin.on("error", error => { if ((error as NodeJS.ErrnoException).code !== "EPIPE") stop(error); });
     child.on("close", async (exitCode, exitSignal) => {
       clearTimeout(timer);
@@ -394,28 +420,29 @@ const runtimeDependencies: Dependencies = {
   parallelism: Math.max(4, availableParallelism()),
 };
 
-// Resolution and the run are separate steps, so a caller that resolved the
-// project can still name it when the run fails.
+type RunOutcome<Output> = { workspace: LocalProjectWorkspace } & (
+  | { dataDir: string; receiptLogPresent: boolean; output: Output }
+  | { failure: OriginalRunFailure; error: ActionContractError });
+
+function outputOf<Output>(outcome: RunOutcome<Output>): Output {
+  if ("failure" in outcome) throw outcome.error;
+  return outcome.output;
+}
+
+// Resolves the project, then runs one command within the scheduler. A failure
+// in ORIGINAL_RUN_FAILURES comes back as a value that still names the project.
 function createRuntimeCommandRunner(dependencies: Dependencies) {
-  const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
-    requireVivaryCodeUser(context);
-    const workspace = await dependencies.resolveWorkspace(context, projectId);
-    if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
-      commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
-    }
-    return workspace;
-  };
-  const run = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
+  const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
     const { projectId } = workspace;
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
       "The bundled Vivary runtime is unavailable on this host. Reinstall Vivary, then try again.",
-      "vivary_original_runtime_unavailable", 503));
+      ORIGINAL_RUN_FAILURES.runtimeUnavailable, 503));
     if (!environment.VIVARY_DATA_DIR || !path.isAbsolute(environment.VIVARY_DATA_DIR)) {
-      commandError("Vivary application data is not configured.", "vivary_original_data_unavailable");
+      commandError("Vivary application data is not configured.", ORIGINAL_RUN_FAILURES.dataUnavailable);
     }
     const dataDir = await realpath(environment.VIVARY_DATA_DIR).catch(() => commandError(
-      "Vivary application data is unavailable on this host.", "vivary_original_data_unavailable"));
+      "Vivary application data is unavailable on this host.", ORIGINAL_RUN_FAILURES.dataUnavailable));
     if (containsPath(workspace.root, dataDir)) {
       commandError("Choose a project that does not contain Vivary's private application data.", "vivary_original_data_in_project");
     }
@@ -430,13 +457,14 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
     }
     await validateGovernedRequest(command, workspace);
-    let requestDirectory: string | undefined;
+    const runDirectory = await mkdtemp(path.join(receiptDir, "run-")).catch(receiptDirectoryError);
     try {
+      // `logs` reads the shared log. Every other command writes its own.
+      const childReceiptLog = command.verb === "logs" ? receiptLog : path.join(runDirectory, "receipts.jsonl");
       let controlRequestPath: string | undefined;
       if (command.verb === "control") {
         // Exo refuses stdin when receipts are enabled: give the request its own identity.
-        requestDirectory = await mkdtemp(path.join(receiptDir, "request-"));
-        controlRequestPath = path.join(requestDirectory, "request.json");
+        controlRequestPath = path.join(runDirectory, "request.json");
         await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
       }
       const invocation = originalCommandArguments(command, workspace.root, controlRequestPath);
@@ -457,73 +485,79 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         if (commandHost.closing) throw closingError();
         started = performance.now();
         result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
-          originalChildEnvironment(environment, receiptLog, current.root), context?.signal);
+          originalChildEnvironment(environment, childReceiptLog, current.root), context?.signal);
       } finally { release(); }
+      if (childReceiptLog !== receiptLog) await moveChildReceipts(childReceiptLog, receiptLog).catch(() => undefined);
       const receiptPolicy = appReceipt[command.verb];
       if (receiptPolicy) {
-        const appended = appendAppReceipt(receiptLog, {
+        const appended = appendReceipts(receiptLog, JSON.stringify({
           schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
           tool: "vivary-workbench", command: command.verb, exit_code: result.exitCode,
           ok: result.exitCode === 0, duration_ms: Math.round(performance.now() - started),
           python: runtime.version, platform: process.platform, receipt_source: "app",
-        });
+        }) + "\n");
         await (receiptPolicy === "required" ? appended : appended.catch(() => undefined));
       }
       const after = await dependencies.resolveWorkspace(context, projectId);
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
       }
-      return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
+      return { workspace: after, dataDir, receiptLogPresent: receipt !== null, output: { verb: command.verb, projectId,
+        pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
-      if (requestDirectory) await rm(requestDirectory, { recursive: true, force: true });
+      await rm(runDirectory, { recursive: true, force: true });
     }
   };
-  return { resolve, run };
+  return async (context: ActionRunContext | undefined, projectId: string, command: RuntimeCommand,
+    expectedWorkspace?: LocalProjectWorkspace): Promise<RunOutcome<Awaited<ReturnType<typeof execute>>["output"]>> => {
+    requireVivaryCodeUser(context);
+    const workspace = await dependencies.resolveWorkspace(context, projectId);
+    if (expectedWorkspace && !sameOriginalWorkspace(workspace, expectedWorkspace)) {
+      commandError("The reviewed project changed. Prepare a new preview.", "vivary_original_project_changed");
+    }
+    try {
+      return await execute(workspace, command, context);
+    } catch (error) {
+      if (!isActionContractError(error) || !runFailures.has(error.errorCode)) throw error;
+      return { workspace, failure: error.errorCode as OriginalRunFailure, error };
+    }
+  };
 }
 
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const runner = createRuntimeCommandRunner(dependencies);
+  const run = createRuntimeCommandRunner(dependencies);
   return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
     const { projectId, command } = originalCommandSchema.parse(input);
-    return (await runner.run(await runner.resolve(context, projectId), command, context)).output;
+    return outputOf(await run(context, projectId, command));
   };
 }
 
 /** Internal owner-approved operation. The public original-command schema remains read-only for adoption. */
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
-  const runner = createRuntimeCommandRunner(dependencies);
+  const run = createRuntimeCommandRunner(dependencies);
   return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) => {
     const parsed = adoptionExecutionSchema.parse(command);
-    return (await runner.run(await runner.resolve(context, workspace.projectId, workspace), parsed, context)).output;
+    return outputOf(await run(context, workspace.projectId, parsed, workspace));
   };
 }
 
-export type ProjectReadRun = {
-  project: { id: string; label: string }; exitCode: number | null; stdout: string; stderr: string;
-  /** Server-only: used to redact output, never serialized. */
-  hostPaths: { root: string; dataDir: string };
-};
+export type ProjectReadRun = { project: ProjectRef } & (
+  | { failure: OriginalRunFailure }
+  | { exitCode: number | null; stdout: string; stderr: string; receiptLogPresent: boolean;
+      /** Server-only: used to redact output, never serialized. */
+      hostPaths: { root: string; dataDir: string } });
 
-/**
- * Run one project read and return the original command's output. Every
- * failure throws. A coded failure after the project resolved carries that
- * project as `details.project`.
- */
+/** Run one project read. Access refusals throw, and a run failure is a value. */
 export function createProjectReadRunner(dependencies: Dependencies = runtimeDependencies) {
-  const runner = createRuntimeCommandRunner(dependencies);
+  const run = createRuntimeCommandRunner(dependencies);
   return async (projectId: string, command: ProjectReadCommand, context?: ActionRunContext): Promise<ProjectReadRun> => {
-    const parsed = projectReadCommandSchema.parse(command);
-    const resolved = await runner.resolve(context, projectId);
-    try {
-      const { workspace, dataDir, output } = await runner.run(resolved, parsed, context);
-      return { project: { id: workspace.projectId, label: workspace.label }, exitCode: output.exitCode,
-        stdout: output.stdout, stderr: output.stderr, hostPaths: { root: workspace.root, dataDir } };
-    } catch (error) {
-      if (!isActionContractError(error)) throw error;
-      throw new ActionContractError(error.message, { errorCode: error.errorCode, statusCode: error.statusCode,
-        details: { ...error.details, project: { id: resolved.projectId, label: resolved.label } } });
-    }
+    const outcome = await run(context, projectId, projectReadCommandSchema.parse(command));
+    const project = { id: outcome.workspace.projectId, label: outcome.workspace.label };
+    if ("failure" in outcome) return { project, failure: outcome.failure };
+    const { exitCode, stdout, stderr } = outcome.output;
+    return { project, exitCode, stdout, stderr, receiptLogPresent: outcome.receiptLogPresent,
+      hostPaths: { root: outcome.workspace.root, dataDir: outcome.dataDir } };
   };
 }
 

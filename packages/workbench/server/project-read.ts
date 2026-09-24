@@ -1,4 +1,4 @@
-import { isActionContractError, type ActionRunContext } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { workspacePreset } from "../shared/workspace-patterns.ts";
@@ -7,7 +7,9 @@ import {
   type Bounded, type ProjectReadOperation, type ProjectReadOwnerInput, type ProjectReadReport,
   type ProjectReadResult, type ProjectReadToolInput, type ProjectRef, type UnavailableReason,
 } from "../app/lib/project-read-schema.ts";
-import { runProjectRead, type ProjectReadCommand, type ProjectReadRun } from "./original-runtime.ts";
+import {
+  ORIGINAL_RUN_FAILURES, runProjectRead, type OriginalRunFailure, type ProjectReadCommand, type ProjectReadRun,
+} from "./original-runtime.ts";
 import { resolveNativeChatProject } from "./native-chat-project.ts";
 
 const NOTICE = "Observations only. They do not authorize repairs, installs, or commands.";
@@ -27,14 +29,14 @@ const UNAVAILABLE: Record<UnavailableReason, string> = {
 // find refuses a question with the same reason it refuses a folder.
 const FIND_PATH_REFUSED = "Vivary refused this question or this project folder. A question cannot contain a file or URL path, credential-like text, control characters, or the folder's own path.";
 
-// Runner failures that mean the original command produced no report. Every
-// other error is an access or project refusal and stays thrown.
-const RUN_FAILURES = new Map<string, UnavailableReason>([
-  ["vivary_original_queue_timeout", "queue_timeout"], ["vivary_original_timeout", "timeout"],
-  ["vivary_original_output_limit", "output_limit"], ["vivary_original_runtime_unavailable", "runtime_unavailable"],
-  ["vivary_original_data_unavailable", "app_data_unavailable"], ["vivary_original_receipt_path", "app_data_unavailable"],
-]);
-const failedProject = z.object({ id: z.string(), label: z.string() });
+const RUN_FAILURES: Record<OriginalRunFailure, UnavailableReason> = {
+  [ORIGINAL_RUN_FAILURES.queueTimeout]: "queue_timeout",
+  [ORIGINAL_RUN_FAILURES.timeout]: "timeout",
+  [ORIGINAL_RUN_FAILURES.outputLimit]: "output_limit",
+  [ORIGINAL_RUN_FAILURES.runtimeUnavailable]: "runtime_unavailable",
+  [ORIGINAL_RUN_FAILURES.dataUnavailable]: "app_data_unavailable",
+  [ORIGINAL_RUN_FAILURES.receiptPath]: "app_data_unavailable",
+};
 
 const count = z.number().int().nonnegative();
 // A source path is shown and linked inside the project grant, so anything
@@ -48,11 +50,11 @@ const omissions = z.array(z.object({ kind: omissionText, reason: omissionText, c
 const refusal = z.object({ schema: z.literal("vivary.read-refusal/v0"),
   reason: z.enum(["privacy_policy_unavailable", "path_refused", "work_limit_exceeded", "producer_unavailable"]) });
 
-// check and find follow Tropo's published result schemas. Every field is
+// Doctor, check, and find follow the `--public` schemas. Every field is
 // required, and only a hit's type and snippet may be null.
 const outputs = {
-  doctor: z.object({ ok: z.boolean(), errors: z.array(z.string()), warnings: z.array(z.string()),
-    graph: z.object({ nodes: count, edges: count, broken: count }) }),
+  doctor: z.object({ schema: z.literal("vivary.doctor-result/v0"), ok: z.boolean(), errors: z.array(z.string()),
+    warnings: z.array(z.string()) }),
   check: z.object({ schema: z.literal("vivary.check-result/v0"), checked: count, clean: count, errors: count, warnings: count,
     findings: z.array(z.object({ path: sourcePath, line: count, level: z.enum(["error", "warning"]),
       code: z.string(), message: z.string() })),
@@ -67,113 +69,102 @@ const outputs = {
       install_status: z.enum(["installed", "not-installed", "incompatible", "probe-failed"]),
       missing_install: z.array(z.string()) })) }),
   // The logs helper already keeps only safe receipt fields; their values stay untrusted.
-  receipts: z.object({ summary: z.object({ total: count, failed: count, invalid_lines: count }),
+  // `summary` covers the latest records, `log` the whole file.
+  receipts: z.object({ summary: z.object({ invalid_lines: count }), log: z.object({ total: count, failed: count }),
     records: z.array(z.record(z.string(), z.unknown())) }),
 };
 
-type Text = (value: string) => string;
+type ProjectReadOutput = Extract<ProjectReadRun, { stdout: string }>;
 
 function bounded<T>(values: readonly T[]): Bounded<T> {
   return { items: values.slice(0, READ_BOUNDS.items), total: values.length };
 }
 
-function textOrNull(value: unknown, text: Text): string | null {
-  return typeof value === "string" ? text(value) : null;
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+const stringOr = <T>(value: unknown, fallback: T) => typeof value === "string" ? value : fallback;
+const numberOrNull = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 
 // Each operation names its original command and projects that command's
 // parsed output. `null` means the output was not this command's report.
 const operations: { [Operation in ProjectReadOperation]: {
   command: (input: ProjectReadToolInput) => ProjectReadCommand;
-  report: (output: ProjectReadRun, text: Text, input: ProjectReadToolInput) => ProjectReadReport | null;
+  report: (stdout: unknown, run: ProjectReadOutput, input: ProjectReadToolInput) => ProjectReadReport | null;
 } } = {
   doctor: {
     command: () => ({ verb: "doctor" }),
-    report: (output, text) => {
-      const parsed = outputs.doctor.safeParse(json(output.stdout));
+    report: stdout => {
+      const parsed = outputs.doctor.safeParse(stdout);
       if (!parsed.success) return null;
-      const { ok, graph, errors, warnings } = parsed.data;
-      return { operation: "doctor", ok, graph, errors: bounded(errors.map(text)), warnings: bounded(warnings.map(text)) };
+      const { ok, errors, warnings } = parsed.data;
+      return { operation: "doctor", ok, errors: bounded(errors), warnings: bounded(warnings) };
     },
   },
   check: {
     command: () => ({ verb: "check" }),
-    report: (output, text) => {
-      const parsed = outputs.check.safeParse(json(output.stdout));
+    report: stdout => {
+      const parsed = outputs.check.safeParse(stdout);
       if (!parsed.success) return null;
       const data = parsed.data;
       return { operation: "check", checked: data.checked, clean: data.clean, errorCount: data.errors,
         warningCount: data.warnings, strict: data.strict, complete: data.complete,
-        findings: bounded(data.findings.map(finding => ({ path: finding.path, line: finding.line, level: finding.level,
-          code: text(finding.code), message: text(finding.message) }))),
-        omissions: projectOmissions(data.omissions, text) };
+        findings: bounded(data.findings.map(({ path, line, level, code, message }) => ({ path, line, level, code, message }))),
+        omissions: data.omissions.slice(0, READ_BOUNDS.items) };
     },
   },
   find: {
     command: input => ({ verb: "find", query: input.query ?? "", k: input.k ?? 5, budget: input.budget ?? 1_200 }),
-    report: (output, text) => {
-      const parsed = outputs.find.safeParse(json(output.stdout));
+    report: stdout => {
+      const parsed = outputs.find.safeParse(stdout);
       if (!parsed.success) return null;
       const data = parsed.data;
-      return { operation: "find", query: text(data.query), k: data.k, budget: data.budget,
+      return { operation: "find", query: data.query, k: data.k, budget: data.budget,
         estimatedTokens: data.estimated_tokens, complete: data.complete,
-        results: bounded(data.results.map(result => ({ id: text(result.id), type: result.type === null ? null : text(result.type),
-          path: result.path, reason: text(result.reason), snippet: result.snippet === null ? null : text(result.snippet) }))),
-        omissions: projectOmissions(data.omissions, text) };
+        results: bounded(data.results.map(({ id, type, path, reason, snippet }) => ({ id, type, path, reason, snippet }))),
+        omissions: data.omissions.slice(0, READ_BOUNDS.items) };
     },
   },
   capabilities: {
     command: input => ({ verb: "capabilities", preset: input.preset ?? "coding" }),
-    report: (output, text) => {
-      const parsed = outputs.capabilities.safeParse(json(output.stdout));
+    report: stdout => {
+      const parsed = outputs.capabilities.safeParse(stdout);
       if (!parsed.success) return null;
       const data = parsed.data;
       return { operation: "capabilities", preset: data.preset,
-        defaults: data.default_capabilities.slice(0, READ_BOUNDS.items).map(text),
-        capabilities: bounded(data.available_capabilities.map(capability => ({ id: text(capability.id),
-          label: text(capability.label), isDefault: capability.default, requiresApproval: capability.requires_approval,
-          network: typeof capability.network === "string" ? text(capability.network) : capability.network,
-          installStatus: capability.install_status,
-          missing: capability.missing_install.slice(0, READ_BOUNDS.items).map(text) }))) };
+        defaults: data.default_capabilities.slice(0, READ_BOUNDS.items),
+        capabilities: bounded(data.available_capabilities.map(capability => ({ id: capability.id,
+          label: capability.label, isDefault: capability.default, requiresApproval: capability.requires_approval,
+          network: capability.network, installStatus: capability.install_status,
+          missing: capability.missing_install.slice(0, READ_BOUNDS.items) }))) };
     },
   },
   receipts: {
     command: input => ({ verb: "logs", failedOnly: input.failedOnly ?? false }),
-    report: (output, text, input) => {
+    report: (stdout, run, input) => {
       const failedOnly = input.failedOnly ?? false;
-      if (output.exitCode === 1 && output.stderr.includes("receipt log not found")) {
+      if (!run.receiptLogPresent) {
         return { operation: "receipts", scope: "application", failedOnly, logPresent: false, total: 0, failed: 0, invalidLines: 0,
           records: { items: [], total: 0 } };
       }
-      const parsed = outputs.receipts.safeParse(json(output.stdout));
+      const parsed = outputs.receipts.safeParse(stdout);
       if (!parsed.success) return null;
-      const { summary, records } = parsed.data;
+      const { summary, log, records } = parsed.data;
       // The log lists oldest first. Newest first lets bounding and fitting drop the oldest.
-      return { operation: "receipts", scope: "application", failedOnly, logPresent: true, total: summary.total,
-        failed: summary.failed, invalidLines: summary.invalid_lines,
-        records: bounded([...records].reverse().map(record => ({
-          timestamp: textOrNull(record.timestamp, text) ?? "unknown time",
-          tool: textOrNull(record.tool, text) ?? "unknown tool",
-          command: textOrNull(record.command, text) ?? "unknown command",
-          ok: record.ok !== false, exitCode: numberOrNull(record.exit_code), durationMs: numberOrNull(record.duration_ms),
-          source: textOrNull(record.receipt_source, text),
-          ...(typeof record.error_type === "string" ? { errorType: text(record.error_type) } : {}),
-        }))) };
+      return { operation: "receipts", scope: "application", failedOnly, logPresent: true, total: log.total,
+        failed: log.failed, invalidLines: summary.invalid_lines,
+        records: { total: failedOnly ? log.failed : log.total, items: [...records].reverse().slice(0, READ_BOUNDS.items)
+          .map(record => ({
+            timestamp: stringOr(record.timestamp, "unknown time"),
+            tool: stringOr(record.tool, "unknown tool"),
+            command: stringOr(record.command, "unknown command"),
+            ok: record.ok !== false, exitCode: numberOrNull(record.exit_code), durationMs: numberOrNull(record.duration_ms),
+            source: stringOr(record.receipt_source, null),
+            ...(typeof record.error_type === "string" ? { errorType: record.error_type } : {}),
+          })) } };
     },
   },
 };
 
 function json(stdout: string): unknown {
   try { return JSON.parse(stdout); } catch { return undefined; }
-}
-
-function projectOmissions(values: z.infer<typeof omissions>, text: Text) {
-  return values.slice(0, READ_BOUNDS.items).map(omission => ({ kind: text(omission.kind), reason: text(omission.reason),
-    count: omission.count }));
 }
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -184,7 +175,7 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 // matches either separator in any case. Control characters become spaces,
 // which also caps what one character costs in JSON, and a cut never splits a
 // surrogate pair.
-function textFor(hostPaths: { root: string; dataDir: string }): Text {
+function textFor(hostPaths: { root: string; dataDir: string }): (value: string) => string {
   const replacements = [[hostPaths.root, "."], [hostPaths.dataDir, "<app data>"]]
     .sort((left, right) => right[0].length - left[0].length)
     .map(([hostPath, label]) => [new RegExp(hostPath.split(/[\\/]/).map(escapeRegExp).join("[\\\\/]"), "gi"), label] as const);
@@ -195,6 +186,18 @@ function textFor(hostPaths: { root: string; dataDir: string }): Text {
     const cut = redacted.slice(0, READ_BOUNDS.text - 1);
     return (/[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut) + "…";
   };
+}
+
+// Every string in a report passes through `text` here, so a new field cannot
+// skip redaction or the length bound. A source path is project-relative
+// already, and it must stay whole to link.
+function redacted<T>(value: T, text: (value: string) => string, key?: string): T {
+  if (typeof value === "string") return (key === "path" ? value : text(value)) as T;
+  if (Array.isArray(value)) return value.map(item => redacted(item, text)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, redacted(item, text, name)])) as T;
+  }
+  return value;
 }
 
 function unavailable(project: ProjectRef, operation: ProjectReadOperation, reason: UnavailableReason): ProjectReadResult {
@@ -208,7 +211,7 @@ function fitted(project: ProjectRef, report: ProjectReadReport): ProjectReadResu
   const result: ProjectReadResult = { status: "reported", project, notice: NOTICE, report };
   const lists = Object.values(report).filter((value): value is Bounded<unknown> =>
     typeof value === "object" && value !== null && "items" in value && "total" in value);
-  while (JSON.stringify(result, null, 2).length > PROJECT_READ_MAX_RESULT_CHARS) {
+  while (lists.length > 0 && JSON.stringify(result, null, 2).length > PROJECT_READ_MAX_RESULT_CHARS) {
     const longest = lists.reduce((left, right) => right.items.length > left.items.length ? right : left);
     if (longest.items.length === 0) break;
     longest.items.pop();
@@ -219,21 +222,15 @@ function fitted(project: ProjectRef, report: ProjectReadReport): ProjectReadResu
 async function read(run: typeof runProjectRead, context: ActionRunContext | undefined, projectId: string,
   input: ProjectReadToolInput): Promise<ProjectReadResult> {
   const operation = operations[input.operation];
-  let output: ProjectReadRun;
-  try {
-    output = await run(projectId, operation.command(input), context);
-  } catch (error) {
-    if (!isActionContractError(error)) throw error;
-    const reason = RUN_FAILURES.get(error.errorCode);
-    const project = failedProject.safeParse(error.details?.project);
-    if (!reason || !project.success) throw error;
-    return unavailable(project.data, input.operation, reason);
-  }
-  const text = textFor(output.hostPaths);
-  const refused = refusal.safeParse(json(output.stdout));
+  const output = await run(projectId, operation.command(input), context);
+  if ("failure" in output) return unavailable(output.project, input.operation, RUN_FAILURES[output.failure]);
+  const stdout = json(output.stdout);
+  const refused = refusal.safeParse(stdout);
   if (refused.success) return unavailable(output.project, input.operation, refused.data.reason);
-  const report = operation.report(output, text, input);
-  return report ? fitted(output.project, report) : unavailable(output.project, input.operation, "unreadable_output");
+  const report = operation.report(stdout, output, input);
+  return report
+    ? fitted(output.project, redacted(report, textFor(output.hostPaths)))
+    : unavailable(output.project, input.operation, "unreadable_output");
 }
 
 /**

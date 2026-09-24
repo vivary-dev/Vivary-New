@@ -6,7 +6,7 @@ import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
 import { ActionContractError } from "@agent-native/core/action";
-import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
+import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, ORIGINAL_RUN_FAILURES, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
 
 const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 const input = { projectId: "project-a", command: { verb: "review" as const } };
@@ -38,7 +38,7 @@ test("the public command action has no unfiltered find or check, and no project 
 
 test("project reads use the privacy-filtered front door and never pass a receipt path", () => {
   const root = "/granted/project";
-  assert.deepEqual(originalCommandArguments({ verb: "doctor" }, root).args, ["doctor", root, "--json"]);
+  assert.deepEqual(originalCommandArguments({ verb: "doctor" }, root).args, ["doctor", "--root", root, "--public", "--json"]);
   assert.deepEqual(originalCommandArguments({ verb: "capabilities", preset: "writing" }, root).args,
     ["capabilities", "--preset", "writing", "--json"]);
   assert.deepEqual(originalCommandArguments({ verb: "find", query: "chapter outline", k: 5, budget: 1200 }, root).args,
@@ -167,7 +167,9 @@ async function fixture(inspect?: (args: string[], stdin: string) => Promise<void
       assert.equal(python, executable);
       assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
       assert.equal(cwd, data);
-      assert.equal(environment.VIVARY_RECEIPT_LOG, path.join(data, "original-runtime", "receipts.jsonl"));
+      const childLog = environment.VIVARY_RECEIPT_LOG!;
+      assert.equal(path.basename(childLog), "receipts.jsonl");
+      assert.ok(path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
       await inspect?.(args, stdin);
       afterExecute();
       return { exitCode: 0, stdout: "result", stderr: "", signal: null };
@@ -310,7 +312,7 @@ test("control uses a separate private request file and removes it after success 
     const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
     const f = await fixture(async (args, stdin) => {
       requestPath = args.at(-1)!;
-      assert.ok(requestPath.startsWith(path.join(f.data, "original-runtime", "request-")));
+      assert.ok(requestPath.startsWith(path.join(f.data, "original-runtime", "run-")));
       assert.equal(await readFile(requestPath, "utf8"), request);
       assert.equal(stdin, "");
       if (reject) throw new Error("fixture execution failure");
@@ -532,7 +534,7 @@ test("a missing bundle and a slow command fail with their own codes", async t =>
   await assert.rejects(slow, { errorCode: "vivary_original_timeout", statusCode: 504, message: /30-second limit/ });
 });
 
-test("public find and check append an app receipt without the question, and doctor does not", async () => {
+test("public doctor, find, and check append an app receipt without the question", async () => {
   const f = await fixture();
   try {
     const read = createProjectReadRunner({
@@ -547,7 +549,7 @@ test("public find and check append an app receipt without the question, and doct
     const text = await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8");
     const receipts = text.trim().split("\n").map(line => JSON.parse(line));
     assert.deepEqual(receipts.map(receipt => [receipt.command, receipt.exit_code, receipt.ok, receipt.receipt_source]),
-      [["find", 1, false, "app"], ["check", 1, false, "app"]]);
+      [["find", 1, false, "app"], ["check", 1, false, "app"], ["doctor", 1, false, "app"]]);
     assert.equal(text.includes("private question text"), false);
     assert.equal(text.includes(f.root), false);
   } finally { await f.cleanup(); }
@@ -564,20 +566,63 @@ test("a project read names its project and keeps host paths out of band", async 
   try {
     const exited = await createProjectReadRunner({ ...dependencies,
       execute: async () => ({ exitCode: 0, stdout: "report", stderr: "", signal: null }) })("project-a", { verb: "doctor" }, context);
-    assert.deepEqual(exited, { project, exitCode: 0, stdout: "report", stderr: "", hostPaths: { root: f.root, dataDir: f.data } });
-    for (const errorCode of ["vivary_original_timeout", "vivary_original_output_limit", "vivary_original_queue_timeout"]) {
-      await assert.rejects(createProjectReadRunner({ ...dependencies, execute: async () => {
-        throw new ActionContractError("refused", { errorCode, statusCode: 503 });
-      } })("project-a", { verb: "check" }, context), { errorCode, statusCode: 503, message: "refused", details: { project } });
+    assert.deepEqual(exited, { project, exitCode: 0, stdout: "report", stderr: "", receiptLogPresent: false,
+      hostPaths: { root: f.root, dataDir: f.data } });
+    for (const failure of Object.values(ORIGINAL_RUN_FAILURES)) {
+      assert.deepEqual(await createProjectReadRunner({ ...dependencies, execute: async () => {
+        throw new ActionContractError("refused", { errorCode: failure, statusCode: 503 });
+      } })("project-a", { verb: "check" }, context), { project, failure });
     }
-    await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
+    assert.deepEqual(await createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
       environment: () => ({ VIVARY_ORIGINAL_RUNTIME: path.join(f.directory, "absent"), VIVARY_DATA_DIR: f.data }) })(
-      "project-a", { verb: "doctor" }, context), { errorCode: "vivary_original_runtime_unavailable", details: { project } });
+      "project-a", { verb: "doctor" }, context), { project, failure: "vivary_original_runtime_unavailable" });
+    const other = new ActionContractError("other", { errorCode: "vivary_original_project_changed", statusCode: 409 });
+    await assert.rejects(createProjectReadRunner({ ...dependencies, execute: async () => { throw other; } })(
+      "project-a", { verb: "check" }, context), error => error === other);
     const revoked = Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
     await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess,
       resolveWorkspace: async () => { throw revoked; } })("project-a", { verb: "doctor" }, context), error => error === revoked);
     await assert.rejects(createProjectReadRunner({ ...dependencies, execute: runOriginalProcess })(
       "project-a", { verb: "find", query: "--root /outside", k: 5, budget: 1200 }, context));
+  } finally { await f.cleanup(); }
+});
+
+test("children write receipts to their own files and the app moves them into the shared log", async () => {
+  const f = await fixture();
+  const childLogs: string[] = [];
+  const sharedLog = path.join(f.data, "original-runtime", "receipts.jsonl");
+  const dependencies = {
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+    parallelism: 4,
+  };
+  try {
+    let started = 0;
+    let release!: () => void;
+    const together = new Promise<void>(resolve => { release = resolve; });
+    const run = createOriginalCommandRunner({ ...dependencies, execute: async (_python, _args, _stdin, _cwd, environment) => {
+      const childLog = environment.VIVARY_RECEIPT_LOG!;
+      childLogs.push(childLog);
+      if (++started === 2) release();
+      await together;
+      await writeFile(childLog, JSON.stringify({ command: "review", child: childLogs.indexOf(childLog) }) + "\n");
+      return { exitCode: 0, stdout: "{}", stderr: "", signal: null };
+    } });
+    await Promise.all([run(input, context), run(input, context)]);
+    assert.notEqual(childLogs[0], childLogs[1]);
+    const lines = (await readFile(sharedLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    assert.deepEqual(lines.map(line => line.child).sort(), [0, 1]);
+    assert.deepEqual(await readdir(path.join(f.data, "original-runtime")), ["receipts.jsonl"]);
+
+    const logsEnvironment: string[] = [];
+    const logs = createProjectReadRunner({ ...dependencies, execute: async (_python, _args, _stdin, _cwd, environment) => {
+      logsEnvironment.push(environment.VIVARY_RECEIPT_LOG!);
+      return { exitCode: 0, stdout: "{}", stderr: "", signal: null };
+    } });
+    const read = await logs("project-a", { verb: "logs", failedOnly: false }, context);
+    assert.ok("receiptLogPresent" in read && read.receiptLogPresent);
+    assert.deepEqual(logsEnvironment, [sharedLog]);
+    assert.equal((await readFile(sharedLog, "utf8")).trim().split("\n").length, 2, "logs writes no receipt");
   } finally { await f.cleanup(); }
 });
 
