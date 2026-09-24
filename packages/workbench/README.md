@@ -298,6 +298,32 @@ binary. Coding agents search
 the same folder through their own tools: Claude Code's Grep and Glob run in
 the project directory, and Codex uses its sandboxed shell there.
 
+Project details runs the original Vivary read operations for the selected
+project. **Check project health** runs Doctor. **Check notes** validates typed
+notes. **Find context** ranks project context for a question. **Show features**
+lists optional capabilities for a preset. **Show receipts** lists recent
+sanitized command receipts for every project on this host. Each section runs on
+its own, so several can run at once.
+
+Find and check use the front door's `--public` facade. Files that Git ignores,
+sensitive file names, and a Vivary workspace's private paths stay out of
+results, and each result counts what it left out. A folder that is neither a
+Git repository nor a Vivary workspace gets a clear refusal instead of results.
+Findings and results link to files in the same project. Every report is an
+observation. It never repairs, installs, or runs anything.
+
+The Native agent reads the same reports through one Vivary tool,
+`vivary-project-read`. The tool has no project field. Its project comes from
+the chat, and the tool refuses a personal chat. The panel and the tool get the
+same result, capped to fit the tool result limit with true totals. The result
+shows the project root as `.` instead of its host path. Coding runtimes keep
+their own file tools and do not receive this tool.
+
+Original commands never refuse a caller as busy. Reads run in parallel. A
+command that writes a project's files, such as an approved setup, runs alone
+within that project. A limit sized to the machine's processor count only makes
+extra commands wait.
+
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
 and transcripts. Project-bound Native history includes the maintained saved-head repair and history
