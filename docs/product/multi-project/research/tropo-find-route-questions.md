@@ -3,20 +3,23 @@
 ## Recommendation
 
 Let the privacy-filtered find and query accept a question that names a URL
-route, such as "what serves /api/users?", only if one rule can also keep
-refusing every absolute host path in every output field, including the
-echoed `query`. `docs/MCP.md` promises that. The rule must refuse a host path
+route, such as "what serves /api/users?", only if one rule can also refuse
+every absolute host path in every output field, including the echoed
+`query`. `docs/MCP.md` promises that. The rule must refuse a host path
 with or without a file extension, such as `/data/private.txt`, `/etc/passwd`,
 or `/proc/self/environ`, and give the same answer on Linux, macOS, and
 Windows. If no such rule exists, the refusal stays, and the refusal message
 explains it.
 
-Today's tests do not pin all of that. The Tropo and MCP tests list 11 host
-paths, and every one ends in `.txt` or `.md`. The MCP cases check only a
-`path` field. The change adds tests for paths without an extension and for
-the `query` field.
+Today's checks do not meet that yet. Both Tropo's question check and the MCP
+result check accept `//etc/passwd`, which Linux and macOS read as
+`/etc/passwd`, and `file:///etc/passwd`. Today's tests list 11 host paths,
+and every one ends in `.txt` or `.md`. The MCP cases check only a `path`
+field. The change adds tests for a doubled leading slash, `file:` URIs,
+paths without an extension, and the `query` field.
 
-The owner requested this change during the issue #19 review. It lands as its
+The owner requested this change on 2026-09-24, in the working session that
+reviewed issue #19. It lands as its
 own PR after [PR #89](https://github.com/vivary-dev/Vivary-New/pull/89)
 merges, because it changes Tropo's and the MCP adapter's privacy rules and
 files that #89 adds.
@@ -53,8 +56,9 @@ string in a producer result, including the echoed `query`. A match turns the
 result into `producer_unavailable`. Tropo removes no URIs, so the two checks
 already disagree. MCP accepts "see https://[::1]/public/docs", and Tropo refuses
 it as a question. `test_result_firewall_refuses_machine_paths_and_credentials`
-in `packages/mcp/tests/test_vivary_mcp.py` requires refusing seven strings,
-including a file in a user's home folder and two host paths that follow a URL.
+in `packages/mcp/tests/test_vivary_mcp.py` requires refusing seven absolute
+paths, including a file in a user's home folder and two host paths that
+follow a URL.
 `docs/MCP.md` promises that the adapter returns no absolute machine path.
 Changing Tropo alone would leave `vivary_find` and `vivary_query` refusing
 the same questions over MCP, with a less clear reason.
@@ -101,7 +105,9 @@ message states the rule the change ships.
    the "no machine path in output" promise for that field. Echoing its terms
    keeps the promise and shows text the caller did not type.
 3. May snippets keep route text, under the same rule?
-4. Should `//server/share` be refused like the backslash form?
+4. How should a doubled leading slash be read? `//server/share` names a
+   share on Windows, and `//etc/passwd` names `/etc/passwd` on Linux and
+   macOS. Both pass today.
 
 ## Files
 
@@ -139,12 +145,22 @@ relay serves /api/users for the dashboard." Ask the agent "what serves
 
 ## Release
 
-`docs/RELEASE-WORKFLOW.md` requires a `vivary-mcp` release, a Tropo floor
-update, and a `CHANGELOG.md` entry for a change to
-`packages/mcp/vivary_mcp.py`. The current version and floor are pinned in
-`.github/workflows/ci.yml` (the `vivary-mcp` version and `vivary-tropo>=0.5.3`
-assertions), `packages/mcp/tests/test_vivary_mcp.py`,
-`packages/mcp/pyproject.toml`, and `packages/mcp/README.md`, and they move
-together. On 2026-09-24 PyPI listed vivary-tropo 0.5.4 and vivary-mcp 0.1.3,
-and the Tropo source is 0.5.5. The owner decides which releases carry this
-change.
+`docs/RELEASE-WORKFLOW.md` asks two things of this change.
+
+- A change to `packages/mcp/vivary_mcp.py` needs a `vivary-mcp` release, a
+  Tropo floor update, and a `CHANGELOG.md` entry. The MCP version is pinned in
+  `packages/mcp/vivary_mcp.py` (`__version__`), `packages/mcp/pyproject.toml`,
+  `packages/mcp/README.md`, `packages/mcp/tests/test_vivary_mcp.py`, and the
+  `vivary-mcp` version assertions in `.github/workflows/ci.yml`. The Tropo
+  floor, `vivary-tropo>=0.5.3`, is pinned in the same pyproject, README,
+  test, and CI assertions.
+- A change to `packages/tropo/tropo.py` needs a `vivary-tropo` version, a
+  README update, and a row in the release table in `docs/ORIGINAL-CLI.md`.
+  Tropo 0.5.5 is staged and unpublished, so the change can ship in 0.5.5.
+  If 0.5.5 ships first, the `vivary-tropo>=0.5.5` floors in
+  `packages/vivary/pyproject.toml`, `packages/create-vivary/pyproject.toml`,
+  `.github/workflows/ci.yml`, and `scripts/check_installed_workspace_roles.py`
+  move too.
+
+On 2026-09-24 PyPI listed vivary-tropo 0.5.4 and vivary-mcp 0.1.3. The owner
+decides which releases carry this change.
