@@ -339,9 +339,9 @@ appended. A receipt the app could not append stays in its private folder. A
 later start's first command appends it if the folder is ten minutes old by then,
 and skips a receipt the log already holds. The app writes the receipt itself for
 every command whose component wrote none. A governed command or a write that
-finished without its component's receipt then fails. Shutdown waits for every
-command to record its receipt and clean up. A read's report stands without its
-receipt.
+finished without its component's receipt then fails. Shutdown waits for the
+receipt of every command whose child started. A read's report stands without
+its receipt.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs

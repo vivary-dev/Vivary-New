@@ -1056,7 +1056,7 @@ text, target ids, and local paths are not copied into the summary.
 | Command | Job |
 |---|---|
 | `logs [PATH]` | Read local JSONL receipts from `PATH`, `VIVARY_RECEIPT_LOG`, or `.vivary/receipts.jsonl` and print a summary. |
-| `logs --failed --tail 10` | Show only recent failed receipts. |
+| `logs --failed --tail 10` | Show only recent failed receipts. A receipt counts as failed unless its `ok` is `true`. |
 | `logs --json` | Return `{summary, log, records}` for agents and bug-report tooling. `summary` covers the printed records, and `log` covers the whole file. A missing log returns `log: null` and exits 0. |
 | `logs email ... --out FILE` | Write a local `.eml` draft; directory targets, symlink targets, symlink/junction ancestors, and Windows device names are refused. |
 | `logs email ...` | Without `--out`, print a `mailto:` URL for the user's mail client. |

@@ -3,9 +3,9 @@
 Evidence-record: 09b
 Date: 2026-09-24
 Issue: [#19](https://github.com/vivary-dev/Vivary-New/issues/19)
-Latest verified source: `9e9b0d82cdf09dbda22a6bcf0fdfcc21dd04d458`
-Hosted result: the 12-step journey passed three runs in a row on `9e9b0d82`, with Workbench and the bundled Python runtime built from that commit. It also passed on `bd12e620`, after a first run there stopped at its first step, described below, and on `9c026639`, `366ce16c`, `8576af0e`, `cc54be25`, and three times on `e87099d1`. A local fake model provider drove the agent, so no real model was called.
-Packaged Windows result: the unpublished `e87099d1` package passed the full panel, agent, isolation, missing-folder, restart, and no-Git journey. The unpublished `8576af0e` package then passed the journey's affected steps on the same profile. The unpublished `bd12e620` package opened that profile and passed the checks listed below. The final `9e9b0d82` package is built. Its panel reads and agent turn wait for a time when the owner is away from the laptop.
+Latest verified source: `480e616e8deceebf8953a86ac3bfb760aa5faf19`
+Hosted result: the 12-step journey passed three runs in a row on `480e616e`, with Workbench and the bundled Python runtime built from that commit, and three runs in a row on `9e9b0d82`. It also passed on `bd12e620`, after a first run there stopped at its first step, described below, and on `9c026639`, `366ce16c`, `8576af0e`, `cc54be25`, and three times on `e87099d1`. A local fake model provider drove the agent, so no real model was called.
+Packaged Windows result: the unpublished `e87099d1` package passed the full panel, agent, isolation, missing-folder, restart, and no-Git journey. The unpublished `8576af0e` package then passed the journey's affected steps on the same profile. The unpublished `bd12e620` package opened that profile and passed the checks listed below. The final `480e616e` package is built. Its panel reads and agent turn wait for a time when the owner is away from the laptop.
 Delivery status: PR #89 into `dev` carries this work. Merge and issue closure wait for the owner's Entire trail approval.
 
 ## Result
@@ -118,13 +118,40 @@ reviewer was checked against the same head. Fixes landed in `d58fb68`:
   matching context" when limits cut a search short, and hid skipped receipt
   lines. A receipt without a boolean `ok` counted as a success. These are
   fixed, and `.markdown` results open like `.md` ones.
-- A PATH directory that links into the project stayed on the child's PATH.
-  The runner now resolves each directory and drops one inside the project.
 
 The hosted journey on `d58fb68` then found three Project health panels. The
 round-6 fix gave the read panel the same key as the adoption panel beside it,
 and React duplicates siblings that share a key. `9e9b0d82` gives the read
 panel its own key.
+
+A seventh panel reviewed `f5145d6`. Fixes landed in `480e616`:
+
+- Round 6 made shutdown wait for every command from its start, so a stalled
+  project check could hold shutdown forever. Shutdown now waits for stopped
+  children and for the receipts of commands whose child started. A command
+  that has not spawned cannot spawn once shutdown begins, and one that
+  arrives after it began is refused before it touches files.
+- A cancel that landed before the spawn recorded a stopped run for a child
+  that never existed. A run is now marked started only after the executor
+  returns.
+- The runtime check in `report()` could turn a missing table entry into a
+  traceback inside adoption and repair. Rules are now a `DoctorRule` enum
+  with one table of sentences and allowed values. A test checks the table
+  covers every rule and, through the syntax tree, that every `report()` call
+  names one. Nothing raises at runtime.
+- The panel's receipt rows and heading defined failure differently. The CLI
+  now counts a receipt without a true `ok` as failed in its filter, totals,
+  and text, and the rows follow it.
+- An incomplete find blamed every gap on limits. The panel now names the
+  reasons from the report's own omissions. The panel keys itself by project,
+  so a caller cannot collide with its key.
+
+The round-6 PATH link check is withdrawn. It ran a synchronous `realpath` per
+PATH entry on every command, and a PATH entry that links into a project is the
+owner's own configuration. A rendered component test for the panel was
+declined, because the hosted journey renders the real panel and caught the
+key bug. The panel's display rules are unit-tested instead. Splitting the
+runner file, which stays under 700 lines, is left for later.
 
 Four Codex comments were declined. A schema-valid report is the command's
 whole output, and Doctor and check exit 1 for findings, so the exit code
@@ -165,8 +192,8 @@ names the note, and public Doctor does not.
 The first run on `bd12e620` stopped at its first step. The runtime menu's
 Native chat choice did not open a chat within 30 seconds, and the page showed
 no error. The next run on the same build passed all 12 steps. The crash repro
-on that build opened 24 Native chat turns without the failure. Three runs on
-`9e9b0d82` then passed all 12 steps.
+on that build opened 24 Native chat turns without the failure. Three runs
+each on `9e9b0d82` and `480e616e` then passed all 12 steps.
 
 ## Agent panel crash
 
@@ -176,7 +203,8 @@ assistant message component walked to a parent entry that the thread store no
 longer held. The existing Core patch now stops the walk at a parent the rendered
 thread does not hold, without catching other errors. The repro ran 32 turns
 each on `cc54be25`, `8576af0e`, `366ce16c`, and `9c026639`, and 24 turns
-each on `bd12e620` and `9e9b0d82`, with no error boundary and no page error.
+each on `bd12e620`, `9e9b0d82`, and `480e616e`, with no error boundary and no
+page error.
 The remaining console errors are 404 responses from Core's thread lookup before
 a new thread row exists and from Core's `available-clis` route, which Workbench
 does not mount. The build before the Core change shows the same responses.
@@ -193,6 +221,7 @@ package receipts.
 | `8576af0e` | 223,730,222 | `6a57fa91666df3bf90e6214f882409bc0686374cc64b341dd868d53ecdc7032e` |
 | `bd12e620` | 223,732,283 | `442475042220d70957d5057f7a5515292b5025e65f4449029824c1fa79adfaac` |
 | `9e9b0d82` | 223,733,172 | `c135906d41fdb9b998aa9d76b517189f42e7ac8c46355a1dd58a66f8f3fba746` |
+| `480e616e` | 223,733,740 | `41c6e7e2db7270b3f34be2eadfb9a305270fec5318899cb26606b9a35a90829c` |
 
 The `e87099d1` EXE ran with an isolated application profile, no provider
 credentials, and a local fake model provider. The GUI created two projects.
@@ -246,7 +275,7 @@ RelayService chat with its history.
   valid lines, and no per-run folder remained.
 
 The panel reads and the agent turn did not run on this package or on the
-final `9e9b0d82` package. The retest drives the window with typed keys, and
+later `9e9b0d82` and `480e616e` packages. The retest drives the window with typed keys, and
 the owner was using the laptop.
 
 Each normal close left no Vivary process within 20 seconds, and the provider
@@ -261,22 +290,20 @@ not from the app.
 
 ## Verification and limits
 
-On `9e9b0d82`, the Workbench checks read their commands from `ci.yml` and
-passed: typecheck, `tsc`, the two tsx lists (56 of 56, and 262 of 263 with one
+On `480e616e`, the Workbench checks read their commands from `ci.yml` and
+passed: typecheck, `tsc`, the two tsx lists (56 of 56, and 264 of 265 with one
 existing skip), the two node lists (28 of 28 and 12 of 12), and
 `test:maintained`. The runner and read tests passed five repeated runs. Line
-endings and `git diff --check` were clean. The vivary CLI suite passed 19 of
-19.
+endings and `git diff --check` were clean. The vivary CLI suite passed 20 of
+20.
 
 `test_create_vivary.py` fails on Zo with or without this work, so it ran on
-the Windows laptop from a clean export of `d58fb68`, which holds the last
-Python change. Its 74 Doctor tests passed with one skip. Doctor now refuses
-an unlisted rule or value as it reports one, so those tests also show that
-every rule they reach has a public sentence.
+the Windows laptop from a clean export of `480e616e`. Its 74 Doctor tests
+passed with one skip.
 
-The final package's bundled plain Doctor named the Git-ignored deal note in
-RelayService, and its public Doctor returned `ok` with no finding and no host
-path.
+The `9e9b0d82` package's bundled plain Doctor named the Git-ignored deal note
+in RelayService, and its public Doctor returned `ok` with no finding and no
+host path.
 
 A Zo restart rolled back the hosted run files for `486f7a50`, so this receipt
 does not count them. The Windows runs used fixtures and a fake provider. They do

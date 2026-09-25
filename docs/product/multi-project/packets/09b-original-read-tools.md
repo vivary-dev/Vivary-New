@@ -84,6 +84,7 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 - 2026-09-24: A sixth panel's findings are fixed in `d58fb68` and `9e9b0d82`. The hosted journey passed three runs on `9e9b0d82`. The Windows panel reads and agent turn on the `9e9b0d82` package are pending.
 
 - 2026-09-24: Claimed on `feat/project-read-tools` from merged `dev` `0c8c7eb`.
+- 2026-09-24: A seventh panel's findings are fixed in `480e616`. The hosted journey passed three runs on `480e616e`. The Windows panel reads and agent turn on the `480e616e` package are pending.
   Dependencies #18 and #7 are closed.
 
 ## Shared desktop and web behavior
