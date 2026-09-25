@@ -146,6 +146,29 @@ export const EFFECTIVE_WHEN_TEXT =
   + "A change applies to your next message, including in open conversations. "
   + "A reply already in progress keeps what it started with.";
 
+/** The sentence under the Memory heading. Paths come from the engine, so the panel never spells a default. */
+export function storageSentence(view: Pick<ProjectMemoryView, "settings" | "writeLocation" | "locations">): string {
+  const { settings } = view;
+  if (settings.status === "unavailable" || settings.status === "invalid") {
+    return `Vivary could not read this project's memory settings. ${settings.message}`;
+  }
+  const folder = `${view.writeLocation ?? settings.memory[0]}/`;
+  if (settings.status === "plain") {
+    return `Stored in ${folder} in this project folder. This folder has no Vivary workspace settings, so the default applies.`;
+  }
+  return settings.memoryAssigned
+    ? `Stored in ${folder}, assigned by the memory role in .vivary/workspace.toml.`
+    : `Stored in ${folder} in this project folder. This is the default because .vivary/workspace.toml assigns no memory folder.`;
+}
+
+/** Which rule decided private folders, for the panel. */
+export function privacySentence(settings: MemorySettings): string | null {
+  if (settings.status !== "thin" && settings.status !== "plain") return null;
+  return settings.privacy.policy === "gitignore"
+    ? "Vivary does not load or save facts in a folder this project's .gitignore rules ignore."
+    : "This project has no .gitignore, so no memory folder is treated as private.";
+}
+
 /** Shown before every forget. */
 export function forgetDisclosure(path: string): string {
   return `Forget removes ${path}. Agents stop receiving it from your next message. `

@@ -11,6 +11,7 @@ import { useProjects } from "../projects/ProjectContext";
 import { ProjectFiles } from "../projects/ProjectFiles";
 import { ProjectSearch } from "../projects/ProjectSearch";
 import { ProjectAdoption } from "../projects/ProjectAdoption";
+import { ProjectMemoryPanel } from "../projects/ProjectMemoryPanel";
 import { ProjectReadPanel } from "../projects/ProjectReadPanel";
 import FilesView from "../../routes/files";
 import CodeConversation from "./CodeConversation";
@@ -291,6 +292,7 @@ export function Workspace() {
               <dl><dt>Execution</dt><dd>The connected Vivary host</dd>
                 <dt>Project folder</dt><dd>{activeProject ? workspaceAvailable ? "Connected and available" : "Unavailable" : "Personal host workspace"}</dd>
                 <dt>Files and history</dt><dd>Stay on this host. Opening a file does not send it to a model.</dd></dl>
+              {activeProject && <ProjectMemoryPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               {activeProject && <ProjectReadPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               {activeProject && <ProjectAdoption key={activeProject.projectId} projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               <p>Open Files to read a document. Choose Edit when you want to change it.</p>

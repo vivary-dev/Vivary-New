@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import type { WorkspaceContextPaths } from "../app/lib/project-memory-schema.ts";
+import {
+  forgetDisclosure,
+  privacySentence,
+  storageSentence,
+  type WorkspaceContextPaths,
+} from "../app/lib/project-memory-schema.ts";
 import { createProjectFileService } from "../server/project-files.ts";
 import {
   CONTEXT_BOUNDS,
@@ -161,6 +166,26 @@ describe("project memory rendering", () => {
     assert.equal(locationProblem(".vivary/knowledge", BOUNDARY), null);
     assert.equal(locationProblem("docs/facts", BOUNDARY), null);
     assert.equal(locationProblem(".vivary/memoryfacts", BOUNDARY), null);
+  });
+});
+
+describe("project memory panel text", () => {
+  it("says where memory is stored, why, and what forget leaves behind", () => {
+    const view = (settings: WorkspaceContextPaths, writeLocation: string | null = ".vivary/knowledge") =>
+      storageSentence({ settings, writeLocation, locations: [] });
+    assert.equal(view(thinAnswer()), "Stored in .vivary/knowledge/ in this project folder. "
+      + "This is the default because .vivary/workspace.toml assigns no memory folder.");
+    assert.equal(view(thinAnswer(["docs/facts"]), "docs/facts"),
+      "Stored in docs/facts/, assigned by the memory role in .vivary/workspace.toml.");
+    assert.match(view({ status: "plain", memory: [".vivary/knowledge"], privacy: { policy: "none", private: [] } }),
+      /no Vivary workspace settings, so the default applies/);
+    assert.match(view({ status: "invalid", message: "bad toml" }), /could not read this project's memory settings\. bad toml/);
+    assert.match(String(privacySentence(thinAnswer())), /\.gitignore rules ignore/);
+    assert.equal(privacySentence({ status: "unavailable", message: "x" }), null);
+    assert.equal(forgetDisclosure(".vivary/knowledge/relay-budget.md"),
+      "Forget removes .vivary/knowledge/relay-budget.md. Agents stop receiving it from your next message. "
+      + "Earlier conversation transcripts, Codex thread history, Git history and other file versions, and backups "
+      + "may still contain it. Vivary does not erase those.");
   });
 });
 

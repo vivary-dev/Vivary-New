@@ -1,0 +1,258 @@
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { Button } from "@agent-native/toolkit/ui";
+import { Link, useSearchParams } from "react-router";
+import { useNativeActionCaller } from "@/lib/native-actions";
+import { projectFileHref } from "@/lib/project-file-location";
+import {
+  EFFECTIVE_WHEN_TEXT,
+  forgetDisclosure,
+  LOCATION_PROBLEM_TEXT,
+  privacySentence,
+  storageSentence,
+  WORKSPACE_ROLES,
+  type MemoryFact,
+  type ProjectMemoryView,
+  type ProjectMemoryWriteInput,
+  type ProjectMemoryWriteResult,
+} from "@/lib/project-memory-schema";
+
+type FactDraft = { title: string; text: string; source: string };
+type Load = { kind: "loading" } | { kind: "ready"; view: ProjectMemoryView } | { kind: "error"; message: string };
+// One editor at a time. A conflict keeps the owner's draft and shows the
+// current file beside it, like the Files route.
+type Editor =
+  | { kind: "closed" }
+  | { kind: "remember"; draft: FactDraft; existing: MemoryFact | null }
+  | { kind: "correct"; fact: MemoryFact; draft: FactDraft; current: MemoryFact | null }
+  | { kind: "forget"; fact: MemoryFact; current: MemoryFact | null };
+
+const EMPTY_DRAFT: FactDraft = { title: "", text: "", source: "" };
+const ROLE_LABELS = { law: "Law", map: "Map", record: "Record", memory: "Memory", boundary: "Boundary" } as const;
+
+function draftOf(fact: MemoryFact): FactDraft {
+  return { title: fact.title, text: fact.text, source: fact.source ?? "" };
+}
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+type PanelProps = { projectId: string; disabled: boolean };
+
+// Keyed by project, so another project's facts and drafts never show here.
+export function ProjectMemoryPanel(props: PanelProps) {
+  return <ProjectMemorySection key={props.projectId} {...props} />;
+}
+
+function ProjectMemorySection({ projectId, disabled }: PanelProps) {
+  const { call, ready } = useNativeActionCaller();
+  const [params] = useSearchParams();
+  const ids = useId();
+  const [load, setLoad] = useState<Load>({ kind: "loading" });
+  const [editor, setEditor] = useState<Editor>({ kind: "closed" });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "status" | "alert"; text: string } | null>(null);
+  const request = useRef(0);
+  const list = useRef<HTMLDivElement>(null);
+  const editorOpen = editor.kind !== "closed";
+
+  const refresh = useCallback(async () => {
+    const current = ++request.current;
+    try {
+      const view = await call<ProjectMemoryView>("vivary-project-memory", { projectId });
+      if (request.current === current) setLoad({ kind: "ready", view });
+    } catch (error) {
+      if (request.current === current) setLoad({ kind: "error", message: errorText(error, "Memory could not be read. Try again.") });
+    }
+  }, [call, projectId]);
+
+  useEffect(() => { if (!disabled && ready) void refresh(); }, [disabled, ready, refresh]);
+  useEffect(() => () => { request.current += 1; }, []);
+  // Focus returns to the fact list when an editor closes.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !editorOpen) list.current?.focus();
+    wasOpen.current = editorOpen;
+  }, [editorOpen]);
+
+  function apply(result: ProjectMemoryWriteResult) {
+    if (result.code === "unavailable") {
+      setNotice({ tone: "alert", text: result.message });
+      return;
+    }
+    if (result.code !== "conflict") {
+      const path = result.code === "forgotten" ? result.path : result.fact.path;
+      const verb = result.code === "remembered" ? "Saved" : result.code === "corrected" ? "Corrected" : "Forgot";
+      setEditor({ kind: "closed" });
+      setNotice({ tone: "status", text: `${verb} ${path}. This applies from your next message.` });
+      return;
+    }
+    if (result.reason === "exists") {
+      setEditor(current => current.kind === "remember" ? { ...current, existing: result.current ?? null } : current);
+      setNotice({ tone: "alert", text: `A fact file named ${result.path} already exists. Correct that fact instead.` });
+    } else if (result.reason === "changed") {
+      setEditor(current => current.kind === "correct" || current.kind === "forget"
+        ? { ...current, current: result.current ?? null } : current);
+      setNotice({ tone: "alert", text: "This fact changed after you opened it. Review the current version." });
+    } else {
+      setEditor({ kind: "closed" });
+      setNotice({ tone: "alert", text: result.reason === "project-changed"
+        ? "The project changed. Memory was reloaded." : "This fact file changed or was removed. Memory was reloaded." });
+    }
+  }
+
+  async function write(input: ProjectMemoryWriteInput) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      apply(await call<ProjectMemoryWriteResult>("vivary-project-memory-write", input));
+    } catch (error) {
+      setNotice({ tone: "alert", text: errorText(error, "Memory could not be saved. Try again.") });
+    } finally {
+      setBusy(false);
+      await refresh();
+    }
+  }
+
+  function submitDraft(event: FormEvent) {
+    event.preventDefault();
+    if (editor.kind === "remember") void write({ projectId, operation: "remember", ...editor.draft });
+    if (editor.kind === "correct") {
+      void write({ projectId, operation: "correct", path: editor.fact.path, expectedVersion: editor.fact.version, ...editor.draft });
+    }
+  }
+
+  const blocked = disabled || !ready || busy;
+  const source = (path: string, label = path) =>
+    <Link to={projectFileHref(projectId, path, params.toString())}>{label}</Link>;
+  const heading = `${ids}-memory`;
+
+  if (load.kind !== "ready") {
+    return <section className="project-memory" aria-labelledby={heading} data-agent-native="project-memory">
+      <h4 id={heading}>Memory</h4>
+      {load.kind === "loading" && <p role="status">{disabled ? "Memory is unavailable while the project folder is unavailable." : "Reading memory…"}</p>}
+      {load.kind === "error" && <>
+        <p role="alert">{load.message}</p>
+        <Button size="sm" variant="outline" disabled={disabled || !ready} onClick={() => void refresh()}>Try again</Button>
+      </>}
+    </section>;
+  }
+
+  const { view } = load;
+  const { settings } = view;
+  const privacy = privacySentence(settings);
+
+  return <section className="project-memory" aria-labelledby={heading} aria-busy={busy} data-agent-native="project-memory">
+    <h4 id={heading}>Memory</h4>
+    <p data-agent-native="project-memory-location">{storageSentence(view)}{" "}
+      {source(".vivary/workspace.toml", "Change in workspace.toml")}</p>
+    <p className="project-read-muted">Files stay on this host and can be committed with the project. They are separate from
+      {" "}.vivary/memory/, which holds optional semantic-search data.</p>
+    {privacy && <p className="project-read-muted">{privacy}</p>}
+
+    {settings.status === "thin" && <dl className="project-memory-roles" data-agent-native="project-memory-roles">
+      {WORKSPACE_ROLES.map(role => <div key={role}>
+        <dt>{ROLE_LABELS[role]}</dt>
+        <dd>{settings.roles[role].length > 0 ? settings.roles[role].join(", ")
+          : role === "memory" ? "(none, default applies)" : "(none)"}</dd>
+      </div>)}
+      <div><dt>State</dt><dd>{settings.state}</dd></div>
+    </dl>}
+
+    {view.locations.filter(location => location.status === "refused").map(location =>
+      <p key={location.path} role="note" data-agent-native="project-memory-refused">
+        <strong>{location.path}</strong> is not used. {location.status === "refused" && LOCATION_PROBLEM_TEXT[location.problem]}
+      </p>)}
+
+    <h5>When changes apply</h5>
+    <p>{EFFECTIVE_WHEN_TEXT}</p>
+
+    {notice && <p role={notice.tone} data-agent-native="project-memory-notice">{notice.text}</p>}
+
+    <div ref={list} tabIndex={-1} className="project-memory-facts" aria-label="Project facts">
+      {view.facts.length === 0 ? <p>No facts are saved yet.</p> : <ul data-agent-native="project-memory-facts">
+        {view.facts.map(fact => <li key={fact.path} data-path={fact.path}>
+          <strong>{fact.title}</strong>
+          <p>{fact.text}</p>
+          <p className="project-read-muted">Source: {fact.source ?? "not recorded"}. Confirmed {fact.confirmed ?? "date not recorded"}.
+            {" "}{source(fact.path)}</p>
+          <div className="project-memory-actions">
+            <Button size="sm" variant="outline" disabled={blocked || editorOpen} data-agent-native="project-memory-correct"
+              onClick={() => { setNotice(null); setEditor({ kind: "correct", fact, draft: draftOf(fact), current: null }); }}>Correct</Button>
+            <Button size="sm" variant="outline" disabled={blocked || editorOpen} data-agent-native="project-memory-forget"
+              onClick={() => { setNotice(null); setEditor({ kind: "forget", fact, current: null }); }}>Forget</Button>
+          </div>
+        </li>)}
+      </ul>}
+      {view.truncated && <p className="project-read-muted">A memory folder holds more files than Vivary lists.</p>}
+      {view.skipped.length > 0 && <p className="project-read-muted">
+        Skipped files that are not bounded text: {view.skipped.map(file => file.path).join(", ")}.</p>}
+    </div>
+
+    {(editor.kind === "remember" || editor.kind === "correct") && <form className="project-memory-form" onSubmit={submitDraft}
+      aria-label={editor.kind === "remember" ? "Remember a fact" : `Correct ${editor.fact.title}`}
+      data-agent-native={`project-memory-${editor.kind}-form`}>
+      <h5>{editor.kind === "remember" ? "Remember a fact" : `Correct ${editor.fact.path}`}</h5>
+      <label htmlFor={`${ids}-title`}>Title</label>
+      <input id={`${ids}-title`} required maxLength={120} value={editor.draft.title} autoFocus
+        onChange={event => setEditor({ ...editor, draft: { ...editor.draft, title: event.target.value } })} />
+      <label htmlFor={`${ids}-text`}>Fact</label>
+      <textarea id={`${ids}-text`} required maxLength={2_000} rows={4} value={editor.draft.text}
+        onChange={event => setEditor({ ...editor, draft: { ...editor.draft, text: event.target.value } })} />
+      <label htmlFor={`${ids}-source`}>Source</label>
+      <input id={`${ids}-source`} required maxLength={200} value={editor.draft.source}
+        onChange={event => setEditor({ ...editor, draft: { ...editor.draft, source: event.target.value } })} />
+      {editor.kind === "remember" && editor.existing && <div className="file-conflict" role="note">
+        <p>Current fact in {editor.existing.path}:</p>
+        <pre>{editor.existing.text}</pre>
+        <Button type="button" size="sm" variant="outline" disabled={blocked}
+          onClick={() => editor.existing && setEditor({ kind: "correct", fact: editor.existing,
+            draft: editor.draft, current: null })}>Correct this fact</Button>
+      </div>}
+      {editor.kind === "correct" && editor.current && <div className="file-conflict" role="note">
+        <p>Current version in {editor.current.path}:</p>
+        <pre>{editor.current.text}</pre>
+        <Button type="button" size="sm" variant="outline" disabled={blocked}
+          onClick={() => editor.current && setEditor({ ...editor, fact: editor.current, current: null })}>Use current version</Button>
+      </div>}
+      <div className="project-memory-actions">
+        <Button type="submit" size="sm" disabled={blocked || (editor.kind === "correct" && editor.current !== null)}
+          data-agent-native="project-memory-save">{editor.kind === "remember" ? "Save fact" : "Save correction"}</Button>
+        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
+      </div>
+    </form>}
+
+    {editor.kind === "forget" && <div className="project-memory-form" role="group" aria-label={`Forget ${editor.fact.title}`}
+      data-agent-native="project-memory-forget-confirm">
+      <p role="alert">{forgetDisclosure(editor.fact.path)}</p>
+      {editor.current && <div className="file-conflict" role="note">
+        <p>This fact changed after you opened it. Current version:</p>
+        <pre>{editor.current.text}</pre>
+        <Button type="button" size="sm" variant="outline" disabled={blocked}
+          onClick={() => editor.current && setEditor({ ...editor, fact: editor.current, current: null })}>Use current version</Button>
+      </div>}
+      <div className="project-memory-actions">
+        <Button size="sm" variant="destructive" disabled={blocked || editor.current !== null} autoFocus
+          data-agent-native="project-memory-forget-submit"
+          onClick={() => void write({ projectId, operation: "forget", path: editor.fact.path, expectedVersion: editor.fact.version })}>
+          Forget fact</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
+      </div>
+    </div>}
+
+    {!editorOpen && <Button size="sm" variant="outline" disabled={blocked || view.writeLocation === null}
+      data-agent-native="project-memory-remember"
+      onClick={() => { setNotice(null); setEditor({ kind: "remember", draft: EMPTY_DRAFT, existing: null }); }}>
+      Remember a fact</Button>}
+    {view.writeLocation === null && <p className="project-read-muted">No memory folder can take a new fact. Change the memory role in .vivary/workspace.toml.</p>}
+
+    <details className="project-memory-preview" data-agent-native="project-memory-preview">
+      <summary>What agents receive</summary>
+      <p className="project-read-muted">{view.lastLoad
+        ? `Last loaded by ${view.lastLoad.surface === "code" ? "Code" : "Full chat"} at ${new Date(view.lastLoad.at).toLocaleString()}: `
+          + `${view.lastLoad.factCount} fact${view.lastLoad.factCount === 1 ? "" : "s"}, revision ${view.lastLoad.revision}.`
+        : "No message has loaded this project's context since Vivary started."}</p>
+      <pre>{view.preview}</pre>
+    </details>
+  </section>;
+}
