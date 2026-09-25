@@ -13,8 +13,8 @@ explains it.
 
 Today's checks do not meet that yet. Both Tropo's question check and the MCP
 result check accept `//etc/passwd`, which Linux and macOS read as
-`/etc/passwd`, and `file:///etc/passwd`. The Tropo and MCP tests list 11 host
-paths,
+`/etc/passwd`, and `file:///etc/passwd`. The refusal tests for those two checks
+list 11 host paths,
 and every one ends in `.txt` or `.md`. The MCP cases check only a `path`
 field. The change adds tests for a doubled leading slash, `file:` URIs,
 paths without an extension, and the `query` field.
