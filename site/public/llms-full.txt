@@ -7251,16 +7251,22 @@ and the known gaps above describe it. The review, by layer:
   execution to sandboxed. Workbench runs Full chat with code execution off,
   so nothing changes today, and a test pins that.
 - Panel: the Memory section in Project details uses two owner actions that
-  are not agent tools, so the Full chat model still sees one Vivary tool.
+  are not agent tools, so the Full chat model still sees one Vivary tool. It
+  keeps the owner's draft on every write conflict, starts Forget with focus on
+  Cancel, marks a hand-edited fact that agents receive shortened, and shows
+  the preview's revision beside the last load.
 - Documents: the Tropo specification, the original CLI reference, the
   module catalog, the Native owner map, the write-back source map, and the
   18a packet log describe the same slice.
 
 Evidence: Tropo, creator, bridge, Cognee forget, project-files,
-project-memory, local-code-agent (`started.json` prompts), native chat
-(`extraContext` output), project-read, and typecheck. The hosted GUI journey,
-restart, real-agent, and Windows checks have not run, so acceptance is
-pending.
+project-memory, local-code-agent (`started.json` prompts and Native's
+transcript builder), project-read, and typecheck. The native chat unit tests
+cover the `extraContext` and action-surface closures with stubbed scope and
+project reads. They do not prove what a Full chat request carries. The lead's
+hosted journey with the recording fake provider covers the real Full chat
+request. Restart, real-agent, and Windows checks have not run, so acceptance
+is pending.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.

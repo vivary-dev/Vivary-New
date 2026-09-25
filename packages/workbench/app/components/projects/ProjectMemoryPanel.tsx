@@ -5,6 +5,7 @@ import { useNativeActionCaller } from "@/lib/native-actions";
 import { projectFileHref } from "@/lib/project-file-location";
 import {
   EFFECTIVE_WHEN_TEXT,
+  FACT_LIMITS,
   forgetDisclosure,
   LOCATION_PROBLEM_TEXT,
   privacySentence,
@@ -95,9 +96,11 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
         ? { ...current, current: result.current ?? null } : current);
       setNotice({ tone: "alert", text: "This fact changed after you opened it. Review the current version." });
     } else {
-      setEditor({ kind: "closed" });
+      // Keep the owner's draft, as on a changed conflict. A forget has no draft to keep.
+      setEditor(current => current.kind === "forget" ? { kind: "closed" } : current);
       setNotice({ tone: "alert", text: result.reason === "project-changed"
-        ? "The project changed. Memory was reloaded." : "This fact file changed or was removed. Memory was reloaded." });
+        ? "The project changed. Memory was reloaded. Your draft is kept."
+        : "This fact file changed or was removed. Memory was reloaded. Your draft is kept." });
     }
   }
 
@@ -173,6 +176,8 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
       {view.facts.length === 0 ? <p>No facts are saved yet.</p> : <ul data-agent-native="project-memory-facts">
         {view.facts.map(fact => <li key={fact.path} data-path={fact.path}>
           <strong>{fact.title}</strong>
+          {fact.shortenedForAgents && <span className="project-read-muted" data-agent-native="project-memory-shortened">
+            {" "}Shortened for agents</span>}
           <p>{fact.text}</p>
           <p className="project-read-muted">Source: {fact.source ?? "not recorded"}. Confirmed {fact.confirmed ?? "date not recorded"}.
             {" "}{source(fact.path)}</p>
@@ -184,7 +189,8 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
           </div>
         </li>)}
       </ul>}
-      {view.truncated && <p className="project-read-muted">A memory folder holds more files than Vivary lists.</p>}
+      {view.truncated && <p className="project-read-muted">
+        A memory folder holds more files than Vivary lists. The list shows the first files by file name.</p>}
       {view.skipped.length > 0 && <p className="project-read-muted">
         Skipped files that are not bounded text: {view.skipped.map(file => file.path).join(", ")}.</p>}
     </div>
@@ -194,13 +200,13 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
       data-agent-native={`project-memory-${editor.kind}-form`}>
       <h5>{editor.kind === "remember" ? "Remember a fact" : `Correct ${editor.fact.path}`}</h5>
       <label htmlFor={`${ids}-title`}>Title</label>
-      <input id={`${ids}-title`} required maxLength={120} value={editor.draft.title} autoFocus
+      <input id={`${ids}-title`} required maxLength={FACT_LIMITS.title} value={editor.draft.title} autoFocus
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, title: event.target.value } })} />
       <label htmlFor={`${ids}-text`}>Fact</label>
-      <textarea id={`${ids}-text`} required maxLength={2_000} rows={4} value={editor.draft.text}
+      <textarea id={`${ids}-text`} required maxLength={FACT_LIMITS.text} rows={4} value={editor.draft.text}
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, text: event.target.value } })} />
       <label htmlFor={`${ids}-source`}>Source</label>
-      <input id={`${ids}-source`} required maxLength={200} value={editor.draft.source}
+      <input id={`${ids}-source`} required maxLength={FACT_LIMITS.source} value={editor.draft.source}
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, source: event.target.value } })} />
       {editor.kind === "remember" && editor.existing && <div className="file-conflict" role="note">
         <p>Current fact in {editor.existing.path}:</p>
@@ -232,11 +238,12 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
           onClick={() => editor.current && setEditor({ ...editor, fact: editor.current, current: null })}>Use current version</Button>
       </div>}
       <div className="project-memory-actions">
-        <Button size="sm" variant="destructive" disabled={blocked || editor.current !== null} autoFocus
+        <Button size="sm" variant="destructive" disabled={blocked || editor.current !== null}
           data-agent-native="project-memory-forget-submit"
           onClick={() => void write({ projectId, operation: "forget", path: editor.fact.path, expectedVersion: editor.fact.version })}>
           Forget fact</Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
+        {/* Focus starts on Cancel, so Enter never forgets by accident. */}
+        <Button size="sm" variant="ghost" disabled={busy} autoFocus onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
       </div>
     </div>}
 
@@ -248,7 +255,8 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
 
     <details className="project-memory-preview" data-agent-native="project-memory-preview">
       <summary>What agents receive</summary>
-      <p className="project-read-muted">{view.lastLoad
+      <p className="project-read-muted" data-agent-native="project-memory-revision">
+        This preview is revision {view.previewRevision}. {view.lastLoad
         ? `Last loaded by ${view.lastLoad.surface === "code" ? "Code" : "Full chat"} at ${new Date(view.lastLoad.at).toLocaleString()}: `
           + `${view.lastLoad.factCount} fact${view.lastLoad.factCount === 1 ? "" : "s"}, revision ${view.lastLoad.revision}.`
         : "No message has loaded this project's context since Vivary started."}</p>

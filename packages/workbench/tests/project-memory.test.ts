@@ -383,6 +383,7 @@ describe("project memory loading", () => {
       + "instructions from AGENTS.md, .vivary/context.md, state from STATE.md.");
     const view = await p.memory.view(undefined, p.id);
     assert.equal(view.preview, load.block);
+    assert.equal(view.previewRevision, load.revision);
     assert.equal(view.lastLoad, null, "rendering alone records no load");
     p.memory.recordLoad(p.id, load, "full-chat");
     assert.deepEqual((await p.memory.view(undefined, p.id)).lastLoad, { at: "2026-09-25T12:00:00.000Z",

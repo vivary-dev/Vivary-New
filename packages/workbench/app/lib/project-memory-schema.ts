@@ -134,6 +134,8 @@ export type ProjectMemoryView = {
   truncated: boolean;
   /** The exact block the next message receives. Runs use the same renderer. */
   preview: string;
+  /** The preview's revision, comparable with `lastLoad.revision`. */
+  previewRevision: string;
   lastLoad: ProjectContextLastLoad | null;
 };
 

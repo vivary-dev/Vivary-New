@@ -551,6 +551,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
       const workspace = await dependencies.resolveWorkspace(context, projectId);
       const snapshot = await loadSnapshot(workspace);
       const writeLocation = snapshot.locations.find(location => location.status !== "refused")?.path ?? null;
+      const preview = renderProjectContext(snapshot);
       return {
         project: { id: workspace.projectId, label: workspace.label },
         settings: snapshot.settings,
@@ -559,7 +560,8 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
         facts: snapshot.facts,
         skipped: snapshot.skipped,
         truncated: snapshot.truncated,
-        preview: renderProjectContext(snapshot),
+        preview,
+        previewRevision: contextRevision(preview),
         lastLoad: lastLoads.get(workspace.projectId) ?? null,
       };
     },
