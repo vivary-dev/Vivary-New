@@ -6,6 +6,7 @@ import argparse
 import base64
 import configparser
 import csv
+import functools
 import hashlib
 import importlib
 import importlib.machinery
@@ -1933,10 +1934,14 @@ def workspace_context(
             context = tropo.workspace_context(resolver.base)
         except (tropo.ConfigError, OSError, TypeError, AttributeError) as exc:
             return {"status": "invalid", "message": _without_host_paths(str(exc), target)}
+    budget = _MemoryMatchBudget()
+    privacy = _context_privacy(target, context, budget)
+    private_candidates = [path for path in candidates if _memory_probe_is_ignored(target, path, budget)]
     return {
         **context,
-        **_context_privacy(target, context),
-        "private_candidates": [path for path in candidates if _memory_probe_is_ignored(target, path)],
+        **privacy,
+        "private_candidates": private_candidates,
+        "privacy_limited": budget.spent,
     }
 
 
@@ -1985,7 +1990,7 @@ _CONTEXT_CHECKED_JSON_BYTES = 96 * 1024
 _WORKBENCH_PATH_UNITS = 512
 
 
-def _context_privacy(target: Path, context: dict) -> dict:
+def _context_privacy(target: Path, context: dict, budget: "_MemoryMatchBudget | None" = None) -> dict:
     """What the workspace's .gitignore rules make private, for the Workbench.
 
     - `private`: memory folders a new fact file would be ignored in.
@@ -2000,6 +2005,10 @@ def _context_privacy(target: Path, context: dict) -> dict:
       ancestor folder, whether it exists or not. The Workbench keys its cache
       on their bytes, so a new or edited rule is picked up.
     - `privacy_policy`: "gitignore" when any of those files exists.
+
+    Every match spends from `budget`. Once it runs out, each path not yet
+    decided counts as private, and `workspace_context` reports
+    `privacy_limited`.
 
     The check walks folders as Doctor does, so it needs no Git, but reads each
     `.gitignore` with its own reader (`_memory_rules_at_base`) and matches with
@@ -2020,8 +2029,8 @@ def _context_privacy(target: Path, context: dict) -> dict:
         "privacy_policy": ("gitignore" if any(
             (target / name).is_file() and not _is_symlink_or_junction(target / name) for name in ignore_files)
             else "none"),
-        "private": [folder for folder in folders if _memory_probe_is_ignored(target, f"{folder}/fact.md")],
-        "private_files": sorted({path for path in [*files, *listed] if _memory_probe_is_ignored(target, path)}),
+        "private": [folder for folder in folders if _memory_probe_is_ignored(target, f"{folder}/fact.md", budget)],
+        "private_files": sorted({path for path in [*files, *listed] if _memory_probe_is_ignored(target, path, budget)}),
         "checked_files": listed,
         "ignore_files": ignore_files,
     }
@@ -3067,7 +3076,8 @@ def _probe_is_ignored(
     return matcher(rules, rel_path)
 
 
-def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) -> bool:
+def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str,
+                             budget: "_MemoryMatchBudget | None" = None) -> bool:
     """Whether any positive rule could make Git ignore `rel_path`, for authored memory.
 
     Doctor must never call a private file safe. Memory must never load or save
@@ -3086,18 +3096,45 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) 
     - A bracket expression `_bracket_rule_is_uncertain` names, or a rule
       longer than `_MEMORY_RULE_CHARS`, matches everything under the rule's
       folder.
-    - Matching tracks reachable positions instead of backtracking, so no rule
-      can stall a context build.
+    - Matching tracks reachable positions instead of backtracking, and a
+      context read spends from a fixed budget, `_MEMORY_MATCH_BUDGET`. When it
+      runs out, every path not yet decided counts as private.
     """
-    return any(not negated and _memory_rule_matches(base, pattern, rel_path) for base, negated, pattern in rules)
+    return any(not negated and _memory_rule_matches(base, pattern, rel_path, budget)
+               for base, negated, pattern in rules)
 
 
 # A memory rule longer than this is uncertain, so it matches. It bounds the
-# matcher's work, which grows with rule length times path length.
-_MEMORY_RULE_CHARS = 1_024
+# work of one match, which grows with rule length times path length.
+_MEMORY_RULE_CHARS = 256
+# The work one context read may spend matching memory paths, in path
+# positions visited plus rule characters read. A normal workspace spends a
+# small fraction. Hostile rules and long names cannot make a read slow: once
+# this runs out, every path not yet decided counts as private.
+_MEMORY_MATCH_BUDGET = 20_000_000
 
 
-def _memory_rule_matches(base: str, pattern: str, rel_path: str) -> bool:
+class _MemoryMatchBudgetSpent(Exception):
+    """The context read's matching budget ran out."""
+
+
+class _MemoryMatchBudget:
+    """One context read's matching budget, with the rules and verdicts it already has."""
+
+    def __init__(self, units: int = _MEMORY_MATCH_BUDGET) -> None:
+        self.left = units
+        self.spent = False
+        self.rules: dict[str, list[tuple[str, bool, str]]] = {}
+        self.verdicts: dict[tuple[str, tuple[tuple[str, bool, str], ...]], bool] = {}
+
+    def charge(self, units: int) -> None:
+        self.left -= units
+        if self.left < 0:
+            self.spent = True
+            raise _MemoryMatchBudgetSpent
+
+
+def _memory_rule_matches(base: str, pattern: str, rel_path: str, budget: _MemoryMatchBudget | None = None) -> bool:
     rel_path = rel_path.replace("\\", "/")
     if base:
         if not rel_path.startswith(f"{base}/"):
@@ -3115,10 +3152,15 @@ def _memory_rule_matches(base: str, pattern: str, rel_path: str) -> bool:
         body = body[1:]
     if not body:
         return False
-    for rule_text, path_text in ((body, scoped), (_utf8_as_latin1(body), _utf8_as_latin1(scoped))):
-        for fold in (False, True):
+    forms = [(body, scoped)]
+    if not (body.isascii() and scoped.isascii()):
+        # The byte form differs only when a character is not ASCII.
+        forms.append((_utf8_as_latin1(body), _utf8_as_latin1(scoped)))
+    for rule_text, path_text in forms:
+        # Folding changes nothing for a rule without cased characters.
+        for fold in (False, True) if rule_text.lower() != rule_text.upper() else (False,):
             tokens = _memory_glob_tokens(rule_text, fold)
-            if tokens is None or _memory_glob_match(tokens, path_text, anchored=anchored, fold=fold):
+            if tokens is None or _memory_glob_match(tokens, path_text, anchored=anchored, fold=fold, budget=budget):
                 return True
     return False
 
@@ -3128,7 +3170,8 @@ def _utf8_as_latin1(text: str) -> str:
     return text.encode("utf-8", "surrogateescape").decode("latin-1")
 
 
-def _memory_glob_tokens(pattern: str, fold: bool) -> list[tuple[str, object]] | None:
+@functools.lru_cache(maxsize=4_096)
+def _memory_glob_tokens(pattern: str, fold: bool) -> tuple[tuple[str, object], ...] | None:
     """A memory rule as match steps, or `None` when a bracket set will not compile.
 
     Git skips a whole run of stars before it decides whether the run is
@@ -3176,18 +3219,22 @@ def _memory_glob_tokens(pattern: str, fold: bool) -> list[tuple[str, object]] | 
         else:
             tokens.append(("literal", char))
             i += 1
-    return tokens
+    return tuple(tokens)
 
 
-def _memory_glob_match(tokens: list[tuple[str, object]], path: str, *, anchored: bool, fold: bool) -> bool:
+def _memory_glob_match(tokens: tuple[tuple[str, object], ...], path: str, *, anchored: bool, fold: bool,
+                       budget: _MemoryMatchBudget | None = None) -> bool:
     """Whether `tokens` match `path` or a folder above it, with no backtracking.
 
     It tracks the set of path positions each step can reach, so the work is at
-    most the number of steps times the path length.
+    most the number of steps times the path length. Each step charges
+    `budget` for the positions it visited.
     """
     size = len(path)
     slashes = [index for index, char in enumerate(path) if char == "/"]
     positions = {0} if anchored else {0, *(index + 1 for index in slashes)}
+    if budget is not None:
+        budget.charge(len(positions))
     for kind, value in tokens:
         if not positions:
             return False
@@ -3215,15 +3262,17 @@ def _memory_glob_match(tokens: list[tuple[str, object]], path: str, *, anchored:
         else:  # "folders": zero or more whole folders
             first = min(positions)
             reached = set(positions) | {index + 1 for index in slashes if index > first}
+        if budget is not None:
+            budget.charge(len(positions) + len(reached))
         positions = reached
     # A match also covers everything beneath it.
     return any(at == size or path[at] == "/" for at in positions)
 
 
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
-    r"""Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
+    r"""Whether memory's matcher may misread a bracket expression in `pattern`.
 
-    It reads a bracket body of plain members and ranges, such as `[._]`,
+    Memory's matcher reads a bracket body of plain members and ranges, such as `[._]`,
     `[a-v]`, or `[.]`, and Git's backslash escape outside brackets,
     so `foo\[bar` is a literal. Git reads `\x` inside a bracket as a literal
     `x` and a `]` right after `[`, `[!`, or `[^` as a member, where Python's
@@ -3233,7 +3282,9 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
     closes, and a set Python cannot compile are uncertain. So is a negated
     body holding an ASCII capital letter as a literal member, such as `[!B]`:
     with `core.ignorecase` Git lowercases the path but compares that member
-    as written. Ranges are compared the same way on both sides.
+    as written. Ranges are compared the same way on both sides. The last
+    check compiles `pattern` through Doctor's `_wildmatch_regex` only to find
+    a set Python cannot compile.
     """
     index = 0
     while index < len(pattern):
@@ -3256,7 +3307,9 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
             continue
         index += 1
     try:
-        re.compile(_wildmatch_regex(pattern.strip("/")))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            re.compile(_wildmatch_regex(pattern.strip("/")))
     except re.error:
         return True
     return False
@@ -3275,8 +3328,30 @@ def _has_capital_literal(members: str) -> bool:
     return False
 
 
-def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
-    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, rules_at=_memory_rules_at_base)
+def _memory_probe_is_ignored(target: Path, rel_path: str, budget: _MemoryMatchBudget | None = None) -> bool:
+    """Whether memory treats `rel_path` as private. A spent `budget` makes it private."""
+    if budget is None:
+        return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, rules_at=_memory_rules_at_base)
+    if budget.spent:
+        return True
+
+    # One context read probes many paths in the same folders, so it reads each
+    # .gitignore once and decides each folder once.
+    def rules_at(target: Path, base: str) -> list[tuple[str, bool, str]]:
+        if base not in budget.rules:
+            budget.rules[base] = _memory_rules_at_base(target, base)
+        return budget.rules[base]
+
+    def matcher(rules: list[tuple[str, bool, str]], path: str) -> bool:
+        key = (path, tuple(rules))
+        if key not in budget.verdicts:
+            budget.verdicts[key] = _memory_ignored_by_rules(rules, path, budget)
+        return budget.verdicts[key]
+
+    try:
+        return _probe_is_ignored(target, rel_path, matcher=matcher, rules_at=rules_at)
+    except _MemoryMatchBudgetSpent:
+        return True
 
 
 def _memory_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]]:

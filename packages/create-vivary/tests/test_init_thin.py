@@ -13,6 +13,7 @@ import time
 import tomllib
 import unittest
 import uuid
+import warnings
 from pathlib import Path
 from unittest import mock
 
@@ -962,6 +963,7 @@ class WorkspaceContextTests(unittest.TestCase):
             "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
             "private_candidates": [],
             "checked_files": [],
+            "privacy_limited": False,
         })
 
     def test_plain_folder_gets_the_default_location(self):
@@ -973,8 +975,24 @@ class WorkspaceContextTests(unittest.TestCase):
             "memory": [".vivary/knowledge"], "memory_assigned": False, "protected": [],
             "privacy_policy": "none", "private": [], "private_files": [],
             "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"], "private_candidates": [],
-            "checked_files": [],
+            "checked_files": [], "privacy_limited": False,
         })
+
+    def test_costly_rules_spend_the_budget_and_fail_closed(self):
+        target = self.scaffold()
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("".join(f"{'a*' * 100}b{index}\n" for index in range(40)))
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        for index in range(200):
+            (knowledge / f"{'a' * 150}{index:03d}.md").write_text("# Fact\n", encoding="utf-8")
+        started = time.perf_counter()
+        context = create_vivary.workspace_context(target, repo_root=ROOT, candidates=[".vivary/knowledge/new.md"])
+        self.assertLess(time.perf_counter() - started, 10)
+        self.assertTrue(context["privacy_limited"])
+        # The files decided after the budget ran out are private.
+        self.assertIn(context["checked_files"][-1], context["private_files"])
+        self.assertEqual(context["private_candidates"], [".vivary/knowledge/new.md"])
 
     def test_memory_privacy_fails_closed_on_case_and_brackets(self):
         for rule in (".vivary/Knowledge/\n", ".vivary/[Kk]nowledge/\n", "KNOWLEDGE/\n"):
@@ -1006,6 +1024,12 @@ class WorkspaceContextTests(unittest.TestCase):
                                  [".vivary/knowledge"])
                 self.assertFalse(create_vivary._probe_is_ignored(target, ".vivary/knowledge/fact.md"),
                                  "Doctor keeps its own matching")
+
+    def test_a_nested_open_bracket_prints_no_warning(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.assertFalse(create_vivary._bracket_rule_is_uncertain("[[]x.md"))
+            self.assertTrue(create_vivary._memory_rule_matches("", "[[]x.md", "[x.md"))
 
     def test_ordinary_bracket_sets_and_escapes_match_as_git_does(self):
         ordinary = ("[._]*.s[a-v][a-z]", "[._]*.sw[a-p]", "[.]env", "*[.]log", "build[:]out", "*.[=]x",
@@ -1237,6 +1261,18 @@ MEMORY_PRIVACY_DIFFERENTIAL_CASES: tuple[tuple[str, str | dict[str, str], tuple[
     ("NUL ends an entry", "secret.md\x00junk\nknowledge/\x00\n", ("secret.md", "knowledge/fact.md")),
 )
 
+# Rows whose rules sit in the repository's root .gitignore, where a rule's
+# folder is the root itself. The same shape as the table above.
+MEMORY_PRIVACY_ROOT_CASES: tuple[tuple[str, str | dict[str, str], tuple[str, ...]], ...] = (
+    ("root anchored and inner slash", "/top.md\nsub/deep.md\n", ("top.md", "sub/top.md", "sub/deep.md", "x/sub/deep.md")),
+    ("root with a nested file", {".gitignore": "*.log\n/a/b.md\n", "a/.gitignore": "/c.md\nd/\n"},
+     ("x.log", "a/x.log", "a/b.md", "b.md", "a/c.md", "a/e/c.md", "a/d/f.md", "d/f.md")),
+    ("root star runs", "***/foo\na/***/b\n", ("foo", "x/foo", "a/b", "a/x/b", "b")),
+    ("root negated capital bracket", "[!B]x.md\n", ("Bx.md", "bx.md", "x.txt")),
+    ("root negation", "*.md\n!keep.md\n", ("keep.md", "x.md", "x.txt")),
+    ("root NUL", "secret.md\x00junk\n", ("secret.md", "other.md")),
+)
+
 # The generated cross product: bracket bodies with and without a negation,
 # in both letter cases, and star runs of one to four, each placed plain,
 # anchored, directory-only, and in a nested .gitignore, against a seeded
@@ -1287,38 +1323,45 @@ class MemoryPrivacyDifferentialTests(unittest.TestCase):
         self.assertIn(result.returncode, (0, 1), result.stderr.decode("utf-8", "replace"))
         return {item.decode("utf-8", "surrogateescape") for item in result.stdout.split(b"\0") if item}
 
-    def compare(self, label: str, cases, *, make_files: bool) -> None:
-        """Run `cases` in one repository, each under its own folder, and assert the fail-closed property."""
+    def compare(self, label: str, cases, *, make_files: bool, at_root: bool = False) -> None:
+        """Assert the fail-closed property for `cases`.
+
+        By default all cases share one repository, each under its own folder.
+        With `at_root` each case gets its own repository, with its rules in
+        the root `.gitignore`.
+        """
         checked = over = loaded = 0
         missed: list[str] = []
-        with tempfile.TemporaryDirectory() as folder:
-            repo = Path(folder)
-            subprocess.run(["git", "init", "-q"], cwd=repo, env=self.env, check=True)
-            names: dict[str, str] = {}
-            for number, (name, rules, files) in enumerate(cases):
-                root = f"c{number}"
-                for location, text in (rules.items() if isinstance(rules, dict) else [(".gitignore", rules)]):
-                    (repo / root / location).parent.mkdir(parents=True, exist_ok=True)
-                    (repo / root / location).write_bytes(text.encode("utf-8"))
-                for relative in files:
-                    if make_files:
-                        try:
-                            (repo / root / relative).parent.mkdir(parents=True, exist_ok=True)
-                            (repo / root / relative).write_text("x\n", encoding="utf-8")
-                        except OSError:
-                            continue  # This file system cannot hold the name.
-                    names[f"{root}/{relative}"] = name
-            paths = list(names)
-            git = self.git_ignored(repo, paths, "false") | self.git_ignored(repo, paths, "true")
-            for path in paths:
-                memory = create_vivary._memory_probe_is_ignored(repo, path)
-                checked += 1
-                if path in git and not memory:
-                    missed.append(f"{names[path]}: {path!r}")
-                elif memory and path not in git:
-                    over += 1
-                elif not memory:
-                    loaded += 1
+        numbered = list(enumerate(cases))
+        for group in ([[item] for item in numbered] if at_root else [numbered]):
+            with tempfile.TemporaryDirectory() as folder:
+                repo = Path(folder)
+                subprocess.run(["git", "init", "-q"], cwd=repo, env=self.env, check=True)
+                names: dict[str, str] = {}
+                for number, (name, rules, files) in group:
+                    root = "" if at_root else f"c{number}/"
+                    for location, text in (rules.items() if isinstance(rules, dict) else [(".gitignore", rules)]):
+                        (repo / f"{root}{location}").parent.mkdir(parents=True, exist_ok=True)
+                        (repo / f"{root}{location}").write_bytes(text.encode("utf-8"))
+                    for relative in files:
+                        if make_files:
+                            try:
+                                (repo / f"{root}{relative}").parent.mkdir(parents=True, exist_ok=True)
+                                (repo / f"{root}{relative}").write_text("x\n", encoding="utf-8")
+                            except OSError:
+                                continue  # This file system cannot hold the name.
+                        names[f"{root}{relative}"] = name
+                paths = list(names)
+                git = self.git_ignored(repo, paths, "false") | self.git_ignored(repo, paths, "true")
+                for path in paths:
+                    memory = create_vivary._memory_probe_is_ignored(repo, path)
+                    checked += 1
+                    if path in git and not memory:
+                        missed.append(f"{names[path]}: {path!r}")
+                    elif memory and path not in git:
+                        over += 1
+                    elif not memory:
+                        loaded += 1
         print(f"memory privacy {label}: {self.version}, {len(cases)} cases, {checked} files, "
               f"{len(missed)} missed, {over} over-ignored", file=sys.stderr)
         self.assertGreater(checked, 0)
@@ -1330,6 +1373,9 @@ class MemoryPrivacyDifferentialTests(unittest.TestCase):
 
     def test_generated_rules_never_under_ignore(self):
         self.compare("generated", list(_generated_memory_privacy_cases()), make_files=False)
+
+    def test_root_gitignore_rows(self):
+        self.compare("root", MEMORY_PRIVACY_ROOT_CASES, make_files=True, at_root=True)
 
 
 class MemoryMatcherSpeedTests(unittest.TestCase):

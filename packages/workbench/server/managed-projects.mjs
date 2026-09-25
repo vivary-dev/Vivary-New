@@ -151,6 +151,9 @@ const memoryPrivacy = {
   // The creator caps this at _CONTEXT_CHECKED_TOTAL paths and leaves out
   // any name this schema would refuse, so one odd name cannot fail the answer.
   checked_files: z.array(workspaceRelativePath).max(3_000),
+  // True when the engine's matching budget ran out and it treated every
+  // path it had not decided as private.
+  privacy_limited: z.boolean().optional(),
 };
 // The creator's answer is parsed here, so project memory can trust its shape.
 const workspaceContextAnswer = z.discriminatedUnion("status", [
@@ -184,7 +187,8 @@ export async function readWorkspaceContext(root, candidates = [], dependencies =
   if (answer.status === "invalid") return answer;
   const privacy = { policy: answer.privacy_policy, private: answer.private,
     privateFiles: answer.private_files, ignoreFiles: answer.ignore_files,
-    privateCandidates: answer.private_candidates, checkedFiles: answer.checked_files };
+    privateCandidates: answer.private_candidates, checkedFiles: answer.checked_files,
+    ...(answer.privacy_limited ? { limited: true } : {}) };
   return answer.status === "thin"
     ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
       memoryAssigned: answer.memory_assigned, protected: answer.protected, privacy }

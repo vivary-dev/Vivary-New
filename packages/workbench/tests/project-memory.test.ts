@@ -282,6 +282,16 @@ describe("project memory rendering", () => {
     assert.ok(!block.includes(escape) && !block.includes(csi));
   });
 
+  it("says when the engine's matching budget ran out", async () => {
+    const p = await project();
+    const answer = thinAnswer();
+    p.bridge.answer = answer.status === "thin" ? { ...answer, privacy: { ...answer.privacy, limited: true } } : answer;
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.match(block, /too costly to check in full, so Vivary treated the files it had not checked yet as private/);
+    assert.match(String(privacySentence(p.bridge.answer)), /too costly to check in full/);
+    assert.doesNotMatch(String(privacySentence(thinAnswer())), /too costly/);
+  });
+
   it("names omitted law files only when they could load", async () => {
     const p = await project();
     p.bridge.answer = thinAnswer(undefined, [], ["notes/private-law.md"], ["AGENTS.md", ".vivary/context.md",

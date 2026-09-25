@@ -11,6 +11,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { ProjectFile, ProjectFileIdentity } from "../app/lib/project-file-schema.ts";
 import {
   FACT_LIMITS,
+  PRIVACY_LIMITED_TEXT,
   factSlug,
   LOCATION_PROBLEM_TEXT,
   type LocationProblem,
@@ -296,6 +297,7 @@ function renderFactsSection(snapshot: ProjectContextSnapshot, budget: number): s
       + `${neutralize(escapeControls(settings.message))} Do not assume the project has no facts.`;
   }
   const lines = [`## Project facts (${pathList(listItems(settings.memory), CONTEXT_BOUNDS.folderListChars)})`, FACTS_GUIDANCE];
+  if (settings.privacy.limited) lines.push(PRIVACY_LIMITED_TEXT);
   const refused = snapshot.locations.filter(location => location.status === "refused");
   if (refused.length > 0) {
     lines.push(`Vivary did not read these memory folders: ${pathList(refused.map(location =>

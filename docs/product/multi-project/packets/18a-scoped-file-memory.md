@@ -132,6 +132,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   capital literal as uncertain, end an entry at a NUL, and replace the regex matcher with one
   that cannot backtrack. A seeded cross product joins the differential test. Unit and
   differential tests cover them until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `0e9ae6b`. Seventh review fixes give each context read a fixed matching budget that fails
+  closed and says so in the block and the panel, cap a rule at 256 characters, and add root
+  `.gitignore` rows to the differential test. The lead completes the receipt with the final
+  hosted evidence.
 
 ## Shared desktop and web behavior
 

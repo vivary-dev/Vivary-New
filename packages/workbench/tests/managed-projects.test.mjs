@@ -152,6 +152,10 @@ test("workspace context passes invalid settings through and refuses an unexpecte
   await assert.rejects(readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
     memory: ["../outside"], memory_assigned: false, protected: [], privacy_policy: "none", private: [],
     private_files: [], ignore_files: [], private_candidates: [], checked_files: [] })));
+  const limited = await readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
+    memory: [".vivary/knowledge"], memory_assigned: false, protected: [], privacy_policy: "gitignore", private: [],
+    private_files: [], ignore_files: [".gitignore"], private_candidates: [], checked_files: [], privacy_limited: true }));
+  assert.equal(limited.status === "plain" && limited.privacy.limited, true);
   await assert.rejects(readWorkspaceContext("/project", [], { runCreator: async () => ({ code: "refused" }) }),
     /settings reader is unavailable/);
 });

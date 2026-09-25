@@ -84,7 +84,16 @@ export type MemoryPrivacy = {
    * bounds or created after the check fails closed.
    */
   checkedFiles: readonly string[];
+  /**
+   * True when the engine's matching budget ran out. It then treated every
+   * path it had not decided as private.
+   */
+  limited?: boolean;
 };
+
+/** Said wherever privacy is described when the engine's matching budget ran out. */
+export const PRIVACY_LIMITED_TEXT = "The .gitignore rules were too costly to check in full, so Vivary treated "
+  + "the files it had not checked yet as private and did not load them. Simpler rules let it check every file.";
 
 /**
  * The original engine's answer for one project, read through the creator
@@ -201,9 +210,10 @@ export function storageSentence(view: Pick<ProjectMemoryView, "settings" | "writ
 /** Which rule decided private folders, for the panel. */
 export function privacySentence(settings: MemorySettings): string | null {
   if (settings.status !== "thin" && settings.status !== "plain") return null;
-  return settings.privacy.policy === "gitignore"
+  const sentence = settings.privacy.policy === "gitignore"
     ? "Vivary does not load or save facts, instructions, or state that this project's .gitignore files ignore."
     : "No .gitignore file applies to these folders and files, so none of them is treated as private.";
+  return settings.privacy.limited ? `${sentence} ${PRIVACY_LIMITED_TEXT}` : sentence;
 }
 
 /**
