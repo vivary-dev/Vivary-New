@@ -109,6 +109,13 @@ message states the rule the change ships.
 4. How should a doubled leading slash be read? `//server/share` names a
    share on Windows, and `//etc/passwd` names `/etc/passwd` on Linux and
    macOS. Both pass today.
+5. Should the facade state its accounting outright? After PR #89, the
+   Workbench panel reads private and sensitive exclusions and the token
+   budget from omission rows, and says only that a report is incomplete. A
+   private exclusion count, a sensitive exclusion count, and a flag on each
+   omission that made the report incomplete would let every reader show the
+   cause without rebuilding Tropo's rules. The same change touches these
+   files, so it can share this release.
 
 ## Files
 
