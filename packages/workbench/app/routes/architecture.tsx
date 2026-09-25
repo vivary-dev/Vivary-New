@@ -3,10 +3,11 @@ import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { Link } from "react-router";
 import type { MouseEvent } from "react";
 import architecture from "../../../../docs/ARCHITECTURE.md?raw";
-import { documentationLink } from "@/lib/documentation-links";
+import { documentationLink, resolveDocumentationLinks } from "@/lib/documentation-links";
 import "@agent-native/toolkit/editor.css";
 
 const readOnlyFeatures = { image: false, tables: true, tasks: true, link: true };
+const documentWithOnlineLinks = resolveDocumentationLinks(architecture);
 
 export function meta() {
   return [{ title: "High-level design | Vivary" }];
@@ -43,8 +44,9 @@ export default function ArchitectureRoute() {
       </div>
       <Link className="vivary-settings-link" to="/settings">Return to settings</Link>
     </header>
-    <div className="file-reading-surface" onClickCapture={openReference}>
-      <SharedRichEditor value={architecture} onChange={() => {}}
+    <div className="file-reading-surface" onClickCapture={openReference}
+      onAuxClickCapture={event => { if (event.button === 1) openReference(event); }}>
+      <SharedRichEditor value={documentWithOnlineLinks} onChange={() => {}}
         editable={false} interactive={true} dragHandle={false} dialect="gfm"
         features={readOnlyFeatures} ariaLabel="High-level design document" />
     </div>

@@ -20,3 +20,12 @@ export function documentationLink(href: string): string | null {
     return null;
   }
 }
+
+
+/** Put safe online destinations into the Markdown before the editor creates anchors. */
+export function resolveDocumentationLinks(markdown: string): string {
+  return markdown.replace(/\]\(([^)\s]+)\)/g, (link, href: string) => {
+    if (href.startsWith("#")) return link;
+    return "](" + (documentationLink(href) ?? "#") + ")";
+  });
+}

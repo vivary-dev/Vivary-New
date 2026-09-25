@@ -82,6 +82,25 @@ class HlddGateTests(unittest.TestCase):
         self.git("add", "docs/ARCHITECTURE.md")
         self.gate("--staged", success=False)
 
+    def test_markdown_wrappers_do_not_make_date_only_reviews_substantive(self):
+        self.stage_code()
+        for update in ("- 2026-09-25", "**2026-09-25**", "_2026-09-25_", "`2026-09-25`", "> 2026-09-25"):
+            with self.subTest(update=update):
+                self.write("docs/ARCHITECTURE.md", DOC + "\n" + update + "\n")
+                self.git("add", "docs/ARCHITECTURE.md")
+                self.gate("--staged", success=False)
+        self.git("commit", "-qm", "date-only review bypassing local hook")
+        self.gate("--base", self.base, success=False)
+
+    def test_required_headings_in_comments_or_fences_do_not_count(self):
+        section = "## Data and trust boundaries\n\nExisting description of data and trust boundaries."
+        for opening, closing in (("<!--", "-->"), ("```markdown", "```"), ("~~~markdown", "~~~")):
+            with self.subTest(opening=opening):
+                replacement = opening + "\n" + section + "\n" + closing
+                self.write("docs/ARCHITECTURE.md", DOC.replace(section, replacement))
+                self.git("add", "docs/ARCHITECTURE.md")
+                self.gate("--staged", success=False)
+
     def test_test_only_change_does_not_require_design_churn(self):
         self.write("packages/example/tests/test_app.py", "assert True\n")
         self.git("add", "packages/example/tests/test_app.py")

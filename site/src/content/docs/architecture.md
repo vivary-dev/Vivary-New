@@ -152,10 +152,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-This revision replaces the CLI-only introduction with the desktop and self-hosted system design. It reconciles the [desktop release decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [unified workspace contract](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/unified-workspace.md), [module owners](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and actual Workbench and desktop entry points. It records PR #89 as merged while keeping its final-package acceptance pending, and records PR #90 as research only. The original engine's Core and role ownership remain intact within the full-product structure.
+The review follow-up strengthens maintenance enforcement and documentation
+navigation. Date-only bullets and emphasis do not count as substantive reviews.
+Required sections must be visible prose headings, outside comments and fenced
+examples. Git-index and history tests cover both cases. The document reader
+resolves reference destinations in rendered links so ordinary activation,
+middle-click, and browser context menus use the same target. Its sidebar footer
+keeps Documentation, Settings, and search within the supported panel width.
+The maintained CI test list now includes documentation-link behavior.
 
-The same change adds the bundled reader, the shared maintenance skill, and a
-staged pre-commit gate backed by CI checks of each introduced commit. Git-index
-tests cover unstaged documentation, no-op edits, missing sections, deletion,
-later undocumented commits, and preservation of existing hooks. The mechanism
-requires a recorded design review without claiming to verify its meaning.
+These corrections preserve the product intent, component ownership, and
+acceptance boundaries above. The original package inventory and dependency map
+remain part of this canonical design. Tests, the built reader, and source-link
+checks establish the maintenance and navigation changes. Final Windows read-tool
+acceptance remains with issue #19.

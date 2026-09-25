@@ -57,12 +57,32 @@ def relevant(path: str) -> bool:
 def substantive(text: str) -> str:
     # Dates, whitespace, and comments alone do not document a design review.
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
-    text = re.sub(r"\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z)?\b", "", text)
-    return re.sub(r"\s+", "", text)
+    text = re.sub(r"(?<![A-Za-z0-9])\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z)?(?![A-Za-z0-9])", "", text)
+    # A removed date can leave an otherwise empty Markdown bullet or emphasis.
+    lines = (line for line in text.splitlines() if any(char.isalnum() for char in line))
+    return re.sub(r"\s+", "", "\n".join(lines))
+
+
+def visible_prose(text: str) -> str:
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    fence: tuple[str, int] | None = None
+    result = []
+    for line in text.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            delimiter, suffix = marker.groups()
+            if fence is None:
+                fence = (delimiter[0], len(delimiter))
+            elif delimiter[0] == fence[0] and len(delimiter) >= fence[1] and not suffix.strip():
+                fence = None
+            continue
+        if fence is None:
+            result.append(line)
+    return "\n".join(result)
 
 
 def validate_document(text: str) -> None:
-    sections = re.split(r"(?m)^## ", text)
+    sections = re.split(r"(?m)^## ", visible_prose(text))
     found = {}
     for section in sections[1:]:
         title, _, body = section.partition("\n")

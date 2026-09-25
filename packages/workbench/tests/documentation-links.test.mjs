@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { documentationLink } from "../app/lib/documentation-links.ts";
+import { documentationLink, resolveDocumentationLinks } from "../app/lib/documentation-links.ts";
 
 test("documentation links resolve to explicit online pages", () => {
   assert.equal(documentationLink("SEMANTIC-MEMORY.md"),
@@ -26,4 +26,12 @@ test("documentation links reject unsupported destinations", () => {
   ]) {
     assert.equal(documentationLink(href), null, href);
   }
+});
+
+test("Markdown anchors carry resolved destinations before rendering", () => {
+  assert.equal(
+    resolveDocumentationLinks("[catalog](product/multi-project/specification/modules.md) [section](#original-engine)"),
+    "[catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) [section](#original-engine)",
+  );
+  assert.equal(resolveDocumentationLinks("[unsafe](javascript:alert(1))"), "[unsafe](#))");
 });
