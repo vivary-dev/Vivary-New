@@ -1967,13 +1967,21 @@ def _without_host_paths(message: str, target: Path) -> str:
     return _ABSOLUTE_PATH.sub("<a folder outside the project>", message.replace(str(target), "."))
 
 
-# Memory folder listings use the Workbench's bounds: at most this many
-# entries scanned and Markdown names checked per folder. The Workbench loads
-# only the files this answer names in `checked_files`, so a mismatch fails
-# closed. Keep in step with CONTEXT_BOUNDS.factsPerLocation and
-# MAX_FOLDER_ENTRIES in the Workbench.
-_CONTEXT_LISTED_FILES = 200
+# Fact file listings follow the Workbench's `listFolder` in project-files.ts
+# exactly: the same entries scanned, the same names kept, the same order and
+# cap. The Workbench loads only the files this answer names in
+# `checked_files`, so any mismatch fails closed. Keep these in step with
+# MAX_FOLDER_ENTRIES and CONTEXT_BOUNDS.factsPerLocation there.
 _CONTEXT_SCANNED_ENTRIES = 4_000
+_CONTEXT_LISTED_FILES = 200
+# `checked_files` stays far under the bridge's 512 KiB output limit: at most
+# this many paths and this many bytes of JSON across all memory folders. The
+# Workbench schema accepts at most _CONTEXT_CHECKED_TOTAL items.
+_CONTEXT_CHECKED_TOTAL = 3_000
+_CONTEXT_CHECKED_JSON_BYTES = 96 * 1024
+# The Workbench answer schema accepts a workspace-relative path of at most
+# this many UTF-16 code units, with no backslash.
+_WORKBENCH_PATH_UNITS = 512
 
 
 def _context_privacy(target: Path, context: dict) -> dict:
@@ -1986,6 +1994,7 @@ def _context_privacy(target: Path, context: dict) -> dict:
     - `checked_files`: every memory folder file this answer checked. The
       Workbench loads, corrects, or forgets no other fact file, so a file it
       lists beyond these bounds, or one created after this check, is skipped.
+      Links and names the Workbench cannot carry are never checked.
     - `ignore_files`: every `.gitignore` consulted for those paths, one per
       ancestor folder, whether it exists or not. The Workbench keys its cache
       on their bytes, so a new or edited rule is picked up.
@@ -1998,7 +2007,7 @@ def _context_privacy(target: Path, context: dict) -> dict:
     folders = list(context["memory"])
     roles = context.get("roles") or {}
     files = [*roles.get("law", []), *([context["state"]] if context.get("state") else [])]
-    listed = [f"{folder}/{name}" for folder in folders for name in _markdown_names(target, folder)]
+    listed = _checked_fact_paths(target, folders)
     probes = [*(f"{folder}/fact.md" for folder in folders), *files, *listed]
     ignore_files = sorted({
         "/".join([*path.split("/")[:depth], ".gitignore"])
@@ -2016,8 +2025,57 @@ def _context_privacy(target: Path, context: dict) -> dict:
     }
 
 
+def _is_fact_file_name(name: str) -> bool:
+    """The Workbench's fact file name rule: `<something>.md`, not secret-looking.
+
+    Mirrors `listFolder` and `isSecretName` in project-files.ts. For names
+    ending in `.md` the secret rule reduces to these three tests.
+    """
+    lower = name.lower()
+    return (len(name) > 3 and lower.endswith(".md") and not lower.startswith(".env.")
+            and "credential" not in lower and "secret" not in lower)
+
+
+def _workbench_can_carry(path: str) -> bool:
+    """Whether the Workbench answer schema accepts `path` and can name it the same way.
+
+    A backslash is refused there, a name Python could not decode (a lone
+    surrogate here, U+FFFD in Node) cannot match, and the schema caps length
+    in UTF-16 code units.
+    """
+    if "\\" in path or chr(0xFFFD) in path:
+        return False
+    try:
+        return len(path.encode("utf-16-le")) // 2 <= _WORKBENCH_PATH_UNITS
+    except UnicodeEncodeError:
+        return False
+
+
+def _checked_fact_paths(target: Path, folders: list[str]) -> list[str]:
+    """The fact files this answer checks, within the per-folder and total bounds."""
+    checked: list[str] = []
+    used = 0
+    for folder in folders:
+        for name in _markdown_names(target, folder):
+            path = f"{folder}/{name}"
+            if not _workbench_can_carry(path):
+                continue
+            size = len(json.dumps(path)) + 2
+            if len(checked) >= _CONTEXT_CHECKED_TOTAL or used + size > _CONTEXT_CHECKED_JSON_BYTES:
+                return checked
+            checked.append(path)
+            used += size
+    return checked
+
+
 def _markdown_names(target: Path, folder: str) -> list[str]:
-    """Sorted Markdown file names directly inside `folder`, without following links."""
+    """The regular fact files among the Workbench's listing of `folder`.
+
+    The listing is the one `listFolder` makes: fact file names of regular
+    files and links among the first entries scanned, sorted by UTF-16 code
+    units as JavaScript sorts, and capped. Links take their place in that
+    order but are never checked, so the Workbench reports them as links.
+    """
     current = target
     for part in folder.split("/"):
         current = current / part
@@ -2027,17 +2085,24 @@ def _markdown_names(target: Path, folder: str) -> list[str]:
             return []
         if not stat.S_ISDIR(info.st_mode) or _is_symlink_or_junction(current):
             return []
-    names = []
+    names: list[str] = []
+    regular: set[str] = set()
     try:
         with os.scandir(current) as entries:
             for scanned, entry in enumerate(entries, start=1):
                 if scanned > _CONTEXT_SCANNED_ENTRIES:
                     break
-                if entry.name.lower().endswith(".md") and entry.is_file(follow_symlinks=False):
+                if not _is_fact_file_name(entry.name):
+                    continue
+                if entry.is_symlink():
                     names.append(entry.name)
+                elif entry.is_file(follow_symlinks=False):
+                    names.append(entry.name)
+                    regular.add(entry.name)
     except OSError:
         return []
-    return sorted(names)[:_CONTEXT_LISTED_FILES]
+    window = sorted(names, key=lambda name: name.encode("utf-16-be", "surrogatepass"))[:_CONTEXT_LISTED_FILES]
+    return [name for name in window if name in regular]
 
 
 def _doctor_graph_context(tropo, resolver, target: Path):
@@ -3027,15 +3092,27 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) 
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
     """Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
 
-    It reads plain sets and ranges. POSIX classes (`[[:alpha:]]`), equivalence
-    classes, collating symbols, an unclosed bracket, or a set Python cannot
-    compile are uncertain.
+    It reads plain sets and ranges, such as `[._]`, `[a-v]`, or `[.]`, and
+    Git's backslash escape, so `foo\[bar` is a literal. A bracket expression
+    holding a POSIX class (`[[:alpha:]]`), an equivalence class (`[[=a=]]`),
+    or a collating symbol (`[[.a.]]`), an unescaped `[` that never closes, and
+    a set Python cannot compile are uncertain.
     """
-    start = pattern.find("[")
-    if start == -1:
-        return False
-    if re.search(r"\[[:=.]", pattern) or pattern.find("]", start + 2) == -1:
-        return True
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            close = pattern.find("]", index + 2)
+            if close == -1:
+                return True
+            if re.search(r"\[[:=.]", pattern[index + 1 : close]):
+                return True
+            index = close + 1
+            continue
+        index += 1
     try:
         re.compile(_wildmatch_regex(pattern.strip("/")))
     except re.error:

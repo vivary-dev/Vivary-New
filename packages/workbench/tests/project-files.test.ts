@@ -359,9 +359,10 @@ describe("project file boundary", () => {
 
     const listing = await listFolder(f.root, "facts", 10);
     assert.deepEqual(listing, { status: "ready",
-      names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "linked.md", "twin.md"], truncated: false });
+      names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "linked.md", "twin.md"], linked: ["linked.md"],
+      truncated: false });
     assert.deepEqual(await listFolder(f.root, "facts", 2), { status: "ready", names: ["a-fact.md", "b-fact.md"],
-      truncated: true });
+      linked: [], truncated: true });
     if (listing.status !== "ready") return;
     const read = await readListedFiles(f.root, listing.names.map(name => `facts/${name}`), project);
     assert.deepEqual(read.files.map(file => file.path), ["facts/a-fact.md", "facts/b-fact.md"]);
@@ -444,6 +445,7 @@ describe("project file boundary", () => {
     const opened = await always.get(undefined, "project_a", "fact.md");
     assert.equal(opened.code, "file");
     if (opened.code !== "file") return;
+    const inode = (await stat(path.join(f.root, "fact.md"))).ino;
     await assert.rejects(always.remove(undefined, { projectId: "project_a", path: "fact.md",
       expectedVersion: opened.file.version }), (error: Error) => error instanceof ProjectFileLockedError
       && !error.message.includes(f.root));
@@ -454,9 +456,14 @@ describe("project file boundary", () => {
     const eventually = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
       bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }),
     { unlink: async target => { flaky += 1; if (flaky < 3) throw locked; return unlink(target); }, rename });
-    // Open the file again: Zo's gVisor file system can report a new mtime after the failed attempts.
+    // The failed attempts left the file as it was: same inode, same bytes. The
+    // version also hashes mtime, which Zo's gVisor 9p file system reported
+    // moving back by about 1 ms between two plain stat calls during the full
+    // CI list, with nothing writing the file, so the version is not compared.
     const reopened = await eventually.get(undefined, "project_a", "fact.md");
     if (reopened.code !== "file") throw new Error("fixture file missing");
+    assert.equal(reopened.file.content, opened.file.content);
+    assert.equal((await stat(path.join(f.root, "fact.md"))).ino, inode);
     const removed = await eventually.remove(undefined, { projectId: "project_a", path: "fact.md",
       expectedVersion: reopened.file.version });
     assert.equal(removed.code, "removed", JSON.stringify(removed));

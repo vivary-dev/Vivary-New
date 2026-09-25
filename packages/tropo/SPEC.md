@@ -291,12 +291,16 @@ memory folders, and the declared protected paths (`workspace.private`,
 no notes. The creator's `workspace_context` adds which memory folders, law
 files, state file, fact files, and candidate new files the workspace's
 `.gitignore` files ignore, which `.gitignore` files it consulted, and the
-Markdown file names it checked in each memory folder (the first 200 sorted
-names of at most 4,000 scanned entries). For memory it matches fail-closed: it
-reads `.gitignore` with or without a byte order mark, a positive rule matches
-without regard to case, letter-bracket rules included, a positive rule whose
-bracket it cannot parse (such as a POSIX class) matches, and a negation
-re-includes only on an exact match. It does not read `.git/info/exclude` or global Git excludes.
+fact files it checked in each memory folder. It lists a folder as the Workbench
+does (the first 200 `.md` names of regular files and links, secret-looking
+names left out, in UTF-16 order, from at most 4,000 scanned entries) and checks
+the regular files among them whose paths the Workbench answer schema accepts,
+at most 3,000 paths and 96 KiB of JSON in all. For memory it matches
+fail-closed: it reads `.gitignore` with or without a byte order mark, a
+positive rule matches without regard to case, letter-bracket rules included,
+a positive rule with a POSIX class, an equivalence class, a collating symbol,
+or an unclosed bracket matches, ordinary sets and Git's backslash escape read
+as Git reads them, and a negation re-includes only on an exact match. It does not read `.git/info/exclude` or global Git excludes.
 
 ---
 

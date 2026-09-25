@@ -148,8 +148,9 @@ const memoryPrivacy = {
   private_files: z.array(workspaceRelativePath).max(4_000),
   ignore_files: z.array(workspaceRelativePath).max(4_000),
   private_candidates: z.array(workspaceRelativePath).max(16),
-  // At most 200 checked files for each of at most 64 memory folders.
-  checked_files: z.array(workspaceRelativePath).max(12_800),
+  // The creator caps this at _CONTEXT_CHECKED_TOTAL paths and leaves out
+  // any name this schema would refuse, so one odd name cannot fail the answer.
+  checked_files: z.array(workspaceRelativePath).max(3_000),
 };
 // The creator's answer is parsed here, so project memory can trust its shape.
 const workspaceContextAnswer = z.discriminatedUnion("status", [

@@ -14,6 +14,7 @@ import {
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
 import { createProjectFileService } from "../server/project-files.ts";
+import { isFactFileName } from "../server/project-files.ts";
 import {
   CONTEXT_BOUNDS,
   createProjectMemory,
@@ -89,16 +90,19 @@ type Bridge = {
 };
 
 /**
- * The Markdown files the engine checks in each memory folder, as the creator
- * lists them: regular files only, sorted, the first 200 per folder. Unlike the
- * Workbench listing it does not leave out secret-looking names.
+ * The fact files the engine checks in each memory folder, as the creator
+ * lists them: fact file names of regular files and links, sorted, the first
+ * 200 per folder, then only the regular files whose paths the answer schema
+ * accepts.
  */
 async function engineChecked(root: string, memory: readonly string[]): Promise<string[]> {
   const checked: string[] = [];
   for (const folder of memory) {
     const entries = await readdir(path.join(root, folder), { withFileTypes: true }).catch(() => []);
-    checked.push(...entries.filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith(".md"))
-      .map(entry => entry.name).sort().slice(0, 200).map(name => `${folder}/${name}`));
+    const listed = entries.filter(entry => (entry.isFile() || entry.isSymbolicLink()) && isFactFileName(entry.name))
+      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)).slice(0, 200);
+    checked.push(...listed.filter(entry => entry.isFile()).map(entry => `${folder}/${entry.name}`)
+      .filter(candidate => candidate.length <= 512 && !candidate.includes(String.fromCharCode(92))));
   }
   return checked;
 }
@@ -243,6 +247,29 @@ describe("project memory rendering", () => {
     assert.match(block, /Vivary did not read these memory folders: notes\/1x+… \(non-portable\), and 1 more\./);
     assert.doesNotMatch(block, /: \d+ more|\( \d+ more/);
     assert.match(block, /## Project facts \(notes\/1x+…, and 1 more\)/);
+  });
+
+  it("keeps every path list inside its limit, counting the rest", async () => {
+    const p = await project();
+    const folders = Array.from({ length: 30 }, (_, index) => `notes/${String(index).padStart(2, "0")}-${"f".repeat(40)}:`);
+    p.bridge.answer = thinAnswer(folders);
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    const header = block.match(/^## Project facts \((.*)\)$/m)?.[1] ?? "";
+    assert.ok(header.length <= CONTEXT_BOUNDS.folderListChars, String(header.length));
+    assert.match(header, /, and \d+ more$/);
+    const refused = block.match(/^Vivary did not read these memory folders: (.*)\.$/m)?.[1] ?? "";
+    assert.ok(refused.length <= CONTEXT_BOUNDS.refusedChars, String(refused.length));
+    assert.match(refused, /\(non-portable\), and \d+ more$/);
+  });
+
+  it("turns every line and page break in fact text into a space", async () => {
+    const p = await project();
+    const breaks = [0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029].map(code => String.fromCharCode(code));
+    await p.writeFact(".vivary/knowledge/breaks.md", RELAY_FACT.replace("40 dollars per month.",
+      `one${breaks.join("two")}three`));
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.match(block, /- Relay budget: The relay budget is one( two)+ three\n/);
+    for (const character of breaks) assert.ok(!block.includes(character));
   });
 
   it("names omitted law files only when they could load", async () => {
@@ -647,21 +674,58 @@ describe("project memory loading", () => {
     assert.match(block, /Skipped files: \.vivary\/knowledge\/draft\.md \(private\)\./);
   });
 
-  it("loads only files the engine checked when names sort past its limit", async () => {
+  it("loads every fact beside secret-looking names, and stays that way", async () => {
     const p = await project();
     const folder = path.join(p.root, ".vivary", "knowledge");
     await mkdir(folder);
-    // The engine counts secret-looking names, which the Workbench never lists, so its 200 end sooner.
+    // Both listings leave out secret-looking names, so they do not push facts past the 200.
     await Promise.all(Array.from({ length: 5 }, (_, index) => writeFile(path.join(folder, `a-secret-${index}.md`), "x\n")));
     await Promise.all(Array.from({ length: 200 }, (_, index) => writeFile(
       path.join(folder, `fact-${String(index).padStart(3, "0")}.md`), RELAY_FACT.replace("40", `N${index}N`))));
-    const view = await p.memory.view(undefined, p.id);
-    assert.equal(view.facts.length, 195);
-    assert.deepEqual(view.skipped.map(file => [file.path, file.reason]),
-      [195, 196, 197, 198, 199].map(index => [`.vivary/knowledge/fact-${index}.md`, "not-checked"]));
-    const { block } = await p.memory.renderForRun(p.workspace, "code");
-    assert.doesNotMatch(block, /N19[5-9]N/);
+    for (let load = 0; load < 3; load++) {
+      const view = await p.memory.view(undefined, p.id);
+      assert.equal(view.facts.length, 200);
+      assert.deepEqual(view.skipped, []);
+    }
   });
+
+  it("reports a linked fact file as a link on every load, and Correct and Forget refuse it", async () => {
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/relay-budget.md");
+    await writeFile(path.join(p.root, "outside.md"), RELAY_FACT.replace("40 dollars", "LINK-MARKER"));
+    await symlink(path.join(p.root, "outside.md"), path.join(p.root, ".vivary", "knowledge", "linked.md"));
+    for (let load = 0; load < 3; load++) {
+      const view = await p.memory.view(undefined, p.id);
+      assert.deepEqual(view.skipped, [{ path: ".vivary/knowledge/linked.md", reason: "linked" }]);
+      assert.equal(view.facts.length, 1);
+    }
+    assert.doesNotMatch((await p.memory.renderForRun(p.workspace, "code")).block, /LINK-MARKER/);
+    const [fact] = (await p.memory.view(undefined, p.id)).facts;
+    for (const operation of ["correct", "forget"] as const) {
+      const base = { projectId: p.id, operation, path: ".vivary/knowledge/linked.md", expectedVersion: fact.version };
+      const input = operation === "forget" ? base : { ...base, title: "T", text: "x", source: "y" };
+      const result = await p.memory.write(undefined, input);
+      assert.equal(result.code === "unavailable" && result.reason, "linked", operation);
+    }
+  });
+
+  it("reports a name the engine can never check as unsupported on every load", { skip: process.platform === "win32" },
+    async () => {
+      const p = await project();
+      await p.writeFact(".vivary/knowledge/relay-budget.md");
+      const odd = `a${String.fromCharCode(92)}b.md`;
+      await p.writeFact(`.vivary/knowledge/${odd}`, RELAY_FACT.replace("40 dollars", "ODD-MARKER"));
+      for (let load = 0; load < 3; load++) {
+        const view = await p.memory.view(undefined, p.id);
+        assert.deepEqual(view.skipped, [{ path: `.vivary/knowledge/${odd}`, reason: "unsupported-name" }]);
+        assert.equal(view.facts.length, 1);
+      }
+      assert.doesNotMatch((await p.memory.renderForRun(p.workspace, "code")).block, /ODD-MARKER/);
+      const [fact] = (await p.memory.view(undefined, p.id)).facts;
+      const result = await p.memory.write(undefined, { projectId: p.id, operation: "forget",
+        path: `.vivary/knowledge/${odd}`, expectedVersion: fact.version });
+      assert.equal(result.code === "unavailable" && result.reason, "unsupported-name");
+    });
 
   it("does not load a file created while the engine was checking", async () => {
     const p = await project();

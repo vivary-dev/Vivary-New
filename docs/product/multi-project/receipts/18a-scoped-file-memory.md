@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The second review's fixes after `2324e7f` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The third review's fixes after `865f39e` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
 
 ## Result
 
@@ -125,8 +125,10 @@ reruns hosted QA:
   checked. This replaces the earlier claim that only ignored files are not
   loaded or changed.
 - The engine reads `.gitignore` with or without a byte order mark, and a
-  positive rule with a bracket it cannot parse matches.
-- Law files past the first three are named only when they could load. A
+  positive rule with a bracket it cannot parse matches. The third review
+  narrowed this rule.
+- Law files past the first three are named only when policy and privacy allow
+  them. A
   private, boundary, protected, or non-portable law file is never named.
 - Forget notices never mention a draft, and a Forget of a removed file says it
   was already removed.
@@ -134,6 +136,25 @@ reruns hosted QA:
   EACCES and EPERM are a permission refusal with their own wording.
 - The settings message and paths escape C1 controls and the Unicode line and
   paragraph separators, and every memory write failure has fixed wording.
+
+## Third review fixes
+
+A third review of `865f39e` found that parts of the second round were too
+broad or could stall. Unit tests cover these fixes until the lead reruns
+hosted QA:
+
+- Only a POSIX class, an equivalence class, or a collating symbol inside a
+  bracket expression, or an unclosed `[`, makes a rule uncertain. Ordinary
+  sets such as `[._]*.sw[a-p]` and an escaped `foo\[bar` match as Git reads
+  them, so they no longer make every memory folder private.
+- The engine and the Workbench list a memory folder with one rule set. The
+  engine leaves links and names the Workbench cannot carry out of
+  `checked_files` and bounds its size, so one odd file name cannot fail the
+  whole answer.
+- The Workbench compares checked paths exactly and reports a link as linked
+  and an uncheckable name as unsupported, the same on every load.
+- Path lists stay inside their limits, and fact text turns every line and page
+  break into a space.
 
 ## Not run
 

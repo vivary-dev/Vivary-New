@@ -242,21 +242,31 @@ async function blockedReason(root: string, requestedPath: string): Promise<Proje
 export type FolderListing =
   | { status: "absent" | "not-folder" | "linked" | "blocked" }
   /**
-   * Markdown file names directly inside the folder, sorted, links included so
-   * a read can report them. `truncated` is true when the folder held more
-   * entries than one listing scans or more Markdown files than `limit`.
+   * Fact file names directly inside the folder, sorted, links included so a
+   * read can report them. `linked` names the links among them. `truncated` is
+   * true when the folder held more entries than one listing scans or more
+   * fact files than `limit`.
    */
-  | { status: "ready"; names: string[]; truncated: boolean };
+  | { status: "ready"; names: string[]; linked: string[]; truncated: boolean };
 
 /** Entries one folder listing scans before it stops. The creator's `_CONTEXT_SCANNED_ENTRIES` matches it. */
 const MAX_FOLDER_ENTRIES = 4_000;
 
 /**
- * List the Markdown files directly inside one project folder without
- * following links. `absent` covers a missing folder or parent. Hidden names
- * (secret, credential) are left out, as in the file tree. At most
- * MAX_FOLDER_ENTRIES entries are scanned and `limit` names returned, in name
- * order among those scanned.
+ * A fact file name: `<something>.md`, not secret-looking. The creator's
+ * `_is_fact_file_name` applies the same rule.
+ */
+export function isFactFileName(name: string): boolean {
+  return name.length > 3 && name.toLowerCase().endsWith(".md") && !isSecretName(name);
+}
+
+/**
+ * List the fact files directly inside one project folder without following
+ * links. `absent` covers a missing folder or parent. Regular files and links
+ * with a fact file name count. At most MAX_FOLDER_ENTRIES entries are scanned
+ * and `limit` names returned, in UTF-16 code unit order among those scanned.
+ * The creator's `_markdown_names` makes the same listing, so the files it
+ * checks are exactly the regular files here.
  */
 export async function listFolder(root: string, folder: string, limit: number): Promise<FolderListing> {
   let parts: string[];
@@ -280,6 +290,7 @@ export async function listFolder(root: string, folder: string, limit: number): P
   }
   if (!contained(root, await realpath(directory))) return { status: "linked" };
   const names: string[] = [];
+  const links = new Set<string>();
   let scanned = 0;
   let truncated = false;
   for await (const entry of await opendir(directory)) {
@@ -287,11 +298,14 @@ export async function listFolder(root: string, folder: string, limit: number): P
       truncated = true;
       break;
     }
-    if ((entry.isFile() || entry.isSymbolicLink())
-      && path.extname(entry.name).toLowerCase() === ".md" && !isSecretName(entry.name)) names.push(entry.name);
+    if (!isFactFileName(entry.name)) continue;
+    if (entry.isSymbolicLink()) links.add(entry.name);
+    if (entry.isFile() || entry.isSymbolicLink()) names.push(entry.name);
   }
   names.sort();
-  return { status: "ready", names: names.slice(0, limit), truncated: truncated || names.length > limit };
+  const shown = names.slice(0, limit);
+  return { status: "ready", names: shown, linked: shown.filter(name => links.has(name)),
+    truncated: truncated || names.length > limit };
 }
 
 /**

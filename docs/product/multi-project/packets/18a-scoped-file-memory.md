@@ -113,6 +113,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   matching, name only loadable law files, split conflict notices by action, and separate a
   permission refusal from a lock off Windows. Unit tests cover them until the lead reruns
   hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `865f39e`. Third review fixes narrow the uncertain bracket rule to POSIX classes and
+  unclosed brackets, list memory folders with one rule set on both sides, keep odd names out
+  of `checked_files`, bound its size, and report links and uncheckable names with their own
+  reasons. Unit tests cover them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 

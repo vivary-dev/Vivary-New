@@ -67,8 +67,22 @@ export const CONTEXT_BOUNDS = {
 export const RESERVED_PATHS = [".git", ".vivary/memory"] as const;
 
 const SETTINGS_FILE = ".vivary/workspace.toml";
-/** The bridge accepts candidate paths up to this length. */
+/**
+ * The Workbench's answer schema (`workspaceRelativePath` in
+ * managed-projects.mjs) accepts a path of at most this many UTF-16 code
+ * units, so a longer path could never come back checked.
+ */
 const MAX_CANDIDATE_CHARS = 512;
+
+/**
+ * Whether the engine can report `path` as checked: the answer schema refuses
+ * a backslash and a path over MAX_CANDIDATE_CHARS, and a name Node decoded
+ * with U+FFFD cannot match the engine's. The creator's `_workbench_can_carry`
+ * applies the same rule.
+ */
+function isCheckablePath(path: string): boolean {
+  return path.length <= MAX_CANDIDATE_CHARS && !path.includes("\\") && !path.includes(String.fromCharCode(0xfffd));
+}
 const OPEN_TAG = "<project-context>";
 const CLOSE_TAG = "</project-context>";
 const BYTE_ORDER_MARK = 0xfeff;
@@ -143,22 +157,37 @@ function shownPath(path: string): string {
 type ListItem = { path: string; suffix?: string };
 
 /**
- * Items joined with ", " until `limit` characters, then a count of the rest.
- * The first item always shows: when it is too long, its path is shortened
- * and its suffix kept.
+ * Items joined with ", " in at most `limit` characters, counting the
+ * ", and N more" that ends a list that does not fit. The first item always
+ * shows: when it is too long, its path is shortened and its suffix kept, so
+ * only a suffix longer than the limit can exceed it.
  */
 function pathList(items: readonly ListItem[], limit: number): string {
+  if (items.length === 0) return "";
+  // The longest possible count of the rest, reserved while more items follow.
+  const moreRoom = `, and ${items.length} more`.length;
   const shown: string[] = [];
   let used = 0;
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const suffix = item.suffix ? ` ${item.suffix}` : "";
-    let next = `${shownPath(item.path)}${suffix}`;
-    if (used + next.length + 2 > limit) {
-      if (shown.length > 0) break;
-      next = `${neutralize(clamp(escapeControls(item.path), Math.max(20, limit - suffix.length - 24)))}${suffix}`;
+    const next = `${shownPath(item.path)}${suffix}`;
+    const separator = shown.length > 0 ? 2 : 0;
+    const reserve = index < items.length - 1 ? moreRoom : 0;
+    if (used + separator + next.length + reserve > limit) break;
+    shown.push(next);
+    used += separator + next.length;
+  }
+  if (shown.length === 0) {
+    const [first] = items;
+    const suffix = first.suffix ? ` ${first.suffix}` : "";
+    const reserve = items.length > 1 ? moreRoom : 0;
+    let room = Math.max(1, limit - suffix.length - reserve);
+    let next = `${neutralize(clamp(escapeControls(first.path), room))}${suffix}`;
+    while (room > 1 && next.length + reserve > limit) {
+      room -= 1;
+      next = `${neutralize(clamp(escapeControls(first.path), room))}${suffix}`;
     }
     shown.push(next);
-    used += next.length + 2;
   }
   const rest = items.length - shown.length;
   return rest > 0 ? `${shown.join(", ")}, and ${rest} more` : shown.join(", ");
@@ -231,9 +260,12 @@ function renderInstructionFiles(files: readonly ContextFile[], omitted: readonly
   }), ...(tail ? [tail] : [])].join("\n");
 }
 
+/** Line and page breaks JavaScript's `\n` rule misses: vertical tab, form feed, return, NEL, LS, and PS. */
+const OTHER_BREAKS = /[\v\f\r\u0085\u2028\u2029]/g;
+
 /** Fact text as agents receive it: one line, before clamping. */
 function agentText(text: string): string {
-  return text.replace(/\s*\n\s*/g, " ");
+  return text.replace(OTHER_BREAKS, " ").replace(/\s*\n\s*/g, " ");
 }
 
 // Each field is clamped to the panel's save limits, so a fact saved in the
@@ -502,7 +534,9 @@ const WRITE_TEXT = {
   notAFact: "This file is not a fact in this project's memory folder.",
   settings: "The bundled Vivary runtime could not read or validate this project's settings.",
   file: "Vivary could not read or change this project's memory. Try again.",
-  notChecked: "Vivary has not checked this fact file against the ignore rules yet. Reload memory and try again.",
+  notChecked: "Vivary did not check this fact file against the ignore rules, so it was not changed. Memory was reloaded.",
+  linkedFile: "This fact file is a link. Vivary does not change links.",
+  unsupportedName: "Vivary cannot use this file name. Rename the file in the project folder to change it here.",
   tooLong: "The memory folder and this title make a file path longer than 512 characters. Use a shorter title.",
 } as const;
 
@@ -654,15 +688,21 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     const { locations, listings } = await loadLocations(workspace, settings, known);
     const facts: MemoryFact[] = [];
     const skipped: SkippedFactFile[] = [];
+    // Both sides build each path from the same folder string and directory
+    // entry, so membership is exact.
+    const checked = new Set(settings.privacy.checkedFiles);
     let truncated = false;
     for (const [folder, listing] of listings) {
       truncated ||= listing.truncated;
       const paths = listing.names.map(name => `${folder}/${name}`);
-      // Only files the engine checked may load, so a file past its listing
-      // bounds or one created after its check fails closed.
+      // Only files the engine checked may load, so a file created after its
+      // check fails closed. Links and names the engine can never report get
+      // their own reasons, so their state does not change on a retry.
       const readable: string[] = [];
-      for (const path of paths) {
-        if (!includesPath(settings.privacy.checkedFiles, path)) skipped.push({ path, reason: "not-checked" });
+      for (const [index, path] of paths.entries()) {
+        if (listing.linked.includes(listing.names[index])) skipped.push({ path, reason: "linked" });
+        else if (!isCheckablePath(path)) skipped.push({ path, reason: "unsupported-name" });
+        else if (!checked.has(path)) skipped.push({ path, reason: "not-checked" });
         else if (includesPath(settings.privacy.privateFiles, path)) skipped.push({ path, reason: "private" });
         else readable.push(path);
       }
@@ -761,15 +801,17 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     if (input.operation === "remember") return remember(context, workspace, input, locations);
     const path = factPathIn(locations, input.path);
     if (!path) return { code: "unavailable", reason: "not-a-fact", message: WRITE_TEXT.notAFact };
-    if (!includesPath(settings.privacy.checkedFiles, path)) {
+    if (!new Set(settings.privacy.checkedFiles).has(path)) {
       // A file the engine did not check is never opened. When a complete
       // listing no longer has it, it is gone, so say that without reading it.
       const slash = path.lastIndexOf("/");
       const listing = [...loaded.listings].find(([folder]) => samePath(folder, path.slice(0, slash)))?.[1];
-      const name = path.slice(slash + 1).toLowerCase();
-      if (listing && !listing.truncated && !listing.names.some(listed => listed.toLowerCase() === name)) {
-        return conflictFor("renamed-or-deleted", path);
+      const name = path.slice(slash + 1);
+      if (listing?.linked.includes(name)) return { code: "unavailable", reason: "linked", message: WRITE_TEXT.linkedFile };
+      if (!isCheckablePath(path)) {
+        return { code: "unavailable", reason: "unsupported-name", message: WRITE_TEXT.unsupportedName };
       }
+      if (listing && !listing.truncated && !listing.names.includes(name)) return conflictFor("renamed-or-deleted", path);
       return { code: "unavailable", reason: "not-checked", message: WRITE_TEXT.notChecked };
     }
     if (includesPath(settings.privacy.privateFiles, path)) {

@@ -35,7 +35,8 @@ const SKIP_REASON_TEXT = {
   linked: "a link or a file with several names", "too-large": "larger than 256 KB", binary: "not text",
   unsupported: "not a supported text file", private: "ignored by .gitignore", unreadable: "in use by another program",
   "no-permission": "Vivary does not have permission to read it",
-  "not-checked": "not checked against the ignore rules yet",
+  "not-checked": "not checked against the ignore rules",
+  "unsupported-name": "Vivary cannot use this file name",
 } as const;
 const ROLE_LABELS = { law: "Law", map: "Map", record: "Record", memory: "Memory", boundary: "Boundary" } as const;
 

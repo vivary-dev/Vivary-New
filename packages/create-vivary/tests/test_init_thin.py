@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -1003,6 +1004,72 @@ class WorkspaceContextTests(unittest.TestCase):
                                  [".vivary/knowledge"])
                 self.assertFalse(create_vivary._probe_is_ignored(target, ".vivary/knowledge/fact.md"),
                                  "Doctor keeps its own matching")
+
+    def test_ordinary_bracket_sets_and_escapes_match_as_git_does(self):
+        ordinary = ("[._]*.s[a-v][a-z]", "[._]*.sw[a-p]", "[.]env", "*[.]log", "build[:]out", "*.[=]x",
+                    "foo\\[bar")
+        for rule in ordinary:
+            with self.subTest(rule=rule):
+                self.assertFalse(create_vivary._bracket_rule_is_uncertain(rule))
+        for rule in ("[[:alpha:]]*.md", "[[=a=]]x", "[[.a.]]x", "know[ledge", "a[b"):
+            with self.subTest(rule=rule):
+                self.assertTrue(create_vivary._bracket_rule_is_uncertain(rule))
+        target = self.scaffold()
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("".join(f"{rule}\n" for rule in ordinary))
+        context = create_vivary.workspace_context(target, repo_root=ROOT, candidates=[".vivary/knowledge/fact.md"])
+        self.assertEqual(context["private"], [])
+        self.assertEqual(context["private_candidates"], [])
+        self.assertNotIn("STATE.md", context["private_files"])
+        # Each rule still ignores what Git would ignore with it.
+        for path in (".env", "x.log", "build:out", "a.=x", "foo[bar", ".x.swp", ".x.sva"):
+            with self.subTest(path=path):
+                self.assertTrue(create_vivary._memory_probe_is_ignored(target, path))
+        for path in ("fooxbar", "buildout", "env", ".vivary/knowledge/fact.md"):
+            with self.subTest(path=path):
+                self.assertFalse(create_vivary._memory_probe_is_ignored(target, path))
+
+    def test_checked_files_leave_out_names_the_workbench_cannot_carry(self):
+        target = self.scaffold()
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        (knowledge / "fact.md").write_text("# Fact\n", encoding="utf-8")
+        names = ["fact.md"]
+        if os.name != "nt":
+            (knowledge / "a\\b.md").write_text("# Odd\n", encoding="utf-8")
+        for name in (".md", "my-secret.md", "Credentials.md", ".env.local.md"):
+            (knowledge / name).write_text("# Hidden\n", encoding="utf-8")
+        context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context["checked_files"], [f".vivary/knowledge/{name}" for name in names])
+        self.assertTrue(create_vivary._workbench_can_carry(".vivary/knowledge/" + "x" * 490 + ".md"))
+        self.assertFalse(create_vivary._workbench_can_carry(".vivary/knowledge/" + "x" * 500 + ".md"))
+
+    def test_checked_files_skip_links_in_the_workbench_order(self):
+        if os.name == "nt":
+            self.skipTest("file links need extra rights on Windows")
+        target = self.scaffold()
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        for index in range(201):
+            (knowledge / f"fact-{index:03d}.md").write_text("# Fact\n", encoding="utf-8")
+        (knowledge / "a-link.md").symlink_to(knowledge / "fact-000.md")
+        checked = create_vivary.workspace_context(target, repo_root=ROOT)["checked_files"]
+        # The link takes the first place in the listing, so the listing ends at fact-198.
+        self.assertEqual(checked, [f".vivary/knowledge/fact-{index:03d}.md" for index in range(199)])
+
+    def test_checked_files_stay_within_the_total_bound(self):
+        self.assertLessEqual(create_vivary._CONTEXT_CHECKED_JSON_BYTES, 128 * 1024)
+        target = self.scaffold()
+        folders = []
+        for folder_index in range(16):
+            folder = target / "notes" / f"f{folder_index:02d}"
+            folder.mkdir(parents=True)
+            folders.append(f"notes/f{folder_index:02d}")
+            for index in range(200):
+                (folder / f"fact-{index:03d}.md").write_text("# Fact\n", encoding="utf-8")
+        checked = create_vivary._checked_fact_paths(target, folders)
+        self.assertEqual(len(checked), create_vivary._CONTEXT_CHECKED_TOTAL)
+        self.assertLessEqual(len(json.dumps(checked)), create_vivary._CONTEXT_CHECKED_JSON_BYTES)
 
     def test_checked_files_follow_the_workbench_listing_bounds(self):
         target = self.scaffold()

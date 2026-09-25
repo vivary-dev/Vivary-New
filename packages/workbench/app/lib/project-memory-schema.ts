@@ -119,7 +119,7 @@ export type MemoryFact = {
 };
 
 export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" | "unreadable"
-  | "no-permission" | "not-checked" };
+  | "no-permission" | "not-checked" | "unsupported-name" };
 
 /** The latest message that loaded this project's context in this app session. It is not stored. */
 export type ProjectContextLastLoad = {
@@ -159,7 +159,7 @@ export type ProjectMemoryWriteResult =
       current?: MemoryFact;
     }
   | { code: "unavailable"; reason: LocationProblem | "settings" | "title" | "too-long" | "not-a-fact"
-      | "not-checked" | "locked" | "permission" | "file";
+      | "not-checked" | "unsupported-name" | "locked" | "permission" | "file";
       message: string };
 
 export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, string>> = {
