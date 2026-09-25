@@ -427,17 +427,40 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertIn("tropo configuration is invalid", json.loads(public_out)["errors"])
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
-    def test_public_doctor_sentences_and_values_name_no_command(self):
-        # Doctor refuses an unlisted rule or value when it reports one, so every
-        # Doctor test that reaches a rule also checks it has a public sentence.
-        self.assertLessEqual(set(create_vivary.DOCTOR_PUBLIC_VALUES), set(create_vivary.DOCTOR_PUBLIC_SENTENCES))
-        for one, several in create_vivary.DOCTOR_PUBLIC_SENTENCES.values():
-            for sentence in (one, several):
+    def test_every_doctor_rule_has_a_public_sentence_and_every_report_names_a_rule(self):
+        import ast
+
+        self.assertEqual(set(create_vivary.DoctorRule), set(create_vivary.DOCTOR_RULES))
+        for public in create_vivary.DOCTOR_RULES.values():
+            for sentence in (public.one, public.several):
                 self.assertNotIn("--", sentence)
                 self.assertNotIn("create-vivary", sentence)
-        for values in create_vivary.DOCTOR_PUBLIC_VALUES.values():
-            for value in values:
+            for value in public.values:
                 self.assertFalse(value.startswith(("/", "~", "-")) or ":" in value or ".." in value, value)
+        tree = ast.parse(Path(create_vivary.__file__).read_text(encoding="utf-8"))
+
+        def names_a_rule(node: ast.expr) -> bool:
+            return (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id == "DoctorRule" and node.attr in create_vivary.DoctorRule.__members__)
+
+        functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        reports = [node for node in ast.walk(functions["doctor_workspace"])
+                   if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "report"]
+        self.assertGreater(len(reports), 20)
+        for call in reports:
+            rule = call.args[1]
+            self.assertTrue(names_a_rule(rule) or isinstance(rule, ast.Name), ast.unparse(call)[:80])
+        appended = [node.args[0].elts[0] for node in ast.walk(functions["_module_index_problems"])
+                    if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "append"]
+        self.assertTrue(appended)
+        self.assertTrue(all(names_a_rule(rule) for rule in appended))
+
+    def test_public_doctor_names_only_listed_values(self):
+        problems = [("error", create_vivary.DoctorRule.PRIVACY_IGNORE_MISSING, "detail", "*.vivary-tmp"),
+                    ("error", create_vivary.DoctorRule.PRIVACY_IGNORE_MISSING, "detail", "not-a-listed-pattern/")]
+        self.assertEqual(create_vivary._doctor_lines(problems, "error", True),
+                         ["2 required privacy ignores are missing from .gitignore: *.vivary-tmp"])
+        self.assertEqual(create_vivary._doctor_lines(problems, "error", False), ["detail", "detail"])
 
     def test_public_doctor_names_missing_ignores_and_files_from_vivary_lists(self):
         workspace = self.root / "named"

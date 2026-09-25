@@ -769,6 +769,24 @@ test("the sweep appends a crashed run's receipt once and removes an old request 
   } finally { await f.cleanup(); }
 });
 
+test("a command cancelled before its child spawns records no receipt", async () => {
+  const f = await fixture();
+  const cancel = new AbortController();
+  let resolutions = 0;
+  const run = createOriginalCommandRunner({ parallelism: 4,
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => {
+      // The second resolution is the recheck after admission, just before the spawn.
+      if (++resolutions === 2) cancel.abort();
+      return projectWorkspace("project-a", f.root);
+    },
+    execute: runOriginalProcess });
+  try {
+    await assert.rejects(run(input, { ...context, signal: cancel.signal }), { name: "AbortError" });
+    await assert.rejects(readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8"), { code: "ENOENT" });
+  } finally { await f.cleanup(); }
+});
+
 test("a command stopped after it started is still recorded as failed", async () => {
   const f = await fixture();
   const run = createOriginalCommandRunner({ parallelism: 4,
@@ -936,12 +954,12 @@ test("shutdown stops running children, refuses waiters, and stops an admitted co
     await hold.admitted;
     const shutdown = shutdownOriginalCommands();
     assert.equal(shutdownOriginalCommands(), shutdown);
-    // Shutdown waits for the admitted command too, which is refused once its project check returns.
-    hold.release();
+    // Shutdown settles while the admitted command is still held in its project check: it cannot spawn now.
     await shutdown;
     const recorded = await readFile(path.join(f.directory, "data", "original-runtime", "receipts.jsonl"), "utf8").catch(() => "");
     assert.ok(recorded.includes('"command":"adopt-apply"') && recorded.includes('"ok":false'),
       "the stopped write was recorded before shutdown resolved");
+    hold.release();
     await Promise.all([stopped, refused, unspawned]);
     assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");
     await assert.rejects(f.review("project-b").result, /cannot start/);

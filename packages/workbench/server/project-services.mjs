@@ -384,20 +384,20 @@ function localService(context, tool) {
 /**
  * Classifies the Native chat scope the current request is pinned to. The
  * scope comes from the request, never from the caller. A project scope must
- * match exactly one registered project, or the result is null. The owner's
+ * match exactly one registered project, or it is unmatched. The owner's
  * request gets its own context back. A Native tool call gets a context that
  * the read entry points accept for that project only, and it stays a tool
- * call.
+ * call. A project scope without an identity, or of the wrong type, is refused.
  */
 export async function matchChatProject(context) {
   const { getRequestRunContext } = await import("@agent-native/core/server");
   const scope = getRequestRunContext()?.chatScope;
   if (!scope?.id.startsWith(PROJECT_CHAT_SCOPE_PREFIX)) return { kind: "not-project" };
-  if (scope.type !== "workspace-app") {
+  const email = context?.userEmail?.trim().toLowerCase();
+  if (scope.type !== "workspace-app" || !email || !context.orgId) {
     throw Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
   }
-  const email = context?.userEmail?.trim().toLowerCase();
-  if (email && context.orgId && scope.id === projectChatScopeId(email, context.orgId, null)) return { kind: "personal" };
+  if (scope.id === projectChatScopeId(email, context.orgId, null)) return { kind: "personal" };
   const tool = context?.caller === "tool";
   const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
   const catalog = await service.catalog.run({}, owner);
@@ -406,7 +406,7 @@ export async function matchChatProject(context) {
   }
   const matches = catalog.projects.filter(project =>
     projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scope.id);
-  if (matches.length !== 1) return null;
+  if (matches.length !== 1) return { kind: "unmatched" };
   const { projectId } = matches[0];
   if (!tool) return { kind: "project", projectId, context };
   const admitted = Object.freeze({ ...context });

@@ -244,8 +244,13 @@ def _load_receipts(path_text: str) -> tuple[Path, list[dict[str, Any]], int]:
     return path, records, invalid
 
 
+# A receipt counts as successful only when it says so, so a missing or odd `ok` counts as failed.
+def _failed(record: dict[str, Any]) -> bool:
+    return record.get("ok") is not True
+
+
 def _filtered_records(records: list[dict[str, Any]], *, failed: bool, tail: int | None):
-    out = [record for record in records if not failed or record.get("ok") is False]
+    out = [record for record in records if not failed or _failed(record)]
     if tail is not None:
         limit = max(0, tail)
         out = [] if limit == 0 else out[-limit:]
@@ -258,7 +263,7 @@ def _summarize(records: list[dict[str, Any]], invalid_lines: int) -> dict[str, A
     for record in records:
         tool = str(record.get("tool", "unknown"))
         by_tool[tool] = by_tool.get(tool, 0) + 1
-        if record.get("ok") is False:
+        if _failed(record):
             failed += 1
     return {
         "total": len(records),
@@ -269,7 +274,7 @@ def _summarize(records: list[dict[str, Any]], invalid_lines: int) -> dict[str, A
 
 
 def _format_record(record: dict[str, Any]) -> str:
-    status = "ok" if record.get("ok") is not False else "fail"
+    status = "fail" if _failed(record) else "ok"
     timestamp = str(record.get("timestamp", "unknown-time"))
     tool = str(record.get("tool", "unknown-tool"))
     command = str(record.get("command", "unknown-command"))

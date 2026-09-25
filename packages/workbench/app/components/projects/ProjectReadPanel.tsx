@@ -3,7 +3,8 @@ import { Button } from "@agent-native/toolkit/ui";
 import { Link, useSearchParams } from "react-router";
 import { useNativeActionCaller, type NativeActionCaller } from "@/lib/native-actions";
 import { projectFileHref } from "@/lib/project-file-location";
-import type { Bounded, Omission, ProjectReadOwnerInput, ProjectReadReport, ProjectReadResult } from "@/lib/project-read-schema";
+import { incompleteNote, privateExcluded } from "@/lib/project-read-display";
+import type { Bounded, ProjectReadOwnerInput, ProjectReadReport, ProjectReadResult } from "@/lib/project-read-schema";
 import type { WorkspacePreset } from "../../../shared/workspace-patterns.ts";
 
 type ReadState =
@@ -19,8 +20,7 @@ const PRESETS = { coding: "Coding", "second-brain": "Second brain", "knowledge-w
   writing: "Writing" } as const satisfies Record<WorkspacePreset, string>;
 
 // Each section owns its request, so several sections can run at once and a
-// response for an older request is dropped. The workspace keys this panel by
-// project, so another project's panel starts empty.
+// response for an older request is dropped.
 function useProjectRead(call: NativeActionCaller, projectId: string) {
   const [state, setState] = useState<ReadState>({ kind: "idle" });
   const request = useRef(0);
@@ -52,12 +52,6 @@ function heading(noun: string, list: Bounded<unknown>): string {
   return `Showing ${list.items.length} of ${list.total} ${plural}`;
 }
 
-function privateExcluded(omissions: Omission[]): string | null {
-  const count = omissions.filter(omission => omission.kind === "privacy_excluded")
-    .reduce((sum, omission) => sum + omission.count, 0);
-  return count > 0 ? `${count} private file${count === 1 ? "" : "s"} excluded` : null;
-}
-
 function Outcome({ state, running }: { state: ReadState; running: string }) {
   if (state.kind === "running") return <p role="status">{running}</p>;
   if (state.kind === "error") return <p role="alert">{state.message}</p>;
@@ -74,7 +68,15 @@ function Section({ title, state, hook, children }: { title: string; state: ReadS
   </section>;
 }
 
-export function ProjectReadPanel({ projectId, disabled }: { projectId: string; disabled: boolean }) {
+type PanelProps = { projectId: string; disabled: boolean };
+
+// Keyed by project inside this module, so another project's panel starts empty
+// whatever its caller renders beside it.
+export function ProjectReadPanel(props: PanelProps) {
+  return <ProjectReadSections key={props.projectId} {...props} />;
+}
+
+function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const { call, ready } = useNativeActionCaller();
   const [params] = useSearchParams();
   const ids = useId();
@@ -88,11 +90,9 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
   const [failedOnly, setFailedOnly] = useState(false);
 
   const blocked = (state: ReadState) => disabled || !ready || state.kind === "running";
-  // Links open only inside the project this panel shows.
-  const source = (state: ReadState, path: string, line?: number) =>
-    state.kind === "done" && state.result.project.id === projectId
-      ? <Link to={projectFileHref(projectId, path, params.toString(), line)}>{line ? `${path}:${line}` : path}</Link>
-      : <span>{line ? `${path}:${line}` : path}</span>;
+  // Links open inside the project this panel shows.
+  const source = (path: string, line?: number) =>
+    <Link to={projectFileHref(projectId, path, params.toString(), line)}>{line ? `${path}:${line}` : path}</Link>;
 
   const doctor = reportOf(health.state, "doctor");
   const notes = reportOf(check.state, "check");
@@ -137,12 +137,12 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
         {notes.findings.total > 0 && <>
           <p className="project-read-heading">{heading("finding", notes.findings)}</p>
           <ul>{notes.findings.items.map((finding, index) => <li key={index}>
-            {source(check.state, finding.path, finding.line)}{" "}
+            {source(finding.path, finding.line)}{" "}
             <span className="project-read-muted">{finding.level} {finding.code}: {finding.message}</span>
           </li>)}</ul>
         </>}
         {notesExcluded && <p className="project-read-muted">{notesExcluded}</p>}
-        {!notes.complete && <p className="project-read-muted">The check stopped at its limits. Some notes were not read.</p>}
+        {!notes.complete && <p className="project-read-muted">{incompleteNote(notes.omissions)}</p>}
       </>}
       <Button size="sm" variant="outline" disabled={blocked(check.state)} onClick={() => void check.run({ operation: "check" })}>
         {check.state.kind === "idle" ? "Check notes" : "Check again"}
@@ -164,16 +164,15 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
       {context && <>
         <p className="project-read-muted">Results for “{context.query}”</p>
         {context.results.total === 0
-          ? <p>{context.complete ? "No matching context." : "No context fit within the search limits."}</p> : <>
+          ? <p>{context.complete ? "No matching context." : "No matching context in what the search could read."}</p> : <>
           <p className="project-read-heading">{heading("result", context.results)}</p>
           <ul>{context.results.items.map((result, index) => <li key={index}>
-            {source(find.state, result.path)} <span className="project-read-muted">{result.reason}</span>
+            {source(result.path)} <span className="project-read-muted">{result.reason}</span>
             {result.snippet && <span className="project-read-snippet">{result.snippet}</span>}
           </li>)}</ul>
         </>}
         {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
-        {!context.complete && context.results.total > 0
-          && <p className="project-read-muted">The search stopped at its limits, so more context may exist.</p>}
+        {!context.complete && <p className="project-read-muted">{incompleteNote(context.omissions)}</p>}
       </>}
     </Section>
 
@@ -211,13 +210,13 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
           : `${log.failed} of ${log.total} command${log.total === 1 ? "" : "s"} failed`}</p>
         {log.records.items.length < log.records.total && <p className="project-read-muted">
           Showing the latest {log.records.items.length}.</p>}
-        {log.invalidLines > 0 && <p className="project-read-muted">
-          {log.invalidLines} unreadable log line{log.invalidLines === 1 ? " was" : "s were"} skipped.</p>}
         <ul>{log.records.items.map((record, index) => <li key={index}>
           {record.ok ? "OK" : "Failed"} · {record.tool} {record.command}
           <span className="project-read-muted"> {record.timestamp}</span>
         </li>)}</ul>
       </>)}
+      {log?.logPresent && log.invalidLines > 0 && <p className="project-read-muted">
+        {log.invalidLines} unreadable log line{log.invalidLines === 1 ? " was" : "s were"} skipped.</p>}
     </Section>
   </>;
 }

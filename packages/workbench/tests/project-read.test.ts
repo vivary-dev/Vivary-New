@@ -14,6 +14,7 @@ import { defineProjectReadTool } from "../actions/vivary-project-read.ts";
 import { PROJECT_READ_MAX_RESULT_CHARS, READ_BOUNDS, type ProjectReadResult } from "../app/lib/project-read-schema.ts";
 import { createVivaryChatIdentity } from "../server/chat-identity.ts";
 import { createVivaryNativeChatProjectResolver } from "../server/native-chat-project.ts";
+import { incompleteNote, privateExcluded } from "../app/lib/project-read-display.ts";
 import {
   createProjectReadRunner, ORIGINAL_RUN_FAILURES, runOriginalProcess, type OriginalRunFailure, type ProjectReadCommand, type ProjectReadRun,
 } from "../server/original-runtime.ts";
@@ -426,7 +427,7 @@ function tool() {
       if (!scopeId?.startsWith("vivary-project-chat-v2:")) return { kind: "not-project" };
       if (scopeId === scope(null).id) return { kind: "personal" };
       const match = catalog.projects.find(candidate => scope(candidate.projectId).id === scopeId);
-      return match ? { kind: "project", projectId: match.projectId, context } : null;
+      return match ? { kind: "project", projectId: match.projectId, context } : { kind: "unmatched" };
     },
   }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });
@@ -527,4 +528,15 @@ test("the model sees one Vivary tool with no project field and the observations 
   assert.match(projectTool.description, /observations/);
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read"]), false);
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read-owner"]), false);
+});
+
+test("the panel names why a report is incomplete from the report's own omissions", () => {
+  const omission = (kind: string, count = 1) => ({ kind, reason: "detail", count });
+  assert.equal(privateExcluded([omission("privacy_excluded", 2), omission("budget_limit")]), "2 private files excluded");
+  assert.equal(privateExcluded([omission("budget_limit")]), null);
+  assert.equal(incompleteNote([omission("privacy_excluded"), omission("directory_unavailable"), omission("entry_unavailable")]),
+    "Some folders could not be read. Some files could not be read.");
+  assert.equal(incompleteNote([omission("budget_limit"), omission("budget_limit")]), "The search stopped at its token budget.");
+  assert.equal(incompleteNote([omission("config_excluded")]), "Some files were left out.");
+  assert.equal(incompleteNote([]), "Some files were not read.");
 });

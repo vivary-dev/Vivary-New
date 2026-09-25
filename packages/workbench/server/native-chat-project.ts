@@ -15,7 +15,7 @@ type PrepareRequestDetails = Parameters<
 type NativeChatProjectDependencies = {
   getOrgId: () => string | undefined;
   /** Classifies the chat scope of the current request. See project services. */
-  matchChatProject: (context: ActionRunContext) => Promise<ChatScopeMatch | null>;
+  matchChatProject: (context: ActionRunContext) => Promise<ChatScopeMatch>;
   resolveProjectWorkspace: (
     context: ActionRunContext,
     projectId: string,
@@ -47,22 +47,22 @@ async function matchChatScope(
   dependencies: NativeChatProjectDependencies,
   identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
     signal?: AbortSignal },
-): Promise<ChatScopeMatch> {
+): Promise<Exclude<ChatScopeMatch, { kind: "unmatched" }>> {
   const context: ActionRunContext = {
     caller: identity.caller,
-    userEmail: identity.owner?.trim().toLowerCase() ?? "",
-    orgId: identity.orgId ?? "",
+    userEmail: identity.owner?.trim().toLowerCase(),
+    orgId: identity.orgId,
     appId: "workbench",
     ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  let match: ChatScopeMatch | null;
+  let match: ChatScopeMatch;
   try {
     match = await dependencies.matchChatProject(context);
   } catch (error) {
     preserveAuthorizationError(error);
     throw projectConversationError(409, "Project conversation access is unavailable.");
   }
-  if (!match) {
+  if (match.kind === "unmatched") {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
   return match;

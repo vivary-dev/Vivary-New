@@ -27,7 +27,7 @@ function details(): PrepareDetails {
 // Project services classify the request's scope. The guard only acts on the
 // classification, so these tests hand it one and count workspace reads.
 function guardFor(
-  match: ChatScopeMatch | null | Error,
+  match: ChatScopeMatch | Error,
   resolveProjectWorkspace: (context: ActionRunContext, projectId: string) => Promise<unknown> = async () => ({}),
 ) {
   const asked: ActionRunContext[] = [];
@@ -66,7 +66,7 @@ test("an unmatched project scope or a refused classification stops before any wo
   const revoked = Object.assign(new Error("revoked"), { statusCode: 403 });
   let workspaceReads = 0;
   const count = async () => { workspaceReads += 1; return {}; };
-  await assert.rejects(guardFor(null, count).guard(details()), { statusCode: 403 });
+  await assert.rejects(guardFor({ kind: "unmatched" }, count).guard(details()), { statusCode: 403 });
   await assert.rejects(guardFor(revoked, count).guard(details()), error => error === revoked);
   await assert.rejects(guardFor(new Error("catalog"), count).guard(details()), { statusCode: 409 });
   assert.equal(workspaceReads, 0);

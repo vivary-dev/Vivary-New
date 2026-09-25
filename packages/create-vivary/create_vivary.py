@@ -30,7 +30,8 @@ from datetime import date, datetime, timezone
 from email.parser import BytesParser
 from email.message import Message
 from pathlib import Path
-from typing import Callable
+from enum import StrEnum
+from typing import Callable, NamedTuple
 
 
 if os.name == "nt":
@@ -382,6 +383,14 @@ LEGACY_WORKSPACE_CONTRACT = "legacy-v0.1"
 INDEXED_WORKSPACE_CONTRACT = "indexed-v0.2+"
 LEGACY_FULL_WORKSPACE_CONTRACT = "legacy-full"
 LEGACY_RECOMMENDED_WORKSPACE_FILES = INDEXED_WORKSPACE_FILES
+_THIN_PRIVACY_PROBES = {
+    ".vivary/private/": (".vivary/private/secret.md",),
+    ".vivary/runtime/": (".vivary/runtime/adopt-journal.json",),
+    "*.vivary-tmp": (".vivary-output.vivary-tmp",),
+}
+_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES = {
+    ".cocoindex_code/": (".cocoindex_code/private-index.db",),
+}
 _WORKSPACE_PRESET_BYTE_LIMIT = 64 * 1024
 
 PRESET_STARTERS = {
@@ -1549,59 +1558,110 @@ def _workspace_compatibility(target: Path, memory_report: dict) -> tuple[dict, s
     return compatibility, backend
 
 
-# Public Doctor prints one of these per rule, with a count, and never a detail.
+class DoctorRule(StrEnum):
+    """Each kind of problem Doctor reports. `report` takes one of these."""
+    WORKSPACE_MISSING = "workspace_missing"
+    WORKSPACE_NOT_DIRECTORY = "workspace_not_directory"
+    ADOPTION_JOURNAL = "adoption_journal"
+    GITIGNORE_UNREADABLE = "gitignore_unreadable"
+    ADOPTION_PREJOURNAL = "adoption_prejournal"
+    ADOPTION_MARKER_MALFORMED = "adoption_marker_malformed"
+    REQUIRED_FILE_MISSING = "required_file_missing"
+    CONTRACT_FILE_MISSING = "contract_file_missing"
+    RECOMMENDED_FILE_MISSING = "recommended_file_missing"
+    RECOMMENDED_UPGRADE = "recommended_upgrade"
+    PRIVACY_IGNORE_MISSING = "privacy_ignore_missing"
+    RECOMMENDED_PRIVACY_IGNORE_MISSING = "recommended_privacy_ignore_missing"
+    MODULE_INDEX_MISSING = "module_index_missing"
+    MODULE_LEGACY_FILE = "module_legacy_file"
+    TROPO_INVALID = "tropo_invalid"
+    TROPO_FINDING = "tropo_finding"
+    GRAPH_BROKEN = "graph_broken"
+    GRAPH_EMPTY = "graph_empty"
+    CAPABILITY_INVALID = "capability_invalid"
+    MEMORY_MISCONFIGURED = "memory_misconfigured"
+    MEMORY_PRIVACY_FAILED = "memory_privacy_failed"
+    MEMORY_UNAVAILABLE = "memory_unavailable"
+
+
+class PublicRule(NamedTuple):
+    one: str
+    several: str
+    # Values public output may name. They come from Vivary's own file lists and ignore patterns.
+    values: frozenset[str] = frozenset()
+
+
+# Public Doctor prints one sentence per rule, with a count, and never a detail.
 # A detail may name a path, an exception, or a config value, and a command
-# line is not an observation. Each entry is (one problem, several problems).
-# Rules in DOCTOR_PUBLIC_VALUES also name their values, which come from
-# Vivary's own file lists and ignore patterns. Doctor refuses to report a rule
-# without a sentence, or a value outside its set, in either mode.
-DOCTOR_PUBLIC_SENTENCES: dict[str, tuple[str, str]] = {
-    "workspace_missing": ("the workspace does not exist", "the workspace does not exist"),
-    "workspace_not_directory": ("the workspace is not a directory", "the workspace is not a directory"),
-    "adoption_journal": ("an adoption was interrupted and needs recovery",
-                         "an adoption was interrupted and needs recovery"),
-    "gitignore_unreadable": ("the .gitignore cannot be read", "the .gitignore cannot be read"),
-    "adoption_prejournal": ("an adoption's privacy change was interrupted and needs recovery",
-                            "an adoption's privacy change was interrupted and needs recovery"),
-    "adoption_marker_malformed": ("the .gitignore has a malformed adoption marker",
-                                  "the .gitignore has malformed adoption markers"),
-    "required_file_missing": ("a required workspace file is missing", "{n} required workspace files are missing"),
-    "contract_file_missing": ("a required contract file is missing", "{n} required contract files are missing"),
-    "recommended_file_missing": ("a recommended workspace file is missing",
-                                 "{n} recommended workspace files are missing"),
-    "recommended_upgrade": ("a reviewed adoption can move the workspace to the current contract",
-                            "a reviewed adoption can move the workspace to the current contract"),
-    "privacy_ignore_missing": ("a required privacy ignore is missing from .gitignore",
-                               "{n} required privacy ignores are missing from .gitignore"),
-    "recommended_privacy_ignore_missing": ("a recommended privacy ignore is missing from .gitignore",
-                                           "{n} recommended privacy ignores are missing from .gitignore"),
-    "module_index_missing": ("a module folder lacks index.md", "{n} module folders lack index.md"),
-    "module_legacy_file": ("a legacy module file sits beside a module index",
-                           "{n} legacy module files sit beside a module index"),
-    "tropo_invalid": ("tropo configuration is invalid", "tropo configuration is invalid"),
-    "tropo_finding": ("a typed note has a finding", "{n} typed note findings"),
-    "graph_broken": ("the typed graph has broken links", "the typed graph has broken links"),
-    "graph_empty": ("the typed graph has no nodes", "the typed graph has no nodes"),
-    "capability_invalid": ("a declared capability is invalid", "{n} declared capabilities are invalid"),
-    "memory_misconfigured": ("semantic memory is misconfigured", "semantic memory is misconfigured"),
-    "memory_privacy_failed": ("semantic memory privacy check failed", "semantic memory privacy check failed"),
-    "memory_unavailable": ("the semantic memory provider is unavailable",
-                           "the semantic memory provider is unavailable"),
+# line is not an observation. A value is printed only when it is in the rule's
+# closed set. A test checks that every rule has an entry and that every
+# `report` call names a rule.
+DOCTOR_RULES: dict[DoctorRule, PublicRule] = {
+    DoctorRule.WORKSPACE_MISSING: PublicRule(
+        "the workspace does not exist", "the workspace does not exist"),
+    DoctorRule.WORKSPACE_NOT_DIRECTORY: PublicRule(
+        "the workspace is not a directory", "the workspace is not a directory"),
+    DoctorRule.ADOPTION_JOURNAL: PublicRule(
+        "an adoption was interrupted and needs recovery", "an adoption was interrupted and needs recovery"),
+    DoctorRule.GITIGNORE_UNREADABLE: PublicRule(
+        "the .gitignore cannot be read", "the .gitignore cannot be read"),
+    DoctorRule.ADOPTION_PREJOURNAL: PublicRule(
+        "an adoption's privacy change was interrupted and needs recovery", "an adoption's privacy change was interrupted and needs recovery"),
+    DoctorRule.ADOPTION_MARKER_MALFORMED: PublicRule(
+        "the .gitignore has a malformed adoption marker", "the .gitignore has malformed adoption markers"),
+    DoctorRule.REQUIRED_FILE_MISSING: PublicRule(
+        "a required workspace file is missing", "{n} required workspace files are missing",
+        frozenset(THIN_WORKSPACE_FILES) | frozenset(BASELINE_WORKSPACE_FILES)),
+    DoctorRule.CONTRACT_FILE_MISSING: PublicRule(
+        "a required contract file is missing", "{n} required contract files are missing",
+        frozenset(INDEXED_WORKSPACE_FILES)),
+    DoctorRule.RECOMMENDED_FILE_MISSING: PublicRule(
+        "a recommended workspace file is missing", "{n} recommended workspace files are missing",
+        frozenset(LEGACY_RECOMMENDED_WORKSPACE_FILES)),
+    DoctorRule.RECOMMENDED_UPGRADE: PublicRule(
+        "a reviewed adoption can move the workspace to the current contract", "a reviewed adoption can move the workspace to the current contract"),
+    DoctorRule.PRIVACY_IGNORE_MISSING: PublicRule(
+        "a required privacy ignore is missing from .gitignore", "{n} required privacy ignores are missing from .gitignore",
+        frozenset(PRIVACY_IGNORE_PROBES) | frozenset(_THIN_PRIVACY_PROBES)
+        | frozenset(_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES)),
+    DoctorRule.RECOMMENDED_PRIVACY_IGNORE_MISSING: PublicRule(
+        "a recommended privacy ignore is missing from .gitignore", "{n} recommended privacy ignores are missing from .gitignore",
+        frozenset(PRIVACY_IGNORE_PROBES)),
+    DoctorRule.MODULE_INDEX_MISSING: PublicRule(
+        "a module folder lacks index.md", "{n} module folders lack index.md"),
+    DoctorRule.MODULE_LEGACY_FILE: PublicRule(
+        "a legacy module file sits beside a module index", "{n} legacy module files sit beside a module index"),
+    DoctorRule.TROPO_INVALID: PublicRule(
+        "tropo configuration is invalid", "tropo configuration is invalid"),
+    DoctorRule.TROPO_FINDING: PublicRule(
+        "a typed note has a finding", "{n} typed note findings"),
+    DoctorRule.GRAPH_BROKEN: PublicRule(
+        "the typed graph has broken links", "the typed graph has broken links"),
+    DoctorRule.GRAPH_EMPTY: PublicRule(
+        "the typed graph has no nodes", "the typed graph has no nodes"),
+    DoctorRule.CAPABILITY_INVALID: PublicRule(
+        "a declared capability is invalid", "{n} declared capabilities are invalid"),
+    DoctorRule.MEMORY_MISCONFIGURED: PublicRule(
+        "semantic memory is misconfigured", "semantic memory is misconfigured"),
+    DoctorRule.MEMORY_PRIVACY_FAILED: PublicRule(
+        "semantic memory privacy check failed", "semantic memory privacy check failed"),
+    DoctorRule.MEMORY_UNAVAILABLE: PublicRule(
+        "the semantic memory provider is unavailable", "the semantic memory provider is unavailable"),
 }
 
 
-def _doctor_lines(problems: list[tuple[str, str, str, str | None]], level: str, public: bool) -> list[str]:
+def _doctor_lines(problems: list[tuple[str, DoctorRule, str, str | None]], level: str, public: bool) -> list[str]:
     if not public:
         return [detail for problem_level, _, detail, _ in problems if problem_level == level]
-    found: dict[str, list[str | None]] = {}
+    found: dict[DoctorRule, list[str | None]] = {}
     for problem_level, rule, _, value in problems:
         if problem_level == level:
             found.setdefault(rule, []).append(value)
     lines = []
     for rule, values in found.items():
-        one, several = DOCTOR_PUBLIC_SENTENCES[rule]
-        line = one if len(values) == 1 else several.format(n=len(values))
-        named = [value for value in values if value is not None]
+        public = DOCTOR_RULES[rule]
+        line = public.one if len(values) == 1 else public.several.format(n=len(values))
+        named = [value for value in values if value in public.values]
         lines.append(f"{line}: {', '.join(named)}" if named else line)
     return lines
 
@@ -1616,20 +1676,16 @@ def doctor_workspace(
     """Validate that a directory looks like a usable Vivary agent workspace.
 
     ``public=True`` reports each problem rule's fixed sentence from
-    ``DOCTOR_PUBLIC_SENTENCES`` with a count, and never the detail, because a
-    detail may name a file Git ignores or a folder outside the workspace. A
-    rule in ``DOCTOR_PUBLIC_VALUES`` also names its values from that closed set. It
+    ``DOCTOR_RULES`` with a count, and never the detail, because a detail may
+    name a file Git ignores or a folder outside the workspace. It names a value
+    only from the rule's closed set. It
     skips the typed-note graph walk and reports no graph. A caller that must
     leave private files out reads notes through Tropo's privacy-filtered check
     instead.
     """
-    problems: list[tuple[str, str, str, str | None]] = []
+    problems: list[tuple[str, DoctorRule, str, str | None]] = []
 
-    def report(level: str, rule: str, detail: str, value: str | None = None) -> None:
-        if rule not in DOCTOR_PUBLIC_SENTENCES:
-            raise ValueError(f"Doctor rule has no public sentence: {rule}")
-        if value is not None and value not in DOCTOR_PUBLIC_VALUES.get(rule, ()):
-            raise ValueError(f"Doctor value is outside its public set: {rule}")
+    def report(level: str, rule: DoctorRule, detail: str, value: str | None = None) -> None:
         problems.append((level, rule, detail, value))
 
     def failing() -> bool:
@@ -1647,16 +1703,16 @@ def doctor_workspace(
     )
 
     if not target.exists():
-        report("error", "workspace_missing", f"workspace does not exist: {target}")
+        report("error", DoctorRule.WORKSPACE_MISSING, f"workspace does not exist: {target}")
     elif not target.is_dir():
-        report("error", "workspace_not_directory", f"workspace is not a directory: {target}")
+        report("error", DoctorRule.WORKSPACE_NOT_DIRECTORY, f"workspace is not a directory: {target}")
 
     if (
         not failing()
         and not _allow_adopt_journal
         and (target / ".vivary" / "runtime" / "adopt-journal.json").exists()
     ):
-        report("error", "adoption_journal",
+        report("error", DoctorRule.ADOPTION_JOURNAL,
                "unfinished adoption journal exists; run create-vivary adopt <workspace> "
                "--recover <plan-hash> before continuing")
 
@@ -1666,34 +1722,34 @@ def doctor_workspace(
             try:
                 gitignore_bytes = gitignore.read_bytes()
             except OSError as exc:
-                report("error", "gitignore_unreadable", f"cannot inspect .gitignore for interrupted adoption: {exc}")
+                report("error", DoctorRule.GITIGNORE_UNREADABLE, f"cannot inspect .gitignore for interrupted adoption: {exc}")
             else:
                 prejournal = _prejournal_privacy_match(gitignore_bytes)
                 if prejournal is not None:
                     interrupted_hash = prejournal.group(1).decode("ascii")
-                    report("error", "adoption_prejournal",
+                    report("error", DoctorRule.ADOPTION_PREJOURNAL,
                            "unfinished pre-journal adoption privacy replacement exists; "
                            "run create-vivary adopt <workspace> "
                            f"--recover {interrupted_hash} before continuing")
                 elif _ADOPT_PREJOURNAL_MARKER_PREFIX.encode("ascii") in gitignore_bytes:
-                    report("error", "adoption_marker_malformed",
+                    report("error", DoctorRule.ADOPTION_MARKER_MALFORMED,
                            "malformed pre-journal adoption marker exists in .gitignore")
 
     if not failing():
         compatibility, backend_name = _workspace_compatibility(target, memory_report)
         for rel in compatibility["baseline_missing"]:
-            report("error", "required_file_missing", f"missing required file: {rel}", rel)
+            report("error", DoctorRule.REQUIRED_FILE_MISSING, f"missing required file: {rel}", rel)
         for rel in compatibility["contract_missing"]:
-            report("error", "contract_file_missing", f"missing required indexed contract file: {rel}", rel)
+            report("error", DoctorRule.CONTRACT_FILE_MISSING, f"missing required indexed contract file: {rel}", rel)
         for rel in compatibility["recommended_missing"]:
-            report("warning", "recommended_file_missing", f"recommended workspace file missing: {rel}", rel)
+            report("warning", DoctorRule.RECOMMENDED_FILE_MISSING, f"recommended workspace file missing: {rel}", rel)
         if compatibility["recommended_upgrade"] is not None:
-            report("warning", "recommended_upgrade", compatibility["recommended_upgrade"])
+            report("warning", DoctorRule.RECOMMENDED_UPGRADE, compatibility["recommended_upgrade"])
 
         if compatibility["workspace_contract"] == THIN_WORKSPACE_CONTRACT:
             if (target / ".gitignore").exists():
                 for pattern in _missing_thin_privacy_ignores(target):
-                    report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}", pattern)
+                    report("error", DoctorRule.PRIVACY_IGNORE_MISSING, f"privacy ignore missing: {pattern}", pattern)
         elif (target / ".gitignore").exists():
             missing = _missing_privacy_ignores(target)
             if memory_report["enabled"]:
@@ -1704,7 +1760,7 @@ def doctor_workspace(
                 ]
                 for pattern in missing:
                     if pattern not in memory_privacy_requirements:
-                        report("warning", "recommended_privacy_ignore_missing",
+                        report("warning", DoctorRule.RECOMMENDED_PRIVACY_IGNORE_MISSING,
                                f"recommended privacy ignore missing: {pattern}; add it to .gitignore", pattern)
             else:
                 required_missing = [
@@ -1714,10 +1770,10 @@ def doctor_workspace(
                 ]
                 for pattern in missing:
                     if pattern not in PUBLISHED_BASELINE_PRIVACY_IGNORES:
-                        report("warning", "recommended_privacy_ignore_missing",
+                        report("warning", DoctorRule.RECOMMENDED_PRIVACY_IGNORE_MISSING,
                                f"recommended privacy ignore missing: {pattern}; add it to .gitignore", pattern)
             for pattern in required_missing:
-                report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}", pattern)
+                report("error", DoctorRule.PRIVACY_IGNORE_MISSING, f"privacy ignore missing: {pattern}", pattern)
         if compatibility["workspace_contract"] != THIN_WORKSPACE_CONTRACT:
             for rule, detail in _module_index_problems(target):
                 report("error", rule, detail)
@@ -1733,7 +1789,7 @@ def doctor_workspace(
             tropo, resolver = _doctor_config_context(target, root)
             workspace_roles = resolver.base.workspace_roles
         except Exception as exc:  # keep doctor a report, not a traceback
-            report("error", "tropo_invalid", f"tropo validation failed: {exc}")
+            report("error", DoctorRule.TROPO_INVALID, f"tropo validation failed: {exc}")
     if not failing():
         try:
             if resolver is None:
@@ -1750,26 +1806,26 @@ def doctor_workspace(
                 # broken workspace; only error-level findings fail Doctor.
                 for doc in docs:
                     for finding in doc.findings:
-                        report("error" if finding.level == "error" else "warning", "tropo_finding",
+                        report("error" if finding.level == "error" else "warning", DoctorRule.TROPO_FINDING,
                                f"tropo finding: {finding.render()}")
                 if graph["broken"]:
-                    report("error", "graph_broken", f"graph has {graph['broken']} broken edge(s)")
+                    report("error", DoctorRule.GRAPH_BROKEN, f"graph has {graph['broken']} broken edge(s)")
                 if graph["nodes"] == 0:
-                    report("warning", "graph_empty", "typed graph has no nodes")
+                    report("warning", DoctorRule.GRAPH_EMPTY, "typed graph has no nodes")
         except Exception as exc:  # keep doctor a report, not a traceback
-            report("error", "tropo_invalid", f"tropo validation failed: {exc}")
+            report("error", DoctorRule.TROPO_INVALID, f"tropo validation failed: {exc}")
 
     if target.is_dir():
         # Declaration failures must not suppress graph/trend metrics. The graph is a
         # read-only observation of the workspace, independent of optional providers.
         for problem in compatibility["declared_capability_problems"]:
-            report("error", "capability_invalid", problem)
+            report("error", DoctorRule.CAPABILITY_INVALID, problem)
         if memory_report["status"] == "misconfigured":
-            report("error", "memory_misconfigured", f"semantic memory misconfigured: {memory_report['detail']}")
+            report("error", DoctorRule.MEMORY_MISCONFIGURED, f"semantic memory misconfigured: {memory_report['detail']}")
         elif memory_report["status"] == "privacy-failed":
-            report("error", "memory_privacy_failed", "semantic memory privacy check failed")
+            report("error", DoctorRule.MEMORY_PRIVACY_FAILED, "semantic memory privacy check failed")
         elif memory_report["status"] == "unavailable":
-            report("warning", "memory_unavailable", f"semantic memory provider unavailable: {memory_report['provider']}")
+            report("warning", DoctorRule.MEMORY_UNAVAILABLE, f"semantic memory provider unavailable: {memory_report['provider']}")
 
     errors = _doctor_lines(problems, "error", public)
     warnings = _doctor_lines(problems, "warning", public)
@@ -2751,27 +2807,6 @@ def _missing_privacy_ignores(target: Path, *, include_nested: bool = True) -> li
             for path in paths
         )
     ]
-
-
-_THIN_PRIVACY_PROBES = {
-    ".vivary/private/": (".vivary/private/secret.md",),
-    ".vivary/runtime/": (".vivary/runtime/adopt-journal.json",),
-    "*.vivary-tmp": (".vivary-output.vivary-tmp",),
-}
-_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES = {
-    ".cocoindex_code/": (".cocoindex_code/private-index.db",),
-}
-
-
-# The values public Doctor may name, per rule. See DOCTOR_PUBLIC_SENTENCES.
-DOCTOR_PUBLIC_VALUES: dict[str, frozenset[str]] = {
-    "required_file_missing": frozenset(THIN_WORKSPACE_FILES) | frozenset(BASELINE_WORKSPACE_FILES),
-    "contract_file_missing": frozenset(INDEXED_WORKSPACE_FILES),
-    "recommended_file_missing": frozenset(LEGACY_RECOMMENDED_WORKSPACE_FILES),
-    "privacy_ignore_missing": frozenset(PRIVACY_IGNORE_PROBES) | frozenset(_THIN_PRIVACY_PROBES)
-    | frozenset(_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES),
-    "recommended_privacy_ignore_missing": frozenset(PRIVACY_IGNORE_PROBES),
-}
 
 
 def _thin_privacy_probes(active_context: str | None = None) -> dict[str, tuple[str, ...]]:
@@ -3983,20 +4018,20 @@ def _module_index_path(target: Path, module_id: str) -> Path:
     return target / "modules" / module_id / "index.md"
 
 
-def _module_index_problems(target: Path) -> list[tuple[str, str]]:
+def _module_index_problems(target: Path) -> list[tuple[DoctorRule, str]]:
     modules = target / "modules"
     if not modules.exists():
         return []
-    problems: list[tuple[str, str]] = []
+    problems: list[tuple[DoctorRule, str]] = []
     for child in sorted(modules.iterdir()):
         if child.is_dir() and not child.name.startswith(".") and not (child / "index.md").exists():
             rel = child.relative_to(target).as_posix()
-            problems.append(("module_index_missing", f"module directory missing index.md: {rel}"))
+            problems.append((DoctorRule.MODULE_INDEX_MISSING, f"module directory missing index.md: {rel}"))
         if child.is_file() and child.suffix == ".md" and child.name != "index.md":
             paired_index = modules / child.stem / "index.md"
             if paired_index.exists():
                 rel = child.relative_to(target).as_posix()
-                problems.append(("module_legacy_file", f"legacy module file coexists with module index: {rel}"))
+                problems.append((DoctorRule.MODULE_LEGACY_FILE, f"legacy module file coexists with module index: {rel}"))
     return problems
 
 

@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { constants, realpathSync } from "node:fs";
+import { constants } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
@@ -57,8 +57,6 @@ const projectReadCommandSchema = z.discriminatedUnion("verb", [
   z.strictObject({ verb: z.literal("logs"), failedOnly: z.boolean() }),
 ]);
 export type ProjectReadCommand = z.infer<typeof projectReadCommandSchema>;
-// A Native tool call may run these reads and none of the owner's commands.
-const projectReadVerbs: ReadonlySet<string> = new Set(projectReadCommandSchema.options.map(option => option.shape.verb.value));
 type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand;
 const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
   "bindingRevision", "policyRevision", "verificationKind"] as const;
@@ -163,18 +161,12 @@ export function originalChildEnvironment(environment: NodeJS.ProcessEnv, receipt
   for (const name of ["PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "TEMP", "TMP", "LANG", "LC_ALL", "TZ"]) {
     if (environment[name]) child[name] = environment[name];
   }
-  // A PATH directory that is, or links into, the project would run the project's own programs.
   child.PATH = (environment.PATH ?? "").split(path.delimiter)
-    .filter(directory => path.isAbsolute(directory)
-      && (!projectRoot || (!containsPath(projectRoot, directory) && !containsPath(projectRoot, resolvedDirectory(directory)))))
+    .filter(directory => path.isAbsolute(directory) && (!projectRoot || !containsPath(projectRoot, directory)))
     .join(path.delimiter);
   child.PYTHONNOUSERSITE = "1";
   if (receiptLog) child.VIVARY_RECEIPT_LOG = receiptLog;
   return child;
-}
-
-function resolvedDirectory(directory: string): string {
-  try { return realpathSync.native(directory); } catch { return directory; }
 }
 
 function containsPath(root: string, candidate: string): boolean {
@@ -372,8 +364,8 @@ type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
   running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
-  /** Every command from its start through its receipt and cleanup. */
-  runs?: Set<Promise<void>>;
+  /** Commands whose child started and whose receipt is not yet recorded. */
+  recording?: Set<Promise<void>>;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
@@ -448,8 +440,9 @@ export function shutdownOriginalCommands(): Promise<void> {
   if (!commandHost.shutdown) {
     const active = [...commandHost.active];
     for (const command of active) command.stop(new Error("Vivary is closing. The original command was stopped."));
-    // A stopped command records its receipt after its child exits, so shutdown waits for every command's cleanup.
-    commandHost.shutdown = Promise.allSettled([...active.map(command => command.settled), ...commandHost.runs ?? []])
+    // A stopped command records its receipt after its child exits, so shutdown waits for that receipt.
+    // A command that has not started a child cannot start one now, so shutdown does not wait for it.
+    commandHost.shutdown = Promise.allSettled([...active.map(command => command.settled), ...commandHost.recording ?? []])
       .then(() => undefined);
   }
   return commandHost.shutdown;
@@ -548,11 +541,10 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     }
     return workspace;
   };
-  const run = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
+  const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
+    // A command that arrives after shutdown began touches no files.
+    if (commandHost.closing) throw closingError();
     const policy = commandPolicy[command.verb];
-    if (context?.caller === "tool" && !projectReadVerbs.has(command.verb)) {
-      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
-    }
     const { projectId } = workspace;
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
@@ -575,6 +567,10 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     }
     await validateGovernedRequest(command, workspace);
     const receipts = await openReceipts(command, receiptDir, runtime.version);
+    const recorded = Promise.withResolvers<void>();
+    const record = async (settled: Settled) => {
+      try { await receipts.settle(settled); } finally { recorded.resolve(); }
+    };
     let controlRequestPath: string | undefined;
     try {
       if (command.verb === "control") {
@@ -599,19 +595,24 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         await validateGovernedRequest(command, current);
         // Shutdown may arrive while an admitted command re-checks its project.
         if (commandHost.closing) throw closingError();
-        started = performance.now();
-        result = await dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
+        const startedAt = performance.now();
+        // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
+        const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
           originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
+        started = startedAt;
+        (commandHost.recording ??= new Set()).add(recorded.promise);
+        void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
+        result = await running;
         durationMs = Math.round(performance.now() - started);
       } catch (error) {
         // A command whose child started is recorded when it fails or is stopped.
         if (started !== undefined) {
-          await receipts.settle({ failure: isActionContractError(error) ? error.errorCode : "stopped",
+          await record({ failure: isActionContractError(error) ? error.errorCode : "stopped",
             durationMs: Math.round(performance.now() - started) }).catch(() => undefined);
         }
         throw error;
       } finally { release(); }
-      await receipts.settle({ exitCode: result.exitCode, durationMs });
+      await record({ exitCode: result.exitCode, durationMs });
       const after = await dependencies.resolveWorkspace(context, projectId);
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
@@ -622,22 +623,23 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       // Control's request is never kept, even when its folder waits for a sweep.
       if (controlRequestPath) await rm(controlRequestPath, { force: true, maxRetries: 3 }).catch(() => undefined);
       await receipts.dispose();
+      recorded.resolve();
     }
   };
-  // Shutdown waits for every command it did not refuse, through its receipt and cleanup.
-  const execute: typeof run = (...args) => {
-    const running = run(...args);
-    const done = running.then(() => undefined, () => undefined);
-    (commandHost.runs ??= new Set()).add(done);
-    void done.then(() => commandHost.runs?.delete(done));
-    return running;
-  };
   return { resolve, execute };
+}
+
+// The owner's commands never run for a Native tool call. Project reads have their own runner.
+function refuseToolCall(context: ActionRunContext | undefined): void {
+  if (context?.caller === "tool") {
+    commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
+  }
 }
 
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const runner = createRuntimeCommandRunner(dependencies);
   return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
+    refuseToolCall(context);
     const { projectId, command } = originalCommandSchema.parse(input);
     return (await runner.execute(await runner.resolve(context, projectId), command, context)).output;
   };
@@ -647,6 +649,7 @@ export function createOriginalCommandRunner(dependencies: Dependencies = runtime
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const runner = createRuntimeCommandRunner(dependencies);
   return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) => {
+    refuseToolCall(context);
     const parsed = adoptionExecutionSchema.parse(command);
     return (await runner.execute(await runner.resolve(context, workspace.projectId, workspace), parsed, context)).output;
   };
