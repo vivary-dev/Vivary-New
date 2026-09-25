@@ -417,6 +417,28 @@ describe("project memory rendering", () => {
     assert.notDeepEqual(factFileName("予定"), japanese);
   });
 
+  it("refuses controls the context block would escape, so a panel fact is never cut", async () => {
+    const input = { projectId: "project_a", operation: "remember", title: "T", source: "S" };
+    const character = (code: number) => String.fromCharCode(code);
+    for (const code of [0x1b, 0x1c, 0x7f, 0x9b]) {
+      assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: `a${character(code)}b` }).success, false);
+    }
+    for (const code of [0x85, 0x9b, 0x2028]) {
+      assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: "x", title: `a${character(code)}b` }).success,
+        false);
+      assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: "x", source: `a${character(code)}b` }).success,
+        false);
+    }
+    const breaks = [0x09, 0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029].map(character).join("");
+    const text = `${"x".repeat(500 - breaks.length - 1)}${breaks}y`;
+    assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text }).success, true);
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/full.md", renderFactFile({ ...PANEL_SIZED, text }));
+    const [fact] = (await p.memory.view(undefined, p.id)).facts;
+    assert.equal(fact.shortenedForAgents, false);
+    assert.match((await p.memory.renderForRun(p.workspace, "code")).block, /: x{492} +y\n/);
+  });
+
   it("refuses fact text longer than the panel limit", () => {
     const input = { projectId: "project_a", operation: "remember", title: "T", source: "S" };
     assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: "x".repeat(500) }).success, true);

@@ -1190,5 +1190,93 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(ignored.stdout.split(), [".vivary/private/x.md"])
 
 
+# Rules and files for the memory privacy differential test, one case per line:
+# (name, root .gitignore text or {".gitignore path": text}, files to check).
+# For every file Git ignores with core.ignorecase false or true, memory must
+# ignore it too. Memory may ignore more.
+MEMORY_PRIVACY_DIFFERENTIAL_CASES: tuple[tuple[str, str | dict[str, str], tuple[str, ...]], ...] = (
+    ("whitelist idiom", "*\n!*/\n", ("knowledge/fact.md", "a.md")),
+    ("negated folder", "*.md\n!knowledge/\n", ("knowledge/x.md", "x.md")),
+    ("anchored negation", "README.md\n!/README.md\n", ("README.md", "docs/README.md")),
+    ("negated folder-only rule on a file", "*.md\n!keep.md/\n", ("keep.md",)),
+    ("negated double star", "*.md\n!k**z.md\n", ("kaz.md", "k/z.md", "ka/bz.md")),
+    ("negated non-ASCII bracket", "*.md\n![é]x.md\n", ("éx.md",)),
+    ("negated negative bracket", "*.md\n!notes[!_]x.md\n", ("notesax.md",)),
+    ("nested negation", {".gitignore": "*.md\n", "sub/.gitignore": "!*.md\n"}, ("sub/a.md", "a.md")),
+    ("nested negated folder", {"knowledge/.gitignore": "*\n!sub\n"}, ("knowledge/sub/x.md", "knowledge/y.md")),
+    ("negative range against case", "[!a-z]*.md\n", ("Bob.md", "bob.md", "1.md")),
+    ("unbounded double star before a slash", "mem**/*.md\n", ("mem/x.md", "memory/x.md", "me/x.md")),
+    ("trailing unbounded double star", "a**\n", ("a/b/c.md", "ab.md")),
+    ("double star inside a name", "k**.md\n", ("k/x.md", "kx.md")),
+    ("question marks over bytes", "?????.md\n", ("café.md", "cafés.md")),
+    ("question marks over one accent", "caf??.md\n", ("café.md",)),
+    ("non-ASCII bracket over bytes", "[é]*.md\n", ("ìx.md", "éx.md")),
+    ("lone carriage return", "a\rb.md\n", ("a\rb.md", "a", "b.md")),
+    ("form feed", "c\x0cd.md\n", ("c\x0cd.md", "d.md")),
+    ("next line", "e\x85f.md\n", ("e\x85f.md", "f.md")),
+    ("line separator", "g\u2028h.md\n", ("g\u2028h.md", "h.md")),
+    ("paragraph separator", "i\u2029j.md\n", ("i\u2029j.md", "j.md")),
+    ("CRLF line ends", "k.md\r\nl.md\r\n", ("k.md", "l.md")),
+    ("byte order mark", "\ufeffm.md\n", ("m.md",)),
+    ("Vim swap template", "[._]*.s[a-v][a-z]\n[._]*.sw[a-p]\n", (".x.swp", ".x.sva", "fact.md")),
+    ("bracket sets", "[.]env\n*[.]log\nbuild[:]out\n*.[=]x\n", (".env", "x.log", "build:out", "a.=x", "env")),
+    ("escape outside a bracket", "foo\\[bar\n", ("foo[bar", "fooxbar")),
+    ("escape inside a bracket", "[\\d]raft.md\n[\\][:alpha:]]*.md\n", ("draft.md", "x.md", "]x.md")),
+    ("leading bracket member", "[!][:alpha:]]*.md\n[^][:alpha:]]*.md\n", ("1x.md", "ax.md")),
+    ("POSIX class", "[[:alpha:]]nowledge/\n", ("knowledge/x.md",)),
+    ("trailing slash", "build/\n", ("build/x.md", "build.md")),
+    ("anchoring", "/top.md\nsub/deep.md\n", ("top.md", "sub/top.md", "sub/deep.md", "x/sub/deep.md")),
+    ("upper-case rules", "*.MD\nNotes/\n", ("x.md", "notes/y.md")),
+    ("non-ASCII literals", "é.md\nnaïve/\n", ("é.md", "naïve/x.md")),
+    ("nested rules", {"a/.gitignore": "b.md\n/c.md\n"}, ("a/b.md", "a/x/b.md", "a/c.md", "a/x/c.md", "b.md")),
+)
+
+
+@unittest.skipUnless(shutil.which("git"), "needs git on PATH")
+class MemoryPrivacyDifferentialTests(unittest.TestCase):
+    """Memory's matcher against `git check-ignore`: it may over-ignore, never under-ignore."""
+
+    def git_ignored(self, repo: Path, paths: list[str], ignorecase: str, env: dict[str, str]) -> set[str]:
+        result = subprocess.run(
+            ["git", "-c", f"core.ignorecase={ignorecase}", "check-ignore", "--no-index", "-z", "--stdin"],
+            cwd=repo, env=env, input=b"\0".join(path.encode("utf-8", "surrogateescape") for path in paths),
+            capture_output=True, check=False)
+        self.assertIn(result.returncode, (0, 1), result.stderr.decode("utf-8", "replace"))
+        return {item.decode("utf-8", "surrogateescape") for item in result.stdout.split(b"\0") if item}
+
+    def test_memory_ignores_everything_git_ignores(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = {**os.environ, "HOME": home, "XDG_CONFIG_HOME": home, "GIT_CONFIG_NOSYSTEM": "1",
+                   "GIT_CONFIG_GLOBAL": os.devnull}
+            checked = over = 0
+            missed: list[str] = []
+            for name, rules, files in MEMORY_PRIVACY_DIFFERENTIAL_CASES:
+                with tempfile.TemporaryDirectory() as folder:
+                    repo = Path(folder)
+                    subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
+                    for location, text in (rules.items() if isinstance(rules, dict) else [(".gitignore", rules)]):
+                        (repo / location).parent.mkdir(parents=True, exist_ok=True)
+                        (repo / location).write_bytes(text.encode("utf-8"))
+                    made: list[str] = []
+                    for relative in files:
+                        try:
+                            (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+                            (repo / relative).write_text("x\n", encoding="utf-8")
+                        except OSError:
+                            continue  # This file system cannot hold the name.
+                        made.append(relative)
+                    git = self.git_ignored(repo, made, "false", env) | self.git_ignored(repo, made, "true", env)
+                    for relative in made:
+                        memory = create_vivary._memory_probe_is_ignored(repo, relative)
+                        checked += 1
+                        if relative in git and not memory:
+                            missed.append(f"{name}: {relative!r}")
+                        elif memory and relative not in git:
+                            over += 1
+            print(f"memory privacy differential: {len(MEMORY_PRIVACY_DIFFERENTIAL_CASES)} cases, "
+                  f"{checked} files, {over} over-ignored", file=sys.stderr)
+            self.assertEqual(missed, [], "memory loaded a file Git ignores")
+
+
 if __name__ == "__main__":
     unittest.main()

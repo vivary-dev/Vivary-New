@@ -304,8 +304,11 @@ export async function listFolder(root: string, folder: string, limit: number,
     let isLink = entry.isSymbolicLink();
     let isFile = entry.isFile();
     if (isLink && platform === "win32") {
-      // A Windows directory entry reports other reparse points as links too.
-      // Only a real symbolic link counts as one, as with Python's is_symlink().
+      // A Windows directory entry reports other reparse points as links too,
+      // so lstat decides. Node's lstat also reports a junction as a link, while
+      // Python's is_symlink() does not. The engine then leaves a junction out
+      // of its checked files, and the Workbench skips it as linked, which
+      // fails closed.
       const info = await inspect(path.join(directory, entry.name)).catch(() => null);
       isLink = info?.isSymbolicLink() ?? false;
       isFile = !isLink && (info?.isFile() ?? false);

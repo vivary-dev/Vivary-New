@@ -3032,7 +3032,7 @@ def _probe_is_ignored(
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
     root_rules: tuple[tuple[str, bool, str], ...] | None = None,
     matcher=None,
-    encoding: str = "utf-8",
+    rules_at=None,
 ) -> bool:
     """Whether Git would ignore `rel_path` in this workspace.
 
@@ -3045,13 +3045,14 @@ def _probe_is_ignored(
     deeper negation cannot re-include the file.
 
     `extra_root_rules` simulates lines a repair would append to the root file.
-    `matcher` decides one path against the collected rules. Doctor uses
-    `_ignored_by_rules`. `encoding` reads each `.gitignore`. Doctor keeps plain
-    UTF-8.
+    `matcher` decides one path against the collected rules, and `rules_at`
+    reads the rules of the `.gitignore` in one folder. Doctor uses
+    `_ignored_by_rules` and `_privacy_rules_at_base`.
     """
     matcher = matcher or _ignored_by_rules
+    rules_at = rules_at or _privacy_rules_at_base
     rel_path = rel_path.replace("\\", "/")
-    rules = (_privacy_rules_at_base(target, "", encoding) if root_rules is None else list(root_rules)) + list(extra_root_rules)
+    rules = (rules_at(target, "") if root_rules is None else list(root_rules)) + list(extra_root_rules)
     if not include_nested:
         return matcher(rules, rel_path)
 
@@ -3060,40 +3061,114 @@ def _probe_is_ignored(
         base = "/".join(parts[:depth])
         if matcher(rules, base):
             return True
-        rules.extend(_privacy_rules_at_base(target, base, encoding))
+        rules.extend(rules_at(target, base))
     return matcher(rules, rel_path)
 
 
 def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) -> bool:
-    """A fail-closed twin of `_ignored_by_rules` for authored memory.
+    """Whether any positive rule could make Git ignore `rel_path`, for authored memory.
 
-    Doctor must never call a private file safe, so it skips rules it cannot
-    trust. Memory must never load or save an ignored file, so it errs the
-    other way: a positive rule matches regardless of case, as Git does with
-    `core.ignorecase` on Windows and macOS, including letter-bracket rules. A
-    positive rule whose bracket expression this matcher cannot read, such as
-    a POSIX class, matches everything under its folder. A negation re-includes
-    only on an exact-case match without letter or unreadable brackets.
+    Doctor must never call a private file safe. Memory must never load or save
+    a file Git could ignore, so its matcher can only over-match:
+
+    - Negations are ignored. A path any positive rule matches stays private,
+      whatever `!` rules follow, so memory may refuse a file Git re-includes.
+    - A rule matches in exact case or without regard to case, a superset of
+      both `core.ignorecase` settings.
+    - A `**` not bounded by slashes matches across `/`, a superset of Git's
+      reading as `*`.
+    - A rule and path are compared as code points and as UTF-8 bytes, so `?`
+      and bracket members cover Git's byte semantics.
+    - A trailing `/` is ignored, so a directory rule also matches a file.
+    - A bracket expression `_bracket_rule_is_uncertain` names matches
+      everything under the rule's folder.
     """
-    ignored = False
-    for base, negated, pattern in rules:
-        if negated:
-            if (not _has_case_sensitive_bracket(pattern) and not _bracket_rule_is_uncertain(pattern)
-                    and _ignore_rule_matches(base, pattern, rel_path)):
-                ignored = False
-        elif _bracket_rule_is_uncertain(pattern):
-            if not base or rel_path.startswith(f"{base}/"):
-                ignored = True
-        elif _ignore_rule_matches(base, pattern, rel_path, fold_case=True):
-            ignored = True
-    return ignored
+    return any(not negated and _memory_rule_matches(base, pattern, rel_path) for base, negated, pattern in rules)
+
+
+def _memory_rule_matches(base: str, pattern: str, rel_path: str) -> bool:
+    rel_path = rel_path.replace("\\", "/")
+    if base:
+        if not rel_path.startswith(f"{base}/"):
+            return False
+        scoped = rel_path[len(base) + 1 :]
+    else:
+        scoped = rel_path
+    if _bracket_rule_is_uncertain(pattern):
+        return True
+    body = pattern.rstrip("/")
+    if body.startswith("/"):
+        body = body[1:]
+    if not body:
+        return False
+    for rule_text, path_text in ((body, scoped), (_utf8_as_latin1(body), _utf8_as_latin1(scoped))):
+        regex = _memory_wildmatch_regex(rule_text)
+        if "/" not in body:
+            # A pattern with no separator matches by basename at any depth.
+            regex = r"(?:.*/)?" + regex
+        # A match also covers everything beneath it.
+        for flags in (0, re.IGNORECASE):
+            try:
+                if re.match(rf"(?:{regex})(?:/.*)?\Z", path_text, flags | re.DOTALL):
+                    return True
+            except re.error:
+                return True
+    return False
+
+
+def _utf8_as_latin1(text: str) -> str:
+    """`text` as its UTF-8 bytes, one character per byte, as Git's wildmatch sees it."""
+    return text.encode("utf-8", "surrogateescape").decode("latin-1")
+
+
+def _memory_wildmatch_regex(pattern: str) -> str:
+    """`_wildmatch_regex` for memory, where a `**` not bounded by slashes crosses `/`.
+
+    Git reads such a `**` as `*`. Reading it as `.*` only matches more.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if pattern[i : i + 2] == "**":
+            bounded = (i == 0 or pattern[i - 1] == "/") and pattern[i + 2 : i + 3] in ("", "/")
+            if bounded and pattern[i + 2 : i + 3] == "/":
+                out.append("(?:[^/]+/)*")
+                i += 3
+            else:
+                out.append(".*")
+                i += 2
+        elif char == "*":
+            out.append("[^/]*")
+            i += 1
+        elif char == "?":
+            out.append("[^/]")
+            i += 1
+        elif char == "\\" and i + 1 < len(pattern):
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+        elif char == "[":
+            close = pattern.find("]", i + 2)
+            if close == -1:
+                out.append(re.escape(char))
+                i += 1
+            else:
+                body = pattern[i + 1 : close]
+                if body[:1] in ("!", "^"):
+                    body = "^" + body[1:]
+                out.append(f"[{body}]")
+                i = close + 1
+        else:
+            out.append(re.escape(char))
+            i += 1
+    return "".join(out)
 
 
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
     r"""Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
 
     It reads a bracket body of plain members and ranges, such as `[._]`,
-    `[a-v]`, `[.]`, or `[!a-z]`, and Git's backslash escape outside brackets,
+    `[a-v]`, or `[.]`, and Git's backslash escape outside brackets,
     so `foo\[bar` is a literal. Git reads `\x` inside a bracket as a literal
     `x` and a `]` right after `[`, `[!`, or `[^` as a member, where Python's
     `re` does not. So a body holding a backslash, a body starting with `]`,
@@ -3127,9 +3202,31 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
 
 
 def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
-    # A byte order mark must not hide the first rule, so memory reads each
-    # .gitignore as UTF-8 with an optional BOM.
-    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, encoding="utf-8-sig")
+    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, rules_at=_memory_rules_at_base)
+
+
+def _memory_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]]:
+    """The rules of one `.gitignore` for memory, split the way Git splits them.
+
+    Git splits a `.gitignore` only on `\n`, drops one `\r` before it, and skips
+    a UTF-8 byte order mark at the start. A lone `\r`, form feed, NEL, U+2028,
+    or U+2029 stays inside its rule, where `str.splitlines` would start a new
+    one. Bytes that are not UTF-8 keep their value through `surrogateescape`.
+    """
+    gitignore = target / base / ".gitignore" if base else target / ".gitignore"
+    if _is_symlink_or_junction(gitignore) or not gitignore.is_file():
+        return []
+    data = gitignore.read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    rules: list[tuple[str, bool, str]] = []
+    for raw in data.split(b"\n"):
+        if raw.endswith(b"\r"):
+            raw = raw[:-1]
+        parsed = _parse_gitignore_line(raw.decode("utf-8", "surrogateescape"))
+        if parsed is not None:
+            rules.append((base, parsed[0], parsed[1]))
+    return rules
 
 
 def _strip_unescaped_trailing_spaces(line: str) -> str:
@@ -3179,16 +3276,16 @@ def _repair_line_rules(pattern: str) -> list[tuple[str, bool, str]]:
     return rules
 
 
-def _privacy_rules_at_base(target: Path, base: str, encoding: str = "utf-8") -> list[tuple[str, bool, str]]:
+def _privacy_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]]:
     gitignore = target / base / ".gitignore" if base else target / ".gitignore"
     if _is_symlink_or_junction(gitignore) or not gitignore.exists() or not gitignore.is_file():
         return []
-    return _privacy_ignore_rules(gitignore, base=base, encoding=encoding)
+    return _privacy_ignore_rules(gitignore, base=base)
 
 
-def _privacy_ignore_rules(gitignore: Path, *, base: str, encoding: str = "utf-8") -> list[tuple[str, bool, str]]:
+def _privacy_ignore_rules(gitignore: Path, *, base: str) -> list[tuple[str, bool, str]]:
     rules: list[tuple[str, bool, str]] = []
-    for raw_line in gitignore.read_text(encoding=encoding, errors="replace").splitlines():
+    for raw_line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
         parsed = _parse_gitignore_line(raw_line)
         if parsed is not None:
             rules.append((base, parsed[0], parsed[1]))

@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The fourth review's fixes after `a7251ea` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `05bed13`, which holds the fourth review's fixes. Those runs are not recorded in this receipt either. The fifth review's change after `05bed13` is covered by unit tests and a differential test against `git check-ignore` until the lead reruns hosted QA. The work is not accepted.
 
 ## Result
 
@@ -100,7 +100,8 @@ and unit tests cover them until those checks run again:
   owner-scoped resources table.
 - Memory privacy fails closed. A positive `.gitignore` rule matches without
   regard to case, including letter-bracket rules, and Remember checks the
-  exact new file name against the rules. Correct and Forget refuse an ignored
+  exact new file name against the rules. The fifth review replaced this
+  matcher with one that ignores negations. Correct and Forget refuse an ignored
   fact file. Doctor's own matching is unchanged.
 - A resumed Codex thread gets the full block every turn, like Claude. The
   unchanged-line branch and its revision rollback are removed.
@@ -168,8 +169,29 @@ tests cover these fixes until the lead reruns hosted QA:
   memory still loaded.
 - Fact text escapes every C0 and C1 control that it does not turn into a
   space.
-- On Windows only a real symbolic link counts as a link in the Workbench
-  listing, as in the engine.
+- On Windows the Workbench listing counts a real symbolic link or a junction
+  as a link. The engine counts only a real symbolic link and leaves a junction
+  out of its checked files, so the Workbench skips it as linked, which fails
+  closed.
+
+## Fifth review change
+
+A fifth review of `05bed13` ran memory's matcher against Git 2.54 and found
+forms that still failed open. Memory's matcher now can only over-match. A
+differential test and unit tests cover it until the lead reruns hosted QA:
+
+- Memory treats a path as private when any positive rule could match it and
+  ignores negations, so it may refuse a file Git would re-include. The owner
+  can choose a memory folder that no rule matches.
+- A rule matches in exact case or without regard to case, an unbounded `**`
+  crosses `/`, and a rule and path match as code points or as UTF-8 bytes.
+- A `.gitignore` splits only on a newline, as Git splits it.
+- The differential test checks every case in its table against
+  `git check-ignore` with `core.ignorecase` false and true. On Zo's Git 2.39.5
+  it checks 34 cases and 76 files, misses none, and over-ignores 9. The
+  previous matcher misses 19 of those files.
+- The panel refuses control characters the context block would escape, so a
+  500-character panel fact is never cut.
 
 ## Not run
 

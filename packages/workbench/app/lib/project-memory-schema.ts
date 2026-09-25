@@ -4,7 +4,12 @@ import { projectFileIdSchema, projectFilePathSchema, projectFileVersionSchema } 
 
 // A line break or control character would split a frontmatter line or the
 // heading, so the one-line fields refuse them.
-const singleLine = (value: string) => !/[\u0000-\u001f\u007f]/.test(value);
+// C0 and C1 controls and the Unicode line and paragraph separators. The
+// context block escapes them, which would lengthen a field past its limit.
+const singleLine = (value: string) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value);
+// Fact text may hold tabs and line or page breaks, which agents receive as
+// spaces. Every other control is escaped there, so the panel refuses it.
+const noEscapedControls = (value: string) => !/[\u0000-\u0008\u000e-\u001f\u007f-\u0084\u0086-\u009f]/.test(value);
 
 /** Field limits for a fact saved in the panel. The context block renders a fact within them uncut. */
 export const FACT_LIMITS = { title: 120, text: 500, source: 200 } as const;
@@ -15,7 +20,8 @@ export const factTitleSchema = z.string().trim().min(1).max(FACT_LIMITS.title)
   .refine(value => !value.startsWith("#"), "Start the title with a word, not #.");
 
 /** The confirmed statement. Markdown is allowed. The cap keeps one fact from crowding out the rest. */
-export const factTextSchema = z.string().trim().min(1).max(FACT_LIMITS.text);
+export const factTextSchema = z.string().trim().min(1).max(FACT_LIMITS.text)
+  .refine(noEscapedControls, "Remove control characters from the text.");
 
 /**
  * Where the fact came from. Tropo keeps a double-quoted frontmatter value

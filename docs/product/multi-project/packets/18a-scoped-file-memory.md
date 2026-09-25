@@ -122,6 +122,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   `a7251ea`. Fourth review fixes treat a bracket body with a backslash or a leading `]`,
   `!]`, or `^]` as uncertain, escape the remaining controls in fact text, and confirm links
   with `lstat` on Windows. Unit tests cover them until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `05bed13`. The fifth review changes memory's matcher so it can only over-match: it ignores
+  negations, matches either case, reads an unbounded `**` across `/`, matches UTF-8 bytes,
+  and splits `.gitignore` lines as Git does. A differential test against
+  `git check-ignore` covers it until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 
