@@ -978,6 +978,28 @@ class WorkspaceContextTests(unittest.TestCase):
             "checked_files": [], "privacy_limited": False,
         })
 
+    def test_many_distinct_rules_stay_quick(self):
+        for count, limited in ((600, False), (5_000, True)):
+            with self.subTest(count=count):
+                target = self.scaffold()
+                with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+                    handle.write("".join(f"zz{index}*.log\n" for index in range(count)))
+                knowledge = target / ".vivary" / "knowledge"
+                knowledge.mkdir()
+                for index in range(300):
+                    (knowledge / f"fact-{index:03d}.md").write_text("# Fact\n", encoding="utf-8")
+                started = time.perf_counter()
+                context = create_vivary.workspace_context(target, repo_root=ROOT)
+                elapsed = time.perf_counter() - started
+                print(f"memory privacy with {count} rules and 300 files: {elapsed:.2f} s", file=sys.stderr)
+                self.assertLess(elapsed, 10)
+                self.assertEqual(context["privacy_limited"], limited)
+                self.assertEqual(len(context["checked_files"]), 200)
+                if limited:
+                    self.assertEqual(context["private"], [".vivary/knowledge"])
+                else:
+                    self.assertEqual(context["private_files"], [])
+
     def test_costly_rules_spend_the_budget_and_fail_closed(self):
         target = self.scaffold()
         with (target / ".gitignore").open("a", encoding="utf-8") as handle:
@@ -1259,6 +1281,8 @@ MEMORY_PRIVACY_DIFFERENTIAL_CASES: tuple[tuple[str, str | dict[str, str], tuple[
     ("negated capital brackets", "[!B]x.md\n[!U]SER.md\n[!K]nowledge/\n",
      ("Bx.md", "bx.md", "USER.md", "user.md", "Knowledge/fact.md", "knowledge/fact.md")),
     ("NUL ends an entry", "secret.md\x00junk\nknowledge/\x00\n", ("secret.md", "knowledge/fact.md")),
+    ("uncased range ends spanning letters", "[@-_]*\n", (".vivary/knowledge/fact.md", "1.md", ".x")),
+    ("uncased range extension", "*.[@-_][@-_]\n", ("notes.md", "notes.12")),
 )
 
 # Rows whose rules sit in the repository's root .gitignore, where a rule's
@@ -1271,6 +1295,9 @@ MEMORY_PRIVACY_ROOT_CASES: tuple[tuple[str, str | dict[str, str], tuple[str, ...
     ("root negated capital bracket", "[!B]x.md\n", ("Bx.md", "bx.md", "x.txt")),
     ("root negation", "*.md\n!keep.md\n", ("keep.md", "x.md", "x.txt")),
     ("root NUL", "secret.md\x00junk\n", ("secret.md", "other.md")),
+    ("root uncased range folder", "[@-_]/\n", ("a/f.md", "1/f.md")),
+    ("root uncased range star", "[`-{]*\n", ("AGENTS.md", "STATE.md", "1.md")),
+    ("root uncased range extension", "*.[@-_][@-_]\n", ("notes.md", "notes.12")),
 )
 
 # The generated cross product: bracket bodies with and without a negation,
@@ -1291,16 +1318,25 @@ _GENERATED_NAMES = ("x.md", "Bx.md", "bx.md", "USER.md", "user.md", "Knowledge/f
                     "memory/y.md", "éx.md", "_x.md")
 
 
+# Letter-free rules built from bracket ranges whose ends are not letters but
+# which span letters. Git folds the path letter before it tests the range.
+_GENERATED_RANGES = ("@-_", "`-{", "@-[", "`-~", "!-@", "#-@")
+_GENERATED_RANGE_RULES = tuple(template.replace("{}", members) for members in _GENERATED_RANGES
+                               for template in ("[{}]*", "[!{}]*.md", "*.[{}][{}]", "[{}]/", "x[{}]"))
+_GENERATED_RANGE_NAMES = ("AGENTS.md", "STATE.md", "notes.md", "NOTES.MD", "a/f.md", "A/f.md", "1/f.md",
+                          "knowledge/fact.md", "x.md", "xA", "xa", "x_", "_x.md", "1.md")
+
+
 def _generated_memory_privacy_cases(seed: int = 21):
     """(name, {".gitignore path": text}, files) for each rule and placement."""
     rng = random.Random(seed)
-    for rule in _GENERATED_RULES:
-        for placement in _GENERATED_PLACEMENTS:
-            text = {"anchored": f"/{rule}", "directory-only": f"{rule.rstrip('/')}/"}.get(placement, rule)
-            folder = "sub/" if placement == "nested" else ""
-            names = rng.sample(_GENERATED_NAMES, 8)
-            yield (f"{placement} {rule}", {f"{folder}.gitignore": f"{text}\n"},
-                   tuple(f"{folder}{name}" for name in names))
+    for rules, names in ((_GENERATED_RULES, _GENERATED_NAMES), (_GENERATED_RANGE_RULES, _GENERATED_RANGE_NAMES)):
+        for rule in rules:
+            for placement in _GENERATED_PLACEMENTS:
+                text = {"anchored": f"/{rule}", "directory-only": f"{rule.rstrip('/')}/"}.get(placement, rule)
+                folder = "sub/" if placement == "nested" else ""
+                yield (f"{placement} {rule}", {f"{folder}.gitignore": f"{text}\n"},
+                       tuple(f"{folder}{name}" for name in rng.sample(names, 8)))
 
 
 @unittest.skipUnless(shutil.which("git"), "needs git on PATH")

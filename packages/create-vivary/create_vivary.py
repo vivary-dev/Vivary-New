@@ -3096,9 +3096,10 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str,
     - A bracket expression `_bracket_rule_is_uncertain` names, or a rule
       longer than `_MEMORY_RULE_CHARS`, matches everything under the rule's
       folder.
-    - Matching tracks reachable positions instead of backtracking, and a
-      context read spends from a fixed budget, `_MEMORY_MATCH_BUDGET`. When it
-      runs out, every path not yet decided counts as private.
+    - Matching tracks reachable positions instead of backtracking. A context
+      read spends from a fixed budget, `_MEMORY_MATCH_BUDGET`, and loads at
+      most `_MEMORY_RULE_LIMIT` rules. When either runs out, every path not
+      yet decided counts as private.
     """
     return any(not negated and _memory_rule_matches(base, pattern, rel_path, budget)
                for base, negated, pattern in rules)
@@ -3107,11 +3108,16 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str,
 # A memory rule longer than this is uncertain, so it matches. It bounds the
 # work of one match, which grows with rule length times path length.
 _MEMORY_RULE_CHARS = 256
-# The work one context read may spend matching memory paths, in path
-# positions visited plus rule characters read. A normal workspace spends a
-# small fraction. Hostile rules and long names cannot make a read slow: once
-# this runs out, every path not yet decided counts as private.
+# The work one context read may spend matching memory paths. Each rule and
+# path pair costs the rule's length plus _MEMORY_PAIR_UNITS, which stands for
+# the fixed Python work of one pair, and each match step costs the path
+# positions it visits. Once this runs out, every path not yet decided
+# counts as private. A typical workspace spends a small fraction.
 _MEMORY_MATCH_BUDGET = 20_000_000
+_MEMORY_PAIR_UNITS = 64
+# The rules one context read may load from the .gitignore files it consults.
+# Past this the read stops, and every path not yet decided counts as private.
+_MEMORY_RULE_LIMIT = 2_000
 
 
 class _MemoryMatchBudgetSpent(Exception):
@@ -3125,6 +3131,7 @@ class _MemoryMatchBudget:
         self.left = units
         self.spent = False
         self.rules: dict[str, list[tuple[str, bool, str]]] = {}
+        self.rule_count = 0
         self.verdicts: dict[tuple[str, tuple[tuple[str, bool, str], ...]], bool] = {}
 
     def charge(self, units: int) -> None:
@@ -3142,6 +3149,8 @@ def _memory_rule_matches(base: str, pattern: str, rel_path: str, budget: _Memory
         scoped = rel_path[len(base) + 1 :]
     else:
         scoped = rel_path
+    if budget is not None:
+        budget.charge(len(pattern) + _MEMORY_PAIR_UNITS)
     if len(pattern) > _MEMORY_RULE_CHARS or _bracket_rule_is_uncertain(pattern):
         return True
     body = pattern.rstrip("/")
@@ -3157,8 +3166,11 @@ def _memory_rule_matches(base: str, pattern: str, rel_path: str, budget: _Memory
         # The byte form differs only when a character is not ASCII.
         forms.append((_utf8_as_latin1(body), _utf8_as_latin1(scoped)))
     for rule_text, path_text in forms:
-        # Folding changes nothing for a rule without cased characters.
-        for fold in (False, True) if rule_text.lower() != rule_text.upper() else (False,):
+        # Folding changes nothing for a rule with no cased character and no
+        # bracket. A bracket range with uncased ends, such as `[@-_]`, can
+        # still span letters that Git folds.
+        needs_fold = "[" in rule_text or rule_text.lower() != rule_text.upper()
+        for fold in (False, True) if needs_fold else (False,):
             tokens = _memory_glob_tokens(rule_text, fold)
             if tokens is None or _memory_glob_match(tokens, path_text, anchored=anchored, fold=fold, budget=budget):
                 return True
@@ -3170,7 +3182,8 @@ def _utf8_as_latin1(text: str) -> str:
     return text.encode("utf-8", "surrogateescape").decode("latin-1")
 
 
-@functools.lru_cache(maxsize=4_096)
+# Enough for every form of every rule one context read may load.
+@functools.lru_cache(maxsize=4 * _MEMORY_RULE_LIMIT + 64)
 def _memory_glob_tokens(pattern: str, fold: bool) -> tuple[tuple[str, object], ...] | None:
     """A memory rule as match steps, or `None` when a bracket set will not compile.
 
@@ -3269,6 +3282,7 @@ def _memory_glob_match(tokens: tuple[tuple[str, object], ...], path: str, *, anc
     return any(at == size or path[at] == "/" for at in positions)
 
 
+@functools.lru_cache(maxsize=_MEMORY_RULE_LIMIT + 64)
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
     r"""Whether memory's matcher may misread a bracket expression in `pattern`.
 
@@ -3339,7 +3353,12 @@ def _memory_probe_is_ignored(target: Path, rel_path: str, budget: _MemoryMatchBu
     # .gitignore once and decides each folder once.
     def rules_at(target: Path, base: str) -> list[tuple[str, bool, str]]:
         if base not in budget.rules:
-            budget.rules[base] = _memory_rules_at_base(target, base)
+            rules = _memory_rules_at_base(target, base)
+            budget.rules[base] = rules
+            budget.rule_count += len(rules)
+            if budget.rule_count > _MEMORY_RULE_LIMIT:
+                budget.spent = True
+                raise _MemoryMatchBudgetSpent
         return budget.rules[base]
 
     def matcher(rules: list[tuple[str, bool, str]], path: str) -> bool:

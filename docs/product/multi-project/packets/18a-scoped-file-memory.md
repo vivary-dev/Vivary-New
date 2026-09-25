@@ -137,6 +137,10 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   closed and says so in the block and the panel, cap a rule at 256 characters, and add root
   `.gitignore` rows to the differential test. The lead completes the receipt with the final
   hosted evidence.
+- 2026-09-25: The lead reported the hosted journey passed three runs on `1bd2242`. Final
+  review fixes restore the either-case pass for rules with a bracket, charge each rule and
+  path pair to the budget, cache per-rule checks, and stop a read past 2,000 rules. Unit and
+  differential tests cover them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 
