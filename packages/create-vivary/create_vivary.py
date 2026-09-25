@@ -3090,13 +3090,16 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) 
 
 
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
-    """Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
+    r"""Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
 
-    It reads plain sets and ranges, such as `[._]`, `[a-v]`, or `[.]`, and
-    Git's backslash escape, so `foo\[bar` is a literal. A bracket expression
-    holding a POSIX class (`[[:alpha:]]`), an equivalence class (`[[=a=]]`),
-    or a collating symbol (`[[.a.]]`), an unescaped `[` that never closes, and
-    a set Python cannot compile are uncertain.
+    It reads a bracket body of plain members and ranges, such as `[._]`,
+    `[a-v]`, `[.]`, or `[!a-z]`, and Git's backslash escape outside brackets,
+    so `foo\[bar` is a literal. Git reads `\x` inside a bracket as a literal
+    `x` and a `]` right after `[`, `[!`, or `[^` as a member, where Python's
+    `re` does not. So a body holding a backslash, a body starting with `]`,
+    `!]`, or `^]`, a POSIX class (`[[:alpha:]]`), an equivalence class
+    (`[[=a=]]`), a collating symbol (`[[.a.]]`), an unescaped `[` that never
+    closes, and a set Python cannot compile are uncertain.
     """
     index = 0
     while index < len(pattern):
@@ -3105,10 +3108,13 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
             index += 2
             continue
         if char == "[":
+            if pattern[index + 1 : index + 2] == "]" or pattern[index + 1 : index + 3] in ("!]", "^]"):
+                return True
             close = pattern.find("]", index + 2)
             if close == -1:
                 return True
-            if re.search(r"\[[:=.]", pattern[index + 1 : close]):
+            body = pattern[index + 1 : close]
+            if "\\" in body or re.search(r"\[[:=.]", body):
                 return True
             index = close + 1
             continue

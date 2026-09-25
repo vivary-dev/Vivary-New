@@ -295,12 +295,10 @@ fact files it checked in each memory folder. It lists a folder as the Workbench
 does (the first 200 `.md` names of regular files and links, secret-looking
 names left out, in UTF-16 order, from at most 4,000 scanned entries) and checks
 the regular files among them whose paths the Workbench answer schema accepts,
-at most 3,000 paths and 96 KiB of JSON in all. For memory it matches
-fail-closed: it reads `.gitignore` with or without a byte order mark, a
-positive rule matches without regard to case, letter-bracket rules included,
-a positive rule with a POSIX class, an equivalence class, a collating symbol,
-or an unclosed bracket matches, ordinary sets and Git's backslash escape read
-as Git reads them, and a negation re-includes only on an exact match. It does not read `.git/info/exclude` or global Git excludes.
+at most 3,000 paths and 96 KiB of JSON in all. A name that is not valid UTF-8 decodes differently on the two sides and can sort differently, so it can shift the two listings apart. The files that shift show as not checked, which fails closed. For memory
+it matches fail-closed: it reads `.gitignore` with or without a byte order
+mark, a positive rule matches without regard to case, letter-bracket rules
+included, and memory reads a bracket expression itself only when its body is plain members and ranges with an optional leading `!` or `^`, such as `[._]`, `[a-v]`, or `[!a-z]`. A positive rule matches, as if it named everything under its folder, when a bracket body holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class (`[[:alpha:]]`), an equivalence class, or a collating symbol, when an unescaped `[` never closes, or when Python cannot compile the set. Outside brackets a backslash escapes the next character, as in Git, so `foo\[bar` is a literal. A negation re-includes only on an exact match. It does not read `.git/info/exclude` or global Git excludes.
 
 ---
 

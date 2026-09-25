@@ -1014,6 +1014,16 @@ class WorkspaceContextTests(unittest.TestCase):
         for rule in ("[[:alpha:]]*.md", "[[=a=]]x", "[[.a.]]x", "know[ledge", "a[b"):
             with self.subTest(rule=rule):
                 self.assertTrue(create_vivary._bracket_rule_is_uncertain(rule))
+        # Git reads these differently from Python's re, so memory treats them as matching.
+        git_only = {"[\\][:alpha:]]*.md": "x.md", "[!][:alpha:]]*.md": "1x.md", "[^][:alpha:]]*.md": "1x.md",
+                    "[\\d]raft.md": "draft.md", "[\\s]pace.md": "space.md", "[\\b]ack.md": "back.md",
+                    "[\\W]ord.md": "Word.md"}
+        for rule, path in git_only.items():
+            with self.subTest(rule=rule):
+                self.assertTrue(create_vivary._bracket_rule_is_uncertain(rule))
+                scoped = self.scaffold()
+                (scoped / ".gitignore").write_text(f"{rule}\n", encoding="utf-8")
+                self.assertTrue(create_vivary._memory_probe_is_ignored(scoped, path))
         target = self.scaffold()
         with (target / ".gitignore").open("a", encoding="utf-8") as handle:
             handle.write("".join(f"{rule}\n" for rule in ordinary))

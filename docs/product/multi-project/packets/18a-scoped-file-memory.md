@@ -118,6 +118,10 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   unclosed brackets, list memory folders with one rule set on both sides, keep odd names out
   of `checked_files`, bound its size, and report links and uncheckable names with their own
   reasons. Unit tests cover them until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `a7251ea`. Fourth review fixes treat a bracket body with a backslash or a leading `]`,
+  `!]`, or `^]` as uncertain, escape the remaining controls in fact text, and confirm links
+  with `lstat` on Windows. Unit tests cover them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 

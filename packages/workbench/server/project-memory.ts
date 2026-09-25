@@ -260,12 +260,16 @@ function renderInstructionFiles(files: readonly ContextFile[], omitted: readonly
   }), ...(tail ? [tail] : [])].join("\n");
 }
 
-/** Line and page breaks JavaScript's `\n` rule misses: vertical tab, form feed, return, NEL, LS, and PS. */
-const OTHER_BREAKS = /[\v\f\r\u0085\u2028\u2029]/g;
+/** Tab and the breaks JavaScript's `\n` rule misses: vertical tab, form feed, return, NEL, LS, and PS. */
+const SPACE_LIKE = /[\t\v\f\r\u0085\u2028\u2029]/g;
 
-/** Fact text as agents receive it: one line, before clamping. */
+/**
+ * Fact text as agents receive it: one line, before clamping. Tabs and breaks
+ * become spaces, and every other C0 and C1 control is escaped, as in titles
+ * and sources.
+ */
 function agentText(text: string): string {
-  return text.replace(OTHER_BREAKS, " ").replace(/\s*\n\s*/g, " ");
+  return escapeControls(text.replace(SPACE_LIKE, " ").replace(/\s*\n\s*/g, " "));
 }
 
 // Each field is clamped to the panel's save limits, so a fact saved in the
@@ -801,7 +805,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     if (input.operation === "remember") return remember(context, workspace, input, locations);
     const path = factPathIn(locations, input.path);
     if (!path) return { code: "unavailable", reason: "not-a-fact", message: WRITE_TEXT.notAFact };
-    if (!new Set(settings.privacy.checkedFiles).has(path)) {
+    if (!settings.privacy.checkedFiles.includes(path)) {
       // A file the engine did not check is never opened. When a complete
       // listing no longer has it, it is gone, so say that without reading it.
       const slash = path.lastIndexOf("/");

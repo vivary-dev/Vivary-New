@@ -13,8 +13,7 @@ import {
   storageSentence,
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
-import { createProjectFileService } from "../server/project-files.ts";
-import { isFactFileName } from "../server/project-files.ts";
+import { createProjectFileService, isFactFileName } from "../server/project-files.ts";
 import {
   CONTEXT_BOUNDS,
   createProjectMemory,
@@ -270,6 +269,17 @@ describe("project memory rendering", () => {
     const { block } = await p.memory.renderForRun(p.workspace, "code");
     assert.match(block, /- Relay budget: The relay budget is one( two)+ three\n/);
     for (const character of breaks) assert.ok(!block.includes(character));
+  });
+
+  it("escapes the other control characters in fact text", async () => {
+    const p = await project();
+    const escape = String.fromCharCode(0x1b);
+    const csi = String.fromCharCode(0x9b);
+    await p.writeFact(".vivary/knowledge/controls.md", RELAY_FACT.replace("40 dollars per month.",
+      `a${escape}[31mb${csi}c`));
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.ok(block.includes("is a\\x1b[31mb\\x9bc"));
+    assert.ok(!block.includes(escape) && !block.includes(csi));
   });
 
   it("names omitted law files only when they could load", async () => {

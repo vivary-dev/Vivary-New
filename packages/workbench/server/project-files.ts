@@ -268,7 +268,9 @@ export function isFactFileName(name: string): boolean {
  * The creator's `_markdown_names` makes the same listing, so the files it
  * checks are exactly the regular files here.
  */
-export async function listFolder(root: string, folder: string, limit: number): Promise<FolderListing> {
+export async function listFolder(root: string, folder: string, limit: number,
+  { platform = process.platform, inspect = lstat }: { platform?: NodeJS.Platform; inspect?: typeof lstat } = {}):
+  Promise<FolderListing> {
   let parts: string[];
   try {
     parts = relativeParts(folder);
@@ -299,8 +301,17 @@ export async function listFolder(root: string, folder: string, limit: number): P
       break;
     }
     if (!isFactFileName(entry.name)) continue;
-    if (entry.isSymbolicLink()) links.add(entry.name);
-    if (entry.isFile() || entry.isSymbolicLink()) names.push(entry.name);
+    let isLink = entry.isSymbolicLink();
+    let isFile = entry.isFile();
+    if (isLink && platform === "win32") {
+      // A Windows directory entry reports other reparse points as links too.
+      // Only a real symbolic link counts as one, as with Python's is_symlink().
+      const info = await inspect(path.join(directory, entry.name)).catch(() => null);
+      isLink = info?.isSymbolicLink() ?? false;
+      isFile = !isLink && (info?.isFile() ?? false);
+    }
+    if (isLink) links.add(entry.name);
+    if (isFile || isLink) names.push(entry.name);
   }
   names.sort();
   const shown = names.slice(0, limit);

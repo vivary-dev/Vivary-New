@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The third review's fixes after `865f39e` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The fourth review's fixes after `a7251ea` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
 
 ## Result
 
@@ -145,8 +145,9 @@ hosted QA:
 
 - Only a POSIX class, an equivalence class, or a collating symbol inside a
   bracket expression, or an unclosed `[`, makes a rule uncertain. Ordinary
-  sets such as `[._]*.sw[a-p]` and an escaped `foo\[bar` match as Git reads
-  them, so they no longer make every memory folder private.
+  sets such as `[._]*.sw[a-p]` and an escaped `foo\[bar` no longer make
+  every memory folder private. The fourth review narrowed what memory reads
+  itself further.
 - The engine and the Workbench list a memory folder with one rule set. The
   engine leaves links and names the Workbench cannot carry out of
   `checked_files` and bounds its size, so one odd file name cannot fail the
@@ -155,6 +156,20 @@ hosted QA:
   and an uncheckable name as unsupported, the same on every load.
 - Path lists stay inside their limits, and fact text turns every line and page
   break into a space.
+
+## Fourth review fixes
+
+A fourth review of `a7251ea` compared the bracket rule with Git 2.54. Unit
+tests cover these fixes until the lead reruns hosted QA:
+
+- A bracket body with a backslash, or one that starts with `]`, `!]`, or `^]`,
+  makes a rule uncertain, so it matches. Git reads these forms differently
+  from Python's `re`, and rules such as `[\d]raft.md` ignored files that
+  memory still loaded.
+- Fact text escapes every C0 and C1 control that it does not turn into a
+  space.
+- On Windows only a real symbolic link counts as a link in the Workbench
+  listing, as in the engine.
 
 ## Not run
 

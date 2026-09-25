@@ -363,6 +363,16 @@ describe("project file boundary", () => {
       truncated: false });
     assert.deepEqual(await listFolder(f.root, "facts", 2), { status: "ready", names: ["a-fact.md", "b-fact.md"],
       linked: [], truncated: true });
+    // On Windows a link-typed entry counts as a link only when lstat confirms it.
+    assert.deepEqual(await listFolder(f.root, "facts", 10, { platform: "win32" }), listing);
+    const reparse = await listFolder(f.root, "facts", 10, { platform: "win32",
+      inspect: (async (target: string) => (target.endsWith("linked.md")
+        ? { isSymbolicLink: () => false, isFile: () => true } : lstat(target))) as unknown as typeof lstat });
+    assert.deepEqual(reparse, { ...listing, linked: [] });
+    const vanished = await listFolder(f.root, "facts", 10, { platform: "win32",
+      inspect: (async () => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); }) as unknown as typeof lstat });
+    assert.deepEqual(vanished, { status: "ready", names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "twin.md"],
+      linked: [], truncated: false });
     if (listing.status !== "ready") return;
     const read = await readListedFiles(f.root, listing.names.map(name => `facts/${name}`), project);
     assert.deepEqual(read.files.map(file => file.path), ["facts/a-fact.md", "facts/b-fact.md"]);

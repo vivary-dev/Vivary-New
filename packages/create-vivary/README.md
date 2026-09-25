@@ -339,13 +339,10 @@ under the bridge's 512 KiB output limit. `_CONTEXT_LISTED_FILES`,
 `_CONTEXT_SCANNED_ENTRIES`, `_CONTEXT_CHECKED_TOTAL`, and
 `_WORKBENCH_PATH_UNITS` in `create_vivary.py` hold these limits and must match
 the Workbench's `CONTEXT_BOUNDS.factsPerLocation`, `MAX_FOLDER_ENTRIES`, the
-`checked_files` schema cap, and `workspaceRelativePath`. It walks the same pure
+`checked_files` schema cap, and `workspaceRelativePath`. A name that is not valid UTF-8 decodes differently on the two sides and can sort differently, so it can shift the two listings apart. The files that shift show as not checked, which fails closed. It walks the same pure
 ignore rules as Doctor, so it needs no Git, but matches fail-closed: it reads
 `.gitignore` with or without a byte order mark, a positive rule matches without
-regard to case, letter-bracket rules included, a positive rule with a POSIX class
-(`[[:alpha:]]`), an equivalence class, a collating symbol, or an unclosed bracket
-matches, ordinary sets such as `[._]` and Git's backslash escape (`foo\[bar`) read
-as Git reads them, and a negation re-includes only on an exact match. Doctor keeps its own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
+regard to case, letter-bracket rules included, and memory reads a bracket expression itself only when its body is plain members and ranges with an optional leading `!` or `^`, such as `[._]`, `[a-v]`, or `[!a-z]`. A positive rule matches, as if it named everything under its folder, when a bracket body holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class (`[[:alpha:]]`), an equivalence class, or a collating symbol, when an unescaped `[` never closes, or when Python cannot compile the set. Outside brackets a backslash escapes the next character, as in Git, so `foo\[bar` is a literal. A negation re-includes only on an exact match. Doctor keeps its own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
 without host paths. It writes nothing and records no receipt.
 
 MCP is optional. When selected, it is local stdio and read-only by default.
