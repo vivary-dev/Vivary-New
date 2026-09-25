@@ -14,6 +14,11 @@ const CREATOR_TIMEOUT_MS = 30_000;
 const activeTargets = new Set();
 const WINDOWS_RESERVED_NAME = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 
+/** True for a file or folder name Windows reserves for a device, with or without an extension. */
+export function isWindowsReservedName(name) {
+  return WINDOWS_RESERVED_NAME.test(name);
+}
+
 async function runCreator(request, dependencies = {}) {
   const start = dependencies.spawn ?? spawn;
   // guard:allow-env-credential - Launcher-selected runtime directory, not a credential.
@@ -82,7 +87,7 @@ export function managedProjectDataDirectory(dependencies = {}) {
 
 async function managedTarget(context, name, createParent, dependencies = {}) {
   const childName = projectName.parse(name);
-  if (WINDOWS_RESERVED_NAME.test(childName)) {
+  if (isWindowsReservedName(childName)) {
     throw new Error("Choose a project name that is valid on Windows.");
   }
   const getAccess = dependencies.getAccess ?? getLocalProjectAccess;
@@ -136,7 +141,13 @@ const workspaceRelativePath = z.string().min(1).max(512).refine(value =>
   !value.startsWith("/") && !value.includes("\\") && !/^[A-Za-z]:/.test(value)
   && value.split("/").every(part => part && part !== "." && part !== ".."));
 const rolePaths = z.array(workspaceRelativePath).max(64);
-const memoryPrivacy = { privacy_policy: z.enum(["gitignore", "none"]), private: rolePaths };
+const memoryPrivacy = {
+  protected: rolePaths,
+  privacy_policy: z.enum(["gitignore", "none"]),
+  private: rolePaths,
+  private_files: z.array(workspaceRelativePath).max(4_000),
+  ignore_files: z.array(workspaceRelativePath).max(4_000),
+};
 // The creator's answer is parsed here, so project memory can trust its shape.
 const workspaceContextAnswer = z.discriminatedUnion("status", [
   z.strictObject({
@@ -165,11 +176,12 @@ export async function readWorkspaceContext(root, dependencies = {}) {
   if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
   const answer = workspaceContextAnswer.parse(result.context);
   if (answer.status === "invalid") return answer;
-  const privacy = { policy: answer.privacy_policy, private: answer.private };
+  const privacy = { policy: answer.privacy_policy, private: answer.private,
+    privateFiles: answer.private_files, ignoreFiles: answer.ignore_files };
   return answer.status === "thin"
     ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
-      memoryAssigned: answer.memory_assigned, privacy }
-    : { status: "plain", memory: answer.memory, privacy };
+      memoryAssigned: answer.memory_assigned, protected: answer.protected, privacy }
+    : { status: "plain", memory: answer.memory, protected: answer.protected, privacy };
 }
 
 export async function previewManagedProject(context, input, dependencies = {}) {

@@ -323,6 +323,14 @@ Tropo resolves `.vivary/workspace.toml` as the thin base policy. A root or neste
 `tropo.toml` may tighten that policy but may not expand its scope. Competing thin roots
 fail closed.
 
+`workspace_context(target)` is the read the Vivary Workbench makes before each agent
+message. It returns Tropo's roles, state file, memory folders, and protected paths,
+plus the memory folders, law and state files, and fact files that the workspace's
+`.gitignore` files ignore, and the `.gitignore` files it consulted. It uses the same
+pure ignore predicate as Doctor, so it needs no Git. It does not read
+`.git/info/exclude` or global Git excludes. An invalid config is returned as data
+without host paths. It writes nothing and records no receipt.
+
 MCP is optional. When selected, it is local stdio and read-only by default.
 
 ## One earned record

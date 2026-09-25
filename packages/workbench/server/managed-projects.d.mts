@@ -44,6 +44,8 @@ export function createManagedProject(
     }
 >;
 
+export function isWindowsReservedName(name: string): boolean;
+
 export function readWorkspaceContext(
   root: string,
   dependencies?: Record<string, unknown>,

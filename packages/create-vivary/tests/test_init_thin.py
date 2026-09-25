@@ -952,8 +952,11 @@ class WorkspaceContextTests(unittest.TestCase):
             "state": "STATE.md",
             "memory": [".vivary/knowledge"],
             "memory_assigned": False,
+            "protected": [".vivary/private", ".vivary/runtime"],
             "privacy_policy": "gitignore",
             "private": [],
+            "private_files": [],
+            "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
         })
 
     def test_plain_folder_gets_the_default_location(self):
@@ -962,9 +965,35 @@ class WorkspaceContextTests(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(target, ignore_errors=True))
         self.assertEqual(create_vivary.workspace_context(target, repo_root=ROOT), {
             "status": "plain", "roles": None, "state": None,
-            "memory": [".vivary/knowledge"], "memory_assigned": False,
-            "privacy_policy": "none", "private": [],
+            "memory": [".vivary/knowledge"], "memory_assigned": False, "protected": [],
+            "privacy_policy": "none", "private": [], "private_files": [],
+            "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
         })
+
+    def test_nested_rules_and_private_files_are_reported(self):
+        target = self.scaffold()
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        (knowledge / "shared.md").write_text("# Shared\n", encoding="utf-8")
+        (knowledge / "draft.md").write_text("# Draft\n", encoding="utf-8")
+        (knowledge / ".gitignore").write_text("draft.md\n", encoding="utf-8")
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("STATE.md\n")
+        context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context["private"], [])
+        self.assertEqual(context["private_files"], [".vivary/knowledge/draft.md", "STATE.md"])
+        self.assertIn(".vivary/knowledge/.gitignore", context["ignore_files"])
+
+    def test_competing_root_message_names_no_host_path(self):
+        outer = self.scaffold()
+        inner = outer / "inner"
+        (inner / ".vivary").mkdir(parents=True)
+        shutil.copyfile(outer / ".vivary" / "workspace.toml", inner / ".vivary" / "workspace.toml")
+        context = create_vivary.workspace_context(inner, repo_root=ROOT)
+        self.assertEqual(context["status"], "invalid")
+        self.assertIn("competing", context["message"])
+        self.assertNotIn(str(outer), context["message"])
+        self.assertNotIn(str(ROOT), context["message"])
 
     def test_ignored_memory_folder_is_reported_private(self):
         target = self.scaffold()

@@ -503,7 +503,8 @@ process.send({type:"vivary:code-worker:ready"});
     const memory = createProjectMemory({
       readWorkspaceContext: async () => ({ status: "thin", roles: { law: ["AGENTS.md"], map: [], record: [],
         memory: [], boundary: [".gitignore"] }, state: "STATE.md", memory: [".vivary/knowledge"],
-        memoryAssigned: false, privacy: { policy: "none", private: [] } }),
+        memoryAssigned: false, protected: [],
+        privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [".gitignore"] } }),
     });
     const workspace = { root, label: "Relay", projectId: "relay", bindingId: "relay-binding", rootId: "relay-root",
       bindingRevision: 1, policyRevision: 1, actorId: "actor", locationRef: "loc",

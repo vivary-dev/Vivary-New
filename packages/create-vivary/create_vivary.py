@@ -1907,11 +1907,11 @@ def _doctor_config_context(target: Path, root: Path):
 def workspace_context(target: str | Path, *, repo_root: str | Path | None = None) -> dict:
     """Return the paths an agent reads when a run starts, for the Workbench.
 
-    The answer is Tropo's `workspace_context` for this folder plus which memory
-    folders the workspace's ignore rules keep private. A thin config Tropo
-    refuses returns {"status": "invalid", "message": ...} with the workspace
-    path replaced by ".", so no host path leaves the bridge. Reads
-    configuration and ignore files only: no notes, no writes, no receipt.
+    The answer is Tropo's `workspace_context` for this folder plus the privacy
+    facts the Workbench needs (see `_context_privacy`). A thin config Tropo
+    refuses returns {"status": "invalid", "message": ...} without any host
+    path. Reads configuration, ignore files, and memory folder listings only:
+    no note bodies, no writes, no receipt.
     """
     root = (Path(repo_root) if repo_root is not None else default_repo_root()).resolve()
     target = Path(target).resolve()
@@ -1923,24 +1923,76 @@ def workspace_context(target: str | Path, *, repo_root: str | Path | None = None
             resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
             context = tropo.workspace_context(resolver.base)
         except (tropo.ConfigError, OSError, TypeError, AttributeError) as exc:
-            return {"status": "invalid", "message": str(exc).replace(str(target), ".")}
-    return {**context, **_memory_privacy(target, context["memory"])}
+            return {"status": "invalid", "message": _without_host_paths(str(exc), target)}
+    return {**context, **_context_privacy(target, context)}
 
 
-def _memory_privacy(target: Path, folders: list[str]) -> dict:
-    """Which memory folders the workspace's .gitignore rules ignore.
+# An absolute POSIX or Windows path that is not part of a relative path.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|/)[^\s,;'\"]*")
 
-    A fact written to an ignored folder would never be versioned and could be
-    private, so the Workbench neither loads nor saves facts there. The check
-    uses the same pure predicate Doctor trusts for privacy, so it needs no Git.
-    `privacy_policy` says whether a root .gitignore supplied the rules.
+
+def _without_host_paths(message: str, target: Path) -> str:
+    """The workspace becomes ".", and any other absolute path is named generically."""
+    return _ABSOLUTE_PATH.sub("<a folder outside the project>", message.replace(str(target), "."))
+
+
+# Memory folder listings are bounded like the Workbench's folder read.
+_CONTEXT_LISTED_FILES = 1_000
+
+
+def _context_privacy(target: Path, context: dict) -> dict:
+    """What the workspace's .gitignore rules make private, for the Workbench.
+
+    - `private`: memory folders a new fact file would be ignored in.
+    - `private_files`: law files, the state file, and existing Markdown files
+      in each memory folder that the rules ignore. The Workbench does not load
+      them.
+    - `ignore_files`: every `.gitignore` consulted for those paths, one per
+      ancestor folder, whether it exists or not. The Workbench keys its cache
+      on their bytes, so a new or edited rule is picked up.
+    - `privacy_policy`: "gitignore" when any of those files exists.
+
+    The check uses the pure predicate Doctor trusts, so it needs no Git. It
+    does not read `.git/info/exclude` or global Git excludes.
     """
-    gitignore = target / ".gitignore"
+    folders = list(context["memory"])
+    roles = context.get("roles") or {}
+    files = [*roles.get("law", []), *([context["state"]] if context.get("state") else [])]
+    listed = [f"{folder}/{name}" for folder in folders for name in _markdown_names(target, folder)]
+    probes = [*(f"{folder}/fact.md" for folder in folders), *files, *listed]
+    ignore_files = sorted({
+        "/".join([*path.split("/")[:depth], ".gitignore"])
+        for path in probes
+        for depth in range(path.count("/") + 1)
+    })
     return {
-        "privacy_policy": ("gitignore" if gitignore.is_file() and not _is_symlink_or_junction(gitignore)
-                           else "none"),
+        "privacy_policy": ("gitignore" if any(
+            (target / name).is_file() and not _is_symlink_or_junction(target / name) for name in ignore_files)
+            else "none"),
         "private": [folder for folder in folders if _probe_is_ignored(target, f"{folder}/fact.md")],
+        "private_files": sorted({path for path in [*files, *listed] if _probe_is_ignored(target, path)}),
+        "ignore_files": ignore_files,
     }
+
+
+def _markdown_names(target: Path, folder: str) -> list[str]:
+    """Sorted Markdown file names directly inside `folder`, without following links."""
+    current = target
+    for part in folder.split("/"):
+        current = current / part
+        try:
+            info = os.lstat(current)
+        except OSError:
+            return []
+        if not stat.S_ISDIR(info.st_mode) or _is_symlink_or_junction(current):
+            return []
+    try:
+        with os.scandir(current) as entries:
+            names = sorted(entry.name for entry in entries
+                           if entry.name.lower().endswith(".md") and entry.is_file(follow_symlinks=False))
+    except OSError:
+        return []
+    return names[:_CONTEXT_LISTED_FILES]
 
 
 def _doctor_graph_context(tropo, resolver, target: Path):

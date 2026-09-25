@@ -263,8 +263,12 @@ required = { source = "string", confirmed = "date" }
 - A `folder` value that contains `/` names that exact workspace-relative
   directory. Resolution checks the exact directory before basenames, so a fact
   under `.vivary/knowledge/` does not inherit the `project` type of `.vivary/`.
+- A memory role path without `/`, such as `facts`, is registered as `./facts`.
+  A `./` value matches only that folder at the workspace root, so
+  `tests/facts/` stays untyped. Owner types keep plain basename matching.
 - The owner wins. An owner `[types.vivary_fact]` table is used unchanged, and a
-  folder that another type already names keeps that type.
+  fact folder that another type already names, by its path or by its
+  basename, keeps that type.
 - The private check and the privacy-filtered public check apply the same rule.
 - A folder without thin settings gets no built-in type.
 
@@ -281,8 +285,13 @@ confirmed: 2026-09-25
 The relay budget is 40 dollars per month.
 ```
 
-`workspace_context(config)` returns the roles, the state file, and the
-effective memory folders from configuration alone. It reads no notes.
+`workspace_context(config)` returns the roles, the state file, the effective
+memory folders, and the declared protected paths (`workspace.private`,
+`workspace.runtime`, and capability storage) from configuration alone. It reads
+no notes. The creator's `workspace_context` adds which memory folders, law
+files, state file, and fact files the workspace's `.gitignore` files ignore,
+and which `.gitignore` files it consulted. It does not read `.git/info/exclude`
+or global Git excludes.
 
 ---
 

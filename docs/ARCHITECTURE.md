@@ -116,7 +116,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 | Data or effect | Owner and boundary |
 | --- | --- |
-| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, or `delete-memory` actions, because that store has no project column. Personal chats keep them. |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded, and no new fact is saved in an ignored folder. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, or `delete-memory` actions, because that store has no project column. Personal chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
@@ -155,15 +155,27 @@ and the known gaps above describe it. The review, by layer:
 - Engine: Tropo adds the built-in `vivary_fact` type for `.vivary/knowledge`
   and the memory role paths after every owner table and overlay merged, in
   both `_compose` and the public config path, so Doctor and Note check agree.
-  `workspace_context` reports roles, the state file, and the effective memory
-  folders from configuration. The creator adds the folders the workspace's
-  `.gitignore` rules ignore, and the bridge serves it as the read-only
-  `context` operation. No public CLI verb or Doctor output changed.
-- Workbench service: `project-memory.ts` memoizes that answer by the bytes of
-  `.vivary/workspace.toml` and `.gitignore`, refuses reserved, boundary,
-  ignored, linked, and blocked folders, and renders one block of at most
-  8,000 characters. `project-files.ts` gains a folder read, a content digest,
-  exclusive Create, and version-checked Remove on its mutation queue.
+  An owner type that names a fact folder by path or basename wins, and a
+  role path without `/` types only the root-level folder. `workspace_context`
+  reports roles, the state file, the effective memory folders, and the
+  declared protected paths from configuration. The creator adds which memory
+  folders, law files, state file, and fact files the `.gitignore` files
+  ignore, and every `.gitignore` it consulted. The bridge serves this as the
+  read-only `context` operation, and no absolute host path leaves it. No
+  public CLI verb or Doctor output changed.
+- Workbench service: `project-memory.ts` memoizes that answer by the digest of
+  `.vivary/workspace.toml` and rechecks a fingerprint of every consulted
+  `.gitignore` (a missing one counts) and the file names in each memory
+  folder, so a new rule or a new fact asks the engine again once. It refuses
+  reserved, protected, boundary, ignored, linked, and blocked paths, skips
+  ignored fact files, and renders one block of at most 8,000 characters. Each
+  fact field is clamped to the panel's save limits (title 120, text 500,
+  source 200), so a fact saved in the panel is never cut. Every path in the
+  block is neutralized and bounded. Writes admit folders without reading any
+  fact, law, or state file. `project-files.ts` gains a folder listing, a
+  listed-file read, a content digest, exclusive Create, and version-checked
+  Remove on its mutation queue. A Create that conflicts can leave the empty
+  folders it made.
 - Runs: Code sends put the block before the engine prompt and record
   `projectContextRevision`. Full chat wires `extraContext` and
   `resolveActionSurface`, classified by the send guard's pinned-scope check.

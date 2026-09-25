@@ -236,24 +236,17 @@ async function blockedReason(root: string, requestedPath: string): Promise<Proje
   return decodeText(bytes) === null ? "binary" : "unsupported";
 }
 
-export type FolderRead =
+export type FolderListing =
   | { status: "absent" | "not-folder" | "linked" | "blocked" }
-  | {
-      status: "ready";
-      /** Editable Markdown files directly inside the folder, sorted by path. */
-      files: ProjectFile[];
-      skipped: { path: string; reason: ProjectFileBlockedReason }[];
-      truncated: boolean;
-    };
+  /** Markdown file names directly inside the folder, sorted, links included so a read can report them. */
+  | { status: "ready"; names: string[] };
 
 /**
- * Read the Markdown files directly inside one project folder. The folder and
- * each file are checked the same way the file tree checks them: no links, no
- * hidden or skipped names, and only bounded text. `absent` covers a missing
- * folder or parent. At most `limit` files are considered, in name order.
+ * List the Markdown files directly inside one project folder without
+ * following links. `absent` covers a missing folder or parent. Hidden names
+ * (secret, credential) are left out, as in the file tree.
  */
-export async function readFolder(root: string, folder: string, project: ProjectFileIdentity,
-  limit: number): Promise<FolderRead> {
+export async function listFolder(root: string, folder: string): Promise<FolderListing> {
   let parts: string[];
   try {
     parts = relativeParts(folder);
@@ -279,10 +272,20 @@ export async function readFolder(root: string, folder: string, project: ProjectF
       && path.extname(entry.name).toLowerCase() === ".md" && !isSecretName(entry.name))
     .map(entry => entry.name)
     .sort();
+  return { status: "ready", names };
+}
+
+/**
+ * Read listed files the way the file tree checks them: no links, and only
+ * bounded text. A file that is not readable is skipped with its reason. A
+ * file removed since it was listed is left out.
+ */
+export async function readListedFiles(root: string, paths: readonly string[], project: ProjectFileIdentity): Promise<{
+  files: ProjectFile[]; skipped: { path: string; reason: ProjectFileBlockedReason }[];
+}> {
   const files: ProjectFile[] = [];
   const skipped: { path: string; reason: ProjectFileBlockedReason }[] = [];
-  for (const name of names.slice(0, limit)) {
-    const filePath = `${parts.join("/")}/${name}`;
+  for (const filePath of paths) {
     try {
       const file = await readEditableFile(root, filePath, project);
       if (file) files.push(file);
@@ -292,7 +295,7 @@ export async function readFolder(root: string, folder: string, project: ProjectF
       else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  return { status: "ready", files, skipped, truncated: names.length > limit };
+  return { files, skipped };
 }
 
 /**

@@ -6,20 +6,23 @@ import { projectFileIdSchema, projectFilePathSchema, projectFileVersionSchema } 
 // heading, so the one-line fields refuse them.
 const singleLine = (value: string) => !/[\u0000-\u001f\u007f]/.test(value);
 
+/** Field limits for a fact saved in the panel. The context block renders a fact within them uncut. */
+export const FACT_LIMITS = { title: 120, text: 500, source: 200 } as const;
+
 /** The fact's title. It also names the file once, when the fact is first saved. */
-export const factTitleSchema = z.string().trim().min(1).max(120)
+export const factTitleSchema = z.string().trim().min(1).max(FACT_LIMITS.title)
   .refine(singleLine, "Use one line for the title.")
   .refine(value => !value.startsWith("#"), "Start the title with a word, not #.");
 
 /** The confirmed statement. Markdown is allowed. The cap keeps one fact from crowding out the rest. */
-export const factTextSchema = z.string().trim().min(1).max(2_000);
+export const factTextSchema = z.string().trim().min(1).max(FACT_LIMITS.text);
 
 /**
  * Where the fact came from. Tropo keeps a double-quoted frontmatter value
  * verbatim without unescaping, so quotation marks and backslashes are
  * refused instead of escaped.
  */
-export const factSourceSchema = z.string().trim().min(1).max(200)
+export const factSourceSchema = z.string().trim().min(1).max(FACT_LIMITS.source)
   .refine(singleLine, "Use one line for the source.")
   .refine(value => !/["\\]/.test(value), "Remove quotation marks and backslashes from the source.");
 
@@ -55,18 +58,30 @@ export const WORKSPACE_ROLES = ["law", "map", "record", "memory", "boundary"] as
 export type WorkspaceRole = typeof WORKSPACE_ROLES[number];
 export type WorkspaceRoles = Readonly<Record<WorkspaceRole, readonly string[]>>;
 
-/** Which memory folders the workspace's ignore rules make private, and whether a root .gitignore supplied rules. */
-export type MemoryPrivacy = { policy: "gitignore" | "none"; private: readonly string[] };
+/**
+ * What the workspace's .gitignore rules make private, from the engine.
+ * `private` lists memory folders a new fact would be ignored in, and
+ * `privateFiles` lists ignored law, state, and fact files. `ignoreFiles` names
+ * every .gitignore consulted, existing or not. `policy` is "gitignore" when
+ * any of them exists. `.git/info/exclude` and global Git excludes are not read.
+ */
+export type MemoryPrivacy = {
+  policy: "gitignore" | "none";
+  private: readonly string[];
+  privateFiles: readonly string[];
+  ignoreFiles: readonly string[];
+};
 
 /**
  * The original engine's answer for one project, read through the creator
- * bridge. It depends only on `.vivary/workspace.toml` and ignore-rule bytes.
- * `memory` is always the effective list: the role's paths, or the engine's default.
+ * bridge. `memory` is always the effective list: the role's paths, or the
+ * engine's default. `protected` lists the declared private, runtime, and
+ * capability storage paths, which memory, law, and state never use.
  */
 export type WorkspaceContextPaths =
   | { status: "thin"; roles: WorkspaceRoles; state: string; memory: readonly string[];
-      memoryAssigned: boolean; privacy: MemoryPrivacy }
-  | { status: "plain"; memory: readonly string[]; privacy: MemoryPrivacy }
+      memoryAssigned: boolean; protected: readonly string[]; privacy: MemoryPrivacy }
+  | { status: "plain"; memory: readonly string[]; protected: readonly string[]; privacy: MemoryPrivacy }
   | { status: "invalid"; message: string };
 
 /** The engine's answer, or why Vivary could not ask for it. */
@@ -91,9 +106,11 @@ export type MemoryFact = {
   confirmed: string | null;
   version: string;
   updatedAt: string;
+  /** True when a field is longer than FACT_LIMITS, so agents receive a shortened copy. Only hand edits do this. */
+  shortenedForAgents: boolean;
 };
 
-export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" };
+export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" };
 
 /** The latest message that loaded this project's context in this app session. It is not stored. */
 export type ProjectContextLastLoad = {
@@ -165,8 +182,8 @@ export function storageSentence(view: Pick<ProjectMemoryView, "settings" | "writ
 export function privacySentence(settings: MemorySettings): string | null {
   if (settings.status !== "thin" && settings.status !== "plain") return null;
   return settings.privacy.policy === "gitignore"
-    ? "Vivary does not load or save facts in a folder this project's .gitignore rules ignore."
-    : "This project has no .gitignore, so no memory folder is treated as private.";
+    ? "Vivary does not load or save facts, instructions, or state that this project's .gitignore files ignore."
+    : "No .gitignore file applies to these folders and files, so none of them is treated as private.";
 }
 
 /** Shown before every forget. */

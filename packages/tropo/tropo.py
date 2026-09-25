@@ -797,8 +797,12 @@ def _add_fact_type(composed, workspace_roles):
     Both compose paths call this after every owner table, pack, and overlay
     merged, so private and public checks type the same notes. The default
     folder stays typed after the memory role moves, so facts left there remain
-    valid. The owner wins: an owner FACT_TYPE table, or an owner type already
-    mapped to a fact folder, is kept unchanged.
+    valid. The owner wins: an owner FACT_TYPE table, or an owner type that
+    names a fact folder by its path or its basename, is kept unchanged.
+
+    A role path without `/` is registered as `./<path>`, which type_for
+    matches only at the workspace root. A plain folder name would otherwise
+    type every folder with that basename anywhere in the tree.
     """
     if workspace_roles is None or FACT_TYPE in composed["types"]:
         return composed
@@ -808,11 +812,11 @@ def _add_fact_type(composed, workspace_roles):
         for folder in definition.get("folders", [])
     }
     folders = [
-        folder
+        folder if "/" in folder else f"./{folder}"
         for folder in dict.fromkeys(
             [AUTHORED_MEMORY_DEFAULT, *authored_memory_paths(workspace_roles)]
         )
-        if folder not in mapped
+        if folder not in mapped and os.path.basename(folder) not in mapped
     ]
     if folders:
         _merge_config(
@@ -827,6 +831,7 @@ def workspace_context(config):
 
     `config` is a thin workspace's base Config, or None for a folder without
     thin settings. Every path is workspace-relative. Nothing here reads notes.
+    `protected` lists the declared private, runtime, and capability storage paths.
     """
     workspace_roles = config.workspace_roles if config is not None else None
     if workspace_roles is None:
@@ -836,6 +841,7 @@ def workspace_context(config):
             "state": None,
             "memory": [AUTHORED_MEMORY_DEFAULT],
             "memory_assigned": False,
+            "protected": [],
         }
     roles = workspace_roles["roles"]
     return {
@@ -844,6 +850,9 @@ def workspace_context(config):
         "state": config.workspace_state,
         "memory": authored_memory_paths(workspace_roles),
         "memory_assigned": bool(roles["memory"]),
+        # The declared private, runtime, and capability storage paths. Memory
+        # never uses them, even when the owner edits the boundary role.
+        "protected": list(config.workspace_protected),
     }
 
 
@@ -956,6 +965,7 @@ class Config:
         self.root = root
         self.workspace_roles = copy.deepcopy(data.get("workspace_roles"))
         self.workspace_state = data.get("workspace_state")
+        self.workspace_protected = list(data.get("workspace_protected") or [])
         base = data.get("base", {})
         self.derive = base.get("derive", [])
         self.base_required = base.get("required", {})
@@ -1024,6 +1034,7 @@ def _compose(root, script_dir, config_path=None, *, read_toml=None):
         composed["workspace_state"] = _workspace_relative_path(
             raw["workspace"]["state"], "state"
         )
+        composed["workspace_protected"] = _declared_protected_paths(raw["workspace"])
     return _add_fact_type(composed, workspace_roles)
 
 
@@ -1135,6 +1146,9 @@ def type_for(full, config):
         relative_dir = os.path.relpath(d, root).replace("\\", "/")
         if relative_dir in config.folder_map:
             return config.folder_map[relative_dir]
+        # `./name` keys match only the root-level folder (see _add_fact_type).
+        if f"./{relative_dir}" in config.folder_map:
+            return config.folder_map[f"./{relative_dir}"]
         if os.path.basename(d) in config.folder_map:
             return config.folder_map[os.path.basename(d)]
         if os.path.normcase(os.path.normpath(d)) == os.path.normcase(os.path.normpath(root)):

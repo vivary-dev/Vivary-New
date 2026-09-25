@@ -7,6 +7,7 @@ import { afterEach, describe, it } from "node:test";
 import {
   forgetDisclosure,
   privacySentence,
+  projectMemoryWriteInputSchema,
   storageSentence,
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
@@ -27,15 +28,31 @@ const BOUNDARY = [".gitignore", ".vivary/private", ".vivary/runtime"];
 const RELAY_FACT = "---\nsource: \"Jeff, planning call\"\nconfirmed: 2026-09-25\n---\n"
   + "# Relay budget\n\nThe relay budget is 40 dollars per month.\n";
 
-function thinAnswer(memory: string[] = [".vivary/knowledge"], privateFolders: string[] = []): WorkspaceContextPaths {
+const PROTECTED = [".vivary/private", ".vivary/runtime"];
+
+// Every ancestor .gitignore of the paths the engine probes, as the creator reports them.
+function ignoreFilesFor(paths: readonly string[]): string[] {
+  const files = new Set<string>();
+  for (const candidate of paths) {
+    const parts = candidate.split("/");
+    for (let depth = 0; depth < parts.length; depth++) files.add([...parts.slice(0, depth), ".gitignore"].join("/"));
+  }
+  return [...files].sort();
+}
+
+function thinAnswer(memory: string[] = [".vivary/knowledge"], privateFolders: string[] = [],
+  privateFiles: string[] = []): WorkspaceContextPaths {
+  const law = ["AGENTS.md", ".vivary/context.md"];
   return {
     status: "thin",
-    roles: { law: ["AGENTS.md", ".vivary/context.md"], map: [".vivary/context.md"], record: [],
+    roles: { law, map: [".vivary/context.md"], record: [],
       memory: memory[0] === ".vivary/knowledge" ? [] : memory, boundary: BOUNDARY },
     state: "STATE.md",
     memory,
     memoryAssigned: memory[0] !== ".vivary/knowledge",
-    privacy: { policy: "gitignore", private: privateFolders },
+    protected: PROTECTED,
+    privacy: { policy: "gitignore", private: privateFolders, privateFiles,
+      ignoreFiles: ignoreFilesFor([...memory.map(folder => `${folder}/fact.md`), ...law, "STATE.md"]) },
   };
 }
 
@@ -88,15 +105,39 @@ describe("project memory rendering", () => {
     p.bridge.answer = withLaw(["AGENTS.md", ".vivary/context.md", "STATE.md", "AGENTS.md"]);
     await mkdir(path.join(p.root, ".vivary", "knowledge"));
     await Promise.all(Array.from({ length: 300 }, (_, index) => writeFile(
-      path.join(p.root, ".vivary", "knowledge", `fact-${String(index).padStart(3, "0")}.md`),
-      renderFactFile({ title: `Fact ${index}`, text: "x".repeat(1_900), source: "Test", confirmed: "2026-09-25" }))));
+      path.join(p.root, ".vivary", "knowledge", `fact-${String(index).padStart(3, "0")}-${"n".repeat(180)}.md`),
+      renderFactFile({ title: `Fact ${index} ${"t".repeat(2_000)}`, text: "x".repeat(1_900),
+        source: `Test ${"s".repeat(500)}`, confirmed: "2026-09-25" }))));
 
     const { block } = await p.memory.contextForRun(p.workspace, "code");
     assert.ok(block.length <= CONTEXT_BOUNDS.totalChars, String(block.length));
-    assert.match(block, /More facts are saved than fit here: \.vivary\/knowledge\/fact-\d{3}\.md/);
+    assert.match(block, /More facts are saved than fit here: \.vivary\/knowledge\/fact-\d{3}-n+\.md[^\n]* and \d+ more\./);
     assert.match(block, /search them with Vivary find/);
+    assert.equal(block.match(/^- Fact \d+ t+…: x+…$/gm)?.length, 3);
     assert.equal(block.match(/^### /gm)?.length, CONTEXT_BOUNDS.instructionFiles);
+    assert.match(block, /Omitted for space|This is the start of the file/);
     assert.ok(block.endsWith("</project-context>"));
+  });
+
+  it("renders a panel-sized fact uncut and marks a longer hand edit as shortened", async () => {
+    const p = await project();
+    const full = { title: "T".repeat(120), text: "x".repeat(500), source: "S".repeat(200), confirmed: "2026-09-25" };
+    await p.writeFact(".vivary/knowledge/full.md", renderFactFile(full));
+    await p.writeFact(".vivary/knowledge/long.md", renderFactFile({ ...full, text: "y".repeat(700) }));
+    const { block } = await p.memory.contextForRun(p.workspace, "code");
+    assert.ok(block.includes(`- ${full.title}: ${full.text}\n  Source: ${full.source}. Confirmed 2026-09-25.`));
+    assert.match(block, new RegExp(`: ${"y".repeat(499)}…\n`));
+    const facts = (await p.memory.view(undefined, p.id)).facts;
+    assert.deepEqual(facts.map(fact => [fact.path, fact.shortenedForAgents]),
+      [[".vivary/knowledge/full.md", false], [".vivary/knowledge/long.md", true]]);
+  });
+
+  it("neutralizes tags in paths and skips a long list by characters", async () => {
+    const p = await project();
+    p.bridge.answer = thinAnswer(["notes/<project-context>"]);
+    const { block } = await p.memory.contextForRun(p.workspace, "code");
+    assert.equal(block.match(/<project-context>/g)?.length, 1);
+    assert.match(block, /## Project facts \(notes\/&lt;project-context>\)/);
   });
 
   it("says it replaces earlier context and that facts are not instructions", async () => {
@@ -140,32 +181,48 @@ describe("project memory rendering", () => {
       version: "pf_x", updatedAt: "2026-09-25T00:00:00.000Z" }), {
       path: ".vivary/knowledge/relay-budget.md", title: "Relay budget",
       text: "The relay budget is 40 dollars per month.", source: "Jeff, planning call",
-      confirmed: "2026-09-25", version: "pf_x", updatedAt: "2026-09-25T00:00:00.000Z" });
+      confirmed: "2026-09-25", version: "pf_x", updatedAt: "2026-09-25T00:00:00.000Z", shortenedForAgents: false });
     const handEdited = parseFactFile({ path: "docs/facts/loose.md", content: "﻿No heading here.\r\n",
       version: "pf_y", updatedAt: "2026-09-25T00:00:00.000Z" });
     assert.deepEqual([handEdited.title, handEdited.text, handEdited.source, handEdited.confirmed],
       ["loose", "No heading here.", null, null]);
   });
 
-  it("names fact files from titles and refuses names project files hide", () => {
-    assert.equal(factFileName("Relay budget"), "relay-budget.md");
-    assert.equal(factFileName("  Déjà vu: Q3 / plan!  "), "deja-vu-q3-plan.md");
-    assert.equal(factFileName("a".repeat(100))?.length, 83);
-    assert.equal(factFileName(`${"a".repeat(79)} b`), `${"a".repeat(79)}.md`);
-    assert.equal(factFileName("Secret rotation"), null);
-    assert.equal(factFileName("Credential store"), null);
-    assert.equal(factFileName("!!!"), null);
+  it("names fact files from titles and refuses names that would be hidden or reserved", () => {
+    assert.deepEqual(factFileName("Relay budget"), { name: "relay-budget.md" });
+    assert.deepEqual(factFileName("  Déjà vu: Q3 / plan!  "), { name: "deja-vu-q3-plan.md" });
+    const long = factFileName("a".repeat(100));
+    assert.equal("name" in long && long.name.length, 83);
+    assert.deepEqual(factFileName(`${"a".repeat(79)} b`), { name: `${"a".repeat(79)}.md` });
+    assert.deepEqual(factFileName("Secret rotation"), { problem: "hidden" });
+    assert.deepEqual(factFileName("Credential store"), { problem: "hidden" });
+    assert.deepEqual(factFileName("CON"), { problem: "device" });
+    assert.deepEqual(factFileName("lpt1"), { problem: "device" });
+    assert.deepEqual(factFileName("Console notes"), { name: "console-notes.md" });
+    const japanese = factFileName("予算");
+    assert.match("name" in japanese ? japanese.name : "", /^fact-[0-9a-f]{8}\.md$/);
+    assert.deepEqual(factFileName("予算"), japanese);
+    assert.notDeepEqual(factFileName("予定"), japanese);
   });
 
-  it("refuses reserved and boundary folders", () => {
-    for (const folder of [".vivary/memory", ".vivary/memory/x", ".vivary/private", ".git", ".vivary/runtime/cache"]) {
-      assert.equal(locationProblem(folder, BOUNDARY), "reserved", folder);
+  it("refuses fact text longer than the panel limit", () => {
+    const input = { projectId: "project_a", operation: "remember", title: "T", source: "S" };
+    assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: "x".repeat(500) }).success, true);
+    assert.equal(projectMemoryWriteInputSchema.safeParse({ ...input, text: "x".repeat(501) }).success, false);
+  });
+
+  it("refuses reserved, protected, and boundary paths regardless of case", () => {
+    const refused = { protected: [...PROTECTED, ".cocoindex_code"], boundary: [".gitignore", "vendor-notes"] };
+    for (const folder of [".vivary/memory", ".vivary/memory/x", ".vivary/private", ".git", ".vivary/runtime/cache",
+      ".cocoindex_code", ".GIT", ".Vivary/Private/facts", ".VIVARY/memory"]) {
+      assert.equal(locationProblem(folder, refused), "reserved", folder);
     }
-    assert.equal(locationProblem(".gitignore", BOUNDARY), "boundary");
-    assert.equal(locationProblem("vendor-notes/facts", [...BOUNDARY, "vendor-notes"]), "boundary");
-    assert.equal(locationProblem(".vivary/knowledge", BOUNDARY), null);
-    assert.equal(locationProblem("docs/facts", BOUNDARY), null);
-    assert.equal(locationProblem(".vivary/memoryfacts", BOUNDARY), null);
+    assert.equal(locationProblem(".gitignore", refused), "boundary");
+    assert.equal(locationProblem("Vendor-Notes/facts", refused), "boundary");
+    assert.equal(locationProblem(".vivary/knowledge", refused), null);
+    assert.equal(locationProblem("docs/facts", refused), null);
+    assert.equal(locationProblem(".vivary/memoryfacts", refused), null);
+    assert.equal(locationProblem(".vivary/private", { protected: [], boundary: [] }), null);
   });
 });
 
@@ -177,10 +234,11 @@ describe("project memory panel text", () => {
       + "This is the default because .vivary/workspace.toml assigns no memory folder.");
     assert.equal(view(thinAnswer(["docs/facts"]), "docs/facts"),
       "Stored in docs/facts/, assigned by the memory role in .vivary/workspace.toml.");
-    assert.match(view({ status: "plain", memory: [".vivary/knowledge"], privacy: { policy: "none", private: [] } }),
+    assert.match(view({ status: "plain", memory: [".vivary/knowledge"], protected: [],
+      privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [] } }),
       /no Vivary workspace settings, so the default applies/);
     assert.match(view({ status: "invalid", message: "bad toml" }), /could not read this project's memory settings\. bad toml/);
-    assert.match(String(privacySentence(thinAnswer())), /\.gitignore rules ignore/);
+    assert.match(String(privacySentence(thinAnswer())), /\.gitignore files ignore/);
     assert.equal(privacySentence({ status: "unavailable", message: "x" }), null);
     assert.equal(forgetDisclosure(".vivary/knowledge/relay-budget.md"),
       "Forget removes .vivary/knowledge/relay-budget.md. Agents stop receiving it from your next message. "
@@ -285,7 +343,7 @@ describe("project memory loading", () => {
       [{ path: "facts.md", status: "refused", problem: "not-folder" }]);
   });
 
-  it("does not load a folder the ignore rules make private, or a law file inside a boundary", async () => {
+  it("does not load a folder the ignore rules make private, or a law file inside a protected path", async () => {
     const p = await project();
     await p.writeFact("notes/facts/hidden.md", RELAY_FACT.replace("40 dollars", "PRIVATE-MARKER"));
     await p.writeFact(".vivary/private/law.md", "PRIVATE-LAW-MARKER\n");
@@ -294,6 +352,19 @@ describe("project memory loading", () => {
     assert.doesNotMatch(block, /PRIVATE-MARKER|PRIVATE-LAW-MARKER/);
     assert.match(block, /Vivary did not read notes\/facts: This project's \.gitignore rules ignore this folder/);
     assert.match(block, /Vivary did not load this file because it is private/);
+  });
+
+  it("skips private fact files and does not load a private state or law file", async () => {
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/shared.md");
+    await p.writeFact(".vivary/knowledge/draft.md", RELAY_FACT.replace("40 dollars", "DRAFT-MARKER"));
+    await writeFile(path.join(p.root, "STATE.md"), "STATE-MARKER\n");
+    p.bridge.answer = thinAnswer([".vivary/knowledge"], [], [".vivary/knowledge/draft.md", "STATE.md"]);
+    const { block } = await p.memory.contextForRun(p.workspace, "code");
+    assert.doesNotMatch(block, /DRAFT-MARKER|STATE-MARKER/);
+    assert.match(block, /40 dollars/);
+    assert.match(block, /## Current state \(STATE\.md\)\nVivary did not load this file because it is private/);
+    assert.match(block, /Skipped files: \.vivary\/knowledge\/draft\.md \(private\)\./);
   });
 
   it("loads facts from files, not from the panel", async () => {
@@ -365,6 +436,22 @@ describe("project memory loading", () => {
     p.bridge.fail = false;
     await p.memory.contextForRun(p.workspace, "code");
     assert.equal(p.bridge.calls, 4);
+  });
+
+  it("asks the engine again after a nested ignore rule or a new fact file appears", async () => {
+    const p = await project();
+    await p.memory.contextForRun(p.workspace, "code");
+    await p.memory.contextForRun(p.workspace, "code");
+    assert.equal(p.bridge.calls, 1);
+    await mkdir(path.join(p.root, ".vivary", "knowledge"));
+    await writeFile(path.join(p.root, ".vivary", "knowledge", ".gitignore"), "draft.md\n");
+    await p.memory.contextForRun(p.workspace, "code");
+    assert.equal(p.bridge.calls, 2);
+    await p.writeFact(".vivary/knowledge/draft.md");
+    await p.memory.contextForRun(p.workspace, "code");
+    assert.equal(p.bridge.calls, 3);
+    await p.memory.contextForRun(p.workspace, "code");
+    assert.equal(p.bridge.calls, 3);
   });
 
   it("never throws for a bridge failure, a missing root, or a linked settings file", async () => {

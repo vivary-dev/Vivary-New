@@ -134,7 +134,9 @@ test("workspace context reads the engine answer through the shipped bridge", asy
   try {
     process.chdir(workbenchRoot);
     assert.deepEqual(await readWorkspaceContext(folder), {
-      status: "plain", memory: [".vivary/knowledge"], privacy: { policy: "none", private: [] },
+      status: "plain", memory: [".vivary/knowledge"], protected: [],
+      privacy: { policy: "none", private: [], privateFiles: [],
+        ignoreFiles: [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"] },
     });
   } finally {
     process.chdir(originalCwd);
@@ -147,7 +149,8 @@ test("workspace context passes invalid settings through and refuses an unexpecte
   assert.deepEqual(await readWorkspaceContext("/project", answer({ status: "invalid", message: "bad toml" })),
     { status: "invalid", message: "bad toml" });
   await assert.rejects(readWorkspaceContext("/project", answer({ status: "plain", roles: null, state: null,
-    memory: ["../outside"], memory_assigned: false, privacy_policy: "none", private: [] })));
+    memory: ["../outside"], memory_assigned: false, protected: [], privacy_policy: "none", private: [],
+    private_files: [], ignore_files: [] })));
   await assert.rejects(readWorkspaceContext("/project", { runCreator: async () => ({ code: "refused" }) }),
     /settings reader is unavailable/);
 });

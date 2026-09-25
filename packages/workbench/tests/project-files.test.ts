@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { createProjectFileService, readFolder } from "../server/project-files.ts";
+import { createProjectFileService, listFolder, readListedFiles } from "../server/project-files.ts";
 import {
   projectFileRenameInputSchema,
   projectFileSaveInputSchema,
@@ -331,7 +331,7 @@ describe("project file boundary", () => {
     assert.equal(await readFile(path.join(f.root, "fact.md"), "utf8"), "again\n");
   });
 
-  it("readFolder skips links, hardlinks, secret names, binaries, and oversize files", async () => {
+  it("listFolder and readListedFiles skip links, hardlinks, secret names, binaries, and oversize files", async () => {
     const f = await fixture();
     const project = { projectId: "project_a", label: "Example", rootId: "root_a", bindingId: "binding_a",
       bindingRevision: 1, policyRevision: 1 };
@@ -348,9 +348,11 @@ describe("project file boundary", () => {
     await writeFile(path.join(f.root, "twin.md"), "twin\n");
     await link(path.join(f.root, "twin.md"), path.join(folder, "twin.md"));
 
-    const read = await readFolder(f.root, "facts", project, 10);
-    assert.equal(read.status, "ready");
-    if (read.status !== "ready") return;
+    const listing = await listFolder(f.root, "facts");
+    assert.deepEqual(listing, { status: "ready",
+      names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "linked.md", "twin.md"] });
+    if (listing.status !== "ready") return;
+    const read = await readListedFiles(f.root, listing.names.map(name => `facts/${name}`), project);
     assert.deepEqual(read.files.map(file => file.path), ["facts/a-fact.md", "facts/b-fact.md"]);
     assert.deepEqual(read.skipped, [
       { path: "facts/binary.md", reason: "binary" },
@@ -358,18 +360,15 @@ describe("project file boundary", () => {
       { path: "facts/linked.md", reason: "linked" },
       { path: "facts/twin.md", reason: "linked" },
     ]);
-    assert.equal(read.truncated, false);
-    const capped = await readFolder(f.root, "facts", project, 1);
-    assert.equal(capped.status === "ready" && capped.truncated, true);
 
     const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
     roots.push(outside);
     await symlink(outside, path.join(f.root, "linked-facts"), "dir");
-    assert.deepEqual(await readFolder(f.root, "linked-facts", project, 10), { status: "linked" });
-    assert.deepEqual(await readFolder(f.root, "missing/facts", project, 10), { status: "absent" });
-    assert.deepEqual(await readFolder(f.root, "outside.md", project, 10), { status: "not-folder" });
-    assert.deepEqual(await readFolder(f.root, "outside.md/facts", project, 10), { status: "not-folder" });
-    assert.deepEqual(await readFolder(f.root, "credentials/facts", project, 10), { status: "blocked" });
+    assert.deepEqual(await listFolder(f.root, "linked-facts"), { status: "linked" });
+    assert.deepEqual(await listFolder(f.root, "missing/facts"), { status: "absent" });
+    assert.deepEqual(await listFolder(f.root, "outside.md"), { status: "not-folder" });
+    assert.deepEqual(await listFolder(f.root, "outside.md/facts"), { status: "not-folder" });
+    assert.deepEqual(await listFolder(f.root, "credentials/facts"), { status: "blocked" });
   });
 
   it("rejects reads when the project binding changes before return", async () => {

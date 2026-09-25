@@ -5215,6 +5215,30 @@ def test_owner_type_on_folder_wins(tmp_path):
     assert tropo.FACT_TYPE not in config.types
 
 
+def test_owner_type_on_memory_basename_wins(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        memory='["docs/facts"]',
+        types='[types.decision]\nfolder = "facts"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge"]
+    assert tropo.type_for(str(tmp_path / "docs" / "facts" / "x.md"), config) == "decision"
+
+
+def test_slash_free_memory_path_types_only_the_root_folder(tmp_path):
+    _write_fact_workspace(tmp_path, memory='["facts"]')
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge", "./facts"]
+    assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == tropo.FACT_TYPE
+    assert tropo.type_for(str(tmp_path / "tests" / "facts" / "x.md"), config) is None
+    _write_fact(tmp_path, "facts", "root-fact.md")
+    (tmp_path / "tests" / "facts").mkdir(parents=True)
+    (tmp_path / "tests" / "facts" / "x.md").write_text("# Not a fact\n", encoding="utf-8")
+    assert _fact_check(tmp_path)["findings"] == []
+
+
 def test_owner_defined_fact_type_wins(tmp_path):
     _write_fact_workspace(
         tmp_path,
@@ -5248,6 +5272,7 @@ def test_workspace_context_thin_and_plain(tmp_path):
         "state": "STATE.md",
         "memory": ["docs/facts"],
         "memory_assigned": True,
+        "protected": [".vivary/private", ".vivary/runtime"],
     }
     assert tropo.workspace_context(None) == {
         "status": "plain",
@@ -5255,6 +5280,7 @@ def test_workspace_context_thin_and_plain(tmp_path):
         "state": None,
         "memory": [".vivary/knowledge"],
         "memory_assigned": False,
+        "protected": [],
     }
 
 
