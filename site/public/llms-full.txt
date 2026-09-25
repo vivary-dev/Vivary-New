@@ -7222,6 +7222,12 @@ remain part of this canonical design. Tests, the built reader, and source-link
 checks establish the maintenance and navigation changes. Final Windows read-tool
 acceptance remains with issue #19.
 
+The multi-project evidence brief now links to stable architecture sections and
+the owning Core, Exo, front-door, capability-status, and MCP contracts. Those
+references replace line ranges invalidated by this consolidation. The linked
+contracts and dispatch source confirm the same package boundaries. This reference
+repair changes no runtime behavior or acceptance claim.
+
 
 ---
 
