@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: branch `feat/scoped-file-memory`. No pull request is open, and the work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The pre-merge review fixes after them are covered by unit tests until the hosted journey and the Codex check run again on them. The work is not accepted.
 
 ## Result
 
@@ -17,7 +17,8 @@ names. Tropo types it as `vivary_fact`. The Memory section in Project details
 remembers, corrects, and forgets facts through their files. Code and Full chat
 load the project's instructions, state, and facts at the start of every
 message. Project chats lose Native's owner-wide `resources`, `save-memory`,
-`delete-memory`, and `chat-history` tools. Personal chats keep them.
+`delete-memory`, and `chat-history` tools and its database tools `db-schema`,
+`db-query`, `db-exec`, and `db-patch`. Personal and legacy chats keep them.
 
 ## Hosted journey
 
@@ -88,6 +89,29 @@ sends the full block. Only the Full chat block names Native's owner-wide tools.
 The revision is the SHA-256 of the Code form of the block, so Code and Full chat
 loads of the same content share one revision. The hosted journey and the Codex
 check above ran on this commit.
+
+## Pre-merge review fixes
+
+A pre-merge review of PR #93 and the Codex GitHub reviewer found issues that
+the next commits fix. The hosted journey and Codex check above predate them,
+and unit tests cover them until those checks run again:
+
+- Project chats also lose Native's database tools, which could read the
+  owner-scoped resources table.
+- Memory privacy fails closed. A positive `.gitignore` rule matches without
+  regard to case, including letter-bracket rules, and Remember checks the
+  exact new file name against the rules. Correct and Forget refuse an ignored
+  fact file. Doctor's own matching is unchanged.
+- A resumed Codex thread gets the full block every turn, like Claude. The
+  unchanged-line branch and its revision rollback are removed.
+- The context cache is reused only when the files it depends on did not change
+  around the engine call, and invalid answers are never cached.
+- The block escapes control characters in paths, reserves room for
+  instructions, bounds every path list, names law files past the first three,
+  and says facts come from files that anyone who can write to the project can
+  change.
+- A locked or unreadable fact file becomes a skipped entry or a fixed message,
+  and non-portable Windows paths are refused.
 
 ## Not run
 

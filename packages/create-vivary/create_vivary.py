@@ -1904,15 +1904,23 @@ def _doctor_config_context(target: Path, root: Path):
     return tropo, resolver
 
 
-def workspace_context(target: str | Path, *, repo_root: str | Path | None = None) -> dict:
+def workspace_context(
+    target: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    candidates: list[str] | tuple[str, ...] = (),
+) -> dict:
     """Return the paths an agent reads when a run starts, for the Workbench.
 
     The answer is Tropo's `workspace_context` for this folder plus the privacy
-    facts the Workbench needs (see `_context_privacy`). A thin config Tropo
-    refuses returns {"status": "invalid", "message": ...} without any host
-    path. Reads configuration, ignore files, and memory folder listings only:
-    no note bodies, no writes, no receipt.
+    facts the Workbench needs (see `_context_privacy`). `candidates` are
+    workspace-relative files the Workbench is about to create, such as a new
+    fact file; `private_candidates` lists the ones the ignore rules would
+    ignore. A thin config Tropo refuses returns {"status": "invalid",
+    "message": ...} without any host path. Reads configuration, ignore files,
+    and memory folder listings only: no note bodies, no writes, no receipt.
     """
+    candidates = _context_candidates(candidates)
     root = (Path(repo_root) if repo_root is not None else default_repo_root()).resolve()
     target = Path(target).resolve()
     tropo = _load_tropo(root)
@@ -1924,7 +1932,30 @@ def workspace_context(target: str | Path, *, repo_root: str | Path | None = None
             context = tropo.workspace_context(resolver.base)
         except (tropo.ConfigError, OSError, TypeError, AttributeError) as exc:
             return {"status": "invalid", "message": _without_host_paths(str(exc), target)}
-    return {**context, **_context_privacy(target, context)}
+    return {
+        **context,
+        **_context_privacy(target, context),
+        "private_candidates": [path for path in candidates if _memory_probe_is_ignored(target, path)],
+    }
+
+
+_CONTEXT_MAX_CANDIDATES = 16
+
+
+def _context_candidates(candidates) -> list[str]:
+    """Validate the Workbench's candidate paths: a few workspace-relative paths."""
+    if not isinstance(candidates, (list, tuple)) or len(candidates) > _CONTEXT_MAX_CANDIDATES:
+        raise ValueError("context candidates must be a short list")
+    checked = []
+    for candidate in candidates:
+        if not isinstance(candidate, str) or len(candidate) > 1_000:
+            raise ValueError("context candidates must be relative paths")
+        parts = candidate.split("/")
+        if (candidate.startswith("/") or "\\" in candidate or re.match(r"^[A-Za-z]:", candidate)
+                or any(part in ("", ".", "..") for part in parts)):
+            raise ValueError("context candidates must stay inside the workspace")
+        checked.append(candidate)
+    return checked
 
 
 # An absolute POSIX or Windows path that is not part of a relative path or a URL.
@@ -1952,8 +1983,9 @@ def _context_privacy(target: Path, context: dict) -> dict:
       on their bytes, so a new or edited rule is picked up.
     - `privacy_policy`: "gitignore" when any of those files exists.
 
-    The check uses the pure predicate Doctor trusts, so it needs no Git. It
-    does not read `.git/info/exclude` or global Git excludes.
+    The check uses Doctor's pure .gitignore walk, so it needs no Git, but
+    with a fail-closed matcher (`_memory_ignored_by_rules`). It does not read
+    `.git/info/exclude` or global Git excludes.
     """
     folders = list(context["memory"])
     roles = context.get("roles") or {}
@@ -1969,8 +2001,8 @@ def _context_privacy(target: Path, context: dict) -> dict:
         "privacy_policy": ("gitignore" if any(
             (target / name).is_file() and not _is_symlink_or_junction(target / name) for name in ignore_files)
             else "none"),
-        "private": [folder for folder in folders if _probe_is_ignored(target, f"{folder}/fact.md")],
-        "private_files": sorted({path for path in [*files, *listed] if _probe_is_ignored(target, path)}),
+        "private": [folder for folder in folders if _memory_probe_is_ignored(target, f"{folder}/fact.md")],
+        "private_files": sorted({path for path in [*files, *listed] if _memory_probe_is_ignored(target, path)}),
         "ignore_files": ignore_files,
     }
 
@@ -2921,6 +2953,7 @@ def _probe_is_ignored(
     include_nested: bool = True,
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
     root_rules: tuple[tuple[str, bool, str], ...] | None = None,
+    matcher=None,
 ) -> bool:
     """Whether Git would ignore `rel_path` in this workspace.
 
@@ -2933,19 +2966,46 @@ def _probe_is_ignored(
     deeper negation cannot re-include the file.
 
     `extra_root_rules` simulates lines a repair would append to the root file.
+    `matcher` decides one path against the collected rules. Doctor uses
+    `_ignored_by_rules`.
     """
+    matcher = matcher or _ignored_by_rules
     rel_path = rel_path.replace("\\", "/")
     rules = (_privacy_rules_at_base(target, "") if root_rules is None else list(root_rules)) + list(extra_root_rules)
     if not include_nested:
-        return _ignored_by_rules(rules, rel_path)
+        return matcher(rules, rel_path)
 
     parts = rel_path.split("/")
     for depth in range(1, len(parts)):
         base = "/".join(parts[:depth])
-        if _ignored_by_rules(rules, base):
+        if matcher(rules, base):
             return True
         rules.extend(_privacy_rules_at_base(target, base))
-    return _ignored_by_rules(rules, rel_path)
+    return matcher(rules, rel_path)
+
+
+def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) -> bool:
+    """A fail-closed twin of `_ignored_by_rules` for authored memory.
+
+    Doctor must never call a private file safe, so it skips rules it cannot
+    trust. Memory must never load or save an ignored file, so it errs the
+    other way: a positive rule matches regardless of case, as Git does with
+    `core.ignorecase` on Windows and macOS, including letter-bracket rules.
+    A negation re-includes only on an exact-case match without letter
+    brackets.
+    """
+    ignored = False
+    for base, negated, pattern in rules:
+        if negated:
+            if not _has_case_sensitive_bracket(pattern) and _ignore_rule_matches(base, pattern, rel_path):
+                ignored = False
+        elif _ignore_rule_matches(base, pattern, rel_path, fold_case=True):
+            ignored = True
+    return ignored
+
+
+def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
+    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules)
 
 
 def _strip_unescaped_trailing_spaces(line: str) -> str:

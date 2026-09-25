@@ -325,10 +325,12 @@ fail closed.
 
 `workspace_context(target)` is the read the Vivary Workbench makes before each agent
 message. It returns Tropo's roles, state file, memory folders, and protected paths,
-plus the memory folders, law and state files, and fact files that the workspace's
-`.gitignore` files ignore, and the `.gitignore` files it consulted. It uses the same
-pure ignore predicate as Doctor, so it needs no Git. It does not read
-`.git/info/exclude` or global Git excludes. An invalid config is returned as data
+plus the memory folders, law and state files, fact files, and optional candidate
+files that the workspace's `.gitignore` files ignore, and the `.gitignore` files it
+consulted. It walks the same pure ignore rules as Doctor, so it needs no Git, but
+matches fail-closed: a positive rule matches without regard to case, letter-bracket
+rules included, and a negation re-includes only on an exact match. Doctor keeps its
+own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
 without host paths. It writes nothing and records no receipt.
 
 MCP is optional. When selected, it is local stdio and read-only by default.

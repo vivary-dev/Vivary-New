@@ -142,18 +142,24 @@ const defaultContextDependencies: NativeChatContextDependencies = {
     const workspace = await resolveLocalProjectWorkspace(context, projectId);
     const load = await projectMemory.renderForRun(workspace, "full-chat");
     // extraContext runs only for a send the guard admitted, so this message is being sent.
-    projectMemory.recordLoad(workspace.projectId, load, "full-chat");
+    projectMemory.recordLoad(workspace, load, "full-chat");
     return load.block;
   },
 };
 
 /**
- * Native actions that read or write owner-wide memory, resources, or chat
- * history. Their stores have no project column, so a project chat has no
- * grant for them. A test pins each name against Native's registry, so a
- * rename there fails instead of silently exposing owner-wide data again.
+ * Native actions that reach owner-wide data: memory and resources, chat
+ * history, and the SQL database tools, which can read the owner-scoped
+ * resources table and other threads. None of these stores has a project
+ * column, so a project chat has no grant for them. Tests pin the names
+ * against Native's registry and against the database entries Native builds,
+ * so a rename or a new database tool fails instead of silently exposing
+ * owner-wide data again.
  */
-export const OWNER_WIDE_ACTIONS = ["resources", "save-memory", "delete-memory", "chat-history"] as const;
+export const OWNER_WIDE_ACTIONS = [
+  "resources", "save-memory", "delete-memory", "chat-history",
+  "db-schema", "db-query", "db-exec", "db-patch",
+] as const;
 
 /**
  * Native `extraContext`, run on every send after the guard. A project chat

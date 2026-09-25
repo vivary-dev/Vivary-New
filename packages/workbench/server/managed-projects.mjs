@@ -147,6 +147,7 @@ const memoryPrivacy = {
   private: rolePaths,
   private_files: z.array(workspaceRelativePath).max(4_000),
   ignore_files: z.array(workspaceRelativePath).max(4_000),
+  private_candidates: z.array(workspaceRelativePath).max(16),
 };
 // The creator's answer is parsed here, so project memory can trust its shape.
 const workspaceContextAnswer = z.discriminatedUnion("status", [
@@ -167,17 +168,20 @@ const workspaceContextAnswer = z.discriminatedUnion("status", [
 
 /**
  * The engine's context paths for one project root that project services
- * already admitted. This function does not authorize. It throws when the
- * bridge is unavailable or its answer does not parse, and the caller reports
- * that as unavailable settings.
+ * already admitted. This function does not authorize. `candidates` are
+ * workspace-relative files about to be created, checked against the ignore
+ * rules. It throws when the bridge is unavailable or its answer does not
+ * parse, and the caller reports that as unavailable settings.
  */
-export async function readWorkspaceContext(root, dependencies = {}) {
-  const result = await (dependencies.runCreator ?? runCreator)({ operation: "context", target: root }, dependencies);
+export async function readWorkspaceContext(root, candidates = [], dependencies = {}) {
+  const request = { operation: "context", target: root, ...(candidates.length > 0 ? { candidates } : {}) };
+  const result = await (dependencies.runCreator ?? runCreator)(request, dependencies);
   if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
   const answer = workspaceContextAnswer.parse(result.context);
   if (answer.status === "invalid") return answer;
   const privacy = { policy: answer.privacy_policy, private: answer.private,
-    privateFiles: answer.private_files, ignoreFiles: answer.ignore_files };
+    privateFiles: answer.private_files, ignoreFiles: answer.ignore_files,
+    privateCandidates: answer.private_candidates };
   return answer.status === "thin"
     ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
       memoryAssigned: answer.memory_assigned, protected: answer.protected, privacy }

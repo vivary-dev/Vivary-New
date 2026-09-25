@@ -103,6 +103,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   Windows acceptance, a real phone, and optional semantic providers have not run. The
   work is not accepted.
 
+- 2026-09-25: PR #93 is open. Pre-merge review fixes deny Native's database tools in project
+  chats, make memory privacy fail closed, send the full block on every Codex turn, and harden
+  the cache, the block bounds, and Windows paths. Unit tests cover them until the hosted journey
+  runs again.
+
 ## Shared desktop and web behavior
 
 Memory save, recall, correction, and removal controls must work through desktop and narrow browser sessions. Memory remains in files on the connected host, with existing project and agent identity boundaries.

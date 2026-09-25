@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
-import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { createProjectFileService, listFolder, readListedFiles } from "../server/project-files.ts";
+import {
+  createProjectFileService,
+  listFolder,
+  ProjectFileLockedError,
+  readEditableFile,
+  readListedFiles,
+} from "../server/project-files.ts";
 import {
   projectFileRenameInputSchema,
   projectFileSaveInputSchema,
@@ -348,9 +354,11 @@ describe("project file boundary", () => {
     await writeFile(path.join(f.root, "twin.md"), "twin\n");
     await link(path.join(f.root, "twin.md"), path.join(folder, "twin.md"));
 
-    const listing = await listFolder(f.root, "facts");
+    const listing = await listFolder(f.root, "facts", 10);
     assert.deepEqual(listing, { status: "ready",
-      names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "linked.md", "twin.md"] });
+      names: ["a-fact.md", "b-fact.md", "binary.md", "large.md", "linked.md", "twin.md"], truncated: false });
+    assert.deepEqual(await listFolder(f.root, "facts", 2), { status: "ready", names: ["a-fact.md", "b-fact.md"],
+      truncated: true });
     if (listing.status !== "ready") return;
     const read = await readListedFiles(f.root, listing.names.map(name => `facts/${name}`), project);
     assert.deepEqual(read.files.map(file => file.path), ["facts/a-fact.md", "facts/b-fact.md"]);
@@ -364,11 +372,65 @@ describe("project file boundary", () => {
     const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
     roots.push(outside);
     await symlink(outside, path.join(f.root, "linked-facts"), "dir");
-    assert.deepEqual(await listFolder(f.root, "linked-facts"), { status: "linked" });
-    assert.deepEqual(await listFolder(f.root, "missing/facts"), { status: "absent" });
-    assert.deepEqual(await listFolder(f.root, "outside.md"), { status: "not-folder" });
-    assert.deepEqual(await listFolder(f.root, "outside.md/facts"), { status: "not-folder" });
-    assert.deepEqual(await listFolder(f.root, "credentials/facts"), { status: "blocked" });
+    assert.deepEqual(await listFolder(f.root, "linked-facts", 10), { status: "linked" });
+    assert.deepEqual(await listFolder(f.root, "missing/facts", 10), { status: "absent" });
+    assert.deepEqual(await listFolder(f.root, "outside.md", 10), { status: "not-folder" });
+    assert.deepEqual(await listFolder(f.root, "outside.md/facts", 10), { status: "not-folder" });
+    assert.deepEqual(await listFolder(f.root, "credentials/facts", 10), { status: "blocked" });
+  });
+
+  it("skips a fact file another program holds open instead of failing the read", async () => {
+    const f = await fixture();
+    const project = { projectId: "project_a", label: "Example", rootId: "root_a", bindingId: "binding_a",
+      bindingRevision: 1, policyRevision: 1 };
+    await mkdir(path.join(f.root, "facts"));
+    await writeFile(path.join(f.root, "facts", "open.md"), "# Open\n");
+    await writeFile(path.join(f.root, "facts", "free.md"), "# Free\n");
+    const read = await readListedFiles(f.root, ["facts/open.md", "facts/free.md"], project,
+      async (root, requested, identity) => {
+        if (requested === "facts/open.md") throw Object.assign(new Error(`EBUSY: ${root}/facts/open.md`), { code: "EBUSY" });
+        return readEditableFile(root, requested, identity);
+      });
+    assert.deepEqual(read.files.map(file => file.path), ["facts/free.md"]);
+    assert.deepEqual(read.skipped, [{ path: "facts/open.md", reason: "unreadable" }]);
+  });
+
+  it("retries a locked unlink or rename, then refuses with a fixed message", async () => {
+    const f = await fixture();
+    await writeFile(path.join(f.root, "fact.md"), "fact\n");
+    let attempts = 0;
+    const locked = Object.assign(new Error(`EBUSY: resource busy, unlink '${f.root}/fact.md'`), { code: "EBUSY" });
+    const always = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+      bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }),
+    { unlink: async () => { attempts += 1; throw locked; }, rename });
+    const opened = await always.get(undefined, "project_a", "fact.md");
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    await assert.rejects(always.remove(undefined, { projectId: "project_a", path: "fact.md",
+      expectedVersion: opened.file.version }), (error: Error) => error instanceof ProjectFileLockedError
+      && !error.message.includes(f.root));
+    assert.equal(attempts, 4);
+    assert.equal(await readFile(path.join(f.root, "fact.md"), "utf8"), "fact\n");
+
+    let flaky = 0;
+    const eventually = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+      bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }),
+    { unlink: async target => { flaky += 1; if (flaky < 3) throw locked; return unlink(target); }, rename });
+    const removed = await eventually.remove(undefined, { projectId: "project_a", path: "fact.md",
+      expectedVersion: opened.file.version });
+    assert.equal(removed.code, "removed");
+    assert.equal(flaky, 3);
+  });
+
+  it("create removes the folders it made when it then refuses", async () => {
+    const f = await fixture();
+    let calls = 0;
+    // The binding changes after the create made its folders.
+    const moving = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+      bindingId: "binding_a", rootId: "root_a", bindingRevision: ++calls < 3 ? 1 : 2, policyRevision: 1 }));
+    const result = await moving.create(undefined, { projectId: "project_a", path: "new/deeper/fact.md", content: "x\n" });
+    assert.equal(result.code === "conflict" && result.reason, "project-changed");
+    await assert.rejects(lstat(path.join(f.root, "new")), { code: "ENOENT" });
   });
 
   it("rejects reads when the project binding changes before return", async () => {

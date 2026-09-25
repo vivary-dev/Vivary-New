@@ -191,13 +191,41 @@ test("a request-scoped surface changes only trusted code execution, which Full c
   assert.equal("codeExecution" in vivaryNativeChatProjectOptions, false);
 });
 
-test("owner-wide action names match Native's resource and chat entries", async () => {
+// The framework action names Native registers, read from its installed source,
+// and the database tools its database entry builder can add.
+async function nativeFrameworkActions(): Promise<{ registered: Set<string>; database: Set<string> }> {
   const entries = new URL("./agent-chat/script-entries.js", import.meta.resolve("@agent-native/core/server"));
   const source = await readFile(entries, "utf8");
-  for (const name of OWNER_WIDE_ACTIONS) {
-    const key = name.includes("-") ? `"${name}"` : name;
-    assert.ok(source.split("\n").some(line => line.startsWith(`            ${key}: `)), name);
+  const registered = new Set([...source.matchAll(/^ {12}(?:"([a-z-]+)"|([a-z]+)): (?:wrapCliScript\(|\{)/gm)]
+    .map(match => match[1] ?? match[2]));
+  const builder = source.slice(source.indexOf("export async function createDbScriptEntries"),
+    source.indexOf("export async function createDocsScriptEntries"));
+  const database = new Set([...builder.matchAll(/(?:^ {12}"|entries\[")(db-[a-z-]+)"/gm)].map(match => match[1]));
+  for (const name of database) registered.add(name);
+  return { registered, database };
+}
+
+test("owner-wide action names match Native's resource, chat, and database entries", async () => {
+  const { registered, database } = await nativeFrameworkActions();
+  assert.deepEqual([...database].sort(), ["db-exec", "db-patch", "db-query", "db-schema"]);
+  for (const name of OWNER_WIDE_ACTIONS) assert.ok(registered.has(name), name);
+  for (const name of database) assert.ok(OWNER_WIDE_ACTIONS.some(denied => denied === name), name);
+});
+
+test("a project chat's resolved surface keeps no owner-wide or database tool Native registers", async () => {
+  const { registered } = await nativeFrameworkActions();
+  const available = ["vivary-project-read", ...registered];
+  const resolve = (match: ChatScopeMatch) => createVivaryNativeChatActionSurface({
+    getOrgId: () => orgId, matchChatProject: async () => match,
+  })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
+  const project = await resolve(projectMatch);
+  assert.ok("allowedActionNames" in project);
+  if (!("allowedActionNames" in project)) return;
+  for (const name of ["resources", "save-memory", "delete-memory", "chat-history", "db-schema", "db-query", "db-exec", "db-patch"]) {
+    assert.equal(project.allowedActionNames.includes(name), false, name);
   }
+  assert.ok(project.allowedActionNames.includes("vivary-project-read"));
+  assert.deepEqual(await resolve({ kind: "personal" }), { mode: "default" });
 });
 
 test("the Native chat plugin uses the project guard, context, and action surface", async () => {

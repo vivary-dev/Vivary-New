@@ -134,6 +134,11 @@ class ManagedProjectBridgeTests(unittest.TestCase):
             self.assertEqual(answer["context"]["memory"], [".vivary/knowledge"])
             self.assertEqual(answer["context"]["state"], "STATE.md")
             self.assertNotIn(temporary, json.dumps(answer))
+            (target / ".gitignore").write_text(
+                (target / ".gitignore").read_text(encoding="utf-8") + "draft-*\n", encoding="utf-8")
+            checked = managed_request({"operation": "context", "target": str(target),
+                                       "candidates": [".vivary/knowledge/draft-a.md", ".vivary/knowledge/a.md"]})
+            self.assertEqual(checked["context"]["private_candidates"], [".vivary/knowledge/draft-a.md"])
 
             bridge = SERVER / "managed_project_workspace.py"
             result = subprocess.run(

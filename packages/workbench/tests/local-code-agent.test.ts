@@ -10,7 +10,6 @@ import {
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
-  updateCodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "@agent-native/core/code-agents";
 import codeStateAction from "../actions/vivary-code-state.ts";
@@ -520,7 +519,7 @@ process.send({type:"vivary:code-worker:ready"});
       readWorkspaceContext: async () => ({ status: "thin", roles: { law: ["AGENTS.md"], map: [], record: [],
         memory: [], boundary: [".gitignore"] }, state: "STATE.md", memory: [".vivary/knowledge"],
         memoryAssigned: false, protected: [],
-        privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [".gitignore"] } }),
+        privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [".gitignore"], privateCandidates: [] } }),
     });
     const workspace = { root, label: "Relay", projectId: "relay", bindingId: "relay-binding", rootId: "relay-root",
       bindingRevision: 1, policyRevision: 1, actorId: "actor", locationRef: "loc",
@@ -568,14 +567,7 @@ process.send({type:"vivary:code-worker:ready"});
       assert.deepEqual(users().map(event => event.message), ["What is the relay budget?"]);
       const [firstRevision] = recorded;
       assert.match(firstRevision, /^ctx-[0-9a-f]{12}$/);
-      // The turn was stopped before any engine finished it, so its revision is rolled
-      // back and a resumed Codex thread would get the full block next time.
-      const stopped = getCodeAgentRunRecord(first.id)!;
-      assert.equal(stopped.metadata?.projectContextRevision, undefined);
-      assert.match(buildVivaryCodeExecutionPrompt({ ...stopped, metadata: { ...stopped.metadata, codexSessionId: "thread-1" } },
-        "codex-cli", "Next", { block: renderUnavailableContext("Relay", "x", "code"), revision: firstRevision }), /^<project-context>/);
-      // Stand in for a turn the engine completed.
-      updateCodeAgentRunRecord(first.id, { metadata: { projectContextRevision: firstRevision } });
+      assert.equal(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, firstRevision);
 
       await writeFile(factFile, fact(55));
       const second = await turn("Ask again.", first.id);
@@ -592,8 +584,8 @@ process.send({type:"vivary:code-worker:ready"});
         + "instructions from AGENTS.md, state from STATE.md.");
       assert.match(loads[1].message, /The project context changed since the last turn\.$/);
       assert.deepEqual(loads.map(event => event.kind), ["note", "note"]);
-      assert.equal(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, firstRevision,
-        "the stopped second turn rolls back to the revision the engine last completed");
+      assert.equal(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, recorded[1]);
+      assert.notEqual(recorded[1], firstRevision);
       assert.equal(recorded.length, 2);
       // Native's transcript builder, which the Code view uses, shows the note.
       const repository = (await coreTranscriptBuilder())(listCodeAgentTranscriptEvents(first.id));
@@ -608,33 +600,27 @@ process.send({type:"vivary:code-worker:ready"});
     }
   });
 
-  it("gives a resumed Codex thread the block without quoting, and a personal run no block", async () => {
+  it("gives every turn the full block, a resumed Codex thread without quoting, and a personal run no block", async () => {
     const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-context-codex-"));
     temporaryRoots.push(store);
     const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     try {
       const block = renderUnavailableContext("Relay", "Test block.", "code");
-      const context = { block, revision: "ctx-000000000001" };
+      // The previous turn saw the same revision. A resumed thread still gets the full block,
+      // because Codex may have compacted the earlier one away.
       const codex = createCodeAgentRunRecord({ id: "codex-resumed", goalId: "vivary-local-code", title: "Codex",
         status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "codex-cli",
-          codexSessionId: "thread-1", projectContextRevision: "ctx-000000000000" } });
+          codexSessionId: "thread-1", projectContextRevision: "ctx-000000000001" } });
       appendCodeAgentTranscriptEvent({ runId: codex.id, kind: "user", message: "Earlier question" });
-      assert.equal(buildVivaryCodeExecutionPrompt(codex, "codex-cli", "Next question", context),
-        `${block}\n\nNext question`, "a changed context sends the full block");
-      const unchanged = { ...codex, metadata: { ...codex.metadata, projectContextRevision: context.revision } };
-      assert.equal(buildVivaryCodeExecutionPrompt(unchanged, "codex-cli", "Next question", context),
-        "Project context ctx-000000000001 is unchanged since an earlier message in this thread.\n\nNext question");
-      const newThread = { ...unchanged, metadata: { ...unchanged.metadata, codexSessionId: undefined } };
-      assert.match(buildVivaryCodeExecutionPrompt(newThread, "codex-cli", "Next question", context),
-        /^<project-context>/, "a run without a Codex thread yet gets the full block");
+      assert.equal(buildVivaryCodeExecutionPrompt(codex, "codex-cli", "Next question", block),
+        `${block}\n\nNext question`);
       const claude = createCodeAgentRunRecord({ id: "claude-follow-up", goalId: "vivary-local-code", title: "Claude",
-        status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "claude-cli" } });
+        status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "claude-cli",
+          projectContextRevision: "ctx-000000000001" } });
       appendCodeAgentTranscriptEvent({ runId: claude.id, kind: "user", message: "Earlier question" });
-      const sameRevision = { ...claude, metadata: { ...claude.metadata, projectContextRevision: context.revision } };
-      assert.match(buildVivaryCodeExecutionPrompt(sameRevision, "claude-cli", "Next question", context),
-        /^<project-context>[\s\S]*<\/project-context>\n\n# Previous conversation\n/,
-        "Claude turns are fresh CLI sessions, so they always get the full block");
+      assert.match(buildVivaryCodeExecutionPrompt(claude, "claude-cli", "Next question", block),
+        /^<project-context>[\s\S]*<\/project-context>\n\n# Previous conversation\n/);
       assert.equal(buildVivaryCodeExecutionPrompt(null, "claude-cli", "Personal question"), "Personal question");
     } finally {
       if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.

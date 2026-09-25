@@ -70,6 +70,8 @@ export type MemoryPrivacy = {
   private: readonly string[];
   privateFiles: readonly string[];
   ignoreFiles: readonly string[];
+  /** Files about to be created that the rules would ignore. Empty unless the caller asked. */
+  privateCandidates: readonly string[];
 };
 
 /**
@@ -88,7 +90,7 @@ export type WorkspaceContextPaths =
 export type MemorySettings = WorkspaceContextPaths | { status: "unavailable"; message: string };
 
 /** Why a memory folder is not used. A closed set, so every refusal has fixed wording. */
-export type LocationProblem = "reserved" | "boundary" | "private" | "not-folder" | "linked" | "blocked";
+export type LocationProblem = "reserved" | "boundary" | "private" | "non-portable" | "not-folder" | "linked" | "blocked";
 
 export type MemoryLocation =
   | { path: string; status: "ready" }
@@ -110,7 +112,7 @@ export type MemoryFact = {
   shortenedForAgents: boolean;
 };
 
-export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" };
+export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" | "unreadable" };
 
 /** The latest message that loaded this project's context in this app session. It is not stored. */
 export type ProjectContextLastLoad = {
@@ -149,7 +151,8 @@ export type ProjectMemoryWriteResult =
       path: string;
       current?: MemoryFact;
     }
-  | { code: "unavailable"; reason: LocationProblem | "settings" | "title" | "not-a-fact"; message: string };
+  | { code: "unavailable"; reason: LocationProblem | "settings" | "title" | "not-a-fact" | "locked" | "file";
+      message: string };
 
 export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, string>> = {
   reserved: "This folder belongs to Vivary private, runtime, or semantic-search data, or to Git. Choose another memory folder.",
@@ -157,7 +160,8 @@ export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, string>> = 
   private: "This project's .gitignore rules ignore this folder, so Vivary does not load or save facts here.",
   "not-folder": "This path is a file. Vivary keeps one file per fact, so the memory path must be a folder.",
   linked: "This path goes through a link. Vivary does not follow links for memory.",
-  blocked: "This path has a name Vivary hides, such as one containing secret or credential.",
+  "non-portable": "This path has a part Windows cannot use: a trailing dot or space, a device name such as CON or NUL, a colon, or a control character.",
+  blocked: "Vivary skips this path. It goes through a folder Vivary skips, such as node_modules, build, .git, or .ssh, has an empty or relative part, or has a name containing secret or credential.",
 };
 
 export const EFFECTIVE_WHEN_TEXT =
@@ -173,7 +177,7 @@ export function storageSentence(view: Pick<ProjectMemoryView, "settings" | "writ
   }
   const folder = `${view.writeLocation ?? settings.memory[0]}/`;
   if (settings.status === "plain") {
-    return `Stored in ${folder} in this project folder. This folder has no Vivary workspace settings, so the default applies.`;
+    return `Stored in ${folder} in this project folder. This folder has no thin workspace settings (.vivary/workspace.toml), so the default applies.`;
   }
   return settings.memoryAssigned
     ? `Stored in ${folder}, assigned by the memory role in .vivary/workspace.toml.`

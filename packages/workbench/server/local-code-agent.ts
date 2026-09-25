@@ -21,7 +21,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
-import type { ProjectContextLoad } from "./project-memory.ts";
+import type { ProjectContextBlock, ProjectContextLoad } from "./project-memory.ts";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
 
 export const VIVARY_CODE_ENGINES = ["claude-cli", "codex-cli"] satisfies [VivaryCodeEngine, ...VivaryCodeEngine[]];
@@ -188,7 +188,6 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
           reason: "host-restart",
         },
       });
-      rollBackProjectContextRevision(run.id);
       updateCodeAgentRunRecord(run.id, {
         status: "paused",
         phase: "interrupted",
@@ -444,7 +443,7 @@ export async function sendVivaryCodeMessage(input: {
   });
 
   const executionMessage = buildVivaryCodeExecutionPrompt(existing, selectedEngine, input.message,
-    input.projectContext);
+    input.projectContext?.block);
   appendCodeAgentTranscriptEvent({ runId: run.id, kind: "user", message: input.message,
     metadata: { source: "vivary-workbench", permissionMode,
       ...(input.draftSubmitId && input.draftThreadId ? { draftSubmitId: input.draftSubmitId,
@@ -455,8 +454,7 @@ export async function sendVivaryCodeMessage(input: {
   }
   updateCodeAgentRunRecord(run.id, { status: "queued", phase: "queued", needsApproval: false,
     metadata: { pendingLaunch: undefined, codexPermissionMode: permissionMode,
-      ...(input.projectContext ? { projectContextRevision: input.projectContext.revision,
-        projectContextPreviousRevision: metadataString(run, "projectContextRevision") ?? undefined } : {}) } });
+      ...(input.projectContext ? { projectContextRevision: input.projectContext.revision } : {}) } });
   startVivaryCodeRun({ runId: run.id, message: executionMessage, engine: selectedEngine, model: selectedModel,
     ownerEmail: input.ownerEmail, orgId: input.orgId, workspace, permissionMode });
   return getVivaryCodeState(input.ownerEmail, run.id, workspace, input.orgId);
@@ -542,7 +540,6 @@ async function executeVivaryCodeRun(input: {
   model: string | undefined;
   runId: string;
 }): Promise<void> {
-  let completed = false;
   try {
     await executeVivaryCodeWorker({
       runId: input.runId,
@@ -572,8 +569,6 @@ async function executeVivaryCodeRun(input: {
         phase: "paused",
         reason: input.activeRun.stopReason,
       });
-    } else {
-      completed = true;
     }
   } catch (error) {
     if (error instanceof VivaryCodeWorkerCleanupError) {
@@ -607,7 +602,6 @@ async function executeVivaryCodeRun(input: {
       },
     });
   } finally {
-    if (!completed) rollBackProjectContextRevision(input.runId);
     input.activeRun.requests.clear();
     activeRuns.delete(input.runId);
   }
@@ -922,39 +916,21 @@ function recordStoppingRun(
 /**
  * The engine prompt for one message. A new run and a resumed Codex thread
  * get the raw message. Other follow-ups quote the transcript, because each
- * Claude turn is a fresh CLI session, so Claude gets the full project block
- * every turn. A resumed Codex thread already holds an earlier block, so it
- * gets the full block only when the context changed since the run's previous
- * turn, and one line naming the unchanged revision otherwise.
+ * Claude turn is a fresh CLI session. Every turn of every engine gets the
+ * full project block first. A resumed Codex thread therefore holds one block
+ * per turn, which is accepted so a thread never relies on a block Codex may
+ * have compacted away.
  */
 export function buildVivaryCodeExecutionPrompt(
   existing: CodeAgentRunRecord | null,
   engine: VivaryCodeEngine,
   message: string,
-  projectContext?: Pick<ProjectContextLoad, "block" | "revision">,
+  projectContext?: ProjectContextBlock,
 ): string {
   const resumesCodexThread = engine === "codex-cli" && existing !== null && metadataString(existing, "codexSessionId") !== null;
   const prompt = existing && !resumesCodexThread
     ? buildVivaryCodeFollowUpPrompt(listCodeAgentTranscriptEvents(existing.id), message) : message;
-  if (!projectContext) return prompt;
-  const unchanged = resumesCodexThread && metadataString(existing, "projectContextRevision") === projectContext.revision;
-  const context = unchanged
-    ? `Project context ${projectContext.revision} is unchanged since an earlier message in this thread.`
-    : projectContext.block;
-  return `${context}\n\n${prompt}`;
-}
-
-// A turn that failed, stopped, or was interrupted may never have reached the
-// engine, so a resumed Codex thread may not hold its block. Restoring the
-// revision from before that turn makes the next turn send the full block
-// whenever the thread might lack it.
-function rollBackProjectContextRevision(runId: string): void {
-  const run = getCodeAgentRunRecord(runId);
-  if (!run || metadataString(run, "projectContextRevision") === null) return;
-  updateCodeAgentRunRecord(runId, { metadata: {
-    projectContextRevision: metadataString(run, "projectContextPreviousRevision") ?? undefined,
-    projectContextPreviousRevision: undefined,
-  } });
+  return projectContext ? `${projectContext}\n\n${prompt}` : prompt;
 }
 
 // One note per turn, which Native's transcript shows, says what loaded and

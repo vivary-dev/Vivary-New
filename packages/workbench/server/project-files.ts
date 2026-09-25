@@ -4,11 +4,14 @@ import {
   lstat,
   mkdir,
   open,
+  opendir,
   readdir,
   realpath,
   rename,
+  rmdir,
   unlink,
 } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 
 import type { ActionRunContext } from "@agent-native/core/action";
@@ -238,15 +241,24 @@ async function blockedReason(root: string, requestedPath: string): Promise<Proje
 
 export type FolderListing =
   | { status: "absent" | "not-folder" | "linked" | "blocked" }
-  /** Markdown file names directly inside the folder, sorted, links included so a read can report them. */
-  | { status: "ready"; names: string[] };
+  /**
+   * Markdown file names directly inside the folder, sorted, links included so
+   * a read can report them. `truncated` is true when the folder held more
+   * entries than one listing scans or more Markdown files than `limit`.
+   */
+  | { status: "ready"; names: string[]; truncated: boolean };
+
+/** Entries one folder listing scans before it stops. */
+const MAX_FOLDER_ENTRIES = 4_000;
 
 /**
  * List the Markdown files directly inside one project folder without
  * following links. `absent` covers a missing folder or parent. Hidden names
- * (secret, credential) are left out, as in the file tree.
+ * (secret, credential) are left out, as in the file tree. At most
+ * MAX_FOLDER_ENTRIES entries are scanned and `limit` names returned, in name
+ * order among those scanned.
  */
-export async function listFolder(root: string, folder: string): Promise<FolderListing> {
+export async function listFolder(root: string, folder: string, limit: number): Promise<FolderListing> {
   let parts: string[];
   try {
     parts = relativeParts(folder);
@@ -267,31 +279,49 @@ export async function listFolder(root: string, folder: string): Promise<FolderLi
     if (!entry.isDirectory()) return { status: "not-folder" };
   }
   if (!contained(root, await realpath(directory))) return { status: "linked" };
-  const names = (await readdir(directory, { withFileTypes: true }))
-    .filter(entry => (entry.isFile() || entry.isSymbolicLink())
-      && path.extname(entry.name).toLowerCase() === ".md" && !isSecretName(entry.name))
-    .map(entry => entry.name)
-    .sort();
-  return { status: "ready", names };
+  const names: string[] = [];
+  let scanned = 0;
+  let truncated = false;
+  for await (const entry of await opendir(directory)) {
+    if (++scanned > MAX_FOLDER_ENTRIES) {
+      truncated = true;
+      break;
+    }
+    if ((entry.isFile() || entry.isSymbolicLink())
+      && path.extname(entry.name).toLowerCase() === ".md" && !isSecretName(entry.name)) names.push(entry.name);
+  }
+  names.sort();
+  return { status: "ready", names: names.slice(0, limit), truncated: truncated || names.length > limit };
 }
+
+/** Error codes Windows returns while another program holds a file open. */
+const LOCK_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
+
+function isLockError(error: unknown): boolean {
+  return LOCK_CODES.has((error as NodeJS.ErrnoException)?.code ?? "");
+}
+
+export type ListedFileSkip = { path: string; reason: ProjectFileBlockedReason | "unreadable" };
 
 /**
  * Read listed files the way the file tree checks them: no links, and only
- * bounded text. A file that is not readable is skipped with its reason. A
- * file removed since it was listed is left out.
+ * bounded text. A file that is not readable, including one another program
+ * holds open, is skipped with its reason. A file removed since it was listed
+ * is left out. Each file keeps the path it was listed under, so a folder's
+ * configured spelling wins over the disk's case.
  */
-export async function readListedFiles(root: string, paths: readonly string[], project: ProjectFileIdentity): Promise<{
-  files: ProjectFile[]; skipped: { path: string; reason: ProjectFileBlockedReason }[];
-}> {
+export async function readListedFiles(root: string, paths: readonly string[], project: ProjectFileIdentity,
+  read: typeof readEditableFile = readEditableFile): Promise<{ files: ProjectFile[]; skipped: ListedFileSkip[] }> {
   const files: ProjectFile[] = [];
-  const skipped: { path: string; reason: ProjectFileBlockedReason }[] = [];
+  const skipped: ListedFileSkip[] = [];
   for (const filePath of paths) {
     try {
-      const file = await readEditableFile(root, filePath, project);
-      if (file) files.push(file);
+      const file = await read(root, filePath, project);
+      if (file) files.push({ ...file, path: filePath });
       else skipped.push({ path: filePath, reason: await blockedReason(root, filePath) });
     } catch (error) {
       if (error instanceof ProjectFileBoundaryError) skipped.push({ path: filePath, reason: "linked" });
+      else if (isLockError(error)) skipped.push({ path: filePath, reason: "unreadable" });
       else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
@@ -322,22 +352,62 @@ export async function fileDigest(root: string, requestedPath: string): Promise<s
 /**
  * Create each missing parent folder of `requestedPath`, one component at a
  * time, without following links. An existing component must be a real folder.
+ * Returns the folders this call created, deepest last.
  */
-async function createParentFolders(root: string, requestedPath: string): Promise<void> {
+async function createParentFolders(root: string, requestedPath: string): Promise<string[]> {
   const parts = relativeParts(requestedPath).slice(0, -1);
+  const created: string[] = [];
   let directory = root;
-  for (const part of parts) {
-    directory = path.join(directory, part);
-    try {
-      await mkdir(directory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  try {
+    for (const part of parts) {
+      directory = path.join(directory, part);
+      try {
+        await mkdir(directory);
+        created.push(directory);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      const entry = await lstat(directory);
+      if (entry.isSymbolicLink()) throw new ProjectFileBoundaryError("blocked-path");
+      if (!entry.isDirectory()) throw new ProjectFileBoundaryError("invalid-path");
     }
-    const entry = await lstat(directory);
-    if (entry.isSymbolicLink()) throw new ProjectFileBoundaryError("blocked-path");
-    if (!entry.isDirectory()) throw new ProjectFileBoundaryError("invalid-path");
+    if (!contained(root, await realpath(directory))) throw new ProjectFileBoundaryError("blocked-path");
+  } catch (error) {
+    await removeCreatedFolders(created);
+    throw error;
   }
-  if (!contained(root, await realpath(directory))) throw new ProjectFileBoundaryError("blocked-path");
+  return created;
+}
+
+/** Remove folders a refused create made, deepest first. A folder something else filled stays. */
+async function removeCreatedFolders(created: readonly string[]): Promise<void> {
+  for (const directory of [...created].reverse()) await rmdir(directory).catch(() => undefined);
+}
+
+/** The file stayed locked after retries. The message names no path. */
+export class ProjectFileLockedError extends Error {
+  readonly statusCode = 409;
+
+  constructor() {
+    super("Another program is using this file. Close it and try again.");
+  }
+}
+
+export type FileOperations = { unlink: typeof unlink; rename: typeof rename };
+const fileOperations: FileOperations = { unlink, rename };
+const LOCK_RETRY_DELAYS_MS = [50, 150, 400];
+
+/** Retry an unlink or rename that Windows refuses while a file is open, then give up with a fixed message. */
+async function withLockRetries<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isLockError(error)) throw error;
+      if (attempt >= LOCK_RETRY_DELAYS_MS.length) throw new ProjectFileLockedError();
+      await delay(LOCK_RETRY_DELAYS_MS[attempt]);
+    }
+  }
 }
 
 async function listFiles(root: string): Promise<{ files: ProjectFileSummary[]; truncated: boolean }> {
@@ -434,7 +504,8 @@ async function serializeMutation<T>(project: ProjectFileIdentity, operation: () 
   }
 }
 
-export function createProjectFileService(resolveWorkspace: Resolver = resolveLocalProjectWorkspace) {
+export function createProjectFileService(resolveWorkspace: Resolver = resolveLocalProjectWorkspace,
+  operations: FileOperations = fileOperations) {
   const resolve = async (context: ActionRunContext | undefined, projectId: string) => {
     const workspace = await resolveWorkspace(context, projectId);
     if (!workspace) throw new Error("The selected project folder is unavailable.");
@@ -490,7 +561,7 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           if (finalCurrent.version !== input.expectedVersion) {
             return { code: "conflict", operation: "save", reason: "changed", path: input.path, current: finalCurrent };
           }
-          await rename(temporary, target);
+          await withLockRetries(() => operations.rename(temporary, target));
           const saved = await readEditableFile(finalScope.workspace.root, input.path, finalScope.project);
           if (!saved) throw new Error("The saved project file could not be verified.");
           return { code: "saved", project: finalScope.project, file: saved };
@@ -586,24 +657,32 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
       if (!kindFor(input.path)) throw new ProjectFileBoundaryError("blocked-path");
       const initial = await resolve(context, input.projectId);
       return serializeMutation(initial.project, async () => {
+        // Custody is checked inside the queue, before any folder is made.
         const lockedScope = await resolve(context, input.projectId);
         if (!sameProject(initial.project, lockedScope.project)) {
           return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
         }
         const root = lockedScope.workspace.root;
-        await createParentFolders(root, input.path);
-        const target = await resolvePathWithoutLinks(root, input.path, true);
-        const finalScope = await resolve(context, input.projectId);
-        if (!sameProject(lockedScope.project, finalScope.project)) {
-          return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
-        }
+        const createdFolders = await createParentFolders(root, input.path);
+        let written = false;
+        let finalScope = lockedScope;
         try {
-          await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-          const current = await readEditableFile(root, input.path, finalScope.project).catch(() => null);
-          return { code: "conflict", operation: "create", reason: "target-exists", path: input.path,
-            ...(current ? { current } : {}) };
+          const target = await resolvePathWithoutLinks(root, input.path, true);
+          finalScope = await resolve(context, input.projectId);
+          if (!sameProject(lockedScope.project, finalScope.project)) {
+            return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
+          }
+          try {
+            await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
+            written = true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            const current = await readEditableFile(root, input.path, finalScope.project).catch(() => null);
+            return { code: "conflict", operation: "create", reason: "target-exists", path: input.path,
+              ...(current ? { current } : {}) };
+          }
+        } finally {
+          if (!written) await removeCreatedFolders(createdFolders);
         }
         const created = await readEditableFile(root, input.path, finalScope.project);
         if (!created) throw new Error("The created project file could not be verified.");
@@ -629,7 +708,8 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         const finalCurrent = await readEditableFile(finalScope.workspace.root, input.path, finalScope.project);
         if (!finalCurrent) return conflict("renamed-or-deleted");
         if (finalCurrent.version !== input.expectedVersion) return conflict("changed", finalCurrent);
-        await unlink(await resolvePathWithoutLinks(finalScope.workspace.root, input.path));
+        const target = await resolvePathWithoutLinks(finalScope.workspace.root, input.path);
+        await withLockRetries(() => operations.unlink(target));
         return { code: "removed", project: finalScope.project, path: input.path };
       });
     },

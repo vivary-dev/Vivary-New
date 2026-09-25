@@ -957,6 +957,7 @@ class WorkspaceContextTests(unittest.TestCase):
             "private": [],
             "private_files": [],
             "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
+            "private_candidates": [],
         })
 
     def test_plain_folder_gets_the_default_location(self):
@@ -967,8 +968,40 @@ class WorkspaceContextTests(unittest.TestCase):
             "status": "plain", "roles": None, "state": None,
             "memory": [".vivary/knowledge"], "memory_assigned": False, "protected": [],
             "privacy_policy": "none", "private": [], "private_files": [],
-            "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
+            "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"], "private_candidates": [],
         })
+
+    def test_memory_privacy_fails_closed_on_case_and_brackets(self):
+        for rule in (".vivary/Knowledge/\n", ".vivary/[Kk]nowledge/\n", "KNOWLEDGE/\n"):
+            with self.subTest(rule=rule):
+                target = self.scaffold()
+                with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+                    handle.write(rule)
+                context = create_vivary.workspace_context(target, repo_root=ROOT)
+                self.assertEqual(context["private"], [".vivary/knowledge"])
+        # Doctor keeps its own rule: it never counts an uncertain rule as protection.
+        self.assertFalse(create_vivary._probe_is_ignored(target, ".vivary/knowledge/fact.md"))
+        target = self.scaffold()
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write(".vivary/knowledge/\n!.vivary/Knowledge/\n")
+        context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context["private"], [".vivary/knowledge"], "a different-case negation does not re-include")
+
+    def test_candidate_files_are_checked_against_every_rule(self):
+        target = self.scaffold()
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        (knowledge / ".gitignore").write_text("draft.md\n", encoding="utf-8")
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("draft-*\n")
+        context = create_vivary.workspace_context(target, repo_root=ROOT, candidates=[
+            ".vivary/knowledge/draft.md", ".vivary/knowledge/draft-plan.md", ".vivary/knowledge/relay.md"])
+        self.assertEqual(context["private"], [])
+        self.assertEqual(context["private_candidates"],
+                         [".vivary/knowledge/draft.md", ".vivary/knowledge/draft-plan.md"])
+        for bad in (["../x.md"], ["/abs.md"], [".vivary\\x.md"], ["x"] * 17):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                create_vivary.workspace_context(target, repo_root=ROOT, candidates=bad)
 
     def test_nested_rules_and_private_files_are_reported(self):
         target = self.scaffold()

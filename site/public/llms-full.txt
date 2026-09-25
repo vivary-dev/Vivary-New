@@ -7170,7 +7170,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
 2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
-   Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the block before the engine prompt. A new run and every Claude follow-up get the full block, because each Claude turn is a fresh CLI session. A resumed Codex thread gets the full block when the revision differs from the last turn the engine completed, and otherwise one line saying the revision is unchanged. A turn that fails, stops, or is interrupted rolls its revision back. Only Full chat blocks name Native's owner-wide tools. The thread still holds the earlier block, so this saves repeating up to 8,000 characters per turn. The tradeoff: if Codex compacts the thread and drops that block, the agent sees only the unchanged line until the context changes or a new conversation starts. The transcript keeps only the typed message, and one note per turn, which the Code view shows, names the loaded revision and whether it changed. The panel's last load is recorded only after the send passes its refusals and claims the host slot. Full chat returns the block from Native's `extraContext` on every send. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
+   Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the full block before the engine prompt on every turn, for new runs, Claude follow-ups (each a fresh CLI session), and resumed Codex threads. A resumed Codex thread therefore accumulates one block per turn, up to 8,000 characters each. That cost is accepted so a thread never depends on an earlier block that Codex may have compacted away. Only Full chat blocks name Native's owner-wide tools. The transcript keeps only the typed message, and one note per turn, which the Code view shows, names the loaded revision and whether it changed. The panel's last load is recorded only after the send passes its refusals and claims the host slot. Full chat returns the block from Native's `extraContext` on every send. Its three Vivary hooks, the send guard (`prepareRequest`), `extraContext`, and `resolveActionSurface`, each classify the pinned chat scope again rather than sharing one match. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
 3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
 4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. Project memory is the only caller of the file service's exclusive Create and version-checked Remove, which reuse the same link refusal, per-project mutation queue, and conflicts. The Memory section in Project details calls two owner actions, `vivary-project-memory` and `vivary-project-memory-write`. It shows the memory folder and why it applies, the role assignments, when changes apply, each fact with its source and file, the exact block the next message receives, and the last load in this app session. Remember, correct, and forget write the owning file, and forget states what it cannot erase. Neither action is an agent tool. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
 5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The five project read reports share one server module for the Details panel and the Native tool. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
@@ -7180,7 +7180,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 | Data or effect | Owner and boundary |
 | --- | --- |
-| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded, and no new fact is saved in an ignored folder. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, because those stores have no project column. Native drops the framework prompt lines that name them, but its resources context note stays in the prompt, so every project block says the tools are unavailable. Personal and legacy chats keep them. |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed, and Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: a positive rule matches without regard to case, letter-bracket rules included, and a negation re-includes only on an exact match. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
@@ -7223,30 +7223,37 @@ and the known gaps above describe it. The review, by layer:
   role path without `/` types only the root-level folder. `workspace_context`
   reports roles, the state file, the effective memory folders, and the
   declared protected paths from configuration. The creator adds which memory
-  folders, law files, state file, and fact files the `.gitignore` files
-  ignore, and every `.gitignore` it consulted. The bridge serves this as the
-  read-only `context` operation, and no absolute host path leaves it. No
-  public CLI verb or Doctor output changed.
-- Workbench service: `project-memory.ts` memoizes that answer by the digest of
-  `.vivary/workspace.toml` and rechecks a fingerprint of every consulted
-  `.gitignore` (a missing one counts) and the file names in each memory
-  folder, so a new rule or a new fact asks the engine again once. It refuses
-  reserved, protected, boundary, ignored, linked, and blocked paths, skips
-  ignored fact files, and renders one block of at most 8,000 characters. Each
-  fact field is clamped to the panel's save limits (title 120, text 500,
-  source 200), so a fact saved in the panel is never cut. Every path in the
-  block is neutralized and bounded. Writes admit folders without reading any
-  fact, law, or state file. `project-files.ts` gains a folder listing, a
-  listed-file read, a content digest, exclusive Create, and version-checked
-  Remove on its mutation queue. A Create that conflicts can leave the empty
-  folders it made.
-- Runs: Code sends put the block, or the unchanged line for a resumed Codex
-  thread, before the engine prompt, record `projectContextRevision`, and append
-  a `note` event that Native's transcript builder renders. `renderForRun` and
-  `recordLoad` are separate, so a refused send leaves the last load alone.
-  Full chat wires `extraContext` and `resolveActionSurface`, classified by the
-  send guard's pinned-scope check, and denies `chat-history` beside the
-  memory and resources actions.
+  folders, law files, state file, fact files, and candidate new files the
+  `.gitignore` files ignore, with fail-closed matching, and every `.gitignore`
+  it consulted. The bridge serves this as the read-only `context` operation,
+  and no absolute host path leaves it. No public CLI verb or Doctor output
+  changed, and Doctor keeps its own matching.
+- Workbench service: `project-memory.ts` caches that answer by the digest of
+  `.vivary/workspace.toml`, with a fingerprint of every consulted `.gitignore`
+  (a missing one counts) and the file names in each memory folder. It reuses
+  an answer only when the fingerprints taken before and after the engine call
+  match and the fingerprint still holds, never caches an invalid answer, and
+  logs a bridge failure without a host path. It refuses reserved, protected,
+  boundary, ignored, non-portable, linked, and blocked paths, compares paths
+  without regard to case, skips ignored and unreadable fact files, and renders
+  one block of at most 8,000 characters: header, state, a 1,500-character
+  floor for instructions, facts up to 4,000 characters, then the rest for
+  instructions. Law files past the first three are named. Each fact field is
+  clamped to the panel's save limits (title 120, text 500, source 200), and
+  every path is escaped, neutralized, and bounded, with "and N more" lists.
+  Writes admit folders from the cached listings and read no fact, law, or
+  state file. `project-files.ts` gains a capped folder listing, a listed-file
+  read, a content digest, exclusive Create that removes the folders it made
+  when it refuses, and version-checked Remove. Unlink and rename retry a
+  Windows lock, then return a fixed message. The last load is kept per
+  project binding.
+- Runs: Code sends put the full block before the engine prompt every turn,
+  record `projectContextRevision`, and append a `note` event that Native's
+  transcript builder renders. `renderForRun` and `recordLoad` are separate, so
+  a refused send leaves the last load alone. Full chat wires `extraContext`
+  and `resolveActionSurface`, each classifying the pinned scope as the send
+  guard does, and denies the memory, resources, chat-history, and database
+  actions. A test resolves the surface against the names Native registers.
   A request-scoped surface makes Native downgrade trusted production code
   execution to sandboxed. Workbench runs Full chat with code execution off,
   so nothing changes today, and a test pins that.
@@ -7269,15 +7276,23 @@ recalled and then corrected a fact. The
 [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) holds that
 evidence and its observations. Packaged Windows acceptance is pending.
 
-After that QA, a resumed Codex turn sends the full block again when the run's
-previous turn failed, stopped, or was interrupted, because that turn's
-revision is rolled back. Only the Full chat block names Native's owner-wide
+After that QA, `17e2996e` made a resumed Codex turn send the full block
+again when the run's previous turn failed, stopped, or was interrupted, by
+rolling that turn's revision back. The review below replaced this with the
+full block on every turn. Only the Full chat block names Native's owner-wide
 tools. The revision is the hash of the Code form, so both surfaces share it.
 A plain folder's panel no longer links to a missing `workspace.toml`, and the
 bridge's host-path scrub keeps URLs. The hosted journey passed three more
 runs and the real Codex check passed again on `17e2996e`, which includes these
 changes. The fake provider now drops the Full chat tools sentence before it
 hashes the block, because the revision covers the Code form.
+
+The pre-merge review of PR #93 then changed behavior the hosted journey and
+the Codex check exercised: the database tools denial, fail-closed memory
+privacy and the Remember name check, the full block on every Codex turn, the
+cache trust rule, the block budget, and the Windows path and lock handling.
+Unit tests cover these changes. The hosted journey and the Codex check have not
+run on them yet.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.
