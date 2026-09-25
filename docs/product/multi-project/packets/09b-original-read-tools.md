@@ -4,6 +4,7 @@ GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/19
 Parent: 09
 Status: in-progress
 Depends-on: [09a, 23a]
+Evidence: [Original project read tools receipt](../receipts/09b-original-read-tools.md)
 Owner: Root-assigned original-command and Native action integrator
 Scope: Expose find, check, doctor, and capabilities through the bundled original packages.
 Verification-kind: runtime
@@ -62,8 +63,10 @@ git diff --check
 
 `server/project-read.ts` is the one read module. The Details panel calls it through
 `vivary-project-read-owner` with a project ID, and the Native agent calls it through
-`vivary-project-read`, whose project comes from the chat's pinned scope. Access
-refusals throw. Whether the original command produced a report is part of the value.
+`vivary-project-read`, whose project comes from the chat's pinned scope. Project
+services read that scope from the request and match it to one registered project.
+The runner's policy table lets a tool call run these five reads and nothing
+else. Access refusals throw. Whether the original command produced a report is part of the value.
 Doctor runs `vivary doctor --public`, which checks the workspace without
 reading notes. Find and check run `vivary find|check --public`, which reaches
 Tropo's privacy-filtered facade. The original runner schedules reads in parallel and runs a
@@ -78,6 +81,7 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 ## Log
 
 - 2026-09-13: Drafted for the desktop release. The Native actions are not implemented.
+- 2026-09-24: Implemented in PR #89 and reviewed by five panels. The hosted journey passed on `bd12e620`. The Windows panel reads and agent turn on the `bd12e620` package are pending.
 
 - 2026-09-24: Claimed on `feat/project-read-tools` from merged `dev` `0c8c7eb`.
   Dependencies #18 and #7 are closed.

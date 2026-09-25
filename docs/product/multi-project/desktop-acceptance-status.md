@@ -46,6 +46,39 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
 
+## Original project read tools, September 24
+
+[Issue #19's receipt](receipts/09b-original-read-tools.md) records the Details
+panel and Native agent reads of Doctor, the note check, context find, optional
+capabilities, and sanitized receipts. Both use one server module. The agent
+tool takes its project from the scope its chat request carries and keeps
+caller `tool`, and the runner lets a tool call run these five reads alone.
+Doctor, find, and check use the original `--public` path, so files that Git or
+the workspace marks private stay out of every report.
+
+The 12-step hosted journey passed on `bd12e620` with a bundled runtime built
+from the same commit, after a first run stopped when the Native chat menu did
+not open a chat. Panel reports equaled the bundled CLI's output. The agent
+received the same reports in one turn. A model-supplied project, malformed
+input, and a path-like question were refused. A missing folder showed
+Unavailable and recovered. Authored files stayed byte-identical. A fake
+provider drove the agent, so no real model ran.
+
+The unpublished `e87099d1` Windows archive passed the full packaged journey in
+an isolated profile, including a restart without Git. The unpublished
+`8576af0e` archive then passed the affected steps on the same profile. The
+unpublished `bd12e620` archive, SHA-256
+`442475042220d70957d5057f7a5515292b5025e65f4449029824c1fa79adfaac`, opened
+that profile and restored both projects and the chat. Its bundled plain Doctor
+named a Git-ignored note, and public Doctor did not. A child's receipt reached
+the shared log, no per-run folder remained, and the fixtures kept their hashes
+and modification times. Its panel reads and agent turn have not run yet.
+
+The same work fixed a Native agent panel crash after refused tool turns through
+the existing Core patch, with a regression test. Five review panels' findings
+are fixed. PR #89 delivers the work into `dev` after the owner approves the
+Entire trail.
+
 ## Conversation drafts, September 24
 
 [Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records the
