@@ -115,7 +115,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 | Data or effect | Owner and boundary |
 | --- | --- |
-| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. `.vivary/memory/` is disposable semantic-provider state, not an authored note store. |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
@@ -147,6 +147,17 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #21 starts with the engine rule for authored project facts. Tropo adds
+the built-in `vivary_fact` type for `.vivary/knowledge` and the memory role
+paths after every owner table and overlay merged, in both `_compose` and the
+public config path, so Doctor and Note check agree. `workspace_context` reports
+roles, the state file, and the effective memory folders from configuration.
+The creator exposes it with the folders the workspace's `.gitignore` rules
+ignore, and the Workbench bridge serves it as the read-only `context`
+operation. No public CLI verb or Doctor output changed. Tropo, creator, bridge,
+and Cognee forget tests cover the rule. The Workbench does not read or load
+facts yet, so the release gap for scoped memory below still holds.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.

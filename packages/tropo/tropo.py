@@ -664,6 +664,13 @@ WORKSPACE_VIVARY_METADATA_VERSION = 1
 WORKSPACE_BUILTIN_PATTERNS = {
     "thin-context", "capture", "source-reference", "navigation", "project-brief",
 }
+# Authored project facts, one Markdown file per fact. This is the only place the
+# default folder is spelled: the Workbench reads it back through
+# workspace_context. `confirmed` is the date the owner last saved or corrected
+# the statement. It is not named `updated`, which Tropo may derive.
+AUTHORED_MEMORY_DEFAULT = ".vivary/knowledge"
+FACT_TYPE = "vivary_fact"
+FACT_FIELDS = {"source": "string", "confirmed": "date"}
 
 
 def resolve_workspace_roles(workspace, protected_paths=None):
@@ -771,6 +778,73 @@ def _describe_workspace_roles(patterns, overrides, protected_paths, roles_field=
             raise ConfigError(f"{field} cannot repeat a path")
         roles[role] = paths
     return {"patterns": list(patterns), "roles": roles}
+
+
+def authored_memory_paths(workspace_roles):
+    """Folders that hold authored project facts, in role order.
+
+    The memory role's paths when it names any, otherwise the default folder.
+    An empty role (what thin templates write) describes no location, so the
+    default applies. Paths are descriptions only and grant no access.
+    """
+    memory = (workspace_roles or {}).get("roles", {}).get("memory") or []
+    return list(memory) or [AUTHORED_MEMORY_DEFAULT]
+
+
+def _add_fact_type(composed, workspace_roles):
+    """Type fact folders as FACT_TYPE in a fully composed thin config.
+
+    Both compose paths call this after every owner table, pack, and overlay
+    merged, so private and public checks type the same notes. The default
+    folder stays typed after the memory role moves, so facts left there remain
+    valid. The owner wins: an owner FACT_TYPE table, or an owner type already
+    mapped to a fact folder, is kept unchanged.
+    """
+    if workspace_roles is None or FACT_TYPE in composed["types"]:
+        return composed
+    mapped = {
+        folder
+        for definition in composed["types"].values()
+        for folder in definition.get("folders", [])
+    }
+    folders = [
+        folder
+        for folder in dict.fromkeys(
+            [AUTHORED_MEMORY_DEFAULT, *authored_memory_paths(workspace_roles)]
+        )
+        if folder not in mapped
+    ]
+    if folders:
+        _merge_config(
+            composed,
+            {"types": {FACT_TYPE: {"folder": folders, "required": dict(FACT_FIELDS)}}},
+        )
+    return composed
+
+
+def workspace_context(config):
+    """Paths an agent reads when a run starts, from configuration alone.
+
+    `config` is a thin workspace's base Config, or None for a folder without
+    thin settings. Every path is workspace-relative. Nothing here reads notes.
+    """
+    workspace_roles = config.workspace_roles if config is not None else None
+    if workspace_roles is None:
+        return {
+            "status": "plain",
+            "roles": None,
+            "state": None,
+            "memory": [AUTHORED_MEMORY_DEFAULT],
+            "memory_assigned": False,
+        }
+    roles = workspace_roles["roles"]
+    return {
+        "status": "thin",
+        "roles": {role: list(roles[role]) for role in WORKSPACE_FILE_ROLES},
+        "state": config.workspace_state,
+        "memory": authored_memory_paths(workspace_roles),
+        "memory_assigned": bool(roles["memory"]),
+    }
 
 
 def _validate_thin_workspace(raw, thin_path, root):
@@ -881,6 +955,7 @@ class Config:
     def __init__(self, data, root):
         self.root = root
         self.workspace_roles = copy.deepcopy(data.get("workspace_roles"))
+        self.workspace_state = data.get("workspace_state")
         base = data.get("base", {})
         self.derive = base.get("derive", [])
         self.base_required = base.get("required", {})
@@ -945,7 +1020,11 @@ def _compose(root, script_dir, config_path=None, *, read_toml=None):
         and os.path.isfile(root_overlay)
     ):
         _merge_config(composed, reader(root_overlay))
-    return composed
+    if workspace_roles is not None:
+        composed["workspace_state"] = _workspace_relative_path(
+            raw["workspace"]["state"], "state"
+        )
+    return _add_fact_type(composed, workspace_roles)
 
 
 def _rebase_overlay_config(raw, overlay_path, root):
@@ -3269,6 +3348,7 @@ def _public_config_from_candidates(
     thin_rel = THIN_CONFIG_REL.replace(os.sep, "/")
     has_thin = candidates[0].get("rel") == thin_rel
     parsed = []
+    thin_roles = None
     try:
         for candidate in candidates:
             if candidate["rel"] not in allowed:
@@ -3303,7 +3383,7 @@ def _public_config_from_candidates(
                 _public_add_omission(omissions, "config", "unsupported")
                 return _public_default_config(root), None, False
             if candidate["rel"] == thin_rel:
-                _validate_thin_workspace(
+                thin_roles = _validate_thin_workspace(
                     raw,
                     os.path.join(root, THIN_CONFIG_REL),
                     root,
@@ -3319,7 +3399,7 @@ def _public_config_from_candidates(
             _merge_config(composed, tomllib.loads(BUNDLED_PACKS[pack]))
         for _candidate, raw, _data in parsed:
             _merge_config(composed, raw)
-        config = Config(composed, root)
+        config = Config(_add_fact_type(composed, thin_roles), root)
     except (AttributeError, ConfigError, TypeError, ValueError, tomllib.TOMLDecodeError):
         if has_thin:
             raise PrivacyPolicyUnavailableError() from None

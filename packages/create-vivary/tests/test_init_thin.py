@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -926,6 +927,89 @@ class ThinInitTests(unittest.TestCase):
         finally:
             if target.exists():
                 shutil.rmtree(target)
+
+
+class WorkspaceContextTests(unittest.TestCase):
+    """The read the Workbench bridge serves before each agent message."""
+
+    def scaffold(self) -> Path:
+        target = temp_target()
+        self.addCleanup(lambda: shutil.rmtree(target, ignore_errors=True))
+        rc, out = run_cli(["init", str(target), "--preset", "coding", "--no-wizard",
+                           "--repo-root", str(ROOT), "--json"])
+        self.assertEqual(rc, 0, out)
+        return target
+
+    def test_workspace_context_reads_config_only(self):
+        target = self.scaffold()
+        tropo = create_vivary._load_tropo(ROOT)
+        with mock.patch.object(create_vivary, "_load_tropo", return_value=tropo), \
+                mock.patch.object(tropo, "analyze", side_effect=AssertionError("notes were read")):
+            context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context, {
+            "status": "thin",
+            "roles": DEFAULT_ROLES,
+            "state": "STATE.md",
+            "memory": [".vivary/knowledge"],
+            "memory_assigned": False,
+            "privacy_policy": "gitignore",
+            "private": [],
+        })
+
+    def test_plain_folder_gets_the_default_location(self):
+        target = temp_target()
+        target.mkdir(parents=True)
+        self.addCleanup(lambda: shutil.rmtree(target, ignore_errors=True))
+        self.assertEqual(create_vivary.workspace_context(target, repo_root=ROOT), {
+            "status": "plain", "roles": None, "state": None,
+            "memory": [".vivary/knowledge"], "memory_assigned": False,
+            "privacy_policy": "none", "private": [],
+        })
+
+    def test_ignored_memory_folder_is_reported_private(self):
+        target = self.scaffold()
+        config = target / ".vivary" / "workspace.toml"
+        config.write_text(config.read_text(encoding="utf-8").replace(
+            "memory = []", 'memory = ["notes/facts", ".vivary/private/facts"]'), encoding="utf-8")
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("notes/\n")
+        context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context["memory"], ["notes/facts", ".vivary/private/facts"])
+        self.assertEqual(context["private"], ["notes/facts", ".vivary/private/facts"])
+
+    def test_workspace_context_invalid_config_is_data(self):
+        target = self.scaffold()
+        config = target / ".vivary" / "workspace.toml"
+        original = config.read_text(encoding="utf-8")
+        config.write_text(original.replace('contract = "thin-v0.3"', 'contract = "other"'),
+                          encoding="utf-8")
+        context = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(context["status"], "invalid")
+        self.assertNotIn(str(target.resolve()), context["message"])
+        self.assertIn("workspace.contract", context["message"])
+
+        real = target / "workspace-real.toml"
+        real.write_text(original, encoding="utf-8")
+        config.unlink()
+        try:
+            config.symlink_to(real)
+        except OSError as error:
+            self.skipTest(str(error))
+        linked = create_vivary.workspace_context(target, repo_root=ROOT)
+        self.assertEqual(linked["status"], "invalid")
+        self.assertNotIn(str(target.resolve()), linked["message"])
+
+    @unittest.skipUnless(shutil.which("git"), "Git is not installed")
+    def test_thin_gitignore_keeps_authored_memory_versionable(self):
+        target = self.scaffold()
+        subprocess.run(["git", "-c", "init.templateDir=", "init", "-q", str(target)],
+                       check=True, capture_output=True)
+        ignored = subprocess.run(
+            ["git", "-C", str(target), "check-ignore", "--no-index",
+             ".vivary/knowledge/x.md", ".vivary/private/x.md"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(ignored.stdout.split(), [".vivary/private/x.md"])
 
 
 if __name__ == "__main__":

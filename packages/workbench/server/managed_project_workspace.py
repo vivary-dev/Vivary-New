@@ -18,7 +18,11 @@ def managed_request(payload):
     if operation == "catalog":
         return {"code": "catalog", "patterns": create_vivary.builtin_pattern_catalog()}
     target = Path(payload["target"])
-    options = dict(preset=payload.get("preset", "coding"), adapters=(), active_context=None,
+    if operation == "context":
+        # Read-only. The Workbench admitted this root before calling. An
+        # invalid config comes back as data so the owner can see the reason.
+        return {"code": "context", "context": create_vivary.workspace_context(target, repo_root=ROOT)}
+    options =dict(preset=payload.get("preset", "coding"), adapters=(), active_context=None,
                    pattern_choices=payload.get("patternChoices", ()))
     if operation == "plan":
         return {"code": "preview", "plan": create_vivary.plan_thin_workspace(

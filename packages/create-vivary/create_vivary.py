@@ -1904,6 +1904,45 @@ def _doctor_config_context(target: Path, root: Path):
     return tropo, resolver
 
 
+def workspace_context(target: str | Path, *, repo_root: str | Path | None = None) -> dict:
+    """Return the paths an agent reads when a run starts, for the Workbench.
+
+    The answer is Tropo's `workspace_context` for this folder plus which memory
+    folders the workspace's ignore rules keep private. A thin config Tropo
+    refuses returns {"status": "invalid", "message": ...} with the workspace
+    path replaced by ".", so no host path leaves the bridge. Reads
+    configuration and ignore files only: no notes, no writes, no receipt.
+    """
+    root = (Path(repo_root) if repo_root is not None else default_repo_root()).resolve()
+    target = Path(target).resolve()
+    tropo = _load_tropo(root)
+    if _workspace_contract(target)[0] != THIN_WORKSPACE_CONTRACT:
+        context = tropo.workspace_context(None)
+    else:
+        try:
+            resolver = tropo.ConfigResolver(str(target), str(Path(tropo.__file__).parent))
+            context = tropo.workspace_context(resolver.base)
+        except (tropo.ConfigError, OSError, TypeError, AttributeError) as exc:
+            return {"status": "invalid", "message": str(exc).replace(str(target), ".")}
+    return {**context, **_memory_privacy(target, context["memory"])}
+
+
+def _memory_privacy(target: Path, folders: list[str]) -> dict:
+    """Which memory folders the workspace's .gitignore rules ignore.
+
+    A fact written to an ignored folder would never be versioned and could be
+    private, so the Workbench neither loads nor saves facts there. The check
+    uses the same pure predicate Doctor trusts for privacy, so it needs no Git.
+    `privacy_policy` says whether a root .gitignore supplied the rules.
+    """
+    gitignore = target / ".gitignore"
+    return {
+        "privacy_policy": ("gitignore" if gitignore.is_file() and not _is_symlink_or_junction(gitignore)
+                           else "none"),
+        "private": [folder for folder in folders if _probe_is_ignored(target, f"{folder}/fact.md")],
+    }
+
+
 def _doctor_graph_context(tropo, resolver, target: Path):
     docs = tropo.analyze(str(target), [], resolver)
     nodes, edges = tropo.build_graph(docs)

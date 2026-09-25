@@ -246,6 +246,44 @@ This single invariant is what makes composition safe: you can always reason
 about a document by reading rules top-down, knowing nothing below ever takes a
 constraint away.
 
+### 5.7 Authored project facts in thin workspaces
+
+A thin workspace (`.vivary/workspace.toml`) gets one built-in type after every
+pack, local table, and root overlay has merged:
+
+```toml
+[types.vivary_fact]
+folder   = [".vivary/knowledge", "<each memory role path>"]
+required = { source = "string", confirmed = "date" }
+```
+
+- `.vivary/knowledge` is the default folder for authored facts. The `memory`
+  role in `[workspace.vivary.roles]` can name other folders. The default stays
+  typed after the role moves, so facts left there still pass `check`.
+- A `folder` value that contains `/` names that exact workspace-relative
+  directory. Resolution checks the exact directory before basenames, so a fact
+  under `.vivary/knowledge/` does not inherit the `project` type of `.vivary/`.
+- The owner wins. An owner `[types.vivary_fact]` table is used unchanged, and a
+  folder that another type already names keeps that type.
+- The private check and the privacy-filtered public check apply the same rule.
+- A folder without thin settings gets no built-in type.
+
+One file holds one fact. `confirmed` is the date the owner last saved or
+corrected it. The first `# ` heading is the title:
+
+```markdown
+---
+source: "Jeff, planning call"
+confirmed: 2026-09-25
+---
+# Relay budget
+
+The relay budget is 40 dollars per month.
+```
+
+`workspace_context(config)` returns the roles, the state file, and the
+effective memory folders from configuration alone. It reads no notes.
+
 ---
 
 ## 6. CLI surface
