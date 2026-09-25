@@ -132,6 +132,46 @@ export async function installedPatternCatalog(context, dependencies = {}) {
   return runCreator({ operation: "catalog" }, dependencies);
 }
 
+const workspaceRelativePath = z.string().min(1).max(512).refine(value =>
+  !value.startsWith("/") && !value.includes("\\") && !/^[A-Za-z]:/.test(value)
+  && value.split("/").every(part => part && part !== "." && part !== ".."));
+const rolePaths = z.array(workspaceRelativePath).max(64);
+const memoryPrivacy = { privacy_policy: z.enum(["gitignore", "none"]), private: rolePaths };
+// The creator's answer is parsed here, so project memory can trust its shape.
+const workspaceContextAnswer = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("thin"),
+    roles: z.strictObject({ law: rolePaths, map: rolePaths, record: rolePaths, memory: rolePaths, boundary: rolePaths }),
+    state: workspaceRelativePath,
+    memory: rolePaths.min(1),
+    memory_assigned: z.boolean(),
+    ...memoryPrivacy,
+  }),
+  z.strictObject({
+    status: z.literal("plain"), roles: z.null(), state: z.null(),
+    memory: rolePaths.min(1), memory_assigned: z.literal(false), ...memoryPrivacy,
+  }),
+  z.strictObject({ status: z.literal("invalid"), message: z.string().max(2_000) }),
+]);
+
+/**
+ * The engine's context paths for one project root that project services
+ * already admitted. This function does not authorize. It throws when the
+ * bridge is unavailable or its answer does not parse, and the caller reports
+ * that as unavailable settings.
+ */
+export async function readWorkspaceContext(root, dependencies = {}) {
+  const result = await (dependencies.runCreator ?? runCreator)({ operation: "context", target: root }, dependencies);
+  if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
+  const answer = workspaceContextAnswer.parse(result.context);
+  if (answer.status === "invalid") return answer;
+  const privacy = { policy: answer.privacy_policy, private: answer.private };
+  return answer.status === "thin"
+    ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
+      memoryAssigned: answer.memory_assigned, privacy }
+    : { status: "plain", memory: answer.memory, privacy };
+}
+
 export async function previewManagedProject(context, input, dependencies = {}) {
   const { target } = await managedTarget(context, input.name, false, dependencies);
   return runCreator({ operation: "plan", target,

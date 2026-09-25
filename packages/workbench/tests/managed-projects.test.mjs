@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createManagedProject, previewManagedProject } from "../server/managed-projects.mjs";
+import { createManagedProject, previewManagedProject, readWorkspaceContext } from "../server/managed-projects.mjs";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -125,4 +125,29 @@ test("managed names reject Windows device names and case collisions before apply
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
+});
+
+test("workspace context reads the engine answer through the shipped bridge", async () => {
+  const originalCwd = process.cwd();
+  const workbenchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-context-plain-"));
+  try {
+    process.chdir(workbenchRoot);
+    assert.deepEqual(await readWorkspaceContext(folder), {
+      status: "plain", memory: [".vivary/knowledge"], privacy: { policy: "none", private: [] },
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("workspace context passes invalid settings through and refuses an unexpected answer", async () => {
+  const answer = context => ({ runCreator: async () => ({ code: "context", context }) });
+  assert.deepEqual(await readWorkspaceContext("/project", answer({ status: "invalid", message: "bad toml" })),
+    { status: "invalid", message: "bad toml" });
+  await assert.rejects(readWorkspaceContext("/project", answer({ status: "plain", roles: null, state: null,
+    memory: ["../outside"], memory_assigned: false, privacy_policy: "none", private: [] })));
+  await assert.rejects(readWorkspaceContext("/project", { runCreator: async () => ({ code: "refused" }) }),
+    /settings reader is unavailable/);
 });

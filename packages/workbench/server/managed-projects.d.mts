@@ -44,6 +44,11 @@ export function createManagedProject(
     }
 >;
 
+export function readWorkspaceContext(
+  root: string,
+  dependencies?: Record<string, unknown>,
+): Promise<import("../app/lib/project-memory-schema").WorkspaceContextPaths>;
+
 export function installedPatternCatalog(
   context: ActionRunContext | undefined,
   dependencies?: Record<string, unknown>,

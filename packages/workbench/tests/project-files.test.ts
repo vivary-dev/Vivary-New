@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { createProjectFileService } from "../server/project-files.ts";
+import { createProjectFileService, readFolder } from "../server/project-files.ts";
 import {
   projectFileRenameInputSchema,
   projectFileSaveInputSchema,
@@ -253,6 +253,123 @@ describe("project file boundary", () => {
       name: "moved.md", expectedVersion: opened.file.version });
     assert.equal(renamed.code, "renamed");
     assert.deepEqual(await readFile(path.join(f.root, "moved.md")), original);
+  });
+
+  it("create makes missing folders without following links and writes exclusively", async () => {
+    const f = await fixture();
+    const created = await f.service.create(undefined, { projectId: "project_a",
+      path: ".vivary/knowledge/relay-budget.md", content: "# Relay budget\n" });
+    assert.equal(created.code, "created");
+    if (created.code !== "created") return;
+    assert.equal(created.file.path, ".vivary/knowledge/relay-budget.md");
+    assert.equal(await readFile(path.join(f.root, ".vivary", "knowledge", "relay-budget.md"), "utf8"),
+      "# Relay budget\n");
+    assert.equal((await stat(path.join(f.root, ".vivary", "knowledge", "relay-budget.md"))).mode & 0o777, 0o644);
+    await assert.rejects(f.service.create(undefined, { projectId: "project_a", path: "notes/secret-plan.md",
+      content: "x\n" }), /not available/);
+    await assert.rejects(f.service.create(undefined, { projectId: "project_a", path: "notes/image.png",
+      content: "x\n" }), /not available/);
+  });
+
+  it("create refuses a symlinked parent and returns target-exists for an existing file", async () => {
+    const f = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
+    roots.push(outside);
+    await symlink(outside, path.join(f.root, "linked-dir"), "dir");
+    await assert.rejects(f.service.create(undefined, { projectId: "project_a", path: "linked-dir/fact.md",
+      content: "x\n" }), /not available/);
+    await assert.rejects(stat(path.join(outside, "fact.md")), { code: "ENOENT" });
+
+    await writeFile(path.join(f.root, "fact.md"), "existing\n");
+    const existing = await f.service.create(undefined, { projectId: "project_a", path: "fact.md", content: "new\n" });
+    assert.equal(existing.code, "conflict");
+    if (existing.code === "conflict") {
+      assert.equal(existing.reason, "target-exists");
+      assert.equal(existing.current?.content, "existing\n");
+    }
+    assert.equal(await readFile(path.join(f.root, "fact.md"), "utf8"), "existing\n");
+  });
+
+  it("remove deletes one file after a matching version and never a folder", async () => {
+    const f = await fixture();
+    await mkdir(path.join(f.root, "facts"));
+    await writeFile(path.join(f.root, "facts", "fact.md"), "fact\n");
+    const opened = await f.service.get(undefined, "project_a", "facts/fact.md");
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    await assert.rejects(f.service.remove(undefined, { projectId: "project_a", path: "facts",
+      expectedVersion: opened.file.version }), /not available/);
+    const removed = await f.service.remove(undefined, { projectId: "project_a", path: "facts/fact.md",
+      expectedVersion: opened.file.version });
+    assert.equal(removed.code, "removed");
+    assert.equal(removed.code === "removed" && removed.path, "facts/fact.md");
+    await assert.rejects(lstat(path.join(f.root, "facts", "fact.md")), { code: "ENOENT" });
+    assert.equal((await lstat(path.join(f.root, "facts"))).isDirectory(), true);
+  });
+
+  it("remove returns changed, renamed-or-deleted, and project-changed conflicts", async () => {
+    const f = await fixture();
+    await writeFile(path.join(f.root, "fact.md"), "before\n");
+    const opened = await f.service.get(undefined, "project_a", "fact.md");
+    assert.equal(opened.code, "file");
+    if (opened.code !== "file") return;
+    const input = { projectId: "project_a", path: "fact.md", expectedVersion: opened.file.version };
+    await writeFile(path.join(f.root, "fact.md"), "external\n");
+    const changed = await f.service.remove(undefined, input);
+    assert.equal(changed.code === "conflict" && changed.reason, "changed");
+    assert.equal(changed.code === "conflict" && changed.current?.content, "external\n");
+    await rm(path.join(f.root, "fact.md"));
+    assert.deepEqual(await f.service.remove(undefined, input),
+      { code: "conflict", operation: "remove", reason: "renamed-or-deleted", path: "fact.md" });
+
+    let call = 0;
+    await writeFile(path.join(f.root, "fact.md"), "again\n");
+    const moving = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+      bindingId: "binding_a", rootId: "root_a", bindingRevision: ++call, policyRevision: 1 }));
+    const result = await moving.remove(undefined, { ...input, expectedVersion: opened.file.version });
+    assert.equal(result.code === "conflict" && result.reason, "project-changed");
+    assert.equal(await readFile(path.join(f.root, "fact.md"), "utf8"), "again\n");
+  });
+
+  it("readFolder skips links, hardlinks, secret names, binaries, and oversize files", async () => {
+    const f = await fixture();
+    const project = { projectId: "project_a", label: "Example", rootId: "root_a", bindingId: "binding_a",
+      bindingRevision: 1, policyRevision: 1 };
+    const folder = path.join(f.root, "facts");
+    await mkdir(folder);
+    await writeFile(path.join(folder, "b-fact.md"), "# B\n");
+    await writeFile(path.join(folder, "a-fact.md"), "# A\n");
+    await writeFile(path.join(folder, "notes.txt"), "not markdown\n");
+    await writeFile(path.join(folder, "secret-plan.md"), "hidden\n");
+    await writeFile(path.join(folder, "binary.md"), Buffer.from([0, 1, 2]));
+    await writeFile(path.join(folder, "large.md"), Buffer.alloc(256 * 1024 + 1, 65));
+    await writeFile(path.join(f.root, "outside.md"), "outside\n");
+    await symlink(path.join(f.root, "outside.md"), path.join(folder, "linked.md"));
+    await writeFile(path.join(f.root, "twin.md"), "twin\n");
+    await link(path.join(f.root, "twin.md"), path.join(folder, "twin.md"));
+
+    const read = await readFolder(f.root, "facts", project, 10);
+    assert.equal(read.status, "ready");
+    if (read.status !== "ready") return;
+    assert.deepEqual(read.files.map(file => file.path), ["facts/a-fact.md", "facts/b-fact.md"]);
+    assert.deepEqual(read.skipped, [
+      { path: "facts/binary.md", reason: "binary" },
+      { path: "facts/large.md", reason: "too-large" },
+      { path: "facts/linked.md", reason: "linked" },
+      { path: "facts/twin.md", reason: "linked" },
+    ]);
+    assert.equal(read.truncated, false);
+    const capped = await readFolder(f.root, "facts", project, 1);
+    assert.equal(capped.status === "ready" && capped.truncated, true);
+
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
+    roots.push(outside);
+    await symlink(outside, path.join(f.root, "linked-facts"), "dir");
+    assert.deepEqual(await readFolder(f.root, "linked-facts", project, 10), { status: "linked" });
+    assert.deepEqual(await readFolder(f.root, "missing/facts", project, 10), { status: "absent" });
+    assert.deepEqual(await readFolder(f.root, "outside.md", project, 10), { status: "not-folder" });
+    assert.deepEqual(await readFolder(f.root, "outside.md/facts", project, 10), { status: "not-folder" });
+    assert.deepEqual(await readFolder(f.root, "credentials/facts", project, 10), { status: "blocked" });
   });
 
   it("rejects reads when the project binding changes before return", async () => {

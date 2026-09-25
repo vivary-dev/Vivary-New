@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
   lstat,
+  mkdir,
   open,
   readdir,
   realpath,
@@ -15,7 +16,9 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type {
   ProjectFile,
   ProjectFileBlockedReason,
+  ProjectFileCreateResult,
   ProjectFileIdentity,
+  ProjectFileRemoveResult,
   ProjectFileRenameResult,
   ProjectFilesResult,
   ProjectFileSaveResult,
@@ -189,7 +192,11 @@ async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number
   await handle.close();
 }
 
-async function readEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity): Promise<ProjectFile | null> {
+/**
+ * One editable file, or null when it is missing, multiply linked, or not
+ * bounded text. Throws a boundary error for a blocked name or a linked path.
+ */
+export async function readEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity): Promise<ProjectFile | null> {
   let absolute: string;
   try {
     absolute = await resolvePathWithoutLinks(root, requestedPath);
@@ -227,6 +234,107 @@ async function blockedReason(root: string, requestedPath: string): Promise<Proje
   const bytes = await readBoundedFile(absolute);
   if (bytes.length > MAX_FILE_BYTES) return "too-large";
   return decodeText(bytes) === null ? "binary" : "unsupported";
+}
+
+export type FolderRead =
+  | { status: "absent" | "not-folder" | "linked" | "blocked" }
+  | {
+      status: "ready";
+      /** Editable Markdown files directly inside the folder, sorted by path. */
+      files: ProjectFile[];
+      skipped: { path: string; reason: ProjectFileBlockedReason }[];
+      truncated: boolean;
+    };
+
+/**
+ * Read the Markdown files directly inside one project folder. The folder and
+ * each file are checked the same way the file tree checks them: no links, no
+ * hidden or skipped names, and only bounded text. `absent` covers a missing
+ * folder or parent. At most `limit` files are considered, in name order.
+ */
+export async function readFolder(root: string, folder: string, project: ProjectFileIdentity,
+  limit: number): Promise<FolderRead> {
+  let parts: string[];
+  try {
+    parts = relativeParts(folder);
+  } catch {
+    return { status: "blocked" };
+  }
+  let directory = root;
+  for (const part of parts) {
+    directory = path.join(directory, part);
+    let entry: Stats;
+    try {
+      entry = await lstat(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "absent" };
+      throw error;
+    }
+    if (entry.isSymbolicLink()) return { status: "linked" };
+    if (!entry.isDirectory()) return { status: "not-folder" };
+  }
+  if (!contained(root, await realpath(directory))) return { status: "linked" };
+  const names = (await readdir(directory, { withFileTypes: true }))
+    .filter(entry => (entry.isFile() || entry.isSymbolicLink())
+      && path.extname(entry.name).toLowerCase() === ".md" && !isSecretName(entry.name))
+    .map(entry => entry.name)
+    .sort();
+  const files: ProjectFile[] = [];
+  const skipped: { path: string; reason: ProjectFileBlockedReason }[] = [];
+  for (const name of names.slice(0, limit)) {
+    const filePath = `${parts.join("/")}/${name}`;
+    try {
+      const file = await readEditableFile(root, filePath, project);
+      if (file) files.push(file);
+      else skipped.push({ path: filePath, reason: await blockedReason(root, filePath) });
+    } catch (error) {
+      if (error instanceof ProjectFileBoundaryError) skipped.push({ path: filePath, reason: "linked" });
+      else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return { status: "ready", files, skipped, truncated: names.length > limit };
+}
+
+/**
+ * A content key for one small settings file: `absent`, `unreadable` (a link,
+ * a multiply linked or oversize file, or a blocked path), or the SHA-256 of
+ * its bytes. Callers use it to tell whether a cached answer still applies.
+ */
+export async function fileDigest(root: string, requestedPath: string): Promise<string> {
+  let absolute: string;
+  try {
+    absolute = await resolvePathWithoutLinks(root, requestedPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    if (error instanceof ProjectFileBoundaryError) return "unreadable";
+    throw error;
+  }
+  const info = await lstat(absolute);
+  if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return "unreadable";
+  const bytes = await readBoundedFile(absolute);
+  if (bytes.length > MAX_FILE_BYTES) return "unreadable";
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Create each missing parent folder of `requestedPath`, one component at a
+ * time, without following links. An existing component must be a real folder.
+ */
+async function createParentFolders(root: string, requestedPath: string): Promise<void> {
+  const parts = relativeParts(requestedPath).slice(0, -1);
+  let directory = root;
+  for (const part of parts) {
+    directory = path.join(directory, part);
+    try {
+      await mkdir(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const entry = await lstat(directory);
+    if (entry.isSymbolicLink()) throw new ProjectFileBoundaryError("blocked-path");
+    if (!entry.isDirectory()) throw new ProjectFileBoundaryError("invalid-path");
+  }
+  if (!contained(root, await realpath(directory))) throw new ProjectFileBoundaryError("blocked-path");
 }
 
 async function listFiles(root: string): Promise<{ files: ProjectFileSummary[]; truncated: boolean }> {
@@ -461,6 +569,65 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         const renamed = await readEditableFile(finalScope.workspace.root, targetPath, finalScope.project);
         if (!renamed) throw new Error("The renamed project file could not be verified.");
         return { code: "renamed", project: finalScope.project, previousPath: input.path, file: renamed };
+      });
+    },
+
+    /**
+     * Create one new editable file, making missing parent folders without
+     * following links. Never replaces an existing file. The generic Files
+     * view does not call this. Project memory does.
+     */
+    async create(context: ActionRunContext | undefined, input: {
+      projectId: string; path: string; content: string;
+    }): Promise<ProjectFileCreateResult> {
+      if (!kindFor(input.path)) throw new ProjectFileBoundaryError("blocked-path");
+      const initial = await resolve(context, input.projectId);
+      return serializeMutation(initial.project, async () => {
+        const lockedScope = await resolve(context, input.projectId);
+        if (!sameProject(initial.project, lockedScope.project)) {
+          return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
+        }
+        const root = lockedScope.workspace.root;
+        await createParentFolders(root, input.path);
+        const target = await resolvePathWithoutLinks(root, input.path, true);
+        const finalScope = await resolve(context, input.projectId);
+        if (!sameProject(lockedScope.project, finalScope.project)) {
+          return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
+        }
+        try {
+          await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          const current = await readEditableFile(root, input.path, finalScope.project).catch(() => null);
+          return { code: "conflict", operation: "create", reason: "target-exists", path: input.path,
+            ...(current ? { current } : {}) };
+        }
+        const created = await readEditableFile(root, input.path, finalScope.project);
+        if (!created) throw new Error("The created project file could not be verified.");
+        return { code: "created", project: finalScope.project, file: created };
+      });
+    },
+
+    /** Delete one editable file whose version still matches. Never removes a folder. */
+    async remove(context: ActionRunContext | undefined, input: {
+      projectId: string; path: string; expectedVersion: string;
+    }): Promise<ProjectFileRemoveResult> {
+      const initial = await resolve(context, input.projectId);
+      return serializeMutation(initial.project, async () => {
+        const conflict = (reason: "changed" | "renamed-or-deleted" | "project-changed", current?: ProjectFile) =>
+          ({ code: "conflict", operation: "remove", reason, path: input.path, ...(current ? { current } : {}) }) as const;
+        const lockedScope = await resolve(context, input.projectId);
+        if (!sameProject(initial.project, lockedScope.project)) return conflict("project-changed");
+        const current = await readEditableFile(lockedScope.workspace.root, input.path, lockedScope.project);
+        if (!current) return conflict("renamed-or-deleted");
+        if (current.version !== input.expectedVersion) return conflict("changed", current);
+        const finalScope = await resolve(context, input.projectId);
+        if (!sameProject(lockedScope.project, finalScope.project)) return conflict("project-changed");
+        const finalCurrent = await readEditableFile(finalScope.workspace.root, input.path, finalScope.project);
+        if (!finalCurrent) return conflict("renamed-or-deleted");
+        if (finalCurrent.version !== input.expectedVersion) return conflict("changed", finalCurrent);
+        await unlink(await resolvePathWithoutLinks(finalScope.workspace.root, input.path));
+        return { code: "removed", project: finalScope.project, path: input.path };
       });
     },
   };
