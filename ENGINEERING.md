@@ -198,7 +198,16 @@ The implementing agent is allowed to inspect, test, fix, and retest its own work
 
 ## Documentation
 
-Keep documentation aligned with the product, but do not let documentation block ordinary implementation.
+Keep documentation aligned with the product. Implementation can proceed while
+the design evolves, but commit it with the corresponding HLDD review.
+Jeff requested this gate on 2026-09-25.
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the canonical high-level design.
+The [maintenance skill](.agents/skills/maintain-hldd/SKILL.md) owns the procedure.
+The staged hook and CI require a substantive update for relevant changes.
+For an internal change with no design impact, Last change review explains what
+changed and why the existing design remains accurate. Test-only changes are
+exempt. These checks enforce a recorded review, not semantic correctness.
 
 Update durable docs when:
 

@@ -47,6 +47,13 @@ def main() -> None:
     review_job = job_block(text, "review")
     site_job = job_block(text, "site")
 
+    require("python scripts/tests/test_hldd.py" in test_job,
+            "tests job must exercise the HLDD gate")
+    require('python scripts/check_hldd.py --base "$BASE_SHA" --head "$HEAD_SHA"' in test_job,
+            "tests job must enforce HLDD review on the explicit commit range")
+    require("HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}" in test_job,
+            "HLDD review must use the actual PR head, not the synthetic merge")
+
     runner_install = "python -m pip install pytest packaging"
     first_pytest = "python -m pytest"
     contract_tests = "python scripts/tests/test_ci_workflow.py"

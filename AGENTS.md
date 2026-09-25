@@ -182,6 +182,15 @@ duplicate checks, and wrappers that only pass arguments. Explain unfamiliar
 primitives in the contributor guide when they affect implementation choices.
 Review the diff for readability before committing.
 
+## High-level design maintenance
+
+Read [the canonical HLDD](docs/ARCHITECTURE.md) before implementation.
+Use [maintain-hldd](.agents/skills/maintain-hldd/SKILL.md) when changing source,
+configuration, architecture, or durable product documentation. Stage the design
+update with the source change. The pre-commit and CI checks enforce this review.
+Keep owner intent and editorial remarks intact. The application bundles this
+same document in Settings > Documentation.
+
 ## Keep knowledge useful
 
 Use the [source map](docs/product/multi-project/source-map/index.md) when work

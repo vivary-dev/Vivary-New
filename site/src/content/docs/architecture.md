@@ -1,126 +1,64 @@
 ---
-title: "Architecture"
-description: "The four-layer model and the principles behind Vivary."
+title: "High-level design"
+description: "Vivary purpose, success criteria, architecture, data boundaries, and verified delivery limits."
 editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/ARCHITECTURE.md"
 ---
 
-This page describes the original command-line engine and its Python packages.
-For the desktop and self-hosted application, read the [product design](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md)
-and [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md).
-For the
-plain-language overview, read [Concepts](/concepts/) first.
+This is the high-level design for the desktop and self-hosted product in `vivary-dev/Vivary-New`. It describes the system that contributors change and the boundaries they must preserve. The [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) owns detailed responsibilities and source entry points. The [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) owns proof by candidate. GitHub issues own task scope and lifecycle.
 
-## 1. What Vivary is
+## Purpose and owner intent
 
-Vivary is a lightweight, local-first governed-context layer for agent work. It compiles
-bounded evidence and task capsules, preserves provenance and receipts, makes authority
-and gates explicit, and produces verification a human can inspect. The workspace
-contract is portable across coding, knowledge, and writing projects and across agent
-runtimes without normalizing the host project into a Vivary-owned framework.
+Jeff's [desktop release decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md) calls for one Vivary instance on a user-controlled computer or suitable server. A local desktop window and a responsive browser connect to that host. The host keeps agents, project files, credentials, history, and memory. Local desktop use needs no Vivary account. Remote browser access requires explicit setup and authentication. Zo hosts development and a private preview. It is not a required user service.
 
-## 2. The first-principles baseline
+The [unified workspace decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#unified-workspace-decision-2026-09-14) puts one selected project conversation at the center. A project can have several independent conversations. Files, details, search, and preview open as optional panels. Supported installed coding runtimes retain their own tools, models, permissions, and sessions. Vivary binds their work to the selected project. A cross-runtime link and a maintained handoff remain separate product capabilities, not an implicit transfer of a live run. The [interaction contract](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/unified-workspace.md) owns those details.
 
-Four of Jeff's repos turned out to be **two ideas**, one of them a single loop
-seen at two speeds:
+The original Vivary engine remains available as standalone commands and through bounded application operations. A project keeps its own folder and conventions. The original five-file workspace contract, plain authored files, and optional version control let a user continue work without the GUI. The [original CLI reference](/original-cli/) owns command and release status.
 
-- **braincheck → loam** — one knowledge-layer lineage (loam supersedes braincheck).
-- **throughline + flywheel** — the *same self-improving loop*. throughline runs
-  `Ask→retrieve→act→verify→learn→gate` every turn; flywheel distills what the
-  loop `learn`ed into durable memory, playbooks, and skills on a heartbeat. Inner
-  turn and outer turn of one mechanism.
+The original design reduces active agent context. `AGENTS.md` routes to `.vivary/context.md`, and `STATE.md` is read when state matters. Typed records arise from actual work. Core keeps evidence, provenance, receipts, and authority explicit. Optional semantic retrieval can suggest candidates, but it does not become authored truth. [Original CLI architecture](#original-engine) explains the package boundaries.
 
-The irreducible core, true of any agent workspace regardless of stack or task:
+## Success criteria
 
-> **Bounded evidence and task context, provenance and receipts, verification,
-> one visible state surface, and human gates.**
+The [desktop release journey](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#acceptance-journey) defines observable success. A person can install and open the Windows package without a source checkout or Vivary account, create and adopt projects, and run authorized work in each. They can inspect actual tool results, stop work, close the app, and reopen the same project and conversation. They can save a project fact, retrieve it in a fresh session, correct it, and remove it from active memory. They can find an older chat by message content and search project files by filename, exact text, and regex. They can use all ten original command verbs through the installed operations. A desktop and phone browser can connect to the same authenticated private host, and a project preview can support an observed error and authorized repair.
 
-**Design law (from throughline's minimalism hypothesis):** every always-on file
-competes with the user's task for context. The framework must cost almost nothing
-to load. Fewer files, fewer words, more room for the work. This is the constraint
-that keeps Vivary from bloating into a heavy harness.
+These are release criteria, not a claim that the full journey passes. The [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md#capability-and-acceptance-gaps) names the tested source and platform for each accepted slice and the remaining gaps. Hosted, simulated-provider, and packaged Windows evidence have different limits.
 
-**DRY and progressive disclosure:** context management only works if it lowers active
-load. `AGENTS.md` routes to `.vivary/context.md`; `STATE.md` is opened only when current
-state matters. Typed records under `.vivary/records/` are created lazily from real work,
-not seeded as framework content. Optional graph views can route deeper context when the
-project needs them.
-
-**No lock-in (corollary):** a workspace is plain Markdown + YAML plus a few
-lightweight Python CLIs. Governed Tropo composes the first-party `vivary-core` seam,
-but no CLI requires an editor, plugin, provider, network service, or single-vendor
-agent runtime. Workspaces operate in any editor or none, with Claude Code via
-bounded opt-in `.claude/` or `.agents/` projections; tropo ignores `.obsidian/`,
-`.vscode/`, and similar tool state.
-
-**Active context is a sidecar.** For codebases, a workspace may declare
-CocoIndex-code (`--active-context cocoindex-code`) so agents can ask before using
-semantic code search. The declaration stays inside the five-file seed and copies no
-sidecar files. This does not move embeddings or indexing into the tropo
-core; it keeps the deterministic graph as truth and treats semantic search as
-candidate retrieval.
-
-**Semantic memory is also optional.** For second-brain, knowledge-work, and writing
-workspaces, semantic recall should use provider adapters over typed `tropo`
-nodes, not naive chunked RAG and not a second source of truth. Database/search and
-memory providers are optional capabilities presented in the install flow; Cognee may
-be one provider behind that adapter, but it must stay out of the default install and
-default preset path. See [Optional semantic memory](/semantic-memory/).
-
-## 3. The layer model
-
-The role packages share Core contracts but keep distinct authority. Strato's policy
-facade ships in the `vivary-strato` package. Its legacy template archive remains
-source-only compatibility material and is not shipped into new or adopted
-workspaces. Bellamente memory and MCP remain optional adapters outside the baseline.
+## System structure
 
 ```mermaid
-flowchart TB
-    Core["vivary-core<br/>pure governed-context contracts"]
-    Tropo["Tropo<br/>observe · graph · retrieve"]
-    Strato["Strato<br/>decide · request gates"]
-    Ozone["Ozone<br/>verify · propose repairs"]
-    Exo["Exo<br/>project control state"]
-    Memory["Bellamente / memory-cognee<br/>recall candidates · caller-owned persistence"]
-    MCP["vivary-mcp<br/>four read-only local projections"]
-
-    Tropo -->|compile context| Core
-    Strato -->|evaluate policy| Core
-    Ozone -->|verify evidence| Core
-    Exo -->|derive transitions| Core
-    Memory -->|classify and propose| Core
-    Memory -->|consume typed nodes| Tropo
-    MCP -->|bounded public producers| Tropo
+flowchart LR
+  Person[Person] --> Desktop[Electron desktop]
+  Person --> Browser[Authenticated browser]
+  Desktop --> Host[Workbench host on loopback]
+  Browser --> Host
+  Host --> Registry[Project registry and scoped actions]
+  Host --> Native[Agent-Native sessions and runs]
+  Host --> Original[Bundled original Python engine]
+  Native --> CLI[Supported installed coding CLI]
+  Registry --> Files[Authorized project folders]
+  Original --> Files
+  CLI --> Files
+  Host --> Data[Private application data]
+  Native --> Data
 ```
 
-Arrows mean “uses,” not “controls.” Core performs pure validation and projection;
-callers retain clocks, execution, persistence, and human approval. The behavior is
-covered by the [Core contract suite](https://github.com/vivary-dev/vivary/tree/dev/packages/core/tests),
-the [role suites](https://github.com/vivary-dev/vivary/tree/dev/packages), and the
-[MCP adapter suite](https://github.com/vivary-dev/vivary/tree/dev/packages/mcp/tests).
+The Electron process starts a local Workbench server, opens its loopback origin, and manages shutdown. The browser client presents the same host state. The Workbench launcher chooses local, hosted, or private-proxy access and locates private data. The source owners are [`packages/desktop/main.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs), [`packages/workbench/bin/start.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/bin/start.mjs), and [`server/local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts). The browser does not run agents or mount a phone's files.
 
-- **tropo** (troposphere) — the dense, living foundation. Typed frontmatter →
-  typed graph → search/navigation. Ground truth. *(ported from loam)*
-- **strato** (stratosphere) — the stable layer above the churn. The visible state
-  surface, compounding memory, the operating loop, human gates, and the
-  self-improvement that falls out of `learn` over time. *(throughline + flywheel,
-  fused)*
-- **ozone** — the protective filter. Review for code *and* prose; a specialized
-  verify/gate step. *(optional)*
-- **exo** — the outermost layer. Coordination and a bounded governed-control adapter
-  when one agent becomes many. *(optional)*
+Workbench composes Agent-Native's application, chat, run, action, and storage owners. Native keeps transcripts and run lifecycle. Workbench keeps project identity and authorized root bindings, then resolves those bindings for actions and sends. The registry uses Native's database with Workbench project, binding, revision, receipt, and mutation tables. See the [project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md), [`project-services.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-services.mjs), and [`db/schema.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/db/schema.mjs). An observed path is not by itself a project identity or a write grant.
 
-Baseline = **tropo + strato** (knowledge + the self-improving loop over it).
-`ozone` and `exo` snap on as needed.
+The selected coding runtime owns execution, tools, model access, and native session continuity. Workbench currently supports Claude Code and Codex through Native Code records and the local Code host. Codex uses its app-server and account-effective model catalog. Workbench relays native approvals, progress, child activity, and Stop. Native provider chat uses Native's chat owner with a project send guard. The [harness adapter contract](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/harness-adapters.md), [Native owner map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/native-owners.md), and [runtime source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/native-runtime/index.md) describe the distinct owners.
 
-### The shared seam: `vivary-core`
+### Original engine
 
-The four layers above are the *vertical* column. `vivary-core` forms the horizontal
-seam beneath them. Each role package speaks through these governed-context primitives,
-so "what is true, and how do we know" has exactly one implementation rather than four
-that drift. Tropo, Strato, Ozone, and Exo all use this seam.
+The original engine remains a package family, not another agent loop. `vivary-core` owns pure validation and projection while callers retain execution, persistence, and human approval. Tropo observes, builds typed graph context, and retrieves. Strato evaluates policy. Ozone verifies evidence and proposes gated repairs. Exo projects claims, dependencies, and handoffs. `create-vivary` creates and adopts workspaces. The optional MCP and semantic-memory adapters are outside the default package path. The `vivary` front door routes ten verbs to their package owners. The Workbench bundles this Python runtime and calls its established commands rather than reimplementing their decisions. See [the command reference](/commands/) and [package manifests](https://github.com/vivary-dev/Vivary-New/tree/dev/packages).
 
-It is a library, not a layer and not a CLI. Nothing about the baseline changes
-because it exists: you still install and run `tropo`, `strato`, `ozone`, `exo`.
+### The shared seam: vivary-core
+
+Core is a library shared by Tropo, Strato, Ozone, and Exo. It owns deterministic
+evidence projection, bounded task capsules, receipt validation, policy decisions,
+and control-state projection. Callers retain clocks, execution, state persistence,
+and human approval. Unknown, conflicting, or omitted evidence stays visible.
+Observed ambiguity does not become permission to act. The [Core contract](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/core/README.md)
+owns the detailed schemas and refusal rules.
 
 ### Package dependency map
 
@@ -150,158 +88,87 @@ flowchart BT
     suite --> exo
 ```
 
-Exact floors and source versions live only in the
-[package manifests](https://github.com/vivary-dev/vivary/tree/dev/packages); the
-[original CLI release status](/original-cli/#release-status) distinguishes those source versions
-from registry truth. The map was checked against those manifests on **2026-09-02**.
+The [package manifests](https://github.com/vivary-dev/Vivary-New/tree/dev/packages) own dependency version floors. Each
+shipping package declares the Core dependency it imports. The meta-package
+receives Core through its component dependencies. Source versions and published
+versions remain distinct in the [CLI release status](/original-cli/#release-status).
 
-The meta-package also owns a front door. `vivary` holds a static table of ten task
-verbs, imports the one component a verb needs, and calls it in the same process. It
-adds no component code, no subprocess, and no dynamic discovery, so the arrows above
-are the same edges the router uses. Each component accepts an optional program name,
-so routed help names the verb rather than the component. Each route carries the
-component version floor that shipped the verb, and the standalone commands remain the
-full operation surface.
-[COMMANDS.md](/commands/#vivary--the-front-door-and-local-visibility-helpers) owns
-the verb table.
+### Distribution names
 
-What it owns:
+The package names remain part of the original engine's architecture. The
+[original CLI release status](/original-cli/#release-status) owns published
+versions. A changed source version is not evidence of a registry release.
 
-- **Determinism** — canonical JSON, sha256 fingerprints, deterministic IDs. Same
-  input, same bytes, on every machine.
-- **Observation** — read-only checkout observation over explicit allowlisted roots.
-  Never fetches, never writes, never crawls.
-- **Projection** — observations into a typed evidence graph, where divergent
-  checkouts become explicit unresolved conflicts with both sides preserved, never
-  auto-resolved.
-- **Capsules** — bounded task context with traversal-free absolute declared scope roots,
-  every claim carrying its evidence and selection reason, and every compiler-owned
-  omission reconstructed. Candidate-by-question-term-and-filter ranking and content
-  containment have Core-owned work ceilings. Capsules compiled from complete content
-  observations fingerprint that exact source. Content searches resolve and search a
-  named HEAD commit tree; duplicate checkout or match identities fail closed.
-  Graph-context verification requires the fingerprinted source, rejects stripped
-  bindings, and recompiles the complete capsule. Core owns the exact top-level capsule
-  and receipt field sets.
-- **Receipts and evidence** — what actually ran, bound to the exact capsule and
-  workspace fingerprint it ran against, in an append-only store. Core rejects receipt
-  checks that have no exact name-and-command authority in the capsule, including for
-  direct Core and Strato callers.
-- **Control lifecycle** — Core owns exact actor and authority validation, claim and
-  lease decisions, dependency-cycle decisions, record-only handoffs, exact execution
-  evidence derivation, replay-safe append projections, and task-integrity views. The
-  [Core control contract](https://github.com/vivary-dev/vivary/blob/dev/packages/core/README.md#governed-exo-control) owns the
-  lifecycle details.
-- **Role-policy surfaces** — reference implementations of the governed loop inside
-  `vivary-core`, exposed incrementally through explicit experimental role adapters:
-  - **Strato (`policy_*`)** evaluates budgets, capsule and receipt gates, and the
-    next loop step with fail-closed, pinned reason codes. The `vivary-strato`
-    `decide --governed` facade adds the actor/authority, workspace/scope,
-    caller-supplied clock, freshness, and policy-version envelope without duplicating
-    those decisions or persisting loop state.
-    Core's primitive accepts finite numeric limits/counters and treats an omitted limit
-    as unbounded; the role envelope narrows any supplied counter or limit to a
-    non-negative integer before delegation.
-  - **Ozone (`verify_*`)** recomputes receipt fingerprints for tamper detection,
-    evaluates gate sufficiency without allowing duplicate check names to erase
-    worse evidence, and emits bounded repair proposals as gated dry-run data. The
-    `vivary-ozone` `verify --governed` facade applies iterative whole-request and
-    multiplicative scalar-work ceilings before recursive validation, preserves Core's
-    exact artifact-field ownership and typed unknown-field refusals, binds graphless
-    check working directories to task scope, rejects receipt-only check authority,
-    requires canonical repair-graph allowlists, and transports content observations
-    bound to both the named commit tree and the graph's effective ignore-policy
-    fingerprint for Core reconstruction. Its raw fingerprinted gate verdict passes to
-    Strato unchanged.
-  - **Exo (`control_*`)** exposes Core's
-    [control lifecycle](https://github.com/vivary-dev/vivary/blob/dev/packages/core/README.md#governed-exo-control) through one
-    bounded request/response adapter. The caller owns and persists every state value.
-    [The command reference](https://github.com/vivary-dev/vivary/blob/dev/docs/COMMANDS.md#governed-control) owns the
-    transport envelope.
-  - **Bellamente (`recall_*`)** applies the
-    [SPEC-owned candidate-recall firewall](https://github.com/vivary-dev/vivary/blob/dev/docs/bellamente-memory/SPEC-bellamente-memory.md#6-candidaterecallprovider-contract).
-    The public Core seam classifies bounded normalized candidates and projects
-    caller-owned `preserve`, `create`, or `supersede` transitions. Create and
-    supersede require an exact proposal-bound human approval. Applied records append
-    learned assertions and never rewrite authored truth.
+- npm: `@vivary/create` launches the workspace creator.
+- PyPI: `vivary`, `vivary-core`, `vivary-tropo`, `vivary-strato`, `vivary-ozone`,
+  `vivary-exo`, `create-vivary`, `vivary-memory-cognee`, and `vivary-mcp`.
 
-The governed Exo adapter adds no scheduler, state store, agent runner, network or
-provider call, MCP server, repair write, or publishing path. It makes no Agent Relay
-compatibility or byte-parity claim.
-The governing rule is the same one the rest of Vivary follows: it never resolves an
-ambiguity it merely observed. Conflicts are handed to review, not to confidence, and
-anything unproven is reported `unknown` rather than guessed.
+The optional memory and MCP distributions remain outside the default path.
+Coordinated releases publish Core before its dependent role packages.
 
-**Selected dependency direction:** a shipping package that imports `vivary-core`
-declares its own floor in the same commit. The `vivary` meta-package receives Core
-transitively through the role packages instead of declaring a duplicate Core edge.
-Tropo, Strato, Ozone, and Exo own their Core floors. The meta-package owns its five
-component floors, including `create-vivary>=0.4.4`, `vivary-tropo>=0.5.5`, and
-`vivary-strato>=0.1.3`. One owner per edge avoids version-pinning fights.
+## Runtime flows
 
-**Optional MCP boundary:** `vivary-mcp` is an interoperability adapter, not a layer
-or part of Core. Its dependency direction is `vivary-mcp → vivary-tropo →
-vivary-core`; it separately pins the official MCP SDK. The adapter exposes only
-bounded public Tropo/Core projections over operator-bound local roots. The baseline
-and `vivary` meta-package do not install or start it. A capsule returned through MCP
-may bind a later proposal, but the adapter never authorizes or performs that write.
-Thin workspace mutation crosses a separate human gate: `create-vivary record` plans
-and verifies one typed create or update at a time, with no batch or pack mode.
+1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
+2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
+3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
+4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
+5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The five project read reports share one server module for the Details panel and the Native tool. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
+6. **Preview a project.** A reviewed local command starts a project process. The app presents its page in an isolated frame and supports Stop. The selected coding runtime can inspect and repair the project through its supported browser tools. The [preview receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/11e-live-project-preview.md) states what passed on Zo and what still needs packaged or platform proof.
 
-**Installed-capability truth:** `create-vivary capabilities`
-projects a fixed public inventory for Core and the four governed roles. A bounded
-passive reader binds each credited module or console script to the exact distribution
-record under the active interpreter's canonical package roots. It neither imports
-optional packages nor dispatches ambient import or distribution hooks. Each row reports
-`installed`, `not-installed`, `incompatible`, or `probe-failed`. Optional absence and
-probe failure do not make the workspace unhealthy. Doctor embeds the same envelope
-and a separate passive `interop:mcp` row; neither probe imports or starts the adapter.
+## Data and trust boundaries
 
-**Status:** the Tropo, Strato, Ozone, and Exo Core adapters are published and stay
-behind explicit `--governed` flags. The optional read-only MCP adapter is published
-as `vivary-mcp` and remains disabled by default. Plain Tropo retrieval, Ozone review
-and impact, and legacy Exo graph coordination remain unchanged. Current versions and
-publication status live in
-[the original CLI release status](/original-cli/#release-status).
+| Data or effect | Owner and boundary |
+| --- | --- |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. `.vivary/memory/` is disposable semantic-provider state, not an authored note store. |
+| Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
+| Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
+| CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
+| Search results and indexes | Project file search reads the authorized folder with bounded work. A future derived index is rebuildable and belongs in private application data. |
+| Preview processes | Start only from reviewed project commands. Preview content is isolated from privileged Workbench state. Stop and host shutdown own cleanup. |
 
-## 4. The moat
+The local desktop server binds to loopback and opens without a Vivary login. Hosted mode uses Native authentication. The private Zo preview uses its owner-login proxy boundary. Remote access to a user's host remains an explicit, authenticated setup requirement, with real-phone and revocation acceptance still open. [`local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts) owns request checks. The [host decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#host-and-browser-access-decision-2026-09-13) owns the product boundary.
 
-Existing harnesses persist *flat context* — specs and memory dumped into Markdown.
-Vivary's differentiators:
+The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs) own those limits.
 
-1. **Typed knowledge graph substrate**, not flat memory (tropo).
-2. **Blast-radius / impact reasoning** — show what a change touches, before and
-   after, visually, in a way a text diff cannot. (tropo's graph roadmap.)
-3. **Medium-agnostic** — code review and editorial review are the same layer
-   (ozone) with different rule packs.
-4. **A thin governed-context standard** that adopts a host project without taking it over.
+## Delivery and known gaps
 
-## 5. Naming & namespace
+The unified workspace, project registration and selection, scoped Code and Native history, bounded files and search, reviewed project preview, bundled original CLI, and selected original operations have implemented and tested slices. The [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) states their candidate-specific evidence. A passing component or source check does not complete the desktop and browser release journey.
 
-The brand owns the namespace; current package truth is:
+Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and earlier Windows packages. The final `e6ccddf5` Windows package's panel reads and agent turn were still pending in that receipt. Treat that acceptance as pending until the owning issue and register record the later result. PR #90 added [route-question research](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
 
-<!-- The PyPI bullet below is parsed by scripts/check_package_docs_parity.py; keep only distribution names backticked. -->
-- npm: `@vivary/create` — the launcher for the scaffolder.
-- PyPI: `vivary` (the meta package that installs the suite), `vivary-core`,
-  `vivary-tropo`, `vivary-strato`, `vivary-ozone`, `vivary-exo`, `create-vivary`,
-  and the optional `vivary-memory-cognee` and `vivary-mcp`.
-- `vivary-core` publishes inside the coordinated train, never in an earlier release
-  line than its dependent roles. Within that train, dependencies upload before
-  dependents, so core uploads first.
-- `vivary-strato` owns the policy facade in its runtime package. The legacy
-  full-workspace assets remain source-only compatibility fixtures and are excluded
-  from the `create-vivary` wheel.
-- `vivary-mcp` is an optional local standard-input/output adapter. It is not a
-  `vivary` meta-package dependency and stays off by default. [MCP.md](/mcp/) owns
-  its contract.
-- GitHub: `vivary-dev/vivary` holds the public repo.
+Scoped memory through real agent runs, chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
 
-Future packages can still use the Vivary namespace. Release surfaces must name the
-exact published version of each distribution rather than infer it from source.
+## Maintaining this document
 
-## 6. Module naming = atmosphere strata
+This page owns the full-product structure, data owners, trust boundaries, and cross-component flows. Detailed contracts and source paths live in the [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) and [source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/index.md). Product decisions live in [design.md](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md). GitHub issues own goals, acceptance, dependencies, and lifecycle. Update those owners with this page when their facts change.
 
-The vertical column is named by altitude: `tropo` (troposphere, ground-hugging
-and dense) → `strato` (stratosphere, stable) → `ozone` (the protective layer) →
-`exo` (exosphere, the boundary to space). A *vivary* contains its own atmosphere,
-so the metaphor nests cleanly: the world (Vivary) and its layers (the strata).
+For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. No commit hook rewrites this page automatically.
+
+The application bundles this document at build time and exposes it through
+Settings > Documentation. The reader uses the existing read-only Markdown
+component. Its text remains available offline. Source and detailed-reference
+links open online through the browser or desktop's existing confirmation flow.
+No documentation route reads arbitrary host files.
+
+## Last change review
+
+The review follow-up strengthens maintenance enforcement and documentation
+navigation. Date-only bullets and emphasis do not count as substantive reviews.
+Required sections must be visible prose headings, outside comments and fenced
+examples. Git-index and history tests cover both cases. The document reader
+resolves reference destinations in rendered links so ordinary activation,
+middle-click, and browser context menus use the same target. Its sidebar footer
+keeps Documentation, Settings, and search within the supported panel width.
+The maintained CI test list now includes documentation-link behavior.
+
+These corrections preserve the product intent, component ownership, and
+acceptance boundaries above. The original package inventory and dependency map
+remain part of this canonical design. Tests, the built reader, and source-link
+checks establish the maintenance and navigation changes. Final Windows read-tool
+acceptance remains with issue #19.
+
+The multi-project evidence brief now links to stable architecture sections and
+the owning Core, Exo, front-door, capability-status, and MCP contracts. Those
+references replace line ranges invalidated by this consolidation. The linked
+contracts and dispatch source confirm the same package boundaries. This reference
+repair changes no runtime behavior or acceptance claim.

@@ -31,7 +31,9 @@
 .workspace-saved-conversations { margin:18px 6px; font-size:12px; }
 .workspace-saved-conversations summary { cursor:pointer; }
 .workspace-saved-conversations p { margin:10px 0; color:hsl(var(--muted-foreground)); line-height:1.6; }
-.workspace-navigation-footer { display:flex; align-items:center; justify-content:space-between; padding:10px; border-top:1px solid hsl(var(--sidebar-border)); }
+.workspace-navigation-footer { display:grid; grid-template-columns:minmax(0,1fr) 32px; align-items:center; gap:2px; padding:6px; border-top:1px solid hsl(var(--sidebar-border)); }
+.workspace-navigation-footer .vivary-nav-link { min-width:0; }
+.workspace-navigation-footer .vivary-sidebar-utility { grid-column:2; grid-row:1 / span 2; }
 .vivary-project-navigation { border-top:0; padding-top:0; margin-top:0; }
 .local-agent-header { background:transparent; min-height:52px; }
 .local-agent-heading h2 { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
