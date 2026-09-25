@@ -985,12 +985,15 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertIn(".vivary/knowledge/.gitignore", context["ignore_files"])
 
     def test_host_path_scrub_keeps_urls_and_relative_paths(self):
+        # Tropo names files with the platform's separators, so the message does too.
         target = Path("/work/project")
-        message = ("see https://example.test/docs, /work/project/.vivary/workspace.toml, "
+        settings = target / ".vivary" / "workspace.toml"
+        relative = str(settings).replace(str(target), ".", 1)
+        message = (f"see https://example.test/docs, {settings}, "
                    ".vivary/private, /home/owner/other, and C:\\Users\\owner\\x")
         self.assertEqual(
             create_vivary._without_host_paths(message, target),
-            "see https://example.test/docs, ./.vivary/workspace.toml, .vivary/private, "
+            f"see https://example.test/docs, {relative}, .vivary/private, "
             "<a folder outside the project>, and <a folder outside the project>",
         )
 
