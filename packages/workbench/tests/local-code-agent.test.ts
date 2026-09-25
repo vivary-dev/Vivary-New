@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { compileFunction } from "node:vm";
 import assert from "node:assert/strict";
 import { after, afterEach, describe, it } from "node:test";
 import {
@@ -39,6 +41,19 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { getCodePermissionMode, setCodePermissionMode } from "../server/code-permissions.ts";
 import { claimProjectReconnection } from "../server/project-reconnection-admission.mjs";
 import { createProjectMemory, renderFactFile, renderUnavailableContext } from "../server/project-memory.ts";
+
+// Load Native's transcript builder the way codex-transcript.test.mjs does: its
+// module imports client-only code, so only the pure functions are compiled.
+async function coreTranscriptBuilder(): Promise<(events: CodeAgentTranscriptEvent[]) => { messages: { message: unknown }[] }> {
+  const core = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "@agent-native", "core");
+  const { normalizeCodeAgentTranscript, isCredentialGapCodeAgentEvent } = await import(
+    pathToFileURL(path.join(core, "dist/code-agents/transcript-normalizer.js")).href);
+  const file = path.join(core, "dist/agent/thread-data-builder.js");
+  const source = (await readFile(file, "utf8")).replace(/^import [\s\S]*?;\n/gm, "").replace(/^export /gm, "");
+  return compileFunction(`${source}\nreturn buildRepositoryFromCodeAgentTranscript;`,
+    ["normalizeCodeAgentTranscript", "isCredentialGapCodeAgentEvent"], { filename: file })(
+    normalizeCodeAgentTranscript, isCredentialGapCodeAgentEvent);
+}
 
 const stateRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-code-test-state-"));
 const previousDatabase = process.env.DATABASE_URL; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
@@ -515,10 +530,12 @@ process.send({type:"vivary:code-worker:ready"});
       path: process.env.PATH, store: process.env.AGENT_NATIVE_CODE_AGENTS_HOME }; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     const host = () => Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host")).activeRuns;
     // Send, read what the fake worker received, then stop so the next turn can start.
+    const recorded: string[] = [];
     const turn = async (message: string, runId?: string) => {
       await rm(path.join(fixture, "started.json"), { force: true });
       const state = await sendVivaryCodeMessage({ ownerEmail, orgId, message, engine: "claude-cli", model: "sonnet",
-        runId, workspace, projectContext: await memory.contextForRun(workspace, "code") });
+        runId, workspace, projectContext: await memory.renderForRun(workspace),
+        recordProjectContext: load => recorded.push(load.revision) });
       const id = state.run!.id;
       let started: { prompt: string } | undefined;
       for (let attempt = 0; attempt < 100 && !started; attempt++) {
@@ -535,6 +552,13 @@ process.send({type:"vivary:code-worker:ready"});
       process.env.VIVARY_ACCESS_MODE = "local"; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       process.env.PATH = bin + path.delimiter + (previous.path ?? ""); // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
       process.env.AGENT_NATIVE_CODE_AGENTS_HOME = fixture; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
+
+      // A refused send records no load, so the panel's last load stays true.
+      await assert.rejects(sendVivaryCodeMessage({ ownerEmail, orgId, message: "Refused", engine: "claude-cli",
+        model: "sonnet", workspace, revalidateWorkspace: async () => ({ ...workspace, bindingRevision: 2 }),
+        projectContext: await memory.renderForRun(workspace), recordProjectContext: load => recorded.push(load.revision) }),
+      { errorCode: "vivary_code_project_changed" });
+      assert.deepEqual(recorded, []);
 
       const first = await turn("What is the relay budget?");
       assert.ok(first.prompt.startsWith("<project-context>\nProject: Relay\n"), first.prompt.slice(0, 80));
@@ -558,7 +582,13 @@ process.send({type:"vivary:code-worker:ready"});
       assert.equal(loads[0].message, `Loaded project context ${firstRevision}: 1 fact from .vivary/knowledge, `
         + "instructions from AGENTS.md, state from STATE.md.");
       assert.match(loads[1].message, /The project context changed since the last turn\.$/);
+      assert.deepEqual(loads.map(event => event.kind), ["note", "note"]);
       assert.notEqual(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, firstRevision);
+      assert.equal(recorded.length, 2);
+      // Native's transcript builder, which the Code view uses, shows the note.
+      const repository = (await coreTranscriptBuilder())(listCodeAgentTranscriptEvents(first.id));
+      const shown = JSON.stringify(repository.messages.map((entry: { message: unknown }) => entry.message));
+      assert.ok(shown.includes(`Loaded project context ${firstRevision}`), shown.slice(0, 400));
     } finally {
       process.chdir(previous.cwd);
       if (previous.mode === undefined) delete process.env.VIVARY_ACCESS_MODE; else process.env.VIVARY_ACCESS_MODE = previous.mode; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
@@ -575,17 +605,26 @@ process.send({type:"vivary:code-worker:ready"});
     process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     try {
       const block = renderUnavailableContext("Relay", "Test block.");
+      const context = { block, revision: "ctx-000000000001" };
       const codex = createCodeAgentRunRecord({ id: "codex-resumed", goalId: "vivary-local-code", title: "Codex",
         status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "codex-cli",
-          codexSessionId: "thread-1" } });
+          codexSessionId: "thread-1", projectContextRevision: "ctx-000000000000" } });
       appendCodeAgentTranscriptEvent({ runId: codex.id, kind: "user", message: "Earlier question" });
-      assert.equal(buildVivaryCodeExecutionPrompt(codex, "codex-cli", "Next question", block),
-        `${block}\n\nNext question`);
+      assert.equal(buildVivaryCodeExecutionPrompt(codex, "codex-cli", "Next question", context),
+        `${block}\n\nNext question`, "a changed context sends the full block");
+      const unchanged = { ...codex, metadata: { ...codex.metadata, projectContextRevision: context.revision } };
+      assert.equal(buildVivaryCodeExecutionPrompt(unchanged, "codex-cli", "Next question", context),
+        "Project context ctx-000000000001 is unchanged since an earlier message in this thread.\n\nNext question");
+      const newThread = { ...unchanged, metadata: { ...unchanged.metadata, codexSessionId: undefined } };
+      assert.match(buildVivaryCodeExecutionPrompt(newThread, "codex-cli", "Next question", context),
+        /^<project-context>/, "a run without a Codex thread yet gets the full block");
       const claude = createCodeAgentRunRecord({ id: "claude-follow-up", goalId: "vivary-local-code", title: "Claude",
         status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "claude-cli" } });
       appendCodeAgentTranscriptEvent({ runId: claude.id, kind: "user", message: "Earlier question" });
-      assert.match(buildVivaryCodeExecutionPrompt(claude, "claude-cli", "Next question", block),
-        /^<project-context>[\s\S]*<\/project-context>\n\n# Previous conversation\n/);
+      const sameRevision = { ...claude, metadata: { ...claude.metadata, projectContextRevision: context.revision } };
+      assert.match(buildVivaryCodeExecutionPrompt(sameRevision, "claude-cli", "Next question", context),
+        /^<project-context>[\s\S]*<\/project-context>\n\n# Previous conversation\n/,
+        "Claude turns are fresh CLI sessions, so they always get the full block");
       assert.equal(buildVivaryCodeExecutionPrompt(null, "claude-cli", "Personal question"), "Personal question");
     } finally {
       if (previousStore === undefined) delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.

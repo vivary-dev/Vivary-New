@@ -228,9 +228,14 @@ function closeBlock(body: string): ProjectContextBlock {
   return `${OPEN_TAG}\n${fitted}\n${CLOSE_TAG}` as ProjectContextBlock;
 }
 
+// Native's compact prompt keeps a note that personal memory exists, and core
+// cannot drop it per request. The tools are removed for project chats, and
+// this sentence says so in every variant of the block.
 function header(label: string | null): string {
   return `${label ? `Project: ${neutralize(label)}\n` : ""}Vivary loaded this from the project folder when this message started. `
-    + "It replaces any project context shown earlier in this conversation.";
+    + "It replaces any project context shown earlier in this conversation. "
+    + "In this project conversation, Native's owner-wide memory, resources, and chat-history tools are unavailable. "
+    + "Project facts live only in this project's memory files.";
 }
 
 /** The block for one message. Deterministic for a snapshot and at most CONTEXT_BOUNDS.totalChars long. */
@@ -607,9 +612,10 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     /**
      * The context for one Code or Full chat message in an already admitted
      * workspace. Never throws: core drops a failing `extraContext` silently,
-     * so a failure renders a block that says why instead.
+     * so a failure renders a block that says why instead. It records nothing.
+     * The caller records the load once the message is actually sent.
      */
-    async contextForRun(workspace: Workspace, surface: ProjectContextLastLoad["surface"]): Promise<ProjectContextLoad> {
+    async renderForRun(workspace: Workspace): Promise<ProjectContextLoad> {
       let block: ProjectContextBlock;
       let summary: (revision: string) => string;
       let factCount = 0;
@@ -624,8 +630,13 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
         summary = revision => `Project context ${revision} could not be loaded: ${reason}`;
       }
       const revision = contextRevision(block);
-      lastLoads.set(workspace.projectId, { at: dependencies.now().toISOString(), surface, factCount, revision });
       return { block, revision, summary: summary(revision), factCount };
+    },
+
+    /** Remember, for the panel, that a sent message used this load. Kept in memory only. */
+    recordLoad(projectId: string, load: ProjectContextLoad, surface: ProjectContextLastLoad["surface"]): void {
+      lastLoads.set(projectId, { at: dependencies.now().toISOString(), surface, factCount: load.factCount,
+        revision: load.revision });
     },
   };
 }

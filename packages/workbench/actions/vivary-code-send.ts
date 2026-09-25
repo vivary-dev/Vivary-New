@@ -31,8 +31,9 @@ export default defineAction({
       orgId: ctx?.orgId ?? undefined,
       workspace,
       revalidateWorkspace: projectId ? () => resolveVivaryCodeProject(ctx, projectId) : undefined,
-      // Loaded before the send's final checks, so no await sits between them and the host-slot claim.
-      projectContext: workspace ? await projectMemory.contextForRun(workspace, "code") : undefined,
+      // Rendered before the send's final checks, so no await sits between them and the host-slot claim.
+      projectContext: workspace ? await projectMemory.renderForRun(workspace) : undefined,
+      recordProjectContext: workspace ? load => projectMemory.recordLoad(workspace.projectId, load, "code") : undefined,
       message,
       model,
       engine,

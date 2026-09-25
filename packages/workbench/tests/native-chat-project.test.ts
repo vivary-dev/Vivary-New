@@ -10,7 +10,7 @@ import {
   createVivaryNativeChatContext,
   createVivaryNativeChatProjectGuard,
   createVivaryNativeChatProjectResolver,
-  OWNER_MEMORY_ACTIONS,
+  OWNER_WIDE_ACTIONS,
   prepareVivaryNativeChatProject,
   vivaryNativeChatProjectOptions,
 } from "../server/native-chat-project";
@@ -171,8 +171,8 @@ test("extraContext renders unavailable when access is revoked after the guard", 
   assert.doesNotMatch(String(unclassified), /private path/);
 });
 
-test("resolveActionSurface removes owner memory actions only in project chats", async () => {
-  const available = ["vivary-project-read", "resources", "save-memory", "delete-memory", "web-request"];
+test("resolveActionSurface removes owner-wide actions only in project chats", async () => {
+  const available = ["vivary-project-read", "resources", "save-memory", "delete-memory", "chat-history", "web-request"];
   const surface = (match: ChatScopeMatch | Error) => createVivaryNativeChatActionSurface({
     getOrgId: () => orgId,
     matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
@@ -191,10 +191,10 @@ test("a request-scoped surface changes only trusted code execution, which Full c
   assert.equal("codeExecution" in vivaryNativeChatProjectOptions, false);
 });
 
-test("owner memory action names match Native's resource entries", async () => {
+test("owner-wide action names match Native's resource and chat entries", async () => {
   const entries = new URL("./agent-chat/script-entries.js", import.meta.resolve("@agent-native/core/server"));
   const source = await readFile(entries, "utf8");
-  for (const name of OWNER_MEMORY_ACTIONS) {
+  for (const name of OWNER_WIDE_ACTIONS) {
     const key = name.includes("-") ? `"${name}"` : name;
     assert.ok(source.split("\n").some(line => line.startsWith(`            ${key}: `)), name);
   }

@@ -138,17 +138,22 @@ type NativeChatContextDependencies = Pick<NativeChatProjectDependencies, "getOrg
 const defaultContextDependencies: NativeChatContextDependencies = {
   getOrgId: getRequestOrgId,
   matchChatProject,
-  loadProjectContext: async (context, projectId) => (await projectMemory.contextForRun(
-    await resolveLocalProjectWorkspace(context, projectId), "full-chat")).block,
+  loadProjectContext: async (context, projectId) => {
+    const workspace = await resolveLocalProjectWorkspace(context, projectId);
+    const load = await projectMemory.renderForRun(workspace);
+    // extraContext runs only for a send the guard admitted, so this message is being sent.
+    projectMemory.recordLoad(workspace.projectId, load, "full-chat");
+    return load.block;
+  },
 };
 
 /**
- * Native actions that read or write owner-wide memory and resources. Their
- * store has no project column, so a project chat has no grant for them. A
- * test pins each name against Native's registry, so a rename there fails
- * instead of silently exposing owner memory again.
+ * Native actions that read or write owner-wide memory, resources, or chat
+ * history. Their stores have no project column, so a project chat has no
+ * grant for them. A test pins each name against Native's registry, so a
+ * rename there fails instead of silently exposing owner-wide data again.
  */
-export const OWNER_MEMORY_ACTIONS = ["resources", "save-memory", "delete-memory"] as const;
+export const OWNER_WIDE_ACTIONS = ["resources", "save-memory", "delete-memory", "chat-history"] as const;
 
 /**
  * Native `extraContext`, run on every send after the guard. A project chat
@@ -172,9 +177,11 @@ export function createVivaryNativeChatContext(
 }
 
 /**
- * Native `resolveActionSurface`. A project chat loses the owner-wide memory
- * actions, and Native also drops its prompt lines that name them. Any other
- * chat keeps Native's default surface. A classification error fails closed.
+ * Native `resolveActionSurface`. A project chat loses the owner-wide actions,
+ * and Native drops the framework prompt lines that name them. Native's
+ * resources context note remains, and the project block says the tools are
+ * unavailable. Any other chat keeps Native's default surface. A
+ * classification error fails closed.
  */
 export function createVivaryNativeChatActionSurface(
   dependencies: Pick<NativeChatProjectDependencies, "getOrgId" | "matchChatProject"> = defaultDependencies,
@@ -182,7 +189,7 @@ export function createVivaryNativeChatActionSurface(
   return async details => {
     const withoutOwnerMemory = {
       allowedActionNames: details.availableActionNames.filter(name =>
-        !OWNER_MEMORY_ACTIONS.some(denied => denied === name)),
+        !OWNER_WIDE_ACTIONS.some(denied => denied === name)),
     };
     try {
       const match = await matchChatScope(dependencies,
