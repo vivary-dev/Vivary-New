@@ -1,5 +1,7 @@
 import { z } from "zod";
-import type { OriginalCommandOutput } from "./project-health";
+
+// One `vivary-original-command` run as the action returns it: the child's raw output.
+export type OriginalCommandOutput = { exitCode: number | null; stdout: string; stderr: string };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const relativePath = z.string().min(1).refine(value => !value.startsWith("/")

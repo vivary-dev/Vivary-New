@@ -33,7 +33,7 @@ export const SKIPPED_DIRECTORIES = new Set([
 ]);
 const SECRET_EXTENSIONS = new Set([".cer", ".crt", ".der", ".key", ".p12", ".pfx", ".pem"]);
 const EDITABLE_EXTENSIONS = new Map<string, ProjectFile["kind"]>([
-  [".md", "markdown"], [".mdx", "markdown"], [".txt", "text"],
+  [".md", "markdown"], [".markdown", "markdown"], [".mdx", "markdown"], [".txt", "text"],
   [".toml", "toml"],
   [".c", "source"], [".cc", "source"], [".cpp", "source"], [".css", "source"],
   [".go", "source"], [".h", "source"], [".html", "source"], [".java", "source"],

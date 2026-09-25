@@ -5,6 +5,6 @@ export const VIVARY_OWNER_ACTIONS = [
   "vivary-project-file-save", "vivary-project-file-rename",
   "vivary-preview-new-project", "vivary-create-new-project", "vivary-workspace-pattern-catalog",
   "vivary-preview-managed-project-reconnection", "vivary-confirm-managed-project-reconnection",
-  "vivary-original-command", "vivary-project-adoption", "vivary-project-preview",
+  "vivary-original-command", "vivary-project-adoption", "vivary-project-preview", "vivary-project-read-owner",
 ] as const;
 export type VivaryOwnerAction = typeof VIVARY_OWNER_ACTIONS[number];

@@ -2,8 +2,10 @@
 Type: packet
 GitHub-issue: https://github.com/vivary-dev/Vivary-New/issues/9
 Parent: 17
-Status: in-progress
+Status: done
 Depends-on: [04a, 06g]
+Evidence: [Conversation drafts receipt](../receipts/17a-chat-restart-and-drafts.md)
+Verification-result: passed
 Owner: Root-assigned Workbench continuity integrator
 Scope: Persist project/session selection and unsent text through Native state across desktop origins.
 Verification-kind: runtime
@@ -146,6 +148,10 @@ store, or weaken local/private-proxy access. Never submit a restored draft autom
   complete. Keep #9 open until PR #88 merges into `dev`. Entire CLI sign-in
   is needed for mirror push and ref verification. The formal trail approval remains
   a separate failed check that requires a recorded reviewer vote.
+
+- 2026-09-24: PR #88 merged into `dev` as `0c8c7eb`, and #9 closed. The
+  GitHub and Entire `dev` refs match. The Entire gate now counts the
+  author's approval, which replaced the separate reviewer-vote requirement.
 
 ## Shared desktop and web behavior
 

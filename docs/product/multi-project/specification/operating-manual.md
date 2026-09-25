@@ -9,7 +9,7 @@ Use this manual to give an LLM the exact context for one change. It is a reading
 3. Read only the matching [journey](journeys.md), source owner, existing tests and contract. Expand to a direct dependency when the proposed change crosses its boundary.
 4. State the preserved behavior and one observable outcome before edits. Identify whether this is configuration, composition, a small UI extraction or a new adapter.
 5. Implement against the current installed API. Conceptual names in this specification are not exports to import. Prefer configure, compose, then the smallest supported extraction.
-6. Run focused verification and the affected real hosted journey. Fix failures and repeat that journey. Run independent review for the risk and the required PR gate.
+6. Run focused verification and the affected real hosted journey. Fix failures and repeat that journey. Run independent review when the risk warrants it. The PR gate needs one approval, and the author's approval counts.
 7. Update the owning contract/evidence and its source map when behavior changes. GitHub owns lifecycle. Regenerate only views whose sources changed.
 8. Follow the standing Zo CI and delivery practices in AGENTS.md and CONTRIBUTING.md. Push reviewed source to both remotes and verify matching refs. Merge only with the applicable CI, review, product acceptance, and existing authorization. Refresh the private app while idle. Test the packaged Windows EXE separately.
 
@@ -49,7 +49,7 @@ Current source/branch and resources: recheck, do not assume this brief is fresh.
 API rule: verify installed exports. Specification signatures are conceptual.
 Verification: <focused existing check> and <affected hosted user journey>.
 Failure: preserve authored data, report denied/conflict/uncertain state, repair and repeat.
-Delivery: reviewed topic PR into dev, applicable CI and independent approval,
+Delivery: reviewed topic PR into dev, applicable CI and one approval,
 Zo CI against the exact candidate, matching GitHub/Entire refs, and authorized merge only.
 Preview source verified. No automatic main/public promotion.
 Stop only the operation needing a missing actual prerequisite.

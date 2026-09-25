@@ -5,7 +5,7 @@ remote database. The app uses the pinned Agent-Native shell,
 conversation components, settings, actions, provider storage, and run records.
 
 Follow the root [contributor workflow](../../CONTRIBUTING.md) for branches,
-review, and integration in private Vivary-New. Live
+review, and integration in Vivary-New. Live
 [GitHub issues](https://github.com/vivary-dev/Vivary-New/milestone/1) own task scope,
 acceptance, dependencies, and status, including the planned self-hosted browser
 experience. The [program frontier](../../docs/product/multi-project/index.md)
@@ -298,6 +298,51 @@ binary. Coding agents search
 the same folder through their own tools: Claude Code's Grep and Glob run in
 the project directory, and Codex uses its sandboxed shell there.
 
+Project details runs the original Vivary read operations for the selected
+project. **Check project health** runs Doctor. **Check notes** validates typed
+notes. **Find context** ranks project context for a question. **Show features**
+lists optional capabilities for a preset. **Show receipts** lists recent
+sanitized command receipts for every project on this host, with totals for the
+whole log. Each section runs on its own, so several can run at once.
+
+Doctor, find, and check use the front door's `--public` path. Doctor checks the
+workspace's files and settings and names no path the user authored, so typed
+notes are reported only by Note check. Find and check read through the privacy-filtered
+facade. Files that Git ignores, sensitive file names, and a Vivary workspace's
+private paths stay out of results, and each result counts what it left out. A folder that is neither a
+Git repository nor a Vivary workspace gets a clear refusal instead of results,
+and so does a Git repository on a host without Git. A question that contains a
+file or URL path or credential-like text is refused with its own message.
+Findings and results link to files in the same project. Every report is an
+observation. It never repairs, installs, or runs anything.
+
+The Native agent reads the same reports through one Vivary tool,
+`vivary-project-read`. The tool has no project field. Its project comes from
+the chat, and the tool refuses a personal chat. The panel and the tool get the
+same result, capped to fit the tool result limit with true totals. The result
+shows the project root as `.` instead of its host path. The tool call keeps
+caller `tool` everywhere outside project services. Project services read the
+chat's scope from the request, never from the caller, match it to one
+registered project, admit the call for that project alone, and look up the owner's registry scope on its behalf. It cannot list
+projects, connect a folder, or reconnect one. The runner lets it run the five
+reads and none of the owner's commands. Coding runtimes keep their own file tools and do not receive this tool.
+
+Original commands never refuse a caller for being busy. Reads run in parallel.
+A command that writes a project's files, such as an approved setup, runs alone
+within that project. A limit sized to the machine's processor count, and never
+below four, only makes extra commands wait. A command that still cannot start
+after 30 seconds returns a message asking you to try again. A command whose
+component writes a receipt writes it to a private file, and the app appends
+that file to the shared log after the command ends, so parallel commands cannot
+overwrite each other's receipts. The app deletes the private file once it is
+appended. A receipt the app could not append stays in its private folder. A
+later start's first command appends it if the folder is ten minutes old by then,
+and skips a receipt the log already holds. The app writes the receipt itself for
+every command whose component wrote none. A governed command or a write that
+finished without its component's receipt then fails. Shutdown waits for the
+receipt of every command whose child started. A read's report stands without
+its receipt.
+
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs
 and transcripts. Project-bound Native history includes the maintained saved-head repair and history
@@ -444,7 +489,7 @@ Use the existing relevant checks:
 ```console
 pnpm typecheck
 pnpm test:project-services
-node --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
+node node_modules/tsx/dist/cli.mjs --test tests/local-root-provider.test.mjs tests/local-registry-model.test.mjs
 node node_modules/tsx/dist/cli.mjs --test tests/local-code-agent.test.ts tests/local-runtime-setup.test.ts tests/code-execution-host.test.ts
 pnpm build
 pnpm run doctor

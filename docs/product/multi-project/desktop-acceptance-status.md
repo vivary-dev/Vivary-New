@@ -46,6 +46,39 @@ accepted this candidate. The `df4aedc` ZIP is not the public
 records the later #14 acceptance. Issues #15 and #23 retain their separate
 acceptance.
 
+## Original project read tools, September 24
+
+[Issue #19's receipt](receipts/09b-original-read-tools.md) records the Details
+panel and Native agent reads of Doctor, the note check, context find, optional
+capabilities, and sanitized receipts. Both use one server module. The agent
+tool takes its project from the scope its chat request carries and keeps
+caller `tool`, and the runner lets a tool call run these five reads alone.
+Doctor, find, and check use the original `--public` path, so files that Git or
+the workspace marks private stay out of every report.
+
+The 12-step hosted journey passed three runs in a row on `e6ccddf5`, with a
+bundled runtime built from the same commit. Panel reports equaled the bundled
+CLI's output. The agent received the same reports in one turn. A
+model-supplied project, malformed input, and a path-like question were
+refused. A missing folder showed Unavailable and recovered. Authored files
+stayed byte-identical. A fake provider drove the agent, so no real model ran.
+
+The unpublished `e87099d1` Windows archive passed the full packaged journey in
+an isolated profile, including a restart without Git. The unpublished
+`8576af0e` archive then passed the affected steps on the same profile. The
+unpublished `bd12e620` archive opened that profile and restored both projects
+and the chat. Its bundled plain Doctor named a Git-ignored note, and public
+Doctor did not. A child's receipt reached the shared log, no per-run folder
+remained, and the fixtures kept their hashes and modification times. The
+final `e6ccddf5` archive, SHA-256
+`16dc77871a3b49258c2a7755e12f43b8eef0a7341f2489af5a18683ca97847fd`, is built.
+Its panel reads and agent turn have not run yet.
+
+The same work fixed a Native agent panel crash after refused tool turns through
+the existing Core patch, with a regression test. Ten review panels' findings
+are fixed. PR #89 delivers the work into `dev` after the owner approves the
+Entire trail.
+
 ## Conversation drafts, September 24
 
 [Issue #9's receipt](receipts/17a-chat-restart-and-drafts.md) records the
@@ -81,10 +114,9 @@ processes and ports were closed. Workbench prebuilt metadata still says
 carry the source qualification. The fixture did not call a real model.
 
 All seven GitHub checks passed on the source, and the PR review threads are
-resolved. Entire mirror push and ref verification awaits CLI sign-in. Its
-formal trail approval failed separately because a reviewer vote is missing.
-Technical candidate acceptance is complete, while PR #88 and issue #9
-remain open for the reviewed `dev` merge and issue closure.
+resolved. PR #88 merged into `dev` as `0c8c7eb` on 2026-09-24, and issue #9
+closed. The GitHub and Entire `dev` refs both point at that commit. The
+Entire gate now counts the author's approval.
 Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23

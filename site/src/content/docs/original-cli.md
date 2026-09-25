@@ -122,6 +122,34 @@ Current command surface:
 - `vivary-mcp --workspace ALIAS PATH` from the optional `vivary-mcp` package,
   which stays off by default
 
+`vivary doctor --root PATH --public` prints `vivary.doctor-result/v0` with `ok`,
+`errors`, and `warnings`, and names no path the user authored. Plain Doctor reads every
+note its config does not exclude and names notes and module folders that Git may ignore.
+The public path skips the note walk, leaving notes to `vivary check --public`, and counts
+module folder problems without naming them. It exits 1 when Doctor reports errors and
+never refuses a folder.
+
+`vivary find QUERY --root PATH --public` and `vivary check --root PATH --public` read
+through Tropo's privacy-filtered facade instead of the plain Tropo commands. They leave
+out files that Git ignores, sensitive file names, and the private paths of a thin
+Vivary workspace, and they need no `tropo.toml`. Neither command writes under the root,
+and both always print JSON. The flag is part of the unpublished vivary 0.2.1 source.
+
+`find` prints `vivary.find-result/v0` and `check` prints `vivary.check-result/v0`, and
+each counts what it left out under `omissions`. `find` accepts `--k` from 1 to 20
+(default 5) and `--budget` from 64 to 4000 (default 1200), refuses a query that starts
+with `-`, and exits 0. `check` exits 1 when it reports errors. When the facade refuses the
+request, both print `{"schema": "vivary.read-refusal/v0", "reason": "<reason>"}` and
+exit 2. A usage error also exits 2, so read stdout to tell them apart.
+
+A root that is neither a Git worktree nor a thin Vivary workspace gets
+`privacy_policy_unavailable`. So does a Git worktree on a host where `git` is not on
+`PATH`. `find` also returns `path_refused` for a question that contains a file or URL
+path, credential-like text, a control character, or the root path, and a snippet the
+facade cannot show safely is `null`. `vivary find --help` still prints Tropo's help,
+and `vivary find --public --help` prints this path's options. No public path writes a
+run receipt or accepts `--receipt`.
+
 For local debugging and bug reports, the core CLIs accept `--receipt PATH` or
 `VIVARY_RECEIPT_LOG=PATH` to append a dependency-free JSONL run receipt. Receipts stay
 local and do not capture stdout, stderr, file contents, raw query text, target ids, or
