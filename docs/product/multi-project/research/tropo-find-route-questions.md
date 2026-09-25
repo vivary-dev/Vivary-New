@@ -13,7 +13,8 @@ explains it.
 
 Today's checks do not meet that yet. Both Tropo's question check and the MCP
 result check accept `//etc/passwd`, which Linux and macOS read as
-`/etc/passwd`, and `file:///etc/passwd`. Today's tests list 11 host paths,
+`/etc/passwd`, and `file:///etc/passwd`. The Tropo and MCP tests list 11 host
+paths,
 and every one ends in `.txt` or `.md`. The MCP cases check only a `path`
 field. The change adds tests for a doubled leading slash, `file:` URIs,
 paths without an extension, and the `query` field.
@@ -145,22 +146,13 @@ relay serves /api/users for the dashboard." Ask the agent "what serves
 
 ## Release
 
-`docs/RELEASE-WORKFLOW.md` asks two things of this change.
-
-- A change to `packages/mcp/vivary_mcp.py` needs a `vivary-mcp` release, a
-  Tropo floor update, and a `CHANGELOG.md` entry. The MCP version is pinned in
-  `packages/mcp/vivary_mcp.py` (`__version__`), `packages/mcp/pyproject.toml`,
-  `packages/mcp/README.md`, `packages/mcp/tests/test_vivary_mcp.py`, and the
-  `vivary-mcp` version assertions in `.github/workflows/ci.yml`. The Tropo
-  floor, `vivary-tropo>=0.5.3`, is pinned in the same pyproject, README,
-  test, and CI assertions.
-- A change to `packages/tropo/tropo.py` needs a `vivary-tropo` version, a
-  README update, and a row in the release table in `docs/ORIGINAL-CLI.md`.
-  Tropo 0.5.5 is staged and unpublished, so the change can ship in 0.5.5.
-  If 0.5.5 ships first, the `vivary-tropo>=0.5.5` floors in
-  `packages/vivary/pyproject.toml`, `packages/create-vivary/pyproject.toml`,
-  `.github/workflows/ci.yml`, and `scripts/check_installed_workspace_roles.py`
-  move too.
-
-On 2026-09-24 PyPI listed vivary-tropo 0.5.4 and vivary-mcp 0.1.3. The owner
-decides which releases carry this change.
+`docs/RELEASE-WORKFLOW.md` governs the release, because the change touches
+`packages/tropo/tropo.py` and `packages/mcp/vivary_mcp.py`. Tropo 0.5.5 is
+staged and unpublished, so the Tropo change can ship in 0.5.5 without moving
+any floor. The MCP change needs a `vivary-mcp` release. Its version is pinned
+in `packages/mcp/vivary_mcp.py` (`__version__`), `packages/mcp/pyproject.toml`,
+`packages/mcp/README.md`, `packages/mcp/tests/test_vivary_mcp.py`, and the
+`vivary-mcp` version assertions in `.github/workflows/ci.yml`. If it needs the
+Tropo change, its `vivary-tropo` floor moves too. On 2026-09-24 PyPI listed
+vivary-tropo 0.5.4 and vivary-mcp 0.1.3. The owner decides which releases
+carry this change.
