@@ -195,9 +195,11 @@ and the known gaps above describe it. The review, by layer:
   so nothing changes today, and a test pins that.
 - Panel: the Memory section in Project details uses two owner actions that
   are not agent tools, so the Full chat model still sees one Vivary tool. It
-  keeps the owner's draft on every write conflict, starts Forget with focus on
-  Cancel, marks a hand-edited fact that agents receive shortened, and shows
-  the preview's revision beside the last load.
+  keeps the owner's draft on every write conflict and turns a Correct whose
+  file vanished into a Remember, stays busy until the list reloads, starts
+  Forget with focus on Cancel, marks shortened and skipped facts with their
+  reasons, reads again when Project details opens, and says the preview is
+  the Code form.
 - Documents: the Tropo specification, the original CLI reference, the
   module catalog, the Native owner map, the write-back source map, and the
   18a packet log describe the same slice.

@@ -23,11 +23,16 @@ type Load = { kind: "loading" } | { kind: "ready"; view: ProjectMemoryView } | {
 // current file beside it, like the Files route.
 type Editor =
   | { kind: "closed" }
-  | { kind: "remember"; draft: FactDraft; existing: MemoryFact | null }
+  /** `takenTitle`: the title whose file name exists. Save waits until the title changes. */
+  | { kind: "remember"; draft: FactDraft; existing: MemoryFact | null; takenTitle: string | null }
   | { kind: "correct"; fact: MemoryFact; draft: FactDraft; current: MemoryFact | null }
   | { kind: "forget"; fact: MemoryFact; current: MemoryFact | null };
 
 const EMPTY_DRAFT: FactDraft = { title: "", text: "", source: "" };
+const SKIP_REASON_TEXT = {
+  linked: "a link or a file with several names", "too-large": "larger than 256 KB", binary: "not text",
+  unsupported: "not a supported text file", private: "ignored by .gitignore", unreadable: "in use by another program",
+} as const;
 const ROLE_LABELS = { law: "Law", map: "Map", record: "Record", memory: "Memory", boundary: "Boundary" } as const;
 
 function draftOf(fact: MemoryFact): FactDraft {
@@ -38,14 +43,15 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-type PanelProps = { projectId: string; disabled: boolean };
+/** `visible`: whether Project details is showing. The panel stays mounted while hidden. */
+type PanelProps = { projectId: string; disabled: boolean; visible: boolean };
 
 // Keyed by project, so another project's facts and drafts never show here.
 export function ProjectMemoryPanel(props: PanelProps) {
   return <ProjectMemorySection key={props.projectId} {...props} />;
 }
 
-function ProjectMemorySection({ projectId, disabled }: PanelProps) {
+function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
   const { call, ready } = useNativeActionCaller();
   const [params] = useSearchParams();
   const ids = useId();
@@ -67,7 +73,8 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
     }
   }, [call, projectId]);
 
-  useEffect(() => { if (!disabled && ready) void refresh(); }, [disabled, ready, refresh]);
+  // Read again each time Project details opens, since files can change while it is hidden.
+  useEffect(() => { if (!disabled && ready && visible) void refresh(); }, [disabled, ready, visible, refresh]);
   useEffect(() => () => { request.current += 1; }, []);
   // Focus returns to the fact list when an editor closes.
   const wasOpen = useRef(false);
@@ -89,8 +96,17 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
       return;
     }
     if (result.reason === "exists") {
-      setEditor(current => current.kind === "remember" ? { ...current, existing: result.current ?? null } : current);
-      setNotice({ tone: "alert", text: `A fact file named ${result.path} already exists. Correct that fact instead.` });
+      setEditor(current => current.kind === "remember"
+        ? { ...current, existing: result.current ?? null, takenTitle: current.draft.title } : current);
+      setNotice({ tone: "alert", text: `A fact file named ${result.path} already exists. `
+        + "Correct that fact, or change the title to save a new one." });
+    } else if (result.reason === "renamed-or-deleted") {
+      // The fact's file is gone, so the draft can only become a new fact.
+      setEditor(current => current.kind === "correct"
+        ? { kind: "remember", draft: current.draft, existing: null, takenTitle: null }
+        : current.kind === "forget" ? { kind: "closed" } : current);
+      setNotice({ tone: "alert", text: "This fact file was removed or renamed. Memory was reloaded. "
+        + "Your draft is kept as a new fact. Save it to remember it again." });
     } else if (result.reason === "changed") {
       setEditor(current => current.kind === "correct" || current.kind === "forget"
         ? { ...current, current: result.current ?? null } : current);
@@ -98,9 +114,7 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
     } else {
       // Keep the owner's draft, as on a changed conflict. A forget has no draft to keep.
       setEditor(current => current.kind === "forget" ? { kind: "closed" } : current);
-      setNotice({ tone: "alert", text: result.reason === "project-changed"
-        ? "The project changed. Memory was reloaded. Your draft is kept."
-        : "This fact file changed or was removed. Memory was reloaded. Your draft is kept." });
+      setNotice({ tone: "alert", text: "The project changed. Memory was reloaded. Your draft is kept." });
     }
   }
 
@@ -112,8 +126,9 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
     } catch (error) {
       setNotice({ tone: "alert", text: errorText(error, "Memory could not be saved. Try again.") });
     } finally {
-      setBusy(false);
+      // Stay busy until the list shows the result, so no control acts on a stale fact.
       await refresh();
+      setBusy(false);
     }
   }
 
@@ -192,9 +207,13 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
         </li>)}
       </ul>}
       {view.truncated && <p className="project-read-muted">
-        A memory folder holds more files than Vivary lists. The list shows the first files by file name.</p>}
-      {view.skipped.length > 0 && <p className="project-read-muted">
-        Skipped files that are not bounded text: {view.skipped.map(file => file.path).join(", ")}.</p>}
+        A memory folder holds more files than Vivary lists. The list shows up to 200 files per folder, sorted by file name.</p>}
+      {view.skipped.length > 0 && <>
+        <p className="project-read-muted">Skipped files:</p>
+        <ul className="project-read-muted" data-agent-native="project-memory-skipped">
+          {view.skipped.map(file => <li key={file.path}>{file.path}: {SKIP_REASON_TEXT[file.reason]}</li>)}
+        </ul>
+      </>}
     </div>
 
     {(editor.kind === "remember" || editor.kind === "correct") && <form className="project-memory-form" onSubmit={submitDraft}
@@ -202,13 +221,13 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
       data-agent-native={`project-memory-${editor.kind}-form`}>
       <h5>{editor.kind === "remember" ? "Remember a fact" : `Correct ${editor.fact.path}`}</h5>
       <label htmlFor={`${ids}-title`}>Title</label>
-      <input id={`${ids}-title`} required maxLength={FACT_LIMITS.title} value={editor.draft.title} autoFocus
+      <input id={`${ids}-title`} required maxLength={FACT_LIMITS.title} value={editor.draft.title} autoFocus disabled={busy}
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, title: event.target.value } })} />
       <label htmlFor={`${ids}-text`}>Fact</label>
-      <textarea id={`${ids}-text`} required maxLength={FACT_LIMITS.text} rows={4} value={editor.draft.text}
+      <textarea id={`${ids}-text`} required maxLength={FACT_LIMITS.text} rows={4} value={editor.draft.text} disabled={busy}
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, text: event.target.value } })} />
       <label htmlFor={`${ids}-source`}>Source</label>
-      <input id={`${ids}-source`} required maxLength={FACT_LIMITS.source} value={editor.draft.source}
+      <input id={`${ids}-source`} required maxLength={FACT_LIMITS.source} value={editor.draft.source} disabled={busy}
         onChange={event => setEditor({ ...editor, draft: { ...editor.draft, source: event.target.value } })} />
       {editor.kind === "remember" && editor.existing && <div className="file-conflict" role="note">
         <p>Current fact in {editor.existing.path}:</p>
@@ -224,7 +243,8 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
           onClick={() => editor.current && setEditor({ ...editor, fact: editor.current, current: null })}>Use current version</Button>
       </div>}
       <div className="project-memory-actions">
-        <Button type="submit" size="sm" disabled={blocked || (editor.kind === "correct" && editor.current !== null)}
+        <Button type="submit" size="sm" disabled={blocked || (editor.kind === "correct" && editor.current !== null)
+          || (editor.kind === "remember" && editor.takenTitle === editor.draft.title)}
           data-agent-native="project-memory-save">{editor.kind === "remember" ? "Save fact" : "Save correction"}</Button>
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
       </div>
@@ -251,12 +271,14 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
 
     {!editorOpen && <Button size="sm" variant="outline" disabled={blocked || view.writeLocation === null}
       data-agent-native="project-memory-remember"
-      onClick={() => { setNotice(null); setEditor({ kind: "remember", draft: EMPTY_DRAFT, existing: null }); }}>
+      onClick={() => { setNotice(null); setEditor({ kind: "remember", draft: EMPTY_DRAFT, existing: null, takenTitle: null }); }}>
       Remember a fact</Button>}
     {view.writeLocation === null && <p className="project-read-muted">No memory folder can take a new fact. Change the memory role in .vivary/workspace.toml.</p>}
 
     <details className="project-memory-preview" data-agent-native="project-memory-preview">
       <summary>What agents receive</summary>
+      <p className="project-read-muted">This is the Code form. Full chat adds one sentence saying Native's owner-wide
+        memory, resources, chat-history, and database tools are unavailable in project chats.</p>
       <p className="project-read-muted" data-agent-native="project-memory-revision">
         This preview is revision {view.previewRevision}. {view.lastLoad
         ? `Last loaded by ${view.lastLoad.surface === "code" ? "Code" : "Full chat"} at ${new Date(view.lastLoad.at).toLocaleString()}: `

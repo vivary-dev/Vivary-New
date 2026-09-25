@@ -292,7 +292,8 @@ export function Workspace() {
               <dl><dt>Execution</dt><dd>The connected Vivary host</dd>
                 <dt>Project folder</dt><dd>{activeProject ? workspaceAvailable ? "Connected and available" : "Unavailable" : "Personal host workspace"}</dd>
                 <dt>Files and history</dt><dd>Stay on this host. Opening a file does not send it to a model.</dd></dl>
-              {activeProject && <ProjectMemoryPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
+              {activeProject && <ProjectMemoryPanel projectId={activeProject.projectId} disabled={!workspaceAvailable}
+                visible={opened === "details"} />}
               {activeProject && <ProjectReadPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               {activeProject && <ProjectAdoption key={activeProject.projectId} projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               <p>Open Files to read a document. Choose Edit when you want to change it.</p>
