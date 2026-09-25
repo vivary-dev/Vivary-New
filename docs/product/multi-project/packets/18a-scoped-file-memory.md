@@ -127,6 +127,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   negations, matches either case, reads an unbounded `**` across `/`, matches UTF-8 bytes,
   and splits `.gitignore` lines as Git does. A differential test against
   `git check-ignore` covers it until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `aa568d9`. Sixth review fixes read star runs as Git does, treat a negated bracket with a
+  capital literal as uncertain, end an entry at a NUL, and replace the regex matcher with one
+  that cannot backtrack. A seeded cross product joins the differential test. Unit and
+  differential tests cover them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 

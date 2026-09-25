@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `05bed13`, which holds the fourth review's fixes. Those runs are not recorded in this receipt either. The fifth review's change after `05bed13` is covered by unit tests and a differential test against `git check-ignore` until the lead reruns hosted QA. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `05bed13`, which holds the fourth review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `aa568d9`, which holds the fifth review's change. Those runs are not recorded in this receipt either. The sixth review's fixes after `aa568d9` are covered by unit tests and the differential test until the lead reruns hosted QA. The work is not accepted.
 
 ## Result
 
@@ -192,6 +192,23 @@ differential test and unit tests cover it until the lead reruns hosted QA:
   previous matcher misses 19 of those files.
 - The panel refuses control characters the context block would escape, so a
   500-character panel fact is never cut.
+
+## Sixth review fixes
+
+A sixth review of `aa568d9` ran randomized differentials against Git 2.54 and
+2.43. Unit tests and the differential test cover these fixes until the lead
+reruns hosted QA:
+
+- A run of two or more stars reads the same whatever its length, as in Git,
+  so `***/foo` and `a/***/b` match what Git matches.
+- A negated bracket holding an ASCII capital letter outside a range, such as
+  `[!B]`, is uncertain, so the rule matches.
+- An entry ends at its first NUL, as in Git.
+- The matcher tracks reachable positions without backtracking, and a rule
+  over 1,024 characters is uncertain, so no rule can stall a context build.
+- The differential test adds a seeded cross product. On Zo's Git 2.39.5 it
+  checks 368 generated cases and 2,944 paths with no misses and 429
+  over-ignored. The previous matcher misses 8 of those paths.
 
 ## Not run
 

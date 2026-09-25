@@ -25,6 +25,7 @@ import sysconfig
 import tempfile
 import threading
 import time
+import warnings
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import date, datetime, timezone
 from email.parser import BytesParser
@@ -2000,8 +2001,9 @@ def _context_privacy(target: Path, context: dict) -> dict:
       on their bytes, so a new or edited rule is picked up.
     - `privacy_policy`: "gitignore" when any of those files exists.
 
-    The check uses Doctor's pure .gitignore walk, so it needs no Git, but
-    with a fail-closed matcher (`_memory_ignored_by_rules`). It does not read
+    The check walks folders as Doctor does, so it needs no Git, but reads each
+    `.gitignore` with its own reader (`_memory_rules_at_base`) and matches with
+    a fail-closed matcher (`_memory_ignored_by_rules`). It does not read
     `.git/info/exclude` or global Git excludes.
     """
     folders = list(context["memory"])
@@ -3075,15 +3077,24 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) 
       whatever `!` rules follow, so memory may refuse a file Git re-includes.
     - A rule matches in exact case or without regard to case, a superset of
       both `core.ignorecase` settings.
-    - A `**` not bounded by slashes matches across `/`, a superset of Git's
-      reading as `*`.
+    - A run of two or more stars reads the same whatever its length, as in
+      Git. A run not bounded by slashes matches across `/`, a superset of
+      Git's reading as `*`.
     - A rule and path are compared as code points and as UTF-8 bytes, so `?`
       and bracket members cover Git's byte semantics.
     - A trailing `/` is ignored, so a directory rule also matches a file.
-    - A bracket expression `_bracket_rule_is_uncertain` names matches
-      everything under the rule's folder.
+    - A bracket expression `_bracket_rule_is_uncertain` names, or a rule
+      longer than `_MEMORY_RULE_CHARS`, matches everything under the rule's
+      folder.
+    - Matching tracks reachable positions instead of backtracking, so no rule
+      can stall a context build.
     """
     return any(not negated and _memory_rule_matches(base, pattern, rel_path) for base, negated, pattern in rules)
+
+
+# A memory rule longer than this is uncertain, so it matches. It bounds the
+# matcher's work, which grows with rule length times path length.
+_MEMORY_RULE_CHARS = 1_024
 
 
 def _memory_rule_matches(base: str, pattern: str, rel_path: str) -> bool:
@@ -3094,24 +3105,20 @@ def _memory_rule_matches(base: str, pattern: str, rel_path: str) -> bool:
         scoped = rel_path[len(base) + 1 :]
     else:
         scoped = rel_path
-    if _bracket_rule_is_uncertain(pattern):
+    if len(pattern) > _MEMORY_RULE_CHARS or _bracket_rule_is_uncertain(pattern):
         return True
     body = pattern.rstrip("/")
+    # A leading or inner separator anchors the pattern to the rule's folder.
+    # Without one it matches by basename at any depth.
+    anchored = "/" in body
     if body.startswith("/"):
         body = body[1:]
     if not body:
         return False
     for rule_text, path_text in ((body, scoped), (_utf8_as_latin1(body), _utf8_as_latin1(scoped))):
-        regex = _memory_wildmatch_regex(rule_text)
-        if "/" not in body:
-            # A pattern with no separator matches by basename at any depth.
-            regex = r"(?:.*/)?" + regex
-        # A match also covers everything beneath it.
-        for flags in (0, re.IGNORECASE):
-            try:
-                if re.match(rf"(?:{regex})(?:/.*)?\Z", path_text, flags | re.DOTALL):
-                    return True
-            except re.error:
+        for fold in (False, True):
+            tokens = _memory_glob_tokens(rule_text, fold)
+            if tokens is None or _memory_glob_match(tokens, path_text, anchored=anchored, fold=fold):
                 return True
     return False
 
@@ -3121,47 +3128,96 @@ def _utf8_as_latin1(text: str) -> str:
     return text.encode("utf-8", "surrogateescape").decode("latin-1")
 
 
-def _memory_wildmatch_regex(pattern: str) -> str:
-    """`_wildmatch_regex` for memory, where a `**` not bounded by slashes crosses `/`.
+def _memory_glob_tokens(pattern: str, fold: bool) -> list[tuple[str, object]] | None:
+    """A memory rule as match steps, or `None` when a bracket set will not compile.
 
-    Git reads such a `**` as `*`. Reading it as `.*` only matches more.
+    Git skips a whole run of stars before it decides whether the run is
+    bounded by slashes, so a run of two or more reads the same whatever its
+    length. A bounded run followed by `/` matches zero or more folders. Any
+    other run of two or more matches across `/`, a superset of Git's reading
+    of an unbounded run as `*`.
     """
-    out: list[str] = []
+    tokens: list[tuple[str, object]] = []
+    flags = re.DOTALL | (re.IGNORECASE if fold else 0)
     i = 0
     while i < len(pattern):
         char = pattern[i]
-        if pattern[i : i + 2] == "**":
-            bounded = (i == 0 or pattern[i - 1] == "/") and pattern[i + 2 : i + 3] in ("", "/")
-            if bounded and pattern[i + 2 : i + 3] == "/":
-                out.append("(?:[^/]+/)*")
-                i += 3
+        if char == "*":
+            end = i
+            while end < len(pattern) and pattern[end] == "*":
+                end += 1
+            if end - i == 1:
+                tokens.append(("star", None))
+                i = end
+            elif (i == 0 or pattern[i - 1] == "/") and pattern[end : end + 1] == "/":
+                tokens.append(("folders", None))
+                i = end + 1
             else:
-                out.append(".*")
-                i += 2
-        elif char == "*":
-            out.append("[^/]*")
-            i += 1
+                tokens.append(("any-run", None))
+                i = end
         elif char == "?":
-            out.append("[^/]")
+            tokens.append(("one", None))
             i += 1
         elif char == "\\" and i + 1 < len(pattern):
-            out.append(re.escape(pattern[i + 1]))
+            tokens.append(("literal", pattern[i + 1]))
             i += 2
-        elif char == "[":
+        elif char == "[" and pattern.find("]", i + 2) != -1:
             close = pattern.find("]", i + 2)
-            if close == -1:
-                out.append(re.escape(char))
-                i += 1
-            else:
-                body = pattern[i + 1 : close]
-                if body[:1] in ("!", "^"):
-                    body = "^" + body[1:]
-                out.append(f"[{body}]")
-                i = close + 1
+            body = pattern[i + 1 : close]
+            if body[:1] in ("!", "^"):
+                body = "^" + body[1:]
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", FutureWarning)
+                    tokens.append(("set", re.compile(f"[{body}]", flags)))
+            except re.error:
+                return None
+            i = close + 1
         else:
-            out.append(re.escape(char))
+            tokens.append(("literal", char))
             i += 1
-    return "".join(out)
+    return tokens
+
+
+def _memory_glob_match(tokens: list[tuple[str, object]], path: str, *, anchored: bool, fold: bool) -> bool:
+    """Whether `tokens` match `path` or a folder above it, with no backtracking.
+
+    It tracks the set of path positions each step can reach, so the work is at
+    most the number of steps times the path length.
+    """
+    size = len(path)
+    slashes = [index for index, char in enumerate(path) if char == "/"]
+    positions = {0} if anchored else {0, *(index + 1 for index in slashes)}
+    for kind, value in tokens:
+        if not positions:
+            return False
+        reached: set[int] = set()
+        if kind == "literal":
+            for at in positions:
+                if at < size and (path[at] == value or (fold and path[at].lower() == str(value).lower())):
+                    reached.add(at + 1)
+        elif kind == "one":
+            reached = {at + 1 for at in positions if at < size and path[at] != "/"}
+        elif kind == "set":
+            reached = {at + 1 for at in positions if at < size and value.match(path[at])}  # type: ignore[union-attr]
+        elif kind == "star":
+            covered = -1
+            for at in sorted(positions):
+                if at <= covered:
+                    continue
+                reached.add(at)
+                while at < size and path[at] != "/":
+                    at += 1
+                    reached.add(at)
+                covered = at
+        elif kind == "any-run":
+            reached = set(range(min(positions), size + 1))
+        else:  # "folders": zero or more whole folders
+            first = min(positions)
+            reached = set(positions) | {index + 1 for index in slashes if index > first}
+        positions = reached
+    # A match also covers everything beneath it.
+    return any(at == size or path[at] == "/" for at in positions)
 
 
 def _bracket_rule_is_uncertain(pattern: str) -> bool:
@@ -3174,7 +3230,10 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
     `re` does not. So a body holding a backslash, a body starting with `]`,
     `!]`, or `^]`, a POSIX class (`[[:alpha:]]`), an equivalence class
     (`[[=a=]]`), a collating symbol (`[[.a.]]`), an unescaped `[` that never
-    closes, and a set Python cannot compile are uncertain.
+    closes, and a set Python cannot compile are uncertain. So is a negated
+    body holding an ASCII capital letter as a literal member, such as `[!B]`:
+    with `core.ignorecase` Git lowercases the path but compares that member
+    as written. Ranges are compared the same way on both sides.
     """
     index = 0
     while index < len(pattern):
@@ -3191,6 +3250,8 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
             body = pattern[index + 1 : close]
             if "\\" in body or re.search(r"\[[:=.]", body):
                 return True
+            if body[:1] in ("!", "^") and _has_capital_literal(body[1:]):
+                return True
             index = close + 1
             continue
         index += 1
@@ -3201,6 +3262,19 @@ def _bracket_rule_is_uncertain(pattern: str) -> bool:
     return False
 
 
+def _has_capital_literal(members: str) -> bool:
+    """Whether a bracket body holds an ASCII capital letter outside a range."""
+    index = 0
+    while index < len(members):
+        if members[index + 1 : index + 2] == "-" and index + 2 < len(members):
+            index += 3
+            continue
+        if "A" <= members[index] <= "Z":
+            return True
+        index += 1
+    return False
+
+
 def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
     return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, rules_at=_memory_rules_at_base)
 
@@ -3208,8 +3282,8 @@ def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
 def _memory_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]]:
     """The rules of one `.gitignore` for memory, split the way Git splits them.
 
-    Git splits a `.gitignore` only on `\n`, drops one `\r` before it, and skips
-    a UTF-8 byte order mark at the start. A lone `\r`, form feed, NEL, U+2028,
+    Git splits a `.gitignore` only on `\n`, drops one `\r` before it, ends an
+    entry at its first NUL, and skips a UTF-8 byte order mark at the start. A lone `\r`, form feed, NEL, U+2028,
     or U+2029 stays inside its rule, where `str.splitlines` would start a new
     one. Bytes that are not UTF-8 keep their value through `surrogateescape`.
     """
@@ -3223,6 +3297,8 @@ def _memory_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]
     for raw in data.split(b"\n"):
         if raw.endswith(b"\r"):
             raw = raw[:-1]
+        # Git ends each entry at its first NUL, then trims trailing spaces.
+        raw = raw.split(b"\x00", 1)[0]
         parsed = _parse_gitignore_line(raw.decode("utf-8", "surrogateescape"))
         if parsed is not None:
             rules.append((base, parsed[0], parsed[1]))
