@@ -383,11 +383,11 @@ function localService(context, tool) {
 
 /**
  * Classifies the Native chat scope the current request is pinned to. The
- * scope comes from the request, never from the caller. A project scope must
- * match exactly one registered project, or it is unmatched. The owner's
- * request gets its own context back. A Native tool call gets a context that
- * the read entry points accept for that project only, and it stays a tool
- * call. A project scope without an identity, or of the wrong type, is refused.
+ * scope comes from the request, never from the caller. The owner's request
+ * gets its own context back. A Native tool call gets a context that the read
+ * entry points accept for that project only, and it stays a tool call. A
+ * project scope of the wrong type, without an identity, or that does not match
+ * exactly one registered project is refused.
  */
 export async function matchChatProject(context) {
   const { getRequestRunContext } = await import("@agent-native/core/server");
@@ -406,7 +406,9 @@ export async function matchChatProject(context) {
   }
   const matches = catalog.projects.filter(project =>
     projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scope.id);
-  if (matches.length !== 1) return { kind: "unmatched" };
+  if (matches.length !== 1) {
+    throw Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+  }
   const { projectId } = matches[0];
   if (!tool) return { kind: "project", projectId, context };
   const admitted = Object.freeze({ ...context });

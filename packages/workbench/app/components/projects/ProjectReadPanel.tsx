@@ -101,6 +101,8 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const log = reportOf(receipts.state, "receipts");
   const notesExcluded = notes && privateExcluded(notes.omissions);
   const contextExcluded = context && privateExcluded(context.omissions);
+  const notesIncomplete = notes && !notes.complete ? incompleteNote(notes.omissions) : null;
+  const contextIncomplete = context && !context.complete ? incompleteNote(context.omissions) : null;
   const query = question.trim();
 
   return <>
@@ -142,7 +144,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
           </li>)}</ul>
         </>}
         {notesExcluded && <p className="project-read-muted">{notesExcluded}</p>}
-        {!notes.complete && <p className="project-read-muted">{incompleteNote(notes.omissions)}</p>}
+        {notesIncomplete && <p className="project-read-muted">{notesIncomplete}</p>}
       </>}
       <Button size="sm" variant="outline" disabled={blocked(check.state)} onClick={() => void check.run({ operation: "check" })}>
         {check.state.kind === "idle" ? "Check notes" : "Check again"}
@@ -164,7 +166,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
       {context && <>
         <p className="project-read-muted">Results for “{context.query}”</p>
         {context.results.total === 0
-          ? <p>{context.complete ? "No matching context." : "No matching context in what the search could read."}</p> : <>
+          ? <p>{context.complete ? "No matching context." : "No results to show."}</p> : <>
           <p className="project-read-heading">{heading("result", context.results)}</p>
           <ul>{context.results.items.map((result, index) => <li key={index}>
             {source(result.path)} <span className="project-read-muted">{result.reason}</span>
@@ -172,7 +174,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
           </li>)}</ul>
         </>}
         {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
-        {!context.complete && <p className="project-read-muted">{incompleteNote(context.omissions)}</p>}
+        {contextIncomplete && <p className="project-read-muted">{contextIncomplete}</p>}
       </>}
     </Section>
 

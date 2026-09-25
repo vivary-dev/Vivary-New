@@ -23,7 +23,6 @@ export function getLocalProjectAccess(context: ActionRunContext | undefined): Pr
 export type ChatScopeMatch =
   | { kind: "not-project" }
   | { kind: "personal" }
-  | { kind: "unmatched" }
   | { kind: "project"; projectId: string; context: ActionRunContext };
 export function matchChatProject(context: ActionRunContext): Promise<ChatScopeMatch>;
 export function connectLocalProjectFolder(

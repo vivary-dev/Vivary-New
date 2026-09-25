@@ -47,7 +47,7 @@ async function matchChatScope(
   dependencies: NativeChatProjectDependencies,
   identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
     signal?: AbortSignal },
-): Promise<Exclude<ChatScopeMatch, { kind: "unmatched" }>> {
+): Promise<ChatScopeMatch> {
   const context: ActionRunContext = {
     caller: identity.caller,
     userEmail: identity.owner?.trim().toLowerCase(),
@@ -55,17 +55,12 @@ async function matchChatScope(
     appId: "workbench",
     ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  let match: ChatScopeMatch;
   try {
-    match = await dependencies.matchChatProject(context);
+    return await dependencies.matchChatProject(context);
   } catch (error) {
     preserveAuthorizationError(error);
     throw projectConversationError(409, "Project conversation access is unavailable.");
   }
-  if (match.kind === "unmatched") {
-    throw projectConversationError(403, "Project conversation access is unavailable.");
-  }
-  return match;
 }
 
 /**

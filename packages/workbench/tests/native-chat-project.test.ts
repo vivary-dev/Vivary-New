@@ -62,12 +62,11 @@ test("a project chat reopens its workspace with the context project services ret
   assert.deepEqual(resolved, [projectContext, "project-a"]);
 });
 
-test("an unmatched project scope or a refused classification stops before any workspace read", async () => {
-  const revoked = Object.assign(new Error("revoked"), { statusCode: 403 });
+test("a refused classification stops before any workspace read", async () => {
+  const refused = Object.assign(new Error("refused"), { statusCode: 403 });
   let workspaceReads = 0;
   const count = async () => { workspaceReads += 1; return {}; };
-  await assert.rejects(guardFor({ kind: "unmatched" }, count).guard(details()), { statusCode: 403 });
-  await assert.rejects(guardFor(revoked, count).guard(details()), error => error === revoked);
+  await assert.rejects(guardFor(refused, count).guard(details()), error => error === refused);
   await assert.rejects(guardFor(new Error("catalog"), count).guard(details()), { statusCode: 409 });
   assert.equal(workspaceReads, 0);
 });

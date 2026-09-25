@@ -57,6 +57,8 @@ const projectReadCommandSchema = z.discriminatedUnion("verb", [
   z.strictObject({ verb: z.literal("logs"), failedOnly: z.boolean() }),
 ]);
 export type ProjectReadCommand = z.infer<typeof projectReadCommandSchema>;
+// A Native tool call may run these reads and none of the owner's commands.
+const projectReadVerbs: ReadonlySet<string> = new Set(projectReadCommandSchema.options.map(option => option.shape.verb.value));
 type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand;
 const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
   "bindingRevision", "policyRevision", "verificationKind"] as const;
@@ -544,6 +546,9 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
   const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
     // A command that arrives after shutdown began touches no files.
     if (commandHost.closing) throw closingError();
+    if (context?.caller === "tool" && !projectReadVerbs.has(command.verb)) {
+      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
+    }
     const policy = commandPolicy[command.verb];
     const { projectId } = workspace;
     const environment = dependencies.environment();
@@ -572,12 +577,11 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       try { await receipts.settle(settled); } finally { recorded.resolve(); }
     };
     let controlRequestPath: string | undefined;
+    // Control's request exists only while its admitted child can read it.
+    const removeRequest = () => controlRequestPath
+      ? rm(controlRequestPath, { force: true, maxRetries: 3 }).catch(() => undefined) : Promise.resolve();
     try {
-      if (command.verb === "control") {
-        // Exo refuses stdin when receipts are enabled: give the request its own identity.
-        controlRequestPath = path.join(receipts.privateDir ?? receiptDirectoryError(), "request.json");
-        await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
-      }
+      if (command.verb === "control") controlRequestPath = path.join(receipts.privateDir ?? receiptDirectoryError(), "request.json");
       const invocation = originalCommandArguments(command, workspace.root, controlRequestPath);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
@@ -593,8 +597,13 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
           commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
         }
         await validateGovernedRequest(command, current);
-        // Shutdown may arrive while an admitted command re-checks its project.
+        if (command.verb === "control" && controlRequestPath) {
+          // Exo refuses stdin when receipts are enabled: give the request its own identity.
+          await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        }
+        // Shutdown or a cancel may arrive while an admitted command re-checks its project.
         if (commandHost.closing) throw closingError();
+        context?.signal?.throwIfAborted();
         const startedAt = performance.now();
         // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
         const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
@@ -602,7 +611,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         started = startedAt;
         (commandHost.recording ??= new Set()).add(recorded.promise);
         void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
-        result = await running;
+        try { result = await running; } finally { await removeRequest(); }
         durationMs = Math.round(performance.now() - started);
       } catch (error) {
         // A command whose child started is recorded when it fails or is stopped.
@@ -620,8 +629,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
-      // Control's request is never kept, even when its folder waits for a sweep.
-      if (controlRequestPath) await rm(controlRequestPath, { force: true, maxRetries: 3 }).catch(() => undefined);
+      await removeRequest();
       await receipts.dispose();
       recorded.resolve();
     }
@@ -629,17 +637,9 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
   return { resolve, execute };
 }
 
-// The owner's commands never run for a Native tool call. Project reads have their own runner.
-function refuseToolCall(context: ActionRunContext | undefined): void {
-  if (context?.caller === "tool") {
-    commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
-  }
-}
-
 export function createOriginalCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const runner = createRuntimeCommandRunner(dependencies);
   return async (input: z.input<typeof originalCommandSchema>, context?: ActionRunContext) => {
-    refuseToolCall(context);
     const { projectId, command } = originalCommandSchema.parse(input);
     return (await runner.execute(await runner.resolve(context, projectId), command, context)).output;
   };
@@ -649,7 +649,6 @@ export function createOriginalCommandRunner(dependencies: Dependencies = runtime
 export function createAdoptionCommandRunner(dependencies: Dependencies = runtimeDependencies) {
   const runner = createRuntimeCommandRunner(dependencies);
   return async (command: AdoptionExecution, workspace: LocalProjectWorkspace, context?: ActionRunContext) => {
-    refuseToolCall(context);
     const parsed = adoptionExecutionSchema.parse(command);
     return (await runner.execute(await runner.resolve(context, workspace.projectId, workspace), parsed, context)).output;
   };

@@ -188,10 +188,10 @@ test("local project grants register real folders and reopen without content snap
       await assert.rejects(inChat({ type: "thread", id: alphaScope }, () => matchChatProject(tool)), { statusCode: 403 });
       assert.deepEqual(await inChat({ type: "workspace-app", id: personalId(actionContext.orgId) },
         () => matchChatProject(tool)), { kind: "personal" });
-      assert.deepEqual(await inChat({ type: "workspace-app", id: personalId("another-org") }, () => matchChatProject(tool)),
-        { kind: "unmatched" }, "another organization's Personal scope is not this one's");
-      assert.deepEqual(await inChat({ type: "workspace-app", id: "vivary-project-chat-v2:" + "0".repeat(64) },
-        () => matchChatProject(tool)), { kind: "unmatched" });
+      await assert.rejects(inChat({ type: "workspace-app", id: personalId("another-org") }, () => matchChatProject(tool)),
+        { statusCode: 403 }, "another organization's Personal scope is not this one's");
+      await assert.rejects(inChat({ type: "workspace-app", id: "vivary-project-chat-v2:" + "0".repeat(64) },
+        () => matchChatProject(tool)), { statusCode: 403 });
       await assert.rejects(inChat(alphaChat, () => matchChatProject({ ...tool, orgId: undefined })), { statusCode: 403 },
         "a project scope without an organization is refused");
       const owned = await inChat(alphaChat, () => matchChatProject(actionContext));

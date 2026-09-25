@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone
 from email.parser import BytesParser
 from email.message import Message
 from pathlib import Path
-from enum import StrEnum
+from enum import Enum, unique
 from typing import Callable, NamedTuple
 
 
@@ -1558,32 +1558,6 @@ def _workspace_compatibility(target: Path, memory_report: dict) -> tuple[dict, s
     return compatibility, backend
 
 
-class DoctorRule(StrEnum):
-    """Each kind of problem Doctor reports. `report` takes one of these."""
-    WORKSPACE_MISSING = "workspace_missing"
-    WORKSPACE_NOT_DIRECTORY = "workspace_not_directory"
-    ADOPTION_JOURNAL = "adoption_journal"
-    GITIGNORE_UNREADABLE = "gitignore_unreadable"
-    ADOPTION_PREJOURNAL = "adoption_prejournal"
-    ADOPTION_MARKER_MALFORMED = "adoption_marker_malformed"
-    REQUIRED_FILE_MISSING = "required_file_missing"
-    CONTRACT_FILE_MISSING = "contract_file_missing"
-    RECOMMENDED_FILE_MISSING = "recommended_file_missing"
-    RECOMMENDED_UPGRADE = "recommended_upgrade"
-    PRIVACY_IGNORE_MISSING = "privacy_ignore_missing"
-    RECOMMENDED_PRIVACY_IGNORE_MISSING = "recommended_privacy_ignore_missing"
-    MODULE_INDEX_MISSING = "module_index_missing"
-    MODULE_LEGACY_FILE = "module_legacy_file"
-    TROPO_INVALID = "tropo_invalid"
-    TROPO_FINDING = "tropo_finding"
-    GRAPH_BROKEN = "graph_broken"
-    GRAPH_EMPTY = "graph_empty"
-    CAPABILITY_INVALID = "capability_invalid"
-    MEMORY_MISCONFIGURED = "memory_misconfigured"
-    MEMORY_PRIVACY_FAILED = "memory_privacy_failed"
-    MEMORY_UNAVAILABLE = "memory_unavailable"
-
-
 class PublicRule(NamedTuple):
     one: str
     several: str
@@ -1594,60 +1568,61 @@ class PublicRule(NamedTuple):
 # Public Doctor prints one sentence per rule, with a count, and never a detail.
 # A detail may name a path, an exception, or a config value, and a command
 # line is not an observation. A value is printed only when it is in the rule's
-# closed set. A test checks that every rule has an entry and that every
-# `report` call names a rule.
-DOCTOR_RULES: dict[DoctorRule, PublicRule] = {
-    DoctorRule.WORKSPACE_MISSING: PublicRule(
-        "the workspace does not exist", "the workspace does not exist"),
-    DoctorRule.WORKSPACE_NOT_DIRECTORY: PublicRule(
-        "the workspace is not a directory", "the workspace is not a directory"),
-    DoctorRule.ADOPTION_JOURNAL: PublicRule(
-        "an adoption was interrupted and needs recovery", "an adoption was interrupted and needs recovery"),
-    DoctorRule.GITIGNORE_UNREADABLE: PublicRule(
-        "the .gitignore cannot be read", "the .gitignore cannot be read"),
-    DoctorRule.ADOPTION_PREJOURNAL: PublicRule(
-        "an adoption's privacy change was interrupted and needs recovery", "an adoption's privacy change was interrupted and needs recovery"),
-    DoctorRule.ADOPTION_MARKER_MALFORMED: PublicRule(
-        "the .gitignore has a malformed adoption marker", "the .gitignore has malformed adoption markers"),
-    DoctorRule.REQUIRED_FILE_MISSING: PublicRule(
+# closed set. `unique` refuses two rules with the same row, and a test checks
+# that every `report` call names a rule.
+@unique
+class DoctorRule(Enum):
+    """Each kind of problem Doctor reports. Its value is its public row."""
+    WORKSPACE_MISSING = PublicRule(
+        "the workspace does not exist", "the workspace does not exist")
+    WORKSPACE_NOT_DIRECTORY = PublicRule(
+        "the workspace is not a directory", "the workspace is not a directory")
+    ADOPTION_JOURNAL = PublicRule(
+        "an adoption was interrupted and needs recovery", "an adoption was interrupted and needs recovery")
+    GITIGNORE_UNREADABLE = PublicRule(
+        "the .gitignore cannot be read", "the .gitignore cannot be read")
+    ADOPTION_PREJOURNAL = PublicRule(
+        "an adoption's privacy change was interrupted and needs recovery", "an adoption's privacy change was interrupted and needs recovery")
+    ADOPTION_MARKER_MALFORMED = PublicRule(
+        "the .gitignore has a malformed adoption marker", "the .gitignore has malformed adoption markers")
+    REQUIRED_FILE_MISSING = PublicRule(
         "a required workspace file is missing", "{n} required workspace files are missing",
-        frozenset(THIN_WORKSPACE_FILES) | frozenset(BASELINE_WORKSPACE_FILES)),
-    DoctorRule.CONTRACT_FILE_MISSING: PublicRule(
+        frozenset(THIN_WORKSPACE_FILES) | frozenset(BASELINE_WORKSPACE_FILES))
+    CONTRACT_FILE_MISSING = PublicRule(
         "a required contract file is missing", "{n} required contract files are missing",
-        frozenset(INDEXED_WORKSPACE_FILES)),
-    DoctorRule.RECOMMENDED_FILE_MISSING: PublicRule(
+        frozenset(INDEXED_WORKSPACE_FILES))
+    RECOMMENDED_FILE_MISSING = PublicRule(
         "a recommended workspace file is missing", "{n} recommended workspace files are missing",
-        frozenset(LEGACY_RECOMMENDED_WORKSPACE_FILES)),
-    DoctorRule.RECOMMENDED_UPGRADE: PublicRule(
-        "a reviewed adoption can move the workspace to the current contract", "a reviewed adoption can move the workspace to the current contract"),
-    DoctorRule.PRIVACY_IGNORE_MISSING: PublicRule(
+        frozenset(LEGACY_RECOMMENDED_WORKSPACE_FILES))
+    RECOMMENDED_UPGRADE = PublicRule(
+        "a reviewed adoption can move the workspace to the current contract", "a reviewed adoption can move the workspace to the current contract")
+    PRIVACY_IGNORE_MISSING = PublicRule(
         "a required privacy ignore is missing from .gitignore", "{n} required privacy ignores are missing from .gitignore",
         frozenset(PRIVACY_IGNORE_PROBES) | frozenset(_THIN_PRIVACY_PROBES)
-        | frozenset(_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES)),
-    DoctorRule.RECOMMENDED_PRIVACY_IGNORE_MISSING: PublicRule(
+        | frozenset(_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES))
+    RECOMMENDED_PRIVACY_IGNORE_MISSING = PublicRule(
         "a recommended privacy ignore is missing from .gitignore", "{n} recommended privacy ignores are missing from .gitignore",
-        frozenset(PRIVACY_IGNORE_PROBES)),
-    DoctorRule.MODULE_INDEX_MISSING: PublicRule(
-        "a module folder lacks index.md", "{n} module folders lack index.md"),
-    DoctorRule.MODULE_LEGACY_FILE: PublicRule(
-        "a legacy module file sits beside a module index", "{n} legacy module files sit beside a module index"),
-    DoctorRule.TROPO_INVALID: PublicRule(
-        "tropo configuration is invalid", "tropo configuration is invalid"),
-    DoctorRule.TROPO_FINDING: PublicRule(
-        "a typed note has a finding", "{n} typed note findings"),
-    DoctorRule.GRAPH_BROKEN: PublicRule(
-        "the typed graph has broken links", "the typed graph has broken links"),
-    DoctorRule.GRAPH_EMPTY: PublicRule(
-        "the typed graph has no nodes", "the typed graph has no nodes"),
-    DoctorRule.CAPABILITY_INVALID: PublicRule(
-        "a declared capability is invalid", "{n} declared capabilities are invalid"),
-    DoctorRule.MEMORY_MISCONFIGURED: PublicRule(
-        "semantic memory is misconfigured", "semantic memory is misconfigured"),
-    DoctorRule.MEMORY_PRIVACY_FAILED: PublicRule(
-        "semantic memory privacy check failed", "semantic memory privacy check failed"),
-    DoctorRule.MEMORY_UNAVAILABLE: PublicRule(
-        "the semantic memory provider is unavailable", "the semantic memory provider is unavailable"),
-}
+        frozenset(PRIVACY_IGNORE_PROBES))
+    MODULE_INDEX_MISSING = PublicRule(
+        "a module folder lacks index.md", "{n} module folders lack index.md")
+    MODULE_LEGACY_FILE = PublicRule(
+        "a legacy module file sits beside a module index", "{n} legacy module files sit beside a module index")
+    TROPO_INVALID = PublicRule(
+        "tropo configuration is invalid", "tropo configuration is invalid")
+    TROPO_FINDING = PublicRule(
+        "a typed note has a finding", "{n} typed note findings")
+    GRAPH_BROKEN = PublicRule(
+        "the typed graph has broken links", "the typed graph has broken links")
+    GRAPH_EMPTY = PublicRule(
+        "the typed graph has no nodes", "the typed graph has no nodes")
+    CAPABILITY_INVALID = PublicRule(
+        "a declared capability is invalid", "{n} declared capabilities are invalid")
+    MEMORY_MISCONFIGURED = PublicRule(
+        "semantic memory is misconfigured", "semantic memory is misconfigured")
+    MEMORY_PRIVACY_FAILED = PublicRule(
+        "semantic memory privacy check failed", "semantic memory privacy check failed")
+    MEMORY_UNAVAILABLE = PublicRule(
+        "the semantic memory provider is unavailable", "the semantic memory provider is unavailable")
 
 
 def _doctor_lines(problems: list[tuple[str, DoctorRule, str, str | None]], level: str, public: bool) -> list[str]:
@@ -1659,9 +1634,9 @@ def _doctor_lines(problems: list[tuple[str, DoctorRule, str, str | None]], level
             found.setdefault(rule, []).append(value)
     lines = []
     for rule, values in found.items():
-        public = DOCTOR_RULES[rule]
-        line = public.one if len(values) == 1 else public.several.format(n=len(values))
-        named = [value for value in values if value in public.values]
+        sentences = rule.value
+        line = sentences.one if len(values) == 1 else sentences.several.format(n=len(values))
+        named = [value for value in values if value in sentences.values]
         lines.append(f"{line}: {', '.join(named)}" if named else line)
     return lines
 
@@ -1676,7 +1651,7 @@ def doctor_workspace(
     """Validate that a directory looks like a usable Vivary agent workspace.
 
     ``public=True`` reports each problem rule's fixed sentence from
-    ``DOCTOR_RULES`` with a count, and never the detail, because a detail may
+    ``DoctorRule`` with a count, and never the detail, because a detail may
     name a file Git ignores or a folder outside the workspace. It names a value
     only from the rule's closed set. It
     skips the typed-note graph walk and reports no graph. A caller that must

@@ -128,6 +128,22 @@ class VivaryLogsTests(unittest.TestCase):
         failed = json.loads(failed_out)
         self.assertEqual((failed["summary"]["total"], failed["log"]["failed"]), (1, 3))
 
+    def test_logs_count_a_receipt_without_a_true_ok_as_failed(self):
+        with tempfile.TemporaryDirectory() as td:
+            receipt = Path(td) / "receipts.jsonl"
+            base = {"schema": "vivary.run_receipt.v1", "tool": "tropo", "command": "check"}
+            rows = [{**base, "ok": True}, dict(base), {**base, "ok": "false"}]
+            receipt.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            rc, out, err = _run(["logs", str(receipt), "--json"])
+            failed_rc, failed_out, failed_err = _run(["logs", str(receipt), "--json", "--failed"])
+            text_rc, text_out, text_err = _run(["logs", str(receipt)])
+
+        self.assertEqual((rc, failed_rc, text_rc), (0, 0, 0), err + failed_err + text_err)
+        self.assertEqual(json.loads(out)["log"]["failed"], 2)
+        self.assertEqual(len(json.loads(failed_out)["records"]), 2)
+        statuses = [line.split()[-1] for line in text_out.splitlines() if " tropo check " in line]
+        self.assertEqual(statuses, ["ok", "fail", "fail"])
+
     def test_logs_failed_tail_text(self):
         with tempfile.TemporaryDirectory() as td:
             receipt = Path(td) / "receipts.jsonl"
@@ -427,11 +443,10 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertIn("tropo configuration is invalid", json.loads(public_out)["errors"])
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
-    def test_every_doctor_rule_has_a_public_sentence_and_every_report_names_a_rule(self):
+    def test_doctor_rules_name_no_command_and_every_report_names_a_rule(self):
         import ast
 
-        self.assertEqual(set(create_vivary.DoctorRule), set(create_vivary.DOCTOR_RULES))
-        for public in create_vivary.DOCTOR_RULES.values():
+        for public in (rule.value for rule in create_vivary.DoctorRule):
             for sentence in (public.one, public.several):
                 self.assertNotIn("--", sentence)
                 self.assertNotIn("create-vivary", sentence)
@@ -448,8 +463,11 @@ class VivaryPublicReadTests(unittest.TestCase):
                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "report"]
         self.assertGreater(len(reports), 20)
         for call in reports:
+            self.assertFalse(call.keywords, ast.unparse(call)[:80])
             rule = call.args[1]
-            self.assertTrue(names_a_rule(rule) or isinstance(rule, ast.Name), ast.unparse(call)[:80])
+            # The one pass-through is the rule `_module_index_problems` returned, checked below.
+            self.assertTrue(names_a_rule(rule) or (isinstance(rule, ast.Name) and rule.id == "rule"),
+                            ast.unparse(call)[:80])
         appended = [node.args[0].elts[0] for node in ast.walk(functions["_module_index_problems"])
                     if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "append"]
         self.assertTrue(appended)

@@ -427,7 +427,8 @@ function tool() {
       if (!scopeId?.startsWith("vivary-project-chat-v2:")) return { kind: "not-project" };
       if (scopeId === scope(null).id) return { kind: "personal" };
       const match = catalog.projects.find(candidate => scope(candidate.projectId).id === scopeId);
-      return match ? { kind: "project", projectId: match.projectId, context } : { kind: "unmatched" };
+      if (!match) throw Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+      return { kind: "project", projectId: match.projectId, context };
     },
   }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });
@@ -531,12 +532,18 @@ test("the model sees one Vivary tool with no project field and the observations 
 });
 
 test("the panel names why a report is incomplete from the report's own omissions", () => {
-  const omission = (kind: string, count = 1) => ({ kind, reason: "detail", count });
-  assert.equal(privateExcluded([omission("privacy_excluded", 2), omission("budget_limit")]), "2 private files excluded");
-  assert.equal(privateExcluded([omission("budget_limit")]), null);
-  assert.equal(incompleteNote([omission("privacy_excluded"), omission("directory_unavailable"), omission("entry_unavailable")]),
-    "Some folders could not be read. Some files could not be read.");
-  assert.equal(incompleteNote([omission("budget_limit"), omission("budget_limit")]), "The search stopped at its token budget.");
-  assert.equal(incompleteNote([omission("config_excluded")]), "Some files were left out.");
-  assert.equal(incompleteNote([]), "Some files were not read.");
+  // Rows exactly as Tropo's public facade writes them. The first pair came from a real budget-limited find.
+  const find = [{ kind: "document", reason: "sensitive_name", count: 1 }, { kind: "result", reason: "budget_limit", count: 5 }];
+  assert.equal(incompleteNote(find), "The token budget cut the results short, so more context may exist.");
+  const check = [{ kind: "privacy_excluded", reason: "git_ignored", count: 2 },
+    { kind: "filesystem", reason: "directory_unavailable", count: 1 }, { kind: "document", reason: "analysis_unavailable", count: 1 },
+    { kind: "document", reason: "config_excluded", count: 3 }];
+  assert.equal(incompleteNote(check), "Some folders could not be read. Some notes could not be analyzed.");
+  assert.equal(privateExcluded(check), "2 private files excluded");
+  assert.equal(privateExcluded(find), "1 private file excluded");
+  assert.equal(incompleteNote([{ kind: "document", reason: "unreadable", count: 1 }]), "Some files could not be read.");
+  // A Git-ignored config file is private, counted apart, and adds no read-failure note.
+  const privateConfig = [{ kind: "config", reason: "git_ignored", count: 1 }];
+  assert.equal(incompleteNote(privateConfig), null);
+  assert.equal(privateExcluded(privateConfig), "1 private file excluded");
 });

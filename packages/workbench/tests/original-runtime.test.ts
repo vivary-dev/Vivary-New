@@ -926,6 +926,45 @@ test("matching governed requests preserve submitted evidence and return no execu
 });
 
 // Closing is permanent for the process, so this test runs last.
+test("control writes its request only after admission and removes it when its child exits", async () => {
+  const f = await fixture();
+  const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
+  const requests = () => readdir(path.join(f.data, "original-runtime"), { recursive: true })
+    .then(entries => entries.filter(entry => String(entry).endsWith("request.json")), () => [] as string[]);
+  let resolutions = 0;
+  let beforeAdmission: string[] = [];
+  let atShutdown: string[] = [];
+  const { shutdownOriginalCommands } = await import("../server/original-runtime");
+  const run = createOriginalCommandRunner({ parallelism: 4,
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+    resolveWorkspace: async () => {
+      // The second resolution is the recheck after admission, before the request is written.
+      if (++resolutions === 2) beforeAdmission = await requests();
+      return projectWorkspace("project-a", f.root);
+    },
+    execute: (_python, args, stdin, cwd, environment, signal) => runOriginalProcess(process.execPath,
+      ["-e", "setInterval(()=>{},1000)"], stdin, cwd, environment, signal) });
+  const stopped = assert.rejects(run({ projectId: "project-a", command: { verb: "control", request } }, context),
+    /closing. The original command was stopped/);
+  try {
+    for (let attempt = 0; attempt < 40 && (await requests()).length === 0; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.deepEqual(beforeAdmission, [], "no request file exists while the command waits for its project check");
+    await shutdownOriginalCommands();
+    atShutdown = await requests();
+    assert.deepEqual(atShutdown, [], "shutdown resolves after the stopped child's request file is gone");
+    await stopped;
+  } finally {
+    // Shutdown closes the process-wide command host. Reopen it for the shutdown test that follows.
+    const host = (globalThis as Record<symbol, { closing: boolean; shutdown: Promise<void> | null }>)[
+      Symbol.for("vivary.workbench.original-commands")];
+    host.closing = false;
+    host.shutdown = null;
+    await f.cleanup();
+  }
+});
+
 test("shutdown stops running children, refuses waiters, and stops an admitted command before it spawns", async () => {
   const { shutdownOriginalCommands } = await import("../server/original-runtime");
   const executed: string[] = [];
