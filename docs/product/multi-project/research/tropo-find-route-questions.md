@@ -54,7 +54,7 @@ result into `producer_unavailable`. Tropo removes no URIs, so the two checks
 already disagree. MCP accepts "see https://[::1]/public/docs", and Tropo refuses
 it as a question. `test_result_firewall_refuses_machine_paths_and_credentials`
 in `packages/mcp/tests/test_vivary_mcp.py` requires refusing seven strings,
-including `/home/user/secret.md` and two host paths that follow a URL.
+including a file in a user's home folder and two host paths that follow a URL.
 `docs/MCP.md` promises that the adapter returns no absolute machine path.
 Changing Tropo alone would leave `vivary_find` and `vivary_query` refusing
 the same questions over MCP, with a less clear reason.
