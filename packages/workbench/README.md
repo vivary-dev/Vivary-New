@@ -324,8 +324,8 @@ shows the project root as `.` instead of its host path. The tool call keeps
 caller `tool` everywhere outside project services. Project services read the
 chat's scope from the request, never from the caller, match it to one
 registered project, admit the call for that project alone, and look up the owner's registry scope on its behalf. It cannot list
-projects, connect a folder, or reconnect one. The runner's policy table lets it
-run the five reads and none of the owner's commands. Coding runtimes keep their own file tools and do not receive this tool.
+projects, connect a folder, or reconnect one. The runner lets it run the five
+reads and none of the owner's commands. Coding runtimes keep their own file tools and do not receive this tool.
 
 Original commands never refuse a caller for being busy. Reads run in parallel.
 A command that writes a project's files, such as an approved setup, runs alone
@@ -335,13 +335,13 @@ after 30 seconds returns a message asking you to try again. A command whose
 component writes a receipt writes it to a private file, and the app appends
 that file to the shared log after the command ends, so parallel commands cannot
 overwrite each other's receipts. The app deletes the private file once it is
-appended. A receipt the app could not append stays in its private folder, and
-the first command after a later start appends it once the folder is ten
-minutes old. The app writes the receipt itself for a command
-whose component writes none, and for a command that ends without its
-component's receipt. Shutdown waits for a stopped command's receipt. A governed
-command or a write fails without its receipt. A read's report stands without
-one.
+appended. A receipt the app could not append stays in its private folder. A
+later start's first command appends it if the folder is ten minutes old by then,
+and skips a receipt the log already holds. The app writes the receipt itself for
+every command whose component wrote none. A governed command or a write that
+finished without its component's receipt then fails. Shutdown waits for every
+command to record its receipt and clean up. A read's report stands without its
+receipt.
 
 Selecting a project selects its working directory, Code history, and files.
 Personal workspace opens the app's default folder. Native owns the actual runs

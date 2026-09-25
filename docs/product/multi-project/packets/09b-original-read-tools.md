@@ -65,8 +65,7 @@ git diff --check
 `vivary-project-read-owner` with a project ID, and the Native agent calls it through
 `vivary-project-read`, whose project comes from the chat's pinned scope. Project
 services read that scope from the request and match it to one registered project.
-The runner's policy table lets a tool call run these five reads and nothing
-else. Access refusals throw. Whether the original command produced a report is part of the value.
+The runner lets a tool call run these five reads and nothing else. Access refusals throw. Whether the original command produced a report is part of the value.
 Doctor runs `vivary doctor --public`, which checks the workspace without
 reading notes. Find and check run `vivary find|check --public`, which reaches
 Tropo's privacy-filtered facade. The original runner schedules reads in parallel and runs a
@@ -82,6 +81,7 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 
 - 2026-09-13: Drafted for the desktop release. The Native actions are not implemented.
 - 2026-09-24: Implemented in PR #89 and reviewed by five panels. The hosted journey passed on `bd12e620`. The Windows panel reads and agent turn on the `bd12e620` package are pending.
+- 2026-09-24: A sixth panel's findings are fixed in `d58fb68` and `9e9b0d82`. The hosted journey passed three runs on `9e9b0d82`. The Windows panel reads and agent turn on the `9e9b0d82` package are pending.
 
 - 2026-09-24: Claimed on `feat/project-read-tools` from merged `dev` `0c8c7eb`.
   Dependencies #18 and #7 are closed.
