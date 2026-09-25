@@ -86,6 +86,7 @@ accept arbitrary shell arguments, or create a second CLI or executor.
 - 2026-09-24: A sixth panel's findings are fixed in `d58fb68` and `9e9b0d82`. The hosted journey passed three runs on `9e9b0d82`. The Windows panel reads and agent turn on the `9e9b0d82` package are pending.
 - 2026-09-24: A seventh panel's findings are fixed in `480e616`. The hosted journey passed three runs on `480e616e`. The Windows panel reads and agent turn on the `480e616e` package are pending.
 - 2026-09-24: An eighth panel's findings are fixed in `db2be22`. The hosted journey passed three runs on `db2be221`. The Windows panel reads and agent turn on the `db2be221` package are pending.
+- 2026-09-24: A ninth panel's findings are fixed in `64c227e`. The hosted journey passed three runs on `64c227eb`. The Windows panel reads and agent turn on the `64c227eb` package are pending.
 
 ## Shared desktop and web behavior
 

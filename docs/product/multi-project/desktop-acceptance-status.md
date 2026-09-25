@@ -56,7 +56,7 @@ caller `tool`, and the runner lets a tool call run these five reads alone.
 Doctor, find, and check use the original `--public` path, so files that Git or
 the workspace marks private stay out of every report.
 
-The 12-step hosted journey passed three runs in a row on `db2be221`, with a
+The 12-step hosted journey passed three runs in a row on `64c227eb`, with a
 bundled runtime built from the same commit. Panel reports equaled the bundled
 CLI's output. The agent received the same reports in one turn. A
 model-supplied project, malformed input, and a path-like question were
@@ -70,12 +70,12 @@ unpublished `bd12e620` archive opened that profile and restored both projects
 and the chat. Its bundled plain Doctor named a Git-ignored note, and public
 Doctor did not. A child's receipt reached the shared log, no per-run folder
 remained, and the fixtures kept their hashes and modification times. The
-final `db2be221` archive, SHA-256
-`208532e3c33aa8aeb1be368a535756055ba95cc52ce7cddc36e908a8f0f21d8f`, is built.
+final `64c227eb` archive, SHA-256
+`f7c1decc6a02fbbf13f367374317df7208b8f3a989f83cea958e183716f9ac75`, is built.
 Its panel reads and agent turn have not run yet.
 
 The same work fixed a Native agent panel crash after refused tool turns through
-the existing Core patch, with a regression test. Eight review panels' findings
+the existing Core patch, with a regression test. Nine review panels' findings
 are fixed. PR #89 delivers the work into `dev` after the owner approves the
 Entire trail.
 

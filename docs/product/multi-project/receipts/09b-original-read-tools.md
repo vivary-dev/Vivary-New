@@ -3,9 +3,9 @@
 Evidence-record: 09b
 Date: 2026-09-24
 Issue: [#19](https://github.com/vivary-dev/Vivary-New/issues/19)
-Latest verified source: `db2be2217670bf8f7b7e10eed9be6ee8b49602f7`
-Hosted result: the 12-step journey passed three runs in a row on `db2be221`, with Workbench and the bundled Python runtime built from that commit, and three runs in a row each on `480e616e` and `9e9b0d82`. It also passed on `bd12e620`, after a first run there stopped at its first step, described below, and on `9c026639`, `366ce16c`, `8576af0e`, `cc54be25`, and three times on `e87099d1`. A local fake model provider drove the agent, so no real model was called.
-Packaged Windows result: the unpublished `e87099d1` package passed the full panel, agent, isolation, missing-folder, restart, and no-Git journey. The unpublished `8576af0e` package then passed the journey's affected steps on the same profile. The unpublished `bd12e620` package opened that profile and passed the checks listed below. The final `db2be221` package is built. Its panel reads and agent turn wait for a time when the owner is away from the laptop.
+Latest verified source: `64c227eb7085af015b3eb82006281993d22a272d`
+Hosted result: the 12-step journey passed three runs in a row on `64c227eb`, with Workbench and the bundled Python runtime built from that commit, and three runs in a row each on `db2be221`, `480e616e`, and `9e9b0d82`. It also passed on `bd12e620`, after a first run there stopped at its first step, described below, and on `9c026639`, `366ce16c`, `8576af0e`, `cc54be25`, and three times on `e87099d1`. A local fake model provider drove the agent, so no real model was called.
+Packaged Windows result: the unpublished `e87099d1` package passed the full panel, agent, isolation, missing-folder, restart, and no-Git journey. The unpublished `8576af0e` package then passed the journey's affected steps on the same profile. The unpublished `bd12e620` package opened that profile and passed the checks listed below. The final `64c227eb` package is built. Its panel reads and agent turn wait for a time when the owner is away from the laptop.
 Delivery status: PR #89 into `dev` carries this work. Merge and issue closure wait for the owner's Entire trail approval.
 
 ## Result
@@ -165,6 +165,29 @@ An eighth panel reviewed `0ac6108`. Fixes landed in `db2be22`:
   `@unique`, so the parallel table and its sync test are gone. A project
   scope that matches no project is a 403 from project services.
 
+A ninth panel reviewed `6926d79`, and its plan was debated with one of its
+reviewers before it landed. Fixes landed in `64c227e`:
+
+- Round 8 let project services' plain 403 errors leave the chat send guard
+  unchanged. h3 answers any error that is not its own `HTTPError` with a
+  500, and Core's client retries that up to eight times. The guard now
+  turns a 401 or 403 into an h3 error with the same fixed message, and a
+  test runs it through h3.
+- A control command admitted just before shutdown could still write its
+  request after shutdown resolved. The runner now checks closing and cancel
+  before the write, registers the command with shutdown, writes, checks
+  again, and spawns with no wait in between. The receipts object owns the
+  request file.
+- The panel's notes kept rebuilding Tropo's accounting from omission rows
+  and were wrong in three rounds. They now claim only what the rows state:
+  the private count reads `privacy_excluded` rows, a second line names
+  sensitive exclusions by file and folder, and an incomplete report says
+  so, naming the token budget only when a `budget_limit` row is present.
+  PR #90 asks whether Tropo's facade should state these counts outright.
+- The shutdown tests moved to their own files, so each shutdown runs in its
+  own process. The control test runs two control commands on one project
+  and finds that the queued one never writes a request.
+
 The round-6 PATH link check is withdrawn. It ran a synchronous `realpath` per
 PATH entry on every command, and a PATH entry that links into a project is the
 owner's own configuration. A rendered component test for the panel was
@@ -212,7 +235,8 @@ The first run on `bd12e620` stopped at its first step. The runtime menu's
 Native chat choice did not open a chat within 30 seconds, and the page showed
 no error. The next run on the same build passed all 12 steps. The crash repro
 on that build opened 24 Native chat turns without the failure. Three runs
-each on `9e9b0d82`, `480e616e`, and `db2be221` then passed all 12 steps.
+each on `9e9b0d82`, `480e616e`, `db2be221`, and `64c227eb` then passed all 12
+steps.
 
 ## Agent panel crash
 
@@ -222,8 +246,8 @@ assistant message component walked to a parent entry that the thread store no
 longer held. The existing Core patch now stops the walk at a parent the rendered
 thread does not hold, without catching other errors. The repro ran 32 turns
 each on `cc54be25`, `8576af0e`, `366ce16c`, and `9c026639`, and 24 turns
-each on `bd12e620`, `9e9b0d82`, `480e616e`, and `db2be221`, with no error
-boundary and no page error.
+each on `bd12e620`, `9e9b0d82`, `480e616e`, `db2be221`, and `64c227eb`,
+with no error boundary and no page error.
 The remaining console errors are 404 responses from Core's thread lookup before
 a new thread row exists and from Core's `available-clis` route, which Workbench
 does not mount. The build before the Core change shows the same responses.
@@ -242,6 +266,7 @@ package receipts.
 | `9e9b0d82` | 223,733,172 | `c135906d41fdb9b998aa9d76b517189f42e7ac8c46355a1dd58a66f8f3fba746` |
 | `480e616e` | 223,733,740 | `41c6e7e2db7270b3f34be2eadfb9a305270fec5318899cb26606b9a35a90829c` |
 | `db2be221` | 223,733,848 | `208532e3c33aa8aeb1be368a535756055ba95cc52ce7cddc36e908a8f0f21d8f` |
+| `64c227eb` | 223,733,771 | `f7c1decc6a02fbbf13f367374317df7208b8f3a989f83cea958e183716f9ac75` |
 
 The `e87099d1` EXE ran with an isolated application profile, no provider
 credentials, and a local fake model provider. The GUI created two projects.
@@ -295,7 +320,7 @@ RelayService chat with its history.
   valid lines, and no per-run folder remained.
 
 The panel reads and the agent turn did not run on this package or on the
-later `9e9b0d82`, `480e616e`, and `db2be221` packages. The retest drives the window with typed keys, and
+later `9e9b0d82`, `480e616e`, `db2be221`, and `64c227eb` packages. The retest drives the window with typed keys, and
 the owner was using the laptop.
 
 Each normal close left no Vivary process within 20 seconds, and the provider
@@ -310,8 +335,8 @@ not from the app.
 
 ## Verification and limits
 
-On `db2be221`, the Workbench checks read their commands from `ci.yml` and
-passed: typecheck, `tsc`, the two tsx lists (56 of 56, and 265 of 266 with one
+On `64c227eb`, the Workbench checks read their commands from `ci.yml` and
+passed: typecheck, `tsc`, the two tsx lists (57 of 57, and 265 of 266 with one
 existing skip), the two node lists (28 of 28 and 12 of 12), and
 `test:maintained`. The runner and read tests passed five repeated runs. Line
 endings and `git diff --check` were clean. The vivary CLI suite passed 21 of
