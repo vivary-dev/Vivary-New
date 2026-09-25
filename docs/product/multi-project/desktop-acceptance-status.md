@@ -84,7 +84,7 @@ Entire trail.
 [Issue #21's receipt](receipts/18a-scoped-file-memory.md) records project facts
 saved as files, loaded by Code and Full chat at every message, and corrected
 and forgotten from the Memory panel. The 11-step hosted journey passed three
-runs in a row on `4fbc54ef` with a bundled runtime built from the same commit,
+runs in a row on `17e2996e` with a bundled runtime built from the same commit,
 a fake provider, and no Git on the app's PATH. It covered two projects,
 isolation, a restart, Correct and Forget in an open chat, a refused folder, and
 a 390-pixel panel. One real Codex conversation recalled a fact after a restart

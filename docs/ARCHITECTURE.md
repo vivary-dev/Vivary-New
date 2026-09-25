@@ -133,7 +133,7 @@ The unified workspace, project registration and selection, scoped Code and Nativ
 
 Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and earlier Windows packages. The final `e6ccddf5` Windows package's panel reads and agent turn were still pending in that receipt. Treat that acceptance as pending until the owning issue and register record the later result. PR #90 added [route-question research](product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
 
-Issue #21's scoped file memory is implemented: Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on `4fbc54ef` with a fake provider, and one real Codex check. Packaged Windows acceptance has not run, and no real Claude or Native-provider turn has, so it is not accepted. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](product/multi-project/desktop-release.md), [module catalog](product/multi-project/specification/modules.md), and live issues own the precise current status.
+Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on `17e2996e` with a fake provider, and one real Codex check on the same commit. Packaged Windows acceptance has not run, and no real Claude or Native-provider turn has, so it is not accepted. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](product/multi-project/desktop-release.md), [module catalog](product/multi-project/specification/modules.md), and live issues own the precise current status.
 
 ## Maintaining this document
 
@@ -210,8 +210,10 @@ previous turn failed, stopped, or was interrupted, because that turn's
 revision is rolled back. Only the Full chat block names Native's owner-wide
 tools. The revision is the hash of the Code form, so both surfaces share it.
 A plain folder's panel no longer links to a missing `workspace.toml`, and the
-bridge's host-path scrub keeps URLs. Unit tests cover these changes, and the
-hosted journey has not rerun on them.
+bridge's host-path scrub keeps URLs. The hosted journey passed three more
+runs and the real Codex check passed again on `17e2996e`, which includes these
+changes. The fake provider now drops the Full chat tools sentence before it
+hashes the block, because the revision covers the Code form.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.

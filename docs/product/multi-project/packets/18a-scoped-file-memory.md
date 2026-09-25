@@ -98,7 +98,7 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   real-agent, and Windows checks have not run, so acceptance is pending.
 
 - 2026-09-25: The [receipt](../receipts/18a-scoped-file-memory.md) records the hosted
-  journey on `4fbc54ef`, which passed three runs in a row with a fake provider and an app
+  journey on `17e2996e`, which passed three runs in a row with a fake provider and an app
   restart, and one real Codex conversation that recalled and corrected a fact. Packaged
   Windows acceptance, a real phone, and optional semantic providers have not run. The
   work is not accepted.

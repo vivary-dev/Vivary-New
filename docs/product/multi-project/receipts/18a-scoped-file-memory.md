@@ -3,9 +3,9 @@
 Evidence-record: 18a
 Date: 2026-09-25
 Issue: [#21](https://github.com/vivary-dev/Vivary-New/issues/21)
-Latest verified source: `4fbc54ef32f3da1a7c80aa4996b11e8902858635`
-Hosted result: the 11-step journey passed three runs in a row (runs 06, 07, and 08) on `4fbc54ef`, with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-4fbc54ef.json` exited 0, and the runtime manifest names commit `4fbc54ef32f3`. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
-Real-agent result: one Codex account ran two model turns on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
+Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
+Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
+Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
 Delivery status: branch `feat/scoped-file-memory`. No pull request is open, and the work is not accepted.
 
@@ -21,8 +21,8 @@ message. Project chats lose Native's owner-wide `resources`, `save-memory`,
 
 ## Hosted journey
 
-Each run built Workbench and the bundled runtime from `4fbc54ef` on Zo and
-passed the same 11 steps:
+Each run used Workbench and the bundled runtime built from `17e2996e` on Zo
+and passed the same 11 steps:
 
 - The GUI created a thin project, Alpha, and registered a plain folder, Beta,
   that had no Git and no Vivary files.
@@ -34,8 +34,9 @@ passed the same 11 steps:
 - After an app restart, a Personal chat request carried no project block and
   kept Native's tools.
 - A fresh Alpha Full chat request's system prompt carried Alpha's fact only.
-  The fake provider hashed the block, and that revision equaled the panel's
-  last-load revision. The request's tools excluded `resources`,
+  The fake provider removed the Full chat sentence about Native's owner-wide
+  tools, hashed the rest, and that revision equaled the panel's last-load
+  revision. The request's tools excluded `resources`,
   `save-memory`, `delete-memory`, and `chat-history`, and the block stated
   that those tools are unavailable.
 - A fresh Beta chat carried Beta's fact only.
@@ -53,7 +54,7 @@ unavailable.
 
 ## Real-agent check
 
-Run `codex-4fbc54e-04` used one Codex account with model `gpt-6-astra`. After
+Run `codex-17e2996-01` used one Codex account with model `gpt-6-astra`. After
 a restart, a fresh Codex conversation answered "The relay budget is 43 credits
 per week". Its transcript had no tool events and showed the note "Loaded
 project context ctx-…: 1 fact from .vivary/knowledge, instructions from
@@ -79,22 +80,14 @@ turns remain [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50).
 
 Journey script bugs fixed during QA are not product findings.
 
-## Changes after the verified source
+## Final fixes
 
-The commit after `4fbc54ef` changes behavior the hosted journey and the Codex
-check exercised. Unit tests cover it, and the hosted journey has not run on
-it:
-
-- A Code turn that fails, stops, or is interrupted rolls back its context
-  revision, so the next resumed Codex turn sends the full block again.
-- Only the Full chat block carries the sentence about Native's owner-wide
-  tools. Code blocks do not.
-- The revision is now the SHA-256 of the Code form of the block, so Code and
-  Full chat loads of the same content share one revision. A rerun of the
-  journey's revision comparison must hash the Code form or read the panel.
-- The panel no longer links to a missing `.vivary/workspace.toml` for a plain
-  folder, `shortenedForAgents` measures the text agents receive, and the
-  bridge's host-path scrub keeps URLs.
+The last code commit, `17e2996e`, rolls back a Code turn's context revision
+when the turn fails, stops, or is interrupted, so the next resumed Codex turn
+sends the full block. Only the Full chat block names Native's owner-wide tools.
+The revision is the SHA-256 of the Code form of the block, so Code and Full chat
+loads of the same content share one revision. The hosted journey and the Codex
+check above ran on this commit.
 
 ## Not run
 
