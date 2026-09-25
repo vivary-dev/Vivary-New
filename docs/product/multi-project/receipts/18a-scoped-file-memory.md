@@ -3,11 +3,11 @@
 Evidence-record: 18a
 Date: 2026-09-25
 Issue: [#21](https://github.com/vivary-dev/Vivary-New/issues/21)
-Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
-Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
-Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
+Latest verified source: `6f5fb707442c6149c439dce80f7370b459c9e22f`
+Hosted result: the 11-step journey passed three full runs on `6f5fb707` (runs `run-6f5fb70-04`, `08`, and `09`), with Workbench and the bundled Python runtime built from that clean commit (`issue21-build-6f5fb707.json` exit 0, runtime manifest `6f5fb707`). Six other runs on that commit stopped before any memory step failed, for the two Workbench reasons under Observations. Earlier heads passed three runs in a row each: `4fbc54ef`, `17e2996e`, `2324e7f`, `865f39e` (after a journey helper fix), `a7251ea`, `05bed13`, `aa568d9`, `0e9ae6b`, and `1bd2242`. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
+Real-agent result: one Codex account ran two model turns per check. The check passed on `17e2996e`, `2324e7f`, `865f39e`, `a7251ea`, `05bed13`, `aa568d9`, and `0e9ae6b` (run `codex-0e9ae6b-01`). On `1bd2242` and `6f5fb707` the Codex service answered 401 Unauthorized during a credential refresh on Zo, so no model turn ran there. The commits after `0e9ae6b` change the ignore matcher, the budget, and one notice that shows only when the ignore check is limited. They do not change how a Code turn builds its prompt. No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The lead then reported that the hosted journey passed three runs, after a fix to a race in the journey helper, and the real Codex check passed on `865f39e`, which holds the second review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `a7251ea`, which holds the third review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `05bed13`, which holds the fourth review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `aa568d9`, which holds the fifth review's change. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs and the real Codex check passed on `0e9ae6b`, which holds the sixth review's fixes. Those runs are not recorded in this receipt either. The lead then reported that the hosted journey passed three runs on `1bd2242`, which holds the seventh review's fixes. The final review's fixes after `1bd2242` are covered by unit tests and the differential test until the lead reruns hosted QA and completes this receipt with the final hosted evidence. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and a Codex GitHub review ran on each fix round, and two final verifiers found no critical or warning defect in `6f5fb707` after about 3,300 more randomized cases against real Git with no misses. This receipt's own commit changes only documentation. The work is not accepted until packaged Windows acceptance runs.
 
 ## Result
 
@@ -78,6 +78,20 @@ turns remain [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50).
   corrections. The cause is not isolated. Stale file metadata on Zo's 9p
   filesystem right after the restart is suspected. The panel's "Use current
   version" recovers.
+
+- After an app restart, choosing Native chat within about a second of the
+  page load can be overwritten when the app restores the saved Code draft
+  (`?run=new&draft=`). Four journey runs on `6f5fb707` hit this. The
+  Workbench code is the same as on `1bd2242`, where it did not show. The
+  journey now waits for the restore and confirms the choice held. This is
+  a Workbench selection race, not part of project memory.
+- Folder registration returned "The result is uncertain" with "SqliteError:
+  database is locked" in two more runs on `6f5fb707`, five times in all.
+  Retrying the same registration is the product's recovery. This is a
+  Native database lock on Zo, not part of project memory.
+- On `1bd2242` and `6f5fb707` the Codex CLI on Zo answered 401 Unauthorized
+  while it refreshed its credential. One retry stalled on the database lock
+  above. The credential is the owner's to repair.
 
 Journey script bugs fixed during QA are not product findings.
 
@@ -238,7 +252,7 @@ hosted QA:
   skipped it for rules without cased characters, but a range with uncased
   ends such as `[@-_]` spans letters that Git folds, so memory loaded files
   Git ignores.
-- Each rule and path pair costs its rule length plus 64 budget units, the
+- Each positive rule and path pair costs its rule length plus 64 budget units, the
   bracket check and the parsed rule are cached per rule, and a read that loads
   more than 2,000 rules stops and fails closed. On Zo 600 rules against 300
   files take about 0.85 seconds and 5,000 rules stop at once.
