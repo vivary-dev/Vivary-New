@@ -123,6 +123,42 @@ Every PR should include:
 Merges happen only after the written plan matches the delivered change, the
 applicable CI or explicitly approved alternative gate passes, and review is complete.
 
+## High-level design gate
+
+Read [the HLDD](docs/ARCHITECTURE.md) and use
+[maintain-hldd](.agents/skills/maintain-hldd/SKILL.md) for relevant changes.
+Update the affected sections in the same commit as source or contract changes.
+If no design changes, record the specific reasoning in Last change review.
+
+Install the hook once per Git checkout:
+
+```bash
+python scripts/check_hldd.py --install-hook
+```
+
+The installer preserves Entire and other hooks. It refuses to replace an
+existing pre-commit hook or hook manager. Add the staged command to that
+existing chain when needed. Linked worktrees share hooks, but this hook runs
+only in source trees that track the HLDD checker.
+
+Before committing, stage the source and its design review, then run:
+
+```bash
+python scripts/check_hldd.py --staged
+```
+
+CI runs the same rule for every introduced commit using explicit base and head
+refs. A prior documentation commit does not cover a later code-only commit.
+Whitespace, comments, and dates alone do not count as a review. Test-only and generated site-mirror
+changes are exempt. Commits before gate adoption remain historical. CI also
+checks introduced side-branch commits. Neither check can establish the truth of the prose.
+Review the description against its source and evidence. Local hooks can be
+bypassed by Git, so passing CI and the existing human review remain necessary.
+
+The built application exposes this same document at Settings > Documentation.
+Its text is bundled at build time and remains readable without a network.
+Linked source and detailed references require internet access.
+
 ## Documentation sync
 
 Docs are part of the product. If behavior, commands, flags, package names, or release

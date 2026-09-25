@@ -84,6 +84,13 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "      - name: require changed-path and dispatch validation\n"
         "        if: needs.changes.result != 'success'\n"
         "        run: exit 1\n"
+        "      - name: high-level design review\n"
+        "        env:\n"
+        "          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}\n"
+        "          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}\n"
+        "        run: |\n"
+        "          python scripts/tests/test_hldd.py\n"
+        "          python scripts/check_hldd.py --base \"$BASE_SHA\" --head \"$HEAD_SHA\"\n"
         "      - name: install Python test runner\n"
         "        run: python -m pip install pytest packaging\n"
         "      - name: CI workflow contract\n"
@@ -445,6 +452,25 @@ def test_dispatch_must_run_graph_review_gate():
     message = _run(workflow)
     assert message, "validated dispatches must retain the graph review gate"
     assert "workflow_dispatch" in message
+
+
+def test_hldd_gate_and_regressions_must_run():
+    workflow = _workflow(INSTALL + AUDIT)
+    for command in (
+        "python scripts/tests/test_hldd.py",
+        'python scripts/check_hldd.py --base "$BASE_SHA" --head "$HEAD_SHA"',
+    ):
+        message = _run(workflow.replace(command, "echo skipped", 1))
+        assert message and "HLDD" in message
+
+
+def test_hldd_must_use_the_actual_pr_head():
+    workflow = _workflow(INSTALL + AUDIT).replace(
+        "HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}",
+        "HEAD_SHA: ${{ github.sha }}",
+    )
+    message = _run(workflow)
+    assert message and "actual PR head" in message
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { IconLayoutSidebarLeftCollapse, IconSearch, IconSettings } from "@tabler/icons-react";
+import { IconBook2, IconLayoutSidebarLeftCollapse, IconSearch, IconSettings } from "@tabler/icons-react";
 import { Link } from "react-router";
 import { useProjects } from "../projects/ProjectContext";
 import { ProjectNavigation } from "../projects/ProjectNavigation";
@@ -38,6 +38,7 @@ export function Sidebar({ collapsible = true, onCollapsedChange }: SidebarProps)
       </details>}
     </div>
     <footer className="workspace-navigation-footer">
+      <Link className="vivary-nav-link" to="/settings/architecture"><IconBook2 size={17} aria-hidden />Documentation</Link>
       <Link className="vivary-nav-link" to="/settings"><IconSettings size={17} aria-hidden />Settings</Link>
       <button className="vivary-sidebar-utility" onClick={openCommandMenu} aria-label="Search Vivary"><IconSearch size={18} aria-hidden /></button>
     </footer>

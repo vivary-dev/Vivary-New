@@ -1,4 +1,5 @@
 import {
+  IconBook2,
   IconFolder,
   IconLayoutColumns,
   IconMessageCircle,
@@ -15,6 +16,12 @@ export const navigationItems = [
 ] as const;
 
 export const settingsItems = [
+  {
+    href: "/settings/architecture",
+    label: "Documentation",
+    icon: IconBook2,
+    keywords: ["architecture", "high-level design", "how vivary works"],
+  },
   {
     href: "/settings",
     label: "Settings",

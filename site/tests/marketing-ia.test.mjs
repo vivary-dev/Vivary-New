@@ -263,3 +263,13 @@ test('desktop onboarding links use the app repository in generated docs', () => 
     assert.doesNotMatch(text, /https:\/\/github\.com\/vivary-dev\/vivary\/blob\/dev\/packages\/(?:desktop|workbench)\//);
   }
 });
+
+
+test('HLDD references resolve to their source owners', () => {
+  const text = readFileSync(new URL('../src/content/docs/architecture.md', import.meta.url), 'utf8');
+  assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md'));
+  assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md'));
+  assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/tree/dev/packages'));
+  assert.ok(text.includes('https://github.com/vivary-dev/Vivary-New/blob/dev/packages/core/README.md'));
+  assert.doesNotMatch(text, /\]\((?:product\/multi-project\/|\.\.\/\.agents\/|\.\.\/packages\))/);
+});
