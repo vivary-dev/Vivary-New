@@ -317,6 +317,11 @@ function reasonFor(error: unknown): string {
   return "The project folder could not be read.";
 }
 
+/** The unavailable block for a failure that happened before the project could be read. */
+export function unavailableProjectContext(label: string | null, error: unknown): ProjectContextBlock {
+  return renderUnavailableContext(label, reasonFor(error));
+}
+
 // Service ---------------------------------------------------------------------
 
 type Dependencies = {

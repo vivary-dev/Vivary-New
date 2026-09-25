@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext, type AgentChatPluginOptions } from "@agent-native/core/server";
 import { H3, HTTPError } from "h3";
 import { projectChatScopeId } from "../server/chat-project-scope.mjs";
-import { createVivaryNativeChatProjectGuard, createVivaryNativeChatProjectResolver, prepareVivaryNativeChatProject } from "../server/native-chat-project";
+import {
+  createVivaryNativeChatActionSurface,
+  createVivaryNativeChatContext,
+  createVivaryNativeChatProjectGuard,
+  createVivaryNativeChatProjectResolver,
+  OWNER_MEMORY_ACTIONS,
+  prepareVivaryNativeChatProject,
+  vivaryNativeChatProjectOptions,
+} from "../server/native-chat-project";
+import { renderUnavailableContext, type ProjectContextBlock } from "../server/project-memory.ts";
 import type { ChatScopeMatch } from "../server/project-services.mjs";
 
 type PrepareDetails = Parameters<
@@ -121,4 +131,80 @@ test("uses Native's parsed scope after its HTTP body has been consumed", async (
   await runWithRequestContext({ userEmail: ownerEmail, orgId, run: { chatScope: personal } },
     () => prepareVivaryNativeChatProject({ ...details(), event }));
   assert.equal(bodyReads, 0);
+});
+
+// Project context and the tool surface reuse the guard's scope classification.
+function contextFor(match: ChatScopeMatch | Error,
+  loadProjectContext: (context: ActionRunContext, projectId: string) => Promise<ProjectContextBlock>) {
+  return createVivaryNativeChatContext({
+    getOrgId: () => orgId,
+    matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
+    loadProjectContext,
+  });
+}
+const projectMatch: ChatScopeMatch = { kind: "project", projectId: "project-a",
+  context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
+
+test("extraContext returns the pinned project's block", async () => {
+  const block = renderUnavailableContext("Relay", "Fixture block.");
+  let loaded: [ActionRunContext, string] | null = null;
+  const extraContext = contextFor(projectMatch, async (context, projectId) => { loaded = [context, projectId]; return block; });
+  assert.equal(await extraContext({}, ownerEmail), block);
+  assert.deepEqual(loaded, [projectMatch.context, "project-a"]);
+});
+
+test("extraContext returns null for Personal and non-project chats", async () => {
+  for (const match of [{ kind: "not-project" }, { kind: "personal" }] satisfies ChatScopeMatch[]) {
+    let loads = 0;
+    const extraContext = contextFor(match, async () => { loads += 1; return renderUnavailableContext(null, "x"); });
+    assert.equal(await extraContext({}, ownerEmail), null, match.kind);
+    assert.equal(loads, 0);
+  }
+});
+
+test("extraContext renders unavailable when access is revoked after the guard", async () => {
+  const revoked = Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
+  const afterGuard = await contextFor(projectMatch, async () => { throw revoked; })({}, ownerEmail);
+  assert.match(String(afterGuard), /could not load this project's instructions, state, or facts: Local project access is unavailable\./);
+  const unclassified = await contextFor(new Error("/home/owner/private path"), async () => { throw new Error("unused"); })({}, ownerEmail);
+  assert.match(String(unclassified), /The project folder could not be read\./);
+  assert.doesNotMatch(String(unclassified), /private path/);
+});
+
+test("resolveActionSurface removes owner memory actions only in project chats", async () => {
+  const available = ["vivary-project-read", "resources", "save-memory", "delete-memory", "web-request"];
+  const surface = (match: ChatScopeMatch | Error) => createVivaryNativeChatActionSurface({
+    getOrgId: () => orgId,
+    matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
+  })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
+  assert.deepEqual(await surface(projectMatch), { allowedActionNames: ["vivary-project-read", "web-request"] });
+  assert.deepEqual(await surface({ kind: "personal" }), { mode: "default" });
+  assert.deepEqual(await surface({ kind: "not-project" }), { mode: "default" });
+  assert.deepEqual(await surface(new Error("catalog")), { allowedActionNames: ["vivary-project-read", "web-request"] });
+});
+
+test("a request-scoped surface changes only trusted code execution, which Full chat does not use", async () => {
+  const core = new URL("./agent-chat-plugin.js", import.meta.resolve("@agent-native/core/server"));
+  assert.match(await readFile(core, "utf8"), /return hasRequestScopedSurface && mode === "trusted" \? "sandboxed" : mode;/);
+  const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(plugin, /codeExecution/);
+  assert.equal("codeExecution" in vivaryNativeChatProjectOptions, false);
+});
+
+test("owner memory action names match Native's resource entries", async () => {
+  const entries = new URL("./agent-chat/script-entries.js", import.meta.resolve("@agent-native/core/server"));
+  const source = await readFile(entries, "utf8");
+  for (const name of OWNER_MEMORY_ACTIONS) {
+    const key = name.includes("-") ? `"${name}"` : name;
+    assert.ok(source.split("\n").some(line => line.startsWith(`            ${key}: `)), name);
+  }
+});
+
+test("the Native chat plugin uses the project guard, context, and action surface", async () => {
+  assert.equal(vivaryNativeChatProjectOptions.prepareRequest, prepareVivaryNativeChatProject);
+  assert.equal(typeof vivaryNativeChatProjectOptions.extraContext, "function");
+  assert.equal(typeof vivaryNativeChatProjectOptions.resolveActionSurface, "function");
+  // The plugin module imports the generated action registry, so its wiring is read as source.
+  const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+  assert.match(plugin, /\.\.\.vivaryNativeChatProjectOptions,/);
 });

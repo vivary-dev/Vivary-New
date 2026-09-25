@@ -110,6 +110,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
 2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
+   Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the block before the engine prompt for new runs, Claude follow-ups, and resumed Codex threads. The transcript keeps only the typed message, and one status line per turn names the loaded revision and whether it changed. Full chat returns the block from Native's `extraContext` on every send. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
 3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
 4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. Project memory is the only caller of the file service's exclusive Create and version-checked Remove, which reuse the same link refusal, per-project mutation queue, and conflicts. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
 5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The five project read reports share one server module for the Details panel and the Native tool. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
@@ -119,7 +120,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 | Data or effect | Owner and boundary |
 | --- | --- |
-| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, or `delete-memory` actions, because that store has no project column. Personal chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
@@ -136,7 +137,7 @@ The unified workspace, project registration and selection, scoped Code and Nativ
 
 Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and earlier Windows packages. The final `e6ccddf5` Windows package's panel reads and agent turn were still pending in that receipt. Treat that acceptance as pending until the owning issue and register record the later result. PR #90 added [route-question research](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
 
-Scoped memory through real agent runs, chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
+Issue #21's scoped file memory is implemented and unit-tested: Code and Full chat load each project's instructions, state, and facts per message. Its hosted GUI journey, restart, real-agent, and Windows acceptance checks have not run, so it is not accepted. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
 
 ## Maintaining this document
 
@@ -152,16 +153,26 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #21's Workbench memory service is in place but not yet called by an
-action or a run. `project-memory.ts` reads the engine's settings through the
+Issue #21 now loads project context into runs. Code sends call
+`projectMemory.contextForRun` for the bound project and pass the block to
+`sendVivaryCodeMessage`, which records `projectContextRevision` in run
+metadata. Full chat wires `extraContext` and `resolveActionSurface` from
+`native-chat-project.ts`, both classified by the same pinned-scope check as
+the send guard. A request-scoped surface makes Native downgrade trusted
+production code execution to sandboxed. Workbench runs Full chat with code
+execution off, so nothing changes today, and a test pins that. Tests assert
+the block reached the fake worker's `started.json` prompt and the
+`extraContext` output. The owner panel and the hosted, restart, real-agent,
+and Windows checks are still pending.
+
+Issue #21's Workbench memory service, `project-memory.ts`, reads the engine's settings through the
 bridge, memoized by the bytes of `.vivary/workspace.toml` and `.gitignore`.
 It admits memory folders by path (reserved, boundary, and ignored folders are
 refused) and by filesystem checks in `project-files.ts`, which now exports
 `readEditableFile`, `readFolder`, and `fileDigest` and adds Create and Remove.
 It renders one bounded context block and writes facts only through the file
 service. Unit tests cover the bounds, isolation between projects, conflicts,
-links, and failures. Runtime flows and boundaries above still hold because
-no run or GUI path uses the service yet.
+links, and failures.
 
 Issue #21 starts with the engine rule for authored project facts. Tropo adds
 the built-in `vivary_fact` type for `.vivary/knowledge` and the memory role
@@ -171,8 +182,7 @@ roles, the state file, and the effective memory folders from configuration.
 The creator exposes it with the folders the workspace's `.gitignore` rules
 ignore, and the Workbench bridge serves it as the read-only `context`
 operation. No public CLI verb or Doctor output changed. Tropo, creator, bridge,
-and Cognee forget tests cover the rule. The Workbench does not read or load
-facts yet, so the release gap for scoped memory below still holds.
+and Cognee forget tests cover the rule.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.

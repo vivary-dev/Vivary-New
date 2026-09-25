@@ -2,6 +2,7 @@ import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { AgentChatPluginOptions } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server";
 import { createError } from "h3";
+import { projectMemory, unavailableProjectContext, type ProjectContextBlock } from "./project-memory.ts";
 import {
   matchChatProject,
   resolveLocalProjectWorkspace,
@@ -53,7 +54,7 @@ function conversationError(error: unknown, fallback: string): Error {
 // caller that asked: the send guard runs inside an HTTP request, and a tool
 // call stays a tool call.
 async function matchChatScope(
-  dependencies: NativeChatProjectDependencies,
+  dependencies: Pick<NativeChatProjectDependencies, "matchChatProject">,
   identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
     signal?: AbortSignal },
 ): Promise<ChatScopeMatch> {
@@ -128,3 +129,74 @@ export function createVivaryNativeChatProjectResolver(
 }
 
 export const resolveNativeChatProject = createVivaryNativeChatProjectResolver();
+
+type NativeChatContextDependencies = Pick<NativeChatProjectDependencies, "getOrgId" | "matchChatProject"> & {
+  /** Resolve the admitted project and load its context block for this message. */
+  loadProjectContext: (context: ActionRunContext, projectId: string) => Promise<ProjectContextBlock>;
+};
+
+const defaultContextDependencies: NativeChatContextDependencies = {
+  getOrgId: getRequestOrgId,
+  matchChatProject,
+  loadProjectContext: async (context, projectId) => (await projectMemory.contextForRun(
+    await resolveLocalProjectWorkspace(context, projectId), "full-chat")).block,
+};
+
+/**
+ * Native actions that read or write owner-wide memory and resources. Their
+ * store has no project column, so a project chat has no grant for them. A
+ * test pins each name against Native's registry, so a rename there fails
+ * instead of silently exposing owner memory again.
+ */
+export const OWNER_MEMORY_ACTIONS = ["resources", "save-memory", "delete-memory"] as const;
+
+/**
+ * Native `extraContext`, run on every send after the guard. A project chat
+ * gets its pinned project's context block. Other chats get nothing extra.
+ * Native drops a thrown error silently, so a refusal that arrives after the
+ * guard becomes a block that tells the model context is unavailable.
+ */
+export function createVivaryNativeChatContext(
+  dependencies: NativeChatContextDependencies = defaultContextDependencies,
+): NonNullable<AgentChatPluginOptions["extraContext"]> {
+  return async (_event, owner) => {
+    try {
+      const match = await matchChatScope(dependencies,
+        { owner, orgId: dependencies.getOrgId(), caller: "http" });
+      if (match.kind !== "project") return null;
+      return await dependencies.loadProjectContext(match.context, match.projectId);
+    } catch (error) {
+      return unavailableProjectContext(null, error);
+    }
+  };
+}
+
+/**
+ * Native `resolveActionSurface`. A project chat loses the owner-wide memory
+ * actions, and Native also drops its prompt lines that name them. Any other
+ * chat keeps Native's default surface. A classification error fails closed.
+ */
+export function createVivaryNativeChatActionSurface(
+  dependencies: Pick<NativeChatProjectDependencies, "getOrgId" | "matchChatProject"> = defaultDependencies,
+): NonNullable<AgentChatPluginOptions["resolveActionSurface"]> {
+  return async details => {
+    const withoutOwnerMemory = {
+      allowedActionNames: details.availableActionNames.filter(name =>
+        !OWNER_MEMORY_ACTIONS.some(denied => denied === name)),
+    };
+    try {
+      const match = await matchChatScope(dependencies,
+        { owner: details.ownerEmail, orgId: details.orgId ?? dependencies.getOrgId(), caller: "http" });
+      return match.kind === "project" ? withoutOwnerMemory : { mode: "default" };
+    } catch {
+      return withoutOwnerMemory;
+    }
+  };
+}
+
+/** The Native chat options Vivary sets. The Nitro plugin spreads them into createAgentChatPlugin. */
+export const vivaryNativeChatProjectOptions = {
+  prepareRequest: prepareVivaryNativeChatProject,
+  extraContext: createVivaryNativeChatContext(),
+  resolveActionSurface: createVivaryNativeChatActionSurface(),
+} satisfies Partial<AgentChatPluginOptions>;
