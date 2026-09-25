@@ -307,12 +307,10 @@ class VivaryPublicReadTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         self.canonical = normalize_path(os.path.realpath(self.root))
 
+    # Content, not mtime: the host's filesystem can move an mtime without a write.
     def _tree(self):
         return {
-            path.relative_to(self.root).as_posix(): (
-                path.lstat().st_mtime_ns,
-                path.read_bytes() if path.is_file() else None,
-            )
+            path.relative_to(self.root).as_posix(): path.read_bytes() if path.is_file() else None
             for path in self.root.rglob("*")
         }
 

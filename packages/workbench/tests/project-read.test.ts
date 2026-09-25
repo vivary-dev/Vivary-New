@@ -14,7 +14,7 @@ import { defineProjectReadTool } from "../actions/vivary-project-read.ts";
 import { PROJECT_READ_MAX_RESULT_CHARS, READ_BOUNDS, type ProjectReadResult } from "../app/lib/project-read-schema.ts";
 import { createVivaryChatIdentity } from "../server/chat-identity.ts";
 import { createVivaryNativeChatProjectResolver } from "../server/native-chat-project.ts";
-import { incompleteNote, privateExcluded } from "../app/lib/project-read-display.ts";
+import { incompleteNote, privateExcluded, sensitiveExcluded } from "../app/lib/project-read-display.ts";
 import {
   createProjectReadRunner, ORIGINAL_RUN_FAILURES, runOriginalProcess, type OriginalRunFailure, type ProjectReadCommand, type ProjectReadRun,
 } from "../server/original-runtime.ts";
@@ -531,19 +531,18 @@ test("the model sees one Vivary tool with no project field and the observations 
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read-owner"]), false);
 });
 
-test("the panel names why a report is incomplete from the report's own omissions", () => {
-  // Rows exactly as Tropo's public facade writes them. The first pair came from a real budget-limited find.
-  const find = [{ kind: "document", reason: "sensitive_name", count: 1 }, { kind: "result", reason: "budget_limit", count: 5 }];
-  assert.equal(incompleteNote(find), "The token budget cut the results short, so more context may exist.");
-  const check = [{ kind: "privacy_excluded", reason: "git_ignored", count: 2 },
-    { kind: "filesystem", reason: "directory_unavailable", count: 1 }, { kind: "document", reason: "analysis_unavailable", count: 1 },
-    { kind: "document", reason: "config_excluded", count: 3 }];
-  assert.equal(incompleteNote(check), "Some folders could not be read. Some notes could not be analyzed.");
-  assert.equal(privateExcluded(check), "2 private files excluded");
-  assert.equal(privateExcluded(find), "1 private file excluded");
-  assert.equal(incompleteNote([{ kind: "document", reason: "unreadable", count: 1 }]), "Some files could not be read.");
-  // A Git-ignored config file is private, counted apart, and adds no read-failure note.
-  const privateConfig = [{ kind: "config", reason: "git_ignored", count: 1 }];
-  assert.equal(incompleteNote(privateConfig), null);
-  assert.equal(privateExcluded(privateConfig), "1 private file excluded");
+test("the panel's exclusion and incomplete notes claim only what Tropo's rows state", () => {
+  // Rows captured from real vivary --public output on Zo, 2026-09-25.
+  const ignoredConfig = [{ kind: "config", reason: "git_ignored", count: 1 },
+    { kind: "filesystem", reason: "link_or_reparse", count: 1 }, { kind: "privacy_excluded", reason: "git_ignored", count: 1 }];
+  assert.equal(privateExcluded(ignoredConfig), "1 private file excluded", "a Git-ignored config file counts once");
+  assert.equal(sensitiveExcluded(ignoredConfig), null);
+  assert.equal(incompleteNote(ignoredConfig), "This report is incomplete.");
+  const budgetFind = [{ kind: "document", reason: "sensitive_name", count: 1 }, { kind: "result", reason: "budget_limit", count: 5 }];
+  assert.equal(privateExcluded(budgetFind), null);
+  assert.equal(sensitiveExcluded(budgetFind), "1 file left out because its name or content looks sensitive");
+  assert.equal(incompleteNote(budgetFind), "This report is incomplete. The token budget cut the results short, so more context may exist.");
+  const sensitive = [{ kind: "document", reason: "sensitive_content", count: 1 }, { kind: "document", reason: "sensitive_name", count: 1 },
+    { kind: "filesystem", reason: "sensitive_name", count: 1 }];
+  assert.equal(sensitiveExcluded(sensitive), "2 files and 1 folder left out because their name or content looks sensitive");
 });

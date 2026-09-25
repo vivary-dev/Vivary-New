@@ -59,6 +59,10 @@ const projectReadCommandSchema = z.discriminatedUnion("verb", [
 export type ProjectReadCommand = z.infer<typeof projectReadCommandSchema>;
 // A Native tool call may run these reads and none of the owner's commands.
 const projectReadVerbs: ReadonlySet<string> = new Set(projectReadCommandSchema.options.map(option => option.shape.verb.value));
+// The tool gate compares verbs, so no owner command may share a verb with a project read.
+const ownerVerbsAreNotReads: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"], ProjectReadCommand["verb"]>] extends [never]
+  ? true : never = true;
+void ownerVerbsAreNotReads;
 type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand;
 const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
   "bindingRevision", "policyRevision", "verificationKind"] as const;
@@ -255,9 +259,21 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   const privateDir = policy.receipt !== "component" ? undefined
     : await mkdtemp(path.join(receiptDir, "run-")).catch(() => required ? receiptDirectoryError() : undefined);
   const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
+  // Control is a required component command, so it always has a private folder.
+  const requestFile = command.verb === "control" ? path.join(privateDir ?? receiptDirectoryError(), "request.json") : undefined;
+  // Control's request exists only while its admitted child can read it.
+  const dropRequest = () => requestFile
+    ? rm(requestFile, { force: true, maxRetries: 3 }).then(() => undefined, () => undefined) : Promise.resolve();
   let appended = false;
   return {
-    privateDir,
+    requestFile,
+    // Exo refuses stdin when receipts are enabled, so control reads its request from this file.
+    stageRequest: async () => {
+      if (command.verb === "control" && requestFile) {
+        await writeFile(requestFile, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      }
+    },
+    dropRequest,
     childLog: policy.receipt === "reads-log" ? receiptLog : componentLog,
     settle: async (settled: Settled) => {
       if (policy.receipt === "reads-log") return;
@@ -284,6 +300,7 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
     // Cleanup never decides a command's outcome. A receipt the app did not
     // append keeps its folder for a later sweep.
     dispose: async () => {
+      await dropRequest();
       if (!privateDir || (!appended && await lstat(componentLog!).then(() => true, () => false))) return;
       await rm(privateDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
     },
@@ -366,7 +383,7 @@ type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
   running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
-  /** Commands whose child started and whose receipt is not yet recorded. */
+  /** Commands past their last pre-spawn check, until their receipt is recorded and control's request is gone. */
   recording?: Set<Promise<void>>;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
@@ -443,7 +460,7 @@ export function shutdownOriginalCommands(): Promise<void> {
     const active = [...commandHost.active];
     for (const command of active) command.stop(new Error("Vivary is closing. The original command was stopped."));
     // A stopped command records its receipt after its child exits, so shutdown waits for that receipt.
-    // A command that has not started a child cannot start one now, so shutdown does not wait for it.
+    // A command still re-checking its project cannot start a child now, so shutdown does not wait for it.
     commandHost.shutdown = Promise.allSettled([...active.map(command => command.settled), ...commandHost.recording ?? []])
       .then(() => undefined);
   }
@@ -576,13 +593,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     const record = async (settled: Settled) => {
       try { await receipts.settle(settled); } finally { recorded.resolve(); }
     };
-    let controlRequestPath: string | undefined;
-    // Control's request exists only while its admitted child can read it.
-    const removeRequest = () => controlRequestPath
-      ? rm(controlRequestPath, { force: true, maxRetries: 3 }).catch(() => undefined) : Promise.resolve();
     try {
-      if (command.verb === "control") controlRequestPath = path.join(receipts.privateDir ?? receiptDirectoryError(), "request.json");
-      const invocation = originalCommandArguments(command, workspace.root, controlRequestPath);
+      const invocation = originalCommandArguments(command, workspace.root, receipts.requestFile);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
@@ -597,22 +609,24 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
           commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
         }
         await validateGovernedRequest(command, current);
-        if (command.verb === "control" && controlRequestPath) {
-          // Exo refuses stdin when receipts are enabled: give the request its own identity.
-          await writeFile(controlRequestPath, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
-        }
         // Shutdown or a cancel may arrive while an admitted command re-checks its project.
         if (commandHost.closing) throw closingError();
         context?.signal?.throwIfAborted();
-        const startedAt = performance.now();
-        // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
-        const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
-          originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
-        started = startedAt;
+        // From here shutdown waits for this command, so its request file is gone before shutdown resolves.
         (commandHost.recording ??= new Set()).add(recorded.promise);
         void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
-        try { result = await running; } finally { await removeRequest(); }
-        durationMs = Math.round(performance.now() - started);
+        try {
+          await receipts.stageRequest();
+          if (commandHost.closing) throw closingError();
+          context?.signal?.throwIfAborted();
+          const startedAt = performance.now();
+          // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
+          const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
+            originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
+          started = startedAt;
+          result = await running;
+          durationMs = Math.round(performance.now() - started);
+        } finally { await receipts.dropRequest(); }
       } catch (error) {
         // A command whose child started is recorded when it fails or is stopped.
         if (started !== undefined) {
@@ -629,7 +643,6 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
         ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
-      await removeRequest();
       await receipts.dispose();
       recorded.resolve();
     }

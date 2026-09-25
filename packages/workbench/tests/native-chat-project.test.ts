@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext, type AgentChatPluginOptions } from "@agent-native/core/server";
+import { H3, HTTPError } from "h3";
 import { projectChatScopeId } from "../server/chat-project-scope.mjs";
 import { createVivaryNativeChatProjectGuard, prepareVivaryNativeChatProject } from "../server/native-chat-project";
 import type { ChatScopeMatch } from "../server/project-services.mjs";
@@ -62,11 +63,17 @@ test("a project chat reopens its workspace with the context project services ret
   assert.deepEqual(resolved, [projectContext, "project-a"]);
 });
 
+// h3 answers 500 for any thrown value that is not its own HTTPError.
+const httpError = (statusCode: number, statusMessage: string) => (error: unknown) =>
+  HTTPError.isError(error) && error.statusCode === statusCode && error.statusMessage === statusMessage;
+
 test("a refused classification stops before any workspace read", async () => {
   const refused = Object.assign(new Error("refused"), { statusCode: 403 });
+  const unready = Object.assign(new Error("starting"), { statusCode: 503 });
   let workspaceReads = 0;
   const count = async () => { workspaceReads += 1; return {}; };
-  await assert.rejects(guardFor(refused, count).guard(details()), error => error === refused);
+  await assert.rejects(guardFor(refused, count).guard(details()), httpError(403, "refused"));
+  await assert.rejects(guardFor(unready, count).guard(details()), httpError(503, "Local project folders are not ready."));
   await assert.rejects(guardFor(new Error("catalog"), count).guard(details()), { statusCode: 409 });
   assert.equal(workspaceReads, 0);
 });
@@ -77,7 +84,7 @@ test("fails closed when project access is revoked or its folder is missing", asy
   const revoked = Object.assign(new Error("revoked"), { statusCode: 403 });
   await assert.rejects(
     guardFor(project, async () => { throw revoked; }).guard(details()),
-    error => error === revoked,
+    httpError(403, "revoked"),
   );
   await assert.rejects(
     guardFor(project, async () => { throw new Error("missing"); }).guard(details()),
@@ -86,6 +93,17 @@ test("fails closed when project access is revoked or its folder is missing", asy
       statusMessage: "This project folder is unavailable. Reconnect it from Projects.",
     },
   );
+});
+
+test("a refusal reaches the client as its own status, not a server error", async () => {
+  const refused = Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+  const { guard } = guardFor(refused);
+  const app = new H3().post("/", async () => { await guard(details()); return "sent"; });
+  const response = await app.fetch(new Request("http://local/", { method: "POST" }));
+  const body = await response.json();
+  assert.equal(response.status, 403);
+  assert.equal(body.message, "Project conversation access is unavailable.");
+  assert.equal(body.unhandled, undefined);
 });
 
 test("uses Native's parsed scope after its HTTP body has been consumed", async () => {

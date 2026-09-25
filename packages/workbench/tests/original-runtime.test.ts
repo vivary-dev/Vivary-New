@@ -8,8 +8,8 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
 import { ActionContractError } from "@agent-native/core/action";
 import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, ORIGINAL_RUN_FAILURES, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
+import { bundle, context, fixture, flush, projectWorkspace, scheduling, type Execute, type Submission } from "./original-runtime-harness.ts";
 
-const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 const input = { projectId: "project-a", command: { verb: "review" as const } };
 
 test("command input has no caller-supplied executable, paths, flags or receipt target", () => {
@@ -136,62 +136,6 @@ test("child executable search excludes the project and relative PATH entries", (
   const env = originalChildEnvironment({ PATH: [".", "relative-tools", project, path.join(project, "bin"), trusted].join(path.delimiter) }, "/private/receipts", project);
   assert.equal(env.PATH, trusted);
 });
-
-async function bundle(prefix: string) {
-  const directory = await mkdtemp(path.join(tmpdir(), prefix));
-  const runtime = path.join(directory, "runtime");
-  const data = path.join(directory, "data");
-  const relative = process.platform === "win32" ? "python/python.exe" : "python/bin/python3";
-  const executable = path.join(runtime, relative);
-  await Promise.all([mkdir(path.dirname(executable), { recursive: true }), mkdir(data)]);
-  await writeFile(executable, "fixture interpreter; execution is injected");
-  await writeFile(path.join(runtime, "manifest.json"), JSON.stringify({ schemaVersion: 1, platform: process.platform, arch: process.arch, pythonVersion: "3.12.14", pythonExecutable: relative }));
-  return { directory, runtime, data, executable };
-}
-
-const projectWorkspace = (projectId: string, root: string): LocalProjectWorkspace => ({ root, actorId: "actor-owner", label: "Project A",
-  projectId, rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" });
-
-async function fixture(inspect?: (args: string[], stdin: string) => Promise<void>) {
-  const { directory, runtime, data, executable } = await bundle("vivary-original-");
-  const root = path.join(directory, "project");
-  await mkdir(root);
-  let workspace = projectWorkspace("project-a", root);
-  let reads = 0;
-  let calls = 0;
-  let beforeResolve = () => {};
-  let afterExecute = () => {};
-  const runner = createOriginalCommandRunner({
-    parallelism: 4,
-    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
-    resolveWorkspace: async () => { reads++; beforeResolve(); return workspace; },
-    execute: async (python, args, stdin, cwd, environment) => {
-      calls++;
-      assert.equal(python, executable);
-      assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
-      assert.equal(cwd, data);
-      const childLog = environment.VIVARY_RECEIPT_LOG;
-      // A component writes a private receipt. The app records decide, doctor, find, and check, and logs reads the shared log.
-      const source = args[6] === "logs" ? "shared" : ["decide", "doctor", "find", "check"].includes(args[6]) ? "app" : "component";
-      if (source === "component") {
-        assert.ok(childLog && path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
-      } else {
-        assert.equal(childLog, source === "shared" ? path.join(data, "original-runtime", "receipts.jsonl") : undefined);
-      }
-      await inspect?.(args, stdin);
-      afterExecute();
-      // A real component writes its receipt to the private path it was given.
-      if (source === "component") await writeFile(childLog!, JSON.stringify({ command: args[6], ok: true }) + "\n");
-      return { exitCode: 0, stdout: "result", stderr: "", signal: null };
-    },
-  });
-  return { directory, runtime, data, root, runner, calls: () => calls, reads: () => reads,
-    beforeResolve: (callback: () => void) => { beforeResolve = callback; },
-    afterExecute: (callback: () => void) => { afterExecute = callback; },
-    revise: () => { workspace = { ...workspace, policyRevision: workspace.policyRevision + 1 }; },
-    cleanup: () => rm(directory, { recursive: true, force: true }),
-  };
-}
 
 test("requires an authenticated actor before resolving a project", async () => {
   const f = await fixture();
@@ -365,89 +309,6 @@ test("app decisions append a compatible private receipt without request or outpu
     assert.deepEqual(await readdir(path.join(f.directory, "project")), []);
   } finally { await f.cleanup(); }
 });
-
-type Execute = NonNullable<Parameters<typeof createOriginalCommandRunner>[0]>["execute"];
-type Submission = { result: Promise<unknown>; signal: AbortSignal; abort: () => void; queued: () => Promise<void> };
-const flush = () => new Promise<void>(resolve => setImmediate(resolve));
-
-// Commands reach the scheduler in any order, so each test observes queue
-// entry through the abort listener the scheduler registers on the caller's
-// signal, and admission through the fake executor that receives that signal.
-async function scheduling(options: { execute?: Execute; parallelism?: number } = {}) {
-  const { directory, runtime, data } = await bundle("vivary-original-queue-");
-  const started: { projectId: string; verb: string; signal?: AbortSignal; finish: () => void }[] = [];
-  const submitted: Submission[] = [];
-  const resolutions = new Map<string, number>();
-  const holds = new Map<string, { reached: () => void; released: Promise<void> }>();
-  const fake: Execute = (_python, args, _stdin, _cwd, environment, signal) => new Promise(resolve => started.push({
-    projectId: path.basename(args.find(value => path.dirname(value) === directory)!),
-    verb: args[6] === "adopt" && args.includes("--yes") ? "adopt-apply" : args[6], signal,
-    // A real component writes its receipt before it exits. A test may finish a command after cleanup.
-    finish: () => void writeFile(environment.VIVARY_RECEIPT_LOG!, JSON.stringify({ command: args[6], ok: true }) + "\n")
-      .catch(() => undefined).then(() => resolve({ exitCode: 0, stdout: "", stderr: "", signal: null })),
-  }));
-  const dependencies = {
-    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
-    resolveWorkspace: async (_context: ActionRunContext | undefined, projectId: string) => {
-      const count = (resolutions.get(projectId) ?? 0) + 1;
-      resolutions.set(projectId, count);
-      // A command resolves its project a second time right after the scheduler admits it.
-      const hold = holds.get(projectId);
-      if (count === 2 && hold) { hold.reached(); await hold.released; }
-      return projectWorkspace(projectId, path.join(directory, projectId));
-    },
-    execute: options.execute ?? fake,
-    parallelism: options.parallelism ?? 4,
-  };
-  const read = createOriginalCommandRunner(dependencies);
-  const write = createAdoptionCommandRunner(dependencies);
-  const submit = (run: (signal: AbortSignal) => Promise<unknown>): Submission => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    const add = signal.addEventListener.bind(signal);
-    let entered!: () => void;
-    const queued = new Promise<void>(resolve => { entered = resolve; });
-    signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean) => {
-      if (type === "abort") entered();
-      add(type, listener, options);
-    }) as typeof signal.addEventListener;
-    const result = run(signal);
-    result.catch(() => undefined);
-    const submission = { result, signal, abort: () => controller.abort(), queued: () => queued.then(flush) };
-    submitted.push(submission);
-    return submission;
-  };
-  return {
-    directory, started,
-    review: (projectId: string) => submit(signal => read({ projectId, command: { verb: "review" } }, { ...context, signal })),
-    apply: (projectId: string) => submit(signal => write({ verb: "adopt-apply", planHash: "sha256:" + "a".repeat(64),
-      requestId: "00000000-0000-4000-8000-000000000001" }, projectWorkspace(projectId, path.join(directory, projectId)), { ...context, signal })),
-    finish: async (submission: Submission) => {
-      const entry = started.find(candidate => candidate.signal === submission.signal);
-      assert.ok(entry, "the command was admitted");
-      entry.finish();
-      await submission.result;
-      await flush();
-    },
-    running: (...submissions: Submission[]) => submissions.map(submission =>
-      started.some(entry => entry.signal === submission.signal)),
-    // Holds the next command for a project after admission, before it reaches the executor.
-    hold: (projectId: string) => {
-      let reached!: () => void;
-      let release!: () => void;
-      const admitted = new Promise<void>(resolve => { reached = resolve; });
-      holds.set(projectId, { reached, released: new Promise<void>(resolve => { release = resolve; }) });
-      return { admitted, release };
-    },
-    // A failed assertion must not leave a project locked for the next test.
-    cleanup: async () => {
-      for (const submission of submitted) submission.abort();
-      for (const entry of started) entry.finish();
-      await Promise.allSettled(submitted.map(submission => submission.result));
-      await rm(directory, { recursive: true, force: true });
-    },
-  };
-}
 
 test("reads in one project overlap and a write waits for them, then holds later reads back", async () => {
   const f = await scheduling();
@@ -923,90 +784,4 @@ test("matching governed requests preserve submitted evidence and return no execu
       assert.equal(result.evaluationKind, "caller-provided-evidence");
     }
   } finally { await f.cleanup(); }
-});
-
-// Closing is permanent for the process, so this test runs last.
-test("control writes its request only after admission and removes it when its child exits", async () => {
-  const f = await fixture();
-  const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
-  const requests = () => readdir(path.join(f.data, "original-runtime"), { recursive: true })
-    .then(entries => entries.filter(entry => String(entry).endsWith("request.json")), () => [] as string[]);
-  let resolutions = 0;
-  let beforeAdmission: string[] = [];
-  let atShutdown: string[] = [];
-  const { shutdownOriginalCommands } = await import("../server/original-runtime");
-  const run = createOriginalCommandRunner({ parallelism: 4,
-    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
-    resolveWorkspace: async () => {
-      // The second resolution is the recheck after admission, before the request is written.
-      if (++resolutions === 2) beforeAdmission = await requests();
-      return projectWorkspace("project-a", f.root);
-    },
-    execute: (_python, args, stdin, cwd, environment, signal) => runOriginalProcess(process.execPath,
-      ["-e", "setInterval(()=>{},1000)"], stdin, cwd, environment, signal) });
-  const stopped = assert.rejects(run({ projectId: "project-a", command: { verb: "control", request } }, context),
-    /closing. The original command was stopped/);
-  try {
-    for (let attempt = 0; attempt < 40 && (await requests()).length === 0; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    assert.deepEqual(beforeAdmission, [], "no request file exists while the command waits for its project check");
-    await shutdownOriginalCommands();
-    atShutdown = await requests();
-    assert.deepEqual(atShutdown, [], "shutdown resolves after the stopped child's request file is gone");
-    await stopped;
-  } finally {
-    // Shutdown closes the process-wide command host. Reopen it for the shutdown test that follows.
-    const host = (globalThis as Record<symbol, { closing: boolean; shutdown: Promise<void> | null }>)[
-      Symbol.for("vivary.workbench.original-commands")];
-    host.closing = false;
-    host.shutdown = null;
-    await f.cleanup();
-  }
-});
-
-test("shutdown stops running children, refuses waiters, and stops an admitted command before it spawns", async () => {
-  const { shutdownOriginalCommands } = await import("../server/original-runtime");
-  const executed: string[] = [];
-  const f = await scheduling({ execute: (_python, args, stdin, cwd, environment, signal) => {
-    executed.push(path.basename(args.find(value => path.dirname(value) === f.directory)!));
-    return runOriginalProcess(process.execPath,
-      ["-e", `require("node:fs").writeFileSync(${JSON.stringify(path.join(f.directory, "ready"))},"ready");setInterval(()=>{},1000)`],
-      stdin, cwd, environment, signal);
-  } });
-  const write = f.apply("project-a");
-  await write.queued();
-  const waiting = f.review("project-a");
-  const hold = f.hold("project-c");
-  const admitted = f.review("project-c");
-  const stopped = assert.rejects(write.result, /closing. The original command was stopped/);
-  const refused = assert.rejects(waiting.result, /closing. New original commands cannot start/);
-  const unspawned = assert.rejects(admitted.result, /closing. New original commands cannot start/);
-  try {
-    let started = false;
-    for (let attempt = 0; attempt < 40 && !started; attempt++) {
-      try { await readFile(path.join(f.directory, "ready")); started = true; }
-      catch { await new Promise(resolve => setTimeout(resolve, 50)); }
-    }
-    assert.equal(started, true);
-    await waiting.queued();
-    await hold.admitted;
-    const shutdown = shutdownOriginalCommands();
-    assert.equal(shutdownOriginalCommands(), shutdown);
-    // Shutdown settles while the admitted command is still held in its project check: it cannot spawn now.
-    await shutdown;
-    const recorded = await readFile(path.join(f.directory, "data", "original-runtime", "receipts.jsonl"), "utf8").catch(() => "");
-    assert.ok(recorded.includes('"command":"adopt-apply"') && recorded.includes('"ok":false'),
-      "the stopped write was recorded before shutdown resolved");
-    hold.release();
-    await Promise.all([stopped, refused, unspawned]);
-    assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");
-    await assert.rejects(f.review("project-b").result, /cannot start/);
-    assert.throws(() => runOriginalProcess(process.execPath, ["-e", ""], "", f.directory, {}), /cannot start/);
-  } finally {
-    hold.release();
-    await shutdownOriginalCommands();
-    await Promise.allSettled([stopped, refused, unspawned]);
-    await f.cleanup();
-  }
 });

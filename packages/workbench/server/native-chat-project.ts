@@ -32,11 +32,16 @@ function projectConversationError(statusCode: number, statusMessage: string): Er
   return createError({ statusCode, statusMessage });
 }
 
+// The send guard is the HTTP boundary: a refusal from project services must
+// leave it as an h3 error, or h3 answers 500. A 401 or 403 keeps its message,
+// which project services write as a fixed sentence, and a 503 gets one here.
 function preserveAuthorizationError(error: unknown): void {
   if (!error || typeof error !== "object" || !("statusCode" in error)) return;
-  if (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 503) {
-    throw error;
+  if (error.statusCode === 401 || error.statusCode === 403) {
+    throw projectConversationError(error.statusCode,
+      error instanceof Error ? error.message : "Project conversation access is unavailable.");
   }
+  if (error.statusCode === 503) throw projectConversationError(503, "Local project folders are not ready.");
 }
 
 // Project services classify the scope Native pinned to this request. Native

@@ -3,7 +3,7 @@ import { Button } from "@agent-native/toolkit/ui";
 import { Link, useSearchParams } from "react-router";
 import { useNativeActionCaller, type NativeActionCaller } from "@/lib/native-actions";
 import { projectFileHref } from "@/lib/project-file-location";
-import { incompleteNote, privateExcluded } from "@/lib/project-read-display";
+import { incompleteNote, privateExcluded, sensitiveExcluded } from "@/lib/project-read-display";
 import type { Bounded, ProjectReadOwnerInput, ProjectReadReport, ProjectReadResult } from "@/lib/project-read-schema";
 import type { WorkspacePreset } from "../../../shared/workspace-patterns.ts";
 
@@ -101,6 +101,8 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const log = reportOf(receipts.state, "receipts");
   const notesExcluded = notes && privateExcluded(notes.omissions);
   const contextExcluded = context && privateExcluded(context.omissions);
+  const notesSensitive = notes && sensitiveExcluded(notes.omissions);
+  const contextSensitive = context && sensitiveExcluded(context.omissions);
   const notesIncomplete = notes && !notes.complete ? incompleteNote(notes.omissions) : null;
   const contextIncomplete = context && !context.complete ? incompleteNote(context.omissions) : null;
   const query = question.trim();
@@ -144,6 +146,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
           </li>)}</ul>
         </>}
         {notesExcluded && <p className="project-read-muted">{notesExcluded}</p>}
+        {notesSensitive && <p className="project-read-muted">{notesSensitive}</p>}
         {notesIncomplete && <p className="project-read-muted">{notesIncomplete}</p>}
       </>}
       <Button size="sm" variant="outline" disabled={blocked(check.state)} onClick={() => void check.run({ operation: "check" })}>
@@ -174,6 +177,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
           </li>)}</ul>
         </>}
         {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
+        {contextSensitive && <p className="project-read-muted">{contextSensitive}</p>}
         {contextIncomplete && <p className="project-read-muted">{contextIncomplete}</p>}
       </>}
     </Section>
