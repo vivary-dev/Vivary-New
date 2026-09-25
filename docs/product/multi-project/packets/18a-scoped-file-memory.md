@@ -107,6 +107,12 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   chats, make memory privacy fail closed, send the full block on every Codex turn, and harden
   the cache, the block bounds, and Windows paths. Unit tests cover them until the hosted journey
   runs again.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `2324e7f`. Second review fixes load, correct, and forget only the fact files the engine
+  checked, read `.gitignore` with a byte order mark, treat unreadable bracket rules as
+  matching, name only loadable law files, split conflict notices by action, and separate a
+  permission refusal from a lock off Windows. Unit tests cover them until the lead reruns
+  hosted QA.
 
 ## Shared desktop and web behavior
 

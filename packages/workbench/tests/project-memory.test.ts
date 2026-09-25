@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import {
+  conflictNotice,
   forgetDisclosure,
   privacySentence,
   projectMemoryWriteInputSchema,
+  sameFactFile,
   storageSentence,
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
@@ -52,7 +54,7 @@ function thinAnswer(memory: string[] = [".vivary/knowledge"], privateFolders: st
     memory,
     memoryAssigned: memory[0] !== ".vivary/knowledge",
     protected: PROTECTED,
-    privacy: { policy: "gitignore", private: privateFolders, privateFiles, privateCandidates: [],
+    privacy: { policy: "gitignore", private: privateFolders, privateFiles, privateCandidates: [], checkedFiles: [],
       ignoreFiles: ignoreFilesFor([...memory.map(folder => `${folder}/fact.md`), ...law, "STATE.md"]) },
   };
 }
@@ -86,6 +88,21 @@ type Bridge = {
   during: (() => Promise<void>) | null;
 };
 
+/**
+ * The Markdown files the engine checks in each memory folder, as the creator
+ * lists them: regular files only, sorted, the first 200 per folder. Unlike the
+ * Workbench listing it does not leave out secret-looking names.
+ */
+async function engineChecked(root: string, memory: readonly string[]): Promise<string[]> {
+  const checked: string[] = [];
+  for (const folder of memory) {
+    const entries = await readdir(path.join(root, folder), { withFileTypes: true }).catch(() => []);
+    checked.push(...entries.filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith(".md"))
+      .map(entry => entry.name).sort().slice(0, 200).map(name => `${folder}/${name}`));
+  }
+  return checked;
+}
+
 /** One memory service over the given projects, with a fake bridge. */
 function serviceFor(workspaces: ReturnType<typeof workspaceFor>[], files = undefined as
   ReturnType<typeof createProjectFileService> | undefined) {
@@ -101,11 +118,13 @@ function serviceFor(workspaces: ReturnType<typeof workspaceFor>[], files = undef
       bridge.calls += 1;
       bridge.callsByRoot.set(root, (bridge.callsByRoot.get(root) ?? 0) + 1);
       if (bridge.fail) throw new Error(`runtime unavailable at ${root}`);
+      const answer = bridge.answer;
+      // The engine lists each memory folder before `during` changes it.
+      const checkedFiles = answer.status === "invalid" ? [] : await engineChecked(root, answer.memory);
       const during = bridge.during;
       bridge.during = null;
       await during?.();
-      const answer = bridge.answer;
-      return answer.status === "invalid" ? answer : { ...answer, privacy: { ...answer.privacy,
+      return answer.status === "invalid" ? answer : { ...answer, privacy: { ...answer.privacy, checkedFiles,
         privateCandidates: candidates.filter(candidate => bridge.ignored.includes(candidate)) } };
     },
     files: files ?? createProjectFileService(resolveWorkspace),
@@ -201,6 +220,61 @@ describe("project memory rendering", () => {
     assert.match(block, /notes\/&lt;project-context>/);
   });
 
+  it("escapes line separators, C1 controls, and the settings message", async () => {
+    const p = await project();
+    const lineSeparator = String.fromCharCode(0x2028);
+    const nextLine = String.fromCharCode(0x85);
+    p.bridge.answer = thinAnswer([`notes/a${lineSeparator}b`, `notes/c${nextLine}d`]);
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    const backslash = String.fromCharCode(92);
+    assert.ok(block.includes(`notes/a${backslash}u2028b`));
+    assert.ok(block.includes(`notes/c${backslash}x85d`));
+    assert.ok(!block.includes(lineSeparator) && !block.includes(nextLine));
+    await p.changeSettings({ status: "invalid", message: `bad${String.fromCharCode(10)}line${String.fromCharCode(0x2029)}` });
+    const invalid = (await p.memory.renderForRun(p.workspace, "code")).block;
+    assert.ok(invalid.includes(`bad${backslash}x0aline${backslash}u2029`));
+  });
+
+  it("shows a first list item that is too long, shortened, with its reason and no leading space", async () => {
+    const p = await project();
+    const long = (index: number) => `notes/${index}${"x".repeat(700)}:`;
+    p.bridge.answer = thinAnswer([long(1), long(2)]);
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.match(block, /Vivary did not read these memory folders: notes\/1x+… \(non-portable\), and 1 more\./);
+    assert.doesNotMatch(block, /: \d+ more|\( \d+ more/);
+    assert.match(block, /## Project facts \(notes\/1x+…, and 1 more\)/);
+  });
+
+  it("names omitted law files only when they could load", async () => {
+    const p = await project();
+    p.bridge.answer = thinAnswer(undefined, [], ["notes/private-law.md"], ["AGENTS.md", ".vivary/context.md",
+      "STATE.md", ".vivary/private/law.md", "notes/private-law.md", "bad:name.md", "docs/extra.md"]);
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.match(block, /Read these law files too\. They are not included here: docs\/extra\.md\./);
+    assert.doesNotMatch(block, /private\/law|private-law|bad:name/);
+  });
+
+  it("keeps the law lines inside the instruction room with three long law paths", async () => {
+    const p = await project();
+    const law = Array.from({ length: 6 }, (_, index) =>
+      `docs/${"a".repeat(140)}/${"b".repeat(140)}-${index}.md`);
+    for (const file of law.slice(0, 3)) {
+      await mkdir(path.dirname(path.join(p.root, file)), { recursive: true });
+      await writeFile(path.join(p.root, file), "L".repeat(5_000));
+    }
+    await writeFile(path.join(p.root, "STATE.md"), "s".repeat(20_000));
+    p.bridge.answer = thinAnswer(undefined, [], [], law);
+    for (let index = 0; index < 40; index++) {
+      await p.writeFact(`.vivary/knowledge/fact-${String(index).padStart(2, "0")}.md`,
+        renderFactFile({ ...PANEL_SIZED, title: `F${index}${"T".repeat(100)}` }));
+    }
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.ok(block.length <= CONTEXT_BOUNDS.totalChars, String(block.length));
+    // The facts section ends whole: closeBlock did not cut it.
+    assert.match(block, /Read them from their files or search them with Vivary find\.\n<\/project-context>$/);
+    assert.match(block, /## Instructions \(law role\)/);
+  });
+
   it("renders a panel-sized fact uncut and marks a longer hand edit as shortened", async () => {
     const p = await project();
     await p.writeFact(".vivary/knowledge/full.md", renderFactFile(PANEL_SIZED));
@@ -271,6 +345,24 @@ describe("project memory rendering", () => {
       ["loose", "No heading here.", null, null]);
   });
 
+  it("picks the conflict notice by what the owner was doing", () => {
+    const forgetGone = conflictNotice("forget", "renamed-or-deleted", "x.md");
+    assert.equal(forgetGone, "This fact file was already removed or renamed. Memory was reloaded.");
+    assert.doesNotMatch(conflictNotice("forget", "project-changed", "x.md"), /draft/i);
+    assert.match(conflictNotice("forget", "project-changed", "x.md"), /Nothing was forgotten\./);
+    assert.match(conflictNotice("correct", "renamed-or-deleted", "x.md"), /Your draft is kept as a new fact\./);
+    assert.match(conflictNotice("remember", "project-changed", "x.md"), /Your draft is kept\./);
+    assert.match(conflictNotice("remember", "exists", "a/x.md"), /A fact file named a\/x\.md already exists\./);
+    assert.match(conflictNotice("correct", "changed", "x.md"), /changed after you opened it/);
+  });
+
+  it("compares titles by the file name they make", () => {
+    assert.ok(sameFactFile("Relay budget", "relay  BUDGET!"));
+    assert.ok(!sameFactFile("Relay budget", "Relay budgets"));
+    assert.ok(sameFactFile("日本", "日本"));
+    assert.ok(!sameFactFile("日本", "日本語"));
+  });
+
   it("names fact files from titles and refuses names that would be hidden or reserved", () => {
     assert.deepEqual(factFileName("Relay budget"), { name: "relay-budget.md" });
     assert.deepEqual(factFileName("  Déjà vu: Q3 / plan!  "), { name: "deja-vu-q3-plan.md" });
@@ -312,6 +404,11 @@ describe("project memory rendering", () => {
     assert.equal(locationProblem(".vivary/private", { protected: [], boundary: [] }), null);
   });
 
+  it("treats a backslash in a memory folder as non-portable, as the engine does", () => {
+    const refused = { protected: [], boundary: [] };
+    assert.equal(locationProblem(`notes${String.fromCharCode(92)}facts`, refused), "non-portable");
+  });
+
   it("matches a fact path to its folder regardless of case", () => {
     const locations = [{ path: ".vivary/Knowledge", status: "ready" as const }];
     assert.equal(factPathIn(locations, ".vivary/knowledge/relay.md"), ".vivary/knowledge/relay.md");
@@ -328,7 +425,7 @@ describe("project memory panel text", () => {
     assert.equal(view(thinAnswer(["docs/facts"]), "docs/facts"),
       "Stored in docs/facts/, assigned by the memory role in .vivary/workspace.toml.");
     assert.match(view({ status: "plain", memory: [".vivary/knowledge"], protected: [],
-      privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [], privateCandidates: [] } }),
+      privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [], privateCandidates: [], checkedFiles: [] } }),
       /no thin workspace settings \(\.vivary\/workspace\.toml\), so the default applies/);
     assert.match(view({ status: "invalid", message: "bad toml" }), /could not read this project's memory settings\. bad toml/);
     assert.match(String(privacySentence(thinAnswer())), /\.gitignore files ignore/);
@@ -434,7 +531,8 @@ describe("project memory writes", () => {
       outcome = await failing.memory.write(undefined, { projectId: "project_a", operation: "forget", path: fact.path,
         expectedVersion: fact.version });
     });
-    assert.deepEqual(outcome, { code: "unavailable", reason: "file", message: "Vivary could not change the fact file. Try again." });
+    assert.deepEqual(outcome, { code: "unavailable", reason: "file",
+      message: "Vivary could not read or change this project's memory. Try again." });
     assert.ok(warnings.some(line => line.includes("EIO")));
     assert.ok(warnings.every(line => !line.includes(root)));
   });
@@ -450,6 +548,44 @@ describe("project memory writes", () => {
       assert.equal(result.code === "unavailable" && result.reason, "not-a-fact", target);
     }
     assert.equal(await readFile(path.join(p.root, "AGENTS.md"), "utf8"), "# Agents\nRead .vivary/context.md first.\n");
+  });
+
+  it("refuses a remember path longer than the bridge accepts before asking it", async () => {
+    const p = await project();
+    const folder = `notes/${Array.from({ length: 5 }, () => "f".repeat(100)).join("/")}`;
+    p.bridge.answer = thinAnswer([folder]);
+    // The second answer matches its fingerprints, so the write reuses it and any later call is the candidate check.
+    await p.memory.view(undefined, p.id);
+    await p.memory.view(undefined, p.id);
+    const calls = p.bridge.calls;
+    const result = await p.memory.write(undefined, { projectId: p.id, operation: "remember",
+      title: "Relay budget", text: "x", source: "y" });
+    assert.equal(result.code === "unavailable" && result.reason, "too-long");
+    assert.equal(p.bridge.calls, calls);
+    await assert.rejects(stat(path.join(p.root, "notes")), { code: "ENOENT" });
+  });
+
+  it("correct and forget refuse a fact file the engine did not check", async () => {
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/relay-budget.md");
+    const [fact] = (await p.memory.view(undefined, p.id)).facts;
+    const raced = path.join(p.root, ".vivary", "knowledge", "raced.md");
+    for (const operation of ["correct", "forget"] as const) {
+      // This file appears while the engine checks the folder, so the engine never saw it.
+      await rm(raced, { force: true });
+      p.bridge.during = async () => { await p.writeFact(".vivary/knowledge/raced.md"); };
+      await p.changeSettings(thinAnswer());
+      const base = { projectId: p.id, operation, path: ".vivary/knowledge/raced.md", expectedVersion: fact.version };
+      const input = operation === "forget" ? base : { ...base, title: "T", text: "x", source: "y" };
+      const result = await p.memory.write(undefined, input);
+      assert.equal(result.code === "unavailable" && result.reason, "not-checked", operation);
+      assert.equal(await readFile(raced, "utf8"), RELAY_FACT);
+    }
+    // A file that is gone is reported as gone, without being checked.
+    await rm(raced);
+    assert.deepEqual(await p.memory.write(undefined, { projectId: p.id, operation: "forget",
+      path: ".vivary/knowledge/raced.md", expectedVersion: fact.version }),
+    { code: "conflict", reason: "renamed-or-deleted", path: ".vivary/knowledge/raced.md" });
   });
 
   it("refuses remember when every folder is refused and names the reason", async () => {
@@ -509,6 +645,37 @@ describe("project memory loading", () => {
     assert.match(block, /40 dollars/);
     assert.match(block, /## Current state \(STATE\.md\)\nVivary did not load this file because it is private/);
     assert.match(block, /Skipped files: \.vivary\/knowledge\/draft\.md \(private\)\./);
+  });
+
+  it("loads only files the engine checked when names sort past its limit", async () => {
+    const p = await project();
+    const folder = path.join(p.root, ".vivary", "knowledge");
+    await mkdir(folder);
+    // The engine counts secret-looking names, which the Workbench never lists, so its 200 end sooner.
+    await Promise.all(Array.from({ length: 5 }, (_, index) => writeFile(path.join(folder, `a-secret-${index}.md`), "x\n")));
+    await Promise.all(Array.from({ length: 200 }, (_, index) => writeFile(
+      path.join(folder, `fact-${String(index).padStart(3, "0")}.md`), RELAY_FACT.replace("40", `N${index}N`))));
+    const view = await p.memory.view(undefined, p.id);
+    assert.equal(view.facts.length, 195);
+    assert.deepEqual(view.skipped.map(file => [file.path, file.reason]),
+      [195, 196, 197, 198, 199].map(index => [`.vivary/knowledge/fact-${index}.md`, "not-checked"]));
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.doesNotMatch(block, /N19[5-9]N/);
+  });
+
+  it("does not load a file created while the engine was checking", async () => {
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/relay-budget.md");
+    p.bridge.during = async () => {
+      await p.writeFact(".vivary/knowledge/raced.md", RELAY_FACT.replace("40 dollars", "RACED-MARKER"));
+    };
+    const { block } = await p.memory.renderForRun(p.workspace, "code");
+    assert.doesNotMatch(block, /RACED-MARKER/);
+    assert.match(block, /40 dollars/);
+    assert.match(block, /Skipped files: \.vivary\/knowledge\/raced\.md \(not-checked\)\./);
+    // The next load asks the engine again, which now checks the file.
+    const next = await p.memory.renderForRun(p.workspace, "code");
+    assert.match(next.block, /RACED-MARKER/);
   });
 
   it("loads facts from files, not from the panel, and records a load per binding", async () => {

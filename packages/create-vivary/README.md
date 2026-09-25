@@ -326,11 +326,18 @@ fail closed.
 `workspace_context(target)` is the read the Vivary Workbench makes before each agent
 message. It returns Tropo's roles, state file, memory folders, and protected paths,
 plus the memory folders, law and state files, fact files, and optional candidate
-files that the workspace's `.gitignore` files ignore, and the `.gitignore` files it
-consulted. It walks the same pure ignore rules as Doctor, so it needs no Git, but
-matches fail-closed: a positive rule matches without regard to case, letter-bracket
-rules included, and a negation re-includes only on an exact match. Doctor keeps its
-own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
+files that the workspace's `.gitignore` files ignore, the `.gitignore` files it
+consulted, and `checked_files`, the Markdown file names it checked in each memory
+folder. The Workbench loads, corrects, and forgets only those files. Each folder
+lists at most 200 names, the first in sorted order, from at most 4,000 scanned
+entries. `_CONTEXT_LISTED_FILES` and `_CONTEXT_SCANNED_ENTRIES` in
+`create_vivary.py` hold these limits and must match the Workbench's
+`CONTEXT_BOUNDS.factsPerLocation` and `MAX_FOLDER_ENTRIES`. It walks the same pure
+ignore rules as Doctor, so it needs no Git, but matches fail-closed: it reads
+`.gitignore` with or without a byte order mark, a positive rule matches without
+regard to case, letter-bracket rules included, a positive rule whose bracket it
+cannot parse (such as `[[:alpha:]]`) matches, and a negation re-includes only on an
+exact match. Doctor keeps its own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
 without host paths. It writes nothing and records no receipt.
 
 MCP is optional. When selected, it is local stdio and read-only by default.

@@ -148,6 +148,8 @@ const memoryPrivacy = {
   private_files: z.array(workspaceRelativePath).max(4_000),
   ignore_files: z.array(workspaceRelativePath).max(4_000),
   private_candidates: z.array(workspaceRelativePath).max(16),
+  // At most 200 checked files for each of at most 64 memory folders.
+  checked_files: z.array(workspaceRelativePath).max(12_800),
 };
 // The creator's answer is parsed here, so project memory can trust its shape.
 const workspaceContextAnswer = z.discriminatedUnion("status", [
@@ -181,7 +183,7 @@ export async function readWorkspaceContext(root, candidates = [], dependencies =
   if (answer.status === "invalid") return answer;
   const privacy = { policy: answer.privacy_policy, private: answer.private,
     privateFiles: answer.private_files, ignoreFiles: answer.ignore_files,
-    privateCandidates: answer.private_candidates };
+    privateCandidates: answer.private_candidates, checkedFiles: answer.checked_files };
   return answer.status === "thin"
     ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
       memoryAssigned: answer.memory_assigned, protected: answer.protected, privacy }

@@ -290,10 +290,13 @@ memory folders, and the declared protected paths (`workspace.private`,
 `workspace.runtime`, and capability storage) from configuration alone. It reads
 no notes. The creator's `workspace_context` adds which memory folders, law
 files, state file, fact files, and candidate new files the workspace's
-`.gitignore` files ignore, and which `.gitignore` files it consulted. For
-memory it matches fail-closed: a positive rule matches without regard to case,
-letter-bracket rules included, and a negation re-includes only on an exact
-match. It does not read `.git/info/exclude` or global Git excludes.
+`.gitignore` files ignore, which `.gitignore` files it consulted, and the
+Markdown file names it checked in each memory folder (the first 200 sorted
+names of at most 4,000 scanned entries). For memory it matches fail-closed: it
+reads `.gitignore` with or without a byte order mark, a positive rule matches
+without regard to case, letter-bracket rules included, a positive rule whose
+bracket it cannot parse (such as a POSIX class) matches, and a negation
+re-includes only on an exact match. It does not read `.git/info/exclude` or global Git excludes.
 
 ---
 

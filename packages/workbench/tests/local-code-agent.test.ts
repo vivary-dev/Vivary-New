@@ -519,7 +519,8 @@ process.send({type:"vivary:code-worker:ready"});
       readWorkspaceContext: async () => ({ status: "thin", roles: { law: ["AGENTS.md"], map: [], record: [],
         memory: [], boundary: [".gitignore"] }, state: "STATE.md", memory: [".vivary/knowledge"],
         memoryAssigned: false, protected: [],
-        privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [".gitignore"], privateCandidates: [] } }),
+        privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [".gitignore"], privateCandidates: [],
+          checkedFiles: [".vivary/knowledge/relay-budget.md"] } }),
     });
     const workspace = { root, label: "Relay", projectId: "relay", bindingId: "relay-binding", rootId: "relay-root",
       bindingRevision: 1, policyRevision: 1, actorId: "actor", locationRef: "loc",

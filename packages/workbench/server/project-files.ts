@@ -248,7 +248,7 @@ export type FolderListing =
    */
   | { status: "ready"; names: string[]; truncated: boolean };
 
-/** Entries one folder listing scans before it stops. */
+/** Entries one folder listing scans before it stops. The creator's `_CONTEXT_SCANNED_ENTRIES` matches it. */
 const MAX_FOLDER_ENTRIES = 4_000;
 
 /**
@@ -294,14 +294,23 @@ export async function listFolder(root: string, folder: string, limit: number): P
   return { status: "ready", names: names.slice(0, limit), truncated: truncated || names.length > limit };
 }
 
-/** Error codes Windows returns while another program holds a file open. */
-const LOCK_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
-
-function isLockError(error: unknown): boolean {
-  return LOCK_CODES.has((error as NodeJS.ErrnoException)?.code ?? "");
+/**
+ * Whether `error` means another program holds the file. Windows reports an
+ * open file as EBUSY, EPERM, or EACCES. On other systems only EBUSY does, and
+ * EACCES or EPERM is a permission refusal.
+ */
+export function isLockError(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code ?? "";
+  return platform === "win32" ? ["EBUSY", "EPERM", "EACCES"].includes(code) : code === "EBUSY";
 }
 
-export type ListedFileSkip = { path: string; reason: ProjectFileBlockedReason | "unreadable" };
+/** Whether `error` is a permission refusal rather than a lock. */
+export function isPermissionError(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code ?? "";
+  return platform !== "win32" && (code === "EACCES" || code === "EPERM");
+}
+
+export type ListedFileSkip = { path: string; reason: ProjectFileBlockedReason | "unreadable" | "no-permission" };
 
 /**
  * Read listed files the way the file tree checks them: no links, and only
@@ -322,6 +331,7 @@ export async function readListedFiles(root: string, paths: readonly string[], pr
     } catch (error) {
       if (error instanceof ProjectFileBoundaryError) skipped.push({ path: filePath, reason: "linked" });
       else if (isLockError(error)) skipped.push({ path: filePath, reason: "unreadable" });
+      else if (isPermissionError(error)) skipped.push({ path: filePath, reason: "no-permission" });
       else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
@@ -393,16 +403,30 @@ export class ProjectFileLockedError extends Error {
   }
 }
 
+/** The system refused the change. The message names no path. */
+export class ProjectFilePermissionError extends Error {
+  readonly statusCode = 403;
+
+  constructor() {
+    super("Vivary does not have permission to change this file.");
+  }
+}
+
 export type FileOperations = { unlink: typeof unlink; rename: typeof rename };
 const fileOperations: FileOperations = { unlink, rename };
 const LOCK_RETRY_DELAYS_MS = [50, 150, 400];
 
-/** Retry an unlink or rename that Windows refuses while a file is open, then give up with a fixed message. */
+/**
+ * Retry an unlink or rename refused because another program holds the file,
+ * then give up with a fixed message. A permission refusal gets its own fixed
+ * message at once.
+ */
 async function withLockRetries<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
+      if (isPermissionError(error)) throw new ProjectFilePermissionError();
       if (!isLockError(error)) throw error;
       if (attempt >= LOCK_RETRY_DELAYS_MS.length) throw new ProjectFileLockedError();
       await delay(LOCK_RETRY_DELAYS_MS[attempt]);
@@ -625,17 +649,17 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           }
           const latestScope = await resolve(context, input.projectId);
           if (!sameProject(finalScope.project, latestScope.project)) {
-            await unlink(target);
+            await withLockRetries(() => operations.unlink(target));
             return { code: "conflict", operation: "rename", reason: "project-changed", path: input.path, targetPath };
           }
           const latestCurrent = await readEditableFile(latestScope.workspace.root, input.path, latestScope.project);
           if (!latestCurrent || latestCurrent.version !== input.expectedVersion) {
-            await unlink(target);
+            await withLockRetries(() => operations.unlink(target));
             return latestCurrent
               ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: latestCurrent }
               : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
           }
-          await unlink(source);
+          await withLockRetries(() => operations.unlink(source));
         } catch (error) {
           await unlink(target).catch(() => undefined);
           throw error;

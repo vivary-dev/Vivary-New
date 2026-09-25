@@ -11,6 +11,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { ProjectFile, ProjectFileIdentity } from "../app/lib/project-file-schema.ts";
 import {
   FACT_LIMITS,
+  factSlug,
   LOCATION_PROBLEM_TEXT,
   type LocationProblem,
   type MemoryFact,
@@ -29,6 +30,7 @@ import {
   isSecretName,
   listFolder,
   ProjectFileLockedError,
+  ProjectFilePermissionError,
   projectFileService,
   projectIdentity,
   readEditableFile,
@@ -52,7 +54,11 @@ export const CONTEXT_BOUNDS = {
   refusedChars: 600,
   omittedChars: 600,
   skippedChars: 400,
-  /** Markdown files one folder read considers. Beyond this the view reports `truncated`. */
+  /**
+   * Markdown files one folder read considers. Beyond this the view reports
+   * `truncated`. The creator's `_CONTEXT_LISTED_FILES` holds the same number,
+   * and only files the engine checked load.
+   */
   factsPerLocation: 200,
   totalChars: 8_000,
 } as const;
@@ -61,6 +67,8 @@ export const CONTEXT_BOUNDS = {
 export const RESERVED_PATHS = [".git", ".vivary/memory"] as const;
 
 const SETTINGS_FILE = ".vivary/workspace.toml";
+/** The bridge accepts candidate paths up to this length. */
+const MAX_CANDIDATE_CHARS = 512;
 const OPEN_TAG = "<project-context>";
 const CLOSE_TAG = "</project-context>";
 const BYTE_ORDER_MARK = 0xfeff;
@@ -116,7 +124,10 @@ function neutralize(text: string): string {
 // A line break or control character in a file or folder name would let a
 // name start a new line of the block, so it is shown as an escape.
 function escapeControls(text: string): string {
-  return text.replace(/[\x00-\x1f\x7f]/g, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, "0")}`);
+  return text.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, char => {
+    const code = char.charCodeAt(0);
+    return code > 0xff ? `\\u${code.toString(16)}` : `\\x${code.toString(16).padStart(2, "0")}`;
+  });
 }
 
 function clamp(text: string, limit: number): string {
@@ -128,18 +139,33 @@ function shownPath(path: string): string {
   return neutralize(clamp(escapeControls(path), CONTEXT_BOUNDS.pathChars));
 }
 
-/** Items joined with ", " until `limit` characters, then a count of the rest. Items are shown as paths. */
-function pathList(items: readonly string[], limit: number): string {
+/** One entry in a path list: a path and an optional suffix, such as a reason, that shortening keeps. */
+type ListItem = { path: string; suffix?: string };
+
+/**
+ * Items joined with ", " until `limit` characters, then a count of the rest.
+ * The first item always shows: when it is too long, its path is shortened
+ * and its suffix kept.
+ */
+function pathList(items: readonly ListItem[], limit: number): string {
   const shown: string[] = [];
   let used = 0;
   for (const item of items) {
-    const next = shownPath(item);
-    if (used + next.length + 2 > limit) break;
+    const suffix = item.suffix ? ` ${item.suffix}` : "";
+    let next = `${shownPath(item.path)}${suffix}`;
+    if (used + next.length + 2 > limit) {
+      if (shown.length > 0) break;
+      next = `${neutralize(clamp(escapeControls(item.path), Math.max(20, limit - suffix.length - 24)))}${suffix}`;
+    }
     shown.push(next);
     used += next.length + 2;
   }
   const rest = items.length - shown.length;
-  return rest > 0 ? `${shown.join(", ")}${shown.length > 0 ? ", and" : ""} ${rest} more` : shown.join(", ");
+  return rest > 0 ? `${shown.join(", ")}, and ${rest} more` : shown.join(", ");
+}
+
+function listItems(paths: readonly string[]): ListItem[] {
+  return paths.map(path => ({ path }));
 }
 
 function excerpt(text: string, limit: number): { text: string; truncated: boolean } {
@@ -170,15 +196,27 @@ const INSTRUCTIONS_TITLE = "## Instructions (law role)";
 
 function omittedLawLine(omitted: readonly string[]): string | null {
   return omitted.length === 0 ? null
-    : `Read these law files too. They are not included here: ${pathList(omitted, CONTEXT_BOUNDS.folderListChars)}.`;
+    : `Read these law files too. They are not included here: ${pathList(listItems(omitted), CONTEXT_BOUNDS.folderListChars)}.`;
 }
 
 /**
- * The instructions section in `room` characters, split evenly between files.
- * A file whose share is too small says it was omitted for space.
+ * The instructions section in at most `room` characters, split evenly between
+ * files. A file whose share is too small says it was omitted for space. When
+ * even that does not fit, one line names the files to read, and when that
+ * does not fit either the section is left out, so the block never trims facts.
  */
 function renderInstructions(files: readonly ContextFile[], omitted: readonly string[], room: number): string | null {
   if (files.length === 0 && omitted.length === 0) return null;
+  const full = renderInstructionFiles(files, omitted, room);
+  if (full.length <= room) return full;
+  const readable = [...files.filter(file => !("unavailable" in file)).map(file => file.path), ...omitted];
+  if (readable.length === 0) return null;
+  const lead = `${INSTRUCTIONS_TITLE}\nThese law files are omitted for space. Read them: `;
+  const brief = `${lead}${pathList(listItems(readable), Math.max(0, room - lead.length - 1))}.`;
+  return brief.length <= room ? brief : null;
+}
+
+function renderInstructionFiles(files: readonly ContextFile[], omitted: readonly string[], room: number): string {
   const tail = omittedLawLine(omitted);
   const share = Math.floor((room - INSTRUCTIONS_TITLE.length - (tail ? tail.length + 1 : 0)) / Math.max(1, files.length)) - 1;
   return [INSTRUCTIONS_TITLE, ...files.map(file => {
@@ -219,13 +257,14 @@ function renderFactsSection(snapshot: ProjectContextSnapshot, budget: number): s
   const { settings } = snapshot;
   if (settings.status === "unavailable" || settings.status === "invalid") {
     return "## Project facts\nVivary could not read this project's memory settings: "
-      + `${neutralize(settings.message)} Do not assume the project has no facts.`;
+      + `${neutralize(escapeControls(settings.message))} Do not assume the project has no facts.`;
   }
-  const lines = [`## Project facts (${pathList(settings.memory, CONTEXT_BOUNDS.folderListChars)})`, FACTS_GUIDANCE];
+  const lines = [`## Project facts (${pathList(listItems(settings.memory), CONTEXT_BOUNDS.folderListChars)})`, FACTS_GUIDANCE];
   const refused = snapshot.locations.filter(location => location.status === "refused");
   if (refused.length > 0) {
     lines.push(`Vivary did not read these memory folders: ${pathList(refused.map(location =>
-      `${location.path} (${location.status === "refused" ? location.problem : ""})`), CONTEXT_BOUNDS.refusedChars)}.`);
+      ({ path: location.path, suffix: `(${location.status === "refused" ? location.problem : ""})` })),
+    CONTEXT_BOUNDS.refusedChars)}.`);
   }
   if (!snapshot.locations.some(location => location.status === "ready" || location.status === "absent")) {
     lines.push("No memory folder could be read, so facts may exist that you cannot see.");
@@ -233,7 +272,7 @@ function renderFactsSection(snapshot: ProjectContextSnapshot, budget: number): s
     lines.push("No facts are saved yet.");
   }
   const skippedLine = snapshot.skipped.length === 0 ? null : `Skipped files: ${pathList(snapshot.skipped.map(file =>
-    `${file.path} (${file.reason})`), CONTEXT_BOUNDS.skippedChars)}.`;
+    ({ path: file.path, suffix: `(${file.reason})` })), CONTEXT_BOUNDS.skippedChars)}.`;
   // Keep room for the omitted list and the skipped line, which follow the facts.
   const tailRoom = CONTEXT_BOUNDS.omittedChars + 120 + (skippedLine ? skippedLine.length + 1 : 0);
   let used = lines.join("\n").length;
@@ -248,7 +287,7 @@ function renderFactsSection(snapshot: ProjectContextSnapshot, budget: number): s
     }
   }
   if (omitted.length > 0 || snapshot.truncated) {
-    const named = pathList(omitted, CONTEXT_BOUNDS.omittedChars);
+    const named = pathList(listItems(omitted), CONTEXT_BOUNDS.omittedChars);
     lines.push(`More facts are saved than fit here${named ? `: ${named}` : ""}. `
       + "Read them from their files or search them with Vivary find.");
   }
@@ -302,7 +341,7 @@ export function renderProjectContext(snapshot: ProjectContextSnapshot, surface: 
 export function renderUnavailableContext(label: string | null, reason: string,
   surface: ContextSurface): ProjectContextBlock {
   return closeBlock(`${header(label, surface)}\n\nVivary could not load this project's instructions, state, or facts: `
-    + `${neutralize(reason)} Do not assume the project has no facts. Tell the owner if a task depends on them.`);
+    + `${neutralize(escapeControls(reason))} Do not assume the project has no facts. Tell the owner if a task depends on them.`);
 }
 
 /**
@@ -369,8 +408,7 @@ export type FactFileName = { name: string } | { problem: "hidden" | "device" };
  * show the file or Windows could not create it.
  */
 export function factFileName(title: string): FactFileName {
-  const slug = title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
+  const slug = factSlug(title);
   const name = slug ? `${slug}.md`
     : `fact-${createHash("sha256").update(title, "utf8").digest("hex").slice(0, 8)}.md`;
   if (isSecretName(name)) return { problem: "hidden" };
@@ -392,10 +430,14 @@ function within(candidate: string, folder: string): boolean {
     || candidate.toLowerCase().startsWith(`${folder.replace(/\/+$/, "").toLowerCase()}/`);
 }
 
-/** True when a path part cannot exist on Windows: a trailing dot or space, a device name, a colon, or a control character. */
+/**
+ * True when a path part cannot exist on Windows: a trailing dot or space, a
+ * device name, a colon, a backslash, or a control character. The engine
+ * refuses a backslash in a role path too.
+ */
 function nonPortable(path: string): boolean {
   return path.split("/").some(part => /[. ]$/.test(part) || isWindowsReservedName(part)
-    || /[:\x00-\x1f\x7f]/.test(part));
+    || /[:\\\x00-\x1f\x7f]/.test(part));
 }
 
 /** The engine's paths a folder or file must stay out of. */
@@ -459,7 +501,9 @@ const WRITE_TEXT = {
   privateFile: "This project's .gitignore rules ignore this fact file, so Vivary does not change it.",
   notAFact: "This file is not a fact in this project's memory folder.",
   settings: "The bundled Vivary runtime could not read or validate this project's settings.",
-  file: "Vivary could not change the fact file. Try again.",
+  file: "Vivary could not read or change this project's memory. Try again.",
+  notChecked: "Vivary has not checked this fact file against the ignore rules yet. Reload memory and try again.",
+  tooLong: "The memory folder and this title make a file path longer than 512 characters. Use a shorter title.",
 } as const;
 
 // Warnings name a cause, never a host path.
@@ -614,8 +658,14 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     for (const [folder, listing] of listings) {
       truncated ||= listing.truncated;
       const paths = listing.names.map(name => `${folder}/${name}`);
-      const readable = paths.filter(path => !includesPath(settings.privacy.privateFiles, path));
-      skipped.push(...paths.filter(path => !readable.includes(path)).map(path => ({ path, reason: "private" as const })));
+      // Only files the engine checked may load, so a file past its listing
+      // bounds or one created after its check fails closed.
+      const readable: string[] = [];
+      for (const path of paths) {
+        if (!includesPath(settings.privacy.checkedFiles, path)) skipped.push({ path, reason: "not-checked" });
+        else if (includesPath(settings.privacy.privateFiles, path)) skipped.push({ path, reason: "private" });
+        else readable.push(path);
+      }
       const read = await readListedFiles(workspace.root, readable, project);
       facts.push(...read.files.map(parseFactFile));
       skipped.push(...read.skipped);
@@ -625,13 +675,16 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
       readContextFile(workspace, project, settings, path, CONTEXT_BOUNDS.instructionCharsPerFile)));
     const state = settings.status === "thin"
       ? await readContextFile(workspace, project, settings, settings.state, CONTEXT_BOUNDS.stateChars) : null;
-    return { ...snapshot, instructions, omittedLaw: law.slice(CONTEXT_BOUNDS.instructionFiles), state, locations,
+    // Only law files that could load are named for the agent to read.
+    const omittedLaw = law.slice(CONTEXT_BOUNDS.instructionFiles).filter(path =>
+      !locationProblem(path, refusedPaths(settings)) && !includesPath(settings.privacy.privateFiles, path));
+    return { ...snapshot, instructions, omittedLaw, state, locations,
       facts: orderFacts(facts), skipped, truncated };
   }
 
   function summarize(snapshot: ProjectContextSnapshot, revision: string): string {
     if (snapshot.settings.status === "unavailable" || snapshot.settings.status === "invalid") {
-      return `Loaded project context ${revision} without facts: ${snapshot.settings.message}`;
+      return `Loaded project context ${revision} without facts: ${escapeControls(snapshot.settings.message)}`;
     }
     const ready = snapshot.locations.filter(location => location.status !== "refused")
       .map(location => escapeControls(location.path));
@@ -649,19 +702,20 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
   }
 
   /**
-   * Run one file mutation. A lock that outlasted the retries and any error
-   * without a fixed sentence become a fixed-wording result, so no host path
-   * reaches the panel. Access and boundary refusals keep their own sentences.
+   * The result for a write that threw. A lock that outlasted the retries, a
+   * permission refusal, and any error without a fixed sentence become
+   * fixed-wording results, so no host path reaches the panel. Access and
+   * boundary refusals keep their own sentences.
    */
-  async function mutate(operation: () => Promise<ProjectMemoryWriteResult>): Promise<ProjectMemoryWriteResult> {
-    try {
-      return await operation();
-    } catch (error) {
-      if (error instanceof ProjectFileLockedError) return { code: "unavailable", reason: "locked", message: error.message };
-      if (hasStatusCode(error)) throw error;
-      warn(`A fact file change failed${(error as NodeJS.ErrnoException)?.code ? ` with ${(error as NodeJS.ErrnoException).code}` : ""}.`);
-      return { code: "unavailable", reason: "file", message: WRITE_TEXT.file };
+  function writeFailure(error: unknown): ProjectMemoryWriteResult {
+    if (error instanceof ProjectFileLockedError) return { code: "unavailable", reason: "locked", message: error.message };
+    if (error instanceof ProjectFilePermissionError) {
+      return { code: "unavailable", reason: "permission", message: error.message };
     }
+    if (hasStatusCode(error)) throw error;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    warn(`A memory write failed${code ? ` with ${code}` : ""}.`);
+    return { code: "unavailable", reason: "file", message: WRITE_TEXT.file };
   }
 
   async function remember(context: ActionRunContext | undefined, workspace: Workspace,
@@ -676,6 +730,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     const fileName = factFileName(input.title);
     if ("problem" in fileName) return { code: "unavailable", reason: "title", message: WRITE_TEXT[fileName.problem] };
     const path = `${location.path}/${fileName.name}`;
+    if (path.length > MAX_CANDIDATE_CHARS) return { code: "unavailable", reason: "too-long", message: WRITE_TEXT.tooLong };
     // The folder check used a probe name. The engine checks this exact file too.
     let check: WorkspaceContextPaths;
     try {
@@ -688,12 +743,48 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     if (includesPath(check.privacy.privateCandidates, path)) {
       return { code: "unavailable", reason: "private", message: WRITE_TEXT.ignoredFile };
     }
-    return mutate(async () => {
-      const result = await dependencies.files.create(context, { projectId: input.projectId, path,
+    const result = await dependencies.files.create(context, { projectId: input.projectId, path,
+      content: renderFactFile({ ...input, confirmed: dependencies.today() }) });
+    return result.code === "created" ? { code: "remembered", fact: parseFactFile(result.file) }
+      : conflictFor(result.reason, path, result.current);
+  }
+
+  async function writeFact(context: ActionRunContext | undefined, input: ProjectMemoryWriteInput):
+    Promise<ProjectMemoryWriteResult> {
+    const workspace = await dependencies.resolveWorkspace(context, input.projectId);
+    const { settings, listings } = await loadSettings(workspace);
+    if (settings.status === "unavailable" || settings.status === "invalid") {
+      return { code: "unavailable", reason: "settings", message: settings.message };
+    }
+    const loaded = await loadLocations(workspace, settings, listings);
+    const { locations } = loaded;
+    if (input.operation === "remember") return remember(context, workspace, input, locations);
+    const path = factPathIn(locations, input.path);
+    if (!path) return { code: "unavailable", reason: "not-a-fact", message: WRITE_TEXT.notAFact };
+    if (!includesPath(settings.privacy.checkedFiles, path)) {
+      // A file the engine did not check is never opened. When a complete
+      // listing no longer has it, it is gone, so say that without reading it.
+      const slash = path.lastIndexOf("/");
+      const listing = [...loaded.listings].find(([folder]) => samePath(folder, path.slice(0, slash)))?.[1];
+      const name = path.slice(slash + 1).toLowerCase();
+      if (listing && !listing.truncated && !listing.names.some(listed => listed.toLowerCase() === name)) {
+        return conflictFor("renamed-or-deleted", path);
+      }
+      return { code: "unavailable", reason: "not-checked", message: WRITE_TEXT.notChecked };
+    }
+    if (includesPath(settings.privacy.privateFiles, path)) {
+      return { code: "unavailable", reason: "private", message: WRITE_TEXT.privateFile };
+    }
+    if (input.operation === "correct") {
+      const result = await dependencies.files.save(context, { projectId: input.projectId, path,
+        expectedVersion: input.expectedVersion,
         content: renderFactFile({ ...input, confirmed: dependencies.today() }) });
-      return result.code === "created" ? { code: "remembered", fact: parseFactFile(result.file) }
+      return result.code === "saved" ? { code: "corrected", fact: parseFactFile({ ...result.file, path }) }
         : conflictFor(result.reason, path, result.current);
-    });
+    }
+    const result = await dependencies.files.remove(context, { projectId: input.projectId, path,
+      expectedVersion: input.expectedVersion });
+    return result.code === "removed" ? { code: "forgotten", path } : conflictFor(result.reason, path, result.current);
   }
 
   return {
@@ -725,32 +816,11 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
      * sees `renamed-or-deleted`, and a repeated correct sees `changed`.
      */
     async write(context: ActionRunContext | undefined, input: ProjectMemoryWriteInput): Promise<ProjectMemoryWriteResult> {
-      const workspace = await dependencies.resolveWorkspace(context, input.projectId);
-      const { settings, listings } = await loadSettings(workspace);
-      if (settings.status === "unavailable" || settings.status === "invalid") {
-        return { code: "unavailable", reason: "settings", message: settings.message };
+      try {
+        return await writeFact(context, input);
+      } catch (error) {
+        return writeFailure(error);
       }
-      const { locations } = await loadLocations(workspace, settings, listings);
-      if (input.operation === "remember") return remember(context, workspace, input, locations);
-      const path = factPathIn(locations, input.path);
-      if (!path) return { code: "unavailable", reason: "not-a-fact", message: WRITE_TEXT.notAFact };
-      if (includesPath(settings.privacy.privateFiles, path)) {
-        return { code: "unavailable", reason: "private", message: WRITE_TEXT.privateFile };
-      }
-      if (input.operation === "correct") {
-        return mutate(async () => {
-          const result = await dependencies.files.save(context, { projectId: input.projectId, path,
-            expectedVersion: input.expectedVersion,
-            content: renderFactFile({ ...input, confirmed: dependencies.today() }) });
-          return result.code === "saved" ? { code: "corrected", fact: parseFactFile({ ...result.file, path }) }
-            : conflictFor(result.reason, path, result.current);
-        });
-      }
-      return mutate(async () => {
-        const result = await dependencies.files.remove(context, { projectId: input.projectId, path,
-          expectedVersion: input.expectedVersion });
-        return result.code === "removed" ? { code: "forgotten", path } : conflictFor(result.reason, path, result.current);
-      });
     },
 
     /**

@@ -120,7 +120,7 @@ Coordinated releases publish Core before its dependent role packages.
 
 | Data or effect | Owner and boundary |
 | --- | --- |
-| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed, and Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: a positive rule matches without regard to case, letter-bracket rules included, and a negation re-includes only on an exact match. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
+| Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, a backslash, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed. Neither is a fact file the engine did not check: the engine reports the first 200 Markdown names in each memory folder, and a file past them or created after the check is skipped as not checked, and Correct and Forget refuse it. Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: it reads `.gitignore` with or without a byte order mark, a positive rule matches without regard to case, letter-bracket rules included, a positive rule whose bracket it cannot parse (such as a POSIX class) matches, and a negation re-includes only on an exact match. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. App-invoked original command receipts go to private application data. |
@@ -164,8 +164,8 @@ and the known gaps above describe it. The review, by layer:
   reports roles, the state file, the effective memory folders, and the
   declared protected paths from configuration. The creator adds which memory
   folders, law files, state file, fact files, and candidate new files the
-  `.gitignore` files ignore, with fail-closed matching, and every `.gitignore`
-  it consulted. The bridge serves this as the read-only `context` operation,
+  `.gitignore` files ignore, with fail-closed matching, every `.gitignore`
+  it consulted, and the Markdown file names it checked in each memory folder. The bridge serves this as the read-only `context` operation,
   and no absolute host path leaves it. No public CLI verb or Doctor output
   changed, and Doctor keeps its own matching.
 - Workbench service: `project-memory.ts` caches that answer by the digest of
@@ -178,14 +178,20 @@ and the known gaps above describe it. The review, by layer:
   without regard to case, skips ignored and unreadable fact files, and renders
   one block of at most 8,000 characters: header, state, a 1,500-character
   floor for instructions, facts up to 4,000 characters, then the rest for
-  instructions. Law files past the first three are named. Each fact field is
+  instructions. Law files past the first three are named only when they could
+  load, so a private, boundary, protected, or non-portable one is never named.
+  When the instruction room is too small for the files, one line names them
+  instead, and when that does not fit the section is left out, so the block
+  never cuts facts. Each fact field is
   clamped to the panel's save limits (title 120, text 500, source 200), and
   every path is escaped, neutralized, and bounded, with "and N more" lists.
   Writes admit folders from the cached listings and read no fact, law, or
   state file. `project-files.ts` gains a capped folder listing, a listed-file
   read, a content digest, exclusive Create that removes the folders it made
-  when it refuses, and version-checked Remove. Unlink and rename retry a
-  Windows lock, then return a fixed message. The last load is kept per
+  when it refuses, and version-checked Remove. Unlink and rename, including
+  the file tree's Rename, retry a lock, then return a fixed message. A lock is
+  EBUSY, EPERM, or EACCES on Windows and EBUSY elsewhere. Elsewhere EACCES and
+  EPERM are a permission refusal with its own fixed message. The last load is kept per
   project binding.
 - Runs: Code sends put the full block before the engine prompt every turn,
   record `projectContextRevision`, and append a `note` event that Native's
@@ -233,8 +239,32 @@ The pre-merge review of PR #93 then changed behavior the hosted journey and
 the Codex check exercised: the database tools denial, fail-closed memory
 privacy and the Remember name check, the full block on every Codex turn, the
 cache trust rule, the block budget, and the Windows path and lock handling.
-Unit tests cover these changes. The hosted journey and the Codex check have not
-run on them yet.
+Unit tests covered these changes first. The lead then reported that the hosted
+journey passed three runs and the real Codex check passed on `2324e7f`, which
+holds them.
+
+The second review of `3e21310` and `2324e7f` closed gaps where memory failed
+open or said the wrong thing. The creator's `context` answer now reports the
+Markdown file names it checked in each memory folder, at most 200 of at most
+4,000 scanned entries. The creator's `_CONTEXT_LISTED_FILES` and
+`_CONTEXT_SCANNED_ENTRIES` sit beside a comment naming the Workbench's
+`CONTEXT_BOUNDS.factsPerLocation` and `MAX_FOLDER_ENTRIES`, which hold the same
+numbers. The Workbench loads, corrects, and forgets only those files, so a
+file past the engine's list or created during its call is skipped as not
+checked. A Forget of a file that a complete listing no longer has reports it
+as already removed without reading it. The engine reads `.gitignore` with or
+without a byte order mark and treats a positive rule with a bracket it cannot
+parse as matching. Omitted law files are named only when they could load, and
+the instruction section fits its room. Conflict notices depend on the action,
+so a Forget never mentions a draft. `settings.message` and every path escape
+C0 and C1 controls and the Unicode line and paragraph separators. A path list
+always shows its first item, shortened with its reason kept. Every memory
+write failure, including a missing project folder or a folder listing error,
+becomes a fixed message without a host path. A backslash in a memory folder is
+non-portable, a Remember path over the bridge's 512 characters is refused
+before the engine call, and the panel compares a taken title by the file name
+it makes. Unit tests cover this round. The hosted journey and the Codex check
+have not run on it.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.

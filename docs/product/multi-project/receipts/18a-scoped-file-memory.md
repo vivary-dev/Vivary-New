@@ -7,7 +7,7 @@ Latest verified source: `17e2996e8fa8001cc8d041c1933e0a4f3fd16aba`
 Hosted result: the 11-step journey passed three runs in a row on `17e2996e` (runs `run-17e2996-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-17e2996e.json` exited 0, and the runtime manifest names commit `17e2996e8fa8`. It had also passed three runs in a row on the earlier `4fbc54ef` (runs 06, 07, and 08). A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns on `17e2996e` (run `codex-17e2996-01`), and the same check passed earlier on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The pre-merge review fixes after them are covered by unit tests until the hosted journey and the Codex check run again on them. The work is not accepted.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Commits `52ea347` and `8ce1a34` after the verified source change only documentation and one test. The lead reported that the hosted journey passed three runs and the real Codex check passed on `2324e7f`, which holds the pre-merge review fixes. Those runs are not recorded in this receipt. The second review's fixes after `2324e7f` are covered by unit tests until the lead reruns hosted QA. The work is not accepted.
 
 ## Result
 
@@ -112,6 +112,28 @@ and unit tests cover them until those checks run again:
   change.
 - A locked or unreadable fact file becomes a skipped entry or a fixed message,
   and non-portable Windows paths are refused.
+
+## Second review fixes
+
+A second review of `3e21310` and `2324e7f` found places where memory failed
+open or said the wrong thing. Unit tests cover these fixes until the lead
+reruns hosted QA:
+
+- The engine reports the Markdown file names it checked in each memory folder.
+  The Workbench loads, corrects, and forgets only those, so a file past the
+  engine's first 200 names or created during its call is skipped as not
+  checked. This replaces the earlier claim that only ignored files are not
+  loaded or changed.
+- The engine reads `.gitignore` with or without a byte order mark, and a
+  positive rule with a bracket it cannot parse matches.
+- Law files past the first three are named only when they could load. A
+  private, boundary, protected, or non-portable law file is never named.
+- Forget notices never mention a draft, and a Forget of a removed file says it
+  was already removed.
+- A lock is EBUSY, EPERM, or EACCES on Windows and EBUSY elsewhere. Elsewhere
+  EACCES and EPERM are a permission refusal with their own wording.
+- The settings message and paths escape C1 controls and the Unicode line and
+  paragraph separators, and every memory write failure has fixed wording.
 
 ## Not run
 

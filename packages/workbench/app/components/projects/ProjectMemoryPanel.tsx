@@ -4,11 +4,13 @@ import { Link, useSearchParams } from "react-router";
 import { useNativeActionCaller } from "@/lib/native-actions";
 import { projectFileHref } from "@/lib/project-file-location";
 import {
+  conflictNotice,
   EFFECTIVE_WHEN_TEXT,
   FACT_LIMITS,
   forgetDisclosure,
   LOCATION_PROBLEM_TEXT,
   privacySentence,
+  sameFactFile,
   storageSentence,
   WORKSPACE_ROLES,
   type MemoryFact,
@@ -23,7 +25,7 @@ type Load = { kind: "loading" } | { kind: "ready"; view: ProjectMemoryView } | {
 // current file beside it, like the Files route.
 type Editor =
   | { kind: "closed" }
-  /** `takenTitle`: the title whose file name exists. Save waits until the title changes. */
+  /** `takenTitle`: a title whose file name exists. Save waits until the title makes a different file name. */
   | { kind: "remember"; draft: FactDraft; existing: MemoryFact | null; takenTitle: string | null }
   | { kind: "correct"; fact: MemoryFact; draft: FactDraft; current: MemoryFact | null }
   | { kind: "forget"; fact: MemoryFact; current: MemoryFact | null };
@@ -32,6 +34,8 @@ const EMPTY_DRAFT: FactDraft = { title: "", text: "", source: "" };
 const SKIP_REASON_TEXT = {
   linked: "a link or a file with several names", "too-large": "larger than 256 KB", binary: "not text",
   unsupported: "not a supported text file", private: "ignored by .gitignore", unreadable: "in use by another program",
+  "no-permission": "Vivary does not have permission to read it",
+  "not-checked": "not checked against the ignore rules yet",
 } as const;
 const ROLE_LABELS = { law: "Law", map: "Map", record: "Record", memory: "Memory", boundary: "Boundary" } as const;
 
@@ -83,7 +87,7 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
     wasOpen.current = editorOpen;
   }, [editorOpen]);
 
-  function apply(result: ProjectMemoryWriteResult) {
+  function apply(operation: ProjectMemoryWriteInput["operation"], result: ProjectMemoryWriteResult) {
     if (result.code === "unavailable") {
       setNotice({ tone: "alert", text: result.message });
       return;
@@ -98,31 +102,26 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
     if (result.reason === "exists") {
       setEditor(current => current.kind === "remember"
         ? { ...current, existing: result.current ?? null, takenTitle: current.draft.title } : current);
-      setNotice({ tone: "alert", text: `A fact file named ${result.path} already exists. `
-        + "Correct that fact, or change the title to save a new one." });
     } else if (result.reason === "renamed-or-deleted") {
-      // The fact's file is gone, so the draft can only become a new fact.
+      // The fact's file is gone, so a correction's draft can only become a new fact.
       setEditor(current => current.kind === "correct"
         ? { kind: "remember", draft: current.draft, existing: null, takenTitle: null }
         : current.kind === "forget" ? { kind: "closed" } : current);
-      setNotice({ tone: "alert", text: "This fact file was removed or renamed. Memory was reloaded. "
-        + "Your draft is kept as a new fact. Save it to remember it again." });
     } else if (result.reason === "changed") {
       setEditor(current => current.kind === "correct" || current.kind === "forget"
         ? { ...current, current: result.current ?? null } : current);
-      setNotice({ tone: "alert", text: "This fact changed after you opened it. Review the current version." });
     } else {
       // Keep the owner's draft, as on a changed conflict. A forget has no draft to keep.
       setEditor(current => current.kind === "forget" ? { kind: "closed" } : current);
-      setNotice({ tone: "alert", text: "The project changed. Memory was reloaded. Your draft is kept." });
     }
+    setNotice({ tone: "alert", text: conflictNotice(operation, result.reason, result.path) });
   }
 
   async function write(input: ProjectMemoryWriteInput) {
     setBusy(true);
     setNotice(null);
     try {
-      apply(await call<ProjectMemoryWriteResult>("vivary-project-memory-write", input));
+      apply(input.operation, await call<ProjectMemoryWriteResult>("vivary-project-memory-write", input));
     } catch (error) {
       setNotice({ tone: "alert", text: errorText(error, "Memory could not be saved. Try again.") });
     } finally {
@@ -244,7 +243,8 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
       </div>}
       <div className="project-memory-actions">
         <Button type="submit" size="sm" disabled={blocked || (editor.kind === "correct" && editor.current !== null)
-          || (editor.kind === "remember" && editor.takenTitle === editor.draft.title)}
+          || (editor.kind === "remember" && editor.takenTitle !== null
+            && sameFactFile(editor.takenTitle, editor.draft.title))}
           data-agent-native="project-memory-save">{editor.kind === "remember" ? "Save fact" : "Save correction"}</Button>
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditor({ kind: "closed" })}>Cancel</Button>
       </div>

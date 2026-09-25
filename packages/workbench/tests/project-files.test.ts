@@ -6,8 +6,11 @@ import { afterEach, describe, it } from "node:test";
 
 import {
   createProjectFileService,
+  isLockError,
+  isPermissionError,
   listFolder,
   ProjectFileLockedError,
+  ProjectFilePermissionError,
   readEditableFile,
   readListedFiles,
 } from "../server/project-files.ts";
@@ -395,6 +398,41 @@ describe("project file boundary", () => {
     assert.deepEqual(read.skipped, [{ path: "facts/open.md", reason: "unreadable" }]);
   });
 
+  it("reads a lock only from Windows lock codes on Windows and from EBUSY elsewhere", () => {
+    const failure = (code: string) => Object.assign(new Error(code), { code });
+    for (const code of ["EBUSY", "EPERM", "EACCES"]) {
+      assert.equal(isLockError(failure(code), "win32"), true, code);
+      assert.equal(isPermissionError(failure(code), "win32"), false, code);
+    }
+    assert.equal(isLockError(failure("EBUSY"), "linux"), true);
+    for (const code of ["EPERM", "EACCES"]) {
+      assert.equal(isLockError(failure(code), "darwin"), false, code);
+      assert.equal(isPermissionError(failure(code), "linux"), true, code);
+    }
+    assert.equal(isLockError(failure("EIO"), "win32"), false);
+  });
+
+  it("refuses a permission error at once off Windows, with its own wording", { skip: process.platform === "win32" },
+    async () => {
+      const f = await fixture();
+      await writeFile(path.join(f.root, "fact.md"), "fact\n");
+      let attempts = 0;
+      const denied = Object.assign(new Error(`EACCES: permission denied, unlink '${f.root}/fact.md'`), { code: "EACCES" });
+      const service = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+        bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }),
+      { unlink: async () => { attempts += 1; throw denied; }, rename });
+      const opened = await service.get(undefined, "project_a", "fact.md");
+      if (opened.code !== "file") throw new Error("fixture file missing");
+      await assert.rejects(service.remove(undefined, { projectId: "project_a", path: "fact.md",
+        expectedVersion: opened.file.version }), (error: Error) => error instanceof ProjectFilePermissionError
+        && error.message === "Vivary does not have permission to change this file.");
+      assert.equal(attempts, 1);
+      const project = { projectId: "project_a", label: "Example", rootId: "root_a", bindingId: "binding_a",
+        bindingRevision: 1, policyRevision: 1 };
+      const read = await readListedFiles(f.root, ["fact.md"], project, async () => { throw denied; });
+      assert.deepEqual(read.skipped, [{ path: "fact.md", reason: "no-permission" }]);
+    });
+
   it("retries a locked unlink or rename, then refuses with a fixed message", async () => {
     const f = await fixture();
     await writeFile(path.join(f.root, "fact.md"), "fact\n");
@@ -416,9 +454,12 @@ describe("project file boundary", () => {
     const eventually = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
       bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }),
     { unlink: async target => { flaky += 1; if (flaky < 3) throw locked; return unlink(target); }, rename });
+    // Open the file again: Zo's gVisor file system can report a new mtime after the failed attempts.
+    const reopened = await eventually.get(undefined, "project_a", "fact.md");
+    if (reopened.code !== "file") throw new Error("fixture file missing");
     const removed = await eventually.remove(undefined, { projectId: "project_a", path: "fact.md",
-      expectedVersion: opened.file.version });
-    assert.equal(removed.code, "removed");
+      expectedVersion: reopened.file.version });
+    assert.equal(removed.code, "removed", JSON.stringify(removed));
     assert.equal(flaky, 3);
   });
 

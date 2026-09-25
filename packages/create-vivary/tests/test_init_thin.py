@@ -958,6 +958,7 @@ class WorkspaceContextTests(unittest.TestCase):
             "private_files": [],
             "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"],
             "private_candidates": [],
+            "checked_files": [],
         })
 
     def test_plain_folder_gets_the_default_location(self):
@@ -969,6 +970,7 @@ class WorkspaceContextTests(unittest.TestCase):
             "memory": [".vivary/knowledge"], "memory_assigned": False, "protected": [],
             "privacy_policy": "none", "private": [], "private_files": [],
             "ignore_files": [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"], "private_candidates": [],
+            "checked_files": [],
         })
 
     def test_memory_privacy_fails_closed_on_case_and_brackets(self):
@@ -986,6 +988,30 @@ class WorkspaceContextTests(unittest.TestCase):
             handle.write(".vivary/knowledge/\n!.vivary/Knowledge/\n")
         context = create_vivary.workspace_context(target, repo_root=ROOT)
         self.assertEqual(context["private"], [".vivary/knowledge"], "a different-case negation does not re-include")
+
+    def test_memory_privacy_reads_a_bom_and_unreadable_brackets_fail_closed(self):
+        target = self.scaffold()
+        gitignore = target / ".gitignore"
+        gitignore.write_bytes(b"\xef\xbb\xbf.vivary/knowledge/\n" + gitignore.read_bytes())
+        self.assertEqual(create_vivary.workspace_context(target, repo_root=ROOT)["private"], [".vivary/knowledge"])
+        for rule in ("[[:alpha:]]nowledge/\n", ".vivary/[[:lower:]]*/\n", "know[ledge/\n"):
+            with self.subTest(rule=rule):
+                target = self.scaffold()
+                with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+                    handle.write(rule)
+                self.assertEqual(create_vivary.workspace_context(target, repo_root=ROOT)["private"],
+                                 [".vivary/knowledge"])
+                self.assertFalse(create_vivary._probe_is_ignored(target, ".vivary/knowledge/fact.md"),
+                                 "Doctor keeps its own matching")
+
+    def test_checked_files_follow_the_workbench_listing_bounds(self):
+        target = self.scaffold()
+        knowledge = target / ".vivary" / "knowledge"
+        knowledge.mkdir()
+        for index in range(250):
+            (knowledge / f"fact-{index:03d}.md").write_text("# Fact\n", encoding="utf-8")
+        checked = create_vivary.workspace_context(target, repo_root=ROOT)["checked_files"]
+        self.assertEqual(checked, [f".vivary/knowledge/fact-{index:03d}.md" for index in range(200)])
 
     def test_candidate_files_are_checked_against_every_rule(self):
         target = self.scaffold()

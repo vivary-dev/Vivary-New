@@ -72,6 +72,12 @@ export type MemoryPrivacy = {
   ignoreFiles: readonly string[];
   /** Files about to be created that the rules would ignore. Empty unless the caller asked. */
   privateCandidates: readonly string[];
+  /**
+   * Every memory folder file the engine checked. Project memory loads,
+   * corrects, or forgets no other fact file, so a file past the listing
+   * bounds or created after the check fails closed.
+   */
+  checkedFiles: readonly string[];
 };
 
 /**
@@ -112,7 +118,8 @@ export type MemoryFact = {
   shortenedForAgents: boolean;
 };
 
-export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" | "unreadable" };
+export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" | "unreadable"
+  | "no-permission" | "not-checked" };
 
 /** The latest message that loaded this project's context in this app session. It is not stored. */
 export type ProjectContextLastLoad = {
@@ -151,7 +158,8 @@ export type ProjectMemoryWriteResult =
       path: string;
       current?: MemoryFact;
     }
-  | { code: "unavailable"; reason: LocationProblem | "settings" | "title" | "not-a-fact" | "locked" | "file";
+  | { code: "unavailable"; reason: LocationProblem | "settings" | "title" | "too-long" | "not-a-fact"
+      | "not-checked" | "locked" | "permission" | "file";
       message: string };
 
 export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, string>> = {
@@ -190,6 +198,42 @@ export function privacySentence(settings: MemorySettings): string | null {
   return settings.privacy.policy === "gitignore"
     ? "Vivary does not load or save facts, instructions, or state that this project's .gitignore files ignore."
     : "No .gitignore file applies to these folders and files, so none of them is treated as private.";
+}
+
+/**
+ * The slug part of a fact's file name: lowercase ASCII letters and digits
+ * joined by single hyphens, at most 80 characters. Empty for a title in a
+ * script without Latin letters or digits. Shared by the server, which names
+ * the file, and the panel, which compares names.
+ */
+export function factSlug(title: string): string {
+  return title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
+}
+
+/** Whether two titles name the same fact file. A title without a slug names its file by its exact text. */
+export function sameFactFile(left: string, right: string): boolean {
+  const leftSlug = factSlug(left);
+  return leftSlug ? leftSlug === factSlug(right) : left === right;
+}
+
+export type MemoryEditorKind = "remember" | "correct" | "forget";
+
+/** The notice after a write conflict, by what the owner was doing. Only Remember and Correct have a draft. */
+export function conflictNotice(kind: MemoryEditorKind,
+  reason: "exists" | "changed" | "renamed-or-deleted" | "project-changed", path: string): string {
+  if (reason === "exists") {
+    return `A fact file named ${path} already exists. Correct that fact, or change the title to save a new one.`;
+  }
+  if (reason === "changed") return "This fact changed after you opened it. Review the current version.";
+  if (reason === "renamed-or-deleted") {
+    return kind === "forget" ? "This fact file was already removed or renamed. Memory was reloaded."
+      : kind === "correct" ? "This fact file was removed or renamed. Memory was reloaded. "
+        + "Your draft is kept as a new fact. Save it to remember it again."
+      : "The memory folder changed. Memory was reloaded. Your draft is kept.";
+  }
+  return kind === "forget" ? "The project changed. Memory was reloaded. Nothing was forgotten."
+    : "The project changed. Memory was reloaded. Your draft is kept.";
 }
 
 /** Shown before every forget. */

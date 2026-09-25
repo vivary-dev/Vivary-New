@@ -1967,8 +1967,13 @@ def _without_host_paths(message: str, target: Path) -> str:
     return _ABSOLUTE_PATH.sub("<a folder outside the project>", message.replace(str(target), "."))
 
 
-# Memory folder listings are bounded like the Workbench's folder read.
-_CONTEXT_LISTED_FILES = 1_000
+# Memory folder listings use the Workbench's bounds: at most this many
+# entries scanned and Markdown names checked per folder. The Workbench loads
+# only the files this answer names in `checked_files`, so a mismatch fails
+# closed. Keep in step with CONTEXT_BOUNDS.factsPerLocation and
+# MAX_FOLDER_ENTRIES in the Workbench.
+_CONTEXT_LISTED_FILES = 200
+_CONTEXT_SCANNED_ENTRIES = 4_000
 
 
 def _context_privacy(target: Path, context: dict) -> dict:
@@ -1978,6 +1983,9 @@ def _context_privacy(target: Path, context: dict) -> dict:
     - `private_files`: law files, the state file, and existing Markdown files
       in each memory folder that the rules ignore. The Workbench does not load
       them.
+    - `checked_files`: every memory folder file this answer checked. The
+      Workbench loads, corrects, or forgets no other fact file, so a file it
+      lists beyond these bounds, or one created after this check, is skipped.
     - `ignore_files`: every `.gitignore` consulted for those paths, one per
       ancestor folder, whether it exists or not. The Workbench keys its cache
       on their bytes, so a new or edited rule is picked up.
@@ -2003,6 +2011,7 @@ def _context_privacy(target: Path, context: dict) -> dict:
             else "none"),
         "private": [folder for folder in folders if _memory_probe_is_ignored(target, f"{folder}/fact.md")],
         "private_files": sorted({path for path in [*files, *listed] if _memory_probe_is_ignored(target, path)}),
+        "checked_files": listed,
         "ignore_files": ignore_files,
     }
 
@@ -2018,13 +2027,17 @@ def _markdown_names(target: Path, folder: str) -> list[str]:
             return []
         if not stat.S_ISDIR(info.st_mode) or _is_symlink_or_junction(current):
             return []
+    names = []
     try:
         with os.scandir(current) as entries:
-            names = sorted(entry.name for entry in entries
-                           if entry.name.lower().endswith(".md") and entry.is_file(follow_symlinks=False))
+            for scanned, entry in enumerate(entries, start=1):
+                if scanned > _CONTEXT_SCANNED_ENTRIES:
+                    break
+                if entry.name.lower().endswith(".md") and entry.is_file(follow_symlinks=False):
+                    names.append(entry.name)
     except OSError:
         return []
-    return names[:_CONTEXT_LISTED_FILES]
+    return sorted(names)[:_CONTEXT_LISTED_FILES]
 
 
 def _doctor_graph_context(tropo, resolver, target: Path):
@@ -2954,6 +2967,7 @@ def _probe_is_ignored(
     extra_root_rules: tuple[tuple[str, bool, str], ...] = (),
     root_rules: tuple[tuple[str, bool, str], ...] | None = None,
     matcher=None,
+    encoding: str = "utf-8",
 ) -> bool:
     """Whether Git would ignore `rel_path` in this workspace.
 
@@ -2967,11 +2981,12 @@ def _probe_is_ignored(
 
     `extra_root_rules` simulates lines a repair would append to the root file.
     `matcher` decides one path against the collected rules. Doctor uses
-    `_ignored_by_rules`.
+    `_ignored_by_rules`. `encoding` reads each `.gitignore`. Doctor keeps plain
+    UTF-8.
     """
     matcher = matcher or _ignored_by_rules
     rel_path = rel_path.replace("\\", "/")
-    rules = (_privacy_rules_at_base(target, "") if root_rules is None else list(root_rules)) + list(extra_root_rules)
+    rules = (_privacy_rules_at_base(target, "", encoding) if root_rules is None else list(root_rules)) + list(extra_root_rules)
     if not include_nested:
         return matcher(rules, rel_path)
 
@@ -2980,7 +2995,7 @@ def _probe_is_ignored(
         base = "/".join(parts[:depth])
         if matcher(rules, base):
             return True
-        rules.extend(_privacy_rules_at_base(target, base))
+        rules.extend(_privacy_rules_at_base(target, base, encoding))
     return matcher(rules, rel_path)
 
 
@@ -2990,22 +3005,48 @@ def _memory_ignored_by_rules(rules: list[tuple[str, bool, str]], rel_path: str) 
     Doctor must never call a private file safe, so it skips rules it cannot
     trust. Memory must never load or save an ignored file, so it errs the
     other way: a positive rule matches regardless of case, as Git does with
-    `core.ignorecase` on Windows and macOS, including letter-bracket rules.
-    A negation re-includes only on an exact-case match without letter
-    brackets.
+    `core.ignorecase` on Windows and macOS, including letter-bracket rules. A
+    positive rule whose bracket expression this matcher cannot read, such as
+    a POSIX class, matches everything under its folder. A negation re-includes
+    only on an exact-case match without letter or unreadable brackets.
     """
     ignored = False
     for base, negated, pattern in rules:
         if negated:
-            if not _has_case_sensitive_bracket(pattern) and _ignore_rule_matches(base, pattern, rel_path):
+            if (not _has_case_sensitive_bracket(pattern) and not _bracket_rule_is_uncertain(pattern)
+                    and _ignore_rule_matches(base, pattern, rel_path)):
                 ignored = False
+        elif _bracket_rule_is_uncertain(pattern):
+            if not base or rel_path.startswith(f"{base}/"):
+                ignored = True
         elif _ignore_rule_matches(base, pattern, rel_path, fold_case=True):
             ignored = True
     return ignored
 
 
+def _bracket_rule_is_uncertain(pattern: str) -> bool:
+    """Whether `_wildmatch_regex` may misread a bracket expression in `pattern`.
+
+    It reads plain sets and ranges. POSIX classes (`[[:alpha:]]`), equivalence
+    classes, collating symbols, an unclosed bracket, or a set Python cannot
+    compile are uncertain.
+    """
+    start = pattern.find("[")
+    if start == -1:
+        return False
+    if re.search(r"\[[:=.]", pattern) or pattern.find("]", start + 2) == -1:
+        return True
+    try:
+        re.compile(_wildmatch_regex(pattern.strip("/")))
+    except re.error:
+        return True
+    return False
+
+
 def _memory_probe_is_ignored(target: Path, rel_path: str) -> bool:
-    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules)
+    # A byte order mark must not hide the first rule, so memory reads each
+    # .gitignore as UTF-8 with an optional BOM.
+    return _probe_is_ignored(target, rel_path, matcher=_memory_ignored_by_rules, encoding="utf-8-sig")
 
 
 def _strip_unescaped_trailing_spaces(line: str) -> str:
@@ -3055,16 +3096,16 @@ def _repair_line_rules(pattern: str) -> list[tuple[str, bool, str]]:
     return rules
 
 
-def _privacy_rules_at_base(target: Path, base: str) -> list[tuple[str, bool, str]]:
+def _privacy_rules_at_base(target: Path, base: str, encoding: str = "utf-8") -> list[tuple[str, bool, str]]:
     gitignore = target / base / ".gitignore" if base else target / ".gitignore"
     if _is_symlink_or_junction(gitignore) or not gitignore.exists() or not gitignore.is_file():
         return []
-    return _privacy_ignore_rules(gitignore, base=base)
+    return _privacy_ignore_rules(gitignore, base=base, encoding=encoding)
 
 
-def _privacy_ignore_rules(gitignore: Path, *, base: str) -> list[tuple[str, bool, str]]:
+def _privacy_ignore_rules(gitignore: Path, *, base: str, encoding: str = "utf-8") -> list[tuple[str, bool, str]]:
     rules: list[tuple[str, bool, str]] = []
-    for raw_line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in gitignore.read_text(encoding=encoding, errors="replace").splitlines():
         parsed = _parse_gitignore_line(raw_line)
         if parsed is not None:
             rules.append((base, parsed[0], parsed[1]))
