@@ -10,6 +10,7 @@ import {
   createCodeAgentRunRecord,
   getCodeAgentRunRecord,
   listCodeAgentTranscriptEvents,
+  updateCodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "@agent-native/core/code-agents";
 import codeStateAction from "../actions/vivary-code-state.ts";
@@ -534,7 +535,7 @@ process.send({type:"vivary:code-worker:ready"});
     const turn = async (message: string, runId?: string) => {
       await rm(path.join(fixture, "started.json"), { force: true });
       const state = await sendVivaryCodeMessage({ ownerEmail, orgId, message, engine: "claude-cli", model: "sonnet",
-        runId, workspace, projectContext: await memory.renderForRun(workspace),
+        runId, workspace, projectContext: await memory.renderForRun(workspace, "code"),
         recordProjectContext: load => recorded.push(load.revision) });
       const id = state.run!.id;
       let started: { prompt: string } | undefined;
@@ -556,7 +557,7 @@ process.send({type:"vivary:code-worker:ready"});
       // A refused send records no load, so the panel's last load stays true.
       await assert.rejects(sendVivaryCodeMessage({ ownerEmail, orgId, message: "Refused", engine: "claude-cli",
         model: "sonnet", workspace, revalidateWorkspace: async () => ({ ...workspace, bindingRevision: 2 }),
-        projectContext: await memory.renderForRun(workspace), recordProjectContext: load => recorded.push(load.revision) }),
+        projectContext: await memory.renderForRun(workspace, "code"), recordProjectContext: load => recorded.push(load.revision) }),
       { errorCode: "vivary_code_project_changed" });
       assert.deepEqual(recorded, []);
 
@@ -565,8 +566,16 @@ process.send({type:"vivary:code-worker:ready"});
       assert.match(first.prompt, /The relay budget is 40 dollars per month\.[\s\S]*<\/project-context>\n\nWhat is the relay budget\?$/);
       const users = () => listCodeAgentTranscriptEvents(first.id).filter(event => event.kind === "user");
       assert.deepEqual(users().map(event => event.message), ["What is the relay budget?"]);
-      const firstRevision = getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision;
-      assert.match(String(firstRevision), /^ctx-[0-9a-f]{12}$/);
+      const [firstRevision] = recorded;
+      assert.match(firstRevision, /^ctx-[0-9a-f]{12}$/);
+      // The turn was stopped before any engine finished it, so its revision is rolled
+      // back and a resumed Codex thread would get the full block next time.
+      const stopped = getCodeAgentRunRecord(first.id)!;
+      assert.equal(stopped.metadata?.projectContextRevision, undefined);
+      assert.match(buildVivaryCodeExecutionPrompt({ ...stopped, metadata: { ...stopped.metadata, codexSessionId: "thread-1" } },
+        "codex-cli", "Next", { block: renderUnavailableContext("Relay", "x", "code"), revision: firstRevision }), /^<project-context>/);
+      // Stand in for a turn the engine completed.
+      updateCodeAgentRunRecord(first.id, { metadata: { projectContextRevision: firstRevision } });
 
       await writeFile(factFile, fact(55));
       const second = await turn("Ask again.", first.id);
@@ -583,7 +592,8 @@ process.send({type:"vivary:code-worker:ready"});
         + "instructions from AGENTS.md, state from STATE.md.");
       assert.match(loads[1].message, /The project context changed since the last turn\.$/);
       assert.deepEqual(loads.map(event => event.kind), ["note", "note"]);
-      assert.notEqual(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, firstRevision);
+      assert.equal(getCodeAgentRunRecord(first.id)?.metadata?.projectContextRevision, firstRevision,
+        "the stopped second turn rolls back to the revision the engine last completed");
       assert.equal(recorded.length, 2);
       // Native's transcript builder, which the Code view uses, shows the note.
       const repository = (await coreTranscriptBuilder())(listCodeAgentTranscriptEvents(first.id));
@@ -604,7 +614,7 @@ process.send({type:"vivary:code-worker:ready"});
     const previousStore = process.env.AGENT_NATIVE_CODE_AGENTS_HOME; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     process.env.AGENT_NATIVE_CODE_AGENTS_HOME = store; // guard:allow-env-credential - Isolated synthetic test configuration, restored after cleanup.
     try {
-      const block = renderUnavailableContext("Relay", "Test block.");
+      const block = renderUnavailableContext("Relay", "Test block.", "code");
       const context = { block, revision: "ctx-000000000001" };
       const codex = createCodeAgentRunRecord({ id: "codex-resumed", goalId: "vivary-local-code", title: "Codex",
         status: "completed", cwd: store, metadata: { app: "vivary-workbench-local-code", engine: "codex-cli",

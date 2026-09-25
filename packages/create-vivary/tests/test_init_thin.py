@@ -984,6 +984,16 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(context["private_files"], [".vivary/knowledge/draft.md", "STATE.md"])
         self.assertIn(".vivary/knowledge/.gitignore", context["ignore_files"])
 
+    def test_host_path_scrub_keeps_urls_and_relative_paths(self):
+        target = Path("/work/project")
+        message = ("see https://example.test/docs, /work/project/.vivary/workspace.toml, "
+                   ".vivary/private, /home/owner/other, and C:\\Users\\owner\\x")
+        self.assertEqual(
+            create_vivary._without_host_paths(message, target),
+            "see https://example.test/docs, ./.vivary/workspace.toml, .vivary/private, "
+            "<a folder outside the project>, and <a folder outside the project>",
+        )
+
     def test_competing_root_message_names_no_host_path(self):
         outer = self.scaffold()
         inner = outer / "inner"

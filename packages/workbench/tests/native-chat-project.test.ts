@@ -146,7 +146,7 @@ const projectMatch: ChatScopeMatch = { kind: "project", projectId: "project-a",
   context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
 
 test("extraContext returns the pinned project's block", async () => {
-  const block = renderUnavailableContext("Relay", "Fixture block.");
+  const block = renderUnavailableContext("Relay", "Fixture block.", "full-chat");
   let loaded: [ActionRunContext, string] | null = null;
   const extraContext = contextFor(projectMatch, async (context, projectId) => { loaded = [context, projectId]; return block; });
   assert.equal(await extraContext({}, ownerEmail), block);
@@ -156,7 +156,7 @@ test("extraContext returns the pinned project's block", async () => {
 test("extraContext returns null for Personal and non-project chats", async () => {
   for (const match of [{ kind: "not-project" }, { kind: "personal" }] satisfies ChatScopeMatch[]) {
     let loads = 0;
-    const extraContext = contextFor(match, async () => { loads += 1; return renderUnavailableContext(null, "x"); });
+    const extraContext = contextFor(match, async () => { loads += 1; return renderUnavailableContext(null, "x", "full-chat"); });
     assert.equal(await extraContext({}, ownerEmail), null, match.kind);
     assert.equal(loads, 0);
   }

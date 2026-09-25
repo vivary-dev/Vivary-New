@@ -148,7 +148,9 @@ function ProjectMemorySection({ projectId, disabled }: PanelProps) {
   return <section className="project-memory" aria-labelledby={heading} aria-busy={busy} data-agent-native="project-memory">
     <h4 id={heading}>Memory</h4>
     <p data-agent-native="project-memory-location">{storageSentence(view)}{" "}
-      {source(".vivary/workspace.toml", "Change in workspace.toml")}</p>
+      {settings.status === "plain"
+        ? "Adopting this folder as a Vivary workspace makes the location configurable."
+        : source(".vivary/workspace.toml", "Change in workspace.toml")}</p>
     <p className="project-read-muted">Files stay on this host and can be committed with the project. They are separate from
       {" "}.vivary/memory/, which holds optional semantic-search data.</p>
     {privacy && <p className="project-read-muted">{privacy}</p>}

@@ -140,7 +140,7 @@ const defaultContextDependencies: NativeChatContextDependencies = {
   matchChatProject,
   loadProjectContext: async (context, projectId) => {
     const workspace = await resolveLocalProjectWorkspace(context, projectId);
-    const load = await projectMemory.renderForRun(workspace);
+    const load = await projectMemory.renderForRun(workspace, "full-chat");
     // extraContext runs only for a send the guard admitted, so this message is being sent.
     projectMemory.recordLoad(workspace.projectId, load, "full-chat");
     return load.block;
@@ -171,7 +171,7 @@ export function createVivaryNativeChatContext(
       if (match.kind !== "project") return null;
       return await dependencies.loadProjectContext(match.context, match.projectId);
     } catch (error) {
-      return unavailableProjectContext(null, error);
+      return unavailableProjectContext(null, error, "full-chat");
     }
   };
 }

@@ -207,7 +207,7 @@ Current source or design entry points:
 
 Find files, history and sourced project knowledge.
 
-Implementation status: issue #21's scoped file memory is implemented and unit-tested. Each project fact is one Markdown file in `.vivary/knowledge/` or the folders the `memory` role names, and Tropo types it as `vivary_fact`. Code and Full chat load the project's instructions, state, and facts at the start of every message. The Details Memory section remembers, corrects, and forgets facts through their files. The hosted GUI journey, restart, real-agent, and Windows acceptance checks are pending.
+Implementation status: issue #21's scoped file memory is implemented and hosted-tested. Its [receipt](../receipts/18a-scoped-file-memory.md) records the hosted journey and one real Codex check. Each project fact is one Markdown file in `.vivary/knowledge/` or the folders the `memory` role names, and Tropo types it as `vivary_fact`. Code and Full chat load the project's instructions, state, and facts at the start of every message. The Details Memory section remembers, corrects, and forgets facts through their files. Packaged Windows acceptance is pending.
 
 - Owns: Original files and Native history remain truth. Optional indexes are projections. Authored facts are project files, and `.vivary/memory/` holds only optional provider state.
 - Calls: M02, M03, M05, M06, M07.

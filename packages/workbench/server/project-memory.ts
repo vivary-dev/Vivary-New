@@ -164,11 +164,16 @@ function renderInstructions(files: readonly ContextFile[], room: number): string
   })].join("\n");
 }
 
+/** Fact text as agents receive it: one line, before clamping. */
+function agentText(text: string): string {
+  return text.replace(/\s*\n\s*/g, " ");
+}
+
 // Each field is clamped to the panel's save limits, so a fact saved in the
 // panel is never cut and a longer hand-edited file is.
 function renderFact(fact: MemoryFact): string {
   const title = neutralize(clamp(fact.title, FACT_LIMITS.title));
-  const text = neutralize(clamp(fact.text.replace(/\s*\n\s*/g, " "), FACT_LIMITS.text));
+  const text = neutralize(clamp(agentText(fact.text), FACT_LIMITS.text));
   const source = fact.source === null ? "not recorded" : neutralize(clamp(fact.source, FACT_LIMITS.source));
   return `- ${title}: ${text}\n  Source: ${source}. Confirmed ${fact.confirmed ?? "date not recorded"}. `
     + `File: ${shownPath(fact.path)}`;
@@ -228,34 +233,48 @@ function closeBlock(body: string): ProjectContextBlock {
   return `${OPEN_TAG}\n${fitted}\n${CLOSE_TAG}` as ProjectContextBlock;
 }
 
+/** Which conversation receives the block. Full chat runs inside Native, Code in Claude Code or Codex. */
+export type ContextSurface = ProjectContextLastLoad["surface"];
+
 // Native's compact prompt keeps a note that personal memory exists, and core
-// cannot drop it per request. The tools are removed for project chats, and
-// this sentence says so in every variant of the block.
-function header(label: string | null): string {
+// cannot drop it per request. The tools are removed for project chats, so the
+// Full chat block says so. Code agents never had those tools.
+const FULL_CHAT_TOOLS_NOTE = " In this project conversation, Native's owner-wide memory, resources, and chat-history "
+  + "tools are unavailable. Project facts live only in this project's memory files.";
+
+function header(label: string | null, surface: ContextSurface): string {
   return `${label ? `Project: ${neutralize(label)}\n` : ""}Vivary loaded this from the project folder when this message started. `
-    + "It replaces any project context shown earlier in this conversation. "
-    + "In this project conversation, Native's owner-wide memory, resources, and chat-history tools are unavailable. "
-    + "Project facts live only in this project's memory files.";
+    + "It replaces any project context shown earlier in this conversation."
+    + (surface === "full-chat" ? FULL_CHAT_TOOLS_NOTE : "");
 }
 
-/** The block for one message. Deterministic for a snapshot and at most CONTEXT_BOUNDS.totalChars long. */
-export function renderProjectContext(snapshot: ProjectContextSnapshot): ProjectContextBlock {
-  const head = header(snapshot.label);
+/**
+ * The block for one message. Deterministic for a snapshot and surface, and
+ * at most CONTEXT_BOUNDS.totalChars long. The budget always reserves the Full
+ * chat sentence, so the two surfaces differ only by that sentence.
+ */
+export function renderProjectContext(snapshot: ProjectContextSnapshot, surface: ContextSurface): ProjectContextBlock {
+  const head = header(snapshot.label, surface);
   const state = snapshot.state
     ? renderFile(`## Current state (${shownPath(snapshot.state.path)})`, snapshot.state) : null;
   const facts = renderFactsSection(snapshot);
-  const used = OPEN_TAG.length + CLOSE_TAG.length + 2 + head.length + (state ? state.length + 2 : 0)
-    + facts.length + 2;
+  const used = OPEN_TAG.length + CLOSE_TAG.length + 2 + header(snapshot.label, "full-chat").length
+    + (state ? state.length + 2 : 0) + facts.length + 2;
   const instructions = renderInstructions(snapshot.instructions, CONTEXT_BOUNDS.totalChars - used - 2);
   return closeBlock([head, instructions, state, facts].filter(section => section !== null).join("\n\n"));
 }
 
 /** The block when the project could not be read at all. It says why and warns against assuming there are no facts. */
-export function renderUnavailableContext(label: string | null, reason: string): ProjectContextBlock {
-  return closeBlock(`${header(label)}\n\nVivary could not load this project's instructions, state, or facts: `
+export function renderUnavailableContext(label: string | null, reason: string,
+  surface: ContextSurface): ProjectContextBlock {
+  return closeBlock(`${header(label, surface)}\n\nVivary could not load this project's instructions, state, or facts: `
     + `${neutralize(reason)} Do not assume the project has no facts. Tell the owner if a task depends on them.`);
 }
 
+/**
+ * `ctx-` and 12 hex characters of the SHA-256 of the Code form of the block.
+ * Code and Full chat loads of the same project content share one revision.
+ */
 export function contextRevision(block: ProjectContextBlock): string {
   return `ctx-${createHash("sha256").update(block, "utf8").digest("hex").slice(0, 12)}`;
 }
@@ -299,7 +318,7 @@ export function parseFactFile(file: Pick<ProjectFile, "path" | "content" | "vers
     confirmed: confirmed && /^\d{4}-\d{2}-\d{2}$/.test(confirmed) ? confirmed : null,
     version: file.version,
     updatedAt: file.updatedAt,
-    shortenedForAgents: title.length > FACT_LIMITS.title || text.length > FACT_LIMITS.text
+    shortenedForAgents: title.length > FACT_LIMITS.title || agentText(text).length > FACT_LIMITS.text
       || (source?.length ?? 0) > FACT_LIMITS.source,
   };
 }
@@ -375,8 +394,9 @@ function reasonFor(error: unknown): string {
 }
 
 /** The unavailable block for a failure that happened before the project could be read. */
-export function unavailableProjectContext(label: string | null, error: unknown): ProjectContextBlock {
-  return renderUnavailableContext(label, reasonFor(error));
+export function unavailableProjectContext(label: string | null, error: unknown,
+  surface: ContextSurface): ProjectContextBlock {
+  return renderUnavailableContext(label, reasonFor(error), surface);
 }
 
 const FACT_NAME_TEXT = {
@@ -551,7 +571,8 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
       const workspace = await dependencies.resolveWorkspace(context, projectId);
       const snapshot = await loadSnapshot(workspace);
       const writeLocation = snapshot.locations.find(location => location.status !== "refused")?.path ?? null;
-      const preview = renderProjectContext(snapshot);
+      // The Code form. Full chat adds one sentence about Native's owner-wide tools.
+      const preview = renderProjectContext(snapshot, "code");
       return {
         project: { id: workspace.projectId, label: workspace.label },
         settings: snapshot.settings,
@@ -617,22 +638,22 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
      * so a failure renders a block that says why instead. It records nothing.
      * The caller records the load once the message is actually sent.
      */
-    async renderForRun(workspace: Workspace): Promise<ProjectContextLoad> {
-      let block: ProjectContextBlock;
+    async renderForRun(workspace: Workspace, surface: ContextSurface): Promise<ProjectContextLoad> {
+      let render: (target: ContextSurface) => ProjectContextBlock;
       let summary: (revision: string) => string;
       let factCount = 0;
       try {
         const snapshot = await loadSnapshot(workspace);
-        block = renderProjectContext(snapshot);
+        render = target => renderProjectContext(snapshot, target);
         factCount = snapshot.facts.length;
         summary = revision => summarize(snapshot, revision);
       } catch (error) {
         const reason = reasonFor(error);
-        block = renderUnavailableContext(workspace.label, reason);
+        render = target => renderUnavailableContext(workspace.label, reason, target);
         summary = revision => `Project context ${revision} could not be loaded: ${reason}`;
       }
-      const revision = contextRevision(block);
-      return { block, revision, summary: summary(revision), factCount };
+      const revision = contextRevision(render("code"));
+      return { block: render(surface), revision, summary: summary(revision), factCount };
     },
 
     /** Remember, for the panel, that a sent message used this load. Kept in memory only. */

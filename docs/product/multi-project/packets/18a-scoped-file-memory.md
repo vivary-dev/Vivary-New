@@ -97,6 +97,12 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   Project chats lose Native's owner-wide memory actions. The GUI journey, restart,
   real-agent, and Windows checks have not run, so acceptance is pending.
 
+- 2026-09-25: The [receipt](../receipts/18a-scoped-file-memory.md) records the hosted
+  journey on `4fbc54ef`, which passed three runs in a row with a fake provider and an app
+  restart, and one real Codex conversation that recalled and corrected a fact. Packaged
+  Windows acceptance, a real phone, and optional semantic providers have not run. The
+  work is not accepted.
+
 ## Shared desktop and web behavior
 
 Memory save, recall, correction, and removal controls must work through desktop and narrow browser sessions. Memory remains in files on the connected host, with existing project and agent identity boundaries.

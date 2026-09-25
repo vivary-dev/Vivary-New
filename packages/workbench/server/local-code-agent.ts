@@ -188,6 +188,7 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
           reason: "host-restart",
         },
       });
+      rollBackProjectContextRevision(run.id);
       updateCodeAgentRunRecord(run.id, {
         status: "paused",
         phase: "interrupted",
@@ -454,7 +455,8 @@ export async function sendVivaryCodeMessage(input: {
   }
   updateCodeAgentRunRecord(run.id, { status: "queued", phase: "queued", needsApproval: false,
     metadata: { pendingLaunch: undefined, codexPermissionMode: permissionMode,
-      ...(input.projectContext ? { projectContextRevision: input.projectContext.revision } : {}) } });
+      ...(input.projectContext ? { projectContextRevision: input.projectContext.revision,
+        projectContextPreviousRevision: metadataString(run, "projectContextRevision") ?? undefined } : {}) } });
   startVivaryCodeRun({ runId: run.id, message: executionMessage, engine: selectedEngine, model: selectedModel,
     ownerEmail: input.ownerEmail, orgId: input.orgId, workspace, permissionMode });
   return getVivaryCodeState(input.ownerEmail, run.id, workspace, input.orgId);
@@ -540,6 +542,7 @@ async function executeVivaryCodeRun(input: {
   model: string | undefined;
   runId: string;
 }): Promise<void> {
+  let completed = false;
   try {
     await executeVivaryCodeWorker({
       runId: input.runId,
@@ -569,6 +572,8 @@ async function executeVivaryCodeRun(input: {
         phase: "paused",
         reason: input.activeRun.stopReason,
       });
+    } else {
+      completed = true;
     }
   } catch (error) {
     if (error instanceof VivaryCodeWorkerCleanupError) {
@@ -602,6 +607,7 @@ async function executeVivaryCodeRun(input: {
       },
     });
   } finally {
+    if (!completed) rollBackProjectContextRevision(input.runId);
     input.activeRun.requests.clear();
     activeRuns.delete(input.runId);
   }
@@ -936,6 +942,19 @@ export function buildVivaryCodeExecutionPrompt(
     ? `Project context ${projectContext.revision} is unchanged since an earlier message in this thread.`
     : projectContext.block;
   return `${context}\n\n${prompt}`;
+}
+
+// A turn that failed, stopped, or was interrupted may never have reached the
+// engine, so a resumed Codex thread may not hold its block. Restoring the
+// revision from before that turn makes the next turn send the full block
+// whenever the thread might lack it.
+function rollBackProjectContextRevision(runId: string): void {
+  const run = getCodeAgentRunRecord(runId);
+  if (!run || metadataString(run, "projectContextRevision") === null) return;
+  updateCodeAgentRunRecord(runId, { metadata: {
+    projectContextRevision: metadataString(run, "projectContextPreviousRevision") ?? undefined,
+    projectContextPreviousRevision: undefined,
+  } });
 }
 
 // One note per turn, which Native's transcript shows, says what loaded and

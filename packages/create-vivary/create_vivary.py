@@ -1927,8 +1927,8 @@ def workspace_context(target: str | Path, *, repo_root: str | Path | None = None
     return {**context, **_context_privacy(target, context)}
 
 
-# An absolute POSIX or Windows path that is not part of a relative path.
-_ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|/)[^\s,;'\"]*")
+# An absolute POSIX or Windows path that is not part of a relative path or a URL.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.:/])(?:[A-Za-z]:[\\/]|/)[^\s,;'\"]*")
 
 
 def _without_host_paths(message: str, target: Path) -> str:

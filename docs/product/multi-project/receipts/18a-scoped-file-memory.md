@@ -1,0 +1,103 @@
+# Scoped file memory acceptance
+
+Evidence-record: 18a
+Date: 2026-09-25
+Issue: [#21](https://github.com/vivary-dev/Vivary-New/issues/21)
+Latest verified source: `4fbc54ef32f3da1a7c80aa4996b11e8902858635`
+Hosted result: the 11-step journey passed three runs in a row (runs 06, 07, and 08) on `4fbc54ef`, with Workbench and the bundled Python runtime built from that clean commit. The build record `issue21-build-4fbc54ef.json` exited 0, and the runtime manifest names commit `4fbc54ef32f3`. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
+Real-agent result: one Codex account ran two model turns on `4fbc54ef` (run `codex-4fbc54e-04`). No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
+Packaged Windows result: not run.
+Delivery status: branch `feat/scoped-file-memory`. No pull request is open, and the work is not accepted.
+
+## Result
+
+A project fact is one Markdown file with `source` and `confirmed`
+frontmatter, saved in `.vivary/knowledge/` or a folder the `memory` role
+names. Tropo types it as `vivary_fact`. The Memory section in Project details
+remembers, corrects, and forgets facts through their files. Code and Full chat
+load the project's instructions, state, and facts at the start of every
+message. Project chats lose Native's owner-wide `resources`, `save-memory`,
+`delete-memory`, and `chat-history` tools. Personal chats keep them.
+
+## Hosted journey
+
+Each run built Workbench and the bundled runtime from `4fbc54ef` on Zo and
+passed the same 11 steps:
+
+- The GUI created a thin project, Alpha, and registered a plain folder, Beta,
+  that had no Git and no Vivary files.
+- Alpha remembered "Relay budget". The file
+  `.vivary/knowledge/relay-budget.md` held `source` and `confirmed`
+  frontmatter, and `vivary check --public` reported 0 errors and no finding on
+  the fact.
+- Beta remembered "Deploy window" in its own `.vivary/knowledge/`.
+- After an app restart, a Personal chat request carried no project block and
+  kept Native's tools.
+- A fresh Alpha Full chat request's system prompt carried Alpha's fact only.
+  The fake provider hashed the block, and that revision equaled the panel's
+  last-load revision. The request's tools excluded `resources`,
+  `save-memory`, `delete-memory`, and `chat-history`, and the block stated
+  that those tools are unavailable.
+- A fresh Beta chat carried Beta's fact only.
+- Correct rewrote the same file. The already open Alpha chat's next request
+  carried the corrected fact with a new revision.
+- Forget showed the disclosure and deleted the file. The next request said no
+  facts are saved.
+- Renaming Beta's folder made the memory read refuse with 403 or 409.
+- The Memory panel fit a 390-pixel viewport.
+- No page errors appeared.
+
+Core's compact resources context note still appears in project chat prompts.
+Core cannot remove it per request, so the block says the tools are
+unavailable.
+
+## Real-agent check
+
+Run `codex-4fbc54e-04` used one Codex account with model `gpt-6-astra`. After
+a restart, a fresh Codex conversation answered "The relay budget is 43 credits
+per week". Its transcript had no tool events and showed the note "Loaded
+project context ctx-…: 1 fact from .vivary/knowledge, instructions from
+AGENTS.md, .vivary/context.md, state from STATE.md." After a Correct in the
+panel, the same resumed Codex thread loaded changed context, its note said the
+context changed since the last turn, and it answered "47 credits per week".
+
+Claude Code was not signed in on Zo, so no real Claude turn ran. Claude's
+prompt path is covered by unit tests only. Real Native-provider Full chat
+turns remain [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50).
+
+## Observations
+
+- One journey run (04) got "The result is uncertain" on folder registration,
+  with "SqliteError: database is locked" in the server log. Three later runs
+  did not repeat it.
+- One Codex run (03) got a "This fact changed after you opened it" conflict
+  when the panel had loaded its view immediately after an app restart and the
+  file had not changed. A replay on the same data made four clean
+  corrections. The cause is not isolated. Stale file metadata on Zo's 9p
+  filesystem right after the restart is suspected. The panel's "Use current
+  version" recovers.
+
+Journey script bugs fixed during QA are not product findings.
+
+## Changes after the verified source
+
+The commit after `4fbc54ef` changes behavior the hosted journey and the Codex
+check exercised. Unit tests cover it, and the hosted journey has not run on
+it:
+
+- A Code turn that fails, stops, or is interrupted rolls back its context
+  revision, so the next resumed Codex turn sends the full block again.
+- Only the Full chat block carries the sentence about Native's owner-wide
+  tools. Code blocks do not.
+- The revision is now the SHA-256 of the Code form of the block, so Code and
+  Full chat loads of the same content share one revision. A rerun of the
+  journey's revision comparison must hash the Code form or read the panel.
+- The panel no longer links to a missing `.vivary/workspace.toml` for a plain
+  folder, `shortenedForAgents` measures the text agents receive, and the
+  bridge's host-path scrub keeps URLs.
+
+## Not run
+
+- Windows packaged acceptance.
+- The narrow-browser journey on a real phone.
+- The journey with optional semantic providers enabled.
