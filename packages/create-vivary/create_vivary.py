@@ -1552,6 +1552,9 @@ def _workspace_compatibility(target: Path, memory_report: dict) -> tuple[dict, s
 # Public Doctor prints one of these per rule, with a count, and never a detail.
 # A detail may name a path, an exception, or a config value, and a command
 # line is not an observation. Each entry is (one problem, several problems).
+# Rules in DOCTOR_PUBLIC_VALUES also name their values, which come from
+# Vivary's own file lists and ignore patterns. Doctor refuses to report a rule
+# without a sentence, or a value outside its set, in either mode.
 DOCTOR_PUBLIC_SENTENCES: dict[str, tuple[str, str]] = {
     "workspace_missing": ("the workspace does not exist", "the workspace does not exist"),
     "workspace_not_directory": ("the workspace is not a directory", "the workspace is not a directory"),
@@ -1587,17 +1590,19 @@ DOCTOR_PUBLIC_SENTENCES: dict[str, tuple[str, str]] = {
 }
 
 
-def _doctor_lines(problems: list[tuple[str, str, str]], level: str, public: bool) -> list[str]:
+def _doctor_lines(problems: list[tuple[str, str, str, str | None]], level: str, public: bool) -> list[str]:
     if not public:
-        return [detail for problem_level, _, detail in problems if problem_level == level]
-    counts: dict[str, int] = {}
-    for problem_level, rule, _ in problems:
+        return [detail for problem_level, _, detail, _ in problems if problem_level == level]
+    found: dict[str, list[str | None]] = {}
+    for problem_level, rule, _, value in problems:
         if problem_level == level:
-            counts[rule] = counts.get(rule, 0) + 1
+            found.setdefault(rule, []).append(value)
     lines = []
-    for rule, count in counts.items():
+    for rule, values in found.items():
         one, several = DOCTOR_PUBLIC_SENTENCES[rule]
-        lines.append(one if count == 1 else several.format(n=count))
+        line = one if len(values) == 1 else several.format(n=len(values))
+        named = [value for value in values if value is not None]
+        lines.append(f"{line}: {', '.join(named)}" if named else line)
     return lines
 
 
@@ -1612,18 +1617,23 @@ def doctor_workspace(
 
     ``public=True`` reports each problem rule's fixed sentence from
     ``DOCTOR_PUBLIC_SENTENCES`` with a count, and never the detail, because a
-    detail may name a file Git ignores or a folder outside the workspace. It
+    detail may name a file Git ignores or a folder outside the workspace. A
+    rule in ``DOCTOR_PUBLIC_VALUES`` also names its values from that closed set. It
     skips the typed-note graph walk and reports no graph. A caller that must
     leave private files out reads notes through Tropo's privacy-filtered check
     instead.
     """
-    problems: list[tuple[str, str, str]] = []
+    problems: list[tuple[str, str, str, str | None]] = []
 
-    def report(level: str, rule: str, detail: str) -> None:
-        problems.append((level, rule, detail))
+    def report(level: str, rule: str, detail: str, value: str | None = None) -> None:
+        if rule not in DOCTOR_PUBLIC_SENTENCES:
+            raise ValueError(f"Doctor rule has no public sentence: {rule}")
+        if value is not None and value not in DOCTOR_PUBLIC_VALUES.get(rule, ()):
+            raise ValueError(f"Doctor value is outside its public set: {rule}")
+        problems.append((level, rule, detail, value))
 
     def failing() -> bool:
-        return any(level == "error" for level, _, _ in problems)
+        return any(level == "error" for level, _, _, _ in problems)
 
     root = Path(repo_root) if repo_root is not None else default_repo_root()
     root = root.resolve()
@@ -1672,18 +1682,18 @@ def doctor_workspace(
     if not failing():
         compatibility, backend_name = _workspace_compatibility(target, memory_report)
         for rel in compatibility["baseline_missing"]:
-            report("error", "required_file_missing", f"missing required file: {rel}")
+            report("error", "required_file_missing", f"missing required file: {rel}", rel)
         for rel in compatibility["contract_missing"]:
-            report("error", "contract_file_missing", f"missing required indexed contract file: {rel}")
+            report("error", "contract_file_missing", f"missing required indexed contract file: {rel}", rel)
         for rel in compatibility["recommended_missing"]:
-            report("warning", "recommended_file_missing", f"recommended workspace file missing: {rel}")
+            report("warning", "recommended_file_missing", f"recommended workspace file missing: {rel}", rel)
         if compatibility["recommended_upgrade"] is not None:
             report("warning", "recommended_upgrade", compatibility["recommended_upgrade"])
 
         if compatibility["workspace_contract"] == THIN_WORKSPACE_CONTRACT:
             if (target / ".gitignore").exists():
                 for pattern in _missing_thin_privacy_ignores(target):
-                    report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}")
+                    report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}", pattern)
         elif (target / ".gitignore").exists():
             missing = _missing_privacy_ignores(target)
             if memory_report["enabled"]:
@@ -1695,7 +1705,7 @@ def doctor_workspace(
                 for pattern in missing:
                     if pattern not in memory_privacy_requirements:
                         report("warning", "recommended_privacy_ignore_missing",
-                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore")
+                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore", pattern)
             else:
                 required_missing = [
                     pattern
@@ -1705,9 +1715,9 @@ def doctor_workspace(
                 for pattern in missing:
                     if pattern not in PUBLISHED_BASELINE_PRIVACY_IGNORES:
                         report("warning", "recommended_privacy_ignore_missing",
-                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore")
+                               f"recommended privacy ignore missing: {pattern}; add it to .gitignore", pattern)
             for pattern in required_missing:
-                report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}")
+                report("error", "privacy_ignore_missing", f"privacy ignore missing: {pattern}", pattern)
         if compatibility["workspace_contract"] != THIN_WORKSPACE_CONTRACT:
             for rule, detail in _module_index_problems(target):
                 report("error", rule, detail)
@@ -2750,6 +2760,17 @@ _THIN_PRIVACY_PROBES = {
 }
 _THIN_ACTIVE_CONTEXT_PRIVACY_PROBES = {
     ".cocoindex_code/": (".cocoindex_code/private-index.db",),
+}
+
+
+# The values public Doctor may name, per rule. See DOCTOR_PUBLIC_SENTENCES.
+DOCTOR_PUBLIC_VALUES: dict[str, frozenset[str]] = {
+    "required_file_missing": frozenset(THIN_WORKSPACE_FILES) | frozenset(BASELINE_WORKSPACE_FILES),
+    "contract_file_missing": frozenset(INDEXED_WORKSPACE_FILES),
+    "recommended_file_missing": frozenset(LEGACY_RECOMMENDED_WORKSPACE_FILES),
+    "privacy_ignore_missing": frozenset(PRIVACY_IGNORE_PROBES) | frozenset(_THIN_PRIVACY_PROBES)
+    | frozenset(_THIN_ACTIVE_CONTEXT_PRIVACY_PROBES),
+    "recommended_privacy_ignore_missing": frozenset(PRIVACY_IGNORE_PROBES),
 }
 
 

@@ -1,14 +1,11 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
-import type { AgentChatPluginOptions, RequestRunContext } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestRunContext,
-} from "@agent-native/core/server";
+import type { AgentChatPluginOptions } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server";
 import { createError } from "h3";
-import { PROJECT_CHAT_SCOPE_PREFIX, projectChatScopeId } from "./chat-project-scope.mjs";
 import {
   matchChatProject,
   resolveLocalProjectWorkspace,
+  type ChatScopeMatch,
 } from "./project-services.mjs";
 
 type PrepareRequestDetails = Parameters<
@@ -16,12 +13,9 @@ type PrepareRequestDetails = Parameters<
 >[0];
 
 type NativeChatProjectDependencies = {
-  getScope: () => RequestRunContext["chatScope"];
   getOrgId: () => string | undefined;
-  /** Matches the scope of the current request, never one the caller names. */
-  matchChatProject: (
-    context: ActionRunContext,
-  ) => Promise<{ projectId: string; context: ActionRunContext } | null>;
+  /** Classifies the chat scope of the current request. See project services. */
+  matchChatProject: (context: ActionRunContext) => Promise<ChatScopeMatch | null>;
   resolveProjectWorkspace: (
     context: ActionRunContext,
     projectId: string,
@@ -29,7 +23,6 @@ type NativeChatProjectDependencies = {
 };
 
 const defaultDependencies: NativeChatProjectDependencies = {
-  getScope: () => getRequestRunContext()?.chatScope,
   getOrgId: getRequestOrgId,
   matchChatProject,
   resolveProjectWorkspace: resolveLocalProjectWorkspace,
@@ -39,14 +32,6 @@ function projectConversationError(statusCode: number, statusMessage: string): Er
   return createError({ statusCode, statusMessage });
 }
 
-function projectScopeId(scope: RequestRunContext["chatScope"]): string | null {
-  if (!scope?.id.startsWith(PROJECT_CHAT_SCOPE_PREFIX)) return null;
-  if (scope.type !== "workspace-app") {
-    throw projectConversationError(403, "Project conversation access is unavailable.");
-  }
-  return scope.id;
-}
-
 function preserveAuthorizationError(error: unknown): void {
   if (!error || typeof error !== "object" || !("statusCode" in error)) return;
   if (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 503) {
@@ -54,39 +39,23 @@ function preserveAuthorizationError(error: unknown): void {
   }
 }
 
-type ChatScopeMatch =
-  | { kind: "not-project" }
-  | { kind: "personal" }
-  | { kind: "project"; projectId: string; projectContext: ActionRunContext };
-
-// Matches the pinned scope to the owner's current catalog. Native consumed
-// the request body before either caller runs and already normalized its scope.
-// The context keeps the caller that asked: the send guard runs inside an HTTP
-// request, and a tool call stays a tool call.
+// Project services classify the scope Native pinned to this request. Native
+// consumed the request body before either caller runs. The context keeps the
+// caller that asked: the send guard runs inside an HTTP request, and a tool
+// call stays a tool call.
 async function matchChatScope(
   dependencies: NativeChatProjectDependencies,
   identity: { owner: string | null | undefined; orgId: string | null | undefined; caller: "http" | "tool";
     signal?: AbortSignal },
 ): Promise<ChatScopeMatch> {
-  const requestedScopeId = projectScopeId(dependencies.getScope());
-  if (!requestedScopeId) return { kind: "not-project" };
-
-  const ownerEmail = identity.owner?.trim().toLowerCase();
-  const orgId = identity.orgId;
-  if (!ownerEmail || !orgId) {
-    throw projectConversationError(403, "Project conversation access is unavailable.");
-  }
-
-  if (requestedScopeId === projectChatScopeId(ownerEmail, orgId, null)) return { kind: "personal" };
-
   const context: ActionRunContext = {
     caller: identity.caller,
-    userEmail: ownerEmail,
-    orgId,
+    userEmail: identity.owner?.trim().toLowerCase() ?? "",
+    orgId: identity.orgId ?? "",
     appId: "workbench",
     ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  let match: { projectId: string; context: ActionRunContext } | null;
+  let match: ChatScopeMatch | null;
   try {
     match = await dependencies.matchChatProject(context);
   } catch (error) {
@@ -96,7 +65,7 @@ async function matchChatScope(
   if (!match) {
     throw projectConversationError(403, "Project conversation access is unavailable.");
   }
-  return { kind: "project", projectId: match.projectId, projectContext: match.context };
+  return match;
 }
 
 /**
@@ -111,7 +80,7 @@ export function createVivaryNativeChatProjectGuard(
       { owner: details.ownerEmail, orgId: dependencies.getOrgId(), caller: "http" });
     if (match.kind !== "project") return;
     try {
-      await dependencies.resolveProjectWorkspace(match.projectContext, match.projectId);
+      await dependencies.resolveProjectWorkspace(match.context, match.projectId);
     } catch (error) {
       preserveAuthorizationError(error);
       throw projectConversationError(
@@ -144,7 +113,7 @@ export function createVivaryNativeChatProjectResolver(
         statusCode: 409,
       });
     }
-    return { projectId: match.projectId, projectContext: match.projectContext };
+    return { projectId: match.projectId, projectContext: match.context };
   };
 }
 

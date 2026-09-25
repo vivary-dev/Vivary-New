@@ -1,4 +1,4 @@
-import { projectChatScopeId } from "./chat-project-scope.mjs";
+import { PROJECT_CHAT_SCOPE_PREFIX, projectChatScopeId } from "./chat-project-scope.mjs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, normalize } from "node:path";
@@ -382,18 +382,24 @@ function localService(context, tool) {
 }
 
 /**
- * Finds the one registered project whose Native chat scope is the scope the
- * current request is pinned to. The scope comes from the request, never from
- * the caller. The owner's request gets its own context back. A Native tool
- * call gets a context that the read entry points accept for that project
- * only, and it stays a tool call. Null when no project matches.
+ * Classifies the Native chat scope the current request is pinned to. The
+ * scope comes from the request, never from the caller. A project scope must
+ * match exactly one registered project, or the result is null. The owner's
+ * request gets its own context back. A Native tool call gets a context that
+ * the read entry points accept for that project only, and it stays a tool
+ * call.
  */
 export async function matchChatProject(context) {
-  const tool = context?.caller === "tool";
-  const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
   const { getRequestRunContext } = await import("@agent-native/core/server");
   const scope = getRequestRunContext()?.chatScope;
-  if (scope?.type !== "workspace-app") return null;
+  if (!scope?.id.startsWith(PROJECT_CHAT_SCOPE_PREFIX)) return { kind: "not-project" };
+  if (scope.type !== "workspace-app") {
+    throw Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+  }
+  const email = context?.userEmail?.trim().toLowerCase();
+  if (email && context.orgId && scope.id === projectChatScopeId(email, context.orgId, null)) return { kind: "personal" };
+  const tool = context?.caller === "tool";
+  const { service, owner } = localService(context, tool ? CHAT_CATALOG : undefined);
   const catalog = await service.catalog.run({}, owner);
   if (catalog.code !== "catalog") {
     throw Object.assign(new Error("Project folder access changed."), { statusCode: 403 });
@@ -402,10 +408,10 @@ export async function matchChatProject(context) {
     projectChatScopeId(owner.userEmail, owner.orgId, project.projectId) === scope.id);
   if (matches.length !== 1) return null;
   const { projectId } = matches[0];
-  if (!tool) return { projectId, context };
+  if (!tool) return { kind: "project", projectId, context };
   const admitted = Object.freeze({ ...context });
   chatProjects.set(admitted, projectId);
-  return { projectId, context: admitted };
+  return { kind: "project", projectId, context: admitted };
 }
 
 export function getLocalProjectReconnectionService(context) {

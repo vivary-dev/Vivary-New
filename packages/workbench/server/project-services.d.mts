@@ -20,9 +20,11 @@ export type LocalProjectHistory = Readonly<Pick<
 >>;
 
 export function getLocalProjectAccess(context: ActionRunContext | undefined): Promise<CatalogResult>;
-export function matchChatProject(
-  context: ActionRunContext,
-): Promise<{ projectId: string; context: ActionRunContext } | null>;
+export type ChatScopeMatch =
+  | { kind: "not-project" }
+  | { kind: "personal" }
+  | { kind: "project"; projectId: string; context: ActionRunContext };
+export function matchChatProject(context: ActionRunContext): Promise<ChatScopeMatch | null>;
 export function connectLocalProjectFolder(
   context: ActionRunContext | undefined,
   folder: string,

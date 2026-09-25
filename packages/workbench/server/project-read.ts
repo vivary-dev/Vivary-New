@@ -153,7 +153,7 @@ const operations: { [Operation in ProjectReadOperation]: {
             timestamp: stringOr(record.timestamp, "unknown time"),
             tool: stringOr(record.tool, "unknown tool"),
             command: stringOr(record.command, "unknown command"),
-            ok: record.ok !== false, exitCode: numberOrNull(record.exit_code), durationMs: numberOrNull(record.duration_ms),
+            ok: record.ok === true, exitCode: numberOrNull(record.exit_code), durationMs: numberOrNull(record.duration_ms),
             source: stringOr(record.receipt_source, null),
             ...(typeof record.error_type === "string" ? { errorType: record.error_type } : {}),
           })) } };

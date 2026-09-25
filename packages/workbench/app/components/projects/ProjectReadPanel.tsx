@@ -15,13 +15,15 @@ type Request = Omit<ProjectReadOwnerInput, "projectId">;
 type Report<Operation extends ProjectReadReport["operation"]> = Extract<ProjectReadReport, { operation: Operation }>;
 const STATUS = { installed: "Installed", "not-installed": "Not installed", incompatible: "Incompatible",
   "probe-failed": "Could not be checked" } as const;
+const PRESETS = { coding: "Coding", "second-brain": "Second brain", "knowledge-work": "Knowledge work",
+  writing: "Writing" } as const satisfies Record<WorkspacePreset, string>;
 
 // Each section owns its request, so several sections can run at once and a
-// response for an older request or another project is dropped.
+// response for an older request is dropped. The workspace keys this panel by
+// project, so another project's panel starts empty.
 function useProjectRead(call: NativeActionCaller, projectId: string) {
   const [state, setState] = useState<ReadState>({ kind: "idle" });
   const request = useRef(0);
-  useEffect(() => { request.current += 1; setState({ kind: "idle" }); }, [projectId]);
   useEffect(() => () => { request.current += 1; }, []);
   async function run(input: Request) {
     const current = ++request.current;
@@ -84,7 +86,6 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
   const [question, setQuestion] = useState("");
   const [preset, setPreset] = useState<WorkspacePreset>("coding");
   const [failedOnly, setFailedOnly] = useState(false);
-  useEffect(() => { setQuestion(""); }, [projectId]);
 
   const blocked = (state: ReadState) => disabled || !ready || state.kind === "running";
   // Links open only inside the project this panel shows.
@@ -161,7 +162,9 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
       {query.startsWith("-") && <p className="project-read-muted">Start the question with a word, not a dash.</p>}
       <Outcome state={find.state} running="Finding context…" />
       {context && <>
-        {context.results.total === 0 ? <p>No matching context.</p> : <>
+        <p className="project-read-muted">Results for “{context.query}”</p>
+        {context.results.total === 0
+          ? <p>{context.complete ? "No matching context." : "No context fit within the search limits."}</p> : <>
           <p className="project-read-heading">{heading("result", context.results)}</p>
           <ul>{context.results.items.map((result, index) => <li key={index}>
             {source(find.state, result.path)} <span className="project-read-muted">{result.reason}</span>
@@ -169,6 +172,8 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
           </li>)}</ul>
         </>}
         {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
+        {!context.complete && context.results.total > 0
+          && <p className="project-read-muted">The search stopped at its limits, so more context may exist.</p>}
       </>}
     </Section>
 
@@ -176,15 +181,13 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
       <div className="project-read-form">
         <label htmlFor={`${ids}-preset`}>Preset</label>
         <select id={`${ids}-preset`} value={preset} onChange={event => setPreset(event.target.value as WorkspacePreset)}>
-          <option value="coding">Coding</option>
-          <option value="second-brain">Second brain</option>
-          <option value="knowledge-work">Knowledge work</option>
-          <option value="writing">Writing</option>
+          {Object.entries(PRESETS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
         <Button size="sm" variant="outline" disabled={blocked(capabilities.state)}
           onClick={() => void capabilities.run({ operation: "capabilities", preset })}>Show features</Button>
       </div>
       <Outcome state={capabilities.state} running="Reading optional features…" />
+      {features && <p className="project-read-heading">{PRESETS[features.preset]} preset</p>}
       {features && <ul>{features.capabilities.items.map(feature => <li key={feature.id}>
         <strong>{feature.label}</strong>{" · "}{STATUS[feature.installStatus]}
         {feature.isDefault && " · Default"}{feature.requiresApproval && " · Needs approval"}
@@ -208,6 +211,8 @@ export function ProjectReadPanel({ projectId, disabled }: { projectId: string; d
           : `${log.failed} of ${log.total} command${log.total === 1 ? "" : "s"} failed`}</p>
         {log.records.items.length < log.records.total && <p className="project-read-muted">
           Showing the latest {log.records.items.length}.</p>}
+        {log.invalidLines > 0 && <p className="project-read-muted">
+          {log.invalidLines} unreadable log line{log.invalidLines === 1 ? " was" : "s were"} skipped.</p>}
         <ul>{log.records.items.map((record, index) => <li key={index}>
           {record.ok ? "OK" : "Failed"} · {record.tool} {record.command}
           <span className="project-read-muted"> {record.timestamp}</span>

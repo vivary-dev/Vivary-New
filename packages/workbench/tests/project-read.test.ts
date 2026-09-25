@@ -418,13 +418,15 @@ const scope = (projectId: string | null) => createVivaryChatIdentity(ownerEmail,
 function tool() {
   const fake = fakeRun((projectId, command) => fixtureFor(projectId === "project-b" ? notes : coding)(projectId, command));
   const reads = createProjectRead({ run: fake.run, chatProject: createVivaryNativeChatProjectResolver({
-    getScope: () => getRequestRunContext()?.chatScope,
     getOrgId: getRequestOrgId,
     resolveProjectWorkspace: async () => { throw new Error("The tool path resolves the workspace in the runner."); },
+    // Stands in for project services, which classify the request's scope.
     matchChatProject: async context => {
       const scopeId = getRequestRunContext()?.chatScope?.id;
+      if (!scopeId?.startsWith("vivary-project-chat-v2:")) return { kind: "not-project" };
+      if (scopeId === scope(null).id) return { kind: "personal" };
       const match = catalog.projects.find(candidate => scope(candidate.projectId).id === scopeId);
-      return match ? { projectId: match.projectId, context } : null;
+      return match ? { kind: "project", projectId: match.projectId, context } : null;
     },
   }) });
   const actions = loadActionsFromStaticRegistry({ "vivary-project-read": { default: defineProjectReadTool(reads) } });

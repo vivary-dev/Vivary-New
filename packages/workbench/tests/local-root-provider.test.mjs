@@ -181,11 +181,19 @@ test("local project grants register real folders and reopen without content snap
       const inChat = (chatScope, run) => runWithRequestContext({ userEmail: actionContext.userEmail,
         orgId: actionContext.orgId, run: { chatScope } }, run);
       const alphaChat = { type: "workspace-app", id: alphaScope };
-      assert.equal(await matchChatProject(tool), null, "a request outside a chat reaches no project");
-      assert.equal(await inChat({ type: "thread", id: alphaScope }, () => matchChatProject(tool)), null);
+      const personalId = (org) => projectChatScopeId(actionContext.userEmail, org, null);
+      assert.deepEqual(await matchChatProject(tool), { kind: "not-project" }, "a request outside a chat reaches no project");
+      assert.deepEqual(await inChat({ type: "workspace-app", id: `vivary-workbench-chat-v1:${actionContext.orgId}` },
+        () => matchChatProject(tool)), { kind: "not-project" }, "a legacy chat keeps Native's own behavior");
+      await assert.rejects(inChat({ type: "thread", id: alphaScope }, () => matchChatProject(tool)), { statusCode: 403 });
+      assert.deepEqual(await inChat({ type: "workspace-app", id: personalId(actionContext.orgId) },
+        () => matchChatProject(tool)), { kind: "personal" });
+      assert.equal(await inChat({ type: "workspace-app", id: personalId("another-org") }, () => matchChatProject(tool)), null,
+        "another organization's Personal scope is not this one's");
       assert.equal(await inChat({ type: "workspace-app", id: "vivary-project-chat-v2:" + "0".repeat(64) },
         () => matchChatProject(tool)), null);
       const owned = await inChat(alphaChat, () => matchChatProject(actionContext));
+      assert.equal(owned.kind, "project");
       assert.equal(owned.context, actionContext, "the owner's request keeps its own context");
       const admitted = await inChat(alphaChat, () => matchChatProject(tool));
       assert.equal(admitted.projectId, alphaResult.projectId);

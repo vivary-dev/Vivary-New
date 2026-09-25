@@ -427,18 +427,28 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertIn("tropo configuration is invalid", json.loads(public_out)["errors"])
         self.assertEqual((plain_rc, public_rc), (1, 1), public_err)
 
-    def test_every_doctor_rule_has_a_public_sentence_without_a_command(self):
-        import re as regex
-
-        source = Path(create_vivary.__file__).read_text(encoding="utf-8")
-        rules = set(regex.findall(r'report\("(?:error|warning)", "([a-z_]+)"', source))
-        rules |= set(regex.findall(r'\("(module_[a-z_]+)", f"', source))
-        self.assertTrue(rules)
-        self.assertLessEqual(rules, set(create_vivary.DOCTOR_PUBLIC_SENTENCES))
+    def test_public_doctor_sentences_and_values_name_no_command(self):
+        # Doctor refuses an unlisted rule or value when it reports one, so every
+        # Doctor test that reaches a rule also checks it has a public sentence.
+        self.assertLessEqual(set(create_vivary.DOCTOR_PUBLIC_VALUES), set(create_vivary.DOCTOR_PUBLIC_SENTENCES))
         for one, several in create_vivary.DOCTOR_PUBLIC_SENTENCES.values():
             for sentence in (one, several):
                 self.assertNotIn("--", sentence)
                 self.assertNotIn("create-vivary", sentence)
+        for values in create_vivary.DOCTOR_PUBLIC_VALUES.values():
+            for value in values:
+                self.assertFalse(value.startswith(("/", "~", "-")) or ":" in value or ".." in value, value)
+
+    def test_public_doctor_names_missing_ignores_and_files_from_vivary_lists(self):
+        workspace = self.root / "named"
+        rc, _, err = _run(["create", str(workspace), "--preset", "coding", "--json"])
+        self.assertEqual(rc, 0, err)
+        (workspace / "AGENTS.md").unlink()
+        gitignore = workspace / ".gitignore"
+        gitignore.write_text(gitignore.read_text(encoding="utf-8").replace("*.vivary-tmp\n", ""), encoding="utf-8")
+        public = create_vivary.doctor_workspace(workspace, public=True)
+        self.assertIn("a required workspace file is missing: AGENTS.md", public["errors"])
+        self.assertIn("a required privacy ignore is missing from .gitignore: *.vivary-tmp", public["errors"])
 
     def test_public_find_refuses_a_dash_leading_query_and_out_of_bound_limits(self):
         root = str(self.root)

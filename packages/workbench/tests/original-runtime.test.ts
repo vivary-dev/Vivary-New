@@ -650,7 +650,7 @@ test("children write receipts to their own files and the app moves them into the
   } finally { await f.cleanup(); }
 });
 
-test("a required component receipt must exist when its command succeeds", async () => {
+test("a write that finishes without its component receipt fails, and the app records it", async () => {
   const f = await fixture();
   const workspace = projectWorkspace("project-a", f.root);
   const apply = { verb: "adopt-apply" as const, planHash: "sha256:" + "a".repeat(64), requestId: randomUUID() };
@@ -664,8 +664,10 @@ test("a required component receipt must exist when its command succeeds", async 
   try {
     await assert.rejects(runner(false)(apply, workspace, context), { errorCode: "vivary_original_receipt_path" });
     await runner(true)(apply, workspace, context);
-    const lines = (await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8")).trim().split("\n");
-    assert.deepEqual(lines.map(line => JSON.parse(line).command), ["adopt"]);
+    const lines = (await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8")).trim().split("\n")
+      .map(line => JSON.parse(line));
+    assert.deepEqual(lines.map(line => [line.command, line.ok, line.exit_code, line.error_type, line.receipt_source]),
+      [["adopt-apply", false, 0, ORIGINAL_RUN_FAILURES.receiptPath, "app"], ["adopt", true, undefined, undefined, undefined]]);
   } finally { await f.cleanup(); }
 });
 
@@ -688,16 +690,19 @@ test("the owner's commands refuse a Native tool call, and project reads accept o
 });
 
 test("a component command that ends without its receipt is recorded by the app", async () => {
-  const f = await fixture();
-  const run = createOriginalCommandRunner({ parallelism: 4,
-    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
-    resolveWorkspace: async () => projectWorkspace("project-a", f.root),
-    execute: async () => ({ exitCode: 2, stdout: "", stderr: "", signal: null }) });
-  try {
-    assert.equal((await run(input, context)).exitCode, 2);
-    const receipt = JSON.parse(await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8"));
-    assert.deepEqual([receipt.command, receipt.ok, receipt.exit_code, receipt.receipt_source], ["review", false, 2, "app"]);
-  } finally { await f.cleanup(); }
+  for (const exitCode of [2, 0]) {
+    const f = await fixture();
+    const run = createOriginalCommandRunner({ parallelism: 4,
+      environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
+      resolveWorkspace: async () => projectWorkspace("project-a", f.root),
+      execute: async () => ({ exitCode, stdout: "", stderr: "", signal: null }) });
+    try {
+      assert.equal((await run(input, context)).exitCode, exitCode);
+      const receipt = JSON.parse(await readFile(path.join(f.data, "original-runtime", "receipts.jsonl"), "utf8"));
+      assert.deepEqual([receipt.command, receipt.ok, receipt.exit_code, receipt.receipt_source],
+        ["review", exitCode === 0, exitCode, "app"]);
+    } finally { await f.cleanup(); }
+  }
 });
 
 test("an appended component receipt leaves its private folder before the command returns", async () => {
@@ -719,7 +724,8 @@ test("an appended component receipt leaves its private folder before the command
     } });
   try {
     await run(input, context);
-    assert.equal(presentAfterAppend, false, "a crash before cleanup cannot append the receipt twice");
+    assert.equal(presentAfterAppend, false, "the appended receipt was deleted before the command returned");
+    assert.deepEqual(await readdir(path.join(f.data, "original-runtime")), ["receipts.jsonl"]);
   } finally { await f.cleanup(); }
 });
 
@@ -738,6 +744,28 @@ test("the sweep keeps an old run folder whose receipt it cannot append", async (
     await f.runner(input, context);
     assert.ok((await readdir(receiptDir)).includes("run-old"), "the unappended receipt waits for a later sweep");
     assert.equal(await readFile(outside, "utf8"), "");
+  } finally { await f.cleanup(); }
+});
+
+test("the sweep appends a crashed run's receipt once and removes an old request folder", async () => {
+  const f = await fixture();
+  const receiptDir = path.join(f.data, "original-runtime");
+  const appendedBefore = path.join(receiptDir, "run-appended");
+  const request = path.join(receiptDir, "request-old");
+  const line = JSON.stringify({ command: "adopt", ok: true, timestamp: "2026-09-24T00:00:00Z" }) + "\n";
+  try {
+    await mkdir(appendedBefore, { recursive: true });
+    await mkdir(request);
+    await writeFile(path.join(appendedBefore, "receipts.jsonl"), line);
+    await writeFile(path.join(request, "request.json"), "{}");
+    await writeFile(path.join(receiptDir, "receipts.jsonl"), line);
+    const eleven = new Date(Date.now() - 11 * 60_000);
+    await utimes(appendedBefore, eleven, eleven);
+    await utimes(request, eleven, eleven);
+    await f.runner(input, context);
+    assert.deepEqual(await readdir(receiptDir), ["receipts.jsonl"]);
+    const lines = (await readFile(path.join(receiptDir, "receipts.jsonl"), "utf8")).trim().split("\n");
+    assert.deepEqual(lines.map(entry => JSON.parse(entry).command), ["adopt", "review"], "the appended receipt was not repeated");
   } finally { await f.cleanup(); }
 });
 
@@ -908,11 +936,12 @@ test("shutdown stops running children, refuses waiters, and stops an admitted co
     await hold.admitted;
     const shutdown = shutdownOriginalCommands();
     assert.equal(shutdownOriginalCommands(), shutdown);
+    // Shutdown waits for the admitted command too, which is refused once its project check returns.
+    hold.release();
     await shutdown;
     const recorded = await readFile(path.join(f.directory, "data", "original-runtime", "receipts.jsonl"), "utf8").catch(() => "");
     assert.ok(recorded.includes('"command":"adopt-apply"') && recorded.includes('"ok":false'),
       "the stopped write was recorded before shutdown resolved");
-    hold.release();
     await Promise.all([stopped, refused, unspawned]);
     assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");
     await assert.rejects(f.review("project-b").result, /cannot start/);
