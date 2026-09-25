@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { createOriginalCommandRunner, runOriginalProcess, shutdownOriginalCommands } from "../server/original-runtime";
-import { context, fixture, projectWorkspace, scheduling } from "./original-runtime-harness.ts";
+import { runOriginalProcess, shutdownOriginalCommands } from "../server/original-runtime";
+import { scheduling } from "./original-runtime-harness.ts";
 
 test("shutdown stops running children, refuses waiters, and stops an admitted command before it spawns", async () => {
   const executed: string[] = [];

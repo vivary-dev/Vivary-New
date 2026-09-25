@@ -107,7 +107,7 @@ jobs:
           node --test packages/desktop/tests/main.test.mjs packages/desktop/tests/original-runtime.test.mjs packages/desktop/tests/package-snapshot.test.mjs packages/workbench/tests/startup.test.mjs
           node --test packages/workbench/tests/usage-metrics-cold-start.test.mjs packages/workbench/tests/native-thread-save.test.mjs packages/workbench/tests/native-thread-save-queue.test.mjs packages/workbench/tests/native-thread-save-store.test.mjs
           python packages/workbench/tests/managed-projects-python.test.py
-          pnpm --dir packages/workbench exec tsc --noEmit -p tsconfig.json
+          pnpm --dir packages/workbench typecheck
       - name: maintained workbench checks
         run: pnpm --dir packages/workbench test:maintained
       - name: install Python test runner

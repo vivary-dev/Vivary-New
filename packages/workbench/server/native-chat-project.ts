@@ -32,16 +32,20 @@ function projectConversationError(statusCode: number, statusMessage: string): Er
   return createError({ statusCode, statusMessage });
 }
 
-// The send guard is the HTTP boundary: a refusal from project services must
-// leave it as an h3 error, or h3 answers 500. A 401 or 403 keeps its message,
-// which project services write as a fixed sentence, and a 503 gets one here.
-function preserveAuthorizationError(error: unknown): void {
-  if (!error || typeof error !== "object" || !("statusCode" in error)) return;
-  if (error.statusCode === 401 || error.statusCode === 403) {
-    throw projectConversationError(error.statusCode,
-      error instanceof Error ? error.message : "Project conversation access is unavailable.");
-  }
-  if (error.statusCode === 503) throw projectConversationError(503, "Local project folders are not ready.");
+// Project services refuse with a 401, 403, or 503 and a fixed sentence.
+function accessRefusal(error: unknown): { statusCode: 401 | 403 | 503; message: string } | null {
+  if (!(error instanceof Error) || !("statusCode" in error)) return null;
+  const { statusCode } = error;
+  return statusCode === 401 || statusCode === 403 || statusCode === 503 ? { statusCode, message: error.message } : null;
+}
+
+// The send guard is the HTTP boundary: an error must leave it as an h3 error,
+// or h3 answers 500. A refusal keeps its status and sentence, and anything
+// else is the caller's 409.
+function conversationError(error: unknown, fallback: string): Error {
+  const refusal = accessRefusal(error);
+  return refusal ? createError({ statusCode: refusal.statusCode, statusMessage: refusal.message, cause: error })
+    : projectConversationError(409, fallback);
 }
 
 // Project services classify the scope Native pinned to this request. Native
@@ -60,12 +64,7 @@ async function matchChatScope(
     appId: "workbench",
     ...(identity.signal ? { signal: identity.signal } : {}),
   };
-  try {
-    return await dependencies.matchChatProject(context);
-  } catch (error) {
-    preserveAuthorizationError(error);
-    throw projectConversationError(409, "Project conversation access is unavailable.");
-  }
+  return dependencies.matchChatProject(context);
 }
 
 /**
@@ -76,17 +75,18 @@ export function createVivaryNativeChatProjectGuard(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
 ): (details: PrepareRequestDetails) => Promise<void> {
   return async details => {
-    const match = await matchChatScope(dependencies,
-      { owner: details.ownerEmail, orgId: dependencies.getOrgId(), caller: "http" });
+    let match: ChatScopeMatch;
+    try {
+      match = await matchChatScope(dependencies,
+        { owner: details.ownerEmail, orgId: dependencies.getOrgId(), caller: "http" });
+    } catch (error) {
+      throw conversationError(error, "Project conversation access is unavailable.");
+    }
     if (match.kind !== "project") return;
     try {
       await dependencies.resolveProjectWorkspace(match.context, match.projectId);
     } catch (error) {
-      preserveAuthorizationError(error);
-      throw projectConversationError(
-        409,
-        "This project folder is unavailable. Reconnect it from Projects.",
-      );
+      throw conversationError(error, "This project folder is unavailable. Reconnect it from Projects.");
     }
   };
 }
@@ -103,10 +103,20 @@ export function createVivaryNativeChatProjectResolver(
   dependencies: NativeChatProjectDependencies = defaultDependencies,
 ): (context: ActionRunContext | undefined) => Promise<{ projectId: string; projectContext: ActionRunContext }> {
   return async context => {
-    const match = context?.caller === "tool"
-      ? await matchChatScope(dependencies,
-        { owner: context.userEmail, orgId: context.orgId, caller: "tool", signal: context.signal })
-      : { kind: "not-project" as const };
+    let match: ChatScopeMatch = { kind: "not-project" };
+    try {
+      if (context?.caller === "tool") {
+        match = await matchChatScope(dependencies,
+          { owner: context.userEmail, orgId: context.orgId, caller: "tool", signal: context.signal });
+      }
+    } catch (error) {
+      // A tool call reports a refusal the way its other refusals do.
+      const refusal = accessRefusal(error);
+      fail(refusal?.message ?? "Project conversation access is unavailable.", {
+        errorCode: "vivary_project_read_access",
+        statusCode: refusal?.statusCode ?? 409,
+      });
+    }
     if (match.kind !== "project") {
       fail("Open this chat from a project to use project tools.", {
         errorCode: "vivary_project_read_scope",

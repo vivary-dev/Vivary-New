@@ -4,17 +4,20 @@ import type { Omission } from "./project-read-schema";
 // incomplete, so the panel claims only what the rows state outright. PR #90
 // records the facade change that would make these counts explicit.
 
-/** "3 private files excluded" from Git and workspace privacy, or null. */
+// Each row counts in one note only. Core's privacy policy also writes
+// sensitive names as `privacy_excluded`, and those belong to the sensitive note.
+const isSensitive = (omission: Omission) => omission.reason === "sensitive_name" || omission.reason === "sensitive_content";
+const total = (rows: Omission[]) => rows.reduce((sum, omission) => sum + omission.count, 0);
+
+/** "3 private files excluded" by Git or workspace privacy, or null. */
 export function privateExcluded(omissions: Omission[]): string | null {
-  const count = omissions.filter(omission => omission.kind === "privacy_excluded")
-    .reduce((sum, omission) => sum + omission.count, 0);
+  const count = total(omissions.filter(omission => omission.kind === "privacy_excluded" && !isSensitive(omission)));
   return count > 0 ? `${count} private file${count === 1 ? "" : "s"} excluded` : null;
 }
 
-/** Files and folders Tropo skipped because a name or the content looks sensitive, or null. */
+/** Files and folders left out because a name or the content looks sensitive, or null. */
 export function sensitiveExcluded(omissions: Omission[]): string | null {
-  const sensitive = omissions.filter(omission => omission.reason === "sensitive_name" || omission.reason === "sensitive_content");
-  const total = (rows: Omission[]) => rows.reduce((sum, omission) => sum + omission.count, 0);
+  const sensitive = omissions.filter(isSensitive);
   const folders = total(sensitive.filter(omission => omission.kind === "filesystem"));
   const files = total(sensitive.filter(omission => omission.kind !== "filesystem"));
   const parts = [files && `${files} file${files === 1 ? "" : "s"}`, folders && `${folders} folder${folders === 1 ? "" : "s"}`]

@@ -4,7 +4,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext, type AgentChatPluginOptions } from "@agent-native/core/server";
 import { H3, HTTPError } from "h3";
 import { projectChatScopeId } from "../server/chat-project-scope.mjs";
-import { createVivaryNativeChatProjectGuard, prepareVivaryNativeChatProject } from "../server/native-chat-project";
+import { createVivaryNativeChatProjectGuard, createVivaryNativeChatProjectResolver, prepareVivaryNativeChatProject } from "../server/native-chat-project";
 import type { ChatScopeMatch } from "../server/project-services.mjs";
 
 type PrepareDetails = Parameters<
@@ -73,7 +73,7 @@ test("a refused classification stops before any workspace read", async () => {
   let workspaceReads = 0;
   const count = async () => { workspaceReads += 1; return {}; };
   await assert.rejects(guardFor(refused, count).guard(details()), httpError(403, "refused"));
-  await assert.rejects(guardFor(unready, count).guard(details()), httpError(503, "Local project folders are not ready."));
+  await assert.rejects(guardFor(unready, count).guard(details()), httpError(503, "starting"));
   await assert.rejects(guardFor(new Error("catalog"), count).guard(details()), { statusCode: 409 });
   assert.equal(workspaceReads, 0);
 });
@@ -93,6 +93,14 @@ test("fails closed when project access is revoked or its folder is missing", asy
       statusMessage: "This project folder is unavailable. Reconnect it from Projects.",
     },
   );
+});
+
+test("a Native tool call gets a refusal with its own error code", async () => {
+  const refused = Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
+  const resolve = createVivaryNativeChatProjectResolver({ getOrgId: () => orgId,
+    matchChatProject: async () => { throw refused; }, resolveProjectWorkspace: async () => ({}) });
+  await assert.rejects(resolve({ caller: "tool", userEmail: ownerEmail, orgId, appId: "workbench" }),
+    { errorCode: "vivary_project_read_access", statusCode: 403, message: "Local project access is unavailable." });
 });
 
 test("a refusal reaches the client as its own status, not a server error", async () => {

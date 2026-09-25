@@ -8,7 +8,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
 import { ActionContractError } from "@agent-native/core/action";
 import { adoptionExecutionSchema, createAdoptionCommandRunner, createOriginalCommandRunner, createProjectReadRunner, ORIGINAL_RUN_FAILURES, originalChildEnvironment, originalCommandArguments, originalCommandSchema, runOriginalProcess } from "../server/original-runtime";
-import { bundle, context, fixture, flush, projectWorkspace, scheduling, type Execute, type Submission } from "./original-runtime-harness.ts";
+import { bundle, context, fixture, projectWorkspace, scheduling } from "./original-runtime-harness.ts";
 
 const input = { projectId: "project-a", command: { verb: "review" as const } };
 

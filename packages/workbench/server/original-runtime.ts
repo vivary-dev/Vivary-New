@@ -259,19 +259,18 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   const privateDir = policy.receipt !== "component" ? undefined
     : await mkdtemp(path.join(receiptDir, "run-")).catch(() => required ? receiptDirectoryError() : undefined);
   const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
-  // Control is a required component command, so it always has a private folder.
-  const requestFile = command.verb === "control" ? path.join(privateDir ?? receiptDirectoryError(), "request.json") : undefined;
+  // Exo refuses stdin when receipts are enabled, so control reads its request
+  // from a file in its private folder. Control is required, so the folder exists.
+  const request = command.verb === "control" && privateDir
+    ? { file: path.join(privateDir, "request.json"), text: command.request } : undefined;
   // Control's request exists only while its admitted child can read it.
-  const dropRequest = () => requestFile
-    ? rm(requestFile, { force: true, maxRetries: 3 }).then(() => undefined, () => undefined) : Promise.resolve();
+  const dropRequest = () => request
+    ? rm(request.file, { force: true, maxRetries: 3 }).then(() => undefined, () => undefined) : Promise.resolve();
   let appended = false;
   return {
-    requestFile,
-    // Exo refuses stdin when receipts are enabled, so control reads its request from this file.
+    requestFile: request?.file,
     stageRequest: async () => {
-      if (command.verb === "control" && requestFile) {
-        await writeFile(requestFile, command.request, { encoding: "utf8", mode: 0o600, flag: "wx" });
-      }
+      if (request) await writeFile(request.file, request.text, { encoding: "utf8", mode: 0o600, flag: "wx" });
     },
     dropRequest,
     childLog: policy.receipt === "reads-log" ? receiptLog : componentLog,
@@ -383,7 +382,7 @@ type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
   running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
-  /** Commands past their last pre-spawn check, until their receipt is recorded and control's request is gone. */
+  /** Commands registered before their request is staged, until their receipt is recorded and their private folder is gone. */
   recording?: Set<Promise<void>>;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
@@ -590,8 +589,9 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     await validateGovernedRequest(command, workspace);
     const receipts = await openReceipts(command, receiptDir, runtime.version);
     const recorded = Promise.withResolvers<void>();
+    // Shutdown waits for a started command until its receipt is recorded and its private folder is gone.
     const record = async (settled: Settled) => {
-      try { await receipts.settle(settled); } finally { recorded.resolve(); }
+      try { await receipts.settle(settled); } finally { await receipts.dispose(); recorded.resolve(); }
     };
     try {
       const invocation = originalCommandArguments(command, workspace.root, receipts.requestFile);
@@ -602,6 +602,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       let current: LocalProjectWorkspace;
       let result: Awaited<ReturnType<typeof runOriginalProcess>>;
       let started: number | undefined;
+      let ended: number | undefined;
       let durationMs = 0;
       try {
         current = await dependencies.resolveWorkspace(context, projectId);
@@ -624,14 +625,14 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
           const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
             originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
           started = startedAt;
-          result = await running;
-          durationMs = Math.round(performance.now() - started);
+          try { result = await running; } finally { ended = performance.now(); }
+          durationMs = Math.round(ended - started);
         } finally { await receipts.dropRequest(); }
       } catch (error) {
         // A command whose child started is recorded when it fails or is stopped.
         if (started !== undefined) {
           await record({ failure: isActionContractError(error) ? error.errorCode : "stopped",
-            durationMs: Math.round(performance.now() - started) }).catch(() => undefined);
+            durationMs: Math.round((ended ?? performance.now()) - started) }).catch(() => undefined);
         }
         throw error;
       } finally { release(); }

@@ -545,4 +545,9 @@ test("the panel's exclusion and incomplete notes claim only what Tropo's rows st
   const sensitive = [{ kind: "document", reason: "sensitive_content", count: 1 }, { kind: "document", reason: "sensitive_name", count: 1 },
     { kind: "filesystem", reason: "sensitive_name", count: 1 }];
   assert.equal(sensitiveExcluded(sensitive), "2 files and 1 folder left out because their name or content looks sensitive");
+  // Core's privacy policy writes a file under an id_rsa folder as privacy_excluded/sensitive_name.
+  const coreSensitive = [{ kind: "document", reason: "sensitive_name", count: 1 }, { kind: "filesystem", reason: "sensitive_name", count: 1 },
+    { kind: "privacy_excluded", reason: "git_ignored", count: 1 }, { kind: "privacy_excluded", reason: "sensitive_name", count: 1 }];
+  assert.equal(privateExcluded(coreSensitive), "1 private file excluded", "each excluded item counts once");
+  assert.equal(sensitiveExcluded(coreSensitive), "2 files and 1 folder left out because their name or content looks sensitive");
 });
