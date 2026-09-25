@@ -207,7 +207,9 @@ Current source or design entry points:
 
 Find files, history and sourced project knowledge.
 
-- Owns: Original files and Native history remain truth. Optional indexes are projections.
+Implementation status: issue #21's scoped file memory is implemented and unit-tested. Each project fact is one Markdown file in `.vivary/knowledge/` or the folders the `memory` role names, and Tropo types it as `vivary_fact`. Code and Full chat load the project's instructions, state, and facts at the start of every message. The Details Memory section remembers, corrects, and forgets facts through their files. The hosted GUI journey, restart, real-agent, and Windows acceptance checks are pending.
+
+- Owns: Original files and Native history remain truth. Optional indexes are projections. Authored facts are project files, and `.vivary/memory/` holds only optional provider state.
 - Calls: M02, M03, M05, M06, M07.
 - Replacement contract: Replace an index or retrieval provider without losing source references or private exclusions.
 - Conceptual request/result: Search / RetrieveScopedSources / CorrectMemory -> bounded matches and source references. Indexes never own the only copy.
@@ -217,6 +219,11 @@ Find files, history and sourced project knowledge.
 Current source or design entry points:
 
 - [packages/workbench/server/project-files.ts](../../../../packages/workbench/server/project-files.ts)
+- [packages/workbench/server/project-memory.ts](../../../../packages/workbench/server/project-memory.ts)
+- [packages/workbench/app/lib/project-memory-schema.ts](../../../../packages/workbench/app/lib/project-memory-schema.ts)
+- [packages/workbench/actions/vivary-project-memory.ts](../../../../packages/workbench/actions/vivary-project-memory.ts)
+- [packages/workbench/actions/vivary-project-memory-write.ts](../../../../packages/workbench/actions/vivary-project-memory-write.ts)
+- [packages/workbench/app/components/projects/ProjectMemoryPanel.tsx](../../../../packages/workbench/app/components/projects/ProjectMemoryPanel.tsx)
 - [packages/workbench/actions/vivary-code-state.ts](../../../../packages/workbench/actions/vivary-code-state.ts)
 - [packages/tropo](../../../../packages/tropo)
 

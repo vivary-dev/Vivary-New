@@ -89,6 +89,14 @@ source exclusions, authorize cross-project promotion, or claim complete historic
 
 - 2026-09-13: The desktop target selects configurable project-file memory, fresh-session recall, and external transcript storage. Basic memory is required. Optional semantic services are not.
 
+- 2026-09-25: Implemented and unit-tested on branch `feat/scoped-file-memory`. Tropo types
+  one Markdown file per fact as `vivary_fact` in `.vivary/knowledge/` and the memory role
+  folders. The creator bridge reports roles, the state file, memory folders, and ignored
+  folders. `project-memory.ts` renders one bounded block per message for Code and Full chat,
+  and the Details Memory section remembers, corrects, and forgets facts through their files.
+  Project chats lose Native's owner-wide memory actions. The GUI journey, restart,
+  real-agent, and Windows checks have not run, so acceptance is pending.
+
 ## Shared desktop and web behavior
 
 Memory save, recall, correction, and removal controls must work through desktop and narrow browser sessions. Memory remains in files on the connected host, with existing project and agent identity boundaries.

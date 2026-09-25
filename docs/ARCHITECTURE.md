@@ -149,44 +149,38 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #21 adds the owner Memory panel in Project details. The two owner
-actions join `VIVARY_OWNER_ACTIONS`, so the private proxy transport accepts
-them, and both keep `agentTool: false`, so the Full chat model still sees one
-Vivary tool. The panel mirrors `ProjectReadPanel`: it is keyed by project,
-drops stale responses, and reuses the Files conflict styling. Its
-`data-agent-native="project-memory-*"` hooks are for the pending browser
-journey. Typecheck passes. The panel has not been exercised in a browser yet.
+Issue #21 adds scoped file memory. The runtime flows, the data-boundary row,
+and the known gaps above describe it. The review, by layer:
 
-Issue #21 now loads project context into runs. Code sends call
-`projectMemory.contextForRun` for the bound project and pass the block to
-`sendVivaryCodeMessage`, which records `projectContextRevision` in run
-metadata. Full chat wires `extraContext` and `resolveActionSurface` from
-`native-chat-project.ts`, both classified by the same pinned-scope check as
-the send guard. A request-scoped surface makes Native downgrade trusted
-production code execution to sandboxed. Workbench runs Full chat with code
-execution off, so nothing changes today, and a test pins that. Tests assert
-the block reached the fake worker's `started.json` prompt and the
-`extraContext` output. The owner panel and the hosted, restart, real-agent,
-and Windows checks are still pending.
+- Engine: Tropo adds the built-in `vivary_fact` type for `.vivary/knowledge`
+  and the memory role paths after every owner table and overlay merged, in
+  both `_compose` and the public config path, so Doctor and Note check agree.
+  `workspace_context` reports roles, the state file, and the effective memory
+  folders from configuration. The creator adds the folders the workspace's
+  `.gitignore` rules ignore, and the bridge serves it as the read-only
+  `context` operation. No public CLI verb or Doctor output changed.
+- Workbench service: `project-memory.ts` memoizes that answer by the bytes of
+  `.vivary/workspace.toml` and `.gitignore`, refuses reserved, boundary,
+  ignored, linked, and blocked folders, and renders one block of at most
+  8,000 characters. `project-files.ts` gains a folder read, a content digest,
+  exclusive Create, and version-checked Remove on its mutation queue.
+- Runs: Code sends put the block before the engine prompt and record
+  `projectContextRevision`. Full chat wires `extraContext` and
+  `resolveActionSurface`, classified by the send guard's pinned-scope check.
+  A request-scoped surface makes Native downgrade trusted production code
+  execution to sandboxed. Workbench runs Full chat with code execution off,
+  so nothing changes today, and a test pins that.
+- Panel: the Memory section in Project details uses two owner actions that
+  are not agent tools, so the Full chat model still sees one Vivary tool.
+- Documents: the Tropo specification, the original CLI reference, the
+  module catalog, the Native owner map, the write-back source map, and the
+  18a packet log describe the same slice.
 
-Issue #21's Workbench memory service, `project-memory.ts`, reads the engine's settings through the
-bridge, memoized by the bytes of `.vivary/workspace.toml` and `.gitignore`.
-It admits memory folders by path (reserved, boundary, and ignored folders are
-refused) and by filesystem checks in `project-files.ts`, which now exports
-`readEditableFile`, `readFolder`, and `fileDigest` and adds Create and Remove.
-It renders one bounded context block and writes facts only through the file
-service. Unit tests cover the bounds, isolation between projects, conflicts,
-links, and failures.
-
-Issue #21 starts with the engine rule for authored project facts. Tropo adds
-the built-in `vivary_fact` type for `.vivary/knowledge` and the memory role
-paths after every owner table and overlay merged, in both `_compose` and the
-public config path, so Doctor and Note check agree. `workspace_context` reports
-roles, the state file, and the effective memory folders from configuration.
-The creator exposes it with the folders the workspace's `.gitignore` rules
-ignore, and the Workbench bridge serves it as the read-only `context`
-operation. No public CLI verb or Doctor output changed. Tropo, creator, bridge,
-and Cognee forget tests cover the rule.
+Evidence: Tropo, creator, bridge, Cognee forget, project-files,
+project-memory, local-code-agent (`started.json` prompts), native chat
+(`extraContext` output), project-read, and typecheck. The hosted GUI journey,
+restart, real-agent, and Windows checks have not run, so acceptance is
+pending.
 
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.
