@@ -8,7 +8,7 @@ Evidence: [Original review and control tools receipt](../receipts/09c-original-r
 Owner: Root-assigned governed-tool integrator
 Scope: Expose decide, review, impact, and control without replacing original policies or records.
 Verification-kind: runtime
-Needs: The 09b packet is still recorded in-progress. Owner acceptance of #20 is pending.
+Needs: The 09b packet is still recorded in-progress.
 Timebox: One governed-tool increment with focused refusals and a visible review journey.
 
 ## Goal
@@ -88,6 +88,9 @@ roots, bypass a source policy, launch workers, or create another executor/store.
   `1249572`, passed Review, Impact, Decide, claim, and release in Project
   details and a 14-check agent turn with a fake provider. Project files kept
   their snapshots. Owner acceptance and issue closure are pending.
+- 2026-09-26: PR #95 merged into `dev` as `7fb73bd` after all checks passed
+  on its head `1513a82`, and the owner closed issue #20. No real provider turn
+  has run. That belongs to issue #50.
 
 ## Shared desktop and web behavior
 
