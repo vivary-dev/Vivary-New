@@ -7229,6 +7229,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #50 is closed. PR #100 merged into `dev` as `8a5d262`, and the owner
+accepted the packaged run on 2026-09-26. Its receipt, the acceptance register,
+and the release target now record the merge and closure, link the seven
+follow-up issues, and mark issue #51's prerequisite as met. Documentation only,
+so the design description holds.
+
 Issue #50's receipt, the acceptance register, the release target, the Workbench
 README's Native provider setup, and the delivery section above record the packaged
 Windows run. Documentation only, so the design description holds.
