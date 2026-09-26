@@ -31,11 +31,18 @@ test("a chosen model already in the built-in list moves first without a duplicat
   assert.equal(groups[0].models.filter(model => model === "anthropic/claude-opus-4.8").length, 1);
 });
 
-test("a chosen provider without a key does not become the default or list its model", () => {
+test("a chosen provider without a key does not become the default", () => {
   const groups = buildChatModelGroups({ engines, configuredKeys: ["OPENAI_API_KEY"],
     currentEngineName: "ai-sdk:openrouter", currentModel: "stealth/space-bunny-alpha", currentChosen: true });
   assert.equal(groups.find(group => group.configured)?.engine, "ai-sdk:openai");
-  assert.deepEqual(listed(groups, "stealth/space-bunny-alpha"), []);
+});
+
+test("a chosen model is not added to a shown group that has no key", () => {
+  const groups = buildChatModelGroups({ engines, configuredKeys: ["OPENAI_API_KEY"],
+    currentEngineName: "anthropic", currentModel: "claude-custom-preview", currentChosen: true });
+  assert.ok(groups.some(group => group.engine === "anthropic" && !group.configured), "the keyless Claude group is shown");
+  assert.deepEqual(listed(groups, "claude-custom-preview"), []);
+  assert.equal(groups.find(group => group.configured)?.engine, "ai-sdk:openai");
 });
 
 test("a detected engine keeps core's order, so detection never picks the model", () => {
@@ -50,4 +57,12 @@ test("a model reported for an engine without a key is not added to its group", (
   const groups = buildChatModelGroups({ engines, configuredKeys: [],
     currentEngineName: "anthropic", currentModel: "gpt-5-6-luna", currentChosen: false });
   assert.deepEqual(listed(groups, "gpt-5-6-luna"), []);
+});
+
+test("with the Builder gateway lane, Builder stays first and the chosen model is still listed", () => {
+  const gateway = [...engines, { name: "builder", label: "Builder", supportedModels: ["gpt-5-6-luna"], requiredEnvVars: [], configured: true }];
+  const groups = buildChatModelGroups({ engines: gateway, configuredKeys: ["OPENROUTER_API_KEY"],
+    currentEngineName: "ai-sdk:openrouter", currentModel: "stealth/space-bunny-alpha", currentChosen: true });
+  assert.equal(groups[0].engine, "builder");
+  assert.deepEqual(listed(groups, "stealth/space-bunny-alpha"), ["ai-sdk:openrouter"]);
 });

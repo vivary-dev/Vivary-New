@@ -77,19 +77,24 @@ as an OpenRouter id saved in Settings, was never offered, and a new chat could
 run on another, possibly paid, model.
 
 `list-agent-engines.js` now reports `current.chosen`. It is true when a stored
-setting, an app default, or the deployment's configured engine chose the current
-engine and model, and false when Core detected them from available keys. Both
-chat surfaces, `MultiTabAssistantChat.js` and `use-chat-models.js`, pass it to
-`buildChatModelGroups` in `chat-model-groups.js`. When the chosen provider is
+setting or an app default chose the current model, and false when Core detected
+the engine or fell back to an engine's default model. Both chat surfaces pass it
+to `buildChatModelGroups` in `chat-model-groups.js`. When the chosen provider is
 configured, its group is listed first with the chosen model first, added when
-the built-in list lacks it, so the existing fallback selects it. A detected
-engine, or a chosen one without a key, keeps Core's order, and a model is never
-added to a group without a key.
+the built-in list lacks it. The multi-tab chat that Vivary uses then selects it
+for a new chat. A detected engine, or a chosen one without a key, keeps Core's
+order, and a model is never added to a group without a key. With the Builder
+gateway lane, Builder models stay first and the chosen model is only listed.
 
-A model already picked in a project's composer is stored for that project and
-still wins over a later change in Settings. That behavior predates this patch.
+`MultiTabAssistantChat.js` stores a project's composer pick with the Settings
+choice that was current when it was picked. When the chosen engine or model in
+Settings changes, a pick stored under an earlier choice, or under none, is
+cleared, so new chats follow Settings. Chats already open keep their own model.
+Core's `useChatModels` hook keeps its own selection rules. Vivary does not use it.
 
-Run `node --test packages/workbench/tests/chat-model-groups.test.mjs`.
+Run `node --test packages/workbench/tests/chat-model-groups.test.mjs`. The
+stored-pick rule runs inside the React chat, so the packaged Windows journey for
+#50 checks it.
 
 ## Codex integration
 
