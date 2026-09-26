@@ -131,7 +131,9 @@ The Electron window accepts its local server origin, isolates the renderer, deni
 
 The unified workspace, project registration and selection, scoped Code and Native history, bounded files and search, reviewed project preview, bundled original CLI, and selected original operations have implemented and tested slices. The [acceptance register](product/multi-project/desktop-acceptance-status.md) states their candidate-specific evidence. A passing component or source check does not complete the desktop and browser release journey.
 
-Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and earlier Windows packages. The final `e6ccddf5` Windows package's panel reads and agent turn were still pending in that receipt. Treat that acceptance as pending until the owning issue and register record the later result. PR #90 added [route-question research](product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
+Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and the Windows packages, including the final `e6ccddf5` package, which passed the panel reads and the agent turn. PR #94 recorded that result, and the owner closed issue #19 on 2026-09-26. PR #90 added [route-question research](product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
+
+Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. Its [receipt](product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. No packaged Windows run and no real provider turn have run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
 
 Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](product/multi-project/desktop-release.md), [module catalog](product/multi-project/specification/modules.md), and live issues own the precise current status.
 
@@ -148,6 +150,70 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #20 exposes Ozone review and impact, Strato decide, and Exo control to
+the owner and the Native agent. Flow 5 and the delivery gaps above describe
+it. The review, by layer:
+
+- Engine: Tropo adds `public_graph`, which builds nodes and edges only from its
+  privacy-filtered document snapshot and counts ids over 256 characters as
+  `unsafe_identifier`. Ozone adds `public_review` for the Structure and
+  Editorial packs and `public_impact`, whose private, missing, or unknown
+  target raises Tropo's `TargetUnavailableError`. Findings drop Ozone's
+  free-text message, and a broken-edge finding drops its target. Ozone loads
+  one cached Tropo engine on first use for both paths, and a missing Tropo
+  keeps the front door's install hint. The front door adds `review --public`
+  and `impact --public`. Plain review and impact output is unchanged. Strato,
+  Exo, and Core policy code did not change. Their new tests only pin that the
+  agent actor is accepted as a contributor and refused as an owner.
+- Workbench service: `project-read.ts` gains review and impact rows that parse
+  every field strictly and accept only rules from Ozone's public rule list.
+  `original-runtime.ts` moves review and impact to the read schema and decide
+  and control to a governed schema. `vivary-original-command` keeps create,
+  adopt, and pattern-state. The runner binds the actor from the caller, and a
+  tool call runs the read verbs and the governed commands only.
+  `governed-request.ts` derives the agent id, builds the whole Strato or Exo
+  document, and holds the positional path codec. `project-evaluate.ts` checks
+  the boundary, runs the evaluation, and names Strato or Exo as the refuser
+  when Core refuses inside an ordinary result. An agent's paths are checked by
+  text only, so no agent result depends on which files exist.
+- Actions: `vivary-project-evaluate` is an agent tool with `readOnly: false`,
+  because control takes the project's write lock, `dedupe: false`, and a
+  70-second timeout. `vivary-project-evaluate-owner` is the owner action. Both
+  are registered in the owner and Native action lists. The #21 review below
+  says the Full chat model sees one Vivary tool. From #20 it sees two,
+  `vivary-project-read` and `vivary-project-evaluate`.
+- Panel: Project details gains Review and Impact sections after Find, and an
+  Evaluate panel with Decide and Control. The panel has no actor, project,
+  authority, or clock field, names who evaluated each result, repeats the
+  server notice, and shows every refusal as an alert.
+- Documents: the 09c packet log, the receipt, the acceptance register, the
+  release target, and the Native owner map describe the same slice.
+
+The data and trust boundaries table holds without a new row. An evaluation
+saves nothing and returns `persisted: false`, so no new data owner exists.
+Each child run's receipt goes to the private receipt log under the existing
+CLI credentials and logs row. Refusals before a run write no request file and
+no receipt. Project files are not written, and the hosted journey checks the
+tree hash. Ozone already depended on Tropo, so the package dependency map is
+unchanged. Flow 5's sentence that governed writes keep their own plan,
+authority, and receipt rules holds, because no Strato, Exo, or Core policy
+code changed.
+
+Evidence: the Tropo, Ozone, front-door, Strato, Exo, and Core control Python
+suites, and the Workbench `project-evaluate`, `project-evaluate-form`,
+`project-read`, `original-runtime`, `native-actions`, and
+`native-chat-project` tests, with `typecheck`. The evaluate tests run real
+Strato and Exo through Python, and a differential test matches the codec to
+Core's own path normalizers on six Windows roots. A three-model review of
+`e96871d` and a two-model review of `24461c0` found the issues that
+`5aa6aa6`, `24461c0`, and `33cbcbb` fix, and a third review of `33cbcbb`
+found no new issues. On `33cbcbb` the packet's pytest command passed 275 tests,
+the Tropo and front-door suites passed 291 with 215 subtests, the CI tsx lists
+passed 69 and 383, the CI node lists passed 28 and 12, and `typecheck` passed.
+The 22-step hosted journey passed three runs in a row on `33cbcbb`. The
+[receipt](product/multi-project/receipts/09c-original-review-control-tools.md)
+holds that evidence. Packaged Windows acceptance is pending.
 
 Issue #21 adds scoped file memory. The runtime flows, the data-boundary row,
 and the known gaps above describe it. The review, by layer:

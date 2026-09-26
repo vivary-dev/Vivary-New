@@ -1,6 +1,6 @@
 # Desktop acceptance status
 
-Updated 2026-09-25. This page is the current tracked acceptance register for the
+Updated 2026-09-26. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
@@ -95,6 +95,33 @@ Native-provider turn ran. PR #93 merged into `dev` as `90ab1eb`. The
 unpublished `90ab1eb7` Windows archive passed Remember, isolation, restart,
 recall, Correct, and Forget through Full chat on 2026-09-25. No Code run was
 part of the Windows check.
+
+## Original review and control tools, September 26
+
+[Issue #20's receipt](receipts/09c-original-review-control-tools.md) records
+Review and Impact in Project details and in the `vivary-project-read` agent
+tool, and Decide and Control in a new Evaluate panel and a second agent tool,
+`vivary-project-evaluate`. Review and Impact use the original `--public` path,
+which builds its graph only from notes that Git and the workspace do not mark
+private. A link to a private note reads like a link to a missing id, and a
+private Impact target gets the same refusal as an unknown one. The server
+binds the actor. A tool call is always this project's agent, with contributor
+authority, and the owner evaluates as themself or as that agent. The agent may
+run decide, claim, release, expire_leases, and dependencies, and may not
+submit a receipt, verdict, or execution log. Nothing is saved.
+
+The 22-step hosted journey passed three runs in a row on `33cbcbb`, with a
+bundled runtime built from the same commit. It covers owner and agent parity,
+refusals of server-owned fields and owner-only operations, equal results for a
+claim under a private file and under a random name, no host path in tool
+results, unchanged authored files, one receipt per child run, and a 360-pixel
+layout. A fake provider drove the agent, so no real model ran.
+
+Two review rounds' findings are fixed in `5aa6aa6`, `24461c0`, and `33cbcbb`.
+A third review of `33cbcbb` found no new issues. Native has no capsule
+producer, so an agent
+decide needs a capsule the owner hands over. No packaged Windows package has
+been built from this work, so packaged Windows acceptance is pending.
 
 ## Conversation drafts, September 24
 
@@ -634,7 +661,7 @@ automations in #51 remain open.
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search stays in its owning issue. Scoped memory (#21) passed its hosted journey and one real Codex check and waits for packaged Windows acceptance |
-| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE | Complete GUI/agent flows for every original operation on the final product journey |
+| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE. Issue #20 adds public Review and Impact and owner and agent Decide and Control, with hosted fake-provider proof | Packaged Windows acceptance of #20, and complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
