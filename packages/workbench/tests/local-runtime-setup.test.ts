@@ -3,8 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { getVivaryRuntimeStatus, vivaryRuntimeStatusFromProbe } from "../server/local-runtime-setup.ts";
+import { getVivaryRuntimeStatus, resolveVivaryRuntimeCommand, vivaryRuntimeStatusFromProbe } from "../server/local-runtime-setup.ts";
 
 describe("local coding runtime status", () => {
   it("uses Claude's boolean status without returning account details", () => {
@@ -94,6 +95,48 @@ setTimeout(() => process.stdout.write('{"loggedIn":true,"email":"private@example
       if (previous.VIVARY_ACCESS_MODE === undefined) delete process.env.VIVARY_ACCESS_MODE; else process.env.VIVARY_ACCESS_MODE = previous.VIVARY_ACCESS_MODE;
       // guard:allow-env-credential - Restore only the test's previous CLI nesting marker.
       if (previous.CLAUDECODE === undefined) delete process.env.CLAUDECODE; else process.env.CLAUDECODE = previous.CLAUDECODE;
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("coding runtime launch environment", () => {
+  it("keeps Native provider keys and server secrets out of Codex and Claude Code", { skip: process.platform === "win32" }, async () => {
+    // Agent-Native does not export its provider list, so read the installed copy to catch a new provider.
+    const coreServer = fileURLToPath(import.meta.resolve("@agent-native/core/server"));
+    const { PROVIDER_ENV_VARS } = await import(pathToFileURL(path.join(path.dirname(coreServer), "..", "agent", "engine", "provider-env-vars.js")).href);
+    const credentials: string[] = [...PROVIDER_ENV_VARS, "DEEPSEEK_API_KEY", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY",
+      "BETTER_AUTH_SECRET", "A2A_SECRET", "SECRETS_ENCRYPTION_KEY", "VIVARY_SECRETS_ENCRYPTION_KEY",
+      "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+      "DATABASE_URL", "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "VIVARY_DATABASE_URL_UNPOOLED",
+      "OpenRouter_Api_Key"];
+    const kept = { HTTPS_PROXY: "http://127.0.0.1:9", LANG: "C.UTF-8" };
+    const touched = [...credentials, "CODEX_API_KEY", "PATH", ...Object.keys(kept)];
+    // guard:allow-env-credential - Snapshot only the names this test seeds, to restore them afterward.
+    const previous = new Map(touched.map(name => [name, process.env[name]]));
+    const fixture = await mkdtemp(path.join(tmpdir(), "vivary-runtime-environment-"));
+    try {
+      for (const command of ["codex", "claude"]) await writeFile(path.join(fixture, command), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+      // guard:allow-env-credential - Locate only the disposable CLI fixtures before normal executables.
+      process.env.PATH = fixture + path.delimiter + previous.get("PATH");
+      // guard:allow-env-credential - Seed synthetic nonsecret markers under credential names.
+      for (const name of [...credentials, "CODEX_API_KEY"]) process.env[name] = `synthetic-${name}`;
+      // guard:allow-env-credential - Seed ordinary settings a coding runtime still needs.
+      Object.assign(process.env, kept);
+
+      for (const engine of ["codex-cli", "claude-cli"] as const) {
+        const launch = await resolveVivaryRuntimeCommand(engine);
+        assert.ok(launch, `${engine} resolves from the fixture`);
+        const received = new Set(Object.keys(launch.env).map(name => name.toUpperCase()));
+        assert.deepEqual(credentials.filter(name => received.has(name.toUpperCase())), [], `${engine} receives no server credential`);
+        for (const [name, value] of Object.entries(kept)) assert.equal(launch.env[name], value, `${engine} keeps ${name}`);
+      }
+      assert.equal((await resolveVivaryRuntimeCommand("codex-cli"))?.env.CODEX_API_KEY, undefined, "Codex keeps its ChatGPT login");
+    } finally {
+      for (const [name, value] of previous) {
+        // guard:allow-env-credential - Restore only the names this test seeded.
+        if (value === undefined) delete process.env[name]; else process.env[name] = value;
+      }
       await rm(fixture, { recursive: true, force: true });
     }
   });
