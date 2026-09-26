@@ -71,12 +71,14 @@ and the chat. Its bundled plain Doctor named a Git-ignored note, and public
 Doctor did not. A child's receipt reached the shared log, no per-run folder
 remained, and the fixtures kept their hashes and modification times. The
 final `e6ccddf5` archive, SHA-256
-`16dc77871a3b49258c2a7755e12f43b8eef0a7341f2489af5a18683ca97847fd`, is built.
-Its panel reads and agent turn have not run yet.
+`16dc77871a3b49258c2a7755e12f43b8eef0a7341f2489af5a18683ca97847fd`, then
+passed the panel reads and the agent turn on 2026-09-25. Project health,
+Check, Find, optional features, and receipts displayed, and the agent
+received Doctor, Check, and Find in one turn with no host path or private note.
 
 The same work fixed a Native agent panel crash after refused tool turns through
 the existing Core patch, with a regression test. Ten review panels' findings
-are fixed. PR #89 delivers the work into `dev` after the owner approves the
+are fixed. PR #89 merged into `dev` as `bd57c4b` after the owner approved the
 Entire trail.
 
 ## Scoped file memory, September 25
@@ -84,13 +86,15 @@ Entire trail.
 [Issue #21's receipt](receipts/18a-scoped-file-memory.md) records project facts
 saved as files, loaded by Code and Full chat at every message, and corrected
 and forgotten from the Memory panel. The 11-step hosted journey passed three
-runs in a row on `17e2996e` with a bundled runtime built from the same commit,
-a fake provider, and no Git on the app's PATH. It covered two projects,
+runs in a row on the final code commit `285f65c7` with a bundled runtime built
+from the same commit, a fake provider, and no Git on the app's PATH. It covered two projects,
 isolation, a restart, Correct and Forget in an open chat, a refused folder, and
 a 390-pixel panel. One real Codex conversation recalled a fact after a restart
 and used the corrected fact in the same thread. No real Claude or
-Native-provider turn ran. Packaged Windows acceptance is pending, and the work
-is not accepted.
+Native-provider turn ran. PR #93 merged into `dev` as `90ab1eb`. The
+unpublished `90ab1eb7` Windows archive passed Remember, isolation, restart,
+recall, Correct, and Forget through Full chat on 2026-09-25. No Code run was
+part of the Windows check.
 
 ## Conversation drafts, September 24
 

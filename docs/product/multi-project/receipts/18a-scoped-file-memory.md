@@ -6,8 +6,8 @@ Issue: [#21](https://github.com/vivary-dev/Vivary-New/issues/21)
 Latest verified source: `285f65c76e4bc45756f8b89382cb9ffda257d60a`
 Hosted result: the 11-step journey passed three runs in a row on `285f65c7`, the final code commit (runs `run-285f65c-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit (`issue21-build-285f65c7.json` exit 0, runtime manifest `285f65c7`). It also passed three full runs on each of `d1e24b9`, `22d4cc0` (runs 01, 02, and 04), and `6f5fb707` (runs 04, 08, and 09), and three runs in a row on every earlier head back to `4fbc54ef`. Runs that stopped early on those heads stopped for the two Workbench reasons under Observations, never in a memory step. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns per check. It passed on `d1e24b9` (run `codex-d1e24b9-01`) and `22d4cc0` (run `codex-22d4cc0-01`). After a restart, a fresh Codex conversation answered "The relay budget is 43 credits per week" with no tool events, and after a Correct the same resumed thread answered "47 credits per week". It also passed on every earlier head from `17e2996e` to `0e9ae6b`. On `1bd2242` and `6f5fb707` the Codex CLI on Zo answered 401 Unauthorized during a credential refresh, and it recovered before `22d4cc0`. `285f65c` changes only file removal and cleanup, not the Code prompt path. No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
-Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and the Codex GitHub review ran on each fix round. The final targeted verification of `285f65c` found the removal and cleanup fixes clean and one nit, recorded under Observations. This receipt's own commit changes only documentation. The work is not accepted until packaged Windows acceptance runs.
+Packaged Windows result: the unpublished `90ab1eb7` package, built from the PR #93 merge, passed Remember, isolation, restart, recall, Correct, and Forget through Full chat on 2026-09-25, described under Packaged Windows journey. No Code run was part of the Windows check.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) merged into `dev` as `90ab1eb` after the owner approved its Entire trail and CI passed. Three-model reviews and the Codex GitHub review ran on each fix round. The final targeted verification of `285f65c` found the removal and cleanup fixes clean and one nit, recorded under Observations. Issue closure waits for the owner.
 
 ## Result
 
@@ -312,8 +312,42 @@ cover these fixes until the lead reruns hosted QA:
   component for a link again. Otherwise they refuse and delete nothing. File
   identities are compared as bigints.
 
+## Packaged Windows journey
+
+The unpublished `90ab1eb7` Windows ZIP has 3,118 files, 223,806,285 bytes,
+and SHA-256 `0b4af397a49815046ab6a3fbc1983d6dc2b320195abe5855d9c878624c9282a3`. Its
+Workbench metadata reports `sourceCommitVerified: false`, so source identity
+rests on the clean build and package receipts. The EXE opened the retained
+isolated profile from the #19 check with no provider credentials and a local
+fake model provider. Git was on the app's PATH, and neither memory project was
+a Git repository.
+
+1. The GUI created two thin projects, MemoryAlpha and MemoryBeta. Remember
+   saved "The relay budget is 43 credits per week" in MemoryAlpha, and
+   `.vivary/knowledge/relay-budget.md` appeared. Remember saved "Deploys go
+   out on Tuesdays" in MemoryBeta.
+2. After an app restart, both projects returned. A fresh Full chat in each
+   project received only its own fact, at revisions `ctx-081815a3c1f8` and
+   `ctx-de185d92150a`, and the block said the memory tools are unavailable.
+3. Correct changed the fact to 47 credits. The next message in the open
+   MemoryAlpha chat received the corrected fact at `ctx-f183b53e7457`.
+4. Forget showed that transcripts, Codex thread history, Git history, and
+   backups may still hold the fact, then removed the file. The next message
+   in the same chat received no facts at `ctx-228691c92b35`.
+
+None of the four model requests offered `resources`, `save-memory`,
+`delete-memory`, `chat-history`, or a database tool, and no project block held
+a host path. Core's compact resources note still names save-memory, as on Zo.
+A normal close left no Vivary process, the provider and app ports closed, and
+the RelayService and FieldNotes fixtures matched their snapshots from before
+the run in hashes, sizes, and modification times.
+
+The first Correct attempt appended the new text to the old text, because the
+automation's Ctrl+A did not select the field's text. A second Correct with
+the text selected saved 47. The cause was not isolated.
+
 ## Not run
 
-- Windows packaged acceptance.
+- A Code run on the Windows package.
 - The narrow-browser journey on a real phone.
 - The journey with optional semantic providers enabled.
