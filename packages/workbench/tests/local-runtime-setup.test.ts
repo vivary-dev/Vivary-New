@@ -134,12 +134,15 @@ describe("coding runtime launch environment", () => {
       "SLACK_WEBHOOK", "NETLIFY_DATABASE_URL_UNPOOLED", "NITRO_SSL_KEY", "PUBLIC_KEYS", "DB_PASS", "GITHUB_PAT",
       "SENTRY_DSN", "NOTIFICATIONS_WEBHOOK_AUTH", "PROXY_AUTH", "MCP_SERVERS", "mcp_servers",
       "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_12", "MYSQL_PWD", "DOCKER_AUTH_CONFIG",
-      "POSTGRES_URL_NON_POOLING", "MONGODB_URI", "REDIS_URL", "KV_REST_API_URL", "SYSTEM_ACCESSTOKEN", "Jwt__SecretKey"];
+      "POSTGRES_URL_NON_POOLING", "MONGODB_URI", "REDIS_URL", "KV_REST_API_URL", "SYSTEM_ACCESSTOKEN", "Jwt__SecretKey",
+      "DATABASE_URL", "Database__Url", "REDISCLOUD_URL", "JAWSDB_URL", "MONGOLAB_URI", "CLOUDAMQP_URL", "CELERY_BROKER_URL",
+      "SPRING_DATASOURCE_URL", "GIT_CONFIG_PARAMETERS", "BW_SESSION", "OP_SESSION_my_team"];
     const kept = ["SSH_AUTH_SOCK", "SSH_ASKPASS", "GIT_ASKPASS", "PATH", "PATHEXT", "PATHNAME_STYLE",
       "DBUS_SESSION_BUS_ADDRESS", "WT_SESSION", "SESSIONNAME", "TERM_SESSION_ID", "KEYBOARD_LAYOUT", "MONKEY_MODE",
       "AUTH_DISABLED", "BETTER_AUTH_URL", "OAUTH_REDIRECT_URL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
       "PASSENGER_APP_ENV", "COMPATIBILITY_MODE", "GCM_CREDENTIAL_STORE", "PWD", "OLDPWD", "APP_URL", "PGDATA",
-      "REDIS_HOST", "DATABASE_NAME"];
+      "REDIS_HOST", "DATABASE_NAME", "GCM_AZREPOS_CREDENTIALTYPE", "NUGET_CREDENTIALPROVIDERS_PATH", "COOKIECUTTER_CONFIG",
+      "TIKTOKEN_CACHE_DIR", "CALLBACK_URL", "SITE_URL", "URL", "DB_HOST"];
     const launch = codingRuntimeEnvironment(Object.fromEntries([...withheld, ...kept].map(name => [name, "synthetic"])));
     assert.deepEqual(withheld.filter(name => name in launch), [], "credential-shaped names are withheld");
     assert.deepEqual(kept.filter(name => !(name in launch)), [], "ordinary names are kept");

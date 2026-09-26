@@ -38,14 +38,21 @@ const pending = new Map<VivaryCodeEngine, Promise<VivaryRuntimeStatus>>();
 // rule covers them rather than a list. Fragments match anywhere in a name, so PGPASSWORD matches.
 // Short words match whole "_"-separated words, so SSH_AUTH_SOCK, GIT_ASKPASS, and PATH stay.
 const CREDENTIAL_FRAGMENTS = ["PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "CREDENTIAL",
-  "CONNECTION_STRING", "CONNECTIONSTRING", "COOKIE", "WEBHOOK", "DATABASE_URL"];
+  "CONNECTION_STRING", "CONNECTIONSTRING", "COOKIE", "WEBHOOK"];
 const CREDENTIAL_WORDS = new Set(["KEY", "KEYS", "PASS", "PAT", "DSN"]);
 // MCP_SERVERS holds whole server configurations, including their headers and environments.
-const CREDENTIAL_NAMES = new Set(["MCP_SERVERS", "MYSQL_PWD", "DOCKER_AUTH_CONFIG"]);
-// Database URLs can carry a password, as in POSTGRES_URL_NON_POOLING or MONGODB_URI.
-const DATABASE_URL_FORM = /(^|_)(DATABASE|DB|POSTGRES|POSTGRESQL|PG|MYSQL|MARIADB|MONGO|MONGODB|REDIS|KV)(_[A-Z0-9]+)*_(URL|URI)(_|$)/;
-// Git Credential Manager needs this on Linux, and its value names a store type, not a secret.
-const ORDINARY_NAMES = new Set(["GCM_CREDENTIAL_STORE"]);
+// GIT_CONFIG_PARAMETERS carries `git -c` values such as http.extraheader. BW_SESSION and
+// OP_SESSION_<account> unlock the Bitwarden and 1Password command-line vaults.
+const CREDENTIAL_NAMES = new Set(["MCP_SERVERS", "MYSQL_PWD", "DOCKER_AUTH_CONFIG", "GIT_CONFIG_PARAMETERS", "BW_SESSION"]);
+const CREDENTIAL_PREFIXES = ["OP_SESSION_"];
+// Database and message broker URLs can carry a password, as in POSTGRES_URL_NON_POOLING,
+// MONGODB_URI, or CELERY_BROKER_URL. A URL or URI word after such a word marks one.
+const DATABASE_STEMS = ["DATABASE", "DATASOURCE", "POSTGRES", "PG", "MYSQL", "MARIADB", "MONGO", "REDIS", "KV",
+  "BROKER", "AMQP", "CLOUDAMQP"];
+// These match the rule, but tools need them and they hold no secret. Git Credential Manager
+// needs its store type on Linux.
+const ORDINARY_NAMES = new Set(["GCM_CREDENTIAL_STORE", "GCM_AZREPOS_CREDENTIALTYPE", "NUGET_CREDENTIALPROVIDERS_PATH",
+  "COOKIECUTTER_CONFIG", "TIKTOKEN_CACHE_DIR"]);
 // Git reads GIT_CONFIG_COUNT with KEY_n and VALUE_n as complete pairs and exits if one is missing.
 // A value can hold an authorization header, so the whole group is withheld together.
 const GIT_CONFIG_GROUP = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
@@ -53,12 +60,19 @@ const GIT_CONFIG_GROUP = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
 const SESSION_MARKERS = new Set([...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
   "CODEX_THREAD_ID", "CODEX_SESSION_ID"].map(name => name.toUpperCase()));
 
+function isDatabaseUrl(words: string[]): boolean {
+  const url = words.findLastIndex(word => word === "URL" || word === "URI");
+  return url > 0 && words.slice(0, url)
+    .some(word => word.endsWith("DB") || DATABASE_STEMS.some(stem => word.startsWith(stem)));
+}
+
 function isCredentialName(upperName: string): boolean {
   if (ORDINARY_NAMES.has(upperName)) return false;
   const words = upperName.split("_");
   return CREDENTIAL_FRAGMENTS.some(fragment => upperName.includes(fragment))
     || words.some(word => CREDENTIAL_WORDS.has(word)) || words.at(-1) === "AUTH"
-    || CREDENTIAL_NAMES.has(upperName) || DATABASE_URL_FORM.test(upperName) || GIT_CONFIG_GROUP.test(upperName);
+    || CREDENTIAL_NAMES.has(upperName) || CREDENTIAL_PREFIXES.some(prefix => upperName.startsWith(prefix))
+    || isDatabaseUrl(words) || GIT_CONFIG_GROUP.test(upperName);
 }
 
 // Windows environment names are case-insensitive, so names compare in upper case.
