@@ -1456,6 +1456,41 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac990421
 +                                            : props.composerDisabledPlaceholder })] }, tabId));
                      })] })] }));
  }
+diff --git a/dist/client/agent-chat-adapter.js b/dist/client/agent-chat-adapter.js
+index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb35e15f5c 100644
+--- a/dist/client/agent-chat-adapter.js
++++ b/dist/client/agent-chat-adapter.js
+@@ -793,9 +793,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
+     }
+     return messages;
+ }
+-function assistantUiMessagesToStructuredHistory(messages) {
++/**
++ * Vivary #50: replayed tool-call ids are nine alphanumeric characters. Some
++ * providers reached through OpenRouter keep only the first nine characters of
++ * an id, so `history_tc_1` and `history_tc_2` collided and every follow-up after
++ * a turn with several tool calls failed with `provider_unavailable`. A one-letter
++ * prefix keeps history and continuation ids apart within one request.
++ */
++export function replayToolCallId(prefix, n) {
++    return `${prefix}${n.toString(36).padStart(8, "0")}`;
++}
++export function assistantUiMessagesToStructuredHistory(messages) {
+     let nextId = 0;
+-    const nextToolCallId = () => `history_tc_${++nextId}`;
++    const nextToolCallId = () => replayToolCallId("h", ++nextId);
+     const structured = [];
+     for (const message of messages) {
+         if (message.role === "user") {
+@@ -1953,7 +1963,7 @@ export function createAgentChatAdapter(options) {
+             const attemptedRunIds = [];
+             let authRecoveryAttempted = false;
+             let continuationToolCallCounter = 0;
+-            const nextContinuationToolCallId = () => `continuation_tc_${++continuationToolCallCounter}`;
++            const nextContinuationToolCallId = () => replayToolCallId("c", ++continuationToolCallCounter);
+             const runDebugContextDetails = () => {
+                 const pageOrigin = typeof window !== "undefined" && window.location?.origin
+                     ? window.location.origin
 diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
 index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a3454d087 100644
 --- a/dist/client/chat/message-components.d.ts

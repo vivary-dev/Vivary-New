@@ -155,6 +155,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The packaged Windows run for issue #50 found a third defect. Core replays the
+earlier turns of a Native chat with generated tool-call ids, `history_tc_<n>`
+and `continuation_tc_<n>`. Some providers reached through OpenRouter keep only
+the first nine characters of an id, so those ids collided and every follow-up
+after a turn with several tool calls ended with `provider_unavailable`. A
+direct replay of the logged request confirmed that ids differing within nine
+characters pass. The maintained Core patch now generates nine-character
+alphanumeric ids, `h` or `c` plus eight base-36 digits. Core still drops the
+provider's in-stream error text and shows only "Engine stream error", and the
+Send button has no accessible name. Both are recorded for their own issues. No
+flow, owner, or boundary changed.
+
 Issue #50 found two defects that stopped real Native providers in the
 packaged app. Agent-Native bakes the names in `packages/workbench/package.json`
 `dependencies` and `optionalDependencies` into the built server, and treats an AI SDK engine as installed

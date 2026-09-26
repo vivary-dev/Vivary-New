@@ -104,6 +104,25 @@ hold the rule, so it is tested without React. Run
 `node --test packages/workbench/tests/chat-model-groups.test.mjs`. The packaged
 Windows journey for #50 checks the React wiring.
 
+## Replayed tool-call ids
+
+Issue #50 changes `dist/client/agent-chat-adapter.js`. When a Native chat sends
+a follow-up, Core replays the earlier turns and gives every earlier tool call a
+new id, `history_tc_<n>` for history and `continuation_tc_<n>` for a continued
+run. Some providers reached through OpenRouter keep only the first nine
+characters of a tool-call id. `history_tc_1` and `history_tc_2` then collide,
+and the provider ends the stream with `provider_unavailable`. On the packaged
+Windows app with `stealth/space-bunny-alpha`, every follow-up after a turn with
+several tool calls failed this way, while ids that differ within nine
+characters passed.
+
+`replayToolCallId` now makes each replayed id a one-letter prefix, `h` or `c`,
+and eight base-36 digits, such as `h00000001`. The ids are nine alphanumeric
+characters, which also meets the strictest known rule, and the prefix keeps
+history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
+exported so the test can replay a turn. Run
+`node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's
