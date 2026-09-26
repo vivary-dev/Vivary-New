@@ -407,7 +407,9 @@ after `3205557`:
   `folder = "./facts"` wins over the role `facts`.
 - A confirmed date must be a real calendar date. The panel clears its view when
   the project becomes unavailable and does not name a refused folder as the
-  storage location.
+  storage location. Remove also takes the file's identity a few system calls after its version
+check, so a save by another program inside that window can be the file
+Forget deletes. A follow-up covers taking the identity from the version check.
 
 The lead then reported that the hosted journey passed three runs and the real
 Codex check passed on `22d4cc0`, which holds these fixes.

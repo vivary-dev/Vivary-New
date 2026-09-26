@@ -3,11 +3,11 @@
 Evidence-record: 18a
 Date: 2026-09-25
 Issue: [#21](https://github.com/vivary-dev/Vivary-New/issues/21)
-Latest verified source: `6f5fb707442c6149c439dce80f7370b459c9e22f`
-Hosted result: the 11-step journey passed three full runs on `6f5fb707` (runs `run-6f5fb70-04`, `08`, and `09`), with Workbench and the bundled Python runtime built from that clean commit (`issue21-build-6f5fb707.json` exit 0, runtime manifest `6f5fb707`). Six other runs on that commit stopped before any memory step failed, for the two Workbench reasons under Observations. Earlier heads passed three runs in a row each: `4fbc54ef`, `17e2996e`, `2324e7f`, `865f39e` (after a journey helper fix), `a7251ea`, `05bed13`, `aa568d9`, `0e9ae6b`, and `1bd2242`. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
-Real-agent result: one Codex account ran two model turns per check. The check passed on `17e2996e`, `2324e7f`, `865f39e`, `a7251ea`, `05bed13`, `aa568d9`, and `0e9ae6b` (run `codex-0e9ae6b-01`). On `1bd2242` and `6f5fb707` the Codex service answered 401 Unauthorized during a credential refresh on Zo, so no model turn ran there. The commits after `0e9ae6b` change the ignore matcher, the budget, and one notice that shows only when the ignore check is limited. They do not change how a Code turn builds its prompt. No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
+Latest verified source: `285f65c76e4bc45756f8b89382cb9ffda257d60a`
+Hosted result: the 11-step journey passed three runs in a row on `285f65c7`, the final code commit (runs `run-285f65c-01` to `03`), with Workbench and the bundled Python runtime built from that clean commit (`issue21-build-285f65c7.json` exit 0, runtime manifest `285f65c7`). It also passed three full runs on each of `d1e24b9`, `22d4cc0` (runs 01, 02, and 04), and `6f5fb707` (runs 04, 08, and 09), and three runs in a row on every earlier head back to `4fbc54ef`. Runs that stopped early on those heads stopped for the two Workbench reasons under Observations, never in a memory step. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
+Real-agent result: one Codex account ran two model turns per check. It passed on `d1e24b9` (run `codex-d1e24b9-01`) and `22d4cc0` (run `codex-22d4cc0-01`). After a restart, a fresh Codex conversation answered "The relay budget is 43 credits per week" with no tool events, and after a Correct the same resumed thread answered "47 credits per week". It also passed on every earlier head from `17e2996e` to `0e9ae6b`. On `1bd2242` and `6f5fb707` the Codex CLI on Zo answered 401 Unauthorized during a credential refresh, and it recovered before `22d4cc0`. `285f65c` changes only file removal and cleanup, not the Code prompt path. No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and a Codex GitHub review ran on each fix round, and two final verifiers found no critical or warning defect in `6f5fb707` after about 3,300 more randomized cases against real Git with no misses. This receipt's own commit changes only documentation. The lead reported that the hosted journey passed three runs and the real Codex check passed on `22d4cc0`, which holds the fixes for the Codex review findings. Those runs are not recorded in this receipt. The lead reported that the hosted journey passed three runs and the real Codex check passed on `d1e24b9`, which holds the first final verification fixes. Those runs are not recorded in this receipt. The fixes after `d1e24b9` are covered by unit tests until the lead reruns hosted QA. The work is not accepted until packaged Windows acceptance runs.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and the Codex GitHub review ran on each fix round. The final targeted verification of `285f65c` found the removal and cleanup fixes clean and one nit, recorded under Observations. This receipt's own commit changes only documentation. The work is not accepted until packaged Windows acceptance runs.
 
 ## Result
 
@@ -92,6 +92,13 @@ turns remain [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50).
 - On `1bd2242` and `6f5fb707` the Codex CLI on Zo answered 401 Unauthorized
   while it refreshed its credential. One retry stalled on the database lock
   above. The credential is the owner's to repair.
+
+- Known remove window: `remove`, which Forget uses, takes the file's
+  identity a few system calls after its version check. If another program
+  replaces the fact at the same path inside that window, Forget can delete
+  the newer save. The file stays inside the project, and the window existed
+  before the final fixes. A separate follow-up covers taking the identity
+  from the version check itself.
 
 Journey script bugs fixed during QA are not product findings.
 
