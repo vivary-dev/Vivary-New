@@ -89,12 +89,18 @@ gateway lane, Builder models stay first and the chosen model is only listed.
 `MultiTabAssistantChat.js` stores a project's composer pick with the Settings
 choice that was current when it was picked. When the chosen engine or model in
 Settings changes, a pick stored under an earlier choice, or under none, is
-cleared, so new chats follow Settings. Chats already open keep their own model.
-Core's `useChatModels` hook keeps its own selection rules. Vivary does not use it.
+cleared, so new chats follow Settings. Open tabs that were following the pick
+are pinned to it first, so a chat already open keeps its model. Another window
+on the same project drops the pick and refreshes when it sees the clear. Two
+clears happen without a model change in Settings: the first load after this
+patch, when a pick from before it has no Settings stamp, and a key save that
+makes a saved but unusable choice usable. Core's `useChatModels` hook keeps its
+own selection rules. Vivary does not use it.
 
-Run `node --test packages/workbench/tests/chat-model-groups.test.mjs`. The
-stored-pick rule runs inside the React chat, so the packaged Windows journey for
-#50 checks it.
+`chosenSettingsKey` and `storedPickYieldsToSettings` in `chat-model-groups.js`
+hold the rule, so it is tested without React. Run
+`node --test packages/workbench/tests/chat-model-groups.test.mjs`. The packaged
+Windows journey for #50 checks the React wiring.
 
 ## Codex integration
 

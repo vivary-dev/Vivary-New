@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // The maintained Core patch makes a provider and model the user chose the default for a new Native
 // chat. Core does not export this module, so load the installed, patched copy.
 const clientDir = path.dirname(fileURLToPath(import.meta.resolve("@agent-native/core/client")));
-const { buildChatModelGroups } = await import(pathToFileURL(path.join(clientDir, "chat-model-groups.js")).href);
+const { buildChatModelGroups, chosenSettingsKey, storedPickYieldsToSettings } = await import(pathToFileURL(path.join(clientDir, "chat-model-groups.js")).href);
 
 const engines = [
   { name: "anthropic", label: "Claude", supportedModels: ["claude-haiku-4-5-20251001", "claude-sonnet-5"], requiredEnvVars: ["ANTHROPIC_API_KEY"] },
@@ -65,4 +65,22 @@ test("with the Builder gateway lane, Builder stays first and the chosen model is
     currentEngineName: "ai-sdk:openrouter", currentModel: "stealth/space-bunny-alpha", currentChosen: true });
   assert.equal(groups[0].engine, "builder");
   assert.deepEqual(listed(groups, "stealth/space-bunny-alpha"), ["ai-sdk:openrouter"]);
+});
+
+test("the Settings choice key exists only for a chosen engine and model", () => {
+  assert.equal(chosenSettingsKey({ engine: "ai-sdk:openrouter", model: "stealth/space-bunny-alpha", chosen: true }),
+    "ai-sdk:openrouter|stealth/space-bunny-alpha");
+  assert.equal(chosenSettingsKey({ engine: "anthropic", model: "claude-sonnet-5", chosen: false }), undefined);
+  assert.equal(chosenSettingsKey({ engine: "anthropic", model: "claude-sonnet-5" }), undefined);
+  assert.equal(chosenSettingsKey(null), undefined);
+});
+
+test("a stored composer pick yields only to a different Settings choice", () => {
+  const chosen = "ai-sdk:openrouter|stealth/space-bunny-alpha";
+  const yields = (hasStoredPick, storedChoice, chosenSettings) => storedPickYieldsToSettings({ hasStoredPick, storedChoice, chosenSettings });
+  assert.equal(yields(true, "ai-sdk:openai|gpt-5.6-luna", chosen), true, "a pick made under an earlier choice yields");
+  assert.equal(yields(true, undefined, chosen), true, "a pick made under no choice, or before this patch, yields");
+  assert.equal(yields(true, chosen, chosen), false, "a pick made under the current choice stays");
+  assert.equal(yields(false, undefined, chosen), false, "no pick, nothing to clear");
+  assert.equal(yields(true, "ai-sdk:openai|gpt-5.6-luna", undefined), false, "a detected engine never clears a pick");
 });
