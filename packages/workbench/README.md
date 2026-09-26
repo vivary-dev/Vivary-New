@@ -127,8 +127,25 @@ The acceptance register owns candidate details and remaining release gates.
 
 OpenCode Go credentials and a real read-only OpenCode CLI turn were checked
 separately. OpenCode is not exposed by this Vivary selector. These CLI checks do
-not establish Native provider access. Issue #38 retains runtime/model integration,
-and issue #50 retains real Native-provider acceptance.
+not establish Native provider access. Issue #38 retains runtime/model integration.
+Real Native-provider turns are covered under Native provider setup below and in the
+[#50 receipt](../../docs/product/multi-project/receipts/50-real-native-provider.md).
+
+### Native provider setup
+
+Native chat uses its own provider key, separate from any coding runtime login. There
+are two supported ways to supply it.
+
+- In the app: Settings > Agent > AI provider > Manage, or Custom keys on the Connect
+  AI card. Choose the provider, paste the key, and type a model id in the Model field.
+  The key is saved encrypted in the Vivary profile.
+- In the host environment: start Vivary with the provider's variable set, for example
+  `OPENROUTER_API_KEY`. Settings then reads "Connected via OPENROUTER_API_KEY" and
+  nothing is saved in the profile. A secret manager such as varlock can supply it.
+
+Choose the provider and model in Settings, then use Test. A new Native chat defaults to
+the chosen, configured provider and model. The Model field accepts custom ids, such as
+OpenRouter model ids. Without a key, Native chat shows Connect AI and does not send.
 
 Claude Code supplies Read, Glob, Grep, Edit, and Write. Codex supplies its command,
 file, and connection tools. Vivary sets this integration's approval and sandbox
@@ -439,8 +456,8 @@ acceptance remains under issue #23.
 
 The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
 distinguishes the tested private candidate from the complete release target. In
-particular, real Native-provider access and turns remain under issue #50, and
-automation execution/recovery remains under issue #51. The current settings surfaces
+particular, real Native-provider turns passed under issue #50 and wait for owner
+acceptance, and automation execution/recovery remains under issue #51. The current settings surfaces
 alone are not execution proof. Codex selection and file execution passed on the
 locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
 memory, existing-folder adoption, and final self-hosted access remain open.

@@ -652,8 +652,9 @@ the failure.
 
 OpenCode Go separately completed a read-only file turn through its CLI using
 `opencode-go/glm-5.3-flash`. It is not integrated into Vivary by this increment.
-Broader issue #38 integration, real Native-provider acceptance in #50, and
-automations in #51 remain open.
+Broader issue #38 integration and automations in #51 remain open. Real
+Native-provider turns passed under #50 on the unpublished `265a7ede` Windows package,
+and the [#50 receipt](receipts/50-real-native-provider.md) records the run and its limits.
 
 ## Capability and acceptance gaps
 
@@ -661,7 +662,7 @@ automations in #51 remain open.
 | --- | --- | --- |
 | Code conversations | Windows `2f4a5df` file work, session continuity, MCP call, real subagent card, 125.19-second command, native Allow/Decline, active-command Stop, and shutdown | Linked conversations, and broader cross-runtime work under [issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) |
 | Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. The `df4aedc` Windows package completed a real Codex/Astra file turn and Stop | Further connection-specific journeys and broader issue #38 scope. The public `9884670` prerelease retains its earlier-candidate proof boundary |
-| Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys | Access to an approved real Native provider and accepted real-provider Native turns ([issue #50](https://github.com/vivary-dev/Vivary-New/issues/50)) |
+| Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys. Real OpenRouter turns with project read and evaluate tools, follow-up history, project isolation, rename, pin, archive, Stop, provider failure, and Retry passed on the unpublished `265a7ede` package ([#50 receipt](receipts/50-real-native-provider.md)) | Owner acceptance and closure of [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50), and the findings in its receipt |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |

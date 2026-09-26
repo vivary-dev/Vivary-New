@@ -197,7 +197,9 @@ It is required in the desktop and self-hosted web milestone. Each approved turn
 must remain visible and reopenable after browser navigation.
 
 [Issue #50](https://github.com/vivary-dev/Vivary-New/issues/50) owns real Native-provider
-access and real-provider turns in the packaged Windows app. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
+access and real-provider turns in the packaged Windows app. Its journeys passed on the unpublished
+`265a7ede` package, and the [#50 receipt](receipts/50-real-native-provider.md) records them. Owner acceptance and
+closure remain. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
 owns automation creation, execution, restart recovery, and lifecycle acceptance and is
 blocked on #50. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
 linked conversations and broader cross-runtime integration, including OpenCode.

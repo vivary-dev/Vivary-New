@@ -68,6 +68,61 @@ Rolling back this patch restores the known save-order and composer defects.
 The extra repository field requires no schema migration. Keep the private
 preview's prior build available until its replacement passes verification.
 
+## Chosen Native model default
+
+Issue #50 changes Core's model picker. Core added the current model to its
+provider's picker group only when that group had no built-in models, and a new
+chat took the first model of the first configured group. A custom model, such
+as an OpenRouter id saved in Settings, was never offered, and a new chat could
+run on another, possibly paid, model.
+
+`list-agent-engines.js` now reports `current.chosen`. It is true when a stored
+setting or an app default chose the current model, and false when Core detected
+the engine or fell back to an engine's default model. Both chat surfaces pass it
+to `buildChatModelGroups` in `chat-model-groups.js`. When the chosen provider is
+configured, its group is listed first with the chosen model first, added when
+the built-in list lacks it. The multi-tab chat that Vivary uses then selects it
+for a new chat. A detected engine, or a chosen one without a key, keeps Core's
+order, and a model is never added to a group without a key. With the Builder
+gateway lane, Builder models stay first and the chosen model is only listed.
+
+`MultiTabAssistantChat.js` stores a project's composer pick with the Settings
+choice that was current when it was picked. When the chosen engine or model in
+Settings changes, a pick stored under an earlier choice, or under none, is
+cleared, so new chats follow Settings. Every open chat that was following the
+pick, including the routed active chat, is pinned to it first, so it keeps its
+model for the rest of the session. Pins live in memory, so after a reload an
+open chat follows Settings. Another window on the same project pins its own open
+chats to the removed pick, drops it, and refreshes when it sees the clear. Two
+clears happen without a model change in Settings: the first load after this
+patch, when a pick from before it has no Settings stamp, and a key save that
+makes a saved but unusable choice usable. Core's `useChatModels` hook keeps its
+own selection rules. Vivary does not use it.
+
+`chosenSettingsKey` and `storedPickYieldsToSettings` in `chat-model-groups.js`
+hold the rule, so it is tested without React. Run
+`node --test packages/workbench/tests/chat-model-groups.test.mjs`. The packaged
+Windows journey for #50 checks the React wiring.
+
+## Replayed tool-call ids
+
+Issue #50 changes `dist/client/agent-chat-adapter.js`. When a Native chat sends
+a follow-up, Core replays the earlier turns and gives every earlier tool call a
+new id, `history_tc_<n>` for history and `continuation_tc_<n>` for a continued
+run. Some providers reached through OpenRouter keep only the first nine
+characters of a tool-call id. `history_tc_1` and `history_tc_2` then collide,
+and the provider ends the stream with `provider_unavailable`. On the packaged
+Windows app with `stealth/space-bunny-alpha`, every follow-up after a turn with
+several tool calls failed this way, while ids that differ within nine
+characters passed.
+
+`replayToolCallId` now makes each replayed id a one-letter prefix, `h` or `c`,
+and eight base-36 digits, such as `h00000001`. The ids are nine alphanumeric
+characters, which also meets the strictest known rule, and the prefix keeps
+history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
+exported so the test can replay a turn. Run
+`node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's

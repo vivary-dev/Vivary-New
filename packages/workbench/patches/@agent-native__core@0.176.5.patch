@@ -1182,10 +1182,65 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
-index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac980e6c3004 100644
+index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac99042112f1f886 100644
 --- a/dist/client/MultiTabAssistantChat.js
 +++ b/dist/client/MultiTabAssistantChat.js
-@@ -576,6 +576,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -7,7 +7,7 @@ import { DEFAULT_REASONING_EFFORT, isReasoningEffort, resolveReasoningEffortSele
+ import { AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE, AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE, AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE, appendAgentChatContextToMessage, claimAgentChatOpenRequest, claimAgentChatSubmit, drainBufferedAgentChatOpenRequests, drainBufferedAgentChatSubmits, filterAgentChatContextItems, getAgentChatContextState, isAgentChatSubmitCancelled, normalizeAgentChatContextItem, parseSubmitChatMessage, removeAgentChatContextItem, reportAgentChatSubmitResult, reportAgentChatSubmitTarget, setAgentChatContextItem, } from "./agent-chat.js";
+ import { agentNativePath, appPath } from "./api-path.js";
+ import { AssistantChat, } from "./AssistantChat.js";
+-import { buildChatModelGroups, } from "./chat-model-groups.js";
++import { buildChatModelGroups, chosenSettingsKey, storedPickYieldsToSettings, } from "./chat-model-groups.js";
+ import { ChatHistoryList, } from "./chat/ChatHistoryList.js";
+ import { fetchBuilderStatus, fetchEnvironmentStatus, } from "./client-status-requests.js";
+ import { Popover, PopoverAnchor, PopoverContent, } from "./components/ui/popover.js";
+@@ -53,7 +53,16 @@ function readStoredModelSelection(key) {
+     if (typeof window === "undefined")
+         return undefined;
+     try {
+-        const raw = window.localStorage.getItem(key);
++        return parseStoredModelSelection(window.localStorage.getItem(key));
++    }
++    catch {
++        return undefined;
++    }
++}
++// Vivary #50: one parser for a stored pick, read from storage or from a storage
++// event's old value in another window.
++function parseStoredModelSelection(raw) {
++    try {
+         if (!raw)
+             return undefined;
+         const parsed = JSON.parse(raw);
+@@ -72,11 +81,25 @@ function readStoredModelSelection(key) {
+         return undefined;
+     }
+ }
+-function writeStoredModelSelection(key, selection) {
++// Vivary #50: the Settings choice, "engine|model", that was current when this
++// project's composer pick was stored. A later Settings choice replaces the pick.
++function readStoredSettingsChoice(key) {
++    if (typeof window === "undefined")
++        return undefined;
++    try {
++        const raw = window.localStorage.getItem(key);
++        const choice = raw ? JSON.parse(raw).settingsChoice : undefined;
++        return typeof choice === "string" ? choice : undefined;
++    }
++    catch {
++        return undefined;
++    }
++}
++function writeStoredModelSelection(key, selection, settingsChoice) {
+     if (typeof window === "undefined")
+         return;
+     try {
+-        window.localStorage.setItem(key, JSON.stringify(selection));
++        window.localStorage.setItem(key, JSON.stringify(settingsChoice ? { ...selection, settingsChoice } : selection));
+         queueMicrotask(() => {
+             window.dispatchEvent(new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
+                 detail: { key },
+@@ -576,6 +599,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          switchThreadState(threadId);
          writeThreadUrl(threadId, options);
      }, [switchThreadState, writeThreadUrl]);
@@ -1201,7 +1256,93 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
      const keyPrefix = storageKey ? `:${storageKey}` : "";
      const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
-@@ -1050,7 +1059,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -621,6 +653,18 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+     const threadModelRef = useRef(new Map());
+     const [persistedModelSelection, setPersistedModelSelection] = useState(() => readStoredModelSelection(modelSelectionKey));
+     const [modelSelectionVersion, setModelSelectionVersion] = useState(0);
++    const chosenSettingsRef = useRef(undefined);
++    // Vivary #50: before a stored pick yields to Settings, every open chat that was
++    // following it, including the routed active chat, keeps it for this session.
++    const pinOpenChatsToPick = (pick) => {
++        if (!pick)
++            return;
++        const threadIds = new Set([...openTabIdsRef.current, activeThreadIdRef.current].filter(Boolean));
++        for (const threadId of threadIds) {
++            if (!threadModelRef.current.has(threadId))
++                threadModelRef.current.set(threadId, pick);
++        }
++    };
+     useEffect(() => {
+         setPersistedModelSelection(readStoredModelSelection(modelSelectionKey));
+     }, [modelSelectionKey]);
+@@ -701,7 +745,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+     const resolveThreadModelSelection = useCallback((threadId) => resolveModelSelection(threadModelRef.current.get(threadId) ?? persistedModelSelection, availableModels), [availableModels, persistedModelSelection, modelSelectionVersion]);
+     const persistModelSelection = useCallback((selection) => {
+         setPersistedModelSelection(selection);
+-        writeStoredModelSelection(modelSelectionKey, selection);
++        writeStoredModelSelection(modelSelectionKey, selection, chosenSettingsRef.current);
+     }, [modelSelectionKey]);
+     const handleModelChange = useCallback((model, engine) => {
+         const threadId = activeThreadIdRef.current;
+@@ -822,18 +866,56 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                 builderConnected,
+                 currentEngineName,
+                 currentModel,
++                currentChosen: enginesData.current?.chosen === true,
+             });
+             setDiscoveredModels(groups);
+             setDefaultModel(currentModel ?? DEFAULT_MODEL);
++            // Vivary #50: a change to the chosen engine or model in Settings applies to
++            // new chats. A composer pick stored under an earlier Settings choice, or
++            // under none, is cleared. Open tabs that were following it are pinned to
++            // it first, so a chat already open keeps its model.
++            const chosenSettings = chosenSettingsKey(enginesData.current);
++            chosenSettingsRef.current = chosenSettings;
++            const storedPick = readStoredModelSelection(modelSelectionKey);
++            if (storedPickYieldsToSettings({
++                hasStoredPick: Boolean(storedPick),
++                storedChoice: readStoredSettingsChoice(modelSelectionKey),
++                chosenSettings,
++            })) {
++                pinOpenChatsToPick(storedPick);
++                try {
++                    window.localStorage.removeItem(modelSelectionKey);
++                }
++                catch { }
++                setPersistedModelSelection(undefined);
++                bumpModelSelectionVersion();
++            }
+         })
+             .catch(() => { })
+             .finally(() => setModelListLoading(false));
+-    }, [hostManagedModels]);
++    }, [hostManagedModels, modelSelectionKey, bumpModelSelectionVersion]);
+     useEffect(() => {
+         refreshEngines();
+         window.addEventListener("agent-engine:configured-changed", refreshEngines);
+         return () => window.removeEventListener("agent-engine:configured-changed", refreshEngines);
+     }, [refreshEngines]);
++    // Vivary #50: another window cleared this project's stored pick after a Settings
++    // change. Drop it here too and refresh, so a pick made here is stamped with the
++    // current Settings choice.
++    useEffect(() => {
++        if (typeof window === "undefined")
++            return;
++        const handleStoredPickRemoved = (event) => {
++            if (event.key !== modelSelectionKey || event.newValue !== null)
++                return;
++            pinOpenChatsToPick(parseStoredModelSelection(event.oldValue));
++            setPersistedModelSelection(undefined);
++            bumpModelSelectionVersion();
++            refreshEngines();
++        };
++        window.addEventListener("storage", handleStoredPickRemoved);
++        return () => window.removeEventListener("storage", handleStoredPickRemoved);
++    }, [modelSelectionKey, bumpModelSelectionVersion, refreshEngines]);
+     // Parent-child thread mapping — persisted to localStorage.
+     // Maps childThreadId → parentThreadId for sub-agent tabs.
+     const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
+@@ -1050,7 +1132,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
              void createThread().then((id) => {
                  if (id)
@@ -1210,7 +1351,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              });
          }
      }, [
-@@ -1103,7 +1112,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1103,7 +1185,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              }
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
@@ -1219,7 +1360,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
          });
      }, [
          activeThreadId,
-@@ -1113,7 +1122,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1113,7 +1195,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          writeThreadUrl,
      ]);
      useEffect(() => {
@@ -1228,7 +1369,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              return;
          if (openTabIds.length === 0 && !activeThreadId) {
              autoCreatingRef.current = true;
-@@ -1122,11 +1131,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1122,11 +1204,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                  if (id) {
                      newThreadIds.current.add(id);
                      setOpenTabIds([id]);
@@ -1242,7 +1383,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      usePollLoop(async (signal) => {
          const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
          try {
-@@ -1533,7 +1542,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1533,7 +1615,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          const id = await createThread();
          if (id) {
              newThreadIds.current.add(id);
@@ -1251,7 +1392,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
          }
          return id;
      }, [createThread, writeThreadUrl]);
-@@ -1588,7 +1597,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1588,7 +1670,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (newId) {
                          newThreadIds.current.add(newId);
                          setOpenTabIds([newId]);
@@ -1260,7 +1401,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                      }
                  }
                  catch (error) {
-@@ -1654,7 +1663,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1654,7 +1736,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
              switchThreadState(id);
@@ -1269,7 +1410,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              dismissedSubAgentTabsRef.current.clear();
              // Clean up all old refs
              chatRefs.current.clear();
-@@ -1711,7 +1720,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1711,7 +1793,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (!createdId)
                          return;
                      setOpenTabIds((prev) => prev.includes(createdId) ? prev : [...prev, createdId]);
@@ -1278,7 +1419,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                  });
                  return;
              }
-@@ -1852,12 +1861,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1852,12 +1934,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          });
      }, [generateTitle, saveThreadData]);
      const handleSaveThread = useCallback((threadId, data) => {
@@ -1293,7 +1434,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      }, [saveThreadData, writeThreadUrl]);
      // ─── Slash command handler ──────────────────────────────────────────
      const [helpVisible, setHelpVisible] = useState(false);
-@@ -2045,6 +2055,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2045,6 +2128,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                              chatRefs.current.delete(tabId);
                                          }
                                      }, threadId: tabId, tabId: tabId, browserTabId: browserTabId, contextScope: scope, contextNamespace: contextNamespace, isolateHistoryByScope: isolateHistoryByScope, isActiveComposer: tabId === activeThreadId, apiUrl: apiUrl, isNewThread: newThreadIds.current.has(tabId) || isNewThread(tabId), onThreadRestoreNotFound: tabId === activeThreadId &&
@@ -1302,7 +1443,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                                          (props.agentChatSurface !== "desktop" ||
                                              props.desktopIdentityAuthenticated === true)
                                          ? clearActiveTab
-@@ -2061,10 +2073,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2061,10 +2146,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                      // sub-agent tab would start a fresh run on that thread and kill
                                      // the in-flight team chunk. Disable the composer and show a
                                      // hint so users know to send via the orchestrator chat instead.
@@ -1315,6 +1456,41 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
 +                                            : props.composerDisabledPlaceholder })] }, tabId));
                      })] })] }));
  }
+diff --git a/dist/client/agent-chat-adapter.js b/dist/client/agent-chat-adapter.js
+index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb35e15f5c 100644
+--- a/dist/client/agent-chat-adapter.js
++++ b/dist/client/agent-chat-adapter.js
+@@ -793,9 +793,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
+     }
+     return messages;
+ }
+-function assistantUiMessagesToStructuredHistory(messages) {
++/**
++ * Vivary #50: replayed tool-call ids are nine alphanumeric characters. Some
++ * providers reached through OpenRouter keep only the first nine characters of
++ * an id, so `history_tc_1` and `history_tc_2` collided and every follow-up after
++ * a turn with several tool calls failed with `provider_unavailable`. A one-letter
++ * prefix keeps history and continuation ids apart within one request.
++ */
++export function replayToolCallId(prefix, n) {
++    return `${prefix}${n.toString(36).padStart(8, "0")}`;
++}
++export function assistantUiMessagesToStructuredHistory(messages) {
+     let nextId = 0;
+-    const nextToolCallId = () => `history_tc_${++nextId}`;
++    const nextToolCallId = () => replayToolCallId("h", ++nextId);
+     const structured = [];
+     for (const message of messages) {
+         if (message.role === "user") {
+@@ -1953,7 +1963,7 @@ export function createAgentChatAdapter(options) {
+             const attemptedRunIds = [];
+             let authRecoveryAttempted = false;
+             let continuationToolCallCounter = 0;
+-            const nextContinuationToolCallId = () => `continuation_tc_${++continuationToolCallCounter}`;
++            const nextContinuationToolCallId = () => replayToolCallId("c", ++continuationToolCallCounter);
+             const runDebugContextDetails = () => {
+                 const pageOrigin = typeof window !== "undefined" && window.location?.origin
+                     ? window.location.origin
 diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
 index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a3454d087 100644
 --- a/dist/client/chat/message-components.d.ts
@@ -1454,6 +1630,102 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+diff --git a/dist/client/chat-model-groups.d.ts b/dist/client/chat-model-groups.d.ts
+index ab985c5f9156c2418ea7a228dafcbd18ea4cfae4..915356fb989d2cd63a8bd9bf7075c644ac2cd637 100644
+--- a/dist/client/chat-model-groups.d.ts
++++ b/dist/client/chat-model-groups.d.ts
+@@ -29,6 +29,8 @@ export interface BuildChatModelGroupsOptions {
+     builderConnected?: boolean;
+     currentEngineName?: string;
+     currentModel?: string;
++    /** Vivary #50: true when the user chose the current engine and model rather than detection. */
++    currentChosen?: boolean;
+ }
+ /**
+  * A loaded provider-backed catalog can confirm that setup is missing before
+@@ -36,4 +38,16 @@ export interface BuildChatModelGroupsOptions {
+  * failed lookup, not evidence that no provider is configured.
+  */
+ export declare function modelCatalogConfirmsMissing(groups: readonly Pick<EngineModelGroup, "configured">[] | undefined, loading: boolean | undefined): boolean;
+-export declare function buildChatModelGroups({ engines, configuredKeys, builderConnected, currentEngineName, currentModel, }: BuildChatModelGroupsOptions): EngineModelGroup[];
++/** Vivary #50: the Settings choice as "engine|model", or undefined when detected. */
++export declare function chosenSettingsKey(current: {
++    engine?: string;
++    model?: string;
++    chosen?: boolean;
++} | null | undefined): string | undefined;
++/** Vivary #50: whether a stored composer pick yields to the current Settings choice. */
++export declare function storedPickYieldsToSettings(input: {
++    hasStoredPick: boolean;
++    storedChoice: string | undefined;
++    chosenSettings: string | undefined;
++}): boolean;
++export declare function buildChatModelGroups({ engines, configuredKeys, builderConnected, currentEngineName, currentModel, currentChosen, }: BuildChatModelGroupsOptions): EngineModelGroup[];
+diff --git a/dist/client/chat-model-groups.js b/dist/client/chat-model-groups.js
+index 40475959e473d9d6d3ac31b52cde207ae2dcabd7..efb89550b3186ef44f16eed1731101206c5655cc 100644
+--- a/dist/client/chat-model-groups.js
++++ b/dist/client/chat-model-groups.js
+@@ -25,6 +25,23 @@ function addCurrentModel(models, engineName, currentEngineName, currentModel) {
+     }
+     return next;
+ }
++// Vivary #50: a provider and model the user chose, in Settings or as an app
++// default, are the default for a new chat. The chosen model is listed first in
++// its configured provider's group, added when the built-in list lacks it, such
++// as a custom OpenRouter id, so the multi-tab chat's first-configured-model
++// fallback selects it. A detected provider or one without a key keeps core's
++// order. With the Builder gateway lane, Builder models stay first and the chosen
++// model is only listed.
++function preferChosenSelection(groups, currentEngineName, currentModel, currentChosen) {
++    if (!currentChosen || !currentModel)
++        return groups;
++    const index = groups.findIndex((group) => group.engine === currentEngineName && group.configured);
++    if (index < 0)
++        return groups;
++    const chosen = groups[index];
++    const models = [currentModel, ...chosen.models.filter((model) => model !== currentModel)];
++    return [{ ...chosen, models }, ...groups.slice(0, index), ...groups.slice(index + 1)];
++}
+ // Cheapest → most expensive. The composer mirrors these tokens for the `$`
+ // cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
+ // the toolkit cannot import core, so a new family must be added in both lists.
+@@ -135,7 +152,23 @@ function shouldShowConfiguredGroup(group) {
+         return true;
+     return !HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES.has(group.engine);
+ }
+-export function buildChatModelGroups({ engines, configuredKeys, builderConnected = false, currentEngineName, currentModel, }) {
++/**
++ * Vivary #50: the Settings choice as "engine|model" when a stored setting or an
++ * app default chose the current engine and model, otherwise undefined.
++ */
++export function chosenSettingsKey(current) {
++    return current?.chosen === true && current.engine && current.model
++        ? `${current.engine}|${current.model}`
++        : undefined;
++}
++/**
++ * Vivary #50: a project's stored composer pick yields to Settings when a choice
++ * exists and the pick was stored under a different choice or under none.
++ */
++export function storedPickYieldsToSettings({ hasStoredPick, storedChoice, chosenSettings }) {
++    return Boolean(chosenSettings) && hasStoredPick && storedChoice !== chosenSettings;
++}
++export function buildChatModelGroups({ engines, configuredKeys, builderConnected = false, currentEngineName, currentModel, currentChosen = false, }) {
+     const configured = new Set(configuredKeys ?? []);
+     const builderEngine = engines.find((engine) => engine.name === "builder");
+     const builderModels = () => addCurrentModel(builderEngine?.supportedModels ?? [], "builder", currentEngineName, currentModel);
+@@ -173,8 +206,9 @@ export function buildChatModelGroups({ engines, configuredKeys, builderConnected
+         // collide with the Builder families.
+         return [
+             ...groupBuilderModels(builderModels()),
+-            ...directGroups.filter((group) => group.configured && group.engine !== "builder"),
++            ...preferChosenSelection(directGroups, currentEngineName, currentModel, currentChosen)
++                .filter((group) => group.configured && group.engine !== "builder"),
+         ];
+     }
+-    return directGroups;
++    return preferChosenSelection(directGroups, currentEngineName, currentModel, currentChosen);
+ }
 diff --git a/dist/client/code-agent-chat-adapter.js b/dist/client/code-agent-chat-adapter.js
 index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ffe3c03bd3 100644
 --- a/dist/client/code-agent-chat-adapter.js
@@ -1511,6 +1783,18 @@ index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac8
 +    }).catch(() => undefined);
 +    return current;
 +}
+diff --git a/dist/client/use-chat-models.js b/dist/client/use-chat-models.js
+index 49cf993e882e89ecfe454b93eaf40de1712e64f8..640eb749acdf0cbd241fbbc54bbeb27c98bbfcb7 100644
+--- a/dist/client/use-chat-models.js
++++ b/dist/client/use-chat-models.js
+@@ -197,6 +197,7 @@ export function useChatModels({ storageKey = DEFAULT_STORAGE_KEY, enabled = true
+                     builderConnected,
+                     currentEngineName,
+                     currentModel,
++                    currentChosen: enginesData.current?.chosen === true,
+                 });
+                 const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
+                 setAvailableModels(groups);
 diff --git a/dist/client/use-chat-threads.d.ts b/dist/client/use-chat-threads.d.ts
 index 70b99ddcb657a03956b7869e1b567987e232fb82..33edda7317e61e7be88190bfb47f59fe0301859d 100644
 --- a/dist/client/use-chat-threads.d.ts
@@ -1716,6 +2000,20 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
+index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b12d0f633 100644
+--- a/dist/scripts/agent-engines/list-agent-engines.js
++++ b/dist/scripts/agent-engines/list-agent-engines.js
+@@ -119,6 +119,9 @@ export async function run(args = {}) {
+             : {
+                 engine: currentEngineName,
+                 model: currentModel,
++                // Vivary #50: true when a stored setting or an app default chose the
++                // model, false when Core detected the engine or used its default model.
++                chosen: currentModelCandidate !== undefined,
+             },
+     };
+     return JSON.stringify(result, null, 2);
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
 index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
 --- a/dist/server/agent-chat-plugin.js
