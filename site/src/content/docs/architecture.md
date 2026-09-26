@@ -391,7 +391,13 @@ after `3205557`:
   or a file tree Rename, project files confirm the file is inside the root with
   no link on its path. A create or Rename removes the file it wrote, only when
   its path still reaches that same file without a link, and refuses.
-  A save refuses, but the replaced file cannot be restored.
+  A save refuses, but the replaced file cannot be restored. Deletes work the
+  same way: Remove, which Forget uses, and a Rename's source delete record the
+  device and inode of the file whose version they checked, check every path
+  component for a link again right before each unlink attempt, and delete only
+  that file. Node also has no `unlinkat`, so a swap in the moment between that
+  last check and the unlink can still redirect it. File identities are compared
+  as bigints, so NTFS file IDs above 2^53 cannot collide.
 - One load reads at most 4 MiB of fact and omitted law files, counting every
   file it reads, whether or not the file loads. Files past that
   are skipped with reason `read-limit`. Omitted law files are named only when they
@@ -417,7 +423,8 @@ Final verification of `22d4cc0` found two warnings and four nits:
   name. Project files now keep the device and inode of each file they write.
   Before a cleanup delete they check every path component again and the file's
   identity, and they leave the file in place when either fails. A create and a
-  Rename also confirm the binding after the write.
+  Rename also confirm the binding after the write, and remove what they wrote
+  when that check itself fails because the project became unavailable.
 - The read bound counted only files that loaded, and a binary file was read
   twice. Each listed file is now read once, and every byte read counts.
 - A write that finishes after the project became unavailable no longer

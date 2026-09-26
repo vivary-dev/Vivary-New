@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Stats } from "node:fs";
+import type { BigIntStats, Stats } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -180,17 +180,23 @@ export async function readBoundedFile(absolute: string): Promise<Buffer> {
   return buffer.subarray(0, offset);
 }
 
-/** The device and inode of a file this process wrote, so cleanup removes only that file. */
-type WrittenFile = { dev: number; ino: number };
+/**
+ * The device and inode of one file, as bigints so an NTFS file ID above 2^53
+ * cannot collide with another. A delete removes only the file it names.
+ */
+type FileIdentity = { dev: bigint; ino: bigint };
+
+function identityOf(info: BigIntStats): FileIdentity {
+  return { dev: info.dev, ino: info.ino };
+}
 
 /** Write a new file that must not exist yet. Returns its identity from the open handle. */
-async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number): Promise<WrittenFile> {
+async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number): Promise<FileIdentity> {
   if (bytes.length > MAX_FILE_BYTES) throw new Error("Project files are limited to 256 KB.");
   const handle = await open(target, "wx", mode & 0o777);
-  let written: WrittenFile | null = null;
+  let written: FileIdentity | null = null;
   try {
-    const info = await handle.stat();
-    written = { dev: info.dev, ino: info.ino };
+    written = identityOf(await handle.stat({ bigint: true }));
     await handle.chmod(mode & 0o777);
     await handle.writeFile(bytes);
     await handle.sync();
@@ -203,30 +209,39 @@ async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number
   return written;
 }
 
-/** Remove `absolute` only when it is still the regular file this process wrote. */
-async function unlinkIfWritten(absolute: string, written: WrittenFile,
+/** Remove `absolute` only when it is still the regular file `identity` names. */
+async function unlinkIfWritten(absolute: string, identity: FileIdentity,
   remove: (target: string) => Promise<void> = unlink): Promise<boolean> {
-  const info = await lstat(absolute).catch(() => null);
-  if (!info?.isFile() || info.dev !== written.dev || info.ino !== written.ino) return false;
+  const info = await lstat(absolute, { bigint: true }).catch(() => null);
+  if (!info?.isFile() || info.dev !== identity.dev || info.ino !== identity.ino) return false;
   await remove(absolute);
   return true;
 }
 
 /**
- * Remove the file this process wrote at `requestedPath` under `root`. Every
- * path component is checked again first, so a folder swapped for a link
- * after the write sends nothing to another file of the same name: the file
- * is then left in place, and the caller refuses with its fixed wording.
+ * Remove the file `identity` names at `requestedPath` under `root`. Every
+ * path component is checked again right before the delete, so a folder
+ * swapped for a link sends nothing to another file of the same name.
+ * `linked` means the path now runs through a link, `changed` that another
+ * file is there, and in both cases nothing was deleted.
  */
-async function removeWrittenFile(root: string, requestedPath: string, written: WrittenFile,
-  remove: (target: string) => Promise<void> = unlink): Promise<boolean> {
+async function removeIdentifiedFile(root: string, requestedPath: string, identity: FileIdentity,
+  remove: (target: string) => Promise<void> = unlink): Promise<"removed" | "linked" | "changed"> {
   let absolute: string;
   try {
     absolute = await resolvePathWithoutLinks(root, requestedPath);
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof ProjectFileBoundaryError) return "linked";
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "changed";
+    throw error;
   }
-  return unlinkIfWritten(absolute, written, remove);
+  return await unlinkIfWritten(absolute, identity, remove) ? "removed" : "changed";
+}
+
+/** Remove the file this process wrote, or leave it in place when its path or identity changed. */
+async function removeWrittenFile(root: string, requestedPath: string, written: FileIdentity,
+  remove: (target: string) => Promise<void> = unlink): Promise<boolean> {
+  return await removeIdentifiedFile(root, requestedPath, written, remove) === "removed";
 }
 
 /**
@@ -764,8 +779,10 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         if (finalCurrent.version !== input.expectedVersion) {
           return { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: finalCurrent };
         }
-        let written: WrittenFile;
+        let written: FileIdentity;
+        let sourceIdentity: FileIdentity;
         try {
+          sourceIdentity = identityOf(await lstat(source, { bigint: true }));
           const sourceInfo = await lstat(source);
           const sourceBytes = await readBoundedFile(source);
           if (sourceBytes.length > MAX_FILE_BYTES
@@ -780,8 +797,15 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           throw error;
         }
         const copy = written;
+        const checkedSource = sourceIdentity;
         const removeCopy = () => removeWrittenFile(finalScope.workspace.root, targetPath, copy, operations.unlink);
-        const writtenScope = await resolve(context, input.projectId);
+        let writtenScope: Awaited<ReturnType<typeof resolve>>;
+        try {
+          writtenScope = await resolve(context, input.projectId);
+        } catch (error) {
+          await removeCopy().catch(() => false);
+          throw error;
+        }
         if (!sameProject(finalScope.project, writtenScope.project)) {
           await withLockRetries(removeCopy);
           return { code: "conflict", operation: "rename", reason: "project-changed", path: input.path, targetPath };
@@ -809,9 +833,16 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
               ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: latestCurrent }
               : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
           }
-          await withLockRetries(() => operations.unlink(source), {
-            read: () => readEditableFile(latestScope.workspace.root, input.path, latestScope.project),
-            expected: latestCurrent });
+          const removal = await withLockRetries(
+            () => removeIdentifiedFile(latestScope.workspace.root, input.path, checkedSource, operations.unlink), {
+              read: () => readEditableFile(latestScope.workspace.root, input.path, latestScope.project),
+              expected: latestCurrent });
+          if (removal === "linked") throw new ProjectFileBoundaryError("blocked-path");
+          if (removal === "changed") {
+            const now = await readEditableFile(latestScope.workspace.root, input.path, latestScope.project)
+              .catch(() => null);
+            throw new ProjectFileChangedWhileLocked(now);
+          }
         } catch (error) {
           await removeCopy().catch(() => false);
           if (error instanceof ProjectFileChangedWhileLocked) {
@@ -858,7 +889,13 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           }
           try {
             const file = await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
-            const writtenScope = await resolve(context, input.projectId);
+            let writtenScope: Awaited<ReturnType<typeof resolve>>;
+            try {
+              writtenScope = await resolve(context, input.projectId);
+            } catch (error) {
+              await removeWrittenFile(root, input.path, file).catch(() => false);
+              throw error;
+            }
             if (!sameProject(finalScope.project, writtenScope.project)) {
               await removeWrittenFile(root, input.path, file).catch(() => false);
               return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
@@ -909,13 +946,22 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         if (!finalCurrent) return conflict("renamed-or-deleted");
         if (finalCurrent.version !== input.expectedVersion) return conflict("changed", finalCurrent);
         const target = await resolvePathWithoutLinks(finalScope.workspace.root, input.path);
+        const checked = identityOf(await lstat(target, { bigint: true }));
+        let removal: "removed" | "linked" | "changed";
         try {
-          await withLockRetries(() => operations.unlink(target), {
-            read: () => readEditableFile(finalScope.workspace.root, input.path, finalScope.project),
-            expected: finalCurrent });
+          removal = await withLockRetries(
+            () => removeIdentifiedFile(finalScope.workspace.root, input.path, checked, operations.unlink), {
+              read: () => readEditableFile(finalScope.workspace.root, input.path, finalScope.project),
+              expected: finalCurrent });
         } catch (error) {
           if (!(error instanceof ProjectFileChangedWhileLocked)) throw error;
           return error.current ? conflict("changed", error.current) : conflict("renamed-or-deleted");
+        }
+        // A path through a link or another file at the path: nothing was deleted.
+        if (removal === "linked") throw new ProjectFileBoundaryError("blocked-path");
+        if (removal === "changed") {
+          const now = await readEditableFile(finalScope.workspace.root, input.path, finalScope.project).catch(() => null);
+          return now ? conflict("changed", now) : conflict("renamed-or-deleted");
         }
         return { code: "removed", project: finalScope.project, path: input.path };
       });

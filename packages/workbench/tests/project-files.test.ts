@@ -546,6 +546,66 @@ describe("project file boundary", () => {
     assert.equal(await readFile(path.join(outside, "fact.md"), "utf8"), "unrelated\n");
   });
 
+  it("removes the written file or copy when the project becomes unavailable right after the write", async () => {
+    const f = await fixture();
+    let calls = 0;
+    let failAt = 4;
+    const workspace = { root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+      rootId: "root_a", bindingRevision: 1, policyRevision: 1 };
+    const flaky = createProjectFileService(async () => {
+      calls += 1;
+      if (calls === failAt) throw new Error("Project unavailable");
+      return workspace;
+    });
+    await assert.rejects(flaky.create(undefined, { projectId: "project_a", path: "notes/fact.md", content: "x\n" }),
+      /Project unavailable/);
+    await assert.rejects(stat(path.join(f.root, "notes", "fact.md")), { code: "ENOENT" });
+
+    await writeFile(path.join(f.root, "source.md"), "source\n");
+    calls = 0;
+    const opened = await flaky.get(undefined, "project_a", "source.md");
+    if (opened.code !== "file") throw new Error("fixture file missing");
+    // get resolves twice. The rename's post-write resolve is its fourth call after that.
+    failAt = 6;
+    await assert.rejects(flaky.rename(undefined, { projectId: "project_a", path: "source.md", name: "target.md",
+      expectedVersion: opened.file.version }), /Project unavailable/);
+    await assert.rejects(stat(path.join(f.root, "target.md")), { code: "ENOENT" });
+    assert.equal(await readFile(path.join(f.root, "source.md"), "utf8"), "source\n");
+  });
+
+  it("never deletes another file when a folder is swapped just before a remove or a Rename's source delete", async () => {
+    for (const operation of ["remove", "rename"] as const) {
+      const f = await fixture();
+      const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
+      roots.push(outside);
+      await mkdir(path.join(f.root, "notes"));
+      await writeFile(path.join(f.root, "notes", "fact.md"), "same\n");
+      // Same name and same bytes, so only the file identity tells them apart.
+      await writeFile(path.join(outside, "fact.md"), "same\n");
+      let unlinks = 0;
+      const service = createProjectFileService(async () => ({ root: f.root, label: "Example", projectId: "project_a",
+        bindingId: "binding_a", rootId: "root_a", bindingRevision: 1, policyRevision: 1 }), { rename,
+        unlink: async target => {
+          unlinks += 1;
+          if (unlinks === 1) {
+            await rename(path.join(f.root, "notes"), path.join(f.root, "notes-moved"));
+            await symlink(outside, path.join(f.root, "notes"));
+            throw Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" });
+          }
+          return unlink(target);
+        } });
+      const opened = await service.get(undefined, "project_a", "notes/fact.md");
+      if (opened.code !== "file") throw new Error("fixture file missing");
+      const attempt = operation === "remove"
+        ? service.remove(undefined, { projectId: "project_a", path: "notes/fact.md", expectedVersion: opened.file.version })
+        : service.rename(undefined, { projectId: "project_a", path: "notes/fact.md", name: "renamed.md",
+          expectedVersion: opened.file.version });
+      await assert.rejects(attempt, /not available in Vivary/, operation);
+      assert.equal(await readFile(path.join(outside, "fact.md"), "utf8"), "same\n", operation);
+      assert.equal(await readFile(path.join(f.root, "notes-moved", "fact.md"), "utf8"), "same\n", operation);
+    }
+  });
+
   it("maps a lock error from the re-read before a retry to the fixed message", async () => {
     const locked = () => Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" });
     const expected = { access: "editable", path: "fact.md", name: "fact.md", sizeBytes: 5, updatedAt: "",

@@ -150,6 +150,10 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   `22d4cc0`. Final verification fixes remove only a file the write made, count every byte a
   load reads, keep a late write from refilling the panel, and fix three small edge cases.
   Unit tests cover them until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `d1e24b9`. Follow-up fixes clean up after a failed post-write binding check and make
+  Remove and a Rename's source delete remove only the checked file. Unit tests cover them
+  until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 
