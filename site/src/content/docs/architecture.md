@@ -171,13 +171,17 @@ name by rule, compared in upper case because Windows environment names are
 case-insensitive, and keeps ordinary settings. Claude Code turns were already
 limited to Agent-Native's allowlist, because Vivary passes Claude Code no
 environment. The status check for Claude Code now also runs without
-`ANTHROPIC_API_KEY`, which matches its turns.
+`ANTHROPIC_API_KEY`, which its turns never receive either.
 
 The CLI credentials and logs row states the rule and two limits. A user's own
 token variables no longer reach coding runtimes. A same-user command can still
 read the private data folder and its parent processes' environments, so the
-filter stops inheritance, not access. No flow, owner, or package dependency
-changed. Evidence on Zo: at `7fb73bd` one real Codex turn with random dummy
+filter stops inheritance, not access. On Linux a process shows the environment
+it started with. The coding worker that starts Codex still starts with the
+whole server environment, including the sign-in secret, because it reads MCP
+settings from the database and decrypts their header secrets. Moving that
+read into the server would let the worker start without credentials. No
+flow, owner, or package dependency changed. Evidence on Zo: at `7fb73bd` one real Codex turn with random dummy
 values reported every seeded credential readable in its tool shell. With the
 rule, the launch carried none of them, the tool shell reported each unreadable
 except one name the host's own interactive shell setup defines outside Vivary,

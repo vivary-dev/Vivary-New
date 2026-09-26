@@ -103,7 +103,7 @@ setTimeout(() => process.stdout.write('{"loggedIn":true,"email":"private@example
 // Credential names the server can hold, taken from what Agent-Native and Vivary read. The spellings
 // in mixed and lower case stand for Windows, where environment names are case-insensitive.
 const SERVER_CREDENTIALS = ["OPENROUTER_API_KEY", "OpenRouter_Api_Key", "openai_api_key", "CODEX_API_KEY",
-  "DEEPSEEK_API_KEY", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY", "BETTER_AUTH_SECRET", "AUTH_SECRET",
+  "DEEPSEEK_API_KEY", "GEMINI_API_KEY", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY", "BETTER_AUTH_SECRET", "AUTH_SECRET",
   "A2A_SECRET", "OAUTH_STATE_SECRET", "SECRETS_ENCRYPTION_KEY", "Vivary_SECRETS_ENCRYPTION_KEY",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS", "DATABASE_URL",
   "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "NETLIFY_DATABASE_URL_UNPOOLED", "DATABASE_AUTH_TOKEN",
