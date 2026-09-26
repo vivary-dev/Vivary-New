@@ -128,6 +128,23 @@ describe("coding runtime launch environment", () => {
     assert.equal("CLAUDECODE" in launch || "CODEX_THREAD_ID" in launch, false, "nested-session markers are removed");
   });
 
+  it("applies each branch of the credential rule", () => {
+    const withheld = ["PGPASSWORD", "MYSQL_PWD_PASSWD", "CLIENT_SECRET", "SLACK_BOT_TOKEN", "OPENAIAPIKEY",
+      "GOOGLE_APPLICATION_CREDENTIALS", "AZURE_STORAGE_CONNECTION_STRING", "SQLCONNECTIONSTRING", "SESSION_COOKIE",
+      "SLACK_WEBHOOK", "NETLIFY_DATABASE_URL_UNPOOLED", "NITRO_SSL_KEY", "PUBLIC_KEYS", "DB_PASS", "GITHUB_PAT",
+      "SENTRY_DSN", "NOTIFICATIONS_WEBHOOK_AUTH", "PROXY_AUTH", "MCP_SERVERS", "mcp_servers",
+      "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_12", "MYSQL_PWD", "DOCKER_AUTH_CONFIG",
+      "POSTGRES_URL_NON_POOLING", "MONGODB_URI", "REDIS_URL", "KV_REST_API_URL", "SYSTEM_ACCESSTOKEN", "Jwt__SecretKey"];
+    const kept = ["SSH_AUTH_SOCK", "SSH_ASKPASS", "GIT_ASKPASS", "PATH", "PATHEXT", "PATHNAME_STYLE",
+      "DBUS_SESSION_BUS_ADDRESS", "WT_SESSION", "SESSIONNAME", "TERM_SESSION_ID", "KEYBOARD_LAYOUT", "MONKEY_MODE",
+      "AUTH_DISABLED", "BETTER_AUTH_URL", "OAUTH_REDIRECT_URL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
+      "PASSENGER_APP_ENV", "COMPATIBILITY_MODE", "GCM_CREDENTIAL_STORE", "PWD", "OLDPWD", "APP_URL", "PGDATA",
+      "REDIS_HOST", "DATABASE_NAME"];
+    const launch = codingRuntimeEnvironment(Object.fromEntries([...withheld, ...kept].map(name => [name, "synthetic"])));
+    assert.deepEqual(withheld.filter(name => name in launch), [], "credential-shaped names are withheld");
+    assert.deepEqual(kept.filter(name => !(name in launch)), [], "ordinary names are kept");
+  });
+
   it("withholds every Native provider key Agent-Native reads", async () => {
     // Agent-Native does not export its provider list, so read the installed copy to catch a new provider.
     const coreServer = fileURLToPath(import.meta.resolve("@agent-native/core/server"));

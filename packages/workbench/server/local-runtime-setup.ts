@@ -35,17 +35,30 @@ const pending = new Map<VivaryCodeEngine, Promise<VivaryRuntimeStatus>>();
 // withholds every credential-shaped name: the Native provider keys Agent-Native reads from this
 // environment, the sign-in secret that also derives the secret-store key, database URLs and tokens,
 // webhook URLs, and integration secrets. Agent-Native reads well over a hundred such names, so a
-// rule covers them rather than a list. It matches whole "_"-separated words, so SSH_AUTH_SOCK stays.
-const CREDENTIAL_WORDS = new Set(["KEY", "KEYS", "APIKEY", "SECRET", "SECRETS", "TOKEN", "TOKENS",
-  "PASSWORD", "PASSWD", "PASS", "CREDENTIAL", "CREDENTIALS", "DSN"]);
+// rule covers them rather than a list. Fragments match anywhere in a name, so PGPASSWORD matches.
+// Short words match whole "_"-separated words, so SSH_AUTH_SOCK, GIT_ASKPASS, and PATH stay.
+const CREDENTIAL_FRAGMENTS = ["PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "CREDENTIAL",
+  "CONNECTION_STRING", "CONNECTIONSTRING", "COOKIE", "WEBHOOK", "DATABASE_URL"];
+const CREDENTIAL_WORDS = new Set(["KEY", "KEYS", "PASS", "PAT", "DSN"]);
+// MCP_SERVERS holds whole server configurations, including their headers and environments.
+const CREDENTIAL_NAMES = new Set(["MCP_SERVERS", "MYSQL_PWD", "DOCKER_AUTH_CONFIG"]);
+// Database URLs can carry a password, as in POSTGRES_URL_NON_POOLING or MONGODB_URI.
+const DATABASE_URL_FORM = /(^|_)(DATABASE|DB|POSTGRES|POSTGRESQL|PG|MYSQL|MARIADB|MONGO|MONGODB|REDIS|KV)(_[A-Z0-9]+)*_(URL|URI)(_|$)/;
+// Git Credential Manager needs this on Linux, and its value names a store type, not a secret.
+const ORDINARY_NAMES = new Set(["GCM_CREDENTIAL_STORE"]);
+// Git reads GIT_CONFIG_COUNT with KEY_n and VALUE_n as complete pairs and exits if one is missing.
+// A value can hold an authorization header, so the whole group is withheld together.
+const GIT_CONFIG_GROUP = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
 // Nested-session markers that would make a CLI believe it runs inside another agent's session.
 const SESSION_MARKERS = new Set([...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
   "CODEX_THREAD_ID", "CODEX_SESSION_ID"].map(name => name.toUpperCase()));
 
 function isCredentialName(upperName: string): boolean {
+  if (ORDINARY_NAMES.has(upperName)) return false;
   const words = upperName.split("_");
-  return words.some(word => CREDENTIAL_WORDS.has(word)) || words.at(-1) === "AUTH"
-    || upperName.includes("DATABASE_URL") || upperName.endsWith("WEBHOOK_URL");
+  return CREDENTIAL_FRAGMENTS.some(fragment => upperName.includes(fragment))
+    || words.some(word => CREDENTIAL_WORDS.has(word)) || words.at(-1) === "AUTH"
+    || CREDENTIAL_NAMES.has(upperName) || DATABASE_URL_FORM.test(upperName) || GIT_CONFIG_GROUP.test(upperName);
 }
 
 // Windows environment names are case-insensitive, so names compare in upper case.
