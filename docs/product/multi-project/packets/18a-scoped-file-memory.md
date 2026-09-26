@@ -154,6 +154,9 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   `d1e24b9`. Follow-up fixes clean up after a failed post-write binding check and make
   Remove and a Rename's source delete remove only the checked file. Unit tests cover them
   until the lead reruns hosted QA.
+- 2026-09-25: PR #93 merged into `dev` as `90ab1eb`. The `90ab1eb7` Windows package passed
+  Remember, isolation, restart, recall, Correct, and Forget through Full chat. A real
+  phone, optional semantic providers, and a Code run on Windows have not run.
 
 ## Shared desktop and web behavior
 
