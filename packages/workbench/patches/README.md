@@ -123,6 +123,55 @@ history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
 exported so the test can replay a turn. Run
 `node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
 
+## In-process Run now
+
+Issue #51 changes how Core starts Automations > Manage > Run now.
+`queueAutomationRunNow` in `dist/jobs/run-now.js` writes a `running` history
+row and then sends an HTTP request back to the app's own process-run route. In
+production, that self-dispatch needs an app URL and an `A2A_SECRET` to sign the
+request. The packaged app has no app URL in local mode and no `A2A_SECRET` in
+hosted mode. Every Run now click therefore failed and left an unclaimed
+`running` row. The 30-second queued-run sweep then retried that row forever
+with "Could not redeliver queued run". Scheduled runs were not affected,
+because the in-process recurring-jobs timer starts them.
+
+`run-now.js` now exports `setInProcessAutomationRunner`. When a runner is
+registered, Run now calls it without waiting for the run and returns its
+receipt. Without a runner, Core keeps the self-dispatch, so development,
+Netlify, and other serverless hosts behave as before. `agent-chat-plugin.js`
+lifts the process-run route's worker into `runQueuedAutomationRun`. It
+registers that function only in the branch that starts the in-process
+recurring-jobs timer. The route and the runner both reach
+`runQueuedAutomation`, whose claim in `run-history.js` lets only one delivery
+of a row run. A failed run is recorded on its row and logged. It never becomes
+an unhandled rejection.
+
+With a runner registered, the sweep passes a queued row to the runner only
+while the row is younger than the claim lease. The lease is 1.5 times the
+background run's hard timeout, 15 minutes by default. The sweep claims an
+older row and ends it as an error instead of running it, so a request never
+runs long after it was made. An unclaimed row gets the error code
+`automation_run_not_started` and a message that says it did not start and why.
+A row that a worker claimed and then lost keeps the interruption message.
+
+That interruption message told desktop users that a serverless worker may have
+timed out. It now reads "The run stopped before it recorded a result, for
+example because the app quit or its worker restarted. No delivery was
+confirmed." `run-history.js` owns the text and `scheduler.js` imports it.
+History rows also report `claimedAt`.
+
+Run `node --test packages/workbench/tests/automation-run-now.test.mjs`. The test
+uses a disposable SQLite database with `NODE_ENV=production` and no app URL or
+`A2A_SECRET`. It checks that Run now reaches a registered runner, that Run now
+still fails without one, and that the sweep ends old rows instead of running
+them.
+
+Upstream can take this change without Vivary-specific edits. It adds exports
+and changes behavior only on hosts that start the in-process timer. Upstream
+may prefer to pass the runner through the plugin options instead of a module
+registry. Remove this part of the patch after an upstream release passes the
+same test and a packaged Run now check.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's

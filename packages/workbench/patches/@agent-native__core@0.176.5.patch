@@ -2000,6 +2000,221 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/jobs/run-history.d.ts b/dist/jobs/run-history.d.ts
+index 2188250bd393e45badf4a61d0df23c28099bf000..ca094450eb8e3f31b277739c8f78fb76fa921cd7 100644
+--- a/dist/jobs/run-history.d.ts
++++ b/dist/jobs/run-history.d.ts
+@@ -18,6 +18,8 @@ export interface AutomationRun {
+     threadId: string | null;
+     status: AutomationRunStatus;
+     startedAt: number;
++    /** When a worker claimed a queued manual run. Null until claimed. */
++    claimedAt: number | null;
+     finishedAt: number | null;
+     error: string | null;
+     /**
+@@ -40,6 +42,11 @@ export interface StartAutomationRunInput {
+     dispatchPending?: boolean;
+ }
+ /** Authoritative release-time schema for durable automation history. */
++/** Shown for a run that stopped before it recorded a terminal result. */
++export declare const INTERRUPTED_RUN_MESSAGE: string;
++export declare const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
++/** How long a claim on a queued manual run holds before it can be taken again. */
++export declare const automationRunClaimLeaseMs: () => number;
+ export declare const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[];
+ export declare function runAutomationRunMigrations(nitroApp: unknown): Promise<void>;
+ export declare function ensureTable(): Promise<void>;
+diff --git a/dist/jobs/run-history.js b/dist/jobs/run-history.js
+index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b98393645b80 100644
+--- a/dist/jobs/run-history.js
++++ b/dist/jobs/run-history.js
+@@ -40,16 +40,16 @@ const MAX_ERROR_CODE_LENGTH = 100;
+ function resolveRunLivenessCeilingMs() {
+     return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
+ }
+-const INTERRUPTED_RUN_MESSAGE = "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
++export const INTERRUPTED_RUN_MESSAGE = "The run stopped before it recorded a result, for example because the app quit or its worker restarted. No delivery was confirmed.";
+ /**
+  * Derived at read time alongside `INTERRUPTED_RUN_MESSAGE`: a process killed
+  * mid-run cannot write its own code any more than it can write its own message.
+  */
+-const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
++export const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
+ // The background worker's hard timeout is always shorter than this lease, by
+ // construction above. A worker that dies after claiming can therefore be
+ // redelivered without overlapping a still-live execution.
+-const claimLeaseMs = () => resolveRunLivenessCeilingMs();
++export const automationRunClaimLeaseMs = () => resolveRunLivenessCeilingMs();
+ /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
+ const RUNS_RETAINED_PER_AUTOMATION = 50;
+ /** Authoritative release-time schema for durable automation history. */
+@@ -188,6 +188,7 @@ function toRun(row, now) {
+         threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
+         status,
+         startedAt,
++        claimedAt: row.claimed_at == null ? null : Number(row.claimed_at),
+         finishedAt: row.finished_at == null ? null : Number(row.finished_at),
+         error: row.error == null && status === "interrupted"
+             ? INTERRUPTED_RUN_MESSAGE
+@@ -244,7 +245,7 @@ export async function claimAutomationRun(id) {
+     const now = Date.now();
+     const result = await getDbExec().execute({
+         sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
+-        args: [now, id, now - claimLeaseMs()],
++        args: [now, id, now - automationRunClaimLeaseMs()],
+     });
+     return Number(result.rowsAffected ?? 0) > 0;
+ }
+@@ -266,7 +267,7 @@ export async function listUnclaimedAutomationRuns(options) {
+             AND started_at <= ?
+           ORDER BY started_at ASC LIMIT ${limit}`,
+         args: [
+-            Date.now() - claimLeaseMs(),
++            Date.now() - automationRunClaimLeaseMs(),
+             ...(appId ? [appId] : []),
+             Date.now() - olderThanMs,
+         ],
+diff --git a/dist/jobs/run-now.d.ts b/dist/jobs/run-now.d.ts
+index d171bf0e5f313133e3f0dc937bafaf9a29e25084..2532036a5280d1b66f5a5dbfced4b80c91509b1f 100644
+--- a/dist/jobs/run-now.d.ts
++++ b/dist/jobs/run-now.d.ts
+@@ -20,11 +20,20 @@ export interface QueuedAutomationRun {
+     runId: string;
+     automationRunId: string;
+ }
++/** Runs one queued Run now row. It must claim the row before running it. */
++export type InProcessAutomationRunner = (automationRunId: string) => Promise<unknown>;
++/**
++ * Register the function that runs a queued Run now row in this process, or
++ * pass null to restore self-dispatch. The agent-chat plugin registers one only
++ * where it starts the in-process recurring-jobs timer.
++ */
++export declare function setInProcessAutomationRunner(runner: InProcessAutomationRunner | null): void;
+ export declare function queueAutomationRunNow(input: RunAutomationNowInput): Promise<QueuedAutomationRun>;
+ /**
+  * Recover manual rows whose first serverless handoff never reached a worker.
+  * This is intentionally a redelivery, not a second execution: the worker's
+- * claim CAS decides which request owns the run.
++ * claim CAS decides which request owns the run. With an in-process runner, a
++ * row older than the claim lease is ended instead of run.
+  */
+ export declare function redispatchUnclaimedAutomationRuns(options?: {
+     appId?: string | null;
+diff --git a/dist/jobs/run-now.js b/dist/jobs/run-now.js
+index 7af3befd00e560cf644d4654820686c6bfd3fc37..c3209eb9c1bf2a814e7ac95c9eba255151df1685 100644
+--- a/dist/jobs/run-now.js
++++ b/dist/jobs/run-now.js
+@@ -4,8 +4,54 @@ import { isLocalDatabase } from "../db/client.js";
+ import { organizationResourceOwner, resourceGetByPath, } from "../resources/store.js";
+ import { fireInternalDispatch } from "../server/self-dispatch.js";
+ import { parseJobResource } from "./frontmatter.js";
+-import { listUnclaimedAutomationRuns, startAutomationRun, } from "./run-history.js";
++import { automationRunClaimLeaseMs, claimAutomationRun, finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, listUnclaimedAutomationRuns, startAutomationRun, } from "./run-history.js";
++/**
++ * A long-lived server that owns the recurring-jobs timer runs Run now in its
++ * own process. The HTTP self-dispatch below needs an app URL in production and
++ * an A2A_SECRET on shared hosts, and a packaged desktop server has neither.
++ * Hosts that register no runner keep the self-dispatch.
++ */
++let inProcessAutomationRunner = null;
++/**
++ * Register the function that runs a queued Run now row in this process, or
++ * pass null to restore self-dispatch. The runner must claim the row before it
++ * runs it, as `runQueuedAutomation` does, so a repeated delivery of the same
++ * row cannot start a second run.
++ */
++export function setInProcessAutomationRunner(runner) {
++    inProcessAutomationRunner = runner;
++}
++function startInProcessRun(runner, historyId) {
++    // Not awaited, so Run now returns its receipt while the automation runs.
++    // Calling the runner inside `then` also catches a synchronous throw.
++    Promise.resolve()
++        .then(() => runner(historyId))
++        .catch((error) => {
++        console.error(`[automations] In-process run ${historyId} failed:`, error);
++    });
++}
++/**
++ * End a queued row that waited past the claim lease without running it. A Run
++ * now request that starts that late would surprise the person who made it.
++ * Taking the claim first leaves a row that a worker is starting to that worker.
++ */
++async function endLateAutomationRun(run) {
++    if (!(await claimAutomationRun(run.id)))
++        return;
++    if (run.claimedAt !== null) {
++        // A worker claimed the row and stopped before it recorded a result.
++        await finishAutomationRun(run.id, "error", INTERRUPTED_RUN_MESSAGE, INTERRUPTED_RUN_ERROR_CODE);
++        return;
++    }
++    const minutes = Math.round(automationRunClaimLeaseMs() / 60_000);
++    await finishAutomationRun(run.id, "error", `Run now did not start within ${minutes} minutes of the request, so it was cancelled instead of running late. ` +
++        "The app may have quit before it started, or the request could not reach a worker. No delivery was confirmed.", "automation_run_not_started");
++}
+ async function dispatchAutomationRun(historyId, requestHeaders) {
++    if (inProcessAutomationRunner) {
++        startInProcessRun(inProcessAutomationRunner, historyId);
++        return;
++    }
+     const dispatchPath = resolveAgentChatProcessRunDispatchPath();
+     await fireInternalDispatch({
+         path: dispatchPath,
+@@ -116,12 +162,20 @@ export async function queueAutomationRunNow(input) {
+ /**
+  * Recover manual rows whose first serverless handoff never reached a worker.
+  * This is intentionally a redelivery, not a second execution: the worker's
+- * claim CAS decides which request owns the run.
++ * claim CAS decides which request owns the run. With an in-process runner, a
++ * row older than the claim lease is ended instead of run.
+  */
+ export async function redispatchUnclaimedAutomationRuns(options) {
+     const runs = await listUnclaimedAutomationRuns({ appId: options?.appId });
+     let attempted = 0;
+     for (const run of runs) {
++        if (inProcessAutomationRunner &&
++            Date.now() - run.startedAt > automationRunClaimLeaseMs()) {
++            await endLateAutomationRun(run).catch((error) => {
++                console.error(`[automations] Could not end late queued run ${run.id}:`, error);
++            });
++            continue;
++        }
+         try {
+             await dispatchAutomationRun(run.id, options?.requestHeaders);
+             attempted += 1;
+diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..113a1a1c6c8e70d77a215fe36c6a4f7fa947d83a 100644
+--- a/dist/jobs/scheduler.js
++++ b/dist/jobs/scheduler.js
+@@ -3,7 +3,7 @@ import { backgroundRunCutOffReason, isBackgroundAutomationRunActive, resolveBack
+ import { nextOccurrence, isValidCron, describeCron, effectiveTimezone, } from "./cron.js";
+ import { buildJobResourceContent, isRecoveredFactoryJob, jobBelongsToApp, parseJobResource, patchJobFrontmatterFields, recoveredFactoryOwnerOrgId, } from "./frontmatter.js";
+ import { dispatchRemoteAutomation, finishRemoteAutomationHistory, getRemoteAutomationStatus, } from "./remote-execution.js";
+-import { claimAutomationRun, finishAutomationRun, getAutomationRun, listAutomationRuns, } from "./run-history.js";
++import { claimAutomationRun, finishAutomationRun, getAutomationRun, INTERRUPTED_RUN_MESSAGE, listAutomationRuns, } from "./run-history.js";
+ import { acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationSchedulerLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
+ // ─── Frontmatter parsing ────────────────────────────────────────────────────
+ export { classifyJobFrontmatter, classifyJobResource, normalizeJobMcpTools, parseJobResource, } from "./frontmatter.js";
+@@ -179,8 +179,7 @@ async function processRecurringJobsWithLease(deps) {
+                     continue;
+                 // Stuck — reset so the next check can re-run it
+                 meta.lastStatus = "error";
+-                meta.lastError =
+-                    "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
++                meta.lastError = INTERRUPTED_RUN_MESSAGE;
+                 const next = nextOccurrence(meta.schedule, now, meta.timezone);
+                 meta.nextRun = next.toISOString();
+                 await updateResource(resource, meta, body);
+@@ -324,7 +323,7 @@ async function recoverStaleAutomationHistory(owner, path) {
+             (run.status !== "running" && run.status !== "interrupted")) {
+             return;
+         }
+-        await finishAutomationRun(run.id, "error", "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.");
++        await finishAutomationRun(run.id, "error", INTERRUPTED_RUN_MESSAGE);
+     }
+     catch (error) {
+         console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
 diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
 index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b12d0f633 100644
 --- a/dist/scripts/agent-engines/list-agent-engines.js
@@ -2015,10 +2230,42 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
      };
      return JSON.stringify(result, null, 2);
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..029e479568ea201c543ea6ec68d9e9c465ef883a 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
-@@ -4649,6 +4649,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -581,6 +581,31 @@ export function createAgentChatPlugin(options) {
+                 ? await createCallAgentScriptEntry(options?.appId)
+                 : {};
+             let runNowSchedulerDeps = null;
++            /**
++             * Run one queued Run now row with this app's scheduler dependencies
++             * and record a worker failure on the row. The process-run route and
++             * the in-process runner both use it. `runQueuedAutomation` claims the
++             * row first, so a second delivery of the same row does not run it.
++             */
++            const runQueuedAutomationRun = async (automationRunId) => {
++                try {
++                    if (!runNowSchedulerDeps) {
++                        throw new Error("Automation runner is not initialized.");
++                    }
++                    const { runQueuedAutomation } = await import("../jobs/scheduler.js");
++                    const result = await runQueuedAutomation(automationRunId, runNowSchedulerDeps);
++                    return { ok: true, automationRunId, ...result };
++                }
++                catch (error) {
++                    const message = error instanceof Error ? error.message : String(error);
++                    const { finishAutomationRun } = await import("../jobs/run-history.js");
++                    await finishAutomationRun(automationRunId, "error", `Automation worker failed: ${message}. No delivery was confirmed.`).catch((finishError) => {
++                        console.warn(`[automations] could not record run-now worker failure for ${automationRunId}:`, finishError);
++                    });
++                    console.error(`[automations] run-now worker failed for ${automationRunId}:`, error);
++                    throw error;
++                }
++            };
+             const browserTools = createBuilderBrowserTool({
+                 getOrigin: () => getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
+                 getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
+@@ -4649,6 +4674,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -2038,7 +2285,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac463
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4679,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4704,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -2085,7 +2332,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac463
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4700,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4725,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -2094,6 +2341,61 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac463
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
+@@ -5113,32 +5137,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                     ? preparedMarker.automationRunId
+                     : undefined;
+                 if (typeof automationRunId === "string" && automationRunId) {
+-                    const runAutomation = async () => {
+-                        try {
+-                            if (!runNowSchedulerDeps) {
+-                                throw new Error("Automation runner is not initialized.");
+-                            }
+-                            const { runQueuedAutomation } = await import("../jobs/scheduler.js");
+-                            const result = await runQueuedAutomation(automationRunId, runNowSchedulerDeps);
+-                            return { ok: true, automationRunId, ...result };
+-                        }
+-                        catch (error) {
+-                            const message = error instanceof Error ? error.message : String(error);
+-                            const { finishAutomationRun } = await import("../jobs/run-history.js");
+-                            await finishAutomationRun(automationRunId, "error", `Automation worker failed: ${message}. No delivery was confirmed.`).catch((finishError) => {
+-                                console.warn(`[automations] could not record run-now worker failure for ${automationRunId}:`, finishError);
+-                            });
+-                            console.error(`[automations] run-now worker failed for ${automationRunId}:`, error);
+-                            throw error;
+-                        }
+-                    };
+                     // Netlify background functions must keep the handler open for the
+                     // full automation. Other runtimes get an immediate receipt and
+                     // use waitUntil when the platform provides it; long-lived Node
+                     // processes can safely continue the promise after the response.
+                     if (isInBackgroundFunctionRuntime()) {
+                         try {
+-                            return await runAutomation();
++                            return await runQueuedAutomationRun(automationRunId);
+                         }
+                         catch {
+                             setResponseStatus(event, 500);
+@@ -5146,7 +5151,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                         }
+                     }
+                     const waitUntil = event.req?.waitUntil;
+-                    const runPromise = runAutomation().catch(() => { });
++                    const runPromise = runQueuedAutomationRun(automationRunId).catch(() => { });
+                     if (typeof waitUntil === "function") {
+                         void waitUntil(runPromise);
+                     }
+@@ -5439,6 +5444,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                     }
+                 }
+                 else {
++                    // This process owns the recurring-jobs timer, so it also runs
++                    // Run now requests. Running them here needs no app URL or
++                    // A2A_SECRET, which HTTP self-dispatch requires in production.
++                    const { setInProcessAutomationRunner } = await import("../jobs/run-now.js");
++                    setInProcessAutomationRunner(runQueuedAutomationRun);
+                     // Start after a 10-second delay to let the server fully initialize
+                     setTimeout(() => {
+                         setInterval(() => {
 diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
 index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
 --- a/dist/usage/metrics-store.js

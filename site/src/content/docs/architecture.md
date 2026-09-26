@@ -155,6 +155,24 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #51 changes the maintained Core patch so Automations > Manage > Run now
+runs inside the server process that owns the recurring-jobs timer. Before, Core
+sent Run now back to itself over HTTP, which needs an app URL and `A2A_SECRET`
+that the packaged app does not set, so every click failed and the queued-run
+sweep retried the row forever. The sweep now ends a queued row older than the
+claim lease instead of running it late, and the interruption message no longer
+blames a serverless worker. This page describes automations only as release
+work that depends on Native execution. Core still owns automation storage,
+claims, and execution, and the change adds no Vivary component, flow, or trust
+boundary, so the design description holds. Evidence: the new
+`automation-run-now.test.mjs` failed on the previous patch and passes on this
+one, the workbench typecheck and maintained checks pass on Zo, and a local-mode
+`bin/start.mjs` run on Zo with no provider key returned HTTP 200 for Run now.
+Its row left `running` with a thread, ended at the model step with "No LLM
+provider is connected", and the log had no redelivery retry. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#in-process-run-now)
+record the change.
+
 Issue #50 is closed. PR #100 merged into `dev` as `8a5d262`, and the owner
 accepted the packaged run on 2026-09-26. Its receipt, the acceptance register,
 and the release target now record the merge and closure, link the seven
