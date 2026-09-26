@@ -6,7 +6,7 @@ Issue: [#19](https://github.com/vivary-dev/Vivary-New/issues/19)
 Latest verified source: `e6ccddf53901f216276a97fd6a790be58ac8b479`
 Hosted result: the 12-step journey passed three runs in a row on `e6ccddf5`, with Workbench and the bundled Python runtime built from that commit, and three runs in a row each on `64c227eb`, `db2be221`, `480e616e`, and `9e9b0d82`. It also passed on `bd12e620`, after a first run there stopped at its first step, described below, and on `9c026639`, `366ce16c`, `8576af0e`, `cc54be25`, and three times on `e87099d1`. A local fake model provider drove the agent, so no real model was called.
 Packaged Windows result: the unpublished `e87099d1` package passed the full panel, agent, isolation, missing-folder, restart, and no-Git journey. The unpublished `8576af0e` package then passed the journey's affected steps on the same profile. The unpublished `bd12e620` package opened that profile and passed the checks listed below. The final `e6ccddf5` package then passed the panel reads and the agent turn on that profile on 2026-09-25.
-Delivery status: [PR #89](https://github.com/vivary-dev/Vivary-New/pull/89) merged into `dev` as `bd57c4b` after the owner approved its Entire trail. Issue closure waits for the owner.
+Delivery status: [PR #89](https://github.com/vivary-dev/Vivary-New/pull/89) merged into `dev` as `bd57c4b` after the owner approved its Entire trail. The owner closed issue #19 on 2026-09-26.
 
 ## Result
 

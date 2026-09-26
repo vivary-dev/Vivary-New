@@ -6,7 +6,7 @@ Issue: [#20](https://github.com/vivary-dev/Vivary-New/issues/20)
 Latest verified source: `33cbcbb71fa606118d0c02a0d5555a65025623b6`
 Hosted result: the 22-step journey passed three runs in a row on `33cbcbb` (runs `run-33cbcbb-04` to `06`), with Workbench and the bundled Python runtime built from that commit. Runs 01 to 03 on `33cbcbb` failed one step because the journey's own expectation was wrong, described under Hosted journey. Earlier heads: one run on `e96871d` passed 17 of 18 steps and found the existence oracle described under Review. Two runs on `24461c0` passed all 20 steps they ran. A local fake model provider drove the agent, so no real model was called.
 Packaged Windows result: the unpublished `1249572d` package passed Review, Impact, Decide, claim, and release in Project details and all 14 checks of an agent turn on 2026-09-26, described under Packaged Windows journey. `1249572` adds only documentation to `33cbcbb`. A local fake model provider drove the agent.
-Delivery status: PR pending owner approval. The work is on `feat/review-control-tools`, from `dev` `a08405d`, in eight commits: `60f78a0`, `192a91b`, `f096c5c`, `eabdabb`, `e96871d`, `5aa6aa6`, `24461c0`, and `33cbcbb`. Issue closure waits for the owner.
+Delivery status: [PR #95](https://github.com/vivary-dev/Vivary-New/pull/95) merged into `dev` as `7fb73bd` on 2026-09-26 after the owner approved its Entire trail, and the owner closed issue #20 the same day. The work came from `feat/review-control-tools`, from `dev` `a08405d`, in eight commits: `60f78a0`, `192a91b`, `f096c5c`, `eabdabb`, `e96871d`, `5aa6aa6`, `24461c0`, and `33cbcbb`.
 
 ## Result
 

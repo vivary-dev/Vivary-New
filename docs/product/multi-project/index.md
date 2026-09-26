@@ -12,7 +12,7 @@ None.
 
 ## In-progress packet snapshot
 
-- [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md)
+None.
 
 Read the live issue and [execution rules](execution-contract.md) before claiming work.
 The issue's dependencies govern starts. A routine issue needs no packet.
