@@ -18,6 +18,19 @@ export const PROJECT_READ_MAX_RESULT_CHARS = 40_000;
 export type ProjectReadOperation = typeof PROJECT_READ_OPERATIONS[number];
 export type PublicReviewPack = typeof PUBLIC_REVIEW_PACKS[number];
 export type PublicReviewRule = typeof PUBLIC_REVIEW_RULES[number];
+// A broken link reads the same whether its target is private or missing, so the sentence names neither.
+export const REVIEW_RULE_SENTENCES = {
+  "change-unverified": "This change has no verification note linked.",
+  "change-ungated": "This change has no gate linked.",
+  "module-unverified": "This module has no verification note linked.",
+  orphan: "This note has no links to or from other shared notes.",
+  "broken-edge": "A link in this note points to an id that no shared note has.",
+  "draft-unreviewed": "This draft or manuscript has no review linked.",
+  "draft-unedited": "This draft or manuscript has no edit or revision linked.",
+  "draft-structure-missing": "This draft or manuscript has no outline, beat sheet, or structure note linked.",
+  "review-unlinked": "This review is not linked to a draft or manuscript.",
+  "edit-unlinked": "This edit is not linked to a draft, manuscript, or review.",
+} as const satisfies Record<PublicReviewRule, string>;
 
 export const projectReadQuerySchema = z.string().trim().min(1).max(4_000)
   // The original CLI reads its query right after the verb and refuses `--`.
@@ -86,6 +99,7 @@ export type Capability = { id: string; label: string; isDefault: boolean; requir
 export type Receipt = { timestamp: string; tool: string; command: string; ok: boolean; exitCode: number | null;
   durationMs: number | null; source: string | null; errorType?: string };
 // A broken-edge finding names its source note and the `field` holding the broken reference, never the target.
+// Only a broken-edge finding has a `field`.
 export type ReviewFinding = { severity: "warn" | "info"; rule: PublicReviewRule; id: string; type: string | null; path: string;
   field?: string };
 export type ImpactNode = { id: string; distance: number; via: string; type: string | null; path: string };

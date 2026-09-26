@@ -4,7 +4,10 @@ import { Link, useSearchParams } from "react-router";
 import { useNativeActionCaller, type NativeActionCaller } from "@/lib/native-actions";
 import { projectFileHref } from "@/lib/project-file-location";
 import { incompleteNote, privateExcluded, sensitiveExcluded } from "@/lib/project-read-display";
-import type { Bounded, ProjectReadOwnerInput, ProjectReadReport, ProjectReadResult } from "@/lib/project-read-schema";
+import {
+  REVIEW_RULE_SENTENCES, type Bounded, type ProjectReadOwnerInput, type ProjectReadReport, type ProjectReadResult,
+  type Omission, type PublicReviewPack,
+} from "@/lib/project-read-schema";
 import type { WorkspacePreset } from "../../../shared/workspace-patterns.ts";
 
 type ReadState =
@@ -18,6 +21,8 @@ const STATUS = { installed: "Installed", "not-installed": "Not installed", incom
   "probe-failed": "Could not be checked" } as const;
 const PRESETS = { coding: "Coding", "second-brain": "Second brain", "knowledge-work": "Knowledge work",
   writing: "Writing" } as const satisfies Record<WorkspacePreset, string>;
+const PACKS = { structure: "Structure", editorial: "Editorial" } as const satisfies Record<PublicReviewPack, string>;
+const SEVERITY = { warn: "Warning", info: "Suggestion" } as const;
 
 // Each section owns its request, so several sections can run at once and a
 // response for an older request is dropped.
@@ -76,6 +81,13 @@ export function ProjectReadPanel(props: PanelProps) {
   return <ProjectReadSections key={props.projectId} {...props} />;
 }
 
+// Exclusion and incomplete notes shared by every report built from the privacy-filtered notes.
+function Omissions({ report }: { report: { complete: boolean; omissions: Omission[] } }) {
+  const notes = [privateExcluded(report.omissions), sensitiveExcluded(report.omissions),
+    report.complete ? null : incompleteNote(report.omissions)].filter((note): note is string => note !== null);
+  return <>{notes.map(note => <p key={note} className="project-read-muted">{note}</p>)}</>;
+}
+
 function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const { call, ready } = useNativeActionCaller();
   const [params] = useSearchParams();
@@ -85,7 +97,12 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const find = useProjectRead(call, projectId);
   const capabilities = useProjectRead(call, projectId);
   const receipts = useProjectRead(call, projectId);
+  const review = useProjectRead(call, projectId);
+  const impact = useProjectRead(call, projectId);
   const [question, setQuestion] = useState("");
+  const [pack, setPack] = useState<PublicReviewPack>("structure");
+  const [nodeId, setNodeId] = useState("");
+  const nodeField = useRef<HTMLInputElement>(null);
   const [preset, setPreset] = useState<WorkspacePreset>("coding");
   const [failedOnly, setFailedOnly] = useState(false);
 
@@ -99,13 +116,15 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
   const context = reportOf(find.state, "find");
   const features = reportOf(capabilities.state, "capabilities");
   const log = reportOf(receipts.state, "receipts");
-  const notesExcluded = notes && privateExcluded(notes.omissions);
-  const contextExcluded = context && privateExcluded(context.omissions);
-  const notesSensitive = notes && sensitiveExcluded(notes.omissions);
-  const contextSensitive = context && sensitiveExcluded(context.omissions);
-  const notesIncomplete = notes && !notes.complete ? incompleteNote(notes.omissions) : null;
-  const contextIncomplete = context && !context.complete ? incompleteNote(context.omissions) : null;
+  const findings = reportOf(review.state, "review");
+  const dependents = reportOf(impact.state, "impact");
   const query = question.trim();
+  const target = nodeId.trim();
+  const showImpact = (id: string) => {
+    setNodeId(id);
+    nodeField.current?.focus();
+    void impact.run({ operation: "impact", nodeId: id });
+  };
 
   return <>
     <Section title="Project health" state={health.state} hook="project-health">
@@ -145,9 +164,7 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
             <span className="project-read-muted">{finding.level} {finding.code}: {finding.message}</span>
           </li>)}</ul>
         </>}
-        {notesExcluded && <p className="project-read-muted">{notesExcluded}</p>}
-        {notesSensitive && <p className="project-read-muted">{notesSensitive}</p>}
-        {notesIncomplete && <p className="project-read-muted">{notesIncomplete}</p>}
+        <Omissions report={notes} />
       </>}
       <Button size="sm" variant="outline" disabled={blocked(check.state)} onClick={() => void check.run({ operation: "check" })}>
         {check.state.kind === "idle" ? "Check notes" : "Check again"}
@@ -176,9 +193,70 @@ function ProjectReadSections({ projectId, disabled }: PanelProps) {
             {result.snippet && <span className="project-read-snippet">{result.snippet}</span>}
           </li>)}</ul>
         </>}
-        {contextExcluded && <p className="project-read-muted">{contextExcluded}</p>}
-        {contextSensitive && <p className="project-read-muted">{contextSensitive}</p>}
-        {contextIncomplete && <p className="project-read-muted">{contextIncomplete}</p>}
+        <Omissions report={context} />
+      </>}
+    </Section>
+
+    <Section title="Note review" state={review.state} hook="project-review">
+      {review.state.kind === "idle" && <p>Not reviewed yet. Review looks for missing links between notes and skips files that Git or the workspace marks private.</p>}
+      <div className="project-read-form">
+        <label htmlFor={`${ids}-pack`}>Pack</label>
+        <select id={`${ids}-pack`} value={pack} onChange={event => setPack(event.target.value as PublicReviewPack)}>
+          {Object.entries(PACKS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <Button size="sm" variant="outline" disabled={blocked(review.state)}
+          onClick={() => void review.run({ operation: "review", pack })} data-agent-native="project-review-run">Review</Button>
+      </div>
+      <Outcome state={review.state} running="Reviewing notes…" />
+      {findings && <>
+        <p><strong>{findings.warnings > 0 ? "Needs attention" : "No warnings"}</strong>
+          {" · "}{PACKS[findings.pack]} pack, {findings.reviewed} note{findings.reviewed === 1 ? "" : "s"} reviewed,
+          {" "}{findings.warnings} warning{findings.warnings === 1 ? "" : "s"},
+          {" "}{findings.notes} suggestion{findings.notes === 1 ? "" : "s"}</p>
+        {findings.findings.total === 0 ? <p>No findings.</p> : <>
+          <p className="project-read-heading">{heading("finding", findings.findings)}</p>
+          <ul>{findings.findings.items.map((finding, index) => <li key={index}>
+            {REVIEW_RULE_SENTENCES[finding.rule]}
+            {finding.field !== undefined && <span className="project-read-muted"> Link field: {finding.field}.</span>}
+            <div className="project-read-form">
+              <span className="project-read-muted">{SEVERITY[finding.severity]} · {finding.id}</span>
+              {source(finding.path)}
+              <Button size="sm" variant="outline" disabled={blocked(impact.state) || finding.id.startsWith("-")} onClick={() => showImpact(finding.id)}
+                aria-label={`Show impact of ${finding.id}`}>Show impact</Button>
+            </div>
+          </li>)}</ul>
+        </>}
+        <Omissions report={findings} />
+      </>}
+    </Section>
+
+    <Section title="Impact" state={impact.state} hook="project-impact">
+      {impact.state.kind === "idle" && <p>Enter a note id to list the notes that link to it, directly or through other notes. Private files are left out.</p>}
+      <form className="project-read-form" onSubmit={event => {
+        event.preventDefault();
+        if (target && !target.startsWith("-")) void impact.run({ operation: "impact", nodeId: target });
+      }}>
+        <label htmlFor={`${ids}-node`} className="sr-only">Note id</label>
+        <input id={`${ids}-node`} ref={nodeField} type="search" value={nodeId} maxLength={256} placeholder="Note id"
+          autoComplete="off" spellCheck={false} onChange={event => setNodeId(event.target.value)} />
+        <Button type="submit" size="sm" variant="outline" disabled={blocked(impact.state) || !target || target.startsWith("-")}
+          data-agent-native="project-impact-run">Show impact</Button>
+      </form>
+      {target.startsWith("-") && <p className="project-read-muted">Start the note id with a letter or digit, not a dash.</p>}
+      <Outcome state={impact.state} running="Tracing dependents…" />
+      {dependents && <>
+        <p className="project-read-muted">Notes that link to “{dependents.target}”</p>
+        {dependents.nodes.total === 0 ? <p>No shared note links to this one.</p> : <>
+          <p className="project-read-heading">{heading("dependent", dependents.nodes)}</p>
+          <ul>{dependents.nodes.items.map(node => <li key={node.id}>
+            {source(node.path)}{" "}
+            <span className="project-read-muted">{node.id} · {node.distance === 1 ? "links directly" : `${node.distance} links away`}
+              {" "}through its {node.via} field</span>
+          </li>)}</ul>
+        </>}
+        {privateExcluded(dependents.omissions) && <p className="project-read-muted">
+          A note that reaches this one only through a private file is not counted.</p>}
+        <Omissions report={dependents} />
       </>}
     </Section>
 
