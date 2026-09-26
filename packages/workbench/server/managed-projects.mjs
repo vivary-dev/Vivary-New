@@ -14,6 +14,11 @@ const CREATOR_TIMEOUT_MS = 30_000;
 const activeTargets = new Set();
 const WINDOWS_RESERVED_NAME = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 
+/** True for a file or folder name Windows reserves for a device, with or without an extension. */
+export function isWindowsReservedName(name) {
+  return WINDOWS_RESERVED_NAME.test(name);
+}
+
 async function runCreator(request, dependencies = {}) {
   const start = dependencies.spawn ?? spawn;
   // guard:allow-env-credential - Launcher-selected runtime directory, not a credential.
@@ -82,7 +87,7 @@ export function managedProjectDataDirectory(dependencies = {}) {
 
 async function managedTarget(context, name, createParent, dependencies = {}) {
   const childName = projectName.parse(name);
-  if (WINDOWS_RESERVED_NAME.test(childName)) {
+  if (isWindowsReservedName(childName)) {
     throw new Error("Choose a project name that is valid on Windows.");
   }
   const getAccess = dependencies.getAccess ?? getLocalProjectAccess;
@@ -130,6 +135,64 @@ export async function installedPatternCatalog(context, dependencies = {}) {
     throw Object.assign(new Error("Project access is unavailable."), { statusCode: 403 });
   }
   return runCreator({ operation: "catalog" }, dependencies);
+}
+
+const workspaceRelativePath = z.string().min(1).max(512).refine(value =>
+  !value.startsWith("/") && !value.includes("\\") && !/^[A-Za-z]:/.test(value)
+  && value.split("/").every(part => part && part !== "." && part !== ".."));
+const rolePaths = z.array(workspaceRelativePath).max(64);
+const memoryPrivacy = {
+  protected: rolePaths,
+  privacy_policy: z.enum(["gitignore", "none"]),
+  private: rolePaths,
+  private_files: z.array(workspaceRelativePath).max(4_000),
+  ignore_files: z.array(workspaceRelativePath).max(4_000),
+  private_candidates: z.array(workspaceRelativePath).max(16),
+  // The creator caps this at _CONTEXT_CHECKED_TOTAL paths and leaves out
+  // any name this schema would refuse, so one odd name cannot fail the answer.
+  checked_files: z.array(workspaceRelativePath).max(3_000),
+  // True when the engine's matching budget ran out and it treated every
+  // path it had not decided as private.
+  privacy_limited: z.boolean().optional(),
+};
+// The creator's answer is parsed here, so project memory can trust its shape.
+const workspaceContextAnswer = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("thin"),
+    roles: z.strictObject({ law: rolePaths, map: rolePaths, record: rolePaths, memory: rolePaths, boundary: rolePaths }),
+    state: workspaceRelativePath,
+    memory: rolePaths.min(1),
+    memory_assigned: z.boolean(),
+    ...memoryPrivacy,
+  }),
+  z.strictObject({
+    status: z.literal("plain"), roles: z.null(), state: z.null(),
+    memory: rolePaths.min(1), memory_assigned: z.literal(false), ...memoryPrivacy,
+  }),
+  z.strictObject({ status: z.literal("invalid"), message: z.string().max(2_000) }),
+]);
+
+/**
+ * The engine's context paths for one project root that project services
+ * already admitted. This function does not authorize. `candidates` are
+ * workspace-relative files about to be created, checked against the ignore
+ * rules. It throws when the bridge is unavailable or its answer does not
+ * parse, and the caller reports that as unavailable settings.
+ */
+export async function readWorkspaceContext(root, candidates = [], dependencies = {}) {
+  const request = { operation: "context", target: root, ...(candidates.length > 0 ? { candidates } : {}) };
+  const result = await (dependencies.runCreator ?? runCreator)(request, dependencies);
+  if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
+  const answer = workspaceContextAnswer.parse(result.context);
+  if (answer.status === "invalid") return answer;
+  const privacy = { policy: answer.privacy_policy, private: answer.private,
+    privateFiles: answer.private_files, ignoreFiles: answer.ignore_files,
+    privateCandidates: answer.private_candidates, checkedFiles: answer.checked_files,
+    ...(answer.privacy_limited ? { limited: true } : {}) };
+  return answer.status === "thin"
+    ? { status: "thin", roles: answer.roles, state: answer.state, memory: answer.memory,
+      memoryAssigned: answer.memory_assigned, protected: answer.protected, privacy }
+    : { status: "plain", memory: answer.memory, protected: answer.protected, privacy };
 }
 
 export async function previewManagedProject(context, input, dependencies = {}) {

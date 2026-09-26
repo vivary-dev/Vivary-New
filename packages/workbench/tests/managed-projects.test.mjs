@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createManagedProject, previewManagedProject } from "../server/managed-projects.mjs";
+import { createManagedProject, previewManagedProject, readWorkspaceContext } from "../server/managed-projects.mjs";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -125,4 +125,37 @@ test("managed names reject Windows device names and case collisions before apply
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
+});
+
+test("workspace context reads the engine answer through the shipped bridge", async () => {
+  const originalCwd = process.cwd();
+  const workbenchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-context-plain-"));
+  try {
+    process.chdir(workbenchRoot);
+    assert.deepEqual(await readWorkspaceContext(folder), {
+      status: "plain", memory: [".vivary/knowledge"], protected: [],
+      privacy: { policy: "none", private: [], privateFiles: [],
+        ignoreFiles: [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"], privateCandidates: [],
+        checkedFiles: [] },
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("workspace context passes invalid settings through and refuses an unexpected answer", async () => {
+  const answer = context => ({ runCreator: async () => ({ code: "context", context }) });
+  assert.deepEqual(await readWorkspaceContext("/project", [], answer({ status: "invalid", message: "bad toml" })),
+    { status: "invalid", message: "bad toml" });
+  await assert.rejects(readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
+    memory: ["../outside"], memory_assigned: false, protected: [], privacy_policy: "none", private: [],
+    private_files: [], ignore_files: [], private_candidates: [], checked_files: [] })));
+  const limited = await readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
+    memory: [".vivary/knowledge"], memory_assigned: false, protected: [], privacy_policy: "gitignore", private: [],
+    private_files: [], ignore_files: [".gitignore"], private_candidates: [], checked_files: [], privacy_limited: true }));
+  assert.equal(limited.status === "plain" && limited.privacy.limited, true);
+  await assert.rejects(readWorkspaceContext("/project", [], { runCreator: async () => ({ code: "refused" }) }),
+    /settings reader is unavailable/);
 });

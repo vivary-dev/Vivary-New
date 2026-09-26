@@ -2,11 +2,9 @@ import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
   resolveLocalProjectHistory,
   resolveLocalProjectWorkspace,
+  type LocalProjectWorkspace,
 } from "./project-services.mjs";
-import type {
-  VivaryCodeProjectHistory,
-  VivaryCodeWorkspace,
-} from "./local-code-agent";
+import type { VivaryCodeProjectHistory } from "./local-code-agent";
 
 function preserveAccessDenial(error: unknown): void {
   if (error && typeof error === "object" && "statusCode" in error
@@ -19,7 +17,7 @@ function preserveAccessDenial(error: unknown): void {
 export async function resolveVivaryCodeProject(
   context: ActionRunContext | undefined,
   projectId: string | undefined,
-): Promise<VivaryCodeWorkspace | undefined> {
+): Promise<LocalProjectWorkspace | undefined> {
   if (!projectId) return undefined;
   try {
     return await resolveLocalProjectWorkspace(context, projectId);

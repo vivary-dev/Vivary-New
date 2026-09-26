@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext, type AgentChatPluginOptions } from "@agent-native/core/server";
 import { H3, HTTPError } from "h3";
 import { projectChatScopeId } from "../server/chat-project-scope.mjs";
-import { createVivaryNativeChatProjectGuard, createVivaryNativeChatProjectResolver, prepareVivaryNativeChatProject } from "../server/native-chat-project";
+import {
+  createVivaryNativeChatActionSurface,
+  createVivaryNativeChatContext,
+  createVivaryNativeChatProjectGuard,
+  createVivaryNativeChatProjectResolver,
+  loadNativeProjectContext,
+  OWNER_WIDE_ACTIONS,
+  prepareVivaryNativeChatProject,
+  vivaryNativeChatProjectOptions,
+} from "../server/native-chat-project";
+import { renderUnavailableContext, type ProjectContextBlock } from "../server/project-memory.ts";
 import type { ChatScopeMatch } from "../server/project-services.mjs";
 
 type PrepareDetails = Parameters<
@@ -121,4 +132,128 @@ test("uses Native's parsed scope after its HTTP body has been consumed", async (
   await runWithRequestContext({ userEmail: ownerEmail, orgId, run: { chatScope: personal } },
     () => prepareVivaryNativeChatProject({ ...details(), event }));
   assert.equal(bodyReads, 0);
+});
+
+// Project context and the tool surface reuse the guard's scope classification.
+function contextFor(match: ChatScopeMatch | Error,
+  loadProjectContext: (context: ActionRunContext, projectId: string) => Promise<ProjectContextBlock>) {
+  return createVivaryNativeChatContext({
+    getOrgId: () => orgId,
+    matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
+    loadProjectContext,
+  });
+}
+const projectMatch: ChatScopeMatch = { kind: "project", projectId: "project-a",
+  context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
+
+test("the Full chat block is unavailable when the binding changed during the load", async () => {
+  const block = renderUnavailableContext("Relay", "Fixture block.", "full-chat");
+  const recorded: string[] = [];
+  const workspace = { root: "/project", label: "Relay", projectId: "project-a", bindingId: "binding-a",
+    rootId: "root-a", bindingRevision: 1, policyRevision: 1 };
+  const memory = {
+    renderForRun: async () => ({ block, revision: "ctx-000000000000", summary: "", factCount: 0 }),
+    recordLoad: (_workspace: unknown, load: { revision: string }) => { recorded.push(load.revision); },
+  };
+  const context = { userEmail: ownerEmail, orgId } as ActionRunContext;
+  assert.equal(await loadNativeProjectContext(context, "project-a",
+    { resolve: async () => workspace as never, memory: memory as never }), block);
+  assert.deepEqual(recorded, ["ctx-000000000000"]);
+  let revision = 1;
+  const changed = await loadNativeProjectContext(context, "project-a",
+    { resolve: async () => ({ ...workspace, policyRevision: ++revision }) as never, memory: memory as never });
+  assert.match(changed, /The project changed while its context was loaded\./);
+  assert.deepEqual(recorded, ["ctx-000000000000"]);
+});
+
+test("extraContext returns the pinned project's block", async () => {
+  const block = renderUnavailableContext("Relay", "Fixture block.", "full-chat");
+  let loaded: [ActionRunContext, string] | null = null;
+  const extraContext = contextFor(projectMatch, async (context, projectId) => { loaded = [context, projectId]; return block; });
+  assert.equal(await extraContext({}, ownerEmail), block);
+  assert.deepEqual(loaded, [projectMatch.context, "project-a"]);
+});
+
+test("extraContext returns null for Personal and non-project chats", async () => {
+  for (const match of [{ kind: "not-project" }, { kind: "personal" }] satisfies ChatScopeMatch[]) {
+    let loads = 0;
+    const extraContext = contextFor(match, async () => { loads += 1; return renderUnavailableContext(null, "x", "full-chat"); });
+    assert.equal(await extraContext({}, ownerEmail), null, match.kind);
+    assert.equal(loads, 0);
+  }
+});
+
+test("extraContext renders unavailable when access is revoked after the guard", async () => {
+  const revoked = Object.assign(new Error("Local project access is unavailable."), { statusCode: 403 });
+  const afterGuard = await contextFor(projectMatch, async () => { throw revoked; })({}, ownerEmail);
+  assert.match(String(afterGuard), /could not load this project's instructions, state, or facts: Local project access is unavailable\./);
+  const unclassified = await contextFor(new Error("/home/owner/private path"), async () => { throw new Error("unused"); })({}, ownerEmail);
+  assert.match(String(unclassified), /The project folder could not be read\./);
+  assert.doesNotMatch(String(unclassified), /private path/);
+});
+
+test("resolveActionSurface removes owner-wide actions only in project chats", async () => {
+  const available = ["vivary-project-read", "resources", "save-memory", "delete-memory", "chat-history", "web-request"];
+  const surface = (match: ChatScopeMatch | Error) => createVivaryNativeChatActionSurface({
+    getOrgId: () => orgId,
+    matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
+  })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
+  assert.deepEqual(await surface(projectMatch), { allowedActionNames: ["vivary-project-read", "web-request"] });
+  assert.deepEqual(await surface({ kind: "personal" }), { mode: "default" });
+  assert.deepEqual(await surface({ kind: "not-project" }), { mode: "default" });
+  assert.deepEqual(await surface(new Error("catalog")), { allowedActionNames: ["vivary-project-read", "web-request"] });
+});
+
+test("a request-scoped surface changes only trusted code execution, which Full chat does not use", async () => {
+  const core = new URL("./agent-chat-plugin.js", import.meta.resolve("@agent-native/core/server"));
+  assert.match(await readFile(core, "utf8"), /return hasRequestScopedSurface && mode === "trusted" \? "sandboxed" : mode;/);
+  const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(plugin, /codeExecution/);
+  assert.equal("codeExecution" in vivaryNativeChatProjectOptions, false);
+});
+
+// The framework action names Native registers, read from its installed source,
+// and the database tools its database entry builder can add.
+async function nativeFrameworkActions(): Promise<{ registered: Set<string>; database: Set<string> }> {
+  const entries = new URL("./agent-chat/script-entries.js", import.meta.resolve("@agent-native/core/server"));
+  const source = await readFile(entries, "utf8");
+  const registered = new Set([...source.matchAll(/^ {12}(?:"([a-z-]+)"|([a-z]+)): (?:wrapCliScript\(|\{)/gm)]
+    .map(match => match[1] ?? match[2]));
+  const builder = source.slice(source.indexOf("export async function createDbScriptEntries"),
+    source.indexOf("export async function createDocsScriptEntries"));
+  const database = new Set([...builder.matchAll(/(?:^ {12}"|entries\[")(db-[a-z-]+)"/gm)].map(match => match[1]));
+  for (const name of database) registered.add(name);
+  return { registered, database };
+}
+
+test("owner-wide action names match Native's resource, chat, and database entries", async () => {
+  const { registered, database } = await nativeFrameworkActions();
+  assert.deepEqual([...database].sort(), ["db-exec", "db-patch", "db-query", "db-schema"]);
+  for (const name of OWNER_WIDE_ACTIONS) assert.ok(registered.has(name), name);
+  for (const name of database) assert.ok(OWNER_WIDE_ACTIONS.some(denied => denied === name), name);
+});
+
+test("a project chat's resolved surface keeps no owner-wide or database tool Native registers", async () => {
+  const { registered } = await nativeFrameworkActions();
+  const available = ["vivary-project-read", ...registered];
+  const resolve = (match: ChatScopeMatch) => createVivaryNativeChatActionSurface({
+    getOrgId: () => orgId, matchChatProject: async () => match,
+  })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
+  const project = await resolve(projectMatch);
+  assert.ok("allowedActionNames" in project);
+  if (!("allowedActionNames" in project)) return;
+  for (const name of ["resources", "save-memory", "delete-memory", "chat-history", "db-schema", "db-query", "db-exec", "db-patch"]) {
+    assert.equal(project.allowedActionNames.includes(name), false, name);
+  }
+  assert.ok(project.allowedActionNames.includes("vivary-project-read"));
+  assert.deepEqual(await resolve({ kind: "personal" }), { mode: "default" });
+});
+
+test("the Native chat plugin uses the project guard, context, and action surface", async () => {
+  assert.equal(vivaryNativeChatProjectOptions.prepareRequest, prepareVivaryNativeChatProject);
+  assert.equal(typeof vivaryNativeChatProjectOptions.extraContext, "function");
+  assert.equal(typeof vivaryNativeChatProjectOptions.resolveActionSurface, "function");
+  // The plugin module imports the generated action registry, so its wiring is read as source.
+  const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+  assert.match(plugin, /\.\.\.vivaryNativeChatProjectOptions,/);
 });

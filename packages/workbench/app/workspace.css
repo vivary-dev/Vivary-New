@@ -81,3 +81,36 @@
 .adoption-controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .adoption-controls > p,.adoption-controls > h5,.adoption-controls > ul { flex-basis:100%; }
 .adoption-controls > button { min-height:44px; }
+
+.project-memory { margin-top:24px; padding-top:20px; border-top:1px solid hsl(var(--border)); min-width:0; }
+.project-memory h4,.project-memory h5 { font-weight:600; }
+.project-memory h5 { margin-top:16px; }
+.project-memory p { margin:6px 0; overflow-wrap:anywhere; }
+.project-memory a { color:hsl(var(--primary)); text-decoration:underline; overflow-wrap:anywhere; }
+.project-memory-roles { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:2px 12px; margin:10px 0; }
+.project-memory-roles > div { display:contents; }
+.project-memory-roles dt { margin-top:0 !important; }
+.project-memory-roles dd { margin:0 !important; overflow-wrap:anywhere; }
+.project-memory-facts { margin-top:12px; outline:none; }
+.project-memory-facts:focus-visible { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
+.project-memory-facts ul { list-style:none; padding:0; margin:0; }
+.project-memory-facts li { padding:10px 0; border-bottom:1px solid hsl(var(--border)); min-width:0; }
+.project-memory-facts li > p:first-of-type { white-space:pre-wrap; }
+.project-memory-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.project-memory-actions button,.project-memory > button { min-height:36px; }
+.project-memory > button { margin-top:12px; }
+.project-memory-form { display:flex; flex-direction:column; gap:4px; margin-top:12px; padding:12px; border:1px solid hsl(var(--border)); border-radius:6px; min-width:0; }
+.project-memory-form input,.project-memory-form textarea { width:100%; min-width:0; min-height:36px; padding:6px 10px; border:1px solid hsl(var(--input)); border-radius:6px; background:hsl(var(--background)); color:hsl(var(--foreground)); font:inherit; }
+.project-memory-form textarea { resize:vertical; }
+.project-memory-form input:focus-visible,.project-memory-form textarea:focus-visible,.project-memory summary:focus-visible,.project-memory a:focus-visible { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
+.project-memory-form .file-conflict { margin:8px 0; }
+.project-memory-preview { margin-top:16px; border:1px solid hsl(var(--border)); border-radius:6px; }
+.project-memory-preview summary { padding:10px 12px; min-height:44px; cursor:pointer; }
+.project-memory-preview > p { margin:0 12px 8px !important; }
+.project-memory-preview pre { margin:0; padding:12px; max-height:320px; overflow:auto; font:12px/1.6 ui-monospace, monospace; white-space:pre-wrap; overflow-wrap:anywhere; border-top:1px solid hsl(var(--border)); }
+@media (max-width:480px) {
+  .project-memory-actions button,.project-memory > button { flex:1 1 100%; min-height:44px; }
+  .project-memory-roles { grid-template-columns:minmax(0,1fr); }
+  .project-memory-roles dd { margin-bottom:6px !important; }
+  .project-memory-form input { min-height:44px; }
+}

@@ -323,6 +323,27 @@ Tropo resolves `.vivary/workspace.toml` as the thin base policy. A root or neste
 `tropo.toml` may tighten that policy but may not expand its scope. Competing thin roots
 fail closed.
 
+`workspace_context(target)` is the read the Vivary Workbench makes before each agent
+message. It returns Tropo's roles, state file, memory folders, and protected paths,
+plus the memory folders, law and state files, fact files, and optional candidate
+files that the workspace's `.gitignore` files ignore, the `.gitignore` files it
+consulted, `checked_files`, the fact files it checked in each memory folder, and
+`privacy_limited`, true when the matching budget (`_MEMORY_MATCH_BUDGET`) or the
+rule limit (`_MEMORY_RULE_LIMIT`) ran out.
+The Workbench loads, corrects, and forgets only those files. The engine lists a
+folder exactly as the Workbench's `listFolder` does: `.md` names longer than
+`.md` of regular files and links, secret-looking names left out, the first 200
+in UTF-16 order, from at most 4,000 scanned entries. It checks the regular
+files among them and leaves out any path the Workbench answer schema refuses
+(a backslash, or more than 512 UTF-16 code units), so one odd name cannot fail
+the answer. `checked_files` holds at most 3,000 paths and 96 KiB of JSON, far
+under the bridge's 512 KiB output limit. `_CONTEXT_LISTED_FILES`,
+`_CONTEXT_SCANNED_ENTRIES`, `_CONTEXT_CHECKED_TOTAL`, and
+`_WORKBENCH_PATH_UNITS` in `create_vivary.py` hold these limits and must match
+the Workbench's `CONTEXT_BOUNDS.factsPerLocation`, `MAX_FOLDER_ENTRIES`, the
+`checked_files` schema cap, and `workspaceRelativePath`. A name that is not valid UTF-8 decodes differently on the two sides and can sort differently, so it can shift the two listings apart. The files that shift show as not checked, which fails closed. It needs no Git. Memory reads each `.gitignore` with its own reader and matcher, apart from Doctor's, and matches fail-closed: memory treats a path as private when any positive rule could match it and ignores negations, so it may refuse a file Git would re-include. The owner can choose a memory folder that no rule matches. A rule matches in exact case or without regard to case, a run of two or more stars reads the same whatever its length, as in Git, and a run not bounded by slashes crosses `/`, a rule and a path match as code points or as UTF-8 bytes, and a trailing `/` also matches a file. Each `.gitignore` is read as bytes: a UTF-8 byte order mark is skipped, lines split only on a newline, with one carriage return before it dropped, and an entry ends at its first NUL. Memory reads a bracket body itself only when it holds plain members and ranges, such as `[._]` or `[a-v]`, with an optional leading `!` or `^`. A body that holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class, an equivalence class, or a collating symbol, a negated body holding an ASCII capital letter outside a range, such as `[!B]`, an unescaped `[` that never closes, a set Python cannot compile, and a rule longer than 256 characters make the rule match everything under its folder. Matching tracks reachable positions without backtracking, and each context read spends from a fixed matching budget. When the budget runs out, every path not yet decided counts as private, the answer sets `privacy_limited`, and the context block and the panel say the ignore rules were too costly to check in full. The budget is 20 million units: each positive rule and path pair costs its rule length plus 64 (a negated rule is skipped without a charge), and each match step costs the path positions it visits. A read that loads more than 2,000 rules from the `.gitignore` files it consults stops the same way. The budget bounds the work a read does, not its time on every machine. On Zo the slowest case measured, 1,999 rules against 200 files, stopped at the budget in about 1.7 seconds. A memory folder is private when a rule would ignore the probe name `vivary-memory-folder-probe.md` in it, so a rule that names one fact, such as `fact.md`, does not make the whole folder private, while `*.md` still does. More consulted `.gitignore` files than the Workbench answer accepts (4,000) cut the list and make the answer limited, with every path private. A `.vivary/workspace.toml` that is a link, a folder, or not a regular file returns `invalid` with a fixed message. Host paths in messages are scrubbed, including Windows UNC (`\\server\share`) and extended-length (`\\?\`) forms. Outside brackets a backslash escapes the next character. A differential test checks this against `git check-ignore`. Doctor keeps its own matching. It does not read `.git/info/exclude` or global Git excludes. An invalid config is returned as data
+without host paths. It writes nothing and records no receipt.
+
 MCP is optional. When selected, it is local stdio and read-only by default.
 
 ## One earned record

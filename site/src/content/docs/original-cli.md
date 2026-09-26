@@ -220,6 +220,11 @@ For workspaces that explicitly choose Cognee semantic memory, the optional
 hits that map back to known Vivary node ids. It is not part of the default install and
 provider writes require explicit approval. `tropo query --mode semantic --json` uses
 that same optional provider bridge after the workspace has been configured and indexed.
+Authored project facts are separate from that provider state. In a thin workspace,
+Tropo types each Markdown file in `.vivary/knowledge/`, or in a folder the `memory`
+role names, as a built-in `vivary_fact` note that requires `source` and `confirmed`.
+`vivary-cognee forget` deletes only the provider state under `.vivary/memory/`. The
+[Tropo specification](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/SPEC.md) owns the type rule.
 The `vivary_core.recall` API is a separate provider-neutral firewall. It
 classifies normalized candidates and projects caller-persisted recall transitions.
 Create and supersede require a proposal-bound human approval. Core adds no provider,

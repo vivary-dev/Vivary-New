@@ -5085,6 +5085,240 @@ def test_map_subtree_rebases_config_excludes(tmp_path):
     assert not any("private" in d["path"] for d in out["directories"])
 
 
+# Authored project facts (issue #21) ------------------------------------------
+
+_FACT_WORKSPACE_TOML = (
+    'version = 1\n'
+    'exclude = [".git", ".agents", ".vivary/private", ".vivary/runtime"]\n'
+    '[workspace]\ncontract = "thin-v0.3"\npreset = "coding"\nstate = "STATE.md"\n'
+    'private = [".vivary/private"]\nruntime = [".vivary/runtime"]\n'
+    'adapters = []\ncapabilities = []\n'
+    '{vivary}'
+    '[base]\nderive = ["id", "title"]\nallow_untyped = true\n'
+    'optional = {{ tags = "string-list" }}\n'
+    '[types.project]\nfolder = [".vivary", "projects"]\n'
+    'required = {{ status = "enum:idea|active|paused|shipped|archived" }}\n'
+    '{types}'
+)
+_FACT_ROLES_TABLE = (
+    '[workspace.vivary]\nversion = 1\npatterns = ["thin-context"]\n'
+    '[workspace.vivary.roles]\nlaw = ["AGENTS.md", ".vivary/context.md"]\n'
+    'map = [".vivary/context.md"]\nrecord = []\nmemory = {memory}\n'
+    'boundary = [".gitignore", ".vivary/private", ".vivary/runtime"]\n'
+)
+
+
+def _write_fact_workspace(root, *, memory="[]", roles_table=True, types=""):
+    """A thin workspace shaped like create-vivary's template, without Git."""
+    vivary = root / ".vivary"
+    vivary.mkdir()
+    (root / ".gitignore").write_text(
+        "# >>> vivary private/runtime >>>\n"
+        ".vivary/private/\n.vivary/runtime/\n*.vivary-tmp\n"
+        "# <<< vivary private/runtime <<<\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    vivary_table = _FACT_ROLES_TABLE.format(memory=memory) if roles_table else ""
+    (vivary / "workspace.toml").write_text(
+        _FACT_WORKSPACE_TOML.format(vivary=vivary_table, types=types),
+        encoding="utf-8",
+        newline="\n",
+    )
+    (vivary / "context.md").write_text(
+        "---\nstatus: active\n---\n# Project context\n", encoding="utf-8"
+    )
+
+
+def _write_fact(root, folder, name, *, source='"Jeff, planning call"'):
+    directory = root / folder
+    directory.mkdir(parents=True, exist_ok=True)
+    source_line = f"source: {source}\n" if source is not None else ""
+    (directory / name).write_text(
+        f"---\n{source_line}confirmed: 2026-09-25\n---\n"
+        "# Relay budget\n\nThe relay budget is 40 dollars per month.\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def _fact_check(root):
+    workspace = _public_workspace_root(root)
+    return tropo.check_workspace(workspace, allowlist=[workspace])
+
+
+def test_default_folder_fact_is_typed_and_clean(tmp_path):
+    _write_fact_workspace(tmp_path)
+    _write_fact(tmp_path, ".vivary/knowledge", "relay-budget.md")
+
+    checked = _fact_check(tmp_path)
+    assert checked["complete"] is True, checked["omissions"]
+    assert checked["findings"] == []
+    assert checked["errors"] == checked["warnings"] == 0
+
+    workspace = _public_workspace_root(tmp_path)
+    found = tropo.find_context(workspace, "relay budget", allowlist=[workspace])
+    assert [(row["path"], row["type"]) for row in found["results"]] == [
+        (".vivary/knowledge/relay-budget.md", tropo.FACT_TYPE)
+    ]
+
+
+def test_private_and_public_compose_agree(tmp_path):
+    _write_fact_workspace(tmp_path)
+    private = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert private.folder_map[".vivary/knowledge"] == tropo.FACT_TYPE
+
+    workspace = _public_workspace_root(tmp_path)
+    candidates, _complete = tropo._public_root_config_candidates(workspace, {})
+    public, _digest, complete = tropo._public_config_from_candidates(
+        workspace, candidates, {candidate["rel"] for candidate in candidates}, {}
+    )
+    assert complete is True
+    assert public.folder_map[".vivary/knowledge"] == tropo.FACT_TYPE
+    assert public.types[tropo.FACT_TYPE]["required"] == private.types[tropo.FACT_TYPE]["required"]
+
+
+def test_missing_source_reports_e101(tmp_path):
+    _write_fact_workspace(tmp_path)
+    _write_fact(tmp_path, ".vivary/knowledge", "unsourced.md", source=None)
+
+    checked = _fact_check(tmp_path)
+    assert [(row["level"], row["code"]) for row in checked["findings"]] == [("error", "E101")]
+    docs = tropo.analyze(str(tmp_path), [], res(str(tmp_path)))
+    assert [
+        (doc.type, finding.code, finding.message)
+        for doc in docs
+        for finding in doc.findings
+    ] == [(tropo.FACT_TYPE, "E101", "missing required field 'source' for type 'vivary_fact'")]
+
+
+def test_memory_role_folder_is_typed_and_default_stays_typed(tmp_path):
+    _write_fact_workspace(tmp_path, memory='["docs/facts"]')
+    _write_fact(tmp_path, "docs/facts", "relay-budget.md")
+    _write_fact(tmp_path, ".vivary/knowledge", "older-fact.md")
+
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge", "docs/facts"]
+    checked = _fact_check(tmp_path)
+    assert checked["checked"] == 3
+    assert checked["findings"] == []
+
+
+def test_owner_type_on_folder_wins(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        types='[types.decision]\nfolder = ".vivary/knowledge"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.folder_map[".vivary/knowledge"] == "decision"
+    assert tropo.FACT_TYPE not in config.types
+
+
+def test_owner_type_on_memory_basename_wins(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        memory='["docs/facts"]',
+        types='[types.decision]\nfolder = "facts"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge"]
+    assert tropo.type_for(str(tmp_path / "docs" / "facts" / "x.md"), config) == "decision"
+
+
+def test_slash_free_memory_path_types_only_the_root_folder(tmp_path):
+    _write_fact_workspace(tmp_path, memory='["facts"]')
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge", "./facts"]
+    assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == tropo.FACT_TYPE
+    assert tropo.type_for(str(tmp_path / "tests" / "facts" / "x.md"), config) is None
+    _write_fact(tmp_path, "facts", "root-fact.md")
+    (tmp_path / "tests" / "facts").mkdir(parents=True)
+    (tmp_path / "tests" / "facts" / "x.md").write_text("# Not a fact\n", encoding="utf-8")
+    assert _fact_check(tmp_path)["findings"] == []
+
+
+def test_owner_folder_spelled_with_dot_slash_wins(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        memory='["facts"]',
+        types='[types.decision]\nfolder = "./facts"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge"]
+    assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == "decision"
+
+
+def test_owner_folder_with_a_trailing_slash_keeps_the_fact_type(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        memory='["facts"]',
+        types='[types.decision]\nfolder = "facts/"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge", "./facts"]
+    assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == tropo.FACT_TYPE
+
+
+def test_owner_defined_fact_type_wins(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        types='[types.vivary_fact]\nfolder = "facts"\nrequired = { source = "string" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == ["facts"]
+    assert config.types[tropo.FACT_TYPE]["required"] == {"source": "string"}
+    assert ".vivary/knowledge" not in config.folder_map
+
+
+def test_authored_memory_paths():
+    default = [tropo.AUTHORED_MEMORY_DEFAULT]
+    assert tropo.authored_memory_paths(None) == default
+    assert tropo.authored_memory_paths({"roles": {"memory": []}}) == default
+    assert tropo.authored_memory_paths({"roles": {"memory": ["a", "b"]}}) == ["a", "b"]
+
+
+def test_workspace_context_thin_and_plain(tmp_path):
+    _write_fact_workspace(tmp_path, memory='["docs/facts"]')
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert tropo.workspace_context(config) == {
+        "status": "thin",
+        "roles": {
+            "law": ["AGENTS.md", ".vivary/context.md"],
+            "map": [".vivary/context.md"],
+            "record": [],
+            "memory": ["docs/facts"],
+            "boundary": [".gitignore", ".vivary/private", ".vivary/runtime"],
+        },
+        "state": "STATE.md",
+        "memory": ["docs/facts"],
+        "memory_assigned": True,
+        "protected": [".vivary/private", ".vivary/runtime"],
+    }
+    assert tropo.workspace_context(None) == {
+        "status": "plain",
+        "roles": None,
+        "state": None,
+        "memory": [".vivary/knowledge"],
+        "memory_assigned": False,
+        "protected": [],
+    }
+
+
+def test_legacy_roles_table_gets_default_memory(tmp_path):
+    _write_fact_workspace(tmp_path, roles_table=False)
+    _write_fact(tmp_path, ".vivary/knowledge", "relay-budget.md")
+
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    context = tropo.workspace_context(config)
+    assert context["memory"] == [".vivary/knowledge"]
+    assert context["memory_assigned"] is False
+    assert _fact_check(tmp_path)["findings"] == []
+
+
 def test_version_constant_matches_pyproject(tmp_path):
     import tomllib
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"

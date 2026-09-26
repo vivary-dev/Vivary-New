@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -119,6 +120,34 @@ class ManagedProjectBridgeTests(unittest.TestCase):
             for row in cli["plan"]["files"]:
                 self.assertEqual((target / row["path"]).read_bytes(),
                                  row["content"].encode("utf-8"))
+
+    def test_context_operation(self):
+        with tempfile.TemporaryDirectory(prefix="vivary-managed-context-") as temporary:
+            target = Path(temporary) / "projects" / "sample"
+            preview = managed_request({"operation": "plan", "target": str(target)})
+            target.parent.mkdir()
+            managed_request({"operation": "apply", "target": str(target),
+                             "acceptedPlanSha256": preview["plan"]["plan_sha256"]})
+            answer = managed_request({"operation": "context", "target": str(target)})
+            self.assertEqual(answer["code"], "context")
+            self.assertEqual(answer["context"]["status"], "thin")
+            self.assertEqual(answer["context"]["memory"], [".vivary/knowledge"])
+            self.assertEqual(answer["context"]["state"], "STATE.md")
+            self.assertNotIn(temporary, json.dumps(answer))
+            (target / ".gitignore").write_text(
+                (target / ".gitignore").read_text(encoding="utf-8") + "draft-*\n", encoding="utf-8")
+            checked = managed_request({"operation": "context", "target": str(target),
+                                       "candidates": [".vivary/knowledge/draft-a.md", ".vivary/knowledge/a.md"]})
+            self.assertEqual(checked["context"]["private_candidates"], [".vivary/knowledge/draft-a.md"])
+
+            bridge = SERVER / "managed_project_workspace.py"
+            result = subprocess.run(
+                [sys.executable, "-I", "-X", "utf8", "-B", str(bridge)],
+                input=json.dumps({"operation": "context", "target": str(target), "path": "x"}),
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["code"], "refused")
 
     def test_hardlinked_reviewed_file_is_not_accepted_on_retry(self):
         with tempfile.TemporaryDirectory(prefix="vivary-managed-hardlink-") as temporary:
