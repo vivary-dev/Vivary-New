@@ -120,8 +120,13 @@ layout. A fake provider drove the agent, so no real model ran.
 Two review rounds' findings are fixed in `5aa6aa6`, `24461c0`, and `33cbcbb`.
 A third review of `33cbcbb` found no new issues. Native has no capsule
 producer, so an agent
-decide needs a capsule the owner hands over. No packaged Windows package has
-been built from this work, so packaged Windows acceptance is pending.
+decide needs a capsule the owner hands over. The unpublished `1249572d`
+Windows archive, SHA-256
+`74573156a2add16a2e49c677fcedfffb4df4d064503e1a4779554f751c6ecc3a`, passed
+Review, Impact, Decide, claim, and release in Project details and a 14-check
+agent turn on 2026-09-26 with a fake provider. Project files kept their
+snapshots. No real provider turn has run. Owner acceptance and issue closure
+are pending.
 
 ## Conversation drafts, September 24
 
@@ -661,7 +666,7 @@ automations in #51 remain open.
 | Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), blocked on issue #50 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search stays in its owning issue. Scoped memory (#21) passed its hosted journey and one real Codex check and waits for packaged Windows acceptance |
-| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE. Issue #20 adds public Review and Impact and owner and agent Decide and Control, with hosted fake-provider proof | Packaged Windows acceptance of #20, and complete GUI/agent flows for every original operation on the final product journey |
+| Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE. Issue #20 adds public Review and Impact and owner and agent Decide and Control, with hosted and packaged Windows fake-provider proof | Complete GUI/agent flows for every original operation on the final product journey |
 | Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 

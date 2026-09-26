@@ -137,7 +137,7 @@ The unified workspace, project registration and selection, scoped Code and Nativ
 
 Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and the Windows packages, including the final `e6ccddf5` package, which passed the panel reads and the agent turn. PR #94 recorded that result, and the owner closed issue #19 on 2026-09-26. PR #90 added [route-question research](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
 
-Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. Its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. No packaged Windows run and no real provider turn have run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
+Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. Its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. The unpublished `1249572d` Windows package passed the panel checks and a 14-check agent turn with a fake provider. No real provider turn has run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
 
 Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns belong to issue #50. Deterministic-provider checks do not prove them. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
 
@@ -217,7 +217,9 @@ the Tropo and front-door suites passed 291 with 215 subtests, the CI tsx lists
 passed 69 and 383, the CI node lists passed 28 and 12, and `typecheck` passed.
 The 22-step hosted journey passed three runs in a row on `33cbcbb`. The
 [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md)
-holds that evidence. Packaged Windows acceptance is pending.
+holds that evidence. The unpublished `1249572d` Windows package, built from
+`1249572`, which adds only documentation to `33cbcbb`, passed the panel checks
+and a 14-check agent turn with a fake provider.
 
 Issue #21 adds scoped file memory. The runtime flows, the data-boundary row,
 and the known gaps above describe it. The review, by layer:
@@ -289,7 +291,8 @@ project reads. The hosted journey with the recording fake provider covers the
 real Full chat request, including a restart, and one real Codex conversation
 recalled and then corrected a fact. The
 [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) holds that
-evidence and its observations. Packaged Windows acceptance is pending.
+evidence and its observations. The `90ab1eb7` Windows package later passed
+the Full chat memory journey.
 
 After that QA, `17e2996e` made a resumed Codex turn send the full block
 again when the run's previous turn failed, stopped, or was interrupted, by

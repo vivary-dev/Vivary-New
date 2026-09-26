@@ -8,7 +8,7 @@ Evidence: [Original review and control tools receipt](../receipts/09c-original-r
 Owner: Root-assigned governed-tool integrator
 Scope: Expose decide, review, impact, and control without replacing original policies or records.
 Verification-kind: runtime
-Needs: The 09b packet is still recorded in-progress. Packaged Windows acceptance and owner acceptance of #20 are pending.
+Needs: The 09b packet is still recorded in-progress. Owner acceptance of #20 is pending.
 Timebox: One governed-tool increment with focused refusals and a visible review journey.
 
 ## Goal
@@ -82,9 +82,12 @@ roots, bypass a source policy, launch workers, or create another executor/store.
   successes, fixed in `33cbcbb`. A third review of `33cbcbb` found no new
   issues. The 22-step hosted journey passed three runs in a row on `33cbcbb`
   with a fake provider. The [receipt](../receipts/09c-original-review-control-tools.md)
-  records the evidence. Packaged Windows acceptance and a real provider turn
-  have not run. The PR is pending owner approval, and the work is not
-  accepted.
+  records the evidence. A real provider turn has not run. The PR is pending
+  owner approval, and the work is not accepted.
+- 2026-09-26: The unpublished `1249572d` Windows package, built from
+  `1249572`, passed Review, Impact, Decide, claim, and release in Project
+  details and a 14-check agent turn with a fake provider. Project files kept
+  their snapshots. Owner acceptance and issue closure are pending.
 
 ## Shared desktop and web behavior
 

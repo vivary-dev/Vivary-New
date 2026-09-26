@@ -5,7 +5,7 @@ Date: 2026-09-26
 Issue: [#20](https://github.com/vivary-dev/Vivary-New/issues/20)
 Latest verified source: `33cbcbb71fa606118d0c02a0d5555a65025623b6`
 Hosted result: the 22-step journey passed three runs in a row on `33cbcbb` (runs `run-33cbcbb-04` to `06`), with Workbench and the bundled Python runtime built from that commit. Runs 01 to 03 on `33cbcbb` failed one step because the journey's own expectation was wrong, described under Hosted journey. Earlier heads: one run on `e96871d` passed 17 of 18 steps and found the existence oracle described under Review. Two runs on `24461c0` passed all 20 steps they ran. A local fake model provider drove the agent, so no real model was called.
-Packaged Windows result: not run. No Windows package has been built from this work.
+Packaged Windows result: the unpublished `1249572d` package passed Review, Impact, Decide, claim, and release in Project details and all 14 checks of an agent turn on 2026-09-26, described under Packaged Windows journey. `1249572` adds only documentation to `33cbcbb`. A local fake model provider drove the agent.
 Delivery status: PR pending owner approval. The work is on `feat/review-control-tools`, from `dev` `a08405d`, in eight commits: `60f78a0`, `192a91b`, `f096c5c`, `eabdabb`, `e96871d`, `5aa6aa6`, `24461c0`, and `33cbcbb`. Issue closure waits for the owner.
 
 ## Result
@@ -188,8 +188,11 @@ The codec fails closed where it cannot be exact:
   and none does. A comment beside `PATH_POSITIONS` records this.
 
 A differential test runs Core's own normalizers through Python on six Windows
-roots and matches the codec on all six. Windows behavior rests on this test and
-on `path.win32` unit tests, not on a Windows run.
+roots and matches the codec on all six. The packaged Windows run added a claim
+and its release through the panel and the agent on a Windows project root,
+which returned `./docs` and no host path. It did not test a root with a
+casefold difference or a device path, so those two limits rest on the unit
+tests.
 
 ## Review
 
@@ -319,6 +322,52 @@ Three observations are not fixed in #20:
 - About 1.5 seconds after the agent's final reply, the chat still shows a
   "Thinking" line and the stop button.
 
+## Packaged Windows journey
+
+The unpublished `1249572d` Windows ZIP has 3,118 files, 223,831,130 bytes, and
+SHA-256 `74573156a2add16a2e49c677fcedfffb4df4d064503e1a4779554f751c6ecc3a`. It was built on Zo from `1249572`, which adds only
+documentation to `33cbcbb`, and its hash on the Windows laptop equals the Zo
+package record. Its Workbench metadata reports `sourceCommitVerified: false`,
+so source identity rests on the clean build and package receipts.
+
+On 2026-09-26 the EXE opened the isolated profile retained from the #19 check,
+with a local fake model provider. In RelayService's Project details:
+
+- Review with the Structure pack reported 5 notes reviewed, 0 warnings, and 5
+  suggestions, and said 2 private files were excluded. No private note
+  appeared anywhere in the page.
+- Impact on `relay` reported "No shared note links to this one." with the
+  private-exclusion note. Impact on the Git-ignored `private-plan` and on a
+  random id showed the same alert, "No shared note in this project has this
+  id."
+- Decide as the owner with a malformed capsule showed "Strato refused" with
+  `invalid_workspace`, `invalid_scope`, `invalid_capsule`, and
+  `invalid_capsule_observed_at`, the evaluator line, and the notice.
+- A claim on `docs` as this project's agent returned "Decision: granted" with
+  scope `./docs`, no host path, and the claim notice. The operation list showed
+  the four owner-only operations disabled and marked "(only you)". Release
+  with Use this state returned "Decision: released" with no claims left.
+
+A Native chat in RelayService then ran the journey prompt through the fake
+provider, and all 14 agent-turn checks passed:
+
+- The agent was offered the tools, and the tool bound the agent actor.
+- No tool result held a host path or a private note name.
+- Review and Impact reported, and private and random Impact targets got the
+  same refusal.
+- The claim was granted with scope `./docs`, and a claim under the ignored path
+  equaled one under a random path after masking.
+- Calls that named `actor` or `evaluateAs` were refused by name, and
+  `complete` was refused by Native's schema check.
+- The release returned `released`.
+
+The reply read `JOURNEY-DONE release:evaluated`. After the run, the
+RelayService project and fixture snapshots matched their earlier snapshots,
+Vivary and the provider had stopped, and the app and provider ports were
+closed. The first fixture snapshot was of a fixture folder that is not the
+registered project. The registered project was snapshotted after one read-only
+Review had run, so its earlier snapshot does not cover that first Review.
+
 ## Verification
 
 On `33cbcbb` on Zo:
@@ -369,8 +418,10 @@ The Workbench tests cover:
   requires Ozone 0.3.2. An installed Ozone paired with an older Tropo fails on
   a public read. The bundled app ships every package from one source tree, so
   the app is not affected. The floors must rise when these packages release.
-- No packaged Windows acceptance has run. The Windows path spellings rest on
-  unit and differential tests.
+- The Windows path spellings have one packaged pass. A claim and its release
+  round-tripped through the panel and the agent on the `1249572d` package. A
+  root that Python's casefold spells differently still fails closed as
+  `unencodable_evidence`, and a device-namespace root is still refused.
 - No real provider turn has run. A fake provider drove every agent step, so
   this receipt does not claim a real model's tool choices. Real Native-provider
   turns belong to [issue #50](https://github.com/vivary-dev/Vivary-New/issues/50).
