@@ -89,9 +89,11 @@ gateway lane, Builder models stay first and the chosen model is only listed.
 `MultiTabAssistantChat.js` stores a project's composer pick with the Settings
 choice that was current when it was picked. When the chosen engine or model in
 Settings changes, a pick stored under an earlier choice, or under none, is
-cleared, so new chats follow Settings. Open tabs that were following the pick
-are pinned to it first, so a chat already open keeps its model. Another window
-on the same project drops the pick and refreshes when it sees the clear. Two
+cleared, so new chats follow Settings. Every open chat that was following the
+pick, including the routed active chat, is pinned to it first, so it keeps its
+model for the rest of the session. Pins live in memory, so after a reload an
+open chat follows Settings. Another window on the same project pins its own open
+chats to the removed pick, drops it, and refreshes when it sees the clear. Two
 clears happen without a model change in Settings: the first load after this
 patch, when a pick from before it has no Settings stamp, and a key save that
 makes a saved but unusable choice usable. Core's `useChatModels` hook keeps its

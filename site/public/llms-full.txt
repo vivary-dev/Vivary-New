@@ -7247,8 +7247,8 @@ configured provider and model become the new-chat default, and the chosen model
 is listed even when the built-in list lacks it. A detected engine keeps Core's
 order, no model is added to a provider without a key, and with the Builder
 gateway lane Builder stays first. A project's stored composer pick yields when
-the chosen engine or model in Settings changes. Open tabs are pinned to it first,
-so a chat already open keeps its model. Native still owns engines, credentials, and requests, so no flow, owner,
+the chosen engine or model in Settings changes. Open chats are pinned to it
+first, so a chat already open keeps its model for the rest of the session. Native still owns engines, credentials, and requests, so no flow, owner,
 or boundary changed.
 
 Packets 09b and 09c now record the owner's acceptance of #19 and #20 as

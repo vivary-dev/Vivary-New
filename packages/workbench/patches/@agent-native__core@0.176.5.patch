@@ -1182,7 +1182,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
-index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad34a9f409 100644
+index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac99042112f1f886 100644
 --- a/dist/client/MultiTabAssistantChat.js
 +++ b/dist/client/MultiTabAssistantChat.js
 @@ -7,7 +7,7 @@ import { DEFAULT_REASONING_EFFORT, isReasoningEffort, resolveReasoningEffortSele
@@ -1194,7 +1194,25 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
  import { ChatHistoryList, } from "./chat/ChatHistoryList.js";
  import { fetchBuilderStatus, fetchEnvironmentStatus, } from "./client-status-requests.js";
  import { Popover, PopoverAnchor, PopoverContent, } from "./components/ui/popover.js";
-@@ -72,11 +72,25 @@ function readStoredModelSelection(key) {
+@@ -53,7 +53,16 @@ function readStoredModelSelection(key) {
+     if (typeof window === "undefined")
+         return undefined;
+     try {
+-        const raw = window.localStorage.getItem(key);
++        return parseStoredModelSelection(window.localStorage.getItem(key));
++    }
++    catch {
++        return undefined;
++    }
++}
++// Vivary #50: one parser for a stored pick, read from storage or from a storage
++// event's old value in another window.
++function parseStoredModelSelection(raw) {
++    try {
+         if (!raw)
+             return undefined;
+         const parsed = JSON.parse(raw);
+@@ -72,11 +81,25 @@ function readStoredModelSelection(key) {
          return undefined;
      }
  }
@@ -1222,7 +1240,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
          queueMicrotask(() => {
              window.dispatchEvent(new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
                  detail: { key },
-@@ -576,6 +590,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -576,6 +599,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          switchThreadState(threadId);
          writeThreadUrl(threadId, options);
      }, [switchThreadState, writeThreadUrl]);
@@ -1238,15 +1256,26 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
      // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
      const keyPrefix = storageKey ? `:${storageKey}` : "";
      const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
-@@ -621,6 +644,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -621,6 +653,18 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
      const threadModelRef = useRef(new Map());
      const [persistedModelSelection, setPersistedModelSelection] = useState(() => readStoredModelSelection(modelSelectionKey));
      const [modelSelectionVersion, setModelSelectionVersion] = useState(0);
 +    const chosenSettingsRef = useRef(undefined);
++    // Vivary #50: before a stored pick yields to Settings, every open chat that was
++    // following it, including the routed active chat, keeps it for this session.
++    const pinOpenChatsToPick = (pick) => {
++        if (!pick)
++            return;
++        const threadIds = new Set([...openTabIdsRef.current, activeThreadIdRef.current].filter(Boolean));
++        for (const threadId of threadIds) {
++            if (!threadModelRef.current.has(threadId))
++                threadModelRef.current.set(threadId, pick);
++        }
++    };
      useEffect(() => {
          setPersistedModelSelection(readStoredModelSelection(modelSelectionKey));
      }, [modelSelectionKey]);
-@@ -701,7 +725,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -701,7 +745,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
      const resolveThreadModelSelection = useCallback((threadId) => resolveModelSelection(threadModelRef.current.get(threadId) ?? persistedModelSelection, availableModels), [availableModels, persistedModelSelection, modelSelectionVersion]);
      const persistModelSelection = useCallback((selection) => {
          setPersistedModelSelection(selection);
@@ -1255,7 +1284,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
      }, [modelSelectionKey]);
      const handleModelChange = useCallback((model, engine) => {
          const threadId = activeThreadIdRef.current;
-@@ -822,18 +846,58 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -822,18 +866,56 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                  builderConnected,
                  currentEngineName,
                  currentModel,
@@ -1275,10 +1304,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
 +                storedChoice: readStoredSettingsChoice(modelSelectionKey),
 +                chosenSettings,
 +            })) {
-+                for (const threadId of openTabIdsRef.current) {
-+                    if (!threadModelRef.current.has(threadId))
-+                        threadModelRef.current.set(threadId, storedPick);
-+                }
++                pinOpenChatsToPick(storedPick);
 +                try {
 +                    window.localStorage.removeItem(modelSelectionKey);
 +                }
@@ -1305,6 +1331,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
 +        const handleStoredPickRemoved = (event) => {
 +            if (event.key !== modelSelectionKey || event.newValue !== null)
 +                return;
++            pinOpenChatsToPick(parseStoredModelSelection(event.oldValue));
 +            setPersistedModelSelection(undefined);
 +            bumpModelSelectionVersion();
 +            refreshEngines();
@@ -1315,7 +1342,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
      // Parent-child thread mapping — persisted to localStorage.
      // Maps childThreadId → parentThreadId for sub-agent tabs.
      const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
-@@ -1050,7 +1114,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1050,7 +1132,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
              void createThread().then((id) => {
                  if (id)
@@ -1324,7 +1351,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
              });
          }
      }, [
-@@ -1103,7 +1167,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1103,7 +1185,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              }
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
@@ -1333,7 +1360,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
          });
      }, [
          activeThreadId,
-@@ -1113,7 +1177,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1113,7 +1195,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          writeThreadUrl,
      ]);
      useEffect(() => {
@@ -1342,7 +1369,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
              return;
          if (openTabIds.length === 0 && !activeThreadId) {
              autoCreatingRef.current = true;
-@@ -1122,11 +1186,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1122,11 +1204,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                  if (id) {
                      newThreadIds.current.add(id);
                      setOpenTabIds([id]);
@@ -1356,7 +1383,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
      usePollLoop(async (signal) => {
          const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
          try {
-@@ -1533,7 +1597,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1533,7 +1615,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          const id = await createThread();
          if (id) {
              newThreadIds.current.add(id);
@@ -1365,7 +1392,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
          }
          return id;
      }, [createThread, writeThreadUrl]);
-@@ -1588,7 +1652,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1588,7 +1670,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (newId) {
                          newThreadIds.current.add(newId);
                          setOpenTabIds([newId]);
@@ -1374,7 +1401,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
                      }
                  }
                  catch (error) {
-@@ -1654,7 +1718,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1654,7 +1736,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
              switchThreadState(id);
@@ -1383,7 +1410,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
              dismissedSubAgentTabsRef.current.clear();
              // Clean up all old refs
              chatRefs.current.clear();
-@@ -1711,7 +1775,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1711,7 +1793,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (!createdId)
                          return;
                      setOpenTabIds((prev) => prev.includes(createdId) ? prev : [...prev, createdId]);
@@ -1392,7 +1419,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
                  });
                  return;
              }
-@@ -1852,12 +1916,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1852,12 +1934,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          });
      }, [generateTitle, saveThreadData]);
      const handleSaveThread = useCallback((threadId, data) => {
@@ -1407,7 +1434,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
      }, [saveThreadData, writeThreadUrl]);
      // ─── Slash command handler ──────────────────────────────────────────
      const [helpVisible, setHelpVisible] = useState(false);
-@@ -2045,6 +2110,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2045,6 +2128,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                              chatRefs.current.delete(tabId);
                                          }
                                      }, threadId: tabId, tabId: tabId, browserTabId: browserTabId, contextScope: scope, contextNamespace: contextNamespace, isolateHistoryByScope: isolateHistoryByScope, isActiveComposer: tabId === activeThreadId, apiUrl: apiUrl, isNewThread: newThreadIds.current.has(tabId) || isNewThread(tabId), onThreadRestoreNotFound: tabId === activeThreadId &&
@@ -1416,7 +1443,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..97e58e18f9275c3fb7cf5c43506220ad
                                          (props.agentChatSurface !== "desktop" ||
                                              props.desktopIdentityAuthenticated === true)
                                          ? clearActiveTab
-@@ -2061,10 +2128,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2061,10 +2146,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                      // sub-agent tab would start a fresh run on that thread and kill
                                      // the in-flight team chunk. Disable the composer and show a
                                      // hint so users know to send via the orchestrator chat instead.
