@@ -172,6 +172,125 @@ may prefer to pass the runner through the plugin options instead of a module
 registry. Remove this part of the patch after an upstream release passes the
 same test and a packaged Run now check.
 
+## Local-only automation runs
+
+The owner decided on 2026-09-26 (issue #51) that unattended automation runs are
+local-only. That covers scheduled runs, event and webhook triggers, and Run now.
+Interactive chats do not change.
+
+Before this change, every run got the background surface that
+`getBackgroundActionEntries` in `dist/server/agent-chat-plugin.js` builds. It
+held the template actions, `web-request`, `web-search`, `core-send-email`,
+`call-agent`, the 36 add-on actions, and the MCP tools an automation listed.
+Nobody is present during a run to approve or deny a step, so a model-chosen
+outward call ran unreviewed.
+
+`dist/jobs/unattended-surface.js` is new. Its `restrictActionsForUnattendedRun`
+keeps 12 tools and wraps each one with a refusal check:
+
+- `resources`, `save-memory`, `delete-memory`, `chat-history`
+- `manage-progress`, `manage-notifications`, `manage-jobs`, `manage-automations`
+- `docs-search`, `framework-search`, `source-search`, `get-framework-context`
+
+The four lookups read files bundled with Core only. The list is an allowlist,
+not a denylist, so a tool that a later Core release adds stays out of runs until
+someone reviews it. Both background entry points, the recurring-jobs scheduler
+and the event and webhook dispatcher, use `getBackgroundActionEntries`, and Run
+now reuses the scheduler's dependencies.
+
+Some kept tools refuse part of their work in a run:
+
+- `manage-jobs` lists only. Create, update, and delete are refused.
+- `manage-automations` runs `list`, `list-events`, and `list-hosts` only.
+  `define`, `update`, `delete`, `fire-test`, and `run-now` are refused.
+  `fire-test` would emit `test.event.fired`, which fires event automations. This
+  replaces the narrower "an automation cannot run another automation" check.
+- `resources` refuses `write`, `promote`, and `delete` on the paths Core reads as
+  configuration. The scheduler and the dispatcher load automations from `jobs/`.
+  Custom agent profiles under `agents/` set a model and tools. Remote agent
+  manifests under `remote-agents/`, and legacy `agents/*.json`, hold the URLs
+  that `call-agent` reaches from an interactive chat. In local file mode, the
+  workspace control files `agent-native.json`, `mcp.config.json`, and
+  `.mcp.json` set the data mode and the MCP servers. The check ignores case and
+  a leading slash. Other resources, including `AGENTS.md`, `instructions/`,
+  `skills/`, `LEARNINGS.md`, and `memory/`, stay writable. Core loads those into
+  prompts as text, like memory.
+- `manage-notifications` sends to the in-app inbox only. The webhook, Slack, and
+  email channels take a model-supplied `webhookUrl` or `emailRecipients`.
+- `chat-history` refuses `open`, which only drives the app window.
+
+The wrapper forces `caller: "automation"` into the tool context. Each kept tool
+also checks that caller itself (`triggers/actions.js`, `jobs/tools.js`,
+`server/agent-chat/script-entries.js`, and `notifications/actions.js`), so a
+tool reached some other way enforces the same limits.
+
+An automation that lists `mcpTools` fails before any model call. Its history
+row reads "This automation lists MCP tools (names). Automation runs cannot call
+MCP tools. Nothing ran. No delivery was confirmed." with the error code
+`automation_mcp_tools_refused`. The run is refused rather than sent through
+approval because approval cannot be granted after the fact in an unattended
+run. The runner passes no approval callbacks, the approval stop reaches the
+model as text, the run manager marks the run completed, and history recorded a
+success for a step that never ran. `getJobMcpActionEntries` is gone, and the
+`backgroundMcpTools` plugin option no longer has an effect.
+
+A run's system prompt is the framework prompt filtered by
+`filterFrameworkPromptToSurface` to the 12 tools, plus a two-line note that the
+run is local-only. It no longer carries the template action list, so the model
+is not told about tools it lacks. Its resources block also leaves out the
+workspace apps list, which tells the model to use `call-agent`. Both dependency
+blocks drop
+`getInitialToolNames`, so all 12 tools load up front and no `tool-search` is
+attached.
+
+The user-visible text now says what a run can do. The Run now confirmation,
+the Automations settings summary, and the MCP tools label in automation details
+changed in `localization/default-messages.js` and in the matching
+`defaultValue` strings in the client components. The other locale files do not
+carry these keys. The `manage-automations` description says that Run now uses
+the same local-only tools and that `define` cannot promise email, web, MCP,
+settings, or automation steps. `mcpTools` is no longer listed among the
+`define` options. It stays in the tool schema and in the app, where the label
+warns that runs cannot use it. The `manage-jobs` description says that
+recurring jobs cannot call MCP tools.
+
+Two outward paths stay, and the owner configures both:
+
+- Reply delivery. When an automation has `deliveryPlatform` and
+  `deliveryDestination`, `background-automation-runner.js` sends the final
+  reply there.
+- A paired execution host. When an automation has `executionHostId`,
+  `scheduler.js` queues the run on that host instead of running it here.
+
+Only an interactive chat or the app can set either field, and a run can no
+longer change automations. An inbox notification still emits
+`notification.sent`, which can fire an event automation the owner defined.
+That run is local-only too.
+
+Run `node --test packages/workbench/tests/automation-local-only.test.mjs`. It
+uses a disposable SQLite database. It checks the exact 12 keys against stand-ins
+for every dropped tool, a future tool, and an MCP tool. It also checks the MCP
+refusal, the `manage-automations`, `manage-jobs`, `resources`, and
+`chat-history` refusals with no `jobs/` write, `fire-test` emitting nothing,
+notifications reaching the inbox and no registered channel, and a source pin on
+the plugin.
+
+A live check on Zo ran `bin/start.mjs` in local mode against a fake Builder
+gateway, with no real provider key. The Run now request offered 11 tools, the
+allowlist without `source-search`, which Core registers only when its source
+corpus is bundled. The run's scripted `web-request` call got "Unknown tool"
+and never reached the fake server. Its `manage-automations` define and its
+`jobs/` write were refused, and no automation was added. Run now on an
+automation that lists an MCP tool ended with the named error and made no model
+request. An ordinary chat still received `web-request`, `call-agent`, and
+`resources`, and defined that MCP automation.
+
+Upstream could take this as an opt-in plugin option, because its hosted
+templates rely on email, web, and MCP tools in automations. It would also need
+a way to approve an MCP step before a run starts. Remove this part of the patch
+only when an upstream release offers a local-only mode that passes the same
+test.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's
