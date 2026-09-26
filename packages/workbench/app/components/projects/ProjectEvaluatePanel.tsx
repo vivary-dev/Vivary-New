@@ -5,9 +5,9 @@ import {
   AGENT_CONTROL_OPERATIONS, CONTROL_OPERATIONS, type ControlOperation, type EvaluateAs, type ProjectEvaluateResult,
 } from "@/lib/project-evaluate-schema";
 import {
-  CONTROL_FIELDS, OPERATION_LABELS, STATE_SHAPE, actorLine, controlRequest, decideRequest, emptyControlDraft,
-  emptyDecideDraft, isRecord, reasonCodes, returnedState, shownOutput, type Built, type ControlDraft, type DecideDraft,
-  type KnownActors,
+  CONTROL_FIELDS, OPERATION_LABELS, STATE_SHAPE, actorLine, controlRequest, decideRequest, decisionOf, emptyControlDraft,
+  emptyDecideDraft, isRecord, isSuccessDecision, reasonCodes, refusalTitle, returnedState, shownOutput, type Built,
+  type ControlDraft, type DecideDraft,
 } from "@/lib/project-evaluate-form";
 
 type EvaluateState =
@@ -20,7 +20,7 @@ const OWNER_ONLY = "Only you can run this, because it needs execution evidence V
 const isAgentOperation = (operation: ControlOperation) => (AGENT_CONTROL_OPERATIONS as readonly string[]).includes(operation);
 
 // Each section owns its request, and a response for an older request is dropped.
-function useProjectEvaluate(call: NativeActionCaller, projectId: string, learn: (result: ProjectEvaluateResult) => void) {
+function useProjectEvaluate(call: NativeActionCaller, projectId: string) {
   const [state, setState] = useState<EvaluateState>({ kind: "idle" });
   const request = useRef(0);
   useEffect(() => () => { request.current += 1; }, []);
@@ -31,7 +31,6 @@ function useProjectEvaluate(call: NativeActionCaller, projectId: string, learn: 
     try {
       const result = await call<ProjectEvaluateResult>("vivary-project-evaluate-owner", { projectId, evaluateAs, ...built.input });
       if (request.current !== current) return;
-      learn(result);
       setState({ kind: "done", result });
     } catch (error) {
       if (request.current === current) {
@@ -64,7 +63,7 @@ function Outcome({ state, action }: { state: EvaluateState; action?: (result: Pr
   const { result } = state;
   if (result.status === "unavailable") return <p role="alert">{result.message}</p>;
   if (result.status === "refused") {
-    return <Refusal title="Vivary refused before running">
+    return <Refusal title={refusalTitle(result.reason)}>
       <p>{result.message}</p>
       {result.field && <p className="project-read-muted">Field: <code>{result.field}</code></p>}
     </Refusal>;
@@ -73,8 +72,13 @@ function Outcome({ state, action }: { state: EvaluateState; action?: (result: Pr
   const policy = typeof output.policy_version === "string" ? output.policy_version : null;
   const schema = typeof output.schema === "string" ? output.schema : null;
   const codes = reasonCodes(result.output);
+  const decision = decisionOf(result.output);
+  // A Core refusal is already an alert below, so its decision line is plain.
+  const alertDecision = decision !== null && !isSuccessDecision(decision) && !result.refusedBy;
   return <div data-agent-native="project-evaluate-result" data-refused-by={result.refusedBy ?? "none"}>
     <p><strong>{actorLine(result.evaluatedAs)}</strong></p>
+    {decision && <p role={alertDecision ? "alert" : undefined} data-agent-native="project-evaluate-decision">
+      <strong>Decision: <code>{decision}</code></strong></p>}
     {(policy || schema) && <p className="project-read-muted">
       {policy && <>Policy version <code>{policy}</code></>}{policy && schema && " · "}{schema && <>Schema <code>{schema}</code></>}
     </p>}
@@ -102,14 +106,10 @@ function ProjectEvaluateSections({ projectId, disabled }: PanelProps) {
   const { call, ready } = useNativeActionCaller();
   const ids = useId();
   const [evaluateAs, setEvaluateAs] = useState<EvaluateAs>("me");
-  const [known, setKnown] = useState<KnownActors>({});
   const [decideDraft, setDecideDraft] = useState<DecideDraft>(emptyDecideDraft);
   const [controlDraft, setControlDraft] = useState<ControlDraft>(emptyControlDraft);
-  const learn = (result: ProjectEvaluateResult) => {
-    if (result.status === "evaluated") setKnown(actors => ({ ...actors, [result.evaluatedAs.kind]: result.evaluatedAs.id }));
-  };
-  const decide = useProjectEvaluate(call, projectId, learn);
-  const control = useProjectEvaluate(call, projectId, learn);
+  const decide = useProjectEvaluate(call, projectId);
+  const control = useProjectEvaluate(call, projectId);
 
   const asMe = evaluateAs === "me";
   const { operation } = controlDraft;
@@ -127,7 +127,7 @@ function ProjectEvaluateSections({ projectId, disabled }: PanelProps) {
   }
   function submitControl(event: FormEvent) {
     event.preventDefault();
-    if (!ownerOnly) void control.run(evaluateAs, controlRequest(controlDraft, known));
+    if (!ownerOnly) void control.run(evaluateAs, controlRequest(controlDraft));
   }
 
   const decideText = (key: keyof DecideDraft, label: string, rows: number, hint?: string) => <>

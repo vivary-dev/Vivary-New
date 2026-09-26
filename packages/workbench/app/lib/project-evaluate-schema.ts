@@ -58,7 +58,8 @@ export const projectEvaluateOwnInputSchema = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("task_view"), state: taskState }),
   z.strictObject({ operation: z.literal("complete"), state: taskState }),
   z.strictObject({ operation: z.literal("handoff"), state: claimsState, claim_id: identifier, receipt: record, capsule,
-    to_actor: z.strictObject({ kind: z.string(), id: z.string() }), workspace_revision: z.string() }),
+    to_actor: z.enum(["me", "agent"]).describe("The owner or this project's agent. Vivary fills in the actor id."),
+    workspace_revision: z.string() }),
   z.strictObject({ operation: z.literal("record_execution"), state: z.strictObject({ execution_log: ledger }),
     receipt: record, capsule }),
 ]);
@@ -94,7 +95,11 @@ export type ProjectEvaluateOwnerInput = z.infer<typeof projectEvaluateOwnerInput
 
 export type EvaluatedAs = { kind: "human" | "agent"; id: string; authorityClass: "contributor"; role: "owner" | "project-agent" };
 export type BoundaryRefusal = "server_owned_field" | "agent_forbidden_evidence" | "owner_only_operation"
-  | "foreign_path" | "unencodable_evidence" | "result_too_large";
+  | "foreign_path" | "identity" | "unsupported_root" | "unencodable_evidence" | "result_too_large";
+/** Refusals the runner returns after it resolved the project and before any child starts. */
+export type GovernedRefusalReason = Extract<BoundaryRefusal, "foreign_path" | "identity" | "unsupported_root">;
+/** Refusals that happen after Strato or Exo ran, so the run and its receipt exist. */
+export const POST_RUN_REFUSALS = ["unencodable_evidence", "result_too_large"] as const satisfies readonly BoundaryRefusal[];
 export type ProjectEvaluateResult =
   | { status: "evaluated"; project: ProjectRef; operation: EvaluateOperation; evaluatedAs: EvaluatedAs;
       persisted: false; evaluationKind: "caller-provided-evidence"; notice: string;

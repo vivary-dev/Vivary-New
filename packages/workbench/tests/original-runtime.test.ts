@@ -766,40 +766,43 @@ test("the document is stamped after the project lock is held, so queue wait does
   } finally { await f.cleanup(); }
 });
 
-test("governed evidence outside the project is a foreign path, and a foreign identity throws", async () => {
-  const f = await fixture();
+test("governed evidence outside the project is a foreign path, and a foreign identity is a named refusal", async () => {
+  const recipients: unknown[] = [];
+  const f = await fixture(async args => {
+    if (args[6] === "control") recipients.push((JSON.parse(await readFile(args.at(-1)!, "utf8")) as { input: { to_actor: unknown } }).input.to_actor);
+  });
   const claim = (paths: string[]) => ({ scope: { project: "project-a", paths }, authority_class: "contributor" });
   const handoff = { operation: "handoff" as const, state: { claims: [] }, claim_id: "claim-1", receipt: {},
     capsule: { task: { scope: ["."] } }, workspace_revision: "revision" };
   try {
-    for (const input of [
-      { ...expire, state: { claims: [claim([path.dirname(f.root)])] } },
-      { ...expire, state: { claims: [claim(["relative"])] } },
-      { ...expire, state: { claims: [{ ...claim(["."]), scope: { project: "other-project", paths: ["."] } }] } },
-      { ...expire, state: { claims: [claim(["./../outside"])] } },
-      { operation: "decide" as const, capsule: { task: { scope: [path.dirname(f.root)] } } },
-    ]) {
-      assert.deepEqual(await f.evaluate("project-a", { verb: input.operation === "decide" ? "decide" : "control",
-        evaluateAs: "agent", input } as GovernedCommand, context), { project, refusal: "foreign_path" }, JSON.stringify(input));
+    for (const evaluateAs of ["agent", "me"] as const) {
+      for (const input of [
+        { ...expire, state: { claims: [claim([path.dirname(f.root)])] } },
+        { ...expire, state: { claims: [claim(["relative"])] } },
+        { ...expire, state: { claims: [{ ...claim(["."]), scope: { project: "other-project", paths: ["."] } }] } },
+        { ...expire, state: { claims: [claim(["./../outside"])] } },
+        { operation: "decide" as const, capsule: { task: { scope: [path.dirname(f.root)] } } },
+      ]) {
+        assert.deepEqual(await f.evaluate("project-a", { verb: input.operation === "decide" ? "decide" : "control",
+          evaluateAs, input } as GovernedCommand, context), { project, refusal: "foreign_path" }, JSON.stringify(input));
+      }
+      assert.deepEqual(await f.evaluate("project-a", { verb: "control", evaluateAs,
+        input: { ...expire, state: { claims: [{ ...claim(["."]), authority_class: "owner" }] } } }, context),
+      { project, refusal: "identity" }, evaluateAs);
     }
-    for (const input of [
-      { ...expire, state: { claims: [{ ...claim(["."]), authority_class: "owner" }] } },
-      { ...handoff, to_actor: { kind: "human", id: "someone-else" } },
-      { ...handoff, to_actor: { kind: "agent", id: projectAgentActorId("actor-owner", "project-b") } },
-    ]) {
-      await assert.rejects(f.evaluate("project-a", { verb: "control", evaluateAs: "me", input } as GovernedCommand, context),
-        { errorCode: "vivary_original_request_identity" }, JSON.stringify(input));
-    }
+    await assert.rejects(f.evaluate("project-a", { verb: "control", evaluateAs: "me",
+      input: { ...handoff, to_actor: { kind: "human", id: "someone-else" } } } as unknown as GovernedCommand, context));
     assert.equal(f.calls(), 0);
     assert.deepEqual(await readdir(path.join(f.data, "original-runtime")).catch(() => []), [], "no request file and no receipt");
-    for (const to_actor of [{ kind: "human", id: "actor-owner" }, { kind: "agent", id: agentId }]) {
+    for (const to_actor of ["me", "agent"] as const) {
       await f.evaluate("project-a", { verb: "control", evaluateAs: "me", input: { ...handoff, to_actor } }, context);
     }
-    assert.equal(f.calls(), 2, "the owner hands off to themself or to this project's agent");
+    assert.deepEqual(recipients, [{ kind: "human", id: "actor-owner" }, { kind: "agent", id: agentId }],
+      "the server resolves the owner's handoff recipient");
   } finally { await f.cleanup(); }
 });
 
-test("governed scope and capsule paths refuse an existing link to a foreign root", async () => {
+test("the owner's scope and capsule paths refuse an existing link to a foreign root", async () => {
   const f = await fixture();
   const foreign = path.join(f.directory, "foreign");
   const linked = path.join(f.root, "linked");
@@ -809,19 +812,27 @@ test("governed scope and capsule paths refuse an existing link to a foreign root
     await writeFile(path.join(foreign, "secret.txt"), "foreign marker");
     await symlink(path.join(foreign, "child"), linked, process.platform === "win32" ? "junction" : "dir");
     const escaped = path.join(linked, "secret.txt");
-    const escapedRaw = `${linked}${path.sep}..${path.sep}secret.txt`;
     const planned = path.join(linked, "planned", "child.txt");
-    for (const input of [
+    const inputs = [
       { operation: "claim" as const, state: { claims: [] }, paths: ["linked/secret.txt"] },
       { operation: "claim" as const, state: { claims: [] }, paths: ["linked/planned/child.txt"] },
       { ...expire, state: { claims: [{ scope: { project: "project-a", paths: [escaped] }, authority_class: "contributor" }] } },
-      { operation: "decide" as const, capsule: { task: { scope: [escapedRaw] } } },
       { operation: "decide" as const, capsule: { task: { scope: [planned] } } },
-    ]) {
-      assert.deepEqual(await f.evaluate("project-a", { verb: input.operation === "decide" ? "decide" : "control",
-        evaluateAs: "agent", input } as GovernedCommand, context), { project, refusal: "foreign_path" }, JSON.stringify(input));
+    ];
+    const command = (evaluateAs: "me" | "agent", input: typeof inputs[number]) =>
+      ({ verb: input.operation === "decide" ? "decide" : "control", evaluateAs, input }) as GovernedCommand;
+    for (const input of [...inputs,
+      { operation: "decide" as const, capsule: { task: { scope: [`${linked}${path.sep}..${path.sep}secret.txt`] } } }]) {
+      assert.deepEqual(await f.evaluate("project-a", command("me", input), context), { project, refusal: "foreign_path" },
+        JSON.stringify(input));
     }
     assert.equal(f.calls(), 0);
+    // The agent's paths are checked lexically, so a link reads like any other name.
+    for (const input of inputs) {
+      const result = await f.evaluate("project-a", command("agent", input), context);
+      assert.ok("exitCode" in result && result.exitCode === 0, JSON.stringify(input));
+    }
+    assert.equal(f.calls(), inputs.length);
   } finally { await f.cleanup(); }
 });
 

@@ -12,7 +12,8 @@ import {
   READ_BOUNDS, type ProjectRef,
 } from "../app/lib/project-read-schema.ts";
 import {
-  AGENT_CONTROL_OPERATIONS, projectEvaluateOwnInputSchema, projectEvaluateToolInputSchema, type EvaluateAs,
+  AGENT_CONTROL_OPERATIONS, AGENT_FORBIDDEN_EVIDENCE, projectEvaluateOwnInputSchema, projectEvaluateToolInputSchema,
+  type EvaluateAs, type GovernedRefusalReason,
 } from "../app/lib/project-evaluate-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
 import { EvidenceCodecError, governedDocument, projectAgentActorId, type BoundActor } from "./governed-request.ts";
@@ -334,21 +335,15 @@ function boundActor(context: ActionRunContext | undefined, workspace: LocalProje
     : { kind: "human", id: workspace.actorId };
 }
 
-export const GOVERNED_REFUSALS = {
-  foreignPath: "vivary_evaluate_foreign_path",
-  identity: "vivary_original_request_identity",
-} as const;
 class GovernedRefusal extends Error {
-  constructor(readonly errorCode: typeof GOVERNED_REFUSALS[keyof typeof GOVERNED_REFUSALS]) { super(errorCode); }
+  constructor(readonly reason: GovernedRefusalReason) { super(reason); }
 }
 
 function buildGovernedDocument(command: GovernedCommand, workspace: LocalProjectWorkspace, actor: BoundActor, now: Date): string {
   let document: string;
   try { document = governedDocument(command.input, workspace, actor, now); }
   catch (error) {
-    if (error instanceof EvidenceCodecError) {
-      commandError("Use paths inside the selected project.", GOVERNED_REFUSALS.foreignPath, 400);
-    }
+    if (error instanceof EvidenceCodecError && error.reason !== "unencodable_evidence") throw new GovernedRefusal(error.reason);
     throw error;
   }
   if (Buffer.byteLength(document, "utf8") > REQUEST_BYTES) {
@@ -373,19 +368,22 @@ export function projectPathComponents(root: string, entry: string, flavor: typeo
 
 // The builder is the only writer of server-owned fields. This re-reads its
 // document as Strato or Exo will, so a builder mistake cannot widen the actor,
-// authority, project, or paths.
+// authority, project, or paths. It returns the refusal, or null to run.
 async function validateGovernedRequest(document: string, verb: GovernedCommand["verb"],
-  workspace: LocalProjectWorkspace, actor: BoundActor): Promise<void> {
-  const refuse = (errorCode: GovernedRefusal["errorCode"]): never => { throw new GovernedRefusal(errorCode); };
+  workspace: LocalProjectWorkspace, actor: BoundActor): Promise<GovernedRefusalReason | null> {
+  const refuse = (reason: GovernedRefusalReason): never => { throw new GovernedRefusal(reason); };
+  const agent = actor.kind === "agent";
   try {
-    if (await realpath(workspace.root) !== workspace.root) refuse(GOVERNED_REFUSALS.foreignPath);
+    if (await realpath(workspace.root) !== workspace.root) refuse("foreign_path");
     const object = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
     const request = object(parseStrictJson(document));
-    const agent = actor.kind === "agent";
     const bound = (value: unknown) => z.strictObject({ kind: z.literal(actor.kind), id: z.literal(actor.id) }).parse(value);
     const paths = async (value: unknown) => {
       for (const entry of z.array(z.string()).parse(value)) {
-        const components = projectPathComponents(workspace.root, entry) ?? refuse(GOVERNED_REFUSALS.foreignPath);
+        const components = projectPathComponents(workspace.root, entry) ?? refuse("foreign_path");
+        // An agent's evaluation is never saved or run, and a disk walk would
+        // tell it which private names exist, so its paths stay lexical.
+        if (agent) continue;
         let current = workspace.root;
         for (let index = 0; index < components.length; index += 1) {
           current = path.join(current, components[index]);
@@ -395,28 +393,24 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
             if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
             throw error;
           }
-          if (info.isSymbolicLink() || (index < components.length - 1 && !info.isDirectory())) {
-            refuse(GOVERNED_REFUSALS.foreignPath);
-          }
-          if (!containsPath(workspace.root, await realpath(current))) refuse(GOVERNED_REFUSALS.foreignPath);
+          if (info.isSymbolicLink() || (index < components.length - 1 && !info.isDirectory())) refuse("foreign_path");
+          if (!containsPath(workspace.root, await realpath(current))) refuse("foreign_path");
         }
       }
     };
     const scope = async (value: unknown) => {
       const entry = object(value);
-      if (entry.project !== workspace.projectId) refuse(GOVERNED_REFUSALS.foreignPath);
+      if (entry.project !== workspace.projectId) refuse("foreign_path");
       await paths(entry.paths);
     };
-    const contributor = (value: unknown) => { if (value !== "contributor") refuse(GOVERNED_REFUSALS.identity); };
+    const contributor = (value: unknown) => { if (value !== "contributor") refuse("identity"); };
     // Strato and Exo refuse a capsule without a scope list, so only a list's paths need checking here.
     const capsule = async (value: unknown) => {
       const scopeList = object(object(value).task ?? {}).scope;
       if (Array.isArray(scopeList)) await paths(scopeList);
     };
     const withoutEvidence = (value: Record<string, unknown>) => {
-      if (agent && Object.keys(value).some(key => key === "receipt" || key === "verdict" || key === "execution_log")) {
-        refuse(GOVERNED_REFUSALS.identity);
-      }
+      if (agent && Object.keys(value).some(key => (AGENT_FORBIDDEN_EVIDENCE as readonly string[]).includes(key))) refuse("identity");
     };
     if (verb === "decide") {
       bound(request.actor);
@@ -424,12 +418,12 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
       withoutEvidence(request);
       await scope(request.scope);
       await capsule(request.capsule);
-      return;
+      return null;
     }
     const input = object(request.input);
     const state = object(request.state);
     const operation = z.string().parse(request.operation);
-    if (agent && !(AGENT_CONTROL_OPERATIONS as readonly string[]).includes(operation)) refuse(GOVERNED_REFUSALS.identity);
+    if (agent && !(AGENT_CONTROL_OPERATIONS as readonly string[]).includes(operation)) refuse("identity");
     withoutEvidence(input);
     withoutEvidence(state);
     if (state.claims !== undefined) {
@@ -450,17 +444,14 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
         { kind: "agent", id: projectAgentActorId(workspace.actorId, workspace.projectId) }];
       const recipient = object(input.to_actor);
       if (!recipients.some(entry => entry.kind === recipient.kind && entry.id === recipient.id
-        && Object.keys(recipient).length === 2)) refuse(GOVERNED_REFUSALS.identity);
+        && Object.keys(recipient).length === 2)) refuse("identity");
       await capsule(input.capsule);
     } else if (operation === "record_execution") {
       await capsule(input.capsule);
     }
+    return null;
   } catch (error) {
-    if (error instanceof GovernedRefusal && error.errorCode === GOVERNED_REFUSALS.foreignPath) {
-      commandError("Use direct paths inside the selected project. Linked or parent-relative paths are not accepted.",
-        GOVERNED_REFUSALS.foreignPath, 400);
-    }
-    commandError("Use the signed-in project actor, contributor authority, and direct paths inside the selected project. Linked or parent-relative paths are not accepted.", GOVERNED_REFUSALS.identity, 400);
+    return error instanceof GovernedRefusal ? error.reason : "identity";
   }
 }
 
@@ -665,7 +656,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date 
     const governedRequest = async (at: LocalProjectWorkspace) => {
       if (!governed || !actor) return undefined;
       const document = buildGovernedDocument(governed, at, actor, now());
-      await validateGovernedRequest(document, governed.verb, at, actor);
+      const refusal = await validateGovernedRequest(document, governed.verb, at, actor);
+      if (refusal) throw new GovernedRefusal(refusal);
       return document;
     };
     const policy = commandPolicy[command.verb];
@@ -800,14 +792,14 @@ export function createProjectReadRunner(dependencies: Dependencies = runtimeDepe
 
 export type ProjectEvaluateRun = { project: ProjectRef } & (
   | { failure: OriginalRunFailure }
-  | { refusal: "foreign_path" }
+  | { refusal: GovernedRefusalReason }
   | { exitCode: number | null; stdout: string; stderr: string; actor: BoundActor;
       /** Server-only: used to encode output, never serialized. */
       hostPaths: { root: string; dataDir: string } });
 
 /**
- * Run one governed decide or control evaluation. Access and identity refusals
- * throw. A run failure and a path outside the project are values.
+ * Run one governed decide or control evaluation. Access refusals throw. A run
+ * failure and a path, identity, or root refusal are values.
  */
 export function createProjectEvaluateRunner(dependencies: EvaluateDependencies = evaluateDependencies) {
   const runner = createRuntimeCommandRunner(dependencies, dependencies.now);
@@ -820,7 +812,7 @@ export function createProjectEvaluateRunner(dependencies: EvaluateDependencies =
       return { project, exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr, actor: actor!,
         hostPaths: { root: after.root, dataDir } };
     } catch (error) {
-      if (isActionContractError(error) && error.errorCode === GOVERNED_REFUSALS.foreignPath) return { project, refusal: "foreign_path" };
+      if (error instanceof GovernedRefusal) return { project, refusal: error.reason };
       if (!isOriginalRunFailure(error)) throw error;
       return { project, failure: error.errorCode };
     }

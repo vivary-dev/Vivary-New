@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -164,9 +165,10 @@ test("captured review and impact reports keep the public findings and dependents
 });
 
 test("review findings read from a closed rule table, and anything outside it is unreadable", async () => {
-  const ozone = await readFile(path.join(import.meta.dirname, "..", "..", "ozone", "ozone.py"), "utf8");
-  const tuple = /^PUBLIC_REVIEW_RULES = \(([^)]*)\)/m.exec(ozone)?.[1] ?? "";
-  assert.deepEqual([...tuple.matchAll(/"([^"]+)"/g)].map(match => match[1]), [...PUBLIC_REVIEW_RULES], "Ozone's public rules");
+  const ozone = execFileSync(process.platform === "win32" ? "python" : "python3", ["-B", "-c",
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import ozone; print(json.dumps(list(ozone.PUBLIC_REVIEW_RULES)))",
+    path.join(import.meta.dirname, "..", "..", "ozone")], { encoding: "utf8" });
+  assert.deepEqual(JSON.parse(ozone), [...PUBLIC_REVIEW_RULES], "Ozone's public rules");
   assert.deepEqual(Object.keys(REVIEW_RULE_SENTENCES).sort(), [...PUBLIC_REVIEW_RULES].sort());
   const sentences = Object.values(REVIEW_RULE_SENTENCES);
   assert.equal(new Set(sentences).size, sentences.length, "one sentence per rule");

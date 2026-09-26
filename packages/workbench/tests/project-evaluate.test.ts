@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,7 +14,8 @@ import {
   type ProjectEvaluateResult,
 } from "../app/lib/project-evaluate-schema.ts";
 import {
-  coreCanonicalPath, coreScopePath, decodeEvidence, encodeEvidence, EvidenceCodecError, governedDocument, projectAgentActorId,
+  coreCanonicalPath, coreScopePath, decodeEvidence, encodeEvidence, EvidenceCodecError, governedDocument, PATH_POSITIONS,
+  projectAgentActorId,
 } from "../server/governed-request.ts";
 import {
   createProjectEvaluateRunner, projectPathComponents, runOriginalProcess, type GovernedCommand, type ProjectEvaluateRun,
@@ -40,7 +41,7 @@ const components = [
   "sys.exit(module.main(args))",
 ].join("\n");
 
-async function harness() {
+async function harness(options: { root?: string } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), "vivary-project-evaluate-"));
   const runtime = path.join(directory, "runtime");
   const data = path.join(directory, "data");
@@ -51,7 +52,7 @@ async function harness() {
   await writeFile(path.join(runtime, "manifest.json"), JSON.stringify({ schemaVersion: 1, platform: process.platform,
     arch: process.arch, pythonVersion: "3.12.14", pythonExecutable: interpreter }));
   await writeFile(path.join(root, "notes.md"), "# Notes\n");
-  const workspace = { root, actorId: "actor-owner", label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a",
+  const workspace = { root: options.root ?? root, actorId: "actor-owner", label: "Project A", projectId: "project-a", rootId: "root-a", bindingId: "binding-a",
     bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" as const };
   let runs = 0;
   const run = createProjectEvaluateRunner({ parallelism: 4, now: () => clock,
@@ -220,30 +221,122 @@ test("a claim's returned state releases the same claim, and no host path reaches
     const released = evaluated(await h.evaluations.forChat(tool, { operation: "release", state: { claims }, claim_id: claim.claim_id }));
     assert.equal(released.output.result.decision, "released", JSON.stringify(released.output));
     assert.deepEqual(released.output.result.claims, []);
+    assert.match(claimed.notice, /Vivary did not record this claim\. No one else can see it\./);
     const foreign = evaluated(await h.evaluations.forOwner(owner, { projectId: "project-a", evaluateAs: "me",
       operation: "release", state: { claims }, claim_id: claim.claim_id } as never));
-    assert.notEqual(foreign.output.result.decision, "released", "the owner cannot release the agent's claim");
+    assert.equal(foreign.output.result.decision, "refused", "the owner cannot release the agent's claim");
+    assert.equal(foreign.refusedBy, "exo");
   } finally { await h.cleanup(); }
 });
 
-test("the codec round-trips project paths, redacts other host paths, and refuses lookalikes", () => {
+test("an agent's claim and decide read an existing private file or link exactly like a missing name", async () => {
+  const h = await harness();
+  try {
+    await writeFile(path.join(h.root, ".gitignore"), "private-roadmap.md\n");
+    await writeFile(path.join(h.root, "private-roadmap.md"), "# Private\n");
+    await symlink(h.data, path.join(h.root, "linked"), process.platform === "win32" ? "junction" : "dir");
+    const inputs = (name: string) => [
+      { operation: "claim", state: { claims: [] }, paths: [`${name}/x`] },
+      { operation: "decide", capsule: { ...observed(10), task: { scope: [`./${name}/x`] } } },
+    ];
+    // Only the name itself and the claim id derived from it may differ.
+    const shape = (result: ProjectEvaluateResult, name: string) =>
+      JSON.parse(JSON.stringify(result).replaceAll(name, "NAME").replace(/"claim_id":"[^"]+"/g, "\"claim_id\":\"ID\""));
+    const absent = "absent-" + randomUUID();
+    for (const existing of ["private-roadmap.md", "linked"]) {
+      for (const [index, input] of inputs(existing).entries()) {
+        const seen = await h.evaluations.forChat(tool, input);
+        assert.equal(seen.status, "evaluated", JSON.stringify(seen));
+        assert.deepEqual(shape(seen, existing), shape(await h.evaluations.forChat(tool, inputs(absent)[index]), absent), existing);
+      }
+    }
+    const mine = await h.evaluations.forOwner(owner, { projectId: "project-a", evaluateAs: "me", ...inputs("private-roadmap.md")[0] } as never);
+    assert.ok(mine.status === "refused" && mine.reason === "foreign_path", "the owner's own evaluation keeps the disk walk");
+  } finally { await h.cleanup(); }
+});
+
+test("a Core refusal inside a result names its refuser, and a granted claim says it was not recorded", async () => {
+  const decisions = [
+    ["decide", { schema: "vivary.strato-decision/v0", decision: "blocked", reason_codes: ["blocked_by_gate"] }, "strato"],
+    ["decide", { schema: "vivary.strato-decision/v0", decision: "request_gate", reason_codes: ["gate_required"] }, null],
+    ["claim", { schema: "vivary.exo-control-result/v0", operation: "claim", result: { decision: "refused", reason_codes: ["scope_conflict"] } }, "exo"],
+    ["claim", { schema: "vivary.exo-control-result/v0", operation: "claim", result: { decision: "granted", reason_codes: [] } }, null],
+  ] as const;
+  for (const [operation, output, refusedBy] of decisions) {
+    const input = operation === "decide" ? { operation, capsule: {} } : { operation, state: { claims: [] }, paths: ["src"] };
+    const result = evaluated(await fake(() => ({ stdout: JSON.stringify(output) })).evaluations.forChat(tool, input));
+    assert.equal(result.refusedBy, refusedBy, JSON.stringify(output));
+    assert.deepEqual(result.output, output, "output stays verbatim");
+    assert.equal(result.notice.includes("Vivary did not record this claim. No one else can see it."),
+      operation === "claim" && output.result.decision === "granted", JSON.stringify(output));
+  }
+  const h = await harness();
+  try {
+    const claimed = evaluated(await h.evaluations.forChat(tool, { operation: "claim", state: { claims: [] }, paths: ["src"] }));
+    const conflict = evaluated(await h.evaluations.forOwner(owner, { projectId: "project-a", evaluateAs: "me",
+      operation: "claim", state: { claims: claimed.output.result.claims }, paths: ["src/api"] } as never));
+    assert.equal(conflict.output.result.decision, "refused", JSON.stringify(conflict.output));
+    assert.equal(conflict.refusedBy, "exo");
+  } finally { await h.cleanup(); }
+});
+
+test("an identity refusal is a named value, never a thrown error", async () => {
+  const h = await harness();
+  try {
+    const ledger = { claims: [{ scope: { project: "project-a", paths: [h.root] }, authority_class: "owner" }] };
+    assert.deepEqual(await h.evaluations.forChat(tool, { operation: "expire_leases", state: ledger }),
+      { status: "refused", project, operation: "expire_leases", reason: "identity",
+        message: "Every claim in the state must belong to this project and hold contributor authority." });
+    assert.equal(h.runs(), 0);
+  } finally { await h.cleanup(); }
+});
+
+test("the codec rewrites only path positions, redacts host paths in text, and never decodes text", () => {
   const hostPaths = { root: "/host/project", dataDir: "/host/app-data" };
-  const evidence = { paths: ["/host/project", "/host/project/src/api"], note: "saved in /host/app-data/logs",
-    ["/host/project/key"]: "value", id: "claim-1" };
-  const encoded = encodeEvidence(evidence, hostPaths);
-  assert.deepEqual(encoded, { paths: [".", "./src/api"], note: "saved in <app data>/logs", ["./key"]: "value", id: "claim-1" });
-  assert.deepEqual(decodeEvidence(encoded, hostPaths.root), { ...evidence, note: "saved in <app data>/logs" });
-  for (const lookalike of ["./not-a-host-path", ".", "/HOST/project/x"]) {
-    assert.throws(() => encodeEvidence({ value: lookalike }, hostPaths),
+  const result = { schema: "vivary.exo-control-result/v0", operation: "claim", result: { decision: "granted",
+    claims: [{ claim_id: "claim-1", scope: { project: "project-a", paths: ["/host/project", "/host/project/src/api"] } }],
+    note: "saved in /host/app-data/logs from /host/project/src", ["/host/project/key"]: "./kept as text" } };
+  const encoded = encodeEvidence(result, hostPaths) as { result: { claims: unknown[]; note: string } };
+  assert.deepEqual(encoded, { schema: result.schema, operation: "claim", result: { decision: "granted",
+    claims: [{ claim_id: "claim-1", scope: { project: "project-a", paths: [".", "./src/api"] } }],
+    note: "saved in <app data>/logs from ./src", ["./key"]: "./kept as text" } });
+  assert.deepEqual(decodeEvidence({ claims: encoded.result.claims, note: encoded.result.note }, hostPaths.root, "state"),
+    { claims: result.result.claims, note: "saved in <app data>/logs from ./src" }, "text is never decoded");
+  for (const lookalike of ["./not-a-host-path", ".", "/HOST/project/x", "/host/app-data/x"]) {
+    assert.throws(() => encodeEvidence({ scope: { paths: [lookalike] } }, hostPaths),
       (error: unknown) => error instanceof EvidenceCodecError && error.reason === "unencodable_evidence", lookalike);
   }
-  assert.throws(() => decodeEvidence("./../outside", hostPaths.root), (error: unknown) => error instanceof EvidenceCodecError);
+  assert.throws(() => decodeEvidence(["./../outside"], hostPaths.root, "capsule.task.scope"),
+    (error: unknown) => error instanceof EvidenceCodecError && error.reason === "foreign_path");
+  assert.deepEqual(PATH_POSITIONS.filter(position => position.spelling === "scope").map(position => position.at).sort(),
+    ["result.claim.scope.paths.*", "result.claims.*.scope.paths.*", "result.conflicts.*.scope.paths.*",
+      "result.expired.*.claim.scope.paths.*", "result.handoff.scope.paths.*", "state.claims.*.scope.paths.*"]);
+});
+
+test("a capsule's text keeps its bytes, so a ./ command and a . excerpt survive the round trip", () => {
+  const root = "/host/project";
+  const capsule = { schema: "vivary.task-capsule/v0", capsule_id: "capsule-1", fingerprint: "sha256:print",
+    task: { question: "Does it build?", scope: ["/host/project"],
+      required_checks: [{ name: "build", command: "./gradlew build", cwd: "/host/project/app" }] },
+    required_checks: [{ name: "verify", command: "./scripts/verify.sh", cwd: "/host/project" }],
+    claims: [{ id: "c", subject_path: "/host/project", evidence: [{ excerpt: "." }, { excerpt: "./x and ./../y" }] }],
+    workspace: { fingerprint: "sha256:print", observed_at: "2026-09-26T11:59:00Z" } };
+  const encoded = encodeEvidence({ capsule }, { root, dataDir: "/host/app-data" }) as { capsule: typeof capsule };
+  assert.deepEqual(encoded.capsule.task.scope, ["."]);
+  assert.deepEqual(encoded.capsule.required_checks, [{ name: "verify", command: "./scripts/verify.sh", cwd: "." }]);
+  assert.deepEqual(encoded.capsule.claims[0].evidence, capsule.claims[0].evidence);
+  assert.deepEqual(decodeEvidence(encoded.capsule, root, "capsule", path.posix), capsule);
+  const workspace = { ...windowsWorkspace, root };
+  for (const handed of [capsule, encoded.capsule]) {
+    const decision = JSON.parse(governedDocument({ operation: "decide", capsule: handed }, workspace, agent, clock, path.posix));
+    assert.equal(JSON.stringify(decision.capsule), JSON.stringify(capsule), "byte for byte");
+  }
 });
 
 test("output that cannot be encoded, is unreadable, or is too large is refused, never cut", async () => {
   const exoResult = (result: unknown) => JSON.stringify({ schema: "vivary.exo-control-result/v0", operation: "expire_leases", result });
   for (const [stdout, expected] of [
-    [exoResult({ note: "./looks-like-a-path" }), "unencodable_evidence"],
+    [exoResult({ claims: [{ scope: { paths: ["./looks-like-a-path"] } }] }), "unencodable_evidence"],
     [exoResult({ claims: ["x".repeat(PROJECT_EVALUATE_MAX_RESULT_CHARS)] }), "result_too_large"],
   ] as const) {
     const result = await fake(() => ({ stdout })).evaluations.forChat(tool, expire);
@@ -266,6 +359,10 @@ test("the Native tool refuses a server-owned field by name and offers only the a
   assert.equal(forged.status, "completed", forged.output);
   assert.deepEqual(JSON.parse(forged.output), { status: "refused", project: null, operation: "expire_leases",
     reason: "server_owned_field", field: "actor", message: "Vivary sets actor itself. Remove actor and try again." });
+  assert.equal(calls.length, 0);
+  assert.deepEqual(JSON.parse((await call({ ...expire, evaluateAs: "me" })).output), { status: "refused", project: null,
+    operation: "expire_leases", reason: "server_owned_field", field: "evaluateAs",
+    message: "Vivary sets evaluateAs itself. Remove evaluateAs and try again." });
   assert.equal(calls.length, 0);
   assert.equal(JSON.parse((await call(expire)).output).status, "evaluated");
   assert.equal(calls.length, 1);
@@ -292,39 +389,63 @@ test("a Windows claim round-trips through Core's scope spelling, and a release g
   // Core answers with the scope spelling, casefolded with forward slashes.
   const claim = { claim_id: "claim_0123456789abcdef", scope: { project: "project-a", paths: ["c:/users/jeff/proj/src/api"] },
     actor: agent, authority_class: "contributor", status: "active", lease: null, created_at: "2026-09-26T12:00:00.000Z" };
-  const encoded = encodeEvidence({ claim, claims: [claim] }, windowsPaths, path.win32) as { claims: unknown[] };
-  assert.deepEqual((encoded.claims[0] as typeof claim).scope.paths, ["./src/api"]);
-  const release = JSON.parse(governedDocument({ operation: "release", state: { claims: encoded.claims }, claim_id: claim.claim_id },
+  const encoded = encodeEvidence({ schema: "vivary.exo-control-result/v0", operation: "claim",
+    result: { decision: "granted", claim, claims: [claim], conflicts: [] } }, windowsPaths) as { result: { claims: unknown[] } };
+  assert.deepEqual((encoded.result.claims[0] as typeof claim).scope.paths, ["./src/api"]);
+  const release = JSON.parse(governedDocument({ operation: "release", state: { claims: encoded.result.claims }, claim_id: claim.claim_id },
     windowsWorkspace, agent, clock, path.win32));
   assert.deepEqual(release.state.claims, [claim]);
   assert.equal(JSON.stringify(encoded).toLowerCase().includes("users"), false);
 });
 
-test("a Windows capsule in Core's canonical spelling round-trips byte for byte", () => {
+test("a Windows capsule in Core's canonical spelling round-trips byte for byte, and another spelling fails closed", () => {
   const capsule = { task: { scope: ["c:/Users/Jeff/Proj/notes", "c:/Users/Jeff/Proj"] },
     required_checks: [{ name: "test", command: "pnpm test", cwd: "c:/Users/Jeff/Proj" }],
     workspace: { fingerprint: "sha256:print", observed_at: "2026-09-26T11:59:00Z" } };
-  const encoded = encodeEvidence(capsule, windowsPaths, path.win32);
-  assert.deepEqual((encoded as typeof capsule).task.scope, ["./notes", "."]);
-  assert.deepEqual(decodeEvidence(encoded, windowsRoot, { flavor: path.win32 }), capsule);
-  const decision = JSON.parse(governedDocument({ operation: "decide", capsule: encoded as Record<string, unknown> },
-    windowsWorkspace, agent, clock, path.win32));
+  const encoded = (encodeEvidence({ capsule }, windowsPaths) as { capsule: typeof capsule }).capsule;
+  assert.deepEqual(encoded.task.scope, ["./notes", "."]);
+  assert.deepEqual(decodeEvidence(encoded, windowsRoot, "capsule", path.win32), capsule);
+  const decision = JSON.parse(governedDocument({ operation: "decide", capsule: encoded }, windowsWorkspace, agent, clock, path.win32));
   assert.deepEqual(decision.capsule, capsule);
   assert.deepEqual(decision.scope.paths, capsule.task.scope);
-  assert.deepEqual(encodeEvidence({ path: "C:\\Users\\Jeff\\Proj\\notes" }, windowsPaths, path.win32), { path: "./notes" });
+  // A capsule compiled from a lowercase cwd keeps its own spelling, which is not the root's on disk.
+  const lowercase = { ...capsule, task: { scope: ["c:/users/jeff/proj/notes"] } };
+  const unencodable = (error: unknown) => error instanceof EvidenceCodecError && error.reason === "unencodable_evidence";
+  assert.throws(() => encodeEvidence({ capsule: lowercase }, windowsPaths), unencodable);
+  assert.throws(() => encodeEvidence({ schema: "vivary.strato-decision/v0", decision: "blocked", reason_codes: [],
+    scope: { project: "project-a", paths: lowercase.task.scope } }, windowsPaths), unencodable, "the decision's scope echo");
+  assert.throws(() => encodeEvidence({ result: { claims: [{ scope: { paths: ["c:/Users/Jeff/Proj/src"] } }] } }, windowsPaths),
+    unencodable, "a canonical spelling at a scope position");
+  assert.throws(() => encodeEvidence({ capsule: { task: { scope: ["C:\\Users\\Jeff\\Proj\\notes"] } } }, windowsPaths),
+    unencodable, "the host spelling at a canonical position");
+});
+
+test("a Windows device root fails closed with a named refusal", async () => {
+  for (const root of ["\\\\?\\C:\\Users\\Jeff\\Proj", "\\\\.\\UNC\\Server\\Share\\Proj"]) {
+    const refusedRoot = (error: unknown) => error instanceof EvidenceCodecError && error.reason === "unsupported_root";
+    assert.throws(() => governedDocument(expire as never, { ...windowsWorkspace, root }, agent, clock, path.win32), refusedRoot, root);
+    assert.throws(() => encodeEvidence({ note: "x" }, { root, dataDir: windowsPaths.dataDir }), refusedRoot, root);
+    const h = await harness({ root });
+    try {
+      assert.deepEqual(await h.evaluations.forChat(tool, { operation: "claim", state: { claims: [] }, paths: ["src"] }),
+        { status: "refused", project, operation: "claim", reason: "unsupported_root", message: "This project's folder is open through a Windows device path, which Vivary cannot evaluate. Reconnect the folder by its drive letter or share name." });
+      assert.equal(h.runs(), 0);
+    } finally { await h.cleanup(); }
+  }
 });
 
 test("a Linux root keeps one spelling, and a spelling the codec cannot reproduce fails closed", () => {
   const linux = { root: "/Home/Jeff/Proj", dataDir: "/Home/Jeff/.vivary" };
   assert.equal(coreCanonicalPath(linux.root), linux.root);
   assert.equal(coreScopePath(linux.root), linux.root, "Core folds case only for Windows paths");
-  const evidence = { paths: ["/Home/Jeff/Proj/src"], capsule: { task: { scope: ["/Home/Jeff/Proj"] } } };
-  const encoded = encodeEvidence(evidence, linux, path.posix);
-  assert.deepEqual(encoded, { paths: ["./src"], capsule: { task: { scope: ["."] } } });
-  assert.deepEqual(decodeEvidence(encoded, linux.root, { flavor: path.posix }), evidence);
+  const evidence = { state: { claims: [{ scope: { paths: ["/Home/Jeff/Proj/src"] } }] }, capsule: { task: { scope: ["/Home/Jeff/Proj"] } } };
+  const encoded = encodeEvidence(evidence, linux) as typeof evidence;
+  assert.deepEqual(encoded, { state: { claims: [{ scope: { paths: ["./src"] } }] }, capsule: { task: { scope: ["."] } } });
+  assert.deepEqual(decodeEvidence(encoded.state, linux.root, "state", path.posix), evidence.state);
+  assert.deepEqual(decodeEvidence(encoded.capsule, linux.root, "capsule", path.posix), evidence.capsule);
   // Python casefolds U+00DF to "ss", which toLowerCase does not reproduce.
   const german = { root: "C:\\Users\\Straße\\Proj", dataDir: "C:\\Data" };
-  assert.throws(() => encodeEvidence({ path: "c:/users/strasse/proj/src" }, german, path.win32),
+  assert.throws(() => encodeEvidence({ path: "c:/users/strasse/proj/src" }, german),
     (error: unknown) => error instanceof EvidenceCodecError && error.reason === "unencodable_evidence");
 });
 

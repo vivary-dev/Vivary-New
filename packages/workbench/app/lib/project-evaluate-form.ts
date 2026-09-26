@@ -1,4 +1,6 @@
-import type { ControlOperation, EvaluateAs, EvaluatedAs } from "./project-evaluate-schema.ts";
+import {
+  POST_RUN_REFUSALS, type BoundaryRefusal, type ControlOperation, type EvaluateAs, type EvaluatedAs,
+} from "./project-evaluate-schema.ts";
 
 // Pure helpers behind the owner's Evaluate panel. Every JSON field the owner
 // types is parsed here, so malformed JSON is reported in the panel and never sent.
@@ -36,7 +38,6 @@ export type ControlDraft = {
   paths: string; lease: string; claim_id: string; task_id: string; receipt: string; capsule: string;
   to_actor: EvaluateAs; workspace_revision: string;
 };
-export type KnownActors = Partial<Record<EvaluatedAs["kind"], string>>;
 export type Built = { ok: true; input: Record<string, unknown> } | { ok: false; message: string };
 
 export const emptyDecideDraft = (): DecideDraft =>
@@ -101,7 +102,7 @@ export const decideRequest = (draft: DecideDraft, evaluateAs: EvaluateAs): Built
 });
 
 /** The control request for the selected operation, with only that operation's fields. */
-export const controlRequest = (draft: ControlDraft, known: KnownActors): Built => build(() => {
+export const controlRequest = (draft: ControlDraft): Built => build(() => {
   const { operation } = draft;
   const input: Record<string, unknown> = { operation, state: object("state", draft.states[STATE_SHAPE[operation]]) };
   for (const field of CONTROL_FIELDS[operation]) {
@@ -118,14 +119,7 @@ export const controlRequest = (draft: ControlDraft, known: KnownActors): Built =
     } else if (field === "receipt" || field === "capsule") {
       input[field] = object(field === "receipt" ? "receipt" : "Task Capsule", draft[field]);
     } else if (field === "to_actor") {
-      const kind = draft.to_actor === "me" ? "human" : "agent";
-      const id = known[kind];
-      if (!id) {
-        throw new FieldError(draft.to_actor === "me"
-          ? "Run one evaluation as yourself first, so the panel knows your actor id."
-          : "Run one evaluation as this project's agent first, so the panel knows its actor id.");
-      }
-      input.to_actor = { kind, id };
+      input.to_actor = draft.to_actor;
     } else {
       input.workspace_revision = draft.workspace_revision;
     }
@@ -145,6 +139,21 @@ const codesIn = (value: unknown): string[] | null =>
     ? value.reason_codes as string[] : null;
 
 export const reasonCodes = (output: unknown): string[] => codesIn(shownOutput(output)) ?? codesIn(output) ?? [];
+
+/** Strato's decision, or the decision inside an Exo result, or null when the result has none. */
+export function decisionOf(output: unknown): string | null {
+  const decision = isRecord(output) && "result" in output
+    ? isRecord(output.result) ? output.result.decision : undefined
+    : isRecord(output) ? output.decision : undefined;
+  return typeof decision === "string" ? decision : null;
+}
+
+// Each operation's success decision. Any other decision is announced as an alert.
+const SUCCESS_DECISIONS: ReadonlySet<string> = new Set(["act", "granted", "released", "bound", "ready"]);
+export const isSuccessDecision = (decision: string) => SUCCESS_DECISIONS.has(decision);
+
+export const refusalTitle = (reason: BoundaryRefusal): string =>
+  (POST_RUN_REFUSALS as readonly string[]).includes(reason) ? "Vivary could not return this result" : "Vivary refused before running";
 
 export function actorLine(actor: EvaluatedAs): string {
   const who = actor.kind === "human" ? "you" : "this project's agent";

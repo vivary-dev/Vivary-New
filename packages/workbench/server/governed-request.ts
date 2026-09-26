@@ -21,11 +21,16 @@ export function projectAgentActorId(ownerActorId: string, projectId: string): st
     .update("vivary.native-agent/v1\0" + ownerActorId + "\0" + projectId).digest("hex");
 }
 
+export type EvidenceCodecRefusal = "foreign_path" | "unencodable_evidence" | "unsupported_root";
+const CODEC_MESSAGES: Record<EvidenceCodecRefusal, string> = {
+  foreign_path: "A project path leaves the project.",
+  unencodable_evidence: "The evidence cannot be shown without a host path.",
+  unsupported_root: "The project root is a Windows device path, which the codec does not spell.",
+};
+
 /** A string the codec cannot carry without changing what it means. */
 export class EvidenceCodecError extends Error {
-  constructor(readonly reason: "foreign_path" | "unencodable_evidence") {
-    super(reason === "foreign_path" ? "A project path leaves the project." : "The evidence cannot be shown without a host path.");
-  }
+  constructor(readonly reason: EvidenceCodecRefusal) { super(CODEC_MESSAGES[reason]); }
 }
 
 /** The host's path rules. Tests pass `path.win32` or `path.posix` to check another host's roots. */
@@ -72,83 +77,133 @@ export function coreScopePath(value: string): string {
   return "/" + collapse(spelled.split("/")).join("/");
 }
 
-// The project root as it appears in evidence: the host's own spelling, the
-// capsule spelling, and the claim scope spelling. On Linux all three agree.
-function rootSpellings(root: string, flavor: PathFlavor) {
-  const canonical = coreCanonicalPath(root);
-  const scope = coreScopePath(root);
-  const withSeparator = (spelled: string, separator: string) => spelled.endsWith(separator) ? spelled : spelled + separator;
-  return {
-    canonical, scope,
-    prefixes: [[root, withSeparator(root, flavor.sep)], [canonical, withSeparator(canonical, "/")], [scope, withSeparator(scope, "/")]],
-  };
+type Spelling = "canonical" | "scope";
+
+/**
+ * Every position in a Strato or Exo request or result that holds an absolute
+ * path, and the one spelling Core writes there. "*" is any array index.
+ *
+ * Capsule, Core `capsule_compile.py`: `$defs/absolute_path` (130-140) types
+ * `task.scope` (174), `task.required_checks[].cwd` (194), and
+ * `required_checks[].cwd` (746). Checkout paths pass the same canonical check
+ * (`_is_normalized_content_path`, 881-882) and fill `claims[].subject_path`
+ * (2683, 2782, 2829, 2841, 2976), conflict `sides[].path` (schema 339, from
+ * `workspace_model.py` 585), `unknowns[].path` (`workspace_model.py` 554, 574),
+ * and omission `path` and `subject_path` (1310, 3240, 3255, 3266).
+ * Strato, `strato.py` 240-250: the decision echoes the request's `scope`, which
+ * the server fills from `task.scope`.
+ * Exo, `exo.py` 48-55 and 760-790: `normalize_scope` (`control_scope.py`
+ * 134-143) spells every claim scope in `request_claim` (331-354),
+ * `release_claim` (364-411), `expire_leases` (414-444), and `create_handoff`
+ * (`control_handoffs.py` 120, 150). Receipts, verdicts, leases, and execution
+ * logs hold no absolute path.
+ */
+export const PATH_POSITIONS: readonly { at: string; spelling: Spelling }[] = [
+  { at: "capsule.task.scope.*", spelling: "canonical" },
+  { at: "capsule.task.required_checks.*.cwd", spelling: "canonical" },
+  { at: "capsule.required_checks.*.cwd", spelling: "canonical" },
+  { at: "capsule.claims.*.subject_path", spelling: "canonical" },
+  { at: "capsule.conflicts.*.sides.*.path", spelling: "canonical" },
+  { at: "capsule.unknowns.*.path", spelling: "canonical" },
+  { at: "capsule.unknowns.*.subject_path", spelling: "canonical" },
+  { at: "capsule.omissions.*.path", spelling: "canonical" },
+  { at: "capsule.omissions.*.subject_path", spelling: "canonical" },
+  { at: "capsule.omissions.*.omitted.*.subject_path", spelling: "canonical" },
+  { at: "input.capsule.task.scope.*", spelling: "canonical" },
+  { at: "input.capsule.task.required_checks.*.cwd", spelling: "canonical" },
+  { at: "input.capsule.required_checks.*.cwd", spelling: "canonical" },
+  { at: "input.capsule.claims.*.subject_path", spelling: "canonical" },
+  { at: "input.capsule.conflicts.*.sides.*.path", spelling: "canonical" },
+  { at: "input.capsule.unknowns.*.path", spelling: "canonical" },
+  { at: "input.capsule.unknowns.*.subject_path", spelling: "canonical" },
+  { at: "input.capsule.omissions.*.path", spelling: "canonical" },
+  { at: "input.capsule.omissions.*.subject_path", spelling: "canonical" },
+  { at: "input.capsule.omissions.*.omitted.*.subject_path", spelling: "canonical" },
+  { at: "scope.paths.*", spelling: "canonical" },
+  { at: "state.claims.*.scope.paths.*", spelling: "scope" },
+  { at: "result.claim.scope.paths.*", spelling: "scope" },
+  { at: "result.claims.*.scope.paths.*", spelling: "scope" },
+  { at: "result.conflicts.*.scope.paths.*", spelling: "scope" },
+  { at: "result.expired.*.claim.scope.paths.*", spelling: "scope" },
+  { at: "result.handoff.scope.paths.*", spelling: "scope" },
+];
+
+type Trail = (string | number)[];
+const positions = PATH_POSITIONS.map(({ at, spelling }) => ({ steps: at.split("."), spelling }));
+const spellingAt = (trail: Trail): Spelling | undefined => positions.find(({ steps }) => steps.length === trail.length
+  && steps.every((step, index) => step === "*" ? typeof trail[index] === "number" : step === trail[index]))?.spelling;
+
+// Node's realpath never returns a device path for an ordinary folder, and
+// Core's two normalizers disagree on one, so such a root is refused by name.
+const devicePath = /^[\\/]{2}[?.][\\/]/;
+function rootSpellings(root: string): Record<Spelling, string> {
+  if (devicePath.test(root)) throw new EvidenceCodecError("unsupported_root");
+  return { canonical: coreCanonicalPath(root), scope: coreScopePath(root) };
+}
+const below = (spelled: string) => spelled.endsWith("/") ? spelled : spelled + "/";
+
+/** Maps every string, keys included. A key is never a path position. */
+function mapStrings(value: unknown, map: (text: string, spelling: Spelling | undefined) => string, trail: Trail): unknown {
+  if (typeof value === "string") return map(value, spellingAt(trail));
+  if (Array.isArray(value)) return value.map((item, index) => mapStrings(item, map, [...trail, index]));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [map(key, undefined), mapStrings(item, map, [...trail, key])]));
+  }
+  return value;
 }
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // The same spelling rule as the project read redaction: either separator, any case.
 const anySpelling = (hostPath: string) => new RegExp(hostPath.split(/[\\/]/).map(escapeRegExp).join("[\\\\/]"), "gi");
 
-type Trail = (string | number)[];
-function mapStrings(value: unknown, map: (text: string, trail: Trail) => string, trail: Trail = []): unknown {
-  if (typeof value === "string") return map(value, trail);
-  if (Array.isArray(value)) return value.map((item, index) => mapStrings(item, map, [...trail, index]));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [map(key, trail), mapStrings(item, map, [...trail, key])]));
-  }
-  return value;
-}
-
-const namesProject = (text: string) => text === "." || text.startsWith("./");
-
 /**
- * The project root reads as "." and a descendant as "./" plus the remainder,
- * byte for byte, whichever of the three root spellings it starts with, so
- * decoding restores claim ids and capsule fingerprints. Any other occurrence of
- * the root or the data directory is redacted. A string that would read as a
- * project path without being one cannot round trip.
+ * Encodes a whole Strato or Exo document for the model. At a path position the
+ * project root in that position's spelling reads as "." and a descendant as
+ * "./" plus the remainder, byte for byte, so decoding restores claim ids and
+ * capsule fingerprints. A path position in any other spelling of the root
+ * cannot come back unchanged and is refused. Every other string is text: the
+ * root and the data directory are redacted, and text is never decoded.
  */
-export function encodeEvidence(value: unknown, hostPaths: HostPaths, flavor: PathFlavor = path): unknown {
-  const { prefixes } = rootSpellings(hostPaths.root, flavor);
+export function encodeEvidence(value: unknown, hostPaths: HostPaths): unknown {
+  const roots = rootSpellings(hostPaths.root);
   const redactions = [[hostPaths.root, "."], [hostPaths.dataDir, "<app data>"]]
     .sort((left, right) => right[0].length - left[0].length)
     .map(([hostPath, label]) => [anySpelling(hostPath), label] as const);
   const hostSpellings = [coreCanonicalPath(hostPaths.root), coreCanonicalPath(hostPaths.dataDir)].map(looseFold);
-  return mapStrings(value, text => {
-    for (const [root, prefix] of prefixes) {
-      if (text === root) return ".";
-      if (text.startsWith(prefix)) return "./" + text.slice(prefix.length);
-    }
-    const redacted = redactions.reduce((current, [pattern, label]) => current.replace(pattern, label), text);
+  const text = (entry: string) => {
+    const redacted = redactions.reduce((current, [pattern, label]) => current.replace(pattern, label), entry);
     // A root spelled in a case this module cannot reproduce still fails closed.
-    if (namesProject(redacted) || hostSpellings.some(spelled => looseFold(redacted).includes(spelled))) {
-      throw new EvidenceCodecError("unencodable_evidence");
-    }
+    if (hostSpellings.some(spelled => looseFold(redacted).includes(spelled))) throw new EvidenceCodecError("unencodable_evidence");
     return redacted;
-  });
+  };
+  return mapStrings(value, (entry, spelling) => {
+    if (!spelling) return text(entry);
+    const root = roots[spelling];
+    if (entry === root) return ".";
+    if (entry.startsWith(below(root))) return "./" + entry.slice(below(root).length);
+    if (entry === "." || entry.startsWith("./") || text(entry) !== entry) throw new EvidenceCodecError("unencodable_evidence");
+    return entry;
+  }, []);
 }
 
-// Core refuses a claim ledger whose scope paths are not already in its scope spelling.
-const isLedgerScopePath = (trail: Trail) => trail.length === 5 && trail[0] === "claims" && typeof trail[1] === "number"
-  && trail[2] === "scope" && trail[3] === "paths" && typeof trail[4] === "number";
-
 /**
- * Reverses encodeEvidence. A claim ledger's scope paths get Core's scope
- * spelling when `ledger` is set, and every other project path gets the
- * capsule spelling. A "./" string that climbs out of the project is refused.
+ * Reverses encodeEvidence for caller evidence placed at `at` in a request
+ * document. Only path positions change: "." becomes the root in the
+ * position's spelling, and "./" plus a remainder that stays inside the project
+ * becomes a descendant. Text is passed through byte for byte.
  */
-export function decodeEvidence(value: unknown, root: string, options: { ledger?: boolean; flavor?: PathFlavor } = {}): unknown {
-  const flavor = options.flavor ?? path;
-  const { canonical, scope } = rootSpellings(root, flavor);
-  return mapStrings(value, (text, trail) => {
-    const spelled = options.ledger && isLedgerScopePath(trail) ? scope : canonical;
-    if (text === ".") return spelled;
-    if (!text.startsWith("./")) return text;
-    const remainder = text.slice(2);
+export function decodeEvidence(value: unknown, root: string, at: string, flavor: PathFlavor = path): unknown {
+  const roots = rootSpellings(root);
+  return mapStrings(value, (entry, spelling) => {
+    if (!spelling) return entry;
+    if (entry === ".") return roots[spelling];
+    if (!entry.startsWith("./")) return entry;
+    const remainder = entry.slice(2);
     if (remainder.includes("\0") || remainder.split(/[\\/]/).includes("..") || flavor.isAbsolute(remainder)) {
       throw new EvidenceCodecError("foreign_path");
     }
-    return (spelled.endsWith("/") ? spelled : spelled + "/") + remainder;
-  });
+    return below(roots[spelling]) + remainder;
+  }, at.split("."));
 }
 
 type Evidence = Record<string, unknown>;
@@ -160,9 +215,9 @@ type Evidence = Record<string, unknown>;
 export function governedDocument(input: GovernedInput, workspace: LocalProjectWorkspace, actor: BoundActor, now: Date,
   flavor: PathFlavor = path): string {
   const at = now.toISOString();
-  const evidence = (value: unknown) => decodeEvidence(value, workspace.root, { flavor });
+  const decoded = (value: unknown, position: string) => decodeEvidence(value, workspace.root, position, flavor);
   if (input.operation === "decide") {
-    const capsule = evidence(input.capsule) as Evidence;
+    const capsule = decoded(input.capsule, "capsule") as Evidence;
     const task = capsule.task as Evidence | undefined;
     const capsuleWorkspace = capsule.workspace as Evidence | undefined;
     // Native has no capsule producer, so the fingerprint is the capsule's own
@@ -172,29 +227,29 @@ export function governedDocument(input: GovernedInput, workspace: LocalProjectWo
       workspace: { fingerprint: capsuleWorkspace?.fingerprint },
       scope: { project: workspace.projectId, paths: Array.isArray(task?.scope) ? task.scope : [] },
       requested_at: at, decision_at: at, capsule,
-      ...("receipt" in input && input.receipt !== undefined ? { receipt: evidence(input.receipt) } : {}),
-      ...("verdict" in input && input.verdict !== undefined ? { verdict: evidence(input.verdict) } : {}),
+      ...("receipt" in input && input.receipt !== undefined ? { receipt: input.receipt } : {}),
+      ...("verdict" in input && input.verdict !== undefined ? { verdict: input.verdict } : {}),
       ...(input.state ? { state: input.state } : {}),
       ...(input.limits ? { limits: input.limits } : {}),
     });
   }
   const control = (state: unknown, request: Evidence) =>
-    JSON.stringify({ schema: EXO_REQUEST_SCHEMA, operation: input.operation,
-      state: decodeEvidence(state, workspace.root, { ledger: true, flavor }), input: request });
+    JSON.stringify({ schema: EXO_REQUEST_SCHEMA, operation: input.operation, state: decoded(state, "state"), input: request });
   switch (input.operation) {
     case "claim": return control(input.state, {
       scope: { project: workspace.projectId, paths: input.paths.map(entry => flavor.join(workspace.root, entry)) },
-      actor, now: at, authority_class: AUTHORITY_CLASS, ...(input.lease ? { lease: evidence(input.lease) } : {}),
+      actor, now: at, authority_class: AUTHORITY_CLASS, ...(input.lease ? { lease: input.lease } : {}),
     });
     case "release": return control(input.state, { claim_id: input.claim_id, actor });
     case "expire_leases": return control(input.state, { now: at });
     case "dependencies": return control(input.state, { task_id: input.task_id });
     case "task_view": case "complete": return control(input.state, {});
     case "handoff": return control(input.state, {
-      claim_id: input.claim_id, receipt: evidence(input.receipt), capsule: evidence(input.capsule),
-      from_actor: actor, to_actor: input.to_actor, workspace_revision: input.workspace_revision,
-      created_at: at, to_authority_class: AUTHORITY_CLASS,
+      claim_id: input.claim_id, receipt: input.receipt, capsule: decoded(input.capsule, "input.capsule"),
+      from_actor: actor, workspace_revision: input.workspace_revision, created_at: at, to_authority_class: AUTHORITY_CLASS,
+      to_actor: input.to_actor === "me" ? { kind: "human", id: workspace.actorId }
+        : { kind: "agent", id: projectAgentActorId(workspace.actorId, workspace.projectId) },
     });
-    case "record_execution": return control(input.state, { receipt: evidence(input.receipt), capsule: evidence(input.capsule) });
+    case "record_execution": return control(input.state, { receipt: input.receipt, capsule: decoded(input.capsule, "input.capsule") });
   }
 }
