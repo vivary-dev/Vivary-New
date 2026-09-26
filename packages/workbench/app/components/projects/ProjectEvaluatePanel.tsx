@@ -6,7 +6,7 @@ import {
 } from "@/lib/project-evaluate-schema";
 import {
   CONTROL_FIELDS, OPERATION_LABELS, STATE_SHAPE, actorLine, controlRequest, decideRequest, decisionOf, emptyControlDraft,
-  emptyDecideDraft, isRecord, isSuccessDecision, reasonCodes, refusalTitle, returnedState, shownOutput, type Built,
+  emptyDecideDraft, isRecord, isRefusalDocument, isSuccessDecision, reasonCodes, refusalTitle, returnedState, shownOutput, type Built,
   type ControlDraft, type DecideDraft,
 } from "@/lib/project-evaluate-form";
 
@@ -42,8 +42,8 @@ function useProjectEvaluate(call: NativeActionCaller, projectId: string) {
 }
 
 function Refusal({ title, children }: { title: string; children: ReactNode }) {
-  return <div role="alert" data-agent-native="project-evaluate-refusal">
-    <p><strong>{title}</strong></p>
+  return <div role="alert" data-agent-native="project-evaluate-refusal" className="border-l-[3px] border-destructive pl-3">
+    <p><strong className="text-destructive">{title}</strong></p>
     {children}
   </div>;
 }
@@ -73,25 +73,26 @@ function Outcome({ state, action }: { state: EvaluateState; action?: (result: Pr
   const schema = typeof output.schema === "string" ? output.schema : null;
   const codes = reasonCodes(result.output);
   const decision = decisionOf(result.output);
-  // A Core refusal is already an alert below, so its decision line is plain.
-  const alertDecision = decision !== null && !isSuccessDecision(decision) && !result.refusedBy;
+  // Every decision but a success is styled as an error. A Core refusal is
+  // already announced below, so only its decision line skips the alert role.
+  const failedDecision = decision !== null && !isSuccessDecision(decision);
   return <div data-agent-native="project-evaluate-result" data-refused-by={result.refusedBy ?? "none"}>
     <p><strong>{actorLine(result.evaluatedAs)}</strong></p>
-    {decision && <p role={alertDecision ? "alert" : undefined} data-agent-native="project-evaluate-decision">
+    {decision && <p role={failedDecision && !result.refusedBy ? "alert" : undefined} data-agent-native="project-evaluate-decision"
+      className={failedDecision ? "text-destructive" : undefined}>
       <strong>Decision: <code>{decision}</code></strong></p>}
     {(policy || schema) && <p className="project-read-muted">
       {policy && <>Policy version <code>{policy}</code></>}{policy && schema && " · "}{schema && <>Schema <code>{schema}</code></>}
     </p>}
     <p>{result.notice}</p>
-    {result.refusedBy
-      ? <Refusal title={result.refusedBy === "strato" ? "Strato refused" : "Exo refused"}><Codes codes={codes} /></Refusal>
-      : <>
-        <div className="project-memory-preview">
-          <pre data-agent-native="project-evaluate-output">{JSON.stringify(shownOutput(result.output), null, 2)}</pre>
-        </div>
-        <Codes codes={codes} />
-        {action?.(result)}
-      </>}
+    {result.refusedBy && <Refusal title={result.refusedBy === "strato" ? "Strato refused" : "Exo refused"}>
+      <Codes codes={codes} /></Refusal>}
+    {/* A refused result can still carry what the owner needs, such as a claim's conflicts. */}
+    {!isRefusalDocument(result.output) && <div className="project-memory-preview">
+      <pre data-agent-native="project-evaluate-output">{JSON.stringify(shownOutput(result.output), null, 2)}</pre>
+    </div>}
+    {!result.refusedBy && <Codes codes={codes} />}
+    {action?.(result)}
   </div>;
 }
 
@@ -154,8 +155,7 @@ function ProjectEvaluateSections({ projectId, disabled }: PanelProps) {
   </>;
 
   const returnedStateAction = (result: ProjectEvaluateResult) => {
-    if (result.status !== "evaluated" || result.operation === "decide") return null;
-    const returned = returnedState(result.operation, result.output);
+    const returned = returnedState(result);
     if (!returned) return null;
     return <div className="project-memory-actions">
       <Button type="button" size="sm" variant="outline" data-agent-native="project-evaluate-use-state"

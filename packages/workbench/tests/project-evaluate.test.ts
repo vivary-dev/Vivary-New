@@ -9,6 +9,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { actionsToEngineTools, executeAgentToolCall, loadActionsFromStaticRegistry, runWithRequestContext } from "@agent-native/core/server";
 
 import { defineProjectEvaluateTool } from "../actions/vivary-project-evaluate.ts";
+import { returnedState } from "../app/lib/project-evaluate-form.ts";
 import {
   AGENT_CONTROL_OPERATIONS, CONTROL_OPERATIONS, PROJECT_EVALUATE_MAX_RESULT_CHARS, SERVER_OWNED_FIELDS,
   type ProjectEvaluateResult,
@@ -277,6 +278,23 @@ test("a Core refusal inside a result names its refuser, and a granted claim says
       operation: "claim", state: { claims: claimed.output.result.claims }, paths: ["src/api"] } as never));
     assert.equal(conflict.output.result.decision, "refused", JSON.stringify(conflict.output));
     assert.equal(conflict.refusedBy, "exo");
+    // These four answer without a decision and name a refusal only by its reason codes.
+    const me = (input: Record<string, unknown>) =>
+      h.evaluations.forOwner(owner, { projectId: "project-a", evaluateAs: "me", ...input } as never);
+    const shapeless = [
+      ["expire_leases", await h.evaluations.forChat(tool, { operation: "expire_leases",
+        state: { claims: [{ scope: { project: "project-a", paths: ["./src"] }, authority_class: "contributor" }] } })],
+      ["record_execution", await me({ operation: "record_execution", state: { execution_log: [] }, receipt: {}, capsule: {} })],
+      ["complete", await me({ operation: "complete", state: { task: {}, execution_log: [] } })],
+      ["task_view", await me({ operation: "task_view", state: { task: {}, execution_log: [] } })],
+    ] as const;
+    for (const [operation, seen] of shapeless) {
+      const result = evaluated(seen);
+      assert.equal(result.output.result.decision, undefined, JSON.stringify(result.output));
+      assert.ok(result.output.result.reason_codes.length > 0, JSON.stringify(result.output));
+      assert.equal(result.refusedBy, "exo", operation);
+      assert.equal(returnedState(result), null, `${operation} offers no state to use`);
+    }
   } finally { await h.cleanup(); }
 });
 
@@ -287,6 +305,16 @@ test("an identity refusal is a named value, never a thrown error", async () => {
     assert.deepEqual(await h.evaluations.forChat(tool, { operation: "expire_leases", state: ledger }),
       { status: "refused", project, operation: "expire_leases", reason: "identity",
         message: "Every claim in the state must belong to this project and hold contributor authority." });
+    assert.equal(h.runs(), 0);
+  } finally { await h.cleanup(); }
+});
+
+test("a state the runner cannot check is request_invalid, never an identity claim", async () => {
+  const h = await harness();
+  try {
+    assert.deepEqual(await h.evaluations.forChat(tool, { operation: "expire_leases", state: { claims: [42] } }),
+      { status: "refused", project, operation: "expire_leases", reason: "request_invalid",
+        message: "Vivary could not check this request's state and paths against this project, so it did not run." });
     assert.equal(h.runs(), 0);
   } finally { await h.cleanup(); }
 });

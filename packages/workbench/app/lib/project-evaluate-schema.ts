@@ -95,9 +95,9 @@ export type ProjectEvaluateOwnerInput = z.infer<typeof projectEvaluateOwnerInput
 
 export type EvaluatedAs = { kind: "human" | "agent"; id: string; authorityClass: "contributor"; role: "owner" | "project-agent" };
 export type BoundaryRefusal = "server_owned_field" | "agent_forbidden_evidence" | "owner_only_operation"
-  | "foreign_path" | "identity" | "unsupported_root" | "unencodable_evidence" | "result_too_large";
+  | "foreign_path" | "identity" | "request_invalid" | "unsupported_root" | "unencodable_evidence" | "result_too_large";
 /** Refusals the runner returns after it resolved the project and before any child starts. */
-export type GovernedRefusalReason = Extract<BoundaryRefusal, "foreign_path" | "identity" | "unsupported_root">;
+export type GovernedRefusalReason = Extract<BoundaryRefusal, "foreign_path" | "identity" | "request_invalid" | "unsupported_root">;
 /** Refusals that happen after Strato or Exo ran, so the run and its receipt exist. */
 export const POST_RUN_REFUSALS = ["unencodable_evidence", "result_too_large"] as const satisfies readonly BoundaryRefusal[];
 export type ProjectEvaluateResult =

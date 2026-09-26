@@ -25,6 +25,7 @@ const REFUSALS: Record<BoundaryRefusal, (field?: string) => string> = {
   owner_only_operation: () => "Only the owner can run this operation, because it needs execution evidence Vivary cannot verify.",
   foreign_path: () => "Use paths inside this project, such as src/api. Absolute and parent-relative paths are not accepted.",
   identity: () => "Every claim in the state must belong to this project and hold contributor authority.",
+  request_invalid: () => "Vivary could not check this request's state and paths against this project, so it did not run.",
   unsupported_root: () => "This project's folder is open through a Windows device path, which Vivary cannot evaluate. Reconnect the folder by its drive letter or share name.",
   unencodable_evidence: () => "The result spells a project path in a form Vivary cannot return without showing the host path.",
   result_too_large: () => "The result is larger than Vivary returns in one call.",
@@ -51,7 +52,9 @@ const RUN_FAILURES: Record<OriginalRunFailure, UnavailableReason> = {
 // Strato and Exo each answer with a result or with their own refusal. A
 // refusal is still an evaluation, and its reason codes pass through verbatim.
 // A result whose decision is Strato's "blocked" or Exo's "refused" is a Core
-// refusal too, so it names its refuser the same way.
+// refusal too, so it names its refuser the same way. So is an Exo result with
+// no decision and any reason code: expire_leases, record_execution, complete,
+// and task_view return an empty list on success and codes only when they refuse.
 const reasonCodes = z.array(z.string());
 const strato = z.union([
   z.looseObject({ schema: z.literal("vivary.strato-decision/v0"), decision: z.string(), reason_codes: reasonCodes }),
@@ -59,7 +62,7 @@ const strato = z.union([
 ]);
 const exo = z.union([
   z.looseObject({ schema: z.literal("vivary.exo-control-result/v0"), operation: z.string(),
-    result: z.looseObject({ decision: z.string().optional() }) }),
+    result: z.looseObject({ decision: z.string().optional(), reason_codes: reasonCodes.optional() }) }),
   z.looseObject({ schema: z.literal("vivary.exo-control-refusal/v0"), reason_codes: reasonCodes }),
 ]);
 
@@ -77,8 +80,9 @@ function read(stdout: string, operation: EvaluateOperation): Reading | null {
   if (!parsed.success) return null;
   if (parsed.data.schema === "vivary.exo-control-refusal/v0") return { value, refusedBy: "exo", decision: null };
   if (parsed.data.operation !== operation) return null;
-  const decision = parsed.data.result.decision ?? null;
-  return { value, refusedBy: decision === "refused" ? "exo" : null, decision };
+  const { decision = null, reason_codes: codes = [] } = parsed.data.result;
+  const refusal = decision === null ? codes.length > 0 : decision === "refused";
+  return { value, refusedBy: refusal ? "exo" : null, decision };
 }
 
 const refused = (project: ProjectRef | null, operation: string, reason: BoundaryRefusal, field?: string): ProjectEvaluateResult =>

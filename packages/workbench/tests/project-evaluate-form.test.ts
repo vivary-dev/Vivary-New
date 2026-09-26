@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   CONTROL_FIELDS, STATE_SHAPE, STATE_TEMPLATES, actorLine, controlRequest, decideRequest, decisionOf, emptyControlDraft,
-  emptyDecideDraft, isSuccessDecision, reasonCodes, refusalTitle, returnedState, shownOutput,
+  emptyDecideDraft, isRefusalDocument, isSuccessDecision, reasonCodes, refusalTitle, returnedState, shownOutput,
 } from "../app/lib/project-evaluate-form.ts";
-import { CONTROL_OPERATIONS, projectEvaluateOwnInputSchema, projectEvaluateToolInputSchema } from "../app/lib/project-evaluate-schema.ts";
+import {
+  CONTROL_OPERATIONS, projectEvaluateOwnInputSchema, projectEvaluateToolInputSchema, type ControlOperation, type ProjectEvaluateResult,
+} from "../app/lib/project-evaluate-schema.ts";
 
 const capsule = { schema: "vivary.task-capsule/v0", task: { scope: ["src"] } };
 
@@ -73,11 +75,16 @@ test("required control fields are refused in the panel, and a handoff needs no e
     capsule: {}, workspace_revision: "rev", to_actor: { kind: "agent", id: "agent_x" } }).success, false, "the server owns actor ids");
 });
 
+const evaluation = (operation: ControlOperation, output: unknown, refusedBy: "exo" | null = null): ProjectEvaluateResult => ({
+  status: "evaluated", project: { id: "project-a", label: "Project A" }, operation,
+  evaluatedAs: { kind: "human", id: "owner", authorityClass: "contributor", role: "owner" },
+  persisted: false, evaluationKind: "caller-provided-evidence", notice: "", refusedBy, output });
+
 test("a returned claim ledger feeds the next request, so claim then release needs no retyping", () => {
   const claims = [{ claim_id: "c1", actor: { kind: "agent", id: "agent_project" }, scope: { paths: ["./src"] } }];
   const claimed = { schema: "vivary.exo-control-result/v0", operation: "claim",
     result: { decision: "granted", reason_codes: [], claim: claims[0], claims, conflicts: [] } };
-  const returned = returnedState("claim", claimed);
+  const returned = returnedState(evaluation("claim", claimed));
   assert.deepEqual(returned && { ...returned, text: JSON.parse(returned.text) }, { shape: "claims", text: { claims }, claimId: "c1" });
 
   const draft = { ...emptyControlDraft(), operation: "release" as const, claim_id: returned!.claimId!,
@@ -85,11 +92,13 @@ test("a returned claim ledger feeds the next request, so claim then release need
   assert.deepEqual(controlRequest(draft), { ok: true, input: { operation: "release", state: { claims }, claim_id: "c1" } });
 
   const released = { schema: "vivary.exo-control-result/v0", operation: "release", result: { decision: "released", reason_codes: [], claims: [] } };
-  assert.deepEqual(returnedState("release", released), { shape: "claims", text: JSON.stringify({ claims: [] }, null, 2) });
+  assert.deepEqual(returnedState(evaluation("release", released)), { shape: "claims", text: JSON.stringify({ claims: [] }, null, 2) });
   const recorded = { schema: "vivary.exo-control-result/v0", operation: "record_execution", result: { edges: [{ id: "e" }], added: 1, reason_codes: [] } };
-  assert.deepEqual(returnedState("record_execution", recorded)?.text, JSON.stringify({ execution_log: [{ id: "e" }] }, null, 2));
-  assert.equal(returnedState("dependencies", { operation: "dependencies", result: { ready: true } }), null);
-  assert.equal(returnedState("claim", { schema: "vivary.exo-control-refusal/v0", reason_codes: ["x"] }), null);
+  assert.deepEqual(returnedState(evaluation("record_execution", recorded))?.text, JSON.stringify({ execution_log: [{ id: "e" }] }, null, 2));
+  assert.equal(returnedState(evaluation("dependencies", { operation: "dependencies", result: { ready: true } })), null);
+  assert.equal(returnedState(evaluation("claim", { schema: "vivary.exo-control-refusal/v0", reason_codes: ["x"] }, "exo")), null);
+  assert.equal(returnedState(evaluation("expire_leases", { schema: "vivary.exo-control-result/v0", operation: "expire_leases",
+    result: { claims, expired: [], reason_codes: ["unknown_claim_shape"] } }, "exo")), null, "a refused ledger is not new state");
 });
 
 test("reason codes, shown output, and the actor line", () => {
@@ -99,6 +108,10 @@ test("reason codes, shown output, and the actor line", () => {
   assert.deepEqual(reasonCodes({ operation: "dependencies", result: { ready: true } }), []);
   assert.deepEqual(shownOutput({ operation: "claim", result: { claims: [] } }), { claims: [] });
   assert.deepEqual(shownOutput({ decision: "act" }), { decision: "act" });
+  assert.equal(isRefusalDocument({ schema: "vivary.exo-control-refusal/v0", reason_codes: ["x"] }), true);
+  assert.equal(isRefusalDocument({ schema: "vivary.strato-decision-refusal/v0", reason_codes: ["x"] }), true);
+  assert.equal(isRefusalDocument({ schema: "vivary.exo-control-result/v0", operation: "claim",
+    result: { decision: "refused", conflicts: [{ claim_id: "c1" }] } }), false, "a refused claim keeps its conflicts on screen");
   assert.equal(actorLine({ kind: "human", id: "a", authorityClass: "contributor", role: "owner" }), "Evaluated as you (human, contributor)");
   assert.equal(actorLine({ kind: "agent", id: "b", authorityClass: "contributor", role: "project-agent" }),
     "Evaluated as this project's agent (agent, contributor)");
@@ -114,7 +127,7 @@ test("a decision headline alerts on every decision but an operation's success, a
   for (const reason of ["unencodable_evidence", "result_too_large"] as const) {
     assert.equal(refusalTitle(reason), "Vivary could not return this result", reason);
   }
-  for (const reason of ["server_owned_field", "foreign_path", "identity", "unsupported_root"] as const) {
+  for (const reason of ["server_owned_field", "foreign_path", "identity", "request_invalid", "unsupported_root"] as const) {
     assert.equal(refusalTitle(reason), "Vivary refused before running", reason);
   }
 });

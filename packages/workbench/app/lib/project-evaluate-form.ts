@@ -1,5 +1,5 @@
 import {
-  POST_RUN_REFUSALS, type BoundaryRefusal, type ControlOperation, type EvaluateAs, type EvaluatedAs,
+  POST_RUN_REFUSALS, type BoundaryRefusal, type ControlOperation, type EvaluateAs, type EvaluatedAs, type ProjectEvaluateResult,
 } from "./project-evaluate-schema.ts";
 
 // Pure helpers behind the owner's Evaluate panel. Every JSON field the owner
@@ -134,6 +134,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /** Exo wraps a control result in `result`. Decide and every refusal are shown whole. */
 export const shownOutput = (output: unknown): unknown => isRecord(output) && "result" in output ? output.result : output;
 
+/** Strato's or Exo's own refusal, which holds nothing but reason codes. */
+export const isRefusalDocument = (output: unknown): boolean =>
+  isRecord(output) && typeof output.schema === "string" && output.schema.endsWith("-refusal/v0");
+
 const codesIn = (value: unknown): string[] | null =>
   isRecord(value) && Array.isArray(value.reason_codes) && value.reason_codes.every(code => typeof code === "string")
     ? value.reason_codes as string[] : null;
@@ -162,8 +166,13 @@ export function actorLine(actor: EvaluatedAs): string {
 
 export type ReturnedState = { shape: StateShape; text: string; claimId?: string };
 
-/** The state a control result hands back, ready to paste into the state field, or null. */
-export function returnedState(operation: ControlOperation, output: unknown): ReturnedState | null {
+/**
+ * The state a control result hands back, ready to paste into the state field,
+ * or null. A Core refusal hands back the ledger it refused, which is not new state.
+ */
+export function returnedState(evaluation: ProjectEvaluateResult): ReturnedState | null {
+  if (evaluation.status !== "evaluated" || evaluation.refusedBy || evaluation.operation === "decide") return null;
+  const { operation, output } = evaluation;
   const result = isRecord(output) && output.operation === operation ? output.result : null;
   if (!isRecord(result)) return null;
   const shape = STATE_SHAPE[operation];

@@ -451,7 +451,9 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
     }
     return null;
   } catch (error) {
-    return error instanceof GovernedRefusal ? error.reason : "identity";
+    // Anything else is a document this check cannot read, or a folder it
+    // cannot walk, and neither says who the claims belong to.
+    return error instanceof GovernedRefusal ? error.reason : "request_invalid";
   }
 }
 
@@ -799,7 +801,7 @@ export type ProjectEvaluateRun = { project: ProjectRef } & (
 
 /**
  * Run one governed decide or control evaluation. Access refusals throw. A run
- * failure and a path, identity, or root refusal are values.
+ * failure and a path, identity, request, or root refusal are values.
  */
 export function createProjectEvaluateRunner(dependencies: EvaluateDependencies = evaluateDependencies) {
   const runner = createRuntimeCommandRunner(dependencies, dependencies.now);

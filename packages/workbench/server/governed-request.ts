@@ -97,6 +97,12 @@ type Spelling = "canonical" | "scope";
  * `release_claim` (364-411), `expire_leases` (414-444), and `create_handoff`
  * (`control_handoffs.py` 120, 150). Receipts, verdicts, leases, and execution
  * logs hold no absolute path.
+ * Not covered: a capsule task filter with `field: "path"` holds a path in
+ * `task.filters[*].equals` or `includes`, and its claim repeats it in
+ * `claims[*].selection.matched_filters[*].value` (`capsule_compile.py`
+ * 143-162, 255-266). A trail cannot name a position that depends on a sibling
+ * field, so these pass as text. That is safe only while no Strato or Exo
+ * output echoes a capsule, which none does today.
  */
 export const PATH_POSITIONS: readonly { at: string; spelling: Spelling }[] = [
   { at: "capsule.task.scope.*", spelling: "canonical" },
