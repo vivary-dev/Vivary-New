@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { getVivaryRuntimeStatus, resolveVivaryRuntimeCommand, vivaryRuntimeStatusFromProbe } from "../server/local-runtime-setup.ts";
+import { codingRuntimeEnvironment, getVivaryRuntimeStatus, resolveVivaryRuntimeCommand, vivaryRuntimeStatusFromProbe } from "../server/local-runtime-setup.ts";
 
 describe("local coding runtime status", () => {
   it("uses Claude's boolean status without returning account details", () => {
@@ -100,38 +100,64 @@ setTimeout(() => process.stdout.write('{"loggedIn":true,"email":"private@example
   });
 });
 
+// Credential names the server can hold, taken from what Agent-Native and Vivary read. The spellings
+// in mixed and lower case stand for Windows, where environment names are case-insensitive.
+const SERVER_CREDENTIALS = ["OPENROUTER_API_KEY", "OpenRouter_Api_Key", "openai_api_key", "CODEX_API_KEY",
+  "DEEPSEEK_API_KEY", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY", "BETTER_AUTH_SECRET", "AUTH_SECRET",
+  "A2A_SECRET", "OAUTH_STATE_SECRET", "SECRETS_ENCRYPTION_KEY", "Vivary_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS", "DATABASE_URL",
+  "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "NETLIFY_DATABASE_URL_UNPOOLED", "DATABASE_AUTH_TOKEN",
+  "ACCESS_TOKEN", "ACCESS_TOKENS", "AGENT_NATIVE_MCP_HUB_TOKEN", "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_SERVICE_ACCOUNT_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "TURNSTILE_SECRET_KEY",
+  "R2_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID", "SENTRY_DSN", "NOTIFICATIONS_WEBHOOK_AUTH",
+  "NOTIFICATIONS_SLACK_WEBHOOK_URL", "SLACK_BOT_TOKEN", "STRIPE_SECRET_KEY", "PROMETHEUS_PASSWORD",
+  "GITHUB_TOKEN", "GH_TOKEN"];
+// Ordinary settings a coding runtime needs to find its login, reach the network, and build projects.
+const ORDINARY_SETTINGS = ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot",
+  "ComSpec", "PATHEXT", "TEMP", "TMP", "LANG", "TERM", "HTTPS_PROXY", "no_proxy", "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS", "SSH_AUTH_SOCK", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME",
+  "JAVA_HOME", "GOPATH", "AUTH_DISABLED", "BETTER_AUTH_URL"];
+
 describe("coding runtime launch environment", () => {
-  it("keeps Native provider keys and server secrets out of Codex and Claude Code", { skip: process.platform === "win32" }, async () => {
+  it("withholds credential-shaped names in any case and keeps ordinary settings", () => {
+    const source = Object.fromEntries([...SERVER_CREDENTIALS, ...ORDINARY_SETTINGS, "CLAUDECODE", "CODEX_THREAD_ID"]
+      .map(name => [name, `synthetic-${name}`]));
+    const launch = codingRuntimeEnvironment(source);
+    assert.deepEqual(SERVER_CREDENTIALS.filter(name => name in launch), [], "no server credential reaches the runtime");
+    assert.deepEqual(ORDINARY_SETTINGS.filter(name => launch[name] !== `synthetic-${name}`), [], "ordinary settings pass through");
+    assert.equal("CLAUDECODE" in launch || "CODEX_THREAD_ID" in launch, false, "nested-session markers are removed");
+  });
+
+  it("withholds every Native provider key Agent-Native reads", async () => {
     // Agent-Native does not export its provider list, so read the installed copy to catch a new provider.
     const coreServer = fileURLToPath(import.meta.resolve("@agent-native/core/server"));
-    const { PROVIDER_ENV_VARS } = await import(pathToFileURL(path.join(path.dirname(coreServer), "..", "agent", "engine", "provider-env-vars.js")).href);
-    const credentials: string[] = [...PROVIDER_ENV_VARS, "DEEPSEEK_API_KEY", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY",
-      "BETTER_AUTH_SECRET", "A2A_SECRET", "SECRETS_ENCRYPTION_KEY", "VIVARY_SECRETS_ENCRYPTION_KEY",
-      "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
-      "DATABASE_URL", "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "VIVARY_DATABASE_URL_UNPOOLED",
-      "OpenRouter_Api_Key"];
-    const kept = { HTTPS_PROXY: "http://127.0.0.1:9", LANG: "C.UTF-8" };
-    const touched = [...credentials, "CODEX_API_KEY", "PATH", ...Object.keys(kept)];
+    const listFile = path.join(path.dirname(coreServer), "..", "agent", "engine", "provider-env-vars.js");
+    const { PROVIDER_ENV_VARS } = await import(pathToFileURL(listFile).href).catch((error: Error) => {
+      throw new Error(`Agent-Native moved its provider list from ${listFile}. Update this test. ${error.message}`);
+    });
+    assert.ok(PROVIDER_ENV_VARS.length > 0);
+    const launch = codingRuntimeEnvironment(Object.fromEntries(PROVIDER_ENV_VARS.map((name: string) => [name, "synthetic"])));
+    assert.deepEqual(Object.keys(launch), []);
+  });
+
+  it("builds the Codex and Claude launches from the filtered environment", { skip: process.platform === "win32" }, async () => {
+    const seeded = ["OPENROUTER_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "HTTPS_PROXY", "PATH"];
     // guard:allow-env-credential - Snapshot only the names this test seeds, to restore them afterward.
-    const previous = new Map(touched.map(name => [name, process.env[name]]));
+    const previous = new Map(seeded.map(name => [name, process.env[name]]));
     const fixture = await mkdtemp(path.join(tmpdir(), "vivary-runtime-environment-"));
     try {
       for (const command of ["codex", "claude"]) await writeFile(path.join(fixture, command), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
       // guard:allow-env-credential - Locate only the disposable CLI fixtures before normal executables.
       process.env.PATH = fixture + path.delimiter + previous.get("PATH");
-      // guard:allow-env-credential - Seed synthetic nonsecret markers under credential names.
-      for (const name of [...credentials, "CODEX_API_KEY"]) process.env[name] = `synthetic-${name}`;
-      // guard:allow-env-credential - Seed ordinary settings a coding runtime still needs.
-      Object.assign(process.env, kept);
-
+      // guard:allow-env-credential - Seed synthetic nonsecret markers under credential names and one ordinary setting.
+      Object.assign(process.env, { OPENROUTER_API_KEY: "synthetic", BETTER_AUTH_SECRET: "synthetic", DATABASE_URL: "synthetic", HTTPS_PROXY: "http://127.0.0.1:9" });
       for (const engine of ["codex-cli", "claude-cli"] as const) {
         const launch = await resolveVivaryRuntimeCommand(engine);
         assert.ok(launch, `${engine} resolves from the fixture`);
-        const received = new Set(Object.keys(launch.env).map(name => name.toUpperCase()));
-        assert.deepEqual(credentials.filter(name => received.has(name.toUpperCase())), [], `${engine} receives no server credential`);
-        for (const [name, value] of Object.entries(kept)) assert.equal(launch.env[name], value, `${engine} keeps ${name}`);
+        assert.deepEqual(["OPENROUTER_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL"].filter(name => name in launch.env), []);
+        assert.equal(launch.env.HTTPS_PROXY, "http://127.0.0.1:9");
+        assert.deepEqual(Object.keys(launch.env).filter(name => name.toUpperCase() === "PATH"), ["PATH"]);
       }
-      assert.equal((await resolveVivaryRuntimeCommand("codex-cli"))?.env.CODEX_API_KEY, undefined, "Codex keeps its ChatGPT login");
     } finally {
       for (const [name, value] of previous) {
         // guard:allow-env-credential - Restore only the names this test seeded.

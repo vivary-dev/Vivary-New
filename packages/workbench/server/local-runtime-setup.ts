@@ -30,19 +30,31 @@ const PROBE_MAX_BYTES = 64 * 1024;
 const cached = new Map<VivaryCodeEngine, { expiresAt: number; value: VivaryRuntimeStatus }>();
 const pending = new Map<VivaryCodeEngine, Promise<VivaryRuntimeStatus>>();
 
-// Coding runtimes run commands the agent chooses and keep their own logins. They never receive the
-// Native provider keys that Agent-Native reads from this environment, or the sign-in secret,
-// secret-store keys, and database URLs from bin/start.mjs or a deployment. The sign-in secret also
-// derives the key that encrypts saved provider credentials. The provider names follow
-// Agent-Native's provider list, which tests/local-runtime-setup.test.ts compares against.
-const SERVER_CREDENTIAL_NAMES = [
-  "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "OPENROUTER_API_KEY",
-  "GROQ_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY", "DEEPSEEK_API_KEY",
-  "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY",
-  "BETTER_AUTH_SECRET", "A2A_SECRET", "SECRETS_ENCRYPTION_KEY", "VIVARY_SECRETS_ENCRYPTION_KEY",
-  "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
-  "DATABASE_URL", "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "VIVARY_DATABASE_URL_UNPOOLED",
-];
+// Coding runtimes run commands the agent chooses and keep their own logins in their own stores.
+// Their launch keeps the host's ordinary settings, such as proxies, locale, and toolchain paths, and
+// withholds every credential-shaped name: the Native provider keys Agent-Native reads from this
+// environment, the sign-in secret that also derives the secret-store key, database URLs and tokens,
+// webhook URLs, and integration secrets. Agent-Native reads well over a hundred such names, so a
+// rule covers them rather than a list. It matches whole "_"-separated words, so SSH_AUTH_SOCK stays.
+const CREDENTIAL_WORDS = new Set(["KEY", "KEYS", "APIKEY", "SECRET", "SECRETS", "TOKEN", "TOKENS",
+  "PASSWORD", "PASSWD", "PASS", "CREDENTIAL", "CREDENTIALS", "DSN"]);
+// Nested-session markers that would make a CLI believe it runs inside another agent's session.
+const SESSION_MARKERS = new Set([...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
+  "CODEX_THREAD_ID", "CODEX_SESSION_ID"].map(name => name.toUpperCase()));
+
+function isCredentialName(upperName: string): boolean {
+  const words = upperName.split("_");
+  return words.some(word => CREDENTIAL_WORDS.has(word)) || words.at(-1) === "AUTH"
+    || upperName.includes("DATABASE_URL") || upperName.endsWith("WEBHOOK_URL");
+}
+
+// Windows environment names are case-insensitive, so names compare in upper case.
+export function codingRuntimeEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(source).filter(([name]) => {
+    const upperName = name.toUpperCase();
+    return !isCredentialName(upperName) && !SESSION_MARKERS.has(upperName);
+  }));
+}
 
 const commands = {
   "claude-cli": { command: "claude", args: ["auth", "status", "--json"], npmEntry: ["@anthropic-ai", "claude-code", "cli.js"] },
@@ -179,16 +191,7 @@ export async function resolveVivaryRuntimeCommand(engine: VivaryCodeEngine): Pro
   }
   const searchDirectories = [...new Set(directories
     .filter((directory): directory is string => typeof directory === "string" && path.isAbsolute(directory)))];
-  // Windows environment names are case-insensitive, so any spelling of a withheld name is removed.
-  const withheld = new Set([
-    ...SERVER_CREDENTIAL_NAMES,
-    ...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
-    "CODEX_THREAD_ID", "CODEX_SESSION_ID",
-    // Codex uses its ChatGPT login here, never an API key.
-    ...(engine === "codex-cli" ? ["CODEX_API_KEY"] : []),
-  ].map(name => name.toUpperCase()));
-  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env)
-    .filter(([name]) => !withheld.has(name.toUpperCase())));
+  const env = codingRuntimeEnvironment(process.env);
   delete env.Path;
   env.PATH = searchDirectories.join(path.delimiter);
 

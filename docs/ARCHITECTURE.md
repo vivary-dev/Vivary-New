@@ -119,7 +119,7 @@ Coordinated releases publish Core before its dependent role packages.
 | Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, a backslash, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed. Neither is a fact file the engine did not check. Both sides list a memory folder the same way: the first 200 `.md` names of regular files and links, secret-looking names left out, in UTF-16 order, from at most 4,000 scanned entries. The engine checks the regular files among them whose paths the Workbench answer schema accepts, at most 3,000 paths and 96 KiB of JSON in all. The Workbench skips a link as linked, a name the engine can never report as unsupported, and a file created after the check as not checked, and Correct and Forget refuse each. Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: memory treats a path as private when any positive rule could match it and ignores negations, so it may refuse a file Git would re-include. The owner can choose a memory folder that no rule matches. A rule matches in exact case or without regard to case, a run of two or more stars reads the same whatever its length, as in Git, and a run not bounded by slashes crosses `/`, a rule and a path match as code points or as UTF-8 bytes, and a trailing `/` also matches a file. Each `.gitignore` is read as bytes: a UTF-8 byte order mark is skipped, lines split only on a newline, with one carriage return before it dropped, and an entry ends at its first NUL. Memory reads a bracket body itself only when it holds plain members and ranges, such as `[._]` or `[a-v]`, with an optional leading `!` or `^`. A body that holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class, an equivalence class, or a collating symbol, a negated body holding an ASCII capital letter outside a range, such as `[!B]`, an unescaped `[` that never closes, a set Python cannot compile, and a rule longer than 256 characters make the rule match everything under its folder. Matching tracks reachable positions without backtracking, and each context read spends from a fixed matching budget. When the budget runs out, every path not yet decided counts as private, the answer sets `privacy_limited`, and the context block and the panel say the ignore rules were too costly to check in full. The budget is 20 million units: each positive rule and path pair costs its rule length plus 64 (a negated rule is skipped without a charge), and each match step costs the path positions it visits. A read that loads more than 2,000 rules from the `.gitignore` files it consults stops the same way. The budget bounds the work a read does, not its time on every machine. On Zo the slowest case measured, 1,999 rules against 200 files, stopped at the budget in about 1.7 seconds. Outside brackets a backslash escapes the next character. A differential test checks this against `git check-ignore`. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
-| CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. A coding runtime runs commands its agent chooses, so its launch never carries the server's own credentials. [`local-runtime-setup.ts`](../packages/workbench/server/local-runtime-setup.ts) copies the host environment for Codex and for the CLI status checks without Native provider keys, the sign-in secret, secret-store keys, or database URLs, matching names in any letter case. Claude Code turns receive only Agent-Native's short allowlist of ordinary settings. The runtime still runs as the same operating-system user, so it can read the private data folder, including the sign-in secret file and the database. App-invoked original command receipts go to private application data. |
+| CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. A coding runtime runs commands its agent chooses. [`local-runtime-setup.ts`](../packages/workbench/server/local-runtime-setup.ts) builds the Codex launch and the CLI status checks from the host environment without any credential-shaped name, in any letter case. That is a name holding the word KEY, SECRET, TOKEN, PASSWORD, CREDENTIALS, or DSN, a name ending in AUTH, or a database or webhook URL. It covers Native provider keys, the sign-in secret, secret-store keys, and integration secrets. Proxies, locale, and toolchain paths pass through. A user's own token variables, such as `GITHUB_TOKEN`, are withheld too, so each CLI uses its own login. Claude Code turns receive only Agent-Native's short allowlist. The filter controls what a runtime inherits, not what it can reach. The runtime runs as the same operating-system user, so a determined command can still read the private data folder, including the sign-in secret file and the database, and the environment of the Vivary processes that started it. App-invoked original command receipts go to private application data. |
 | Search results and indexes | Project file search reads the authorized folder with bounded work. A future derived index is rebuildable and belongs in private application data. |
 | Preview processes | Start only from reviewed project commands. Preview content is isolated from privileged Workbench state. Stop and host shutdown own cleanup. |
 
@@ -151,30 +151,35 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-A Codex tool shell could read the Native provider keys that Agent-Native reads
-from the server environment, and the sign-in secret, secret-store keys, and
-database URLs that `bin/start.mjs` or a deployment sets. With no dedicated
-secret-store key, Agent-Native derives the key that encrypts saved provider
-credentials from that sign-in secret. `resolveVivaryRuntimeCommand` built the
-Codex launch from a copy of the whole server environment and removed only
-`CODEX_API_KEY` and `OPENAI_API_KEY`. It now removes a fixed list of those
-server credential names for both engines, compared without regard to case
-because Windows environment names are case-insensitive. The list covers
-Agent-Native's provider list, which a test reads from the installed package
-so a new provider fails the test. Codex runs, the Codex model list, and the
-CLI status checks all use this launch. Claude Code turns were already safe,
-because Agent-Native passes Claude Code only its own allowlist when Vivary
-supplies no environment, and Vivary supplies none.
+A Codex tool shell could read the credentials in the server environment.
+`resolveVivaryRuntimeCommand` built the Codex launch from a copy of that whole
+environment and removed only two credentials, `CODEX_API_KEY` and
+`OPENAI_API_KEY`. The environment holds the Native provider keys that
+Agent-Native reads, and the sign-in secret and database URLs that
+`bin/start.mjs` sets. With no dedicated secret-store key, Agent-Native derives
+the key that encrypts saved provider credentials from that sign-in secret. A
+deployment can add more: Agent-Native reads well over a hundred credential
+names, from database tokens to OAuth client secrets.
 
-The CLI credentials and logs row now states this boundary and its limit. The
-runtime runs as the same operating-system user, so it can still read the
-private data folder. No flow, owner, package dependency, or other boundary
-changed. Evidence: on Zo at `7fb73bd`, one real Codex turn with random dummy
-values reported every seeded credential readable in its tool shell. After the
-fix, the launch carried none of them, and the same turn reported each one
-unreadable except a name that the host's own interactive shell setup defines
-outside Vivary. An ordinary variable still arrived. The new launch-environment
-test fails at `7fb73bd` and passes with the fix.
+`codingRuntimeEnvironment` now builds the launch for Codex runs, the Codex
+model list, and the CLI status checks. It withholds every credential-shaped
+name by rule, compared in upper case because Windows environment names are
+case-insensitive, and keeps ordinary settings. Claude Code turns were already
+limited to Agent-Native's allowlist, because Vivary passes Claude Code no
+environment. The status check for Claude Code now also runs without
+`ANTHROPIC_API_KEY`, which matches its turns.
+
+The CLI credentials and logs row states the rule and two limits. A user's own
+token variables no longer reach coding runtimes. A same-user command can still
+read the private data folder and its parent processes' environments, so the
+filter stops inheritance, not access. No flow, owner, or package dependency
+changed. Evidence on Zo: at `7fb73bd` one real Codex turn with random dummy
+values reported every seeded credential readable in its tool shell. With the
+rule, the launch carried none of them, the tool shell reported each unreadable
+except one name the host's own interactive shell setup defines outside Vivary,
+and an ordinary variable still arrived. The launch tests cover mixed-case
+names, ordinary settings that must stay, and every provider in Agent-Native's
+provider list.
 
 Issue #20 exposes Ozone review and impact, Strato decide, and Exo control to
 the owner and the Native agent. Flow 5 and the delivery gaps above describe
