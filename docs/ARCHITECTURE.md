@@ -163,9 +163,14 @@ provider packages core maps (`@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/groq`,
 `@ai-sdk/anthropic` stays out, because core hides that engine and Claude runs
 on its native engine. Second, the Native picker never offered a custom model
 saved in Settings, and a new chat took the first model of the first configured
-provider. The maintained Core patch now lists the saved model and makes the
-saved, configured provider and model the default. Native still owns engines,
-credentials, and requests, so no flow, owner, or boundary changed.
+provider. The maintained Core patch now marks whether the user chose the
+current engine and model, in Settings or through the deployment's configured
+engine, or Core detected them from keys. A chosen, configured provider and
+model become the new-chat default, and the chosen model is listed even when the
+built-in list lacks it. A detected engine keeps Core's order, and no model is
+added to a provider without a key. A model already picked in a project's
+composer still wins, as before. Native still owns engines, credentials, and
+requests, so no flow, owner, or boundary changed.
 
 Packets 09b and 09c now record the owner's acceptance of #19 and #20 as
 done, with `Verification-result: passed`, and the generated graph and frontier

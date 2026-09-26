@@ -1182,7 +1182,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
-index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac980e6c3004 100644
+index 24eb57b9a053b7205f14e29b94c03a91151a1200..e6b8fc00af2d7e39c319a307dcadad84d2ae4aba 100644
 --- a/dist/client/MultiTabAssistantChat.js
 +++ b/dist/client/MultiTabAssistantChat.js
 @@ -576,6 +576,15 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
@@ -1201,7 +1201,15 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
      const keyPrefix = storageKey ? `:${storageKey}` : "";
      const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
-@@ -1050,7 +1059,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -822,6 +831,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+                 builderConnected,
+                 currentEngineName,
+                 currentModel,
++                currentChosen: enginesData.current?.chosen === true,
+             });
+             setDiscoveredModels(groups);
+             setDefaultModel(currentModel ?? DEFAULT_MODEL);
+@@ -1050,7 +1060,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
              void createThread().then((id) => {
                  if (id)
@@ -1210,7 +1218,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              });
          }
      }, [
-@@ -1103,7 +1112,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1103,7 +1113,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              }
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
@@ -1219,7 +1227,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
          });
      }, [
          activeThreadId,
-@@ -1113,7 +1122,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1113,7 +1123,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          writeThreadUrl,
      ]);
      useEffect(() => {
@@ -1228,7 +1236,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              return;
          if (openTabIds.length === 0 && !activeThreadId) {
              autoCreatingRef.current = true;
-@@ -1122,11 +1131,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1122,11 +1132,11 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                  if (id) {
                      newThreadIds.current.add(id);
                      setOpenTabIds([id]);
@@ -1242,7 +1250,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      usePollLoop(async (signal) => {
          const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
          try {
-@@ -1533,7 +1542,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1533,7 +1543,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          const id = await createThread();
          if (id) {
              newThreadIds.current.add(id);
@@ -1251,7 +1259,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
          }
          return id;
      }, [createThread, writeThreadUrl]);
-@@ -1588,7 +1597,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1588,7 +1598,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (newId) {
                          newThreadIds.current.add(newId);
                          setOpenTabIds([newId]);
@@ -1260,7 +1268,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                      }
                  }
                  catch (error) {
-@@ -1654,7 +1663,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1654,7 +1664,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
              newThreadIds.current.add(id);
              setOpenTabIds([id]);
              switchThreadState(id);
@@ -1269,7 +1277,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
              dismissedSubAgentTabsRef.current.clear();
              // Clean up all old refs
              chatRefs.current.clear();
-@@ -1711,7 +1720,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1711,7 +1721,7 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                      if (!createdId)
                          return;
                      setOpenTabIds((prev) => prev.includes(createdId) ? prev : [...prev, createdId]);
@@ -1278,7 +1286,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                  });
                  return;
              }
-@@ -1852,12 +1861,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -1852,12 +1862,13 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
          });
      }, [generateTitle, saveThreadData]);
      const handleSaveThread = useCallback((threadId, data) => {
@@ -1293,7 +1301,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
      }, [saveThreadData, writeThreadUrl]);
      // ─── Slash command handler ──────────────────────────────────────────
      const [helpVisible, setHelpVisible] = useState(false);
-@@ -2045,6 +2055,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2045,6 +2056,8 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                              chatRefs.current.delete(tabId);
                                          }
                                      }, threadId: tabId, tabId: tabId, browserTabId: browserTabId, contextScope: scope, contextNamespace: contextNamespace, isolateHistoryByScope: isolateHistoryByScope, isActiveComposer: tabId === activeThreadId, apiUrl: apiUrl, isNewThread: newThreadIds.current.has(tabId) || isNewThread(tabId), onThreadRestoreNotFound: tabId === activeThreadId &&
@@ -1302,7 +1310,7 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..f1f89b946bdddb08807352f453aeac98
                                          (props.agentChatSurface !== "desktop" ||
                                              props.desktopIdentityAuthenticated === true)
                                          ? clearActiveTab
-@@ -2061,10 +2073,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
+@@ -2061,10 +2074,10 @@ export function MultiTabAssistantChat({ showTabBar = true, renderHeader, renderO
                                      // sub-agent tab would start a fresh run on that thread and kill
                                      // the in-flight team chunk. Disable the composer and show a
                                      // hint so users know to send via the orchestrator chat instead.
@@ -1454,44 +1462,67 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+diff --git a/dist/client/chat-model-groups.d.ts b/dist/client/chat-model-groups.d.ts
+index ab985c5f9156c2418ea7a228dafcbd18ea4cfae4..c8b02420e9766b6072d6c7088b83461fd73ebb70 100644
+--- a/dist/client/chat-model-groups.d.ts
++++ b/dist/client/chat-model-groups.d.ts
+@@ -29,6 +29,8 @@ export interface BuildChatModelGroupsOptions {
+     builderConnected?: boolean;
+     currentEngineName?: string;
+     currentModel?: string;
++    /** Vivary #50: true when the user chose the current engine and model rather than detection. */
++    currentChosen?: boolean;
+ }
+ /**
+  * A loaded provider-backed catalog can confirm that setup is missing before
+@@ -36,4 +38,4 @@ export interface BuildChatModelGroupsOptions {
+  * failed lookup, not evidence that no provider is configured.
+  */
+ export declare function modelCatalogConfirmsMissing(groups: readonly Pick<EngineModelGroup, "configured">[] | undefined, loading: boolean | undefined): boolean;
+-export declare function buildChatModelGroups({ engines, configuredKeys, builderConnected, currentEngineName, currentModel, }: BuildChatModelGroupsOptions): EngineModelGroup[];
++export declare function buildChatModelGroups({ engines, configuredKeys, builderConnected, currentEngineName, currentModel, currentChosen, }: BuildChatModelGroupsOptions): EngineModelGroup[];
 diff --git a/dist/client/chat-model-groups.js b/dist/client/chat-model-groups.js
-index 40475959e473d9d6d3ac31b52cde207ae2dcabd7..56feb37ca6c16a148a3c79bd45ab6fd2dcac5f06 100644
+index 40475959e473d9d6d3ac31b52cde207ae2dcabd7..2ebab053123cf927b5685e8b6906eecaacd368f5 100644
 --- a/dist/client/chat-model-groups.js
 +++ b/dist/client/chat-model-groups.js
-@@ -20,11 +20,26 @@ const HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES = new Set([
- ]);
- function addCurrentModel(models, engineName, currentEngineName, currentModel) {
-     const next = [...models];
--    if (engineName === currentEngineName && currentModel && next.length === 0) {
-+    // Vivary #50: a model saved in Settings, such as a custom OpenRouter id, stays
-+    // selectable even when the engine's built-in list does not name it.
-+    if (engineName === currentEngineName && currentModel && !next.includes(currentModel)) {
-         next.unshift(currentModel);
+@@ -25,6 +25,22 @@ function addCurrentModel(models, engineName, currentEngineName, currentModel) {
      }
      return next;
  }
-+// Vivary #50: the provider and model saved in Settings are the default for a new
-+// chat. Listing them first lets the first-configured-model fallback select them,
-+// so a new chat never silently runs on another, possibly paid, model.
-+function preferCurrentSelection(groups, currentEngineName, currentModel) {
++// Vivary #50: a provider and model the user chose, in Settings or through the
++// deployment's configured engine, are the default for a new chat. The chosen
++// model is listed first in its configured provider's group, added when the
++// built-in list lacks it, such as a custom OpenRouter id, so the
++// first-configured-model fallback selects it. A detected provider or one without
++// a key keeps core's order, so detection never picks a model for the user.
++function preferChosenSelection(groups, currentEngineName, currentModel, currentChosen) {
++    if (!currentChosen || !currentModel)
++        return groups;
 +    const index = groups.findIndex((group) => group.engine === currentEngineName && group.configured);
 +    if (index < 0)
 +        return groups;
-+    const current = groups[index];
-+    const models = currentModel && current.models.includes(currentModel)
-+        ? [currentModel, ...current.models.filter((model) => model !== currentModel)]
-+        : current.models;
-+    return [{ ...current, models }, ...groups.slice(0, index), ...groups.slice(index + 1)];
++    const chosen = groups[index];
++    const models = [currentModel, ...chosen.models.filter((model) => model !== currentModel)];
++    return [{ ...chosen, models }, ...groups.slice(0, index), ...groups.slice(index + 1)];
 +}
  // Cheapest → most expensive. The composer mirrors these tokens for the `$`
  // cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
  // the toolkit cannot import core, so a new family must be added in both lists.
-@@ -176,5 +191,5 @@ export function buildChatModelGroups({ engines, configuredKeys, builderConnected
+@@ -135,7 +151,7 @@ function shouldShowConfiguredGroup(group) {
+         return true;
+     return !HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES.has(group.engine);
+ }
+-export function buildChatModelGroups({ engines, configuredKeys, builderConnected = false, currentEngineName, currentModel, }) {
++export function buildChatModelGroups({ engines, configuredKeys, builderConnected = false, currentEngineName, currentModel, currentChosen = false, }) {
+     const configured = new Set(configuredKeys ?? []);
+     const builderEngine = engines.find((engine) => engine.name === "builder");
+     const builderModels = () => addCurrentModel(builderEngine?.supportedModels ?? [], "builder", currentEngineName, currentModel);
+@@ -176,5 +192,5 @@ export function buildChatModelGroups({ engines, configuredKeys, builderConnected
              ...directGroups.filter((group) => group.configured && group.engine !== "builder"),
          ];
      }
 -    return directGroups;
-+    return preferCurrentSelection(directGroups, currentEngineName, currentModel);
++    return preferChosenSelection(directGroups, currentEngineName, currentModel, currentChosen);
  }
 diff --git a/dist/client/code-agent-chat-adapter.js b/dist/client/code-agent-chat-adapter.js
 index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ffe3c03bd3 100644
@@ -1550,6 +1581,18 @@ index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac8
 +    }).catch(() => undefined);
 +    return current;
 +}
+diff --git a/dist/client/use-chat-models.js b/dist/client/use-chat-models.js
+index 49cf993e882e89ecfe454b93eaf40de1712e64f8..640eb749acdf0cbd241fbbc54bbeb27c98bbfcb7 100644
+--- a/dist/client/use-chat-models.js
++++ b/dist/client/use-chat-models.js
+@@ -197,6 +197,7 @@ export function useChatModels({ storageKey = DEFAULT_STORAGE_KEY, enabled = true
+                     builderConnected,
+                     currentEngineName,
+                     currentModel,
++                    currentChosen: enginesData.current?.chosen === true,
+                 });
+                 const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
+                 setAvailableModels(groups);
 diff --git a/dist/client/use-chat-threads.d.ts b/dist/client/use-chat-threads.d.ts
 index 70b99ddcb657a03956b7869e1b567987e232fb82..33edda7317e61e7be88190bfb47f59fe0301859d 100644
 --- a/dist/client/use-chat-threads.d.ts
@@ -1755,6 +1798,20 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
+index fbf87b306902458e7426c727455251f706c7f028..5550a338371facec08d03cca16753cbf81890d3a 100644
+--- a/dist/scripts/agent-engines/list-agent-engines.js
++++ b/dist/scripts/agent-engines/list-agent-engines.js
+@@ -119,6 +119,9 @@ export async function run(args = {}) {
+             : {
+                 engine: currentEngineName,
+                 model: currentModel,
++                // Vivary #50: true when a stored setting, an app default, or the
++                // deployment's configured engine chose this, false when detected.
++                chosen: !!envSelectedEntry || currentModelCandidate !== undefined,
+             },
+     };
+     return JSON.stringify(result, null, 2);
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
 index 61cbf15014173e612be5219b8dc76f8c93a2848e..a737bf16d72d794a12cef5b5e36ac4637038abfa 100644
 --- a/dist/server/agent-chat-plugin.js

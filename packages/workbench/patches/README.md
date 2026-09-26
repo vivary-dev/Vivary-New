@@ -68,18 +68,26 @@ Rolling back this patch restores the known save-order and composer defects.
 The extra repository field requires no schema migration. Keep the private
 preview's prior build available until its replacement passes verification.
 
-## Saved Native model default
+## Chosen Native model default
 
-Issue #50 changes `dist/client/chat-model-groups.js`. Core added the model saved
-in Settings to its provider's picker group only when that group had no built-in
-models, and a new chat took the first model of the first configured group. A
-custom model, such as an OpenRouter id, was therefore never offered, and a new
-chat could run on another, possibly paid, model.
+Issue #50 changes Core's model picker. Core added the current model to its
+provider's picker group only when that group had no built-in models, and a new
+chat took the first model of the first configured group. A custom model, such
+as an OpenRouter id saved in Settings, was never offered, and a new chat could
+run on another, possibly paid, model.
 
-The patch keeps the saved model in its provider's group whenever the built-in
-list lacks it. When the saved provider is configured, its group is listed first
-with the saved model first, so the existing fallback selects it. A saved
-provider without a key is not moved, and the fallback keeps its current order.
+`list-agent-engines.js` now reports `current.chosen`. It is true when a stored
+setting, an app default, or the deployment's configured engine chose the current
+engine and model, and false when Core detected them from available keys. Both
+chat surfaces, `MultiTabAssistantChat.js` and `use-chat-models.js`, pass it to
+`buildChatModelGroups` in `chat-model-groups.js`. When the chosen provider is
+configured, its group is listed first with the chosen model first, added when
+the built-in list lacks it, so the existing fallback selects it. A detected
+engine, or a chosen one without a key, keeps Core's order, and a model is never
+added to a group without a key.
+
+A model already picked in a project's composer is stored for that project and
+still wins over a later change in Settings. That behavior predates this patch.
 
 Run `node --test packages/workbench/tests/chat-model-groups.test.mjs`.
 
