@@ -2366,6 +2366,16 @@ class WorkLimitExceededError(TropoFacadeError):
 class ProducerUnavailableError(TropoFacadeError):
     reason = "producer_unavailable"
 
+
+class TargetUnavailableError(TropoFacadeError):
+    """A public impact target that is private, missing, or unknown.
+
+    One reason covers all three, so a refusal never tells a private note's id
+    apart from an id that names nothing.
+    """
+
+    reason = "target_unavailable"
+
 def _public_cancel_if_requested(cancelled):
     if cancelled is None:
         return
@@ -2475,6 +2485,8 @@ _PUBLIC_MAX_QUERY_CHARS = 4_096
 _PUBLIC_MAX_FILTERS = 16
 _PUBLIC_MAX_CHECK_PATHS = 200
 _PUBLIC_MAX_PATH_CHARS = 512
+# A public graph id is also an impact query, which the app caps at 256.
+_PUBLIC_MAX_GRAPH_ID_CHARS = 256
 _PUBLIC_MAX_TYPE_FILTER_CHARS = 128
 _PUBLIC_MAX_EDGE_FILTER_CHARS = 256
 _PUBLIC_MAX_SNIPPET_CHARS = 1_000
@@ -4146,7 +4158,9 @@ def public_graph(root, *, allowlist, cancelled=None):
         doc = record["doc"]
         if (
             not _public_safe_relative_path(doc.rel)
-            or not _public_output_text_is_safe(doc.derived.get("id"), 512)
+            or not _public_output_text_is_safe(
+                doc.derived.get("id"), _PUBLIC_MAX_GRAPH_ID_CHARS
+            )
         ):
             _public_add_omission(omissions, "document", "unsafe_identifier")
             continue

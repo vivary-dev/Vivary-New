@@ -1,5 +1,6 @@
 """Tests for the ozone review layer. Run: python tests/test_ozone.py (or pytest)."""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -10,6 +11,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 OZONE_ROOT = Path(__file__).resolve().parents[1]
 CORE_ROOT = OZONE_ROOT.parent / "core"
@@ -529,6 +531,57 @@ def test_public_impact_refuses_a_private_id_and_a_random_id_identically():
     assert refusals == [
         (ozone.TargetUnavailableError, "target_unavailable", ("target_unavailable",))] * 2
     assert issubclass(ozone.TargetUnavailableError, ozone.TropoFacadeError)
+
+
+def _ozone_copy(td, tropo_source=None):
+    """Load a copy of ozone.py whose sibling tropo.py holds `tropo_source`, or is absent."""
+    Path(td, "ozone").mkdir()
+    shutil.copy(OZONE_ROOT / "ozone.py", Path(td, "ozone", "ozone.py"))
+    if tropo_source is not None:
+        Path(td, "tropo").mkdir()
+        Path(td, "tropo", "tropo.py").write_text(tropo_source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("ozone_copy", Path(td, "ozone", "ozone.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_importing_ozone_does_not_run_tropo():
+    with tempfile.TemporaryDirectory() as td:
+        copy = _ozone_copy(td, 'raise RuntimeError("tropo ran")\n')
+        try:
+            copy.TropoFacadeError
+        except RuntimeError as error:
+            assert str(error) == "tropo ran"
+        else:
+            assert False, "expected reading a facade error to load Tropo"
+
+
+def test_plain_review_and_public_reads_share_one_tropo_engine():
+    with temp_workspace() as td:
+        _vault(td)
+        engine = ozone.build_workspace_graph(str(td))[0]
+
+    assert engine is ozone._load_tropo()[0]
+    assert ozone.TropoFacadeError is engine.TropoFacadeError
+    assert ozone.TargetUnavailableError is engine.TargetUnavailableError
+
+
+def test_review_without_tropo_exits_with_the_install_hint():
+    with tempfile.TemporaryDirectory() as td, mock.patch.dict(sys.modules, {"tropo": None}):
+        copy = _ozone_copy(td)
+        _vault(td)
+        messages = []
+        for argv in (["review", "--root", td], ["impact", "v1", "--root", td]):
+            try:
+                copy.main(argv)
+            except SystemExit as error:
+                messages.append(error.code)
+            else:
+                assert False, f"expected {argv[0]} to stop without Tropo"
+
+    for message in messages:
+        assert message.startswith("ozone: tropo engine not found (install vivary-tropo): ")
 
 
 def test_public_review_refuses_a_pack_that_reads_disk_and_a_folder_without_privacy_policy():

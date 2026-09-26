@@ -2995,6 +2995,27 @@ def test_public_graph_counts_a_note_whose_id_fails_the_output_checks(tmp_path):
     ]
 
 
+def test_public_graph_counts_an_id_longer_than_256_characters(tmp_path, monkeypatch):
+    (tmp_path / "long.md").write_text("# Long\n", encoding="utf-8")
+    (tmp_path / "edge.md").write_text("# Edge\n", encoding="utf-8")
+    _init_git_repo(tmp_path)
+    root = _public_workspace_root(tmp_path)
+    # A filename caps a derived id near 252 characters, so the test stretches them.
+    stretched = {"long": "l" * 257, "edge": "e" * 256}
+    derive_id = tropo._derive_id
+    monkeypatch.setattr(
+        tropo, "_derive_id", lambda full: stretched.get(derive_id(full), derive_id(full))
+    )
+
+    graph = tropo.public_graph(root, allowlist=[root])
+
+    assert list(graph["nodes"]) == ["e" * 256]
+    assert graph["complete"] is False
+    assert graph["omissions"] == [
+        {"kind": "document", "reason": "unsafe_identifier", "count": 1}
+    ]
+
+
 def test_public_graph_refuses_a_folder_without_a_privacy_policy(tmp_path):
     _write_public_graph_vault(tmp_path)
     (tmp_path / ".gitignore").unlink()

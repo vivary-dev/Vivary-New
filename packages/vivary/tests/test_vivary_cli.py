@@ -1,4 +1,5 @@
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 for _path in (ROOT, *(ROOT.parent / name for name in ("tropo", "ozone", "core", "create-vivary"))):
@@ -409,6 +411,26 @@ class VivaryPublicReadTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(
             json.loads(out), {"schema": "vivary.read-refusal/v0", "reason": "target_unavailable"})
+
+    def test_review_and_impact_without_tropo_print_the_install_hint(self):
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, "ozone").mkdir()
+            shutil.copy(ozone.__file__, Path(td, "ozone", "ozone.py"))
+            spec = importlib.util.spec_from_file_location("ozone", Path(td, "ozone", "ozone.py"))
+            lone = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(lone)
+            with mock.patch.dict(sys.modules, {"ozone": lone, "tropo": None}):
+                results = [
+                    _run([*verb_args, "--root", str(self.root), *public])
+                    for verb_args in (["review"], ["impact", "relay"])
+                    for public in ((), ("--public",))
+                ]
+
+        for rc, out, err in results:
+            with self.subTest(err=err):
+                self.assertEqual((rc, out), (1, ""))
+                self.assertTrue(
+                    err.startswith("ozone: tropo engine not found (install vivary-tropo): "))
 
     def test_public_review_refuses_the_context_budget_pack(self):
         plain_rc, _, plain_err = _run(

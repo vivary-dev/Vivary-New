@@ -134,6 +134,9 @@ def _public_review(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
     root = _public_root(args.root)
     try:
         return module.public_review(root, pack=args.pack, allowlist=[root]), 0
+    except module.OzoneError as error:
+        # A missing Tropo stops the read the way it stops a plain review.
+        sys.exit(f"ozone: {error}")
     except module.TropoFacadeError as error:
         return _refusal(error)
 
@@ -146,6 +149,9 @@ def _public_impact(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
     root = _public_root(args.root)
     try:
         return module.public_impact(root, args.id, allowlist=[root]), 0
+    except module.OzoneError as error:
+        # A missing Tropo stops the read the way it stops a plain review.
+        sys.exit(f"ozone: {error}")
     except module.TropoFacadeError as error:
         return _refusal(error)
 

@@ -24,6 +24,7 @@ evidence · 2 for a refused governed request or invalid request document.
 """
 import argparse
 import datetime
+import functools
 import importlib.util
 import json
 import math
@@ -1369,8 +1370,9 @@ class OzoneError(Exception):
     pass
 
 
+@functools.cache
 def _load_tropo():
-    """Load the tropo engine in-process. Returns (module, tropo_dir).
+    """Load the tropo engine in-process once. Returns (module, tropo_dir).
 
     Prefers the in-repo sibling `../tropo/tropo.py` (so repo work uses the repo
     engine); when installed, falls back to the `vivary-tropo` dependency (`import
@@ -1391,20 +1393,16 @@ def _load_tropo():
     return module, os.path.dirname(os.path.abspath(module.__file__))
 
 
-# The public reads raise this engine's facade errors, so the front door catches
-# them through `ozone.TropoFacadeError`. A second load would mint new classes.
-_TROPO, _ = _load_tropo()
-TropoFacadeError = _TROPO.TropoFacadeError
+_TROPO_FACADE_ERRORS = ("TropoFacadeError", "TargetUnavailableError")
 
 
-class TargetUnavailableError(TropoFacadeError):
-    """A public impact target that is private, missing, or unknown.
-
-    One reason covers all three, so a refusal never tells a private note's id
-    apart from an id that names nothing.
-    """
-
-    reason = "target_unavailable"
+def __getattr__(name):
+    # The public reads raise Tropo's facade errors, and the front door catches
+    # them as `ozone.TropoFacadeError`. Reading one loads the engine, so
+    # importing Ozone never runs Tropo.
+    if name in _TROPO_FACADE_ERRORS:
+        return getattr(_load_tropo()[0], name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def build_workspace_graph(root):
@@ -1770,7 +1768,8 @@ def public_review(root, *, pack, allowlist):
     """
     if pack not in PUBLIC_REVIEW_PACKS:
         raise ValueError("pack must be structure or editorial")
-    graph = _TROPO.public_graph(root, allowlist=allowlist)
+    tropo, _ = _load_tropo()
+    graph = tropo.public_graph(root, allowlist=allowlist)
     nodes, edges = graph["nodes"], graph["edges"]
     findings = [
         _public_finding(finding)
@@ -1802,11 +1801,12 @@ def public_impact(root, node_id, *, allowlist):
     counted, so `impacted` is a lower bound whenever the omissions list a
     privacy exclusion.
     """
-    graph = _TROPO.public_graph(root, allowlist=allowlist)
+    tropo, _ = _load_tropo()
+    graph = tropo.public_graph(root, allowlist=allowlist)
     nodes = graph["nodes"]
     if not isinstance(node_id, str) or node_id not in nodes:
-        raise TargetUnavailableError()
-    impacted = _TROPO.blast_radius(graph["edges"], node_id)
+        raise tropo.TargetUnavailableError()
+    impacted = tropo.blast_radius(graph["edges"], node_id)
     items = sorted(impacted.items(), key=lambda kv: (kv[1]["distance"], kv[0]))
     return {
         "schema": PUBLIC_IMPACT_SCHEMA,
