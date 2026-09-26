@@ -28,6 +28,7 @@ import {
 import { isWindowsReservedName, readWorkspaceContext } from "./managed-projects.mjs";
 import {
   fileDigest,
+  inspectEditableFile,
   isSecretName,
   listFolder,
   ProjectFileLockedError,
@@ -63,9 +64,10 @@ export const CONTEXT_BOUNDS = {
    */
   factsPerLocation: 200,
   /**
-   * Bytes of fact and omitted law files one load reads. The block keeps at
-   * most 4,000 characters of facts, so files past this are skipped with
-   * reason `read-limit` instead of read.
+   * Bytes one load reads from fact and omitted law files, counting every
+   * file it reads, whether or not the file loads. Each file is read once.
+   * The block keeps at most 4,000 characters of facts, so files past this
+   * are skipped with reason `read-limit` instead of read.
    */
   readBytes: 4 * 1024 * 1024,
   totalChars: 8_000,
@@ -446,7 +448,9 @@ export function parseFactFile(file: Pick<ProjectFile, "path" | "content" | "vers
 function calendarDate(value: string | null): string | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
+  // setUTCFullYear keeps years 0 to 99, which Date.UTC maps to 1900 to 1999.
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
     ? value : null;
 }
@@ -737,7 +741,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
           continue;
         }
         const read = await readListedFiles(workspace.root, [path], project);
-        for (const file of read.files) readBytes += Buffer.byteLength(file.content, "utf8");
+        readBytes += read.bytesRead;
         facts.push(...read.files.map(parseFactFile));
         skipped.push(...read.skipped);
       }
@@ -754,10 +758,9 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     for (const path of law.slice(CONTEXT_BOUNDS.instructionFiles)) {
       if (locationProblem(path, refusedPaths(settings)) || includesPath(settings.privacy.privateFiles, path)
         || readBytes >= CONTEXT_BOUNDS.readBytes) continue;
-      const file = await readEditableFile(workspace.root, path, project).catch(() => null);
-      if (!file) continue;
-      readBytes += Buffer.byteLength(file.content, "utf8");
-      omittedLaw.push(path);
+      const inspection = await inspectEditableFile(workspace.root, path, project).catch(() => null);
+      readBytes += inspection?.bytesRead ?? 0;
+      if (inspection?.file) omittedLaw.push(path);
     }
     return { ...snapshot, instructions, omittedLaw, state, locations,
       facts: orderFacts(facts), skipped, truncated };

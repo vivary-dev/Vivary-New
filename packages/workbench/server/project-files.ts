@@ -180,26 +180,65 @@ export async function readBoundedFile(absolute: string): Promise<Buffer> {
   return buffer.subarray(0, offset);
 }
 
-async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number): Promise<void> {
+/** The device and inode of a file this process wrote, so cleanup removes only that file. */
+type WrittenFile = { dev: number; ino: number };
+
+/** Write a new file that must not exist yet. Returns its identity from the open handle. */
+async function writeExclusiveBounded(target: string, bytes: Buffer, mode: number): Promise<WrittenFile> {
   if (bytes.length > MAX_FILE_BYTES) throw new Error("Project files are limited to 256 KB.");
   const handle = await open(target, "wx", mode & 0o777);
+  let written: WrittenFile | null = null;
   try {
+    const info = await handle.stat();
+    written = { dev: info.dev, ino: info.ino };
     await handle.chmod(mode & 0o777);
     await handle.writeFile(bytes);
     await handle.sync();
   } catch (error) {
     await handle.close();
-    await unlink(target).catch(() => undefined);
+    if (written) await unlinkIfWritten(target, written);
     throw error;
   }
   await handle.close();
+  return written;
+}
+
+/** Remove `absolute` only when it is still the regular file this process wrote. */
+async function unlinkIfWritten(absolute: string, written: WrittenFile,
+  remove: (target: string) => Promise<void> = unlink): Promise<boolean> {
+  const info = await lstat(absolute).catch(() => null);
+  if (!info?.isFile() || info.dev !== written.dev || info.ino !== written.ino) return false;
+  await remove(absolute);
+  return true;
 }
 
 /**
- * One editable file, or null when it is missing, multiply linked, or not
- * bounded text. Throws a boundary error for a blocked name or a linked path.
+ * Remove the file this process wrote at `requestedPath` under `root`. Every
+ * path component is checked again first, so a folder swapped for a link
+ * after the write sends nothing to another file of the same name: the file
+ * is then left in place, and the caller refuses with its fixed wording.
  */
-export async function readEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity): Promise<ProjectFile | null> {
+async function removeWrittenFile(root: string, requestedPath: string, written: WrittenFile,
+  remove: (target: string) => Promise<void> = unlink): Promise<boolean> {
+  let absolute: string;
+  try {
+    absolute = await resolvePathWithoutLinks(root, requestedPath);
+  } catch {
+    return false;
+  }
+  return unlinkIfWritten(absolute, written, remove);
+}
+
+/**
+ * One read of one file: the editable file, or the reason it is not one, and
+ * the bytes the read took. Null when the file is missing. Throws a boundary
+ * error for a blocked name or a linked path. Each file is read at most once.
+ */
+export type FileInspection = { file: ProjectFile; bytesRead: number }
+  | { file: null; reason: ProjectFileBlockedReason; bytesRead: number };
+
+export async function inspectEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity):
+  Promise<FileInspection | null> {
   let absolute: string;
   try {
     absolute = await resolvePathWithoutLinks(root, requestedPath);
@@ -209,14 +248,15 @@ export async function readEditableFile(root: string, requestedPath: string, proj
   }
   const info = await lstat(absolute);
   if (!info.isFile()) throw new ProjectFileBoundaryError("blocked-path");
-  if (info.nlink !== 1) return null;
+  if (info.nlink !== 1) return { file: null, reason: "linked", bytesRead: 0 };
   const kind = kindFor(absolute);
-  if (!kind || info.size > MAX_FILE_BYTES) return null;
+  if (!kind) return { file: null, reason: "unsupported", bytesRead: 0 };
+  if (info.size > MAX_FILE_BYTES) return { file: null, reason: "too-large", bytesRead: 0 };
   const bytes = await readBoundedFile(absolute);
-  if (bytes.length > MAX_FILE_BYTES) return null;
+  if (bytes.length > MAX_FILE_BYTES) return { file: null, reason: "too-large", bytesRead: bytes.length };
   const content = decodeText(bytes);
-  if (content === null) return null;
-  return {
+  if (content === null) return { file: null, reason: "binary", bytesRead: bytes.length };
+  return { bytesRead: bytes.length, file: {
     access: "editable",
     path: portablePath(root, absolute),
     name: path.basename(absolute),
@@ -225,7 +265,15 @@ export async function readEditableFile(root: string, requestedPath: string, proj
     kind,
     content,
     version: versionFor(project, portablePath(root, absolute), info, bytes),
-  };
+  } };
+}
+
+/**
+ * One editable file, or null when it is missing, multiply linked, or not
+ * bounded text. Throws a boundary error for a blocked name or a linked path.
+ */
+export async function readEditableFile(root: string, requestedPath: string, project: ProjectFileIdentity): Promise<ProjectFile | null> {
+  return (await inspectEditableFile(root, requestedPath, project))?.file ?? null;
 }
 
 async function blockedReason(root: string, requestedPath: string): Promise<ProjectFileBlockedReason> {
@@ -345,17 +393,22 @@ export type ListedFileSkip = { path: string; reason: ProjectFileBlockedReason | 
  * bounded text. A file that is not readable, including one another program
  * holds open, is skipped with its reason. A file removed since it was listed
  * is left out. Each file keeps the path it was listed under, so a folder's
- * configured spelling wins over the disk's case.
+ * configured spelling wins over the disk's case. Each file is read once, and
+ * `bytesRead` counts every byte read, whether or not the file loaded.
  */
 export async function readListedFiles(root: string, paths: readonly string[], project: ProjectFileIdentity,
-  read: typeof readEditableFile = readEditableFile): Promise<{ files: ProjectFile[]; skipped: ListedFileSkip[] }> {
+  read: typeof inspectEditableFile = inspectEditableFile):
+  Promise<{ files: ProjectFile[]; skipped: ListedFileSkip[]; bytesRead: number }> {
   const files: ProjectFile[] = [];
   const skipped: ListedFileSkip[] = [];
+  let bytesRead = 0;
   for (const filePath of paths) {
     try {
-      const file = await read(root, filePath, project);
-      if (file) files.push({ ...file, path: filePath });
-      else skipped.push({ path: filePath, reason: await blockedReason(root, filePath) });
+      const inspection = await read(root, filePath, project);
+      if (!inspection) continue;
+      bytesRead += inspection.bytesRead;
+      if (inspection.file) files.push({ ...inspection.file, path: filePath });
+      else skipped.push({ path: filePath, reason: inspection.reason });
     } catch (error) {
       if (error instanceof ProjectFileBoundaryError) skipped.push({ path: filePath, reason: "linked" });
       else if (isLockError(error)) skipped.push({ path: filePath, reason: "unreadable" });
@@ -363,7 +416,7 @@ export async function readListedFiles(root: string, paths: readonly string[], pr
       else if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  return { files, skipped };
+  return { files, skipped, bytesRead };
 }
 
 /**
@@ -462,7 +515,7 @@ class ProjectFileChangedWhileLocked extends Error {
  * another program made while it held the file is not overwritten or deleted:
  * the retry stops with ProjectFileChangedWhileLocked instead.
  */
-async function withLockRetries<T>(operation: () => Promise<T>,
+export async function withLockRetries<T>(operation: () => Promise<T>,
   check?: { read: () => Promise<ProjectFile | null>; expected: ProjectFile }): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -473,7 +526,14 @@ async function withLockRetries<T>(operation: () => Promise<T>,
       if (attempt >= LOCK_RETRY_DELAYS_MS.length) throw new ProjectFileLockedError();
       await delay(LOCK_RETRY_DELAYS_MS[attempt]);
       if (check) {
-        const current = await check.read();
+        let current: ProjectFile | null;
+        try {
+          current = await check.read();
+        } catch (readError) {
+          if (isPermissionError(readError)) throw new ProjectFilePermissionError();
+          if (isLockError(readError)) throw new ProjectFileLockedError();
+          throw readError;
+        }
         // Content, not the version: the version also hashes mtime, which some
         // file systems report differently between two reads of an unchanged file.
         if (current?.content !== check.expected.content) throw new ProjectFileChangedWhileLocked(current);
@@ -704,6 +764,7 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         if (finalCurrent.version !== input.expectedVersion) {
           return { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: finalCurrent };
         }
+        let written: WrittenFile;
         try {
           const sourceInfo = await lstat(source);
           const sourceBytes = await readBoundedFile(source);
@@ -711,15 +772,22 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
             || versionFor(finalScope.project, input.path, sourceInfo, sourceBytes) !== input.expectedVersion) {
             return { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: finalCurrent };
           }
-          await writeExclusiveBounded(target, sourceBytes, sourceInfo.mode);
+          written = await writeExclusiveBounded(target, sourceBytes, sourceInfo.mode);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "EEXIST") {
             return { code: "conflict", operation: "rename", reason: "target-exists", path: input.path, targetPath };
           }
           throw error;
         }
+        const copy = written;
+        const removeCopy = () => removeWrittenFile(finalScope.workspace.root, targetPath, copy, operations.unlink);
+        const writtenScope = await resolve(context, input.projectId);
+        if (!sameProject(finalScope.project, writtenScope.project)) {
+          await withLockRetries(removeCopy);
+          return { code: "conflict", operation: "rename", reason: "project-changed", path: input.path, targetPath };
+        }
         if (!await writtenInsideRoot(finalScope.workspace.root, targetPath)) {
-          await unlink(target).catch(() => undefined);
+          await removeCopy().catch(() => false);
           throw new ProjectFileBoundaryError("blocked-path");
         }
         try {
@@ -731,12 +799,12 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           }
           const latestScope = await resolve(context, input.projectId);
           if (!sameProject(finalScope.project, latestScope.project)) {
-            await withLockRetries(() => operations.unlink(target));
+            await withLockRetries(removeCopy);
             return { code: "conflict", operation: "rename", reason: "project-changed", path: input.path, targetPath };
           }
           const latestCurrent = await readEditableFile(latestScope.workspace.root, input.path, latestScope.project);
           if (!latestCurrent || latestCurrent.version !== input.expectedVersion) {
-            await withLockRetries(() => operations.unlink(target));
+            await withLockRetries(removeCopy);
             return latestCurrent
               ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: latestCurrent }
               : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
@@ -745,7 +813,7 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
             read: () => readEditableFile(latestScope.workspace.root, input.path, latestScope.project),
             expected: latestCurrent });
         } catch (error) {
-          await unlink(target).catch(() => undefined);
+          await removeCopy().catch(() => false);
           if (error instanceof ProjectFileChangedWhileLocked) {
             return error.current
               ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: error.current }
@@ -789,10 +857,16 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
             return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
           }
           try {
-            await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
+            const file = await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
+            const writtenScope = await resolve(context, input.projectId);
+            if (!sameProject(finalScope.project, writtenScope.project)) {
+              await removeWrittenFile(root, input.path, file).catch(() => false);
+              return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
+            }
             if (!await writtenInsideRoot(root, input.path)) {
-              // A parent folder became a link: remove the file this call made and refuse.
-              await unlink(target).catch(() => undefined);
+              // A parent folder became a link. Remove the file this call made
+              // only when its path still reaches it without a link, and refuse.
+              await removeWrittenFile(root, input.path, file).catch(() => false);
               throw new ProjectFileBoundaryError("blocked-path");
             }
             written = true;

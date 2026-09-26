@@ -5251,6 +5251,18 @@ def test_owner_folder_spelled_with_dot_slash_wins(tmp_path):
     assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == "decision"
 
 
+def test_owner_folder_with_a_trailing_slash_keeps_the_fact_type(tmp_path):
+    _write_fact_workspace(
+        tmp_path,
+        memory='["facts"]',
+        types='[types.decision]\nfolder = "facts/"\n'
+        'required = { status = "enum:proposed|accepted" }\n',
+    )
+    config = tropo.ConfigResolver(str(tmp_path), SCRIPT_DIR).base
+    assert config.types[tropo.FACT_TYPE]["folders"] == [".vivary/knowledge", "./facts"]
+    assert tropo.type_for(str(tmp_path / "facts" / "x.md"), config) == tropo.FACT_TYPE
+
+
 def test_owner_defined_fact_type_wins(tmp_path):
     _write_fact_workspace(
         tmp_path,

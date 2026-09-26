@@ -389,9 +389,11 @@ after `3205557`:
 - Node has no `openat`, so a parent folder swapped for a link between the path
   check and a write can redirect it. After an exclusive create, a save's rename,
   or a file tree Rename, project files confirm the file is inside the root with
-  no link on its path. A create or Rename removes the file it wrote and refuses.
+  no link on its path. A create or Rename removes the file it wrote, only when
+  its path still reaches that same file without a link, and refuses.
   A save refuses, but the replaced file cannot be restored.
-- One load reads at most 4 MiB of fact and omitted law files. Files past that
+- One load reads at most 4 MiB of fact and omitted law files, counting every
+  file it reads, whether or not the file loads. Files past that
   are skipped with reason `read-limit`. Omitted law files are named only when they
   pass the same no-link, bounded-text admission as the first three.
 - A `.gitignore` too large to hash or with several hard links keys the settings
@@ -404,6 +406,26 @@ after `3205557`:
 - A confirmed date must be a real calendar date. The panel clears its view when
   the project becomes unavailable and does not name a refused folder as the
   storage location.
+
+The lead then reported that the hosted journey passed three runs and the real
+Codex check passed on `22d4cc0`, which holds these fixes.
+
+Final verification of `22d4cc0` found two warnings and four nits:
+
+- The cleanup after the post-write check deleted by path, so a folder swapped
+  for a link after the write sent the delete to an unrelated file of the same
+  name. Project files now keep the device and inode of each file they write.
+  Before a cleanup delete they check every path component again and the file's
+  identity, and they leave the file in place when either fails. A create and a
+  Rename also confirm the binding after the write.
+- The read bound counted only files that loaded, and a binary file was read
+  twice. Each listed file is now read once, and every byte read counts.
+- A write that finishes after the project became unavailable no longer
+  refreshes the panel or reopens a draft.
+- Tropo keeps a trailing `/` when it compares owner folders, since `type_for`
+  does not match an owner folder written that way, so the fact type still
+  covers it. Confirmed dates accept years 0 to 99. A lock error while a retry
+  re-reads the file becomes the fixed locked message.
 
 Unit tests cover these fixes. The hosted journey and the Codex check have not
 run on them.

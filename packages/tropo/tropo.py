@@ -806,10 +806,11 @@ def _add_fact_type(composed, workspace_roles):
     """
     if workspace_roles is None or FACT_TYPE in composed["types"]:
         return composed
-    # Compare normalized forms, so an owner's "./facts" or "facts/" still
-    # names the role path "facts".
+    # Compare without a leading "./", so an owner's "./facts" names the role
+    # path "facts". A trailing "/" stays: type_for does not match an owner
+    # folder written "facts/", so the fact type must still cover that folder.
     def normalized(folder):
-        folder = folder.strip().rstrip("/")
+        folder = folder.strip()
         while folder.startswith("./"):
             folder = folder[2:]
         return folder

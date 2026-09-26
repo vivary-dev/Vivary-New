@@ -845,6 +845,20 @@ describe("project memory loading", () => {
     assert.doesNotMatch(view.preview, /40 dollars/);
   });
 
+  it("counts every byte it reads toward the limit, including files that do not load", async () => {
+    const p = await project();
+    await mkdir(path.join(p.root, ".vivary", "knowledge"));
+    const binary = Buffer.alloc(250_000, 0);
+    for (let index = 0; index < 40; index++) {
+      await writeFile(path.join(p.root, ".vivary", "knowledge", `bin-${String(index).padStart(2, "0")}.md`), binary);
+    }
+    const view = await p.memory.view(undefined, p.id);
+    const reasons = view.skipped.map(file => file.reason);
+    const binaries = reasons.filter(reason => reason === "binary").length;
+    assert.ok(binaries * 250_000 <= CONTEXT_BOUNDS.readBytes + 250_000, String(binaries));
+    assert.equal(binaries + reasons.filter(reason => reason === "read-limit").length, 40);
+  });
+
   it("reads at most the per-load byte limit of fact files", async () => {
     const p = await project();
     for (let index = 0; index < 20; index++) {
@@ -861,9 +875,12 @@ describe("project memory loading", () => {
     const p = await project();
     await p.writeFact(".vivary/knowledge/real.md", RELAY_FACT);
     await p.writeFact(".vivary/knowledge/impossible.md", RELAY_FACT.replace("2026-09-25", "2026-02-30"));
+    await p.writeFact(".vivary/knowledge/ancient.md", RELAY_FACT.replace("2026-09-25", "0099-12-31"));
+    await p.writeFact(".vivary/knowledge/ancient-leap.md", RELAY_FACT.replace("2026-09-25", "0099-02-29"));
     const facts = (await p.memory.view(undefined, p.id)).facts;
     assert.deepEqual(facts.map(fact => [fact.path, fact.confirmed]),
-      [[".vivary/knowledge/real.md", "2026-09-25"], [".vivary/knowledge/impossible.md", null]]);
+      [[".vivary/knowledge/real.md", "2026-09-25"], [".vivary/knowledge/ancient.md", "0099-12-31"],
+        [".vivary/knowledge/ancient-leap.md", null], [".vivary/knowledge/impossible.md", null]]);
   });
 
   it("loads facts from files, not from the panel, and records a load per binding", async () => {

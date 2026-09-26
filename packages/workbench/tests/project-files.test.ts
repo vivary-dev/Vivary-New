@@ -8,12 +8,14 @@ import {
   createProjectFileService,
   fileDigest,
   isLockError,
+  inspectEditableFile,
   isPermissionError,
   listFolder,
   ProjectFileLockedError,
   ProjectFilePermissionError,
   readEditableFile,
   readListedFiles,
+  withLockRetries,
 } from "../server/project-files.ts";
 import {
   projectFileRenameInputSchema,
@@ -404,7 +406,7 @@ describe("project file boundary", () => {
     const read = await readListedFiles(f.root, ["facts/open.md", "facts/free.md"], project,
       async (root, requested, identity) => {
         if (requested === "facts/open.md") throw Object.assign(new Error(`EBUSY: ${root}/facts/open.md`), { code: "EBUSY" });
-        return readEditableFile(root, requested, identity);
+        return inspectEditableFile(root, requested, identity);
       });
     assert.deepEqual(read.files.map(file => file.path), ["facts/free.md"]);
     assert.deepEqual(read.skipped, [{ path: "facts/open.md", reason: "unreadable" }]);
@@ -523,6 +525,35 @@ describe("project file boundary", () => {
     assert.equal(await readFile(file, "utf8"), "saved again by another program\n");
   });
 
+  it("never deletes another file when the folder is swapped after the write", async () => {
+    const f = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
+    roots.push(outside);
+    await writeFile(path.join(outside, "fact.md"), "unrelated\n");
+    let calls = 0;
+    const swapping = createProjectFileService(async () => {
+      calls += 1;
+      if (calls === 4) {
+        // After the write and before the check, the folder moves and a link to another place takes its name.
+        await rename(path.join(f.root, "notes"), path.join(f.root, "notes-moved"));
+        await symlink(outside, path.join(f.root, "notes"));
+      }
+      return { root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+        rootId: "root_a", bindingRevision: 1, policyRevision: 1 };
+    });
+    await assert.rejects(swapping.create(undefined, { projectId: "project_a", path: "notes/fact.md", content: "mine\n" }),
+      /not available in Vivary/);
+    assert.equal(await readFile(path.join(outside, "fact.md"), "utf8"), "unrelated\n");
+  });
+
+  it("maps a lock error from the re-read before a retry to the fixed message", async () => {
+    const locked = () => Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" });
+    const expected = { access: "editable", path: "fact.md", name: "fact.md", sizeBytes: 5, updatedAt: "",
+      kind: "markdown", content: "fact\n", version: "pf_x" } as const;
+    await assert.rejects(withLockRetries(async () => { throw locked(); },
+      { read: async () => { throw locked(); }, expected }), ProjectFileLockedError);
+  });
+
   it("refuses a create or save whose parent folder became a link during the write", async () => {
     const f = await fixture();
     const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
@@ -540,7 +571,8 @@ describe("project file boundary", () => {
     });
     await assert.rejects(swapping.create(undefined, { projectId: "project_a", path: "notes/fact.md", content: "x\n" }),
       /not available in Vivary/);
-    assert.deepEqual(await readdir(outside), [], "the file written through the link was removed");
+    // The path to the written file now runs through a link, so it is left in place rather than removed by path.
+    assert.deepEqual(await readdir(outside), ["fact.md"]);
 
     await rm(path.join(f.root, "notes"));
     await mkdir(path.join(f.root, "docs"));

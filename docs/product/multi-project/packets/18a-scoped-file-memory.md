@@ -146,6 +146,10 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   before lock retries, confirm writes stay inside the root, bound one load's reads, key
   unreadable ignore files on their stat, and tighten the creator's answer. Unit tests cover
   them until the lead reruns hosted QA.
+- 2026-09-25: The lead reported the hosted journey and the real Codex check passed on
+  `22d4cc0`. Final verification fixes remove only a file the write made, count every byte a
+  load reads, keep a late write from refilling the panel, and fix three small edge cases.
+  Unit tests cover them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 

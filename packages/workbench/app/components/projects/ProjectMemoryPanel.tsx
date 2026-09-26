@@ -66,6 +66,11 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "status" | "alert"; text: string } | null>(null);
   const request = useRef(0);
+  // A write can finish after the project became unavailable or the panel closed.
+  const disabledRef = useRef(disabled);
+  const mounted = useRef(true);
+  useEffect(() => { disabledRef.current = disabled; }, [disabled]);
+  useEffect(() => () => { mounted.current = false; }, []);
   const list = useRef<HTMLDivElement>(null);
   const editorOpen = editor.kind !== "closed";
 
@@ -129,13 +134,16 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
   async function write(input: ProjectMemoryWriteInput) {
     setBusy(true);
     setNotice(null);
+    const current = () => mounted.current && !disabledRef.current;
     try {
-      apply(input.operation, await call<ProjectMemoryWriteResult>("vivary-project-memory-write", input));
+      const result = await call<ProjectMemoryWriteResult>("vivary-project-memory-write", input);
+      // An unavailable project gets no view and no reopened draft.
+      if (current()) apply(input.operation, result);
     } catch (error) {
-      setNotice({ tone: "alert", text: errorText(error, "Memory could not be saved. Try again.") });
+      if (current()) setNotice({ tone: "alert", text: errorText(error, "Memory could not be saved. Try again.") });
     } finally {
       // Stay busy until the list shows the result, so no control acts on a stale fact.
-      await refresh();
+      if (current()) await refresh();
       setBusy(false);
     }
   }
