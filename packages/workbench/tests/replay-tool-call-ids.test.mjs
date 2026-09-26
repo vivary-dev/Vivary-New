@@ -4,8 +4,9 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Some providers reached through OpenRouter keep only the first nine characters of a tool-call id.
-// The maintained Core patch makes replayed ids nine alphanumeric characters. Core does not export
-// the chat adapter, so load the installed, patched copy.
+// The maintained Core patch makes replayed ids nine alphanumeric characters. Core's package entries
+// do not export replayToolCallId or assistantUiMessagesToStructuredHistory, so load the installed,
+// patched module by path.
 const clientDir = path.dirname(fileURLToPath(import.meta.resolve("@agent-native/core/client")));
 const { assistantUiMessagesToStructuredHistory, replayToolCallId } =
   await import(pathToFileURL(path.join(clientDir, "agent-chat-adapter.js")).href);
