@@ -37,6 +37,7 @@ const SKIP_REASON_TEXT = {
   "no-permission": "Vivary does not have permission to read it",
   "not-checked": "not checked against the ignore rules",
   "unsupported-name": "Vivary cannot use this file name",
+  "read-limit": "not read, because this load reached its read limit",
 } as const;
 const ROLE_LABELS = { law: "Law", map: "Map", record: "Record", memory: "Memory", boundary: "Boundary" } as const;
 
@@ -80,6 +81,13 @@ function ProjectMemorySection({ projectId, disabled, visible }: PanelProps) {
 
   // Read again each time Project details opens, since files can change while it is hidden.
   useEffect(() => { if (!disabled && ready && visible) void refresh(); }, [disabled, ready, visible, refresh]);
+  // An unavailable project shows none of its earlier facts or drafts.
+  useEffect(() => {
+    if (!disabled) return;
+    request.current += 1;
+    setLoad({ kind: "loading" });
+    setEditor({ kind: "closed" });
+  }, [disabled]);
   useEffect(() => () => { request.current += 1; }, []);
   // Focus returns to the fact list when an editor closes.
   const wasOpen = useRef(false);

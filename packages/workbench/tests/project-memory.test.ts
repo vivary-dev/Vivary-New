@@ -172,6 +172,7 @@ describe("project memory rendering", () => {
     await writeFile(path.join(p.root, "AGENTS.md"), "a".repeat(20_000));
     await writeFile(path.join(p.root, ".vivary", "context.md"), "c".repeat(20_000));
     await writeFile(path.join(p.root, "STATE.md"), "s".repeat(20_000));
+    await p.writeFact("docs/extra.md", "# Extra law\n");
     p.bridge.answer = thinAnswer(undefined, [], [], ["AGENTS.md", ".vivary/context.md", "STATE.md", "docs/extra.md"]);
     await mkdir(path.join(p.root, ".vivary", "knowledge"));
     await Promise.all(Array.from({ length: 300 }, (_, index) => writeFile(
@@ -294,11 +295,16 @@ describe("project memory rendering", () => {
 
   it("names omitted law files only when they could load", async () => {
     const p = await project();
+    await p.writeFact("docs/extra.md", "# Extra law\n");
+    await writeFile(path.join(p.root, "outside-law.md"), "# Outside\n");
+    await symlink(path.join(p.root, "outside-law.md"), path.join(p.root, "docs", "linked-law.md"));
+    await p.writeFact("docs/binary-law.md", String.fromCharCode(0) + "binary");
     p.bridge.answer = thinAnswer(undefined, [], ["notes/private-law.md"], ["AGENTS.md", ".vivary/context.md",
-      "STATE.md", ".vivary/private/law.md", "notes/private-law.md", "bad:name.md", "docs/extra.md"]);
+      "STATE.md", ".vivary/private/law.md", "notes/private-law.md", "bad:name.md", "docs/extra.md",
+      "docs/linked-law.md", "docs/binary-law.md", "docs/missing-law.md"]);
     const { block } = await p.memory.renderForRun(p.workspace, "code");
     assert.match(block, /Read these law files too\. They are not included here: docs\/extra\.md\./);
-    assert.doesNotMatch(block, /private\/law|private-law|bad:name/);
+    assert.doesNotMatch(block, /private\/law|private-law|bad:name|linked-law|binary-law|missing-law/);
   });
 
   it("keeps the law lines inside the instruction room with three long law paths", async () => {
@@ -497,6 +503,9 @@ describe("project memory panel text", () => {
       privacy: { policy: "none", private: [], privateFiles: [], ignoreFiles: [], privateCandidates: [], checkedFiles: [] } }),
       /no thin workspace settings \(\.vivary\/workspace\.toml\), so the default applies/);
     assert.match(view({ status: "invalid", message: "bad toml" }), /could not read this project's memory settings\. bad toml/);
+    assert.equal(storageSentence({ settings: thinAnswer(), writeLocation: null,
+      locations: [{ path: ".vivary/knowledge", status: "refused", problem: "private" }] }),
+    "No memory folder can hold facts. Each one is refused for the reason shown below.");
     assert.match(String(privacySentence(thinAnswer())), /\.gitignore files ignore/);
     assert.equal(privacySentence({ status: "unavailable", message: "x" }), null);
     assert.equal(forgetDisclosure(".vivary/knowledge/relay-budget.md"),
@@ -632,6 +641,39 @@ describe("project memory writes", () => {
     assert.equal(result.code === "unavailable" && result.reason, "too-long");
     assert.equal(p.bridge.calls, calls);
     await assert.rejects(stat(path.join(p.root, "notes")), { code: "ENOENT" });
+  });
+
+  it("refuses writes when the binding the memory read from is no longer the project's", async () => {
+    const root = await thinFolder("vivary-project-memory-rebound-");
+    await mkdir(path.join(root, ".vivary", "knowledge"));
+    await writeFile(path.join(root, ".vivary", "knowledge", "relay-budget.md"), RELAY_FACT);
+    const workspace = workspaceFor(root, "project_a", "Relay");
+    const rebound = { ...workspace, bindingRevision: 2 };
+    const { memory } = serviceFor([workspace], createProjectFileService(async () => rebound));
+    const [fact] = (await memory.view(undefined, "project_a")).facts;
+    const remember = await memory.write(undefined, { projectId: "project_a", operation: "remember",
+      title: "New fact", text: "x", source: "y" });
+    assert.equal(remember.code === "conflict" && remember.reason, "project-changed");
+    await assert.rejects(stat(path.join(root, ".vivary", "knowledge", "new-fact.md")), { code: "ENOENT" });
+    const forget = await memory.write(undefined, { projectId: "project_a", operation: "forget", path: fact.path,
+      expectedVersion: fact.version });
+    assert.equal(forget.code === "conflict" && forget.reason, "project-changed");
+    assert.equal(await readFile(path.join(root, fact.path), "utf8"), RELAY_FACT);
+  });
+
+  it("remember checks the new file against the refreshed roles and protected paths", async () => {
+    const p = await project();
+    await p.memory.view(undefined, p.id);
+    await p.memory.view(undefined, p.id);
+    const input = { projectId: p.id, operation: "remember" as const, title: "New fact", text: "x", source: "y" };
+    const answer = thinAnswer();
+    p.bridge.answer = answer.status === "thin" ? { ...answer, protected: [...PROTECTED, ".vivary/knowledge"] } : answer;
+    const protectedNow = await p.memory.write(undefined, input);
+    assert.equal(protectedNow.code === "unavailable" && protectedNow.reason, "reserved");
+    p.bridge.answer = thinAnswer(["notes/facts"]);
+    const moved = await p.memory.write(undefined, input);
+    assert.equal(moved.code === "conflict" && moved.reason, "project-changed");
+    await assert.rejects(stat(path.join(p.root, ".vivary", "knowledge", "new-fact.md")), { code: "ENOENT" });
   });
 
   it("correct and forget refuse a fact file the engine did not check", async () => {
@@ -782,6 +824,46 @@ describe("project memory loading", () => {
     // The next load asks the engine again, which now checks the file.
     const next = await p.memory.renderForRun(p.workspace, "code");
     assert.match(next.block, /RACED-MARKER/);
+  });
+
+  it("shows nothing from a binding that changed while memory was read", async () => {
+    const root = await thinFolder("vivary-project-memory-view-");
+    await mkdir(path.join(root, ".vivary", "knowledge"));
+    await writeFile(path.join(root, ".vivary", "knowledge", "relay-budget.md"), RELAY_FACT);
+    let revision = 0;
+    const resolveWorkspace = async () => ({ ...workspaceFor(root, "project_a", "Relay"), bindingRevision: ++revision });
+    const memory = createProjectMemory({ resolveWorkspace,
+      readWorkspaceContext: async () => {
+        const answer = thinAnswer();
+        return answer.status === "thin" ? { ...answer, privacy: { ...answer.privacy,
+          checkedFiles: [".vivary/knowledge/relay-budget.md"] } } : answer;
+      },
+      files: createProjectFileService(resolveWorkspace) });
+    const view = await memory.view(undefined, "project_a");
+    assert.equal(view.settings.status, "unavailable");
+    assert.deepEqual([view.facts, view.locations, view.writeLocation], [[], [], null]);
+    assert.doesNotMatch(view.preview, /40 dollars/);
+  });
+
+  it("reads at most the per-load byte limit of fact files", async () => {
+    const p = await project();
+    for (let index = 0; index < 20; index++) {
+      await p.writeFact(`.vivary/knowledge/big-${String(index).padStart(2, "0")}.md`,
+        renderFactFile({ title: `Big ${index}`, text: "x".repeat(250_000), source: "S", confirmed: "2026-09-25" }));
+    }
+    const view = await p.memory.view(undefined, p.id);
+    const limited = view.skipped.filter(file => file.reason === "read-limit");
+    assert.ok(limited.length > 0 && view.facts.length + limited.length === 20, String(limited.length));
+    assert.ok(view.facts.length * 250_000 <= CONTEXT_BOUNDS.readBytes + 260_000);
+  });
+
+  it("shows an impossible confirmed date as not recorded and sorts it last", async () => {
+    const p = await project();
+    await p.writeFact(".vivary/knowledge/real.md", RELAY_FACT);
+    await p.writeFact(".vivary/knowledge/impossible.md", RELAY_FACT.replace("2026-09-25", "2026-02-30"));
+    const facts = (await p.memory.view(undefined, p.id)).facts;
+    assert.deepEqual(facts.map(fact => [fact.path, fact.confirmed]),
+      [[".vivary/knowledge/real.md", "2026-09-25"], [".vivary/knowledge/impossible.md", null]]);
   });
 
   it("loads facts from files, not from the panel, and records a load per binding", async () => {

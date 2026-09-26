@@ -7,7 +7,7 @@ Latest verified source: `6f5fb707442c6149c439dce80f7370b459c9e22f`
 Hosted result: the 11-step journey passed three full runs on `6f5fb707` (runs `run-6f5fb70-04`, `08`, and `09`), with Workbench and the bundled Python runtime built from that clean commit (`issue21-build-6f5fb707.json` exit 0, runtime manifest `6f5fb707`). Six other runs on that commit stopped before any memory step failed, for the two Workbench reasons under Observations. Earlier heads passed three runs in a row each: `4fbc54ef`, `17e2996e`, `2324e7f`, `865f39e` (after a journey helper fix), `a7251ea`, `05bed13`, `aa568d9`, `0e9ae6b`, and `1bd2242`. A local fake model provider drove Full chat, so no real model was called there. Git was not on the app's PATH.
 Real-agent result: one Codex account ran two model turns per check. The check passed on `17e2996e`, `2324e7f`, `865f39e`, `a7251ea`, `05bed13`, `aa568d9`, and `0e9ae6b` (run `codex-0e9ae6b-01`). On `1bd2242` and `6f5fb707` the Codex service answered 401 Unauthorized during a credential refresh on Zo, so no model turn ran there. The commits after `0e9ae6b` change the ignore matcher, the budget, and one notice that shows only when the ignore check is limited. They do not change how a Code turn builds its prompt. No real Claude Code turn ran, and no real Native-provider Full chat turn ran.
 Packaged Windows result: not run.
-Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and a Codex GitHub review ran on each fix round, and two final verifiers found no critical or warning defect in `6f5fb707` after about 3,300 more randomized cases against real Git with no misses. This receipt's own commit changes only documentation. The work is not accepted until packaged Windows acceptance runs.
+Delivery status: [PR #93](https://github.com/vivary-dev/Vivary-New/pull/93) is open from branch `feat/scoped-file-memory`. Three-model reviews and a Codex GitHub review ran on each fix round, and two final verifiers found no critical or warning defect in `6f5fb707` after about 3,300 more randomized cases against real Git with no misses. This receipt's own commit changes only documentation. The fixes for the Codex review findings after `3205557` are covered by unit tests until the lead reruns hosted QA. The work is not accepted until packaged Windows acceptance runs.
 
 ## Result
 
@@ -260,6 +260,28 @@ hosted QA:
   rules built from such ranges. On Zo's Git 2.39.5 the generated set checks 488
   cases and 3,904 paths with no misses. Against the `1bd2242` matcher it
   misses 86.
+
+## Codex review findings
+
+The Codex GitHub reviewer left 21 inline findings on the later pushes. Three
+were already handled or superseded. The rest are fixed after `3205557`, and unit
+tests cover them until the lead reruns hosted QA:
+
+- Writes pass the binding they read from, and project files refuse a
+  different one. Remember re-checks the refreshed roles and protected paths.
+  The Details view and the Full chat block resolve the project again after the
+  load. A Code send compares `policyRevision`.
+- A locked unlink or rename re-checks the file before each retry.
+- A create, save, or Rename confirms the written file is inside the root with
+  no link on its path.
+- A load reads at most 4 MiB of fact and omitted law files, and omitted law
+  files pass the same admission as the first three.
+- An oversize or hard-linked `.gitignore` keys the memo on its stat.
+- The creator bounds `ignore_files`, scrubs UNC paths, refuses a malformed
+  thin marker, and probes folder privacy with an unlikely name. Tropo compares
+  normalized owner folders.
+- Confirmed dates must be real calendar dates, and the panel clears an
+  unavailable project and never names a refused folder as storage.
 
 ## Not run
 

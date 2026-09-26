@@ -10,6 +10,7 @@ import {
   createVivaryNativeChatContext,
   createVivaryNativeChatProjectGuard,
   createVivaryNativeChatProjectResolver,
+  loadNativeProjectContext,
   OWNER_WIDE_ACTIONS,
   prepareVivaryNativeChatProject,
   vivaryNativeChatProjectOptions,
@@ -144,6 +145,26 @@ function contextFor(match: ChatScopeMatch | Error,
 }
 const projectMatch: ChatScopeMatch = { kind: "project", projectId: "project-a",
   context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
+
+test("the Full chat block is unavailable when the binding changed during the load", async () => {
+  const block = renderUnavailableContext("Relay", "Fixture block.", "full-chat");
+  const recorded: string[] = [];
+  const workspace = { root: "/project", label: "Relay", projectId: "project-a", bindingId: "binding-a",
+    rootId: "root-a", bindingRevision: 1, policyRevision: 1 };
+  const memory = {
+    renderForRun: async () => ({ block, revision: "ctx-000000000000", summary: "", factCount: 0 }),
+    recordLoad: (_workspace: unknown, load: { revision: string }) => { recorded.push(load.revision); },
+  };
+  const context = { userEmail: ownerEmail, orgId } as ActionRunContext;
+  assert.equal(await loadNativeProjectContext(context, "project-a",
+    { resolve: async () => workspace as never, memory: memory as never }), block);
+  assert.deepEqual(recorded, ["ctx-000000000000"]);
+  let revision = 1;
+  const changed = await loadNativeProjectContext(context, "project-a",
+    { resolve: async () => ({ ...workspace, policyRevision: ++revision }) as never, memory: memory as never });
+  assert.match(changed, /The project changed while its context was loaded\./);
+  assert.deepEqual(recorded, ["ctx-000000000000"]);
+});
 
 test("extraContext returns the pinned project's block", async () => {
   const block = renderUnavailableContext("Relay", "Fixture block.", "full-chat");

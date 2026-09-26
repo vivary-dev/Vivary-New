@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import {
   createProjectFileService,
+  fileDigest,
   isLockError,
   isPermissionError,
   listFolder,
@@ -478,6 +479,96 @@ describe("project file boundary", () => {
       expectedVersion: reopened.file.version });
     assert.equal(removed.code, "removed", JSON.stringify(removed));
     assert.equal(flaky, 3);
+  });
+
+  it("a locked unlink or rename stops when another program saves between attempts", async () => {
+    const f = await fixture();
+    const file = path.join(f.root, "fact.md");
+    await writeFile(file, "fact\n");
+    const resolver = async () => ({ root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+      rootId: "root_a", bindingRevision: 1, policyRevision: 1 });
+    const locked = () => Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" });
+    let unlinks = 0;
+    const removing = createProjectFileService(resolver, { rename, unlink: async target => {
+      unlinks += 1;
+      if (unlinks === 1) {
+        await writeFile(file, "saved by another program\n");
+        throw locked();
+      }
+      return unlink(target);
+    } });
+    const opened = await removing.get(undefined, "project_a", "fact.md");
+    if (opened.code !== "file") throw new Error("fixture file missing");
+    const removed = await removing.remove(undefined, { projectId: "project_a", path: "fact.md",
+      expectedVersion: opened.file.version });
+    assert.equal(removed.code === "conflict" && removed.reason, "changed");
+    assert.equal(unlinks, 1);
+    assert.equal(await readFile(file, "utf8"), "saved by another program\n");
+
+    let renames = 0;
+    const saving = createProjectFileService(resolver, { unlink, rename: async (from, to) => {
+      renames += 1;
+      if (renames === 1) {
+        await writeFile(file, "saved again by another program\n");
+        throw locked();
+      }
+      return rename(from, to);
+    } });
+    const reopened = await saving.get(undefined, "project_a", "fact.md");
+    if (reopened.code !== "file") throw new Error("fixture file missing");
+    const saved = await saving.save(undefined, { projectId: "project_a", path: "fact.md",
+      expectedVersion: reopened.file.version, content: "mine\n" });
+    assert.equal(saved.code === "conflict" && saved.reason, "changed");
+    assert.equal(renames, 1);
+    assert.equal(await readFile(file, "utf8"), "saved again by another program\n");
+  });
+
+  it("refuses a create or save whose parent folder became a link during the write", async () => {
+    const f = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "vivary-project-files-outside-"));
+    roots.push(outside);
+    let calls = 0;
+    const swapping = createProjectFileService(async () => {
+      calls += 1;
+      if (calls === 3) {
+        // After the path checks, the new folder is replaced by a link that leaves the project.
+        await rm(path.join(f.root, "notes"), { recursive: true });
+        await symlink(outside, path.join(f.root, "notes"));
+      }
+      return { root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+        rootId: "root_a", bindingRevision: 1, policyRevision: 1 };
+    });
+    await assert.rejects(swapping.create(undefined, { projectId: "project_a", path: "notes/fact.md", content: "x\n" }),
+      /not available in Vivary/);
+    assert.deepEqual(await readdir(outside), [], "the file written through the link was removed");
+
+    await rm(path.join(f.root, "notes"));
+    await mkdir(path.join(f.root, "docs"));
+    await writeFile(path.join(f.root, "docs", "fact.md"), "fact\n");
+    const moved = path.join(f.root, "moved-docs");
+    const resolver = async () => ({ root: f.root, label: "Example", projectId: "project_a", bindingId: "binding_a",
+      rootId: "root_a", bindingRevision: 1, policyRevision: 1 });
+    const swappingSave = createProjectFileService(resolver, { unlink, rename: async (from, to) => {
+      await rename(path.join(f.root, "docs"), moved);
+      await symlink(moved, path.join(f.root, "docs"));
+      return rename(from, to);
+    } });
+    const opened = await swappingSave.get(undefined, "project_a", "docs/fact.md");
+    if (opened.code !== "file") throw new Error("fixture file missing");
+    await assert.rejects(swappingSave.save(undefined, { projectId: "project_a", path: "docs/fact.md",
+      expectedVersion: opened.file.version, content: "new\n" }), /not available in Vivary/);
+  });
+
+  it("keys an oversize settings file on its stat, so an edit changes the key", async () => {
+    const f = await fixture();
+    const file = path.join(f.root, ".gitignore");
+    await writeFile(file, "x".repeat(300 * 1024));
+    const first = await fileDigest(f.root, ".gitignore");
+    assert.match(first, /^unreadable:/);
+    await writeFile(file, "y".repeat(301 * 1024));
+    const second = await fileDigest(f.root, ".gitignore");
+    assert.match(second, /^unreadable:/);
+    assert.notEqual(first, second);
   });
 
   it("create removes the folders it made when it then refuses", async () => {

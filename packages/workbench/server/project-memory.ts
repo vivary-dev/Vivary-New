@@ -36,6 +36,7 @@ import {
   projectIdentity,
   readEditableFile,
   readListedFiles,
+  sameProject,
   type FolderListing,
 } from "./project-files.ts";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -61,6 +62,12 @@ export const CONTEXT_BOUNDS = {
    * and only files the engine checked load.
    */
   factsPerLocation: 200,
+  /**
+   * Bytes of fact and omitted law files one load reads. The block keeps at
+   * most 4,000 characters of facts, so files past this are skipped with
+   * reason `read-limit` instead of read.
+   */
+  readBytes: 4 * 1024 * 1024,
   totalChars: 8_000,
 } as const;
 
@@ -427,12 +434,21 @@ export function parseFactFile(file: Pick<ProjectFile, "path" | "content" | "vers
     title,
     text,
     source,
-    confirmed: confirmed && /^\d{4}-\d{2}-\d{2}$/.test(confirmed) ? confirmed : null,
+    confirmed: calendarDate(confirmed),
     version: file.version,
     updatedAt: file.updatedAt,
     shortenedForAgents: title.length > FACT_LIMITS.title || agentText(text).length > FACT_LIMITS.text
       || (source?.length ?? 0) > FACT_LIMITS.source,
   };
+}
+
+/** `value` when it is a real YYYY-MM-DD calendar date, otherwise null, which shows as not recorded and sorts last. */
+function calendarDate(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    ? value : null;
 }
 
 export type FactFileName = { name: string } | { problem: "hidden" | "device" };
@@ -531,6 +547,8 @@ export function unavailableProjectContext(label: string | null, error: unknown,
   return renderUnavailableContext(label, reasonFor(error), surface);
 }
 
+const PROJECT_CHANGED_TEXT = "The project changed while its memory was read. Open Project details again.";
+
 const WRITE_TEXT = {
   hidden: "Vivary hides file names that contain secret or credential. Choose a title without those words.",
   device: "This title makes a file name Windows reserves for a device. Add a word to the title.",
@@ -622,7 +640,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
   /** The settings, plus the memory folder listings the check just made, so they are not listed twice. */
   async function settingsFor(workspace: Workspace): Promise<{ settings: MemorySettings; listings: Listings | null }> {
     const settingsDigest = await fileDigest(workspace.root, SETTINGS_FILE);
-    if (settingsDigest === "unreadable") {
+    if (settingsDigest.startsWith("unreadable")) {
       return { settings: { status: "unavailable",
         message: "The file .vivary/workspace.toml is a link or is not bounded text." }, listings: null };
     }
@@ -698,6 +716,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     // entry, so membership is exact.
     const checked = new Set(settings.privacy.checkedFiles);
     let truncated = false;
+    let readBytes = 0;
     for (const [folder, listing] of listings) {
       truncated ||= listing.truncated;
       const paths = listing.names.map(name => `${folder}/${name}`);
@@ -712,18 +731,34 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
         else if (includesPath(settings.privacy.privateFiles, path)) skipped.push({ path, reason: "private" });
         else readable.push(path);
       }
-      const read = await readListedFiles(workspace.root, readable, project);
-      facts.push(...read.files.map(parseFactFile));
-      skipped.push(...read.skipped);
+      for (const path of readable) {
+        if (readBytes >= CONTEXT_BOUNDS.readBytes) {
+          skipped.push({ path, reason: "read-limit" });
+          continue;
+        }
+        const read = await readListedFiles(workspace.root, [path], project);
+        for (const file of read.files) readBytes += Buffer.byteLength(file.content, "utf8");
+        facts.push(...read.files.map(parseFactFile));
+        skipped.push(...read.skipped);
+      }
     }
     const law = settings.status === "thin" ? settings.roles.law : [];
     const instructions = await Promise.all(law.slice(0, CONTEXT_BOUNDS.instructionFiles).map(path =>
       readContextFile(workspace, project, settings, path, CONTEXT_BOUNDS.instructionCharsPerFile)));
     const state = settings.status === "thin"
       ? await readContextFile(workspace, project, settings, settings.state, CONTEXT_BOUNDS.stateChars) : null;
-    // Only law files that could load are named for the agent to read.
-    const omittedLaw = law.slice(CONTEXT_BOUNDS.instructionFiles).filter(path =>
-      !locationProblem(path, refusedPaths(settings)) && !includesPath(settings.privacy.privateFiles, path));
+    // Only law files that could load are named for the agent to read: policy
+    // and privacy allow them, and they pass the same no-link, bounded-text
+    // admission as the first three.
+    const omittedLaw: string[] = [];
+    for (const path of law.slice(CONTEXT_BOUNDS.instructionFiles)) {
+      if (locationProblem(path, refusedPaths(settings)) || includesPath(settings.privacy.privateFiles, path)
+        || readBytes >= CONTEXT_BOUNDS.readBytes) continue;
+      const file = await readEditableFile(workspace.root, path, project).catch(() => null);
+      if (!file) continue;
+      readBytes += Buffer.byteLength(file.content, "utf8");
+      omittedLaw.push(path);
+    }
     return { ...snapshot, instructions, omittedLaw, state, locations,
       facts: orderFacts(facts), skipped, truncated };
   }
@@ -786,10 +821,16 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
       return { code: "unavailable", reason: "settings", message: WRITE_TEXT.settings };
     }
     if (check.status === "invalid") return { code: "unavailable", reason: "settings", message: check.message };
+    // The fresh answer may assign other roles or protect other paths.
+    if (!includesPath(check.memory, location.path)) return conflictFor("project-changed", path);
+    const refreshed = locationProblem(location.path, refusedPaths(check)) ?? locationProblem(path, refusedPaths(check))
+      ?? (includesPath(check.privacy.private, location.path) ? "private" : null);
+    if (refreshed) return { code: "unavailable", reason: refreshed, message: LOCATION_PROBLEM_TEXT[refreshed] };
     if (includesPath(check.privacy.privateCandidates, path)) {
       return { code: "unavailable", reason: "private", message: WRITE_TEXT.ignoredFile };
     }
     const result = await dependencies.files.create(context, { projectId: input.projectId, path,
+      expectedProject: projectIdentity(workspace),
       content: renderFactFile({ ...input, confirmed: dependencies.today() }) });
     return result.code === "created" ? { code: "remembered", fact: parseFactFile(result.file) }
       : conflictFor(result.reason, path, result.current);
@@ -825,13 +866,13 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     }
     if (input.operation === "correct") {
       const result = await dependencies.files.save(context, { projectId: input.projectId, path,
-        expectedVersion: input.expectedVersion,
+        expectedVersion: input.expectedVersion, expectedProject: projectIdentity(workspace),
         content: renderFactFile({ ...input, confirmed: dependencies.today() }) });
       return result.code === "saved" ? { code: "corrected", fact: parseFactFile({ ...result.file, path }) }
         : conflictFor(result.reason, path, result.current);
     }
     const result = await dependencies.files.remove(context, { projectId: input.projectId, path,
-      expectedVersion: input.expectedVersion });
+      expectedVersion: input.expectedVersion, expectedProject: projectIdentity(workspace) });
     return result.code === "removed" ? { code: "forgotten", path } : conflictFor(result.reason, path, result.current);
   }
 
@@ -840,6 +881,15 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     async view(context: ActionRunContext | undefined, projectId: string): Promise<ProjectMemoryView> {
       const workspace = await dependencies.resolveWorkspace(context, projectId);
       const snapshot = await loadSnapshot(workspace);
+      // The binding may change while files are read. Show nothing from the old one.
+      const again = await dependencies.resolveWorkspace(context, projectId);
+      if (!sameProject(projectIdentity(workspace), projectIdentity(again))) {
+        const settings: MemorySettings = { status: "unavailable", message: PROJECT_CHANGED_TEXT };
+        const preview = renderUnavailableContext(again.label, PROJECT_CHANGED_TEXT, "code");
+        return { project: { id: again.projectId, label: again.label }, settings, locations: [], writeLocation: null,
+          facts: [], skipped: [], truncated: false, preview, previewRevision: contextRevision(preview),
+          lastLoad: lastLoads.get(bindingKey(again)) ?? null };
+      }
       const writeLocation = snapshot.locations.find(location => location.status !== "refused")?.path ?? null;
       // The Code form. Full chat adds one sentence about Native's owner-wide tools.
       const preview = renderProjectContext(snapshot, "code");

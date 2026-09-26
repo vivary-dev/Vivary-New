@@ -1926,6 +1926,9 @@ def workspace_context(
     root = (Path(repo_root) if repo_root is not None else default_repo_root()).resolve()
     target = Path(target).resolve()
     tropo = _load_tropo(root)
+    marker = target / ".vivary" / "workspace.toml"
+    if marker.is_symlink() or (os.path.lexists(marker) and not marker.is_file()):
+        return {"status": "invalid", "message": _MALFORMED_MARKER_MESSAGE}
     if _workspace_contract(target)[0] != THIN_WORKSPACE_CONTRACT:
         context = tropo.workspace_context(None)
     else:
@@ -1946,6 +1949,16 @@ def workspace_context(
 
 
 _CONTEXT_MAX_CANDIDATES = 16
+_MALFORMED_MARKER_MESSAGE = (
+    "The file .vivary/workspace.toml is a link, a folder, or not a regular file. "
+    "Replace it with a regular file."
+)
+# The Workbench answer schema accepts at most this many `ignore_files`.
+_CONTEXT_IGNORE_FILES = 4_000
+# A new fact file name no rule is likely to name, for deciding whether a
+# memory folder is private. A rule that names one fact, such as `fact.md`,
+# does not make the whole folder private. A rule such as `*.md` still does.
+_MEMORY_FOLDER_PROBE = "vivary-memory-folder-probe.md"
 
 
 def _context_candidates(candidates) -> list[str]:
@@ -1965,7 +1978,9 @@ def _context_candidates(candidates) -> list[str]:
 
 
 # An absolute POSIX or Windows path that is not part of a relative path or a URL.
-_ABSOLUTE_PATH = re.compile(r"(?<![\w.:/])(?:[A-Za-z]:[\\/]|/)[^\s,;'\"]*")
+# Drive paths, POSIX paths, and Windows UNC and extended-length paths
+# (`\\server\share\...`, `\\?\C:\...`).
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s,;'\"]*")
 
 
 def _without_host_paths(message: str, target: Path) -> str:
@@ -2008,7 +2023,9 @@ def _context_privacy(target: Path, context: dict, budget: "_MemoryMatchBudget | 
 
     Every match spends from `budget`. Once it runs out, each path not yet
     decided counts as private, and `workspace_context` reports
-    `privacy_limited`.
+    `privacy_limited`. More consulted `.gitignore` files than the Workbench
+    accepts spend the budget too: the list is cut, so the Workbench could not
+    notice an edit to the rest, and every path counts as private.
 
     The check walks folders as Doctor does, so it needs no Git, but reads each
     `.gitignore` with its own reader (`_memory_rules_at_base`) and matches with
@@ -2019,17 +2036,22 @@ def _context_privacy(target: Path, context: dict, budget: "_MemoryMatchBudget | 
     roles = context.get("roles") or {}
     files = [*roles.get("law", []), *([context["state"]] if context.get("state") else [])]
     listed = _checked_fact_paths(target, folders)
-    probes = [*(f"{folder}/fact.md" for folder in folders), *files, *listed]
+    budget = budget if budget is not None else _MemoryMatchBudget()
+    probes = [*(f"{folder}/{_MEMORY_FOLDER_PROBE}" for folder in folders), *files, *listed]
     ignore_files = sorted({
         "/".join([*path.split("/")[:depth], ".gitignore"])
         for path in probes
         for depth in range(path.count("/") + 1)
     })
+    if len(ignore_files) > _CONTEXT_IGNORE_FILES:
+        ignore_files = ignore_files[:_CONTEXT_IGNORE_FILES]
+        budget.spent = True
     return {
         "privacy_policy": ("gitignore" if any(
             (target / name).is_file() and not _is_symlink_or_junction(target / name) for name in ignore_files)
             else "none"),
-        "private": [folder for folder in folders if _memory_probe_is_ignored(target, f"{folder}/fact.md", budget)],
+        "private": [folder for folder in folders
+                    if _memory_probe_is_ignored(target, f"{folder}/{_MEMORY_FOLDER_PROBE}", budget)],
         "private_files": sorted({path for path in [*files, *listed] if _memory_probe_is_ignored(target, path, budget)}),
         "checked_files": listed,
         "ignore_files": ignore_files,

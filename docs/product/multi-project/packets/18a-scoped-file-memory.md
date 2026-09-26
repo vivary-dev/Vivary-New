@@ -141,6 +141,11 @@ source exclusions, authorize cross-project promotion, or claim complete historic
   review fixes restore the either-case pass for rules with a bracket, charge each rule and
   path pair to the budget, cache per-rule checks, and stop a read past 2,000 rules. Unit and
   differential tests cover them until the lead reruns hosted QA.
+- 2026-09-25: The lead recorded the final hosted evidence on `6f5fb70` in `3205557`. Fixes for
+  the Codex GitHub review findings pass the read binding into every write, re-check files
+  before lock retries, confirm writes stay inside the root, bound one load's reads, key
+  unreadable ignore files on their stat, and tighten the creator's answer. Unit tests cover
+  them until the lead reruns hosted QA.
 
 ## Shared desktop and web behavior
 

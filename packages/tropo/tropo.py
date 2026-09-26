@@ -806,15 +806,23 @@ def _add_fact_type(composed, workspace_roles):
     """
     if workspace_roles is None or FACT_TYPE in composed["types"]:
         return composed
+    # Compare normalized forms, so an owner's "./facts" or "facts/" still
+    # names the role path "facts".
+    def normalized(folder):
+        folder = folder.strip().rstrip("/")
+        while folder.startswith("./"):
+            folder = folder[2:]
+        return folder
+
     mapped = {
-        folder
+        normalized(folder)
         for definition in composed["types"].values()
         for folder in definition.get("folders", [])
     }
     folders = [
         folder if "/" in folder else f"./{folder}"
         for folder in dict.fromkeys(
-            [AUTHORED_MEMORY_DEFAULT, *authored_memory_paths(workspace_roles)]
+            normalized(path) for path in [AUTHORED_MEMORY_DEFAULT, *authored_memory_paths(workspace_roles)]
         )
         if folder not in mapped and os.path.basename(folder) not in mapped
     ]

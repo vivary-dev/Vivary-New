@@ -559,6 +559,10 @@ process.send({type:"vivary:code-worker:ready"});
         model: "sonnet", workspace, revalidateWorkspace: async () => ({ ...workspace, bindingRevision: 2 }),
         projectContext: await memory.renderForRun(workspace, "code"), recordProjectContext: load => recorded.push(load.revision) }),
       { errorCode: "vivary_code_project_changed" });
+      await assert.rejects(sendVivaryCodeMessage({ ownerEmail, orgId, message: "Refused", engine: "claude-cli",
+        model: "sonnet", workspace, revalidateWorkspace: async () => ({ ...workspace, policyRevision: 2 }),
+        projectContext: await memory.renderForRun(workspace, "code"), recordProjectContext: load => recorded.push(load.revision) }),
+      { errorCode: "vivary_code_project_changed" });
       assert.deepEqual(recorded, []);
 
       const first = await turn("What is the relay budget?");

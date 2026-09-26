@@ -2,7 +2,13 @@ import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { AgentChatPluginOptions } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server";
 import { createError } from "h3";
-import { projectMemory, unavailableProjectContext, type ProjectContextBlock } from "./project-memory.ts";
+import { projectIdentity, sameProject } from "./project-files.ts";
+import {
+  projectMemory,
+  renderUnavailableContext,
+  unavailableProjectContext,
+  type ProjectContextBlock,
+} from "./project-memory.ts";
 import {
   matchChatProject,
   resolveLocalProjectWorkspace,
@@ -138,14 +144,32 @@ type NativeChatContextDependencies = Pick<NativeChatProjectDependencies, "getOrg
 const defaultContextDependencies: NativeChatContextDependencies = {
   getOrgId: getRequestOrgId,
   matchChatProject,
-  loadProjectContext: async (context, projectId) => {
-    const workspace = await resolveLocalProjectWorkspace(context, projectId);
-    const load = await projectMemory.renderForRun(workspace, "full-chat");
-    // extraContext runs only for a send the guard admitted, so this message is being sent.
-    projectMemory.recordLoad(workspace, load, "full-chat");
-    return load.block;
-  },
+  loadProjectContext: (context, projectId) => loadNativeProjectContext(context, projectId),
 };
+
+type ProjectContextLoader = {
+  resolve: typeof resolveLocalProjectWorkspace;
+  memory: Pick<typeof projectMemory, "renderForRun" | "recordLoad">;
+};
+
+/**
+ * Load the Full chat block for an admitted project. The binding is resolved
+ * again after the load, and a changed binding gets the unavailable block
+ * instead, so a block from the old folder never reaches the model.
+ */
+export async function loadNativeProjectContext(context: ActionRunContext, projectId: string,
+  loader: ProjectContextLoader = { resolve: resolveLocalProjectWorkspace, memory: projectMemory }):
+  Promise<ProjectContextBlock> {
+  const workspace = await loader.resolve(context, projectId);
+  const load = await loader.memory.renderForRun(workspace, "full-chat");
+  const again = await loader.resolve(context, projectId);
+  if (!sameProject(projectIdentity(workspace), projectIdentity(again))) {
+    return renderUnavailableContext(again.label, "The project changed while its context was loaded.", "full-chat");
+  }
+  // extraContext runs only for a send the guard admitted, so this message is being sent.
+  loader.memory.recordLoad(workspace, load, "full-chat");
+  return load.block;
+}
 
 /**
  * Native actions that reach owner-wide data: memory and resources, chat

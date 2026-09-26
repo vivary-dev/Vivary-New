@@ -1168,6 +1168,51 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertEqual(context["private_files"], [".vivary/knowledge/draft.md", "STATE.md"])
         self.assertIn(".vivary/knowledge/.gitignore", context["ignore_files"])
 
+    def test_host_path_scrub_covers_unc_and_extended_paths(self):
+        message = ("see \\\\server\\share\\notes and \\\\?\\C:\\Users\\owner\\x, "
+                   "then \\\\?\\UNC\\server\\share")
+        self.assertEqual(create_vivary._without_host_paths(message, Path("/work/project")),
+                         "see <a folder outside the project> and <a folder outside the project>, "
+                         "then <a folder outside the project>")
+
+    def test_malformed_thin_marker_is_invalid_with_a_fixed_message(self):
+        for kind in ("folder", "dangling link"):
+            with self.subTest(kind=kind):
+                target = self.scaffold()
+                marker = target / ".vivary" / "workspace.toml"
+                marker.unlink()
+                if kind == "folder":
+                    marker.mkdir()
+                else:
+                    try:
+                        marker.symlink_to(target / "missing.toml")
+                    except OSError:
+                        self.skipTest("links need extra rights here")
+                context = create_vivary.workspace_context(target, repo_root=ROOT)
+                self.assertEqual(context, {"status": "invalid",
+                                           "message": create_vivary._MALFORMED_MARKER_MESSAGE})
+
+    def test_a_rule_naming_one_fact_does_not_make_the_folder_private(self):
+        target = self.scaffold()
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("fact.md\n")
+        context = create_vivary.workspace_context(target, repo_root=ROOT, candidates=[".vivary/knowledge/fact.md"])
+        self.assertEqual(context["private"], [])
+        self.assertEqual(context["private_candidates"], [".vivary/knowledge/fact.md"])
+        with (target / ".gitignore").open("a", encoding="utf-8") as handle:
+            handle.write("*.md\n")
+        self.assertEqual(create_vivary.workspace_context(target, repo_root=ROOT)["private"], [".vivary/knowledge"])
+
+    def test_too_many_ignore_files_fail_closed(self):
+        target = self.scaffold()
+        folders = [f"f{index}/" + "/".join(["a"] * 249) for index in range(20)]
+        budget = create_vivary._MemoryMatchBudget()
+        privacy = create_vivary._context_privacy(target, {"memory": folders, "roles": {"law": []}, "state": None},
+                                                 budget)
+        self.assertTrue(budget.spent)
+        self.assertEqual(len(privacy["ignore_files"]), create_vivary._CONTEXT_IGNORE_FILES)
+        self.assertEqual(privacy["private"], folders)
+
     def test_host_path_scrub_keeps_urls_and_relative_paths(self):
         # Tropo names files with the platform's separators, so the message does too.
         target = Path("/work/project")

@@ -88,6 +88,7 @@ export type VivaryCodeWorkspace = Readonly<{
   bindingId?: string;
   rootId?: string;
   bindingRevision?: number;
+  policyRevision?: number;
 }>;
 
 export type VivaryCodeReadScope = VivaryCodeProjectHistory | VivaryCodeWorkspace;
@@ -777,7 +778,7 @@ function assertCodeHostAvailable(): void {
 }
 
 function sameWorkspace(left: VivaryCodeWorkspace, right: VivaryCodeWorkspace): boolean {
-  const fields = ["root", "projectId", "bindingId", "rootId", "bindingRevision"] as const;
+  const fields = ["root", "projectId", "bindingId", "rootId", "bindingRevision", "policyRevision"] as const;
   return fields.every(field => left[field] === right[field]);
 }
 

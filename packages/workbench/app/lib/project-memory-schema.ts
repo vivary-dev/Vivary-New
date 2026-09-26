@@ -134,7 +134,7 @@ export type MemoryFact = {
 };
 
 export type SkippedFactFile = { path: string; reason: "linked" | "too-large" | "binary" | "unsupported" | "private" | "unreadable"
-  | "no-permission" | "not-checked" | "unsupported-name" };
+  | "no-permission" | "not-checked" | "unsupported-name" | "read-limit" };
 
 /** The latest message that loaded this project's context in this app session. It is not stored. */
 export type ProjectContextLastLoad = {
@@ -197,6 +197,9 @@ export function storageSentence(view: Pick<ProjectMemoryView, "settings" | "writ
   const { settings } = view;
   if (settings.status === "unavailable" || settings.status === "invalid") {
     return `Vivary could not read this project's memory settings. ${settings.message}`;
+  }
+  if (!view.writeLocation && view.locations.length > 0) {
+    return "No memory folder can hold facts. Each one is refused for the reason shown below.";
   }
   const folder = `${view.writeLocation ?? settings.memory[0]}/`;
   if (settings.status === "plain") {

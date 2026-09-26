@@ -375,6 +375,39 @@ and a generated dimension for letter-free rules built from such ranges. Unit
 tests and the differential test cover this round. The hosted journey and the
 Codex check have not run on it.
 
+The Codex GitHub reviewer then left 21 findings on the later pushes. The fixes
+after `3205557`:
+
+- Every memory write passes the binding it read from to project files, which
+  refuse a different binding as `project-changed`. Remember also checks the new
+  file against the fresh answer's memory folders and protected paths. The
+  Details view and the Full chat block resolve the project again after the load
+  and show the unavailable form when the binding changed. A Code send compares
+  `policyRevision` too.
+- A locked unlink or rename reads the file again before each retry and stops
+  with `changed` when another program saved it meanwhile.
+- Node has no `openat`, so a parent folder swapped for a link between the path
+  check and a write can redirect it. After an exclusive create, a save's rename,
+  or a file tree Rename, project files confirm the file is inside the root with
+  no link on its path. A create or Rename removes the file it wrote and refuses.
+  A save refuses, but the replaced file cannot be restored.
+- One load reads at most 4 MiB of fact and omitted law files. Files past that
+  are skipped with reason `read-limit`. Omitted law files are named only when they
+  pass the same no-link, bounded-text admission as the first three.
+- A `.gitignore` too large to hash or with several hard links keys the settings
+  memo on its size, mtime, inode, and link count, so an edit re-probes.
+- The creator bounds `ignore_files` at 4,000 and fails closed past it, scrubs
+  UNC and extended-length Windows paths, returns `invalid` for a
+  `.vivary/workspace.toml` that is a link or a folder, and probes folder privacy
+  with an unlikely name. Tropo compares normalized owner folders, so
+  `folder = "./facts"` wins over the role `facts`.
+- A confirmed date must be a real calendar date. The panel clears its view when
+  the project becomes unavailable and does not name a refused folder as the
+  storage location.
+
+Unit tests cover these fixes. The hosted journey and the Codex check have not
+run on them.
+
 The review follow-up strengthens maintenance enforcement and documentation
 navigation. Date-only bullets and emphasis do not count as substantive reviews.
 Required sections must be visible prose headings, outside comments and fenced

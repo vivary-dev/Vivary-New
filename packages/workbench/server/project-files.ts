@@ -367,9 +367,11 @@ export async function readListedFiles(root: string, paths: readonly string[], pr
 }
 
 /**
- * A content key for one small settings file: `absent`, `unreadable` (a link,
- * a multiply linked or oversize file, or a blocked path), or the SHA-256 of
- * its bytes. Callers use it to tell whether a cached answer still applies.
+ * A content key for one small settings file: `absent`, `unreadable` for a
+ * link or a blocked path, `unreadable:` plus its size, mtime, inode, and link
+ * count for a multiply linked or oversize file, so an edit still changes the
+ * key, or the SHA-256 of its bytes. Callers use it to tell whether a cached
+ * answer still applies. Every unreadable key starts with `unreadable`.
  */
 export async function fileDigest(root: string, requestedPath: string): Promise<string> {
   let absolute: string;
@@ -381,9 +383,11 @@ export async function fileDigest(root: string, requestedPath: string): Promise<s
     throw error;
   }
   const info = await lstat(absolute);
-  if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return "unreadable";
+  const statKey = `unreadable:${info.size}:${info.mtimeMs}:${info.ino}:${info.nlink}`;
+  if (!info.isFile()) return "unreadable";
+  if (info.nlink !== 1 || info.size > MAX_FILE_BYTES) return statKey;
   const bytes = await readBoundedFile(absolute);
-  if (bytes.length > MAX_FILE_BYTES) return "unreadable";
+  if (bytes.length > MAX_FILE_BYTES) return statKey;
   return createHash("sha256").update(bytes).digest("hex");
 }
 
@@ -444,12 +448,22 @@ export type FileOperations = { unlink: typeof unlink; rename: typeof rename };
 const fileOperations: FileOperations = { unlink, rename };
 const LOCK_RETRY_DELAYS_MS = [50, 150, 400];
 
+/** The file changed while a locked unlink or rename waited to retry. `current` is null when it is gone. */
+class ProjectFileChangedWhileLocked extends Error {
+  constructor(readonly current: ProjectFile | null) {
+    super("The project file changed while it was locked.");
+  }
+}
+
 /**
  * Retry an unlink or rename refused because another program holds the file,
  * then give up with a fixed message. A permission refusal gets its own fixed
- * message at once.
+ * message at once. Before each retry, `check` reads the file again, so a save
+ * another program made while it held the file is not overwritten or deleted:
+ * the retry stops with ProjectFileChangedWhileLocked instead.
  */
-async function withLockRetries<T>(operation: () => Promise<T>): Promise<T> {
+async function withLockRetries<T>(operation: () => Promise<T>,
+  check?: { read: () => Promise<ProjectFile | null>; expected: ProjectFile }): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await operation();
@@ -458,7 +472,27 @@ async function withLockRetries<T>(operation: () => Promise<T>): Promise<T> {
       if (!isLockError(error)) throw error;
       if (attempt >= LOCK_RETRY_DELAYS_MS.length) throw new ProjectFileLockedError();
       await delay(LOCK_RETRY_DELAYS_MS[attempt]);
+      if (check) {
+        const current = await check.read();
+        // Content, not the version: the version also hashes mtime, which some
+        // file systems report differently between two reads of an unchanged file.
+        if (current?.content !== check.expected.content) throw new ProjectFileChangedWhileLocked(current);
+      }
     }
+  }
+}
+
+/**
+ * Node has no openat, so a parent folder swapped for a link between the path
+ * check and a write can redirect it. After a write this confirms the file is
+ * still inside `root` with no link on its path.
+ */
+async function writtenInsideRoot(root: string, requestedPath: string): Promise<boolean> {
+  try {
+    const absolute = await resolvePathWithoutLinks(root, requestedPath);
+    return contained(root, await realpath(absolute));
+  } catch {
+    return false;
   }
 }
 
@@ -588,11 +622,14 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
 
     async save(context: ActionRunContext | undefined, input: {
       projectId: string; path: string; expectedVersion: string; content: string;
+      /** The binding the caller read from. A different binding is `project-changed`. */
+      expectedProject?: ProjectFileIdentity;
     }): Promise<ProjectFileSaveResult> {
       const initial = await resolve(context, input.projectId);
       return serializeMutation(initial.project, async () => {
         const lockedScope = await resolve(context, input.projectId);
-        if (!sameProject(initial.project, lockedScope.project)) {
+        if (!sameProject(initial.project, lockedScope.project)
+          || (input.expectedProject && !sameProject(input.expectedProject, lockedScope.project))) {
           return { code: "conflict", operation: "save", reason: "project-changed", path: input.path };
         }
         const current = await readEditableFile(lockedScope.workspace.root, input.path, lockedScope.project);
@@ -613,7 +650,20 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           if (finalCurrent.version !== input.expectedVersion) {
             return { code: "conflict", operation: "save", reason: "changed", path: input.path, current: finalCurrent };
           }
-          await withLockRetries(() => operations.rename(temporary, target));
+          try {
+            await withLockRetries(() => operations.rename(temporary, target), {
+              read: () => readEditableFile(finalScope.workspace.root, input.path, finalScope.project),
+              expected: finalCurrent });
+          } catch (error) {
+            if (!(error instanceof ProjectFileChangedWhileLocked)) throw error;
+            return error.current
+              ? { code: "conflict", operation: "save", reason: "changed", path: input.path, current: error.current }
+              : { code: "conflict", operation: "save", reason: "renamed-or-deleted", path: input.path };
+          }
+          // The replaced file cannot be restored, so a redirected save is refused and reported.
+          if (!await writtenInsideRoot(finalScope.workspace.root, input.path)) {
+            throw new ProjectFileBoundaryError("blocked-path");
+          }
           const saved = await readEditableFile(finalScope.workspace.root, input.path, finalScope.project);
           if (!saved) throw new Error("The saved project file could not be verified.");
           return { code: "saved", project: finalScope.project, file: saved };
@@ -668,6 +718,10 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           }
           throw error;
         }
+        if (!await writtenInsideRoot(finalScope.workspace.root, targetPath)) {
+          await unlink(target).catch(() => undefined);
+          throw new ProjectFileBoundaryError("blocked-path");
+        }
         try {
           const copied = await readBoundedFile(target);
           const sourceInfo = await lstat(source);
@@ -687,9 +741,16 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
               ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: latestCurrent }
               : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
           }
-          await withLockRetries(() => operations.unlink(source));
+          await withLockRetries(() => operations.unlink(source), {
+            read: () => readEditableFile(latestScope.workspace.root, input.path, latestScope.project),
+            expected: latestCurrent });
         } catch (error) {
           await unlink(target).catch(() => undefined);
+          if (error instanceof ProjectFileChangedWhileLocked) {
+            return error.current
+              ? { code: "conflict", operation: "rename", reason: "changed", path: input.path, targetPath, current: error.current }
+              : { code: "conflict", operation: "rename", reason: "renamed-or-deleted", path: input.path, targetPath };
+          }
           throw error;
         }
         const renamed = await readEditableFile(finalScope.workspace.root, targetPath, finalScope.project);
@@ -705,13 +766,16 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
      */
     async create(context: ActionRunContext | undefined, input: {
       projectId: string; path: string; content: string;
+      /** The binding the caller read from. A different binding is `project-changed`. */
+      expectedProject?: ProjectFileIdentity;
     }): Promise<ProjectFileCreateResult> {
       if (!kindFor(input.path)) throw new ProjectFileBoundaryError("blocked-path");
       const initial = await resolve(context, input.projectId);
       return serializeMutation(initial.project, async () => {
         // Custody is checked inside the queue, before any folder is made.
         const lockedScope = await resolve(context, input.projectId);
-        if (!sameProject(initial.project, lockedScope.project)) {
+        if (!sameProject(initial.project, lockedScope.project)
+          || (input.expectedProject && !sameProject(input.expectedProject, lockedScope.project))) {
           return { code: "conflict", operation: "create", reason: "project-changed", path: input.path };
         }
         const root = lockedScope.workspace.root;
@@ -726,6 +790,11 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
           }
           try {
             await writeExclusiveBounded(target, Buffer.from(input.content, "utf8"), 0o644);
+            if (!await writtenInsideRoot(root, input.path)) {
+              // A parent folder became a link: remove the file this call made and refuse.
+              await unlink(target).catch(() => undefined);
+              throw new ProjectFileBoundaryError("blocked-path");
+            }
             written = true;
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -745,13 +814,18 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
     /** Delete one editable file whose version still matches. Never removes a folder. */
     async remove(context: ActionRunContext | undefined, input: {
       projectId: string; path: string; expectedVersion: string;
+      /** The binding the caller read from. A different binding is `project-changed`. */
+      expectedProject?: ProjectFileIdentity;
     }): Promise<ProjectFileRemoveResult> {
       const initial = await resolve(context, input.projectId);
       return serializeMutation(initial.project, async () => {
         const conflict = (reason: "changed" | "renamed-or-deleted" | "project-changed", current?: ProjectFile) =>
           ({ code: "conflict", operation: "remove", reason, path: input.path, ...(current ? { current } : {}) }) as const;
         const lockedScope = await resolve(context, input.projectId);
-        if (!sameProject(initial.project, lockedScope.project)) return conflict("project-changed");
+        if (!sameProject(initial.project, lockedScope.project)
+          || (input.expectedProject && !sameProject(input.expectedProject, lockedScope.project))) {
+          return conflict("project-changed");
+        }
         const current = await readEditableFile(lockedScope.workspace.root, input.path, lockedScope.project);
         if (!current) return conflict("renamed-or-deleted");
         if (current.version !== input.expectedVersion) return conflict("changed", current);
@@ -761,7 +835,14 @@ export function createProjectFileService(resolveWorkspace: Resolver = resolveLoc
         if (!finalCurrent) return conflict("renamed-or-deleted");
         if (finalCurrent.version !== input.expectedVersion) return conflict("changed", finalCurrent);
         const target = await resolvePathWithoutLinks(finalScope.workspace.root, input.path);
-        await withLockRetries(() => operations.unlink(target));
+        try {
+          await withLockRetries(() => operations.unlink(target), {
+            read: () => readEditableFile(finalScope.workspace.root, input.path, finalScope.project),
+            expected: finalCurrent });
+        } catch (error) {
+          if (!(error instanceof ProjectFileChangedWhileLocked)) throw error;
+          return error.current ? conflict("changed", error.current) : conflict("renamed-or-deleted");
+        }
         return { code: "removed", project: finalScope.project, path: input.path };
       });
     },
