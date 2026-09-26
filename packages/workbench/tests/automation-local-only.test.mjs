@@ -79,7 +79,7 @@ test("an automation run is offered exactly the 12 local tools", async () => {
   assert.ok(surface, "Core ships jobs/unattended-surface.js");
   const calls = [];
   const stub = name => ({
-    tool: { description: name, parameters: { type: "object", properties: {} } },
+    tool: { description: name, parameters: { type: "object", properties: { action: {}, name: {}, id: {}, path: {}, title: {}, channels: {} } } },
     run: async (args, context) => {
       calls.push({ name, args, caller: context?.caller });
       return "ok";
@@ -151,17 +151,71 @@ test("manage-jobs refuses create from an automation run and writes nothing", asy
 
 test("resources refuses configuration writes for an automation run and allows them for a chat", async () => {
   const { resources } = await createResourceScriptEntries();
-  const write = (resourcePath, context) =>
-    asOwner(() => resources.run({ action: "write", path: resourcePath, content: "---\nschedule: \"* * * * *\"\n---\nSay hi.\n" }, context));
+  const frontmatter = "---\nschedule: \"* * * * *\"\n---\nSay hi.\n";
+  const write = (resourcePath, context, content = frontmatter) =>
+    asOwner(() => resources.run({ action: "write", path: resourcePath, content }, context));
   for (const resourcePath of ["jobs/x.md", "remote-agents/x.json", "agents/x.md", "mcp.config.json"]) {
     assert.match(String(await write(resourcePath, automationRun)), /^Error: automation runs cannot write/, resourcePath);
     assert.equal(await resourceGetByPath(owner, resourcePath), null, `${resourcePath} was not written`);
   }
   assert.match(String(await write("notes/run.md", automationRun)), /Wrote resource: notes\/run\.md/);
-  assert.match(String(await write("jobs/x.md", { caller: "tool" })), /Wrote resource: jobs\/x\.md/);
+  assert.equal((await resourceGetByPath(owner, "notes/run.md"))?.content, frontmatter, "an automation run stores what it wrote");
+  assert.match(String(await write("jobs/x.md", { caller: "tool" }, "Chat notes.")), /Wrote resource: jobs\/x\.md/);
+  assert.equal((await resourceGetByPath(owner, "jobs/x.md"))?.content, "Chat notes.", "a chat still writes jobs/");
+  for (const resourcePath of ["JOBS/y.md", "./jobs/y.md"]) {
+    assert.match(String(await write(resourcePath, automationRun)), /^Error: automation runs cannot write/, resourcePath);
+  }
+  assert.equal(await resourceGetByPath(owner, "jobs/y.md"), null);
+  assert.equal(await resourceGetByPath(owner, "JOBS/y.md"), null);
+
+  // Configuration files can hold server headers or tokens, so a run cannot read them either.
+  assert.match(String(await write("mcp.config.json", { caller: "tool" }, "{\"servers\":{}}")), /Wrote resource: mcp\.config\.json/);
+  const read = context => asOwner(() => resources.run({ action: "read", path: "mcp.config.json" }, context));
+  assert.match(String(await read(automationRun)), /^Error: automation runs cannot read mcp\.config\.json/);
+  assert.match(String(await read({ caller: "tool" })), /"servers"/);
 
   const chatHistory = (await createChatScriptEntries())["chat-history"];
   assert.match(String(await asOwner(() => chatHistory.run({ action: "open", id: "t1" }, automationRun))), /cannot open a chat/);
+});
+
+test("argument names that the CLI bridge would split are refused", async () => {
+  assert.ok(surface, "Core ships jobs/unattended-surface.js");
+  const entries = await createResourceScriptEntries();
+  const automationTool = createAutomationToolEntries(() => owner, appId)["manage-automations"];
+  const pathsBefore = await jobPaths();
+  const crafted = await asOwner(() => entries.resources.run(
+    { action: "write", path: "notes/ok.md", content: "Say hi.", "path=jobs/crafted.md": "x" }, automationRun));
+  assert.match(String(crafted), /^Error: automation runs cannot pass an argument named/);
+  const memory = await asOwner(() => entries["save-memory"].run(
+    { name: "note", type: "user", description: "d", content: "c", "name=crafted": "x" }, automationRun))
+    .catch(error => `Error: ${error.message}`);
+  assert.match(String(memory), /cannot pass an argument named/);
+  const forget = await asOwner(() => entries["delete-memory"].run({ name: "note", "--name": "x" }, automationRun))
+    .catch(error => `Error: ${error.message}`);
+  assert.match(String(forget), /cannot pass an argument named/);
+  for (const name of ["../jobs/evil", "a\\b", "x..y"]) {
+    const saved = await asOwner(() => entries["save-memory"].run({ name, type: "user", description: "d", content: "c" }, automationRun));
+    assert.match(String(saved), /^Error: automation runs cannot use the memory name/, name);
+    const deleted = await asOwner(() => entries["delete-memory"].run({ name }, automationRun));
+    assert.match(String(deleted), /^Error: automation runs cannot use the memory name/, name);
+  }
+  const define = await asOwner(() => automationTool.run({ action: "list", "action=define": "x", name: "crafted" }, automationRun));
+  assert.match(String(define), /^Error: automation runs cannot pass an argument named/);
+  // A value that starts with "--" stays a value in an automation run.
+  const flagValue = await asOwner(() => entries.resources.run(
+    { action: "write", path: "notes/flag-value.md", content: "--path=jobs/from-value.md" }, automationRun));
+  assert.match(String(flagValue), /Wrote resource: notes\/flag-value\.md/);
+  assert.equal((await resourceGetByPath(owner, "notes/flag-value.md"))?.content, "--path=jobs/from-value.md");
+  for (const resourcePath of ["jobs/crafted.md", "jobs/from-value.md", "notes/ok.md"]) {
+    assert.equal(await resourceGetByPath(owner, resourcePath), null, `${resourcePath} was not written`);
+  }
+  assert.deepEqual(await jobPaths(), pathsBefore, "no jobs/ resource was written");
+  // Through the run surface, a name the tool does not declare never reaches it.
+  const restricted = surface.restrictActionsForUnattendedRun(entries, { meta: {} });
+  assert.match(String(await restricted.resources.run({ action: "list", extra: "x" }, {})), /does not declare/);
+  for (const [name, entry] of Object.entries(restricted)) {
+    assert.equal(typeof entry.tool?.parameters?.properties, "object", `${name} declares its arguments`);
+  }
 });
 
 test("manage-notifications from an automation run reaches the inbox only", async () => {
