@@ -2942,6 +2942,72 @@ def test_public_context_non_git_fallback_refuses_unowned_ignore_policy(tmp_path)
         assert False, "expected non-Git fallback to refuse an unowned ignore policy"
 
 
+def _write_public_graph_vault(root):
+    (root / "notes").mkdir()
+    (root / "tropo.toml").write_text(
+        '[base]\nallow_untyped = true\n[types.note]\nfolder = "notes"\n'
+        '[types.note.optional]\nrelated = "ref-list"\n',
+        encoding="utf-8",
+    )
+    (root / ".gitignore").write_text("notes/hidden.md\n", encoding="utf-8")
+    notes = {
+        "public": "---\nrelated: [hidden, other]\n---\n# Public\n",
+        "other": "# Other\n",
+        "hidden": "---\nrelated: [public]\n---\n# Hidden\n",
+    }
+    for name, text in notes.items():
+        (root / "notes" / f"{name}.md").write_text(text, encoding="utf-8")
+
+
+def test_public_graph_leaves_out_a_git_ignored_note_and_its_edges(tmp_path):
+    _write_public_graph_vault(tmp_path)
+    _init_git_repo(tmp_path)
+    root = _public_workspace_root(tmp_path)
+
+    graph = tropo.public_graph(root, allowlist=[root])
+
+    assert graph == {
+        "nodes": {
+            "other": {"id": "other", "type": "note", "path": "notes/other.md"},
+            "public": {"id": "public", "type": "note", "path": "notes/public.md"},
+        },
+        "edges": [
+            {"from": "public", "field": "related", "to": "hidden", "broken": True},
+            {"from": "public", "field": "related", "to": "other", "broken": False},
+        ],
+        "complete": True,
+        "omissions": [{"kind": "privacy_excluded", "reason": "git_ignored", "count": 1}],
+    }
+
+
+def test_public_graph_counts_a_note_whose_id_fails_the_output_checks(tmp_path):
+    (tmp_path / "ghp_abcdefghijklmnopqrstuvwx.md").write_text("# Token\n", encoding="utf-8")
+    (tmp_path / "plain.md").write_text("# Plain\n", encoding="utf-8")
+    _init_git_repo(tmp_path)
+    root = _public_workspace_root(tmp_path)
+
+    graph = tropo.public_graph(root, allowlist=[root])
+
+    assert list(graph["nodes"]) == ["plain"]
+    assert graph["complete"] is False
+    assert graph["omissions"] == [
+        {"kind": "document", "reason": "unsafe_identifier", "count": 1}
+    ]
+
+
+def test_public_graph_refuses_a_folder_without_a_privacy_policy(tmp_path):
+    _write_public_graph_vault(tmp_path)
+    (tmp_path / ".gitignore").unlink()
+    root = _public_workspace_root(tmp_path)
+
+    try:
+        tropo.public_graph(root, allowlist=[root])
+    except tropo.PrivacyPolicyUnavailableError as error:
+        assert error.reason == "privacy_policy_unavailable"
+    else:
+        assert False, "expected a plain folder to be refused"
+
+
 def _write_public_thin_config(root, *, strict=True, allow_untyped=True):
     vivary = root / ".vivary"
     vivary.mkdir(exist_ok=True)
