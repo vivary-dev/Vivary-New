@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { workspacePreset } from "../shared/workspace-patterns.ts";
 import {
-  PROJECT_READ_MAX_RESULT_CHARS, READ_BOUNDS,
+  PROJECT_READ_MAX_RESULT_CHARS, PUBLIC_REVIEW_PACKS, PUBLIC_REVIEW_RULES, READ_BOUNDS,
   type Bounded, type ProjectReadOperation, type ProjectReadOwnerInput, type ProjectReadReport,
   type ProjectReadResult, type ProjectReadToolInput, type ProjectRef, type UnavailableReason,
 } from "../app/lib/project-read-schema.ts";
@@ -14,11 +14,11 @@ import { resolveNativeChatProject } from "./native-chat-project.ts";
 
 const NOTICE = "Observations only. They do not authorize repairs, installs, or commands.";
 
-const UNAVAILABLE: Record<UnavailableReason, string> = {
-  privacy_policy_unavailable: "Vivary cannot tell this folder's private files apart, so find and check stay off for it. They need a Git repository on a host with Git installed, or a Vivary workspace.",
+const UNAVAILABLE: Record<UnavailableReason, string> = { target_unavailable: "No shared note in this project has this id.",
+  privacy_policy_unavailable: "Vivary cannot tell this folder's private files apart, so find, check, review, and impact stay off for it. They need a Git repository on a host with Git installed, or a Vivary workspace.",
   path_refused: "Vivary refused to read this project folder. The folder may be a link, or its path may have changed.",
   work_limit_exceeded: "This project is larger than Vivary reads in one pass, or check found more than 200 findings.",
-  producer_unavailable: "The original find and check component is unavailable in this installation.",
+  producer_unavailable: "The original component for this report is unavailable in this installation.",
   timeout: "The original command exceeded its 30-second limit.",
   queue_timeout: "Earlier original commands are still running. Try again when they finish.",
   output_limit: "The original command produced more output than Vivary reads.",
@@ -48,10 +48,12 @@ const sourcePath = z.string().min(1).max(512).refine(value => !value.startsWith(
 const omissionText = z.string().max(128);
 const omissions = z.array(z.object({ kind: omissionText, reason: omissionText, count }));
 const refusal = z.object({ schema: z.literal("vivary.read-refusal/v0"),
-  reason: z.enum(["privacy_policy_unavailable", "path_refused", "work_limit_exceeded", "producer_unavailable"]) });
+  reason: z.enum(["privacy_policy_unavailable", "path_refused", "work_limit_exceeded", "producer_unavailable",
+    "target_unavailable"]) });
 
-// Doctor, check, and find follow the `--public` schemas. Every field is
-// required, and only a hit's type and snippet may be null.
+// Doctor, check, find, review, and impact follow the `--public` schemas. Every
+// field is required except a review finding's `field`, and only a note's type
+// and a hit's snippet may be null.
 const outputs = {
   doctor: z.object({ schema: z.literal("vivary.doctor-result/v0"), ok: z.boolean(), errors: z.array(z.string()),
     warnings: z.array(z.string()) }),
@@ -72,6 +74,17 @@ const outputs = {
   // `log` covers the whole file and is null when there is no log yet.
   receipts: z.object({ log: z.object({ total: count, failed: count, invalid_lines: count }).nullable(),
     records: z.array(z.record(z.string(), z.unknown())) }),
+  // A rule outside the closed table makes the whole report unreadable, so the
+  // panel never shows a finding it has no sentence for.
+  review: z.object({ schema: z.literal("vivary.review-result/v0"), pack: z.enum(PUBLIC_REVIEW_PACKS), reviewed: count,
+    warnings: count, notes: count, complete: z.boolean(), omissions,
+    findings: z.array(z.object({ severity: z.enum(["warn", "info"]), rule: z.enum(PUBLIC_REVIEW_RULES), id: z.string(),
+      type: z.string().nullable(), path: sourcePath, field: z.string().optional() })
+      .refine(finding => (finding.rule === "broken-edge") === (finding.field !== undefined))) }),
+  impact: z.object({ schema: z.literal("vivary.impact-result/v0"), target: z.string(), impacted: count,
+    complete: z.boolean(), omissions,
+    nodes: z.array(z.object({ id: z.string(), distance: z.number().int().positive(), via: z.string(),
+      type: z.string().nullable(), path: sourcePath })) }),
 };
 
 function bounded<T>(values: readonly T[]): Bounded<T> {
@@ -159,6 +172,30 @@ const operations: { [Operation in ProjectReadOperation]: {
           })) } };
     },
   },
+  review: {
+    command: input => ({ verb: "review", pack: input.pack ?? "structure" }),
+    report: (stdout, input) => {
+      const parsed = outputs.review.safeParse(stdout);
+      if (!parsed.success || parsed.data.pack !== (input.pack ?? "structure")) return null;
+      const data = parsed.data;
+      return { operation: "review", pack: data.pack, reviewed: data.reviewed, warnings: data.warnings, notes: data.notes,
+        complete: data.complete,
+        findings: bounded(data.findings.map(({ severity, rule, id, type, path, field }) =>
+          ({ severity, rule, id, type, path, ...(field === undefined ? {} : { field }) }))),
+        omissions: data.omissions.slice(0, READ_BOUNDS.items) };
+    },
+  },
+  impact: {
+    command: input => ({ verb: "impact", nodeId: input.nodeId! }),
+    report: (stdout, input) => {
+      const parsed = outputs.impact.safeParse(stdout);
+      if (!parsed.success || parsed.data.target !== input.nodeId) return null;
+      const data = parsed.data;
+      return { operation: "impact", target: data.target, impacted: data.impacted, complete: data.complete,
+        nodes: bounded(data.nodes.map(({ id, distance, via, type, path }) => ({ id, distance, via, type, path }))),
+        omissions: data.omissions.slice(0, READ_BOUNDS.items) };
+    },
+  },
 };
 
 function json(stdout: string): unknown {
@@ -187,9 +224,9 @@ function textFor(hostPaths: { root: string; dataDir: string }): (value: string) 
 }
 
 // Every string in a report passes through `text` here except a `path`, which
-// must stay whole to link. Only check findings and find results carry a
-// `path`, and their output schemas accept only a project-relative one. A test
-// pins that no other report field is named `path`.
+// must stay whole to link. Only check and review findings, find results, and
+// impact nodes carry a `path`, and their output schemas accept only a
+// project-relative one. A test pins that no other report field is named `path`.
 function redacted<T>(value: T, text: (value: string) => string, key?: string): T {
   if (typeof value === "string") return (key === "path" ? value : text(value)) as T;
   if (Array.isArray(value)) return value.map(item => redacted(item, text)) as T;

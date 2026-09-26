@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +12,9 @@ import {
 } from "@agent-native/core/server";
 
 import { defineProjectReadTool } from "../actions/vivary-project-read.ts";
-import { PROJECT_READ_MAX_RESULT_CHARS, READ_BOUNDS, type ProjectReadResult } from "../app/lib/project-read-schema.ts";
+import {
+  PROJECT_READ_MAX_RESULT_CHARS, PUBLIC_REVIEW_RULES, READ_BOUNDS, REVIEW_RULE_SENTENCES, type ProjectReadResult,
+} from "../app/lib/project-read-schema.ts";
 import { createVivaryChatIdentity } from "../server/chat-identity.ts";
 import { createVivaryNativeChatProjectResolver } from "../server/native-chat-project.ts";
 import { incompleteNote, privateExcluded, sensitiveExcluded } from "../app/lib/project-read-display.ts";
@@ -27,6 +30,9 @@ const coding = await load("coding");
 const notes = await load("notes");
 const host = await load("host");
 const unsafeSnippet = await load("unsafe-snippet");
+// Real `review --public` and `impact --public` output over a Git project whose
+// ignored `private-roadmap` note is linked from `changes/retry.md`.
+const review = await load("review");
 
 // The captured fixtures replaced their temporary folders with these paths.
 const hostPaths = { root: "/fixture/coding", dataDir: "/fixture/app-data" };
@@ -49,8 +55,14 @@ function fakeRun(output: (projectId: string, command: ProjectReadCommand) => Fak
   return { run, calls };
 }
 
+function reviewOutput(command: ProjectReadCommand): Output | undefined {
+  if (command.verb === "review") return command.pack === "editorial" ? review.reviewEditorial : review.reviewStructure;
+  if (command.verb !== "impact") return undefined;
+  return ({ "sync-tests": review.impact, "private-roadmap": review.impactPrivate } as Record<string, Output>)[command.nodeId]
+    ?? review.impactMissing;
+}
 const fixtureFor = (set: Record<string, Output>) => (_projectId: string, command: ProjectReadCommand) =>
-  command.verb === "logs" ? (command.failedOnly ? host.logsFailed : host.logs) : set[command.verb];
+  command.verb === "logs" ? (command.failedOnly ? host.logsFailed : host.logs) : reviewOutput(command) ?? set[command.verb];
 const noChat = async () => { throw new Error("The owner path must not consult a chat."); };
 const reported = (result: ProjectReadResult) => {
   assert.equal(result.status, "reported", JSON.stringify(result));
@@ -66,11 +78,13 @@ test("each operation runs its documented original command for the requested proj
     { operation: "doctor" }, { operation: "check" }, { operation: "find", query: "sync queue" },
     { operation: "find", query: "sync queue", k: 3, budget: 800 }, { operation: "capabilities" },
     { operation: "capabilities", preset: "writing" }, { operation: "receipts" }, { operation: "receipts", failedOnly: true },
+    { operation: "review" }, { operation: "review", pack: "editorial" }, { operation: "impact", nodeId: "sync-tests" },
   ] as const) await reads.forOwner(owner, { projectId: "project-a", ...input });
   assert.deepEqual(calls.map(call => call.command), [
     { verb: "doctor" }, { verb: "check" }, { verb: "find", query: "sync queue", k: 5, budget: 1200 },
     { verb: "find", query: "sync queue", k: 3, budget: 800 }, { verb: "capabilities", preset: "coding" },
     { verb: "capabilities", preset: "writing" }, { verb: "logs", failedOnly: false }, { verb: "logs", failedOnly: true },
+    { verb: "review", pack: "structure" }, { verb: "review", pack: "editorial" }, { verb: "impact", nodeId: "sync-tests" },
   ]);
   assert.ok(calls.every(call => call.projectId === "project-a" && call.context === owner));
 });
@@ -126,6 +140,74 @@ test("a hit whose snippet the facade withheld is reported without a snippet", as
   if (find.operation !== "find") return;
   assert.deepEqual(find.results.items.map(hit => [hit.path, hit.snippet]), [
     ["docs/users.md", "# Users The users endpoint lists every account in pages of fifty."], ["docs/api.md", null]]);
+});
+
+test("captured review and impact reports keep the public findings and dependents, never the private note", async () => {
+  const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
+  for (const [pack, output] of [["structure", review.reviewStructure], ["editorial", review.reviewEditorial]] as const) {
+    const report = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "review", pack }));
+    const rawReview = raw(output);
+    assert.deepEqual(report, { operation: "review", pack, reviewed: rawReview.reviewed, warnings: rawReview.warnings,
+      notes: rawReview.notes, complete: rawReview.complete, findings: { items: rawReview.findings, total: rawReview.findings.length },
+      omissions: rawReview.omissions }, pack);
+  }
+  const structure = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "review" }));
+  assert.ok(structure.operation === "review" && structure.pack === "structure");
+  assert.deepEqual(structure.findings.items.filter(finding => finding.rule === "broken-edge"),
+    [{ severity: "warn", rule: "broken-edge", id: "retry", type: "change", path: "changes/retry.md", field: "verification" }]);
+  assert.ok(structure.findings.items.every(finding => finding.rule === "broken-edge" || !("field" in finding)));
+
+  const impact = reported(await reads.forOwner(owner, { projectId: "project-a", operation: "impact", nodeId: "sync-tests" }));
+  const rawImpact = raw(review.impact);
+  assert.deepEqual(impact, { operation: "impact", target: "sync-tests", impacted: rawImpact.impacted, complete: rawImpact.complete,
+    nodes: { items: rawImpact.nodes, total: rawImpact.nodes.length }, omissions: rawImpact.omissions });
+  assert.equal(JSON.stringify([structure, impact]).includes("private-roadmap"), false);
+});
+
+test("review findings read from a closed rule table, and anything outside it is unreadable", async () => {
+  const ozone = execFileSync(process.platform === "win32" ? "python" : "python3", ["-B", "-c",
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import ozone; print(json.dumps(list(ozone.PUBLIC_REVIEW_RULES)))",
+    path.join(import.meta.dirname, "..", "..", "ozone")], { encoding: "utf8" });
+  assert.deepEqual(JSON.parse(ozone), [...PUBLIC_REVIEW_RULES], "Ozone's public rules");
+  assert.deepEqual(Object.keys(REVIEW_RULE_SENTENCES).sort(), [...PUBLIC_REVIEW_RULES].sort());
+  const sentences = Object.values(REVIEW_RULE_SENTENCES);
+  assert.equal(new Set(sentences).size, sentences.length, "one sentence per rule");
+  assert.ok(sentences.every(sentence => /^[A-Z][^\u2014;]*\.$/.test(sentence)), "plain sentences");
+
+  type Raw = ReturnType<typeof raw>;
+  const read = async (edit: (output: Raw) => void, pack: "structure" | "editorial" = "structure") => {
+    const output = raw(review.reviewStructure);
+    edit(output);
+    return createProjectRead({ run: fakeRun(() => ({ exitCode: 0, stderr: "", stdout: JSON.stringify(output) })).run,
+      chatProject: noChat }).forOwner(owner, { projectId: "project-a", operation: "review", pack });
+  };
+  const broken = (output: Raw) => output.findings.find((finding: { rule: string }) => finding.rule === "broken-edge");
+  const cases: [string, (output: Raw) => void, ("structure" | "editorial")?][] = [
+    ["an unknown rule", output => { output.findings[0].rule = "context-bloat"; }],
+    ["a field on another rule", output => { output.findings[0].field = "verification"; }],
+    ["a broken edge without its field", output => { delete broken(output).field; }],
+    ["an unknown severity", output => { output.findings[0].severity = "error"; }],
+    ["a pack other than the one requested", () => {}, "editorial"],
+    ["a missing count", output => { delete output.warnings; }],
+  ];
+  for (const [label, edit, pack] of cases) {
+    const result = await read(edit, pack);
+    assert.ok(result.status === "unavailable" && result.reason === "unreadable_output", label);
+  }
+  const withMessage = reported(await read(output => { broken(output).message = "edge retry --verification--> private-roadmap"; }));
+  assert.equal(JSON.stringify(withMessage).includes("private-roadmap"), false, "a free-text message never passes");
+});
+
+test("a private or missing impact target reads as one refusal, and a report for another target is unreadable", async () => {
+  const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
+  const privateNote = await reads.forOwner(owner, { projectId: "project-a", operation: "impact", nodeId: "private-roadmap" });
+  const missing = await reads.forOwner(owner, { projectId: "project-a", operation: "impact", nodeId: "nowhere-9f2c41d7" });
+  assert.deepEqual(privateNote, { status: "unavailable", project: { id: "project-a", label: "Project A" }, operation: "impact",
+    reason: "target_unavailable", message: "No shared note in this project has this id." });
+  assert.deepEqual(missing, privateNote, "a private id and a random id are indistinguishable");
+  const other = await createProjectRead({ run: fakeRun(() => review.impact).run, chatProject: noChat })
+    .forOwner(owner, { projectId: "project-a", operation: "impact", nodeId: "release" });
+  assert.ok(other.status === "unavailable" && other.reason === "unreadable_output", "a report for another target");
 });
 
 test("receipts report the application log, including an absent one", async () => {
@@ -302,11 +384,17 @@ test("source paths that could leave the project make the whole report unreadable
     "notes/\u0000.md", "a".repeat(513)]) {
     const check = raw(coding.check);
     const find = raw(coding.find);
+    const reviewed = raw(review.reviewStructure);
+    const impacted = raw(review.impact);
     check.findings[0].path = bad;
     find.results[0].path = bad;
+    reviewed.findings[0].path = bad;
+    impacted.nodes[0].path = bad;
+    const outputs: Partial<Record<ProjectReadCommand["verb"], unknown>> = { check, find, review: reviewed, impact: impacted };
     const reads = createProjectRead({ run: fakeRun((_id, command) => ({ exitCode: 0, stderr: "",
-      stdout: JSON.stringify(command.verb === "check" ? check : find) })).run, chatProject: noChat });
-    for (const input of [{ operation: "check" }, { operation: "find", query: "sync" }] as const) {
+      stdout: JSON.stringify(outputs[command.verb]) })).run, chatProject: noChat });
+    for (const input of [{ operation: "check" }, { operation: "find", query: "sync" }, { operation: "review" },
+      { operation: "impact", nodeId: "sync-tests" }] as const) {
       const result = await reads.forOwner(owner, { projectId: "project-a", ...input });
       assert.ok(result.status === "unavailable" && result.reason === "unreadable_output", `${input.operation} ${bad}`);
     }
@@ -318,13 +406,19 @@ test("host paths never appear in any serialized result", async () => {
   doctor.errors.push(`workspace root ${hostPaths.root} is readable`, `receipts live in ${hostPaths.dataDir}/original-runtime`);
   const check = raw(coding.check);
   check.findings[0].message = `see ${hostPaths.root}/changes/add-sync.md`;
-  const reads = createProjectRead({ run: fakeRun((_id, command) => command.verb === "doctor"
-    ? { exitCode: 1, stdout: JSON.stringify(doctor), stderr: "" }
-    : command.verb === "check" ? { exitCode: 1, stdout: JSON.stringify(check), stderr: "" }
-      : fixtureFor(coding)(_id, command)).run, chatProject: noChat });
+  const reviewed = raw(review.reviewStructure);
+  reviewed.findings[0].id = `${hostPaths.root}/cleanup`;
+  reviewed.omissions[0].reason = `${hostPaths.dataDir}/ignored`;
+  const impacted = raw(review.impact);
+  impacted.nodes[0].via = `${hostPaths.root}/field`;
+  const edited: Partial<Record<ProjectReadCommand["verb"], unknown>> = { doctor, check, review: reviewed, impact: impacted };
+  const reads = createProjectRead({ run: fakeRun((_id, command) => edited[command.verb]
+    ? { exitCode: 1, stdout: JSON.stringify(edited[command.verb]), stderr: "" }
+    : fixtureFor(coding)(_id, command)).run, chatProject: noChat });
   const results = [];
   for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "sync queue" },
-    { operation: "capabilities" }, { operation: "receipts" }] as const) {
+    { operation: "capabilities" }, { operation: "receipts" }, { operation: "review" },
+    { operation: "impact", nodeId: "sync-tests" }] as const) {
     results.push(await reads.forOwner(owner, { projectId: "project-a", ...input }));
   }
   const text = JSON.stringify(results);
@@ -333,6 +427,9 @@ test("host paths never appear in any serialized result", async () => {
   const report = reported(results[0]);
   assert.ok(report.operation === "doctor" && report.errors.items.includes("workspace root . is readable")
     && report.errors.items.includes("receipts live in <app data>/original-runtime"));
+  const reviewReport = reported(results[5]);
+  assert.ok(reviewReport.operation === "review" && reviewReport.findings.items[0].id === "./cleanup"
+    && reviewReport.omissions[0].reason === "<app data>/ignored");
 
   const windows = { root: "C:\\Users\\x\\proj", dataDir: "C:\\Users\\x\\AppData\\Roaming\\Vivary" };
   const spelled = raw(coding.doctor);
@@ -347,7 +444,7 @@ test("host paths never appear in any serialized result", async () => {
     "receipts in <app data>/original-runtime", "receipts in <app data>\\logs"]);
 });
 
-test("only check findings and find results carry a path, the one field redaction leaves whole", async () => {
+test("only check and review findings, find results, and impact nodes carry a path, the one field redaction leaves whole", async () => {
   const reads = createProjectRead({ run: fakeRun(fixtureFor(coding)).run, chatProject: noChat });
   const paths = new Set<string>();
   const walk = (value: unknown, where: string) => {
@@ -360,10 +457,12 @@ test("only check findings and find results carry a path, the one field redaction
     }
   };
   for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "sync queue" },
-    { operation: "capabilities" }, { operation: "receipts" }] as const) {
+    { operation: "capabilities" }, { operation: "receipts" }, { operation: "review" },
+    { operation: "impact", nodeId: "sync-tests" }] as const) {
     walk(reported(await reads.forOwner(owner, { projectId: "project-a", ...input })), input.operation);
   }
-  assert.deepEqual([...paths].sort(), ["check.findings.items[].path", "find.results.items[].path"]);
+  assert.deepEqual([...paths].sort(), ["check.findings.items[].path", "find.results.items[].path",
+    "impact.nodes.items[].path", "review.findings.items[].path"]);
 });
 
 test("worst-case outputs stay under the tool result limit with true totals", async () => {
@@ -384,13 +483,18 @@ test("worst-case outputs stay under the tool result limit with true totals", asy
       capabilities: { preset: "coding", default_capabilities: many(() => long("default")),
         available_capabilities: many(() => ({ id: long("id"), label: long("label"), default: false, requires_approval: true,
           network: long("network"), install_status: "not-installed", missing_install: many(() => long("package")) })) },
+      review: { schema: "vivary.review-result/v0", pack: "structure", reviewed: 900, warnings: 90, notes: 0, complete: false, omissions,
+        findings: many(index => ({ severity: "warn", rule: "broken-edge", id: long("id"), type: long("type"), path: sourcePath(index),
+          field: long("field") })) },
+      impact: { schema: "vivary.impact-result/v0", target: "q", impacted: 90, complete: false, omissions,
+        nodes: many(index => ({ id: long("id"), distance: index + 1, via: long("via"), type: long("type"), path: sourcePath(index) })) },
       logs: { summary: { total: 90, failed: 90, invalid_lines: 0 }, log: { total: 90, failed: 90, invalid_lines: 0 }, records: many(() => ({ timestamp: long("t"), tool: long("tool"),
         command: long("command"), ok: false, exit_code: 1, duration_ms: 5, receipt_source: long("source"), error_type: long("type") })) },
     };
     const reads = createProjectRead({ run: fakeRun((_id, command) => ({ exitCode: 1, stderr: "",
       stdout: JSON.stringify(worst[command.verb]) })).run, chatProject: noChat });
     for (const input of [{ operation: "doctor" }, { operation: "check" }, { operation: "find", query: "q" },
-      { operation: "capabilities" }, { operation: "receipts" }] as const) {
+      { operation: "capabilities" }, { operation: "receipts" }, { operation: "review" }, { operation: "impact", nodeId: "q" }] as const) {
       const label = `${input.operation} with ${JSON.stringify(unit)}`;
       const result = await reads.forOwner(owner, { projectId: "project-a", ...input });
       const report = reported(result);
@@ -449,12 +553,28 @@ test("the Native tool reads only the chat's own project, and the owner path retu
   assert.deepEqual(parsed, await reads.forOwner(owner, { projectId: "project-b", operation: "check" }));
 });
 
+test("review and impact reach the model exactly as the owner sees them", async () => {
+  const { reads, calls, call } = tool();
+  for (const input of [{ operation: "review" }, { operation: "review", pack: "editorial" },
+    { operation: "impact", nodeId: "sync-tests" }, { operation: "impact", nodeId: "private-roadmap" }] as const) {
+    const result = await call(scope("project-a"), input);
+    assert.equal(result.status, "completed", result.output);
+    assert.deepEqual(JSON.parse(result.output), await reads.forOwner(owner, { projectId: "project-a", ...input }), JSON.stringify(input));
+  }
+  assert.deepEqual(calls.filter(entry => entry.context?.caller === "tool").map(entry => entry.command), [
+    { verb: "review", pack: "structure" }, { verb: "review", pack: "editorial" },
+    { verb: "impact", nodeId: "sync-tests" }, { verb: "impact", nodeId: "private-roadmap" }]);
+});
+
 test("the Native tool refuses caller projects, personal and legacy chats, and malformed input before running", async () => {
   const { calls, call } = tool();
   for (const input of [{ operation: "doctor", projectId: "project-a" }, { operation: "doctor", root: "/outside" },
     { operation: "find" }, { operation: "find", query: "--root /outside" }, { operation: "find", query: "x", k: 21 },
     { operation: "find", query: "x", budget: 5_000 }, { operation: "doctor", query: "x" }, { operation: "shell" },
-    { operation: "receipts", path: "/outside/receipts.jsonl" }, { operation: "capabilities", preset: "admin" }]) {
+    { operation: "receipts", path: "/outside/receipts.jsonl" }, { operation: "capabilities", preset: "admin" },
+    { operation: "impact" }, { operation: "impact", nodeId: "--root" }, { operation: "impact", nodeId: "x".repeat(257) },
+    { operation: "review", pack: "context-budget" }, { operation: "doctor", pack: "structure" },
+    { operation: "review", nodeId: "sync-tests" }]) {
     const result = await call(scope("project-a"), input);
     assert.equal(result.status, "failed", JSON.stringify(input));
   }
@@ -513,20 +633,22 @@ test("a repeated read in one agent turn reaches the runner again, so a queue tim
   assert.deepEqual(results.map(result => (JSON.parse(result) as ProjectReadResult).status), ["unavailable", "unavailable"]);
 });
 
-test("the model sees one Vivary tool with no project field and the observations rule", async () => {
+test("the model sees the read and evaluate tools with no project field, and the read tool's observations rule", async () => {
   const modules: Record<string, unknown> = {};
   for (const file of await readdir(path.join(import.meta.dirname, "..", "actions"))) {
     if (file.endsWith(".ts")) modules[file.slice(0, -3)] = await import(`../actions/${file}`);
   }
   const actions = loadActionsFromStaticRegistry(modules);
   const vivaryTools = actionsToEngineTools(actions).filter(entry => entry.name.startsWith("vivary-"));
-  assert.deepEqual(vivaryTools.map(entry => entry.name), ["vivary-project-read"]);
-  const [projectTool] = vivaryTools;
+  assert.deepEqual(vivaryTools.map(entry => entry.name).sort(), ["vivary-project-evaluate", "vivary-project-read"]);
+  const projectTool = vivaryTools.find(entry => entry.name === "vivary-project-read")!;
   const schema = projectTool.inputSchema as { type: string; properties: Record<string, { enum?: string[] }>; required?: string[] };
   assert.equal(schema.type, "object");
-  assert.deepEqual(schema.properties.operation.enum, ["doctor", "check", "find", "capabilities", "receipts"]);
+  assert.deepEqual(schema.properties.operation.enum, ["doctor", "check", "find", "capabilities", "receipts", "review", "impact"]);
   assert.equal("projectId" in schema.properties, false);
   assert.match(projectTool.description, /observations/);
+  assert.match(projectTool.description, /review: structure or editorial findings/);
+  assert.match(projectTool.description, /impact: the shared notes that link to one note id/);
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read"]), false);
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read-owner"]), false);
 });

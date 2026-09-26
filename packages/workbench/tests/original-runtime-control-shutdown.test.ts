@@ -3,12 +3,11 @@ import fs from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import test from "node:test";
-import { createOriginalCommandRunner, shutdownOriginalCommands } from "../server/original-runtime";
+import { createProjectEvaluateRunner, shutdownOriginalCommands } from "../server/original-runtime";
 import { context, fixture, projectWorkspace } from "./original-runtime-harness.ts";
 
 test("shutdown waits for a control request being written, and no request remains", async () => {
   const f = await fixture();
-  const request = JSON.stringify({ operation: "expire_leases", state: { claims: [] }, input: { now: "2026-09-14T12:00:00Z" } });
   const requests = () => fs.readdir(path.join(f.data, "original-runtime"), { recursive: true })
     .then(entries => entries.filter(entry => String(entry).endsWith("request.json")), () => [] as string[]);
   // Hold the request write, so shutdown begins while it is in flight.
@@ -22,11 +21,12 @@ test("shutdown waits for a control request being written, and no request remains
     return writeFile(...args);
   }) as typeof writeFile;
   syncBuiltinESMExports();
-  const run = createOriginalCommandRunner({ parallelism: 4,
+  const run = createProjectEvaluateRunner({ parallelism: 4, now: () => new Date(),
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: f.runtime, VIVARY_DATA_DIR: f.data }),
     resolveWorkspace: async () => projectWorkspace("project-a", f.root),
     execute: () => { throw new Error("no child may start once shutdown began"); } });
-  const outcome = run({ projectId: "project-a", command: { verb: "control", request } }, context)
+  const outcome = run("project-a", { verb: "control", evaluateAs: "me",
+    input: { operation: "expire_leases", state: { claims: [] } } }, context)
     .then(() => "succeeded", (error: Error) => error.message);
   try {
     await atWrite;

@@ -2366,6 +2366,16 @@ class WorkLimitExceededError(TropoFacadeError):
 class ProducerUnavailableError(TropoFacadeError):
     reason = "producer_unavailable"
 
+
+class TargetUnavailableError(TropoFacadeError):
+    """A public impact target that is private, missing, or unknown.
+
+    One reason covers all three, so a refusal never tells a private note's id
+    apart from an id that names nothing.
+    """
+
+    reason = "target_unavailable"
+
 def _public_cancel_if_requested(cancelled):
     if cancelled is None:
         return
@@ -2475,6 +2485,8 @@ _PUBLIC_MAX_QUERY_CHARS = 4_096
 _PUBLIC_MAX_FILTERS = 16
 _PUBLIC_MAX_CHECK_PATHS = 200
 _PUBLIC_MAX_PATH_CHARS = 512
+# A public graph id is also an impact query, which the app caps at 256.
+_PUBLIC_MAX_GRAPH_ID_CHARS = 256
 _PUBLIC_MAX_TYPE_FILTER_CHARS = 128
 _PUBLIC_MAX_EDGE_FILTER_CHARS = 256
 _PUBLIC_MAX_SNIPPET_CHARS = 1_000
@@ -4120,6 +4132,49 @@ def check_workspace(
         "strict": strict_value,
         "complete": snapshot["complete"] and missing == 0,
         "workspace_fingerprint": snapshot["fingerprint"],
+        "omissions": _public_omission_rows(omissions),
+    }
+
+
+def public_graph(root, *, allowlist, cancelled=None):
+    """Build the typed graph from one privacy-filtered document snapshot.
+
+    Only documents the snapshot admits become nodes, so a private note's id,
+    path, type, and edges never enter the graph. A ref from a public note to a
+    private one is broken, exactly like a ref to a missing id. A document whose
+    id or path fails the facade's output checks is left out and counted.
+    Returns `{nodes, edges, complete, omissions}` shaped like `build_graph`.
+    """
+
+    snapshot = _public_document_snapshot(
+        root,
+        allowlist=allowlist,
+        cancelled=cancelled,
+    )
+    omissions = dict(snapshot["omissions"])
+    docs = []
+    for record in snapshot["documents"]:
+        _public_cancel_if_requested(cancelled)
+        doc = record["doc"]
+        if (
+            not _public_safe_relative_path(doc.rel)
+            or not _public_output_text_is_safe(
+                doc.derived.get("id"), _PUBLIC_MAX_GRAPH_ID_CHARS
+            )
+        ):
+            _public_add_omission(omissions, "document", "unsafe_identifier")
+            continue
+        docs.append(doc)
+    nodes, edges = build_graph(docs)
+    for node in nodes.values():
+        if node["type"] is not None and not _public_output_text_is_safe(
+            node["type"], _PUBLIC_MAX_TYPE_FILTER_CHARS
+        ):
+            node["type"] = None
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "complete": snapshot["complete"] and len(docs) == len(snapshot["documents"]),
         "omissions": _public_omission_rows(omissions),
     }
 

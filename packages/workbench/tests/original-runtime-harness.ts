@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
-import { createAdoptionCommandRunner, createOriginalCommandRunner } from "../server/original-runtime";
+import { createAdoptionCommandRunner, createOriginalCommandRunner, createProjectEvaluateRunner } from "../server/original-runtime";
 
 export const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 
@@ -35,7 +35,8 @@ export async function fixture(inspect?: (args: string[], stdin: string) => Promi
   let calls = 0;
   let beforeResolve = () => {};
   let afterExecute = () => {};
-  const runner = createOriginalCommandRunner({
+  let clock = new Date("2026-09-26T12:00:00.000Z");
+  const dependencies = {
     parallelism: 4,
     environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
     resolveWorkspace: async () => { reads++; beforeResolve(); return workspace; },
@@ -45,8 +46,9 @@ export async function fixture(inspect?: (args: string[], stdin: string) => Promi
       assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
       assert.equal(cwd, data);
       const childLog = environment.VIVARY_RECEIPT_LOG;
-      // A component writes a private receipt. The app records decide, doctor, find, and check, and logs reads the shared log.
-      const source = args[6] === "logs" ? "shared" : ["decide", "doctor", "find", "check"].includes(args[6]) ? "app" : "component";
+      // A component writes a private receipt. The app records decide and every project read, and logs reads the shared log.
+      const source = args[6] === "logs" ? "shared"
+        : ["decide", "doctor", "find", "check", "review", "impact"].includes(args[6]) ? "app" : "component";
       if (source === "component") {
         assert.ok(childLog && path.dirname(childLog).startsWith(path.join(data, "original-runtime", "run-")), childLog);
       } else {
@@ -58,8 +60,11 @@ export async function fixture(inspect?: (args: string[], stdin: string) => Promi
       if (source === "component") await writeFile(childLog!, JSON.stringify({ command: args[6], ok: true }) + "\n");
       return { exitCode: 0, stdout: "result", stderr: "", signal: null };
     },
-  });
-  return { directory, runtime, data, root, runner, calls: () => calls, reads: () => reads,
+  };
+  const runner = createOriginalCommandRunner(dependencies);
+  const evaluate = createProjectEvaluateRunner({ ...dependencies, now: () => clock });
+  return { directory, runtime, data, root, runner, evaluate, calls: () => calls, reads: () => reads,
+    setClock: (next: Date) => { clock = next; },
     beforeResolve: (callback: () => void) => { beforeResolve = callback; },
     afterExecute: (callback: () => void) => { afterExecute = callback; },
     revise: () => { workspace = { ...workspace, policyRevision: workspace.policyRevision + 1 }; },
@@ -100,7 +105,7 @@ export async function scheduling(options: { execute?: Execute; parallelism?: num
     execute: options.execute ?? fake,
     parallelism: options.parallelism ?? 4,
   };
-  const read = createOriginalCommandRunner(dependencies);
+  const owner = createOriginalCommandRunner(dependencies);
   const write = createAdoptionCommandRunner(dependencies);
   const submit = (run: (signal: AbortSignal) => Promise<unknown>): Submission => {
     const controller = new AbortController();
@@ -120,7 +125,8 @@ export async function scheduling(options: { execute?: Execute; parallelism?: num
   };
   return {
     directory, started,
-    review: (projectId: string) => submit(signal => read({ projectId, command: { verb: "review" } }, { ...context, signal })),
+    // A read-locked owner command, standing in for any read.
+    read: (projectId: string) => submit(signal => owner({ projectId, command: { verb: "pattern-state" } }, { ...context, signal })),
     apply: (projectId: string) => submit(signal => write({ verb: "adopt-apply", planHash: "sha256:" + "a".repeat(64),
       requestId: "00000000-0000-4000-8000-000000000001" }, projectWorkspace(projectId, path.join(directory, projectId)), { ...context, signal })),
     finish: async (submission: Submission) => {

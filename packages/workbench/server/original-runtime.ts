@@ -7,26 +7,26 @@ import { ActionContractError, fail, isActionContractError, type ActionRunContext
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
 import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
-import { projectReadBudgetSchema, projectReadKSchema, projectReadQuerySchema, READ_BOUNDS, type ProjectRef } from "../app/lib/project-read-schema.ts";
+import {
+  projectReadBudgetSchema, projectReadKSchema, projectReadNodeIdSchema, projectReadPackSchema, projectReadQuerySchema,
+  READ_BOUNDS, type ProjectRef,
+} from "../app/lib/project-read-schema.ts";
+import {
+  AGENT_CONTROL_OPERATIONS, AGENT_FORBIDDEN_EVIDENCE, projectEvaluateOwnInputSchema, projectEvaluateToolInputSchema,
+  type EvaluateAs, type GovernedRefusalReason,
+} from "../app/lib/project-evaluate-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
+import { EvidenceCodecError, governedDocument, projectAgentActorId, type BoundActor } from "./governed-request.ts";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
 import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 
-const requestDocument = z.string().min(1).max(65_536);
-// tropo and ozone read their one positional right after the verb and refuse a
-// `--` terminator, so a value that looks like an option cannot be passed safely.
-const notOptionLike = (value: string) => !value.startsWith("-");
-const optionLikeMessage = { message: "The text must not start with a dash." };
+const REQUEST_BYTES = 65_536;
 const commandSchema = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("create"), preset: preset.default("coding") }).strict(),
   z.object({ verb: z.literal("adopt"), preset: preset.optional(),
     patternChoices: workspacePatternChoices.optional() }).strict(),
   z.object({ verb: z.literal("pattern-state") }).strict(),
-  z.object({ verb: z.literal("decide"), request: requestDocument }).strict(),
-  z.object({ verb: z.literal("review") }).strict(),
-  z.object({ verb: z.literal("impact"), nodeId: z.string().trim().min(1).max(256).refine(notOptionLike, optionLikeMessage) }).strict(),
-  z.object({ verb: z.literal("control"), request: requestDocument }).strict(),
 ]);
 
 export const originalCommandSchema = z.object({
@@ -48,22 +48,38 @@ export const adoptionExecutionSchema = z.discriminatedUnion("verb", [
 type AdoptionExecution = z.infer<typeof adoptionExecutionSchema>;
 
 // Project reads have no action schema of their own: `project-read.ts` is the
-// only caller, and find and check always use the privacy-filtered front door.
+// only caller, and every read of project notes uses the privacy-filtered front door.
 const projectReadCommandSchema = z.discriminatedUnion("verb", [
   z.strictObject({ verb: z.literal("doctor") }),
   z.strictObject({ verb: z.literal("capabilities"), preset }),
   z.strictObject({ verb: z.literal("find"), query: projectReadQuerySchema, k: projectReadKSchema, budget: projectReadBudgetSchema }),
   z.strictObject({ verb: z.literal("check") }),
   z.strictObject({ verb: z.literal("logs"), failedOnly: z.boolean() }),
+  z.strictObject({ verb: z.literal("review"), pack: projectReadPackSchema }),
+  z.strictObject({ verb: z.literal("impact"), nodeId: projectReadNodeIdSchema }),
 ]);
 export type ProjectReadCommand = z.infer<typeof projectReadCommandSchema>;
-// A Native tool call may run these reads and none of the owner's commands.
-const projectReadVerbs: ReadonlySet<string> = new Set(projectReadCommandSchema.options.map(option => option.shape.verb.value));
-// The tool gate compares verbs, so no owner command may share a verb with a project read.
-const ownerVerbsAreNotReads: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"], ProjectReadCommand["verb"]>] extends [never]
-  ? true : never = true;
-void ownerVerbsAreNotReads;
-type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand;
+
+// Decide and control carry only the caller's evidence. The runner binds the
+// actor, project, scope, authority, and clocks when it builds the document.
+// Evaluating as the agent accepts only what the agent tool accepts.
+const governedCommandSchema = z.discriminatedUnion("evaluateAs", [
+  z.strictObject({ verb: z.enum(["decide", "control"]), evaluateAs: z.literal("agent"), input: projectEvaluateToolInputSchema }),
+  z.strictObject({ verb: z.enum(["decide", "control"]), evaluateAs: z.literal("me"), input: projectEvaluateOwnInputSchema }),
+]).refine(command => (command.verb === "decide") === (command.input.operation === "decide"),
+  { message: "The operation does not belong to this verb.", path: ["input", "operation"] });
+export type GovernedCommand = z.infer<typeof governedCommandSchema>;
+
+// A Native tool call may run these reads and the governed evaluations, and none of the owner's commands.
+const toolVerbs: ReadonlySet<string> = new Set([...projectReadCommandSchema.options.map(option => option.shape.verb.value),
+  "decide", "control"]);
+// The tool gate compares verbs, so no owner command may share a verb with one a tool may run.
+const ownerVerbsAreNotToolVerbs: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"],
+  ProjectReadCommand["verb"] | GovernedCommand["verb"]>] extends [never] ? true : never = true;
+void ownerVerbsAreNotToolVerbs;
+type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand | GovernedCommand;
+const isGoverned = (command: RuntimeCommand): command is GovernedCommand =>
+  command.verb === "decide" || command.verb === "control";
 const workspaceFields = ["root", "actorId", "projectId", "bindingId", "rootId", "locationRef",
   "bindingRevision", "policyRevision", "verificationKind"] as const;
 export function sameOriginalWorkspace(left: LocalProjectWorkspace, right: LocalProjectWorkspace): boolean {
@@ -110,8 +126,6 @@ const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
   adopt: { access: "read", receipt: "component", required: false },
   "pattern-state": { access: "read", receipt: "component", required: false },
   decide: { access: "read", receipt: "app", required: true },
-  review: { access: "read", receipt: "component", required: false },
-  impact: { access: "read", receipt: "component", required: false },
   control: { access: "write", receipt: "component", required: true },
   "adopt-prepare-privacy": { access: "write", receipt: "component", required: true },
   "adopt-apply": { access: "write", receipt: "component", required: true },
@@ -122,9 +136,12 @@ const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
   find: { access: "read", receipt: "app", required: false },
   check: { access: "read", receipt: "app", required: false },
   logs: { access: "read", receipt: "reads-log" },
+  review: { access: "read", receipt: "app", required: false },
+  impact: { access: "read", receipt: "app", required: false },
 };
 
-export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string) {
+/** `document` is the governed request the runner built. Control reads it from `controlRequestPath`. */
+export function originalCommandArguments(command: RuntimeCommand, root: string, controlRequestPath?: string, document?: string) {
   switch (command.verb) {
     case "create": return { args: ["create", root, "--preset", command.preset, "--json", "--no-wizard", "--dry-run"], stdin: "" };
     case "adopt": return { args: ["adopt", root, "--json",
@@ -151,9 +168,12 @@ export function originalCommandArguments(command: RuntimeCommand, root: string, 
     // The receipt log comes only from VIVARY_RECEIPT_LOG, never from an argument.
     case "logs": return { args: ["logs", "--json", "--tail", String(READ_BOUNDS.items),
       ...(command.failedOnly ? ["--failed"] : [])], stdin: "" };
-    case "decide": return { args: ["decide", "--governed", "--json", "--strict", "-"], stdin: command.request };
-    case "review": return { args: ["review", "--root", root, "--json", "--pack", "structure"], stdin: "" };
-    case "impact": return { args: ["impact", command.nodeId, "--root", root, "--json"], stdin: "" };
+    case "review": return { args: ["review", "--root", root, "--public", "--json", "--pack", command.pack], stdin: "" };
+    case "impact": return { args: ["impact", command.nodeId, "--root", root, "--public", "--json"], stdin: "" };
+    case "decide": {
+      if (document === undefined) throw new Error("A built decision request is required.");
+      return { args: ["decide", "--governed", "--json", "--strict", "-"], stdin: document };
+    }
     case "control": {
       if (!controlRequestPath) throw new Error("A private control request file is required.");
       return { args: ["control", "--governed", "--json", "--strict", controlRequestPath], stdin: "" };
@@ -261,16 +281,15 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
   // Exo refuses stdin when receipts are enabled, so control reads its request
   // from a file in its private folder. Control is required, so the folder exists.
-  const request = command.verb === "control" && privateDir
-    ? { file: path.join(privateDir, "request.json"), text: command.request } : undefined;
+  const request = command.verb === "control" && privateDir ? { file: path.join(privateDir, "request.json") } : undefined;
   // Control's request exists only while its admitted child can read it.
   const dropRequest = () => request
     ? rm(request.file, { force: true, maxRetries: 3 }).then(() => undefined, () => undefined) : Promise.resolve();
   let appended = false;
   return {
     requestFile: request?.file,
-    stageRequest: async () => {
-      if (request) await writeFile(request.file, request.text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    stageRequest: async (document: string | undefined) => {
+      if (request) await writeFile(request.file, document ?? "", { encoding: "utf8", mode: 0o600, flag: "wx" });
     },
     dropRequest,
     childLog: policy.receipt === "reads-log" ? receiptLog : componentLog,
@@ -306,21 +325,65 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   };
 }
 
-async function validateGovernedRequest(command: RuntimeCommand, workspace: LocalProjectWorkspace): Promise<void> {
-  if (command.verb !== "decide" && command.verb !== "control") return;
+/** A tool call always binds the agent. An owner call binds per evaluateAs. Nothing reads an actor from input. */
+function boundActor(context: ActionRunContext | undefined, workspace: LocalProjectWorkspace, evaluateAs: EvaluateAs): BoundActor {
+  if (context?.caller === "tool" && evaluateAs !== "agent") {
+    commandError("A Native tool call can only evaluate as this project's agent.", "vivary_original_tool_caller", 403);
+  }
+  return evaluateAs === "agent"
+    ? { kind: "agent", id: projectAgentActorId(workspace.actorId, workspace.projectId) }
+    : { kind: "human", id: workspace.actorId };
+}
+
+class GovernedRefusal extends Error {
+  constructor(readonly reason: GovernedRefusalReason) { super(reason); }
+}
+
+function buildGovernedDocument(command: GovernedCommand, workspace: LocalProjectWorkspace, actor: BoundActor, now: Date): string {
+  let document: string;
+  try { document = governedDocument(command.input, workspace, actor, now); }
+  catch (error) {
+    if (error instanceof EvidenceCodecError && error.reason !== "unencodable_evidence") throw new GovernedRefusal(error.reason);
+    throw error;
+  }
+  if (Buffer.byteLength(document, "utf8") > REQUEST_BYTES) {
+    commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
+  }
+  return document;
+}
+
+/**
+ * The components of `entry` below `root`, or null when `entry` is not a direct
+ * path inside the project. On Windows the capsule and claim spellings of the
+ * root, with forward slashes and folded case, still name the same folder.
+ */
+export function projectPathComponents(root: string, entry: string, flavor: typeof path.posix = path): string[] | null {
+  if (!flavor.isAbsolute(entry)) return null;
+  const rawComponents = entry.slice(flavor.parse(entry).root.length).split(/[\\/]/);
+  if (rawComponents.some(component => component === "." || component === "..")) return null;
+  const relative = flavor.relative(root, entry);
+  if (relative === ".." || relative.startsWith(".." + flavor.sep) || flavor.isAbsolute(relative)) return null;
+  return relative === "" ? [] : relative.split(flavor.sep);
+}
+
+// The builder is the only writer of server-owned fields. This re-reads its
+// document as Strato or Exo will, so a builder mistake cannot widen the actor,
+// authority, project, or paths. It returns the refusal, or null to run.
+async function validateGovernedRequest(document: string, verb: GovernedCommand["verb"],
+  workspace: LocalProjectWorkspace, actor: BoundActor): Promise<GovernedRefusalReason | null> {
+  const refuse = (reason: GovernedRefusalReason): never => { throw new GovernedRefusal(reason); };
+  const agent = actor.kind === "agent";
   try {
-    if (await realpath(workspace.root) !== workspace.root) throw new Error("project root changed");
+    if (await realpath(workspace.root) !== workspace.root) refuse("foreign_path");
     const object = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
-    const request = object(parseStrictJson(command.request));
-    const actor = (value: unknown) => z.object({ kind: z.literal("human"), id: z.literal(workspace.actorId) }).strict().parse(value);
+    const request = object(parseStrictJson(document));
+    const bound = (value: unknown) => z.strictObject({ kind: z.literal(actor.kind), id: z.literal(actor.id) }).parse(value);
     const paths = async (value: unknown) => {
-      for (const entry of z.array(z.string()).min(1).parse(value)) {
-        if (!path.isAbsolute(entry)) throw new Error("foreign scope");
-        const rawComponents = entry.slice(path.parse(entry).root.length).split(/[\\/]/);
-        if (rawComponents.some(component => component === "." || component === "..")
-          || !containsPath(workspace.root, entry)) throw new Error("foreign scope");
-        const relative = path.relative(workspace.root, entry);
-        const components = relative === "" ? [] : relative.split(path.sep);
+      for (const entry of z.array(z.string()).parse(value)) {
+        const components = projectPathComponents(workspace.root, entry) ?? refuse("foreign_path");
+        // An agent's evaluation is never saved or run, and a disk walk would
+        // tell it which private names exist, so its paths stay lexical.
+        if (agent) continue;
         let current = workspace.root;
         for (let index = 0; index < components.length; index += 1) {
           current = path.join(current, components[index]);
@@ -330,49 +393,67 @@ async function validateGovernedRequest(command: RuntimeCommand, workspace: Local
             if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
             throw error;
           }
-          if (info.isSymbolicLink() || (index < components.length - 1 && !info.isDirectory())) {
-            throw new Error("scope crosses a link or non-directory");
-          }
-          if (!containsPath(workspace.root, await realpath(current))) throw new Error("foreign resolved scope");
+          if (info.isSymbolicLink() || (index < components.length - 1 && !info.isDirectory())) refuse("foreign_path");
+          if (!containsPath(workspace.root, await realpath(current))) refuse("foreign_path");
         }
       }
     };
     const scope = async (value: unknown) => {
       const entry = object(value);
-      if (entry.project !== workspace.projectId) throw new Error("foreign project");
+      if (entry.project !== workspace.projectId) refuse("foreign_path");
       await paths(entry.paths);
     };
-    const contributor = (value: unknown, optional = false) => {
-      if (value !== "contributor" && !(optional && value === undefined)) throw new Error("unsupported authority");
+    const contributor = (value: unknown) => { if (value !== "contributor") refuse("identity"); };
+    // Strato and Exo refuse a capsule without a scope list, so only a list's paths need checking here.
+    const capsule = async (value: unknown) => {
+      const scopeList = object(object(value).task ?? {}).scope;
+      if (Array.isArray(scopeList)) await paths(scopeList);
     };
-    const capsule = async (value: unknown) => paths(object(object(value).task).scope);
-    if (command.verb === "decide") {
-      actor(request.actor);
+    const withoutEvidence = (value: Record<string, unknown>) => {
+      if (agent && Object.keys(value).some(key => (AGENT_FORBIDDEN_EVIDENCE as readonly string[]).includes(key))) refuse("identity");
+    };
+    if (verb === "decide") {
+      bound(request.actor);
       contributor(request.authority_class);
+      withoutEvidence(request);
       await scope(request.scope);
       await capsule(request.capsule);
-    } else {
-      const input = object(request.input);
-      const state = object(request.state);
-      if (state.claims !== undefined) {
-        for (const value of z.array(z.unknown()).parse(state.claims)) {
-          const claim = object(value);
-          await scope(claim.scope);
-          contributor(claim.authority_class);
-        }
-      }
-      if (request.operation === "claim") {
-        actor(input.actor); await scope(input.scope); contributor(input.authority_class, true);
-      } else if (request.operation === "release") {
-        actor(input.actor);
-      } else if (request.operation === "handoff") {
-        actor(input.from_actor); contributor(input.to_authority_class, true); await capsule(input.capsule);
-      } else if (request.operation === "record_execution") {
-        await capsule(input.capsule);
+      return null;
+    }
+    const input = object(request.input);
+    const state = object(request.state);
+    const operation = z.string().parse(request.operation);
+    if (agent && !(AGENT_CONTROL_OPERATIONS as readonly string[]).includes(operation)) refuse("identity");
+    withoutEvidence(input);
+    withoutEvidence(state);
+    if (state.claims !== undefined) {
+      for (const value of z.array(z.unknown()).parse(state.claims)) {
+        const claim = object(value);
+        await scope(claim.scope);
+        contributor(claim.authority_class);
       }
     }
-  } catch {
-    commandError("Use the signed-in project actor, contributor authority, and direct paths inside the selected project. Linked or parent-relative paths are not accepted.", "vivary_original_request_identity", 400);
+    if (operation === "claim") {
+      bound(input.actor); await scope(input.scope); contributor(input.authority_class);
+    } else if (operation === "release") {
+      bound(input.actor);
+    } else if (operation === "handoff") {
+      bound(input.from_actor); contributor(input.to_authority_class);
+      // An owner hands off only to themself or to this project's agent.
+      const recipients = [{ kind: "human", id: workspace.actorId },
+        { kind: "agent", id: projectAgentActorId(workspace.actorId, workspace.projectId) }];
+      const recipient = object(input.to_actor);
+      if (!recipients.some(entry => entry.kind === recipient.kind && entry.id === recipient.id
+        && Object.keys(recipient).length === 2)) refuse("identity");
+      await capsule(input.capsule);
+    } else if (operation === "record_execution") {
+      await capsule(input.capsule);
+    }
+    return null;
+  } catch (error) {
+    // Anything else is a document this check cannot read, or a folder it
+    // cannot walk, and neither says who the claims belong to.
+    return error instanceof GovernedRefusal ? error.reason : "request_invalid";
   }
 }
 
@@ -541,16 +622,21 @@ type Dependencies = {
   /** Concurrent original children. Callers past it wait, they are never refused. */
   parallelism: number;
 };
+type EvaluateDependencies = Dependencies & {
+  /** The clock a governed document is stamped with, read after the project lock is held. */
+  now: () => Date;
+};
 
 const runtimeDependencies: Dependencies = {
   resolveWorkspace: resolveLocalProjectWorkspace, environment: () => process.env, execute: runOriginalProcess,
   // The floor lets the Details panel's sections run together on a one or two core machine.
   parallelism: Math.max(4, availableParallelism()),
 };
+const evaluateDependencies: EvaluateDependencies = { ...runtimeDependencies, now: () => new Date() };
 
 // Resolution and the run are separate steps, so a project read can still name
 // its project when the run fails.
-function createRuntimeCommandRunner(dependencies: Dependencies) {
+function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date = () => new Date()) {
   const resolve = async (context: ActionRunContext | undefined, projectId: string, expectedWorkspace?: LocalProjectWorkspace) => {
     requireVivaryCodeUser(context);
     const workspace = await dependencies.resolveWorkspace(context, projectId);
@@ -562,9 +648,20 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
   const execute = async (workspace: LocalProjectWorkspace, command: RuntimeCommand, context?: ActionRunContext) => {
     // A command that arrives after shutdown began touches no files.
     if (commandHost.closing) throw closingError();
-    if (context?.caller === "tool" && !projectReadVerbs.has(command.verb)) {
-      commandError("A Native tool call can only read project reports.", "vivary_original_tool_caller", 403);
+    if (context?.caller === "tool" && !toolVerbs.has(command.verb)) {
+      commandError("A Native tool call can only read project reports and evaluate as this project's agent.",
+        "vivary_original_tool_caller", 403);
     }
+    const governed = isGoverned(command) ? command : undefined;
+    const actor = governed ? boundActor(context, workspace, governed.evaluateAs) : undefined;
+    // The document is built again once the project lock is held, so queue wait does not age its clocks.
+    const governedRequest = async (at: LocalProjectWorkspace) => {
+      if (!governed || !actor) return undefined;
+      const document = buildGovernedDocument(governed, at, actor, now());
+      const refusal = await validateGovernedRequest(document, governed.verb, at, actor);
+      if (refusal) throw new GovernedRefusal(refusal);
+      return document;
+    };
     const policy = commandPolicy[command.verb];
     const { projectId } = workspace;
     const environment = dependencies.environment();
@@ -583,21 +680,22 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
     await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
     if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
     await sweepStaleRuns(receiptDir, path.join(receiptDir, "receipts.jsonl"));
-    if ("request" in command && Buffer.byteLength(command.request, "utf8") > 65_536) {
-      commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
-    }
-    await validateGovernedRequest(command, workspace);
+    await governedRequest(workspace);
     const receipts = await openReceipts(command, receiptDir, runtime.version);
     const recorded = Promise.withResolvers<void>();
     // Shutdown waits for a started command until its receipt is recorded and its private folder is gone.
     const record = async (settled: Settled) => {
       try { await receipts.settle(settled); } finally { await receipts.dispose(); recorded.resolve(); }
     };
-    try {
-      const invocation = originalCommandArguments(command, workspace.root, receipts.requestFile);
+    const invocationFor = (document?: string) => {
+      const invocation = originalCommandArguments(command, workspace.root, receipts.requestFile, document);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
+      return invocation;
+    };
+    try {
+      let invocation = governed ? undefined : invocationFor();
       const release = await acquireProject(projectId, policy.access, dependencies.parallelism, context?.signal);
       let current: LocalProjectWorkspace;
       let result: Awaited<ReturnType<typeof runOriginalProcess>>;
@@ -609,7 +707,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         if (!current || !sameOriginalWorkspace(current, workspace)) {
           commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
         }
-        await validateGovernedRequest(command, current);
+        const document = await governedRequest(current);
+        invocation ??= invocationFor(document);
         // Shutdown or a cancel may arrive while an admitted command re-checks its project.
         if (commandHost.closing) throw closingError();
         context?.signal?.throwIfAborted();
@@ -617,12 +716,13 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
         (commandHost.recording ??= new Set()).add(recorded.promise);
         void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
         try {
-          await receipts.stageRequest();
+          await receipts.stageRequest(document);
           if (commandHost.closing) throw closingError();
           context?.signal?.throwIfAborted();
           const startedAt = performance.now();
           // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
-          const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args], invocation.stdin, dataDir,
+          const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args],
+            invocation.stdin, dataDir,
             originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
           started = startedAt;
           try { result = await running; } finally { ended = performance.now(); }
@@ -641,8 +741,8 @@ function createRuntimeCommandRunner(dependencies: Dependencies) {
       if (!sameOriginalWorkspace(after, current)) {
         commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
       }
-      return { workspace: after, dataDir, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
-        ...(command.verb === "decide" || command.verb === "control" ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
+      return { workspace: after, dataDir, actor, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
+        ...(governed ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
     } finally {
       await receipts.dispose();
       recorded.resolve();
@@ -692,6 +792,36 @@ export function createProjectReadRunner(dependencies: Dependencies = runtimeDepe
   };
 }
 
+export type ProjectEvaluateRun = { project: ProjectRef } & (
+  | { failure: OriginalRunFailure }
+  | { refusal: GovernedRefusalReason }
+  | { exitCode: number | null; stdout: string; stderr: string; actor: BoundActor;
+      /** Server-only: used to encode output, never serialized. */
+      hostPaths: { root: string; dataDir: string } });
+
+/**
+ * Run one governed decide or control evaluation. Access refusals throw. A run
+ * failure and a path, identity, request, or root refusal are values.
+ */
+export function createProjectEvaluateRunner(dependencies: EvaluateDependencies = evaluateDependencies) {
+  const runner = createRuntimeCommandRunner(dependencies, dependencies.now);
+  return async (projectId: string, command: GovernedCommand, context?: ActionRunContext): Promise<ProjectEvaluateRun> => {
+    const parsed = governedCommandSchema.parse(command);
+    const workspace = await runner.resolve(context, projectId);
+    const project = { id: workspace.projectId, label: workspace.label };
+    try {
+      const { workspace: after, dataDir, actor, output } = await runner.execute(workspace, parsed, context);
+      return { project, exitCode: output.exitCode, stdout: output.stdout, stderr: output.stderr, actor: actor!,
+        hostPaths: { root: after.root, dataDir } };
+    } catch (error) {
+      if (error instanceof GovernedRefusal) return { project, refusal: error.reason };
+      if (!isOriginalRunFailure(error)) throw error;
+      return { project, failure: error.errorCode };
+    }
+  };
+}
+
 export const runOriginalCommand = createOriginalCommandRunner();
 export const runAdoptionCommand = createAdoptionCommandRunner();
 export const runProjectRead = createProjectReadRunner();
+export const runProjectEvaluate = createProjectEvaluateRunner();

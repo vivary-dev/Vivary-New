@@ -1,4 +1,5 @@
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -8,13 +9,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-for _path in (ROOT, *(ROOT.parent / name for name in ("tropo", "core", "create-vivary"))):
+for _path in (ROOT, *(ROOT.parent / name for name in ("tropo", "ozone", "core", "create-vivary"))):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
 import create_vivary
+import ozone
 import tropo
 import vivary_cli
 from vivary_core import normalize_path
@@ -357,7 +360,8 @@ class VivaryPublicReadTests(unittest.TestCase):
 
     def test_public_reads_refuse_a_folder_without_a_privacy_policy(self):
         shutil.rmtree(self.root / ".git")
-        for verb_args in (["find", "gamma relay"], ["check"]):
+        for verb_args in (["find", "gamma relay"], ["check"], ["review"],
+                          ["impact", "relay"]):
             with self.subTest(verb=verb_args[0]):
                 rc, out, err = _run([*verb_args, "--root", str(self.root), "--public"])
 
@@ -366,6 +370,78 @@ class VivaryPublicReadTests(unittest.TestCase):
                     json.loads(out),
                     {"schema": "vivary.read-refusal/v0", "reason": "privacy_policy_unavailable"},
                 )
+
+    def test_public_review_and_impact_print_the_facade_result_and_write_nothing(self):
+        before = self._tree()
+        structure = _run(["review", "--root", str(self.root), "--public", "--json"])
+        editorial = _run(
+            ["review", "--root", str(self.root), "--public", "--pack", "editorial"])
+        impact = _run(["impact", "relay", "--root", str(self.root), "--public", "--json"])
+
+        self.assertEqual(self._tree(), before)
+        allowlist = [self.canonical]
+        expected = (
+            ozone.public_review(self.canonical, pack="structure", allowlist=allowlist),
+            ozone.public_review(self.canonical, pack="editorial", allowlist=allowlist),
+            ozone.public_impact(self.canonical, "relay", allowlist=allowlist),
+        )
+        for (rc, out, err), result in zip((structure, editorial, impact), expected):
+            with self.subTest(schema=result["schema"], out=out[:40]):
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(json.loads(out), result)
+
+    def test_public_review_and_impact_leave_out_a_git_ignored_note_that_plain_ones_name(self):
+        plain_review_rc, plain_review, _ = _run(["review", "--root", str(self.root), "--json"])
+        plain_impact_rc, _, plain_impact_err = _run(
+            ["impact", "private", "--root", str(self.root), "--json"])
+        public_rc, public_out, public_err = _run(
+            ["review", "--root", str(self.root), "--public"])
+        refusals = [
+            _run(["impact", node_id, "--root", str(self.root), "--public"])
+            for node_id in ("private", "nowhere-9f2c41d7")
+        ]
+
+        self.assertEqual((plain_review_rc, plain_impact_rc), (0, 0), plain_impact_err)
+        self.assertIn("private", [f["id"] for f in json.loads(plain_review)["findings"]])
+        self.assertEqual(public_rc, 0, public_err)
+        self.assertNotIn("private", [f["id"] for f in json.loads(public_out)["findings"]])
+        self.assertNotIn("private.md", public_out)
+        self.assertEqual(refusals[0], refusals[1])
+        rc, out, _ = refusals[0]
+        self.assertEqual(rc, 2)
+        self.assertEqual(
+            json.loads(out), {"schema": "vivary.read-refusal/v0", "reason": "target_unavailable"})
+
+    def test_review_and_impact_without_tropo_print_the_install_hint(self):
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, "ozone").mkdir()
+            shutil.copy(ozone.__file__, Path(td, "ozone", "ozone.py"))
+            spec = importlib.util.spec_from_file_location("ozone", Path(td, "ozone", "ozone.py"))
+            lone = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(lone)
+            with mock.patch.dict(sys.modules, {"ozone": lone, "tropo": None}):
+                results = [
+                    _run([*verb_args, "--root", str(self.root), *public])
+                    for verb_args in (["review"], ["impact", "relay"])
+                    for public in ((), ("--public",))
+                ]
+
+        for rc, out, err in results:
+            with self.subTest(err=err):
+                self.assertEqual((rc, out), (1, ""))
+                self.assertTrue(
+                    err.startswith("ozone: tropo engine not found (install vivary-tropo): "))
+
+    def test_public_review_refuses_the_context_budget_pack(self):
+        plain_rc, _, plain_err = _run(
+            ["review", "--root", str(self.root), "--pack", "context-budget", "--json"])
+        rc, out, err = _run(
+            ["review", "--root", str(self.root), "--public", "--pack", "context-budget"])
+
+        self.assertEqual(plain_rc, 0, plain_err)
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertIn("invalid choice: 'context-budget'", err)
 
     def test_public_doctor_reports_the_workspace_without_a_git_ignored_note(self):
         with tempfile.TemporaryDirectory() as td:

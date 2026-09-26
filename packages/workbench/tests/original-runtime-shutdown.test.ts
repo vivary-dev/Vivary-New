@@ -15,9 +15,9 @@ test("shutdown stops running children, refuses waiters, and stops an admitted co
   } });
   const write = f.apply("project-a");
   await write.queued();
-  const waiting = f.review("project-a");
+  const waiting = f.read("project-a");
   const hold = f.hold("project-c");
-  const admitted = f.review("project-c");
+  const admitted = f.read("project-c");
   const stopped = assert.rejects(write.result, /closing. The original command was stopped/);
   const refused = assert.rejects(waiting.result, /closing. New original commands cannot start/);
   const unspawned = assert.rejects(admitted.result, /closing. New original commands cannot start/);
@@ -40,7 +40,7 @@ test("shutdown stops running children, refuses waiters, and stops an admitted co
     hold.release();
     await Promise.all([stopped, refused, unspawned]);
     assert.deepEqual(executed, ["project-a"], "the admitted project-c command never reached the executor");
-    await assert.rejects(f.review("project-b").result, /cannot start/);
+    await assert.rejects(f.read("project-b").result, /cannot start/);
     assert.throws(() => runOriginalProcess(process.execPath, ["-e", ""], "", f.directory, {}), /cannot start/);
   } finally {
     hold.release();

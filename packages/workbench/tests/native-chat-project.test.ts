@@ -15,6 +15,7 @@ import {
   prepareVivaryNativeChatProject,
   vivaryNativeChatProjectOptions,
 } from "../server/native-chat-project";
+import { createProjectEvaluate } from "../server/project-evaluate.ts";
 import { renderUnavailableContext, type ProjectContextBlock } from "../server/project-memory.ts";
 import type { ChatScopeMatch } from "../server/project-services.mjs";
 
@@ -193,15 +194,17 @@ test("extraContext renders unavailable when access is revoked after the guard", 
 });
 
 test("resolveActionSurface removes owner-wide actions only in project chats", async () => {
-  const available = ["vivary-project-read", "resources", "save-memory", "delete-memory", "chat-history", "web-request"];
+  const available = ["vivary-project-read", "vivary-project-evaluate", "resources", "save-memory", "delete-memory",
+    "chat-history", "web-request"];
   const surface = (match: ChatScopeMatch | Error) => createVivaryNativeChatActionSurface({
     getOrgId: () => orgId,
     matchChatProject: async () => { if (match instanceof Error) throw match; return match; },
   })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
-  assert.deepEqual(await surface(projectMatch), { allowedActionNames: ["vivary-project-read", "web-request"] });
+  const projectTools = ["vivary-project-read", "vivary-project-evaluate", "web-request"];
+  assert.deepEqual(await surface(projectMatch), { allowedActionNames: projectTools });
   assert.deepEqual(await surface({ kind: "personal" }), { mode: "default" });
   assert.deepEqual(await surface({ kind: "not-project" }), { mode: "default" });
-  assert.deepEqual(await surface(new Error("catalog")), { allowedActionNames: ["vivary-project-read", "web-request"] });
+  assert.deepEqual(await surface(new Error("catalog")), { allowedActionNames: projectTools });
 });
 
 test("a request-scoped surface changes only trusted code execution, which Full chat does not use", async () => {
@@ -235,7 +238,7 @@ test("owner-wide action names match Native's resource, chat, and database entrie
 
 test("a project chat's resolved surface keeps no owner-wide or database tool Native registers", async () => {
   const { registered } = await nativeFrameworkActions();
-  const available = ["vivary-project-read", ...registered];
+  const available = ["vivary-project-read", "vivary-project-evaluate", ...registered];
   const resolve = (match: ChatScopeMatch) => createVivaryNativeChatActionSurface({
     getOrgId: () => orgId, matchChatProject: async () => match,
   })({ event: {}, ownerEmail, orgId, mode: "act", internalContinuation: false, availableActionNames: available });
@@ -246,7 +249,31 @@ test("a project chat's resolved surface keeps no owner-wide or database tool Nat
     assert.equal(project.allowedActionNames.includes(name), false, name);
   }
   assert.ok(project.allowedActionNames.includes("vivary-project-read"));
+  assert.ok(project.allowedActionNames.includes("vivary-project-evaluate"));
   assert.deepEqual(await resolve({ kind: "personal" }), { mode: "default" });
+});
+
+test("a governed evaluation takes its project from the chat scope, never from its input", async () => {
+  const runs: { projectId: string; caller: string | undefined }[] = [];
+  const resolve = (match: ChatScopeMatch) => createVivaryNativeChatProjectResolver({ getOrgId: () => orgId,
+    matchChatProject: async () => match, resolveProjectWorkspace: async () => { throw new Error("The runner resolves the workspace."); } });
+  const evaluations = (match: ChatScopeMatch) => createProjectEvaluate({ chatProject: resolve(match),
+    run: async (projectId, _command, context) => {
+      runs.push({ projectId, caller: context?.caller });
+      return { project: { id: projectId, label: "Project B" }, failure: "vivary_original_queue_timeout" };
+    } });
+  const tool: ActionRunContext = { caller: "tool", userEmail: ownerEmail, orgId, appId: "workbench" };
+  const input = { operation: "expire_leases", state: { claims: [] } };
+  const result = await evaluations({ kind: "project", projectId: "project-b", context: tool }).forChat(tool, input);
+  assert.ok(result.status === "unavailable" && result.project.id === "project-b");
+  assert.deepEqual(runs, [{ projectId: "project-b", caller: "tool" }]);
+  assert.deepEqual(await evaluations({ kind: "project", projectId: "project-b", context: tool }).forChat(tool, { ...input, projectId: "project-a" }),
+    { status: "refused", project: null, operation: "expire_leases", reason: "server_owned_field", field: "projectId",
+      message: "Vivary sets projectId itself. Remove projectId and try again." });
+  for (const match of [{ kind: "personal" }, { kind: "not-project" }] as const) {
+    await assert.rejects(evaluations(match).forChat(tool, input), /Open this chat from a project to use project tools/);
+  }
+  assert.equal(runs.length, 1);
 });
 
 test("the Native chat plugin uses the project guard, context, and action surface", async () => {

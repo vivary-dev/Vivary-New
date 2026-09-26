@@ -124,6 +124,38 @@ def _public_check(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
     return result, 1 if result["errors"] > 0 else 0
 
 
+def _review_arguments(parser: argparse.ArgumentParser) -> None:
+    # Context-budget reads routing files from disk, so it has no public form.
+    parser.add_argument("--pack", choices=("structure", "editorial"), default="structure",
+                        help="the review pack (default structure)")
+
+
+def _public_review(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
+    root = _public_root(args.root)
+    try:
+        return module.public_review(root, pack=args.pack, allowlist=[root]), 0
+    except module.OzoneError as error:
+        # A missing Tropo stops the read the way it stops a plain review.
+        sys.exit(f"ozone: {error}")
+    except module.TropoFacadeError as error:
+        return _refusal(error)
+
+
+def _impact_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("id", help="the node whose dependents to list")
+
+
+def _public_impact(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
+    root = _public_root(args.root)
+    try:
+        return module.public_impact(root, args.id, allowlist=[root]), 0
+    except module.OzoneError as error:
+        # A missing Tropo stops the read the way it stops a plain review.
+        sys.exit(f"ozone: {error}")
+    except module.TropoFacadeError as error:
+        return _refusal(error)
+
+
 def _public_doctor(module: Any, args: argparse.Namespace) -> tuple[dict, int]:
     # Plain Doctor names notes and folders that Git may ignore. Notes stay
     # with `check --public`, and this report names no user-authored path.
@@ -171,9 +203,11 @@ ROUTES = (
     Route("decide", "strato", ("decide",),
           "Evaluate one governed decision request"),
     Route("review", "ozone", ("review",),
-          "Run a review rule pack over the context graph"),
+          "Run a review rule pack over the context graph",
+          PublicRead(_public_review, _review_arguments)),
     Route("impact", "ozone", ("impact",),
-          "Show what one node affects"),
+          "Show what one node affects",
+          PublicRead(_public_impact, _impact_arguments)),
     Route("control", "exo", ("control",),
           "Dispatch one governed Core control request"),
 )
@@ -574,20 +608,22 @@ def _prog_keyword(main: Any, route: Route) -> dict[str, str]:
 def _public_read(module: Any, route: Route, rest: list[str]) -> int:
     """Print one report that leaves private files out.
 
-    Plain find, check, and doctor read every Markdown file their config does
-    not exclude, so a git-ignored note reaches the output. Find and check read
-    through Tropo's privacy-filtered facade, which applies Core's privacy
-    policy and needs no Tropo config. A folder that is neither a Git worktree
-    nor a thin Vivary workspace is refused, because its private files cannot
-    be told apart. Doctor checks the workspace and names no user-authored path.
+    Plain find, check, review, impact, and doctor read every Markdown file
+    their config does not exclude, so a git-ignored note reaches the output.
+    Find, check, review, and impact read through Tropo's privacy-filtered
+    facade, which applies Core's privacy policy and needs no Tropo config. A
+    folder that is neither a Git worktree nor a thin Vivary workspace is
+    refused, because its private files cannot be told apart. Doctor checks the
+    workspace and names no user-authored path.
     """
     parser = argparse.ArgumentParser(
         prog=routed_prog(route.verb),
         description=(
-            "Print a report that leaves private files out. Find and check leave"
-            " out files that Git ignores, sensitive names, and a thin Vivary"
-            " workspace's private paths, and need no tropo.toml. Doctor checks"
-            " the workspace and names no user-authored path. Output is always JSON."
+            "Print a report that leaves private files out. Find, check, review,"
+            " and impact leave out files that Git ignores, sensitive names, and a"
+            " thin Vivary workspace's private paths, and need no tropo.toml."
+            " Doctor checks the workspace and names no user-authored path."
+            " Output is always JSON."
         ),
         allow_abbrev=False,
     )

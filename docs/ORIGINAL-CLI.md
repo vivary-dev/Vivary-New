@@ -146,6 +146,19 @@ facade cannot show safely is `null`. `vivary find --help` still prints Tropo's h
 and `vivary find --public --help` prints this path's options. No public path writes a
 run receipt or accepts `--receipt`.
 
+`vivary review --root PATH --public` and `vivary impact ID --root PATH --public`
+build their graph only from the notes in Tropo's privacy-filtered snapshot, so
+a private note never reaches a rule. Review runs the Structure or Editorial pack
+(`--pack`, default `structure`). Context budget reads routing files from disk
+and has no public form. Review prints `vivary.review-result/v0`, whose findings
+carry a rule code, the note's id, type, and path, and no message. A
+broken-edge finding adds its link field and leaves out the target, so a link
+to a private note reads like a link to a missing id. Impact prints
+`vivary.impact-result/v0` with each dependent's distance and linking field. A
+private, missing, or unknown target gets `target_unavailable`. Both exit 0 on
+success and print the read refusal with exit 2 otherwise. Ozone's declared
+Tropo floor does not require the Tropo that adds `public_graph`.
+
 For local debugging and bug reports, the core CLIs accept `--receipt PATH` or
 `VIVARY_RECEIPT_LOG=PATH` to append a dependency-free JSONL run receipt. Receipts stay
 local and do not capture stdout, stderr, file contents, raw query text, target ids, or

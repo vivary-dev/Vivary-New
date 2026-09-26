@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import evaluateOwner from "../actions/vivary-project-evaluate-owner.ts";
+import evaluateTool from "../actions/vivary-project-evaluate.ts";
 import { createNativeActionCaller, folderConnectionErrorMessage } from "../app/lib/native-actions";
+import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions";
 
 test("owner action sends one bounded same-origin request without redirects", async () => {
   const requests: Request[] = [];
@@ -130,6 +133,26 @@ test("original engine commands use the same private owner-session transport", as
   assert.deepEqual(await requests[0].json(), input);
 });
 
+test("governed evaluation is an owner action and a separate agent tool that is not a read", async () => {
+  assert.ok(VIVARY_OWNER_ACTIONS.includes("vivary-project-evaluate-owner"));
+  assert.equal((VIVARY_OWNER_ACTIONS as readonly string[]).includes("vivary-project-evaluate"), false, "the tool has no owner transport");
+  assert.deepEqual([evaluateTool.agentTool, evaluateTool.readOnly, evaluateTool.dedupe, evaluateTool.timeoutMs,
+    evaluateTool.mcpTool, evaluateTool.toolCallable], [true, false, false, 70_000, false, false]);
+  assert.deepEqual([evaluateOwner.agentTool, evaluateOwner.readOnly, evaluateOwner.mcpTool, evaluateOwner.toolCallable],
+    [false, false, false, false]);
+  const requests: Request[] = [];
+  const call = createNativeActionCaller({
+    getSession: () => ({ status: "authenticated", session: { email: "owner@example.test", token: "evaluate-owner-test-token" } }),
+    cookieAction: async () => { throw new Error("A private owner session must use its existing transport."); },
+    fetch: async (input, init) => { requests.push(new Request(input, init)); return Response.json({ status: "evaluated" }); },
+    locationHref: () => "https://private.example.test/", nativePath: path => path,
+    invalidate: () => { throw new Error("Unexpected invalidation"); },
+  });
+  const input = { projectId: "project-test", evaluateAs: "agent", operation: "expire_leases", state: { claims: [] } };
+  assert.deepEqual(await call("vivary-project-evaluate-owner", input), { status: "evaluated" });
+  assert.equal(requests[0].url, "https://private.example.test/_agent-native/actions/vivary-project-evaluate-owner");
+  assert.deepEqual(await requests[0].json(), input);
+});
 
 test("folder picker timeouts explain how to recover on both owner transports", async () => {
   for (const token of ["picker-timeout-owner", undefined]) {
