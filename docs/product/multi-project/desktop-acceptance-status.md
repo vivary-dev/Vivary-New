@@ -125,8 +125,8 @@ Windows archive, SHA-256
 `74573156a2add16a2e49c677fcedfffb4df4d064503e1a4779554f751c6ecc3a`, passed
 Review, Impact, Decide, claim, and release in Project details and a 14-check
 agent turn on 2026-09-26 with a fake provider. Project files kept their
-snapshots. No real provider turn has run. Owner acceptance and issue closure
-are pending.
+snapshots. No real provider turn has run. PR #95 merged into `dev` as
+`7fb73bd`, and the owner closed issue #20 on 2026-09-26.
 
 ## Conversation drafts, September 24
 

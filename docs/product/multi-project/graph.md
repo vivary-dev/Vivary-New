@@ -14,7 +14,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate outcome completion. Packets provide implementation guidance and evidence.
 
 Frontier snapshot: none.
-In-progress snapshot: 09b.
+In-progress snapshot: none.
 
 ## Packet references
 
@@ -38,8 +38,8 @@ In-progress snapshot: 09b.
 | [08a: Adopt populated folders with truthful type and conflict preflight](packets/08a-populated-folder-adoption.md) | 08 | done | [07b] |
 | [08b: Preserve project identities when merging or splitting selected work](packets/08b-project-merge-split.md) | 08 | needs-info | [07c, 08a] |
 | [09a: Verify and repair narrow non-code context and Doctor behavior](packets/09a-noncode-context-doctor.md) | 09 | done | [] |
-| [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) | 09 | in-progress | [09a, 23a] |
-| [09c: Expose original review and control tools in Native](packets/09c-original-review-control-tools.md) | 09 | needs-info | [09b, 07d] |
+| [09b: Expose original project read tools in Native](packets/09b-original-read-tools.md) | 09 | done | [09a, 23a] |
+| [09c: Expose original review and control tools in Native](packets/09c-original-review-control-tools.md) | 09 | done | [09b, 07d] |
 | [10a: Establish the BrowserPod compatibility boundary](packets/10a-browserpod-compatibility-preflight.md) | 10 | done | [] |
 | [10b: Prove the first BrowserPod toolchain on a disposable fixture](packets/10b-browserpod-toolchain-proof.md) | 10 | needs-info | [10a] |
 | [10c: Prove the authorized Habitat fallback toolchain](packets/10c-habitat-fallback-proof.md) | 10 | done | [10a] |

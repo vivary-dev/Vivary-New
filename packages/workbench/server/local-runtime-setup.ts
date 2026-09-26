@@ -30,6 +30,59 @@ const PROBE_MAX_BYTES = 64 * 1024;
 const cached = new Map<VivaryCodeEngine, { expiresAt: number; value: VivaryRuntimeStatus }>();
 const pending = new Map<VivaryCodeEngine, Promise<VivaryRuntimeStatus>>();
 
+// Coding runtimes run commands the agent chooses and keep their own logins in their own stores.
+// Their launch keeps the host's ordinary settings, such as proxies, locale, and toolchain paths, and
+// withholds every credential-shaped name: the Native provider keys Agent-Native reads from this
+// environment, the sign-in secret that also derives the secret-store key, database URLs and tokens,
+// webhook URLs, and integration secrets. Agent-Native reads well over a hundred such names, so a
+// rule covers them rather than a list. Fragments match anywhere in a name, so PGPASSWORD matches.
+// Short words match whole "_"-separated words, so SSH_AUTH_SOCK, GIT_ASKPASS, and PATH stay.
+const CREDENTIAL_FRAGMENTS = ["PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "CREDENTIAL",
+  "CONNECTION_STRING", "CONNECTIONSTRING", "COOKIE", "WEBHOOK"];
+const CREDENTIAL_WORDS = new Set(["KEY", "KEYS", "PASS", "PAT", "DSN"]);
+// MCP_SERVERS holds whole server configurations, including their headers and environments.
+// GIT_CONFIG_PARAMETERS carries `git -c` values such as http.extraheader. BW_SESSION and
+// OP_SESSION_<account> unlock the Bitwarden and 1Password command-line vaults.
+const CREDENTIAL_NAMES = new Set(["MCP_SERVERS", "MYSQL_PWD", "DOCKER_AUTH_CONFIG", "GIT_CONFIG_PARAMETERS", "BW_SESSION"]);
+const CREDENTIAL_PREFIXES = ["OP_SESSION_"];
+// Database and message broker URLs can carry a password, as in POSTGRES_URL_NON_POOLING,
+// MONGODB_URI, or CELERY_BROKER_URL. A URL or URI word after such a word marks one.
+const DATABASE_STEMS = ["DATABASE", "DATASOURCE", "POSTGRES", "PG", "MYSQL", "MARIADB", "MONGO", "REDIS", "KV",
+  "BROKER", "AMQP", "CLOUDAMQP"];
+// These match the rule, but tools need them and they hold no secret. Git Credential Manager
+// needs its store type on Linux.
+const ORDINARY_NAMES = new Set(["GCM_CREDENTIAL_STORE", "GCM_AZREPOS_CREDENTIALTYPE", "NUGET_CREDENTIALPROVIDERS_PATH",
+  "COOKIECUTTER_CONFIG", "TIKTOKEN_CACHE_DIR"]);
+// Git reads GIT_CONFIG_COUNT with KEY_n and VALUE_n as complete pairs and exits if one is missing.
+// A value can hold an authorization header, so the whole group is withheld together.
+const GIT_CONFIG_GROUP = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
+// Nested-session markers that would make a CLI believe it runs inside another agent's session.
+const SESSION_MARKERS = new Set([...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
+  "CODEX_THREAD_ID", "CODEX_SESSION_ID"].map(name => name.toUpperCase()));
+
+function isDatabaseUrl(words: string[]): boolean {
+  const url = words.findLastIndex(word => word === "URL" || word === "URI");
+  return url > 0 && words.slice(0, url)
+    .some(word => word.endsWith("DB") || DATABASE_STEMS.some(stem => word.startsWith(stem)));
+}
+
+function isCredentialName(upperName: string): boolean {
+  if (ORDINARY_NAMES.has(upperName)) return false;
+  const words = upperName.split("_");
+  return CREDENTIAL_FRAGMENTS.some(fragment => upperName.includes(fragment))
+    || words.some(word => CREDENTIAL_WORDS.has(word)) || words.at(-1) === "AUTH"
+    || CREDENTIAL_NAMES.has(upperName) || CREDENTIAL_PREFIXES.some(prefix => upperName.startsWith(prefix))
+    || isDatabaseUrl(words) || GIT_CONFIG_GROUP.test(upperName);
+}
+
+// Windows environment names are case-insensitive, so names compare in upper case.
+export function codingRuntimeEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(source).filter(([name]) => {
+    const upperName = name.toUpperCase();
+    return !isCredentialName(upperName) && !SESSION_MARKERS.has(upperName);
+  }));
+}
+
 const commands = {
   "claude-cli": { command: "claude", args: ["auth", "status", "--json"], npmEntry: ["@anthropic-ai", "claude-code", "cli.js"] },
   "codex-cli": { command: "codex", args: ["login", "status"], npmEntry: ["@openai", "codex", "bin", "codex.js"] },
@@ -165,16 +218,7 @@ export async function resolveVivaryRuntimeCommand(engine: VivaryCodeEngine): Pro
   }
   const searchDirectories = [...new Set(directories
     .filter((directory): directory is string => typeof directory === "string" && path.isAbsolute(directory)))];
-  const env = { ...process.env };
-  for (const entry of Object.values(CLI_REGISTRY)) {
-    for (const name of entry.stripEnv) delete env[name];
-  }
-  delete env.CODEX_THREAD_ID;
-  delete env.CODEX_SESSION_ID;
-  if (engine === "codex-cli") {
-    delete env.CODEX_API_KEY;
-    delete env.OPENAI_API_KEY;
-  }
+  const env = codingRuntimeEnvironment(process.env);
   delete env.Path;
   env.PATH = searchDirectories.join(path.delimiter);
 
