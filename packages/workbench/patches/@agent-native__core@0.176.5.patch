@@ -1454,6 +1454,45 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+diff --git a/dist/client/chat-model-groups.js b/dist/client/chat-model-groups.js
+index 40475959e473d9d6d3ac31b52cde207ae2dcabd7..56feb37ca6c16a148a3c79bd45ab6fd2dcac5f06 100644
+--- a/dist/client/chat-model-groups.js
++++ b/dist/client/chat-model-groups.js
+@@ -20,11 +20,26 @@ const HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES = new Set([
+ ]);
+ function addCurrentModel(models, engineName, currentEngineName, currentModel) {
+     const next = [...models];
+-    if (engineName === currentEngineName && currentModel && next.length === 0) {
++    // Vivary #50: a model saved in Settings, such as a custom OpenRouter id, stays
++    // selectable even when the engine's built-in list does not name it.
++    if (engineName === currentEngineName && currentModel && !next.includes(currentModel)) {
+         next.unshift(currentModel);
+     }
+     return next;
+ }
++// Vivary #50: the provider and model saved in Settings are the default for a new
++// chat. Listing them first lets the first-configured-model fallback select them,
++// so a new chat never silently runs on another, possibly paid, model.
++function preferCurrentSelection(groups, currentEngineName, currentModel) {
++    const index = groups.findIndex((group) => group.engine === currentEngineName && group.configured);
++    if (index < 0)
++        return groups;
++    const current = groups[index];
++    const models = currentModel && current.models.includes(currentModel)
++        ? [currentModel, ...current.models.filter((model) => model !== currentModel)]
++        : current.models;
++    return [{ ...current, models }, ...groups.slice(0, index), ...groups.slice(index + 1)];
++}
+ // Cheapest → most expensive. The composer mirrors these tokens for the `$`
+ // cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
+ // the toolkit cannot import core, so a new family must be added in both lists.
+@@ -176,5 +191,5 @@ export function buildChatModelGroups({ engines, configuredKeys, builderConnected
+             ...directGroups.filter((group) => group.configured && group.engine !== "builder"),
+         ];
+     }
+-    return directGroups;
++    return preferCurrentSelection(directGroups, currentEngineName, currentModel);
+ }
 diff --git a/dist/client/code-agent-chat-adapter.js b/dist/client/code-agent-chat-adapter.js
 index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ffe3c03bd3 100644
 --- a/dist/client/code-agent-chat-adapter.js

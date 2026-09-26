@@ -151,6 +151,22 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #50 found two defects that stopped real Native providers in the
+packaged app. Agent-Native bakes the names in `packages/workbench/package.json`
+dependencies into the built server, and treats an AI SDK engine as installed
+only when its packages are on that list. Vivary declared none of them, so every
+AI SDK provider, OpenRouter included, read as not installed in the package
+although its code was bundled. The workbench now declares `ai` and the seven
+provider packages core maps (`@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/groq`,
+`@ai-sdk/mistral`, `@ai-sdk/cohere`, `ai-sdk-ollama`, and
+`@openrouter/ai-sdk-provider`) at the versions already locked through core.
+`@ai-sdk/anthropic` stays out, because core hides that engine and Claude runs
+on its native engine. Second, the Native picker never offered a custom model
+saved in Settings, and a new chat took the first model of the first configured
+provider. The maintained Core patch now lists the saved model and makes the
+saved, configured provider and model the default. Native still owns engines,
+credentials, and requests, so no flow, owner, or boundary changed.
+
 Packets 09b and 09c now record the owner's acceptance of #19 and #20 as
 done, with `Verification-result: passed`, and the generated graph and frontier
 follow. The delivery section above already states both closures, and no
