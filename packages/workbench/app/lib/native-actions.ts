@@ -8,7 +8,8 @@ import { VIVARY_OWNER_ACTIONS, type VivaryOwnerAction } from "../../shared/owner
 export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>,
   options?: { keepalive?: boolean }) => Promise<T>;
 // These reach the original runner, which may queue a command for 30 seconds before its own 30-second run.
-const ORIGINAL_RUNNER_ACTIONS: readonly VivaryOwnerAction[] = ["vivary-original-command", "vivary-project-adoption", "vivary-project-read-owner"];
+const ORIGINAL_RUNNER_ACTIONS: readonly VivaryOwnerAction[] = ["vivary-original-command", "vivary-project-adoption",
+  "vivary-project-read-owner", "vivary-project-evaluate-owner"];
 const actionTimeout = (name: VivaryOwnerAction) => name === "vivary-connect-project-folder" ? 130_000
   : ORIGINAL_RUNNER_ACTIONS.includes(name) ? 70_000 : 30_000;
 

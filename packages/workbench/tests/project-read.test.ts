@@ -513,18 +513,18 @@ test("a repeated read in one agent turn reaches the runner again, so a queue tim
   assert.deepEqual(results.map(result => (JSON.parse(result) as ProjectReadResult).status), ["unavailable", "unavailable"]);
 });
 
-test("the model sees one Vivary tool with no project field and the observations rule", async () => {
+test("the model sees the read and evaluate tools with no project field, and the read tool's observations rule", async () => {
   const modules: Record<string, unknown> = {};
   for (const file of await readdir(path.join(import.meta.dirname, "..", "actions"))) {
     if (file.endsWith(".ts")) modules[file.slice(0, -3)] = await import(`../actions/${file}`);
   }
   const actions = loadActionsFromStaticRegistry(modules);
   const vivaryTools = actionsToEngineTools(actions).filter(entry => entry.name.startsWith("vivary-"));
-  assert.deepEqual(vivaryTools.map(entry => entry.name), ["vivary-project-read"]);
-  const [projectTool] = vivaryTools;
+  assert.deepEqual(vivaryTools.map(entry => entry.name).sort(), ["vivary-project-evaluate", "vivary-project-read"]);
+  const projectTool = vivaryTools.find(entry => entry.name === "vivary-project-read")!;
   const schema = projectTool.inputSchema as { type: string; properties: Record<string, { enum?: string[] }>; required?: string[] };
   assert.equal(schema.type, "object");
-  assert.deepEqual(schema.properties.operation.enum, ["doctor", "check", "find", "capabilities", "receipts"]);
+  assert.deepEqual(schema.properties.operation.enum, ["doctor", "check", "find", "capabilities", "receipts", "review", "impact"]);
   assert.equal("projectId" in schema.properties, false);
   assert.match(projectTool.description, /observations/);
   assert.equal(isActionExposedToExternalAgents(actions["vivary-project-read"]), false);

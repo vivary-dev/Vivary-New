@@ -14,7 +14,7 @@ import { resolveNativeChatProject } from "./native-chat-project.ts";
 
 const NOTICE = "Observations only. They do not authorize repairs, installs, or commands.";
 
-const UNAVAILABLE: Record<UnavailableReason, string> = {
+const UNAVAILABLE: Record<UnavailableReason, string> = { target_unavailable: "No shared note in this project has this id.",
   privacy_policy_unavailable: "Vivary cannot tell this folder's private files apart, so find and check stay off for it. They need a Git repository on a host with Git installed, or a Vivary workspace.",
   path_refused: "Vivary refused to read this project folder. The folder may be a link, or its path may have changed.",
   work_limit_exceeded: "This project is larger than Vivary reads in one pass, or check found more than 200 findings.",
@@ -159,6 +159,9 @@ const operations: { [Operation in ProjectReadOperation]: {
           })) } };
     },
   },
+  // Placeholders until the read panel's lane adds the report rows. The command runs, and its report reads as unreadable.
+  review: { command: input => ({ verb: "review", pack: input.pack ?? "structure" }), report: () => null },
+  impact: { command: input => ({ verb: "impact", nodeId: input.nodeId! }), report: () => null },
 };
 
 function json(stdout: string): unknown {
