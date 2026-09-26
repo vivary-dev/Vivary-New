@@ -220,7 +220,8 @@ test("a request-scoped surface changes only trusted code execution, which Full c
 async function nativeFrameworkActions(): Promise<{ registered: Set<string>; database: Set<string> }> {
   const entries = new URL("./agent-chat/script-entries.js", import.meta.resolve("@agent-native/core/server"));
   const source = await readFile(entries, "utf8");
-  const registered = new Set([...source.matchAll(/^ {12}(?:"([a-z-]+)"|([a-z]+)): (?:wrapCliScript\(|\{)/gm)]
+  // The maintained Core patch wraps some entries as refuseForAutomationCaller("<name>", wrapCliScript(...)).
+  const registered = new Set([...source.matchAll(/^ {12}(?:"([a-z-]+)"|([a-z]+)): (?:wrapCliScript\(|\{|refuseForAutomationCaller\("[a-z-]+", wrapCliScript\()/gm)]
     .map(match => match[1] ?? match[2]));
   const builder = source.slice(source.indexOf("export async function createDbScriptEntries"),
     source.indexOf("export async function createDocsScriptEntries"));
