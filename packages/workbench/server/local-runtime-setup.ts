@@ -30,6 +30,20 @@ const PROBE_MAX_BYTES = 64 * 1024;
 const cached = new Map<VivaryCodeEngine, { expiresAt: number; value: VivaryRuntimeStatus }>();
 const pending = new Map<VivaryCodeEngine, Promise<VivaryRuntimeStatus>>();
 
+// Coding runtimes run commands the agent chooses and keep their own logins. They never receive the
+// Native provider keys that Agent-Native reads from this environment, or the sign-in secret,
+// secret-store keys, and database URLs from bin/start.mjs or a deployment. The sign-in secret also
+// derives the key that encrypts saved provider credentials. The provider names follow
+// Agent-Native's provider list, which tests/local-runtime-setup.test.ts compares against.
+const SERVER_CREDENTIAL_NAMES = [
+  "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "OPENROUTER_API_KEY",
+  "GROQ_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY", "DEEPSEEK_API_KEY",
+  "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY",
+  "BETTER_AUTH_SECRET", "A2A_SECRET", "SECRETS_ENCRYPTION_KEY", "VIVARY_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY", "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+  "DATABASE_URL", "DATABASE_URL_UNPOOLED", "VIVARY_DATABASE_URL", "VIVARY_DATABASE_URL_UNPOOLED",
+];
+
 const commands = {
   "claude-cli": { command: "claude", args: ["auth", "status", "--json"], npmEntry: ["@anthropic-ai", "claude-code", "cli.js"] },
   "codex-cli": { command: "codex", args: ["login", "status"], npmEntry: ["@openai", "codex", "bin", "codex.js"] },
@@ -165,16 +179,16 @@ export async function resolveVivaryRuntimeCommand(engine: VivaryCodeEngine): Pro
   }
   const searchDirectories = [...new Set(directories
     .filter((directory): directory is string => typeof directory === "string" && path.isAbsolute(directory)))];
-  const env = { ...process.env };
-  for (const entry of Object.values(CLI_REGISTRY)) {
-    for (const name of entry.stripEnv) delete env[name];
-  }
-  delete env.CODEX_THREAD_ID;
-  delete env.CODEX_SESSION_ID;
-  if (engine === "codex-cli") {
-    delete env.CODEX_API_KEY;
-    delete env.OPENAI_API_KEY;
-  }
+  // Windows environment names are case-insensitive, so any spelling of a withheld name is removed.
+  const withheld = new Set([
+    ...SERVER_CREDENTIAL_NAMES,
+    ...Object.values(CLI_REGISTRY).flatMap(entry => entry.stripEnv),
+    "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+    // Codex uses its ChatGPT login here, never an API key.
+    ...(engine === "codex-cli" ? ["CODEX_API_KEY"] : []),
+  ].map(name => name.toUpperCase()));
+  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env)
+    .filter(([name]) => !withheld.has(name.toUpperCase())));
   delete env.Path;
   env.PATH = searchDirectories.join(path.delimiter);
 
