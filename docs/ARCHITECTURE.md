@@ -151,6 +151,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Packets 09b and 09c now record the owner's acceptance of #19 and #20 as
+done, with `Verification-result: passed`, and the generated graph and frontier
+follow. The delivery section above already states both closures, and no
+structure, flow, or boundary depends on packet status, so the description
+holds.
+
 A Codex tool shell could read the credentials in the server environment.
 `resolveVivaryRuntimeCommand` built the Codex launch from a copy of that whole
 environment and removed only two credentials, `CODEX_API_KEY` and
