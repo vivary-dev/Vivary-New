@@ -13,6 +13,7 @@ import { ProjectSearch } from "../projects/ProjectSearch";
 import { ProjectAdoption } from "../projects/ProjectAdoption";
 import { ProjectMemoryPanel } from "../projects/ProjectMemoryPanel";
 import { ProjectReadPanel } from "../projects/ProjectReadPanel";
+import { ProjectEvaluatePanel } from "../projects/ProjectEvaluatePanel";
 import FilesView from "../../routes/files";
 import CodeConversation from "./CodeConversation";
 import NativeConversation from "./NativeConversation";
@@ -295,6 +296,7 @@ export function Workspace() {
               {activeProject && <ProjectMemoryPanel projectId={activeProject.projectId} disabled={!workspaceAvailable}
                 visible={opened === "details"} />}
               {activeProject && <ProjectReadPanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
+              {activeProject && <ProjectEvaluatePanel projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               {activeProject && <ProjectAdoption key={activeProject.projectId} projectId={activeProject.projectId} disabled={!workspaceAvailable} />}
               <p>Open Files to read a document. Choose Edit when you want to change it.</p>
               <Button variant="outline" size="sm" onClick={() => navigate("/settings/runtimes")}>Runtime settings</Button>
