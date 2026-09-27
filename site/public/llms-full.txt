@@ -7278,6 +7278,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Dependabot PR #119 updates the documentation site: `@astrojs/starlight` 0.42.0 to 0.42.2 and
+`astro` 7.3.2 to 7.3.3, which adds `verkit` 0.4.1 and moves `find-proc` to 0.2.0 in
+`site/package-lock.json`. All four versions passed the dependency gate on 2026-09-27: published
+more than 72 hours earlier, provenance attestations built from their stated repositories, no
+install scripts, and no native build files. The site build only changes, so the design
+description holds.
+
 `.gitattributes` now disables only the trailing-whitespace rule for maintained pnpm patches
 under `packages/workbench/patches/`. A patch writes a blank source line as a single-space context
 line, and the #51 Core patch is the first to change text next to blank lines, so CI's
