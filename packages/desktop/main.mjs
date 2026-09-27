@@ -1,6 +1,7 @@
 import { fork, spawnSync } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +10,16 @@ import { app, BrowserWindow, dialog, session, shell } from "electron";
 const START_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 15_000;
 const DRAFT_CLOSE_TIMEOUT_MS = 8_000;
+const DESKTOP_PORT_FILE = "desktop-port";
+/**
+ * The desktop picks its port from this range. Windows reserves blocks of its
+ * dynamic range (49152 to 65535) for Hyper-V, WSL, and Docker, and the blocks
+ * move when the computer restarts, so a saved port there could stop working.
+ * IANA assigns no service in this range.
+ */
+export const DESKTOP_PORT_RANGE = Object.freeze({ first: 42100, last: 42999 });
+const SAVED_PORT_RETRY_DELAY_MS = 750;
+const SAVED_PORT_ATTEMPTS = 5;
 const sourceFile = fileURLToPath(import.meta.url);
 const sourceRoot = path.dirname(sourceFile);
 
@@ -45,17 +56,112 @@ function ordinaryNodePath() {
   return configured;
 }
 
-async function selectLoopbackPort() {
+/** A free loopback port from DESKTOP_PORT_RANGE, tried in random order. */
+export async function selectLoopbackPort({ isFree = loopbackPortIsFree, random = Math.random } = {}) {
+  const { first, last } = DESKTOP_PORT_RANGE;
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    const port = first + Math.floor(random() * (last - first + 1));
+    if (await isFree(port)) return port;
+  }
+  throw new Error(`Could not find a free local port for Vivary from ${first} to ${last}.`);
+}
+
+/**
+ * The local server's data folder, the same default that bin/start.mjs uses.
+ * The desktop passes it to the server, so the saved port and the data always
+ * share one folder.
+ */
+export function desktopDataDir(home = homedir()) {
+  return path.join(home, ".vivary", "workbench");
+}
+
+async function loopbackPortIsFree(port) {
   const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", resolve);
+  const free = await new Promise((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => resolve(true));
   });
-  const address = probe.address();
-  const port = typeof address === "object" && address ? address.port : null;
-  await new Promise((resolve) => probe.close(resolve));
-  if (!port) throw new Error("Could not reserve a local Vivary port.");
-  return port;
+  if (free) await new Promise((resolve) => probe.close(resolve));
+  return free;
+}
+
+async function readSavedPort(dataDir) {
+  let text;
+  try {
+    text = await readFile(path.join(dataDir, DESKTOP_PORT_FILE), "utf8");
+  } catch {
+    return null;
+  }
+  const port = Number(text.trim());
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+}
+
+/** A port in the Windows dynamic range may be reserved after a restart, so it is not reused. */
+function isReusablePort(port) {
+  return port < 49152;
+}
+
+/**
+ * A webhook URL names the local port, so the app reuses the port saved in its
+ * data folder. A port can be briefly busy while the previous instance lets it
+ * go, so the saved port is tried for a few seconds before a new one is taken.
+ * A saved port in the dynamic range, which an earlier build could pick, is
+ * replaced at once. `saved` is the saved port, or null, so the window says
+ * when the port changed.
+ */
+export async function chooseDesktopPort(dataDir, {
+  isFree = loopbackPortIsFree,
+  selectPort = selectLoopbackPort,
+  retryDelayMs = SAVED_PORT_RETRY_DELAY_MS,
+} = {}) {
+  const saved = await readSavedPort(dataDir);
+  const reusable = saved !== null && isReusablePort(saved);
+  for (let attempt = 0; reusable && attempt < SAVED_PORT_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    if (await isFree(saved)) return { port: saved, saved };
+  }
+  return { port: await selectPort(), saved };
+}
+
+export function isPortInUseError(error) {
+  return error instanceof Error && /already in use/i.test(error.message);
+}
+
+/**
+ * Start the server on the chosen port. Another program can take the port
+ * between the probe and the server's bind, so startup then tries once more on
+ * a fresh port instead of failing. `replaced` is the saved port when the
+ * server ended up on another one, for the notice.
+ */
+export async function startOnDesktopPort(choice, launch, { selectPort = selectLoopbackPort } = {}) {
+  let port = choice.port;
+  let started;
+  try {
+    started = await launch(port);
+  } catch (error) {
+    if (!isPortInUseError(error)) throw error;
+    port = await selectPort();
+    started = await launch(port);
+  }
+  const replaced = choice.saved !== null && choice.saved !== port ? choice.saved : null;
+  return { ...started, port, replaced };
+}
+
+export async function saveDesktopPort(dataDir, port) {
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(dataDir, DESKTOP_PORT_FILE), `${port}\n`, { mode: 0o600 });
+}
+
+/** The notice shown when the saved port could not be used. */
+export function portChangeNotice(replaced, port) {
+  return {
+    type: "info",
+    buttons: ["OK"],
+    defaultId: 0,
+    title: "Vivary changed its local port",
+    message: `Port ${replaced} was unavailable, so Vivary now uses port ${port}.`,
+    detail: "Webhook URLs with the old port no longer reach Vivary. Copy each new URL from Automations and update the program that calls it.",
+  };
 }
 
 export function localChildEnvironment(source = process.env, packaged = app.isPackaged, resources = process.resourcesPath) {
@@ -90,10 +196,18 @@ async function startServer() {
   const node = ordinaryNodePath();
   const entry = path.join(root, "bin", "desktop-server.mjs");
   await Promise.all([access(node), access(entry)]);
-  const port = await selectLoopbackPort();
-  const origin = `http://127.0.0.1:${port}`;
+  const dataDir = desktopDataDir();
+  const started = await startOnDesktopPort(await chooseDesktopPort(dataDir),
+    (port) => launchServer({ root, node, entry, dataDir, port }));
+  // Saved only after the server started, so a port that failed is not kept.
+  // A failed save costs only the next launch's port, not this one.
+  await saveDesktopPort(dataDir, started.port).catch(() => undefined);
+  return started;
+}
 
-  const child = fork(entry, ["--port", String(port)], {
+async function launchServer({ root, node, entry, dataDir, port }) {
+  const origin = `http://127.0.0.1:${port}`;
+  const child = fork(entry, ["--port", String(port), "--data-dir", dataDir], {
     cwd: root,
     detached: process.platform !== "win32",
     env: localChildEnvironment(),
@@ -137,6 +251,8 @@ async function startServer() {
     child.on("message", onMessage);
   }).catch((error) => {
     forceServerTree(child);
+    disposeProjectChooser();
+    serverChild = null;
     throw error;
   });
 
@@ -150,7 +266,7 @@ async function startServer() {
       void beginQuit({ skipDraftFlush: true });
     }
   });
-  return origin;
+  return { origin };
 }
 
 function forceServerTree(child) {
@@ -467,9 +583,12 @@ export async function runDesktop() {
   await app.whenReady();
   hardenSession();
   try {
-    const origin = await startServer();
+    const { origin, port, replaced } = await startServer();
     serverOrigin = origin;
     await createWindow(origin);
+    if (replaced !== null && mainWindow && !mainWindow.isDestroyed()) {
+      void dialog.showMessageBox(mainWindow, portChangeNotice(replaced, port));
+    }
   } catch (error) {
     await stopServer();
     dialog.showErrorBox("Vivary could not start", error instanceof Error ? error.message : "Unknown error.");

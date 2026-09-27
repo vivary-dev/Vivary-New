@@ -5,8 +5,8 @@ anything Vivary shows, stores, or sends to a model, even when an agent, a tool, 
 prints one. The owner asked for this on 2026-09-26 with user safety as the reason. This receipt
 records the change on `fix/credential-redaction` and its verification on 2026-09-27.
 
-Delivery status: the branch is pushed to GitHub and Entire. The PR, the Entire trail, the merge, and
-closing #97 wait for the owner.
+Delivery status: PR #118 merged into `dev` as `8e7a8fc` after all eight checks passed, including
+Entire Gates, and the owner closed issue #97 on 2026-09-27.
 
 ## Source and artifacts
 

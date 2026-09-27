@@ -1,7 +1,134 @@
+diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..16b66b169adb6cd145d5bd650e149b54a67b5e76 100644
+--- a/dist/agent/engine/ai-sdk-engine.js
++++ b/dist/agent/engine/ai-sdk-engine.js
+@@ -14,7 +14,7 @@
+ import { clearProviderCredentialAuthFailure, readDeployCredentialEnv, recordProviderCredentialAuthFailure, } from "../../server/credential-provider.js";
+ import { allowsSamplingParams, anthropicManualThinkingBudget, normalizeReasoningEffortForModel, supportsClaudeAdaptiveThinking, } from "../../shared/reasoning-effort.js";
+ import { AI_SDK_MODEL_CONFIG } from "../model-config.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { classifyProviderError, describeErrorWithCauses, } from "./error-detail.js";
+ import { createFirstEventAbortController } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -209,7 +209,7 @@ class AISDKEngine {
+             yield {
+                 type: "stop",
+                 reason: "error",
+-                error: `${LLM_MISSING_CREDENTIALS_MESSAGE} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
++                error: `${llmMissingCredentialsMessage()} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
+                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+             };
+             return;
+diff --git a/dist/agent/engine/anthropic-engine.js b/dist/agent/engine/anthropic-engine.js
+index f66ece32d03e3a4e719ad745449a0d31c7dbf16f..4221dfff002a55f511add203f47e9f025b2b1d47 100644
+--- a/dist/agent/engine/anthropic-engine.js
++++ b/dist/agent/engine/anthropic-engine.js
+@@ -10,7 +10,7 @@
+ import { clearProviderCredentialAuthFailure, readDeployCredentialEnv, recordProviderCredentialAuthFailure, } from "../../server/credential-provider.js";
+ import { allowsSamplingParams, anthropicManualThinkingBudget, normalizeReasoningEffortForModel, supportsClaudeAdaptiveThinking, } from "../../shared/reasoning-effort.js";
+ import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { describeErrorWithCauses } from "./error-detail.js";
+ import { createFirstEventAbortController } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -320,7 +320,7 @@ export function createAnthropicEngine(config = {}) {
+                 yield {
+                     type: "stop",
+                     reason: "error",
+-                    error: LLM_MISSING_CREDENTIALS_MESSAGE,
++                    error: llmMissingCredentialsMessage(),
+                     errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+                 };
+             },
+diff --git a/dist/agent/engine/builder-engine.js b/dist/agent/engine/builder-engine.js
+index a51ba530b7289349af78353436ead14051da8eff..01bd6502c72020cc6bdf828fd39aa17ab90f85ae 100644
+--- a/dist/agent/engine/builder-engine.js
++++ b/dist/agent/engine/builder-engine.js
+@@ -24,7 +24,7 @@ import { allowsSamplingParams, isGPTReasoningModel, normalizeReasoningEffortForM
+ import { isInBackgroundFunctionRuntime } from "../durable-background.js";
+ import { BUILDER_MODEL_CONFIG } from "../model-config.js";
+ import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
+-import { gatewayVisitorFacingError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { gatewayVisitorFacingError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { classifyTerminalErrorCode, canonicalizeBuilderGatewayErrorCode, describeErrorWithCauses, isBuilderGatewayInternalErrorMessage, isContextOverflowCode, isContextOverflowMessage, isProviderConnectionErrorMessage, } from "./error-detail.js";
+ import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -165,7 +165,7 @@ class BuilderEngine {
+         const creditsLane = oauthAccess ? false : isBuilderCreditsLane(creds);
+         if (!authHeader || (!oauthAccess && !spaceId)) {
+             yield gatewayErrorStop({
+-                error: LLM_MISSING_CREDENTIALS_MESSAGE,
++                error: llmMissingCredentialsMessage(),
+                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+             }, creditsLane);
+             return;
+diff --git a/dist/agent/engine/credential-errors.d.ts b/dist/agent/engine/credential-errors.d.ts
+index 76e1687f743dbe7bf7eef7c49abc3db3c093828d..7445cadf682d6ed791fa737fc8da19d7e40ef001 100644
+--- a/dist/agent/engine/credential-errors.d.ts
++++ b/dist/agent/engine/credential-errors.d.ts
+@@ -6,6 +6,9 @@ export declare const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
+  */
+ export declare const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE = "credential_store_unavailable";
+ export declare const LLM_MISSING_CREDENTIALS_MESSAGE = "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
++export declare const LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER = "No LLM provider is connected. Add your own provider key in Settings.";
++/** The missing-credentials message for this host, read at call time. */
++export declare function llmMissingCredentialsMessage(): string;
+ /**
+  * The one line a site visitor sees for every gateway rejection. Quota,
+  * concurrency, a revoked token, a disabled gateway and an unreadable credential
+diff --git a/dist/agent/engine/credential-errors.js b/dist/agent/engine/credential-errors.js
+index 19033d1506f417150185e287bb2d0d0f3dfb14d0..2f9d0c4380a588c24a9162980582d63149b9a72c 100644
+--- a/dist/agent/engine/credential-errors.js
++++ b/dist/agent/engine/credential-errors.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { PROVIDER_ENV_VARS } from "./provider-env-vars.js";
+ export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
+ /**
+@@ -14,6 +15,14 @@ const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
+     "unauthorized",
+ ]);
+ export const LLM_MISSING_CREDENTIALS_MESSAGE = "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
++// Vivary #104: keeps the "No LLM provider is connected" prefix that run-recovery matches.
++export const LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER = "No LLM provider is connected. Add your own provider key in Settings.";
++/** The missing-credentials message for this host, read at call time. */
++export function llmMissingCredentialsMessage() {
++    return builderOffersEnabled()
++        ? LLM_MISSING_CREDENTIALS_MESSAGE
++        : LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER;
++}
+ /**
+  * The one line a site visitor sees for every gateway rejection. Quota,
+  * concurrency, a revoked token, a disabled gateway and an unreadable credential
+@@ -68,9 +77,11 @@ export function formatLlmCredentialErrorMessage(options) {
+         return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
+     const agentName = options?.agentName?.trim();
+     if (agentName) {
+-        return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.`;
++        return builderOffersEnabled()
++            ? `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.`
++            : `The ${agentName} agent could not finish this request because that app needs an LLM connection. Add your own provider key in that app's Settings.`;
+     }
+-    return LLM_MISSING_CREDENTIALS_MESSAGE;
++    return llmMissingCredentialsMessage();
+ }
+ export function userFacingLlmCredentialError(error, options) {
+     return isLlmCredentialError(error)
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9c806f59f 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e783c88e8ba 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
+@@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
+ import { AGENT_CHAT_BACKGROUND_RUN_FIELD, AGENT_CHAT_PROCESS_RUN_PATH, backgroundRuntimeDiagnosticDetail, dispatchPathTargetsNetlifyBackgroundFunction, isAgentChatDurableBackgroundEnabled, isAgentChatForegroundSelfChainEnabled, isInBackgroundFunctionRuntime, resolveAgentChatProcessRunDispatchPath, shouldUseBackgroundFunctionTimeoutForWorker, } from "./durable-background.js";
+ import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
+ import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
+-import { formatLlmCredentialErrorMessage, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, userFacingLlmCredentialError, } from "./engine/credential-errors.js";
++import { formatLlmCredentialErrorMessage, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, userFacingLlmCredentialError, } from "./engine/credential-errors.js";
+ import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE, isContextOverflowCode, isContextOverflowMessage, isProviderConnectionErrorMessage, } from "./engine/error-detail.js";
+ import { resolveEngine, explicitEngineName, registerBuiltinEngines, getStoredModelForEngine, normalizeModelForEngine, isResolvedEngineUsableForRequest, } from "./engine/index.js";
+ import { resolveEmptyResponseRetryMaxOutputTokens, resolveMainChatMaxOutputTokens, resolveMaxOutputTokensForEngine, } from "./engine/output-tokens.js";
 @@ -49,6 +49,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
  import { consumeAgentToolApproval, createAgentToolApproval, isAgentToolAlwaysAllowed, resolveAgentToolApprovalTurnId, } from "./tool-approval-store.js";
  import { findCompletedJournalEntry, } from "./tool-call-journal.js";
@@ -53,6 +180,15 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
+@@ -5890,7 +5899,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+             await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
+         }
+         else if (terminalEvent?.type === "missing_api_key") {
+-            await persistError(opts.runId, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE);
++            await persistError(opts.runId, LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage());
+         }
+     }
+     return updated;
 @@ -7389,12 +7398,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
@@ -69,17 +205,19 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9
              ...historyMessages,
              { role: "user", content: userContent },
 diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
-index d633a29f3ebe57ff878a909a583f3a02cde20946..670e3f6cd527cc11b590e2415b98fd9af358c2bb 100644
+index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b1a64f4fe 100644
 --- a/dist/agent/run-manager.js
 +++ b/dist/agent/run-manager.js
-@@ -1,6 +1,7 @@
+@@ -1,7 +1,8 @@
  import { getAppConfig } from "../app-config/index.js";
  import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS, BACKGROUND_SOFT_TIMEOUT_CEILING_MS, RUN_NO_PROGRESS_HARD_TIMEOUT_MS, } from "../app-config/run-lifecycle-invariants.js";
  import { captureError } from "../server/capture-error.js";
+-import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
 +import { redactTextInValue, textRedactionHoldback } from "../audit/redact.js";
- import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
++import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./engine/credential-errors.js";
  import { classifyTerminalErrorCode, describeErrorWithCauses, isProviderConnectionError, } from "./engine/error-detail.js";
  import { EngineError } from "./engine/types.js";
+ import { insertRun, insertRunEvent, updateRunStatusIfRunning, markRunAborted, getRunAbortState, getRunStatus, getRunEventsSince, getRunById, getRunByThread, getRunTurnRef, markTurnAborted, cleanupOldRuns, updateRunHeartbeat, bumpRunProgress, setRunInFlightMarker, reapIfStale, reapUnclaimedBackgroundRun, shouldRedispatchUnclaimedBackgroundRun, reconcileTerminalRunFromEvents, ensureTerminalRunEvent, getLastTerminalRunEvent, resolveErroredRunTerminalEvent, setRunError, setRunTerminalReason, persistRunCheckpointEvent, recordRunDiagnostic, RUN_DIAG_STAGE, terminalEventForAbortReason, } from "./run-store.js";
 @@ -449,6 +450,33 @@ export function resolveBackgroundAutomationSoftTimeoutMs(overrideMs) {
      // `0` means "no soft-timeout regime" (local dev) and is never clamped up.
      return resolved > 0 ? Math.min(resolved, budget) : 0;
@@ -186,11 +324,20 @@ index d633a29f3ebe57ff878a909a583f3a02cde20946..670e3f6cd527cc11b590e2415b98fd9a
          let completionError = null;
          let terminalPersistenceError = null;
          // Populated in step 5b for errored runs; read by the terminal tracking
+@@ -1751,7 +1825,7 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
+                 const ev = diagnosticEvents[i].event;
+                 if (ev.type === "missing_api_key") {
+                     errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+-                    errorDetail = LLM_MISSING_CREDENTIALS_MESSAGE;
++                    errorDetail = llmMissingCredentialsMessage();
+                     break;
+                 }
+                 else if (ev.type === "error") {
 diff --git a/dist/agent/run-store.js b/dist/agent/run-store.js
-index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e1774934a87 100644
+index 52ffb623b103f0032033045f3f8132c559e3b80b..11fdfe186e075a1458509af565177231ffc0ce31 100644
 --- a/dist/agent/run-store.js
 +++ b/dist/agent/run-store.js
-@@ -5,6 +5,7 @@
+@@ -5,11 +5,12 @@
   */
  import { MAX_BACKGROUND_RUN_CONTINUATIONS, TURN_RUN_LEDGER_SLACK, } from "../app-config/run-lifecycle-invariants.js";
  import { isArtifactReceipt, } from "../artifacts/detect.js";
@@ -198,6 +345,12 @@ index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e17
  import { getDbExec, intType, isPostgres } from "../db/client.js";
  import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
  import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+ import { captureError } from "../server/capture-error.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./engine/credential-errors.js";
+ import { isContinuationTerminalReason } from "./types.js";
+ let _initPromise;
+ /**
 @@ -613,7 +614,10 @@ const LEDGER_RESULT_MAX_CHARS = 8_000;
   * promise continuation after `Promise.race` abandons it. Best-effort — never
   * throws so a ledger write failure doesn't break any caller.
@@ -218,6 +371,15 @@ index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e17
              artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
          };
      }
+@@ -1289,7 +1293,7 @@ function errorCodeForTerminalEvent(event) {
+ }
+ function errorDetailForTerminalEvent(event) {
+     if (event.type === "missing_api_key")
+-        return LLM_MISSING_CREDENTIALS_MESSAGE;
++        return llmMissingCredentialsMessage();
+     if (event.type !== "error")
+         return null;
+     return (event.details || event.error || "").slice(0, 2000) || null;
 diff --git a/dist/agent/thread-data-builder.d.ts b/dist/agent/thread-data-builder.d.ts
 index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e537efc0dc 100644
 --- a/dist/agent/thread-data-builder.d.ts
@@ -1280,6 +1442,25 @@ index 0000000000000000000000000000000000000000..b17699cccc0bba6f27eb3b8953d9ef7b
 +        }
 +    }
 +}
+diff --git a/dist/client/AgentPanel.js b/dist/client/AgentPanel.js
+index 8b0b0f7f2e229e36492fffd10b84c6103342b45f..9231a771b09ab4eb09990abbd32a60dceea2ee88 100644
+--- a/dist/client/AgentPanel.js
++++ b/dist/client/AgentPanel.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * AgentPanel — unified agent component with chat, CLI, and workspace modes.
+  *
+@@ -493,7 +494,7 @@ function CodeAccessUnavailablePanel({ title, description, ctaLabel, ctaHref, sec
+             : withBuilderUtmTrackingParams("https://builder.io", {
+                 content: "code_access_unavailable_panel",
+             });
+-    return (_jsxs("div", { className: cn("rounded-lg border border-border bg-muted/35 text-center", compact ? "mx-3 mt-2 px-3 py-2.5" : "max-w-[300px] px-4 py-4"), children: [_jsx("div", { className: cn("mx-auto flex items-center justify-center rounded-full bg-background text-muted-foreground", compact ? "mb-2 h-8 w-8" : "mb-3 h-10 w-10"), children: _jsx(IconTerminal2, { className: compact ? "h-4 w-4" : "h-5 w-5" }) }), _jsx("p", { className: "text-sm font-medium text-foreground", children: title }), _jsx("p", { className: cn("mt-1 text-muted-foreground", compact ? "text-[11px] leading-snug" : "text-xs leading-relaxed"), children: description }), _jsxs("div", { className: "mt-3 flex flex-wrap items-center justify-center gap-2", children: [ctaHref ? (_jsxs("a", { href: ctaHref, target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90", children: [ctaLabel, _jsx(IconExternalLink, { className: "h-3 w-3" })] })) : null, _jsx("a", { href: builderHref, target: "_blank", rel: "noreferrer", onClick: () => {
++    return (_jsxs("div", { className: cn("rounded-lg border border-border bg-muted/35 text-center", compact ? "mx-3 mt-2 px-3 py-2.5" : "max-w-[300px] px-4 py-4"), children: [_jsx("div", { className: cn("mx-auto flex items-center justify-center rounded-full bg-background text-muted-foreground", compact ? "mb-2 h-8 w-8" : "mb-3 h-10 w-10"), children: _jsx(IconTerminal2, { className: compact ? "h-4 w-4" : "h-5 w-5" }) }), _jsx("p", { className: "text-sm font-medium text-foreground", children: title }), _jsx("p", { className: cn("mt-1 text-muted-foreground", compact ? "text-[11px] leading-snug" : "text-xs leading-relaxed"), children: description }), _jsxs("div", { className: "mt-3 flex flex-wrap items-center justify-center gap-2", children: [ctaHref ? (_jsxs("a", { href: ctaHref, target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90", children: [ctaLabel, _jsx(IconExternalLink, { className: "h-3 w-3" })] })) : null, builderOffersEnabled() && _jsx("a", { href: builderHref, target: "_blank", rel: "noreferrer", onClick: () => {
+                             trackEvent("builder connect clicked", {
+                                 feature: "builder",
+                                 stage: "client",
 diff --git a/dist/client/AssistantChat.d.ts b/dist/client/AssistantChat.d.ts
 index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1f539b3c1 100644
 --- a/dist/client/AssistantChat.d.ts
@@ -1630,6 +1811,28 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  });
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
+diff --git a/dist/client/FileStorageSetupCard.js b/dist/client/FileStorageSetupCard.js
+index e30f3fd04b4949bfe81bc340f1142dfe4398db6f..fa56229a0256de81c8c9116d83b89dda36157330 100644
+--- a/dist/client/FileStorageSetupCard.js
++++ b/dist/client/FileStorageSetupCard.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { ActionButton } from "@agent-native/toolkit/design-system";
+ import { BuilderConnectCard, DefaultBuilderConnectCardView, } from "./setup-connections/BuilderConnectCard.js";
+ /**
+@@ -14,5 +15,10 @@ export function FileStorageSetupCard() {
+             detail: { section: "uploads" },
+         }));
+     };
+-    return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: _jsx(BuilderConnectCard, { title: "Connect Builder for file storage", description: "Builder keeps uploaded images and files on durable object storage so the agent can reuse them throughout this thread.", trackingSource: "file_upload_chat_card", render: ({ viewModel, className }) => (_jsxs("div", { className: "space-y-2", children: [_jsx(DefaultBuilderConnectCardView, { viewModel: viewModel, className: className }), _jsxs(ActionButton, { type: "button", intent: "neutral", emphasis: "outline", size: "compact", onPress: openCustomStorage, className: "h-auto w-full justify-start rounded-md px-3 py-2 text-left text-xs font-medium text-foreground", children: ["Use custom storage keys", _jsx("span", { className: "mt-0.5 block text-[11px] font-normal text-muted-foreground", children: "Configure an S3-compatible bucket with a stable public URL." })] })] })) }) }));
++    const customStorageButton = (_jsxs(ActionButton, { type: "button", intent: "neutral", emphasis: "outline", size: "compact", onPress: openCustomStorage, className: "h-auto w-full justify-start rounded-md px-3 py-2 text-left text-xs font-medium text-foreground", children: ["Use custom storage keys", _jsx("span", { className: "mt-0.5 block text-[11px] font-normal text-muted-foreground", children: "Configure an S3-compatible bucket with a stable public URL." })] }));
++    // Without Builder offers the custom-key path is the whole card.
++    if (!builderOffersEnabled()) {
++        return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: customStorageButton }));
++    }
++    return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: _jsx(BuilderConnectCard, { title: "Connect Builder for file storage", description: "Builder keeps uploaded images and files on durable object storage so the agent can reuse them throughout this thread.", trackingSource: "file_upload_chat_card", render: ({ viewModel, className }) => (_jsxs("div", { className: "space-y-2", children: [_jsx(DefaultBuilderConnectCardView, { viewModel: viewModel, className: className }), customStorageButton] })) }) }));
+ }
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
 index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac99042112f1f886 100644
 --- a/dist/client/MultiTabAssistantChat.js
@@ -1906,10 +2109,34 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac990421
                      })] })] }));
  }
 diff --git a/dist/client/agent-chat-adapter.js b/dist/client/agent-chat-adapter.js
-index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb35e15f5c 100644
+index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..a93c8008c7fead57e27f0b5f87540aa256b72e86 100644
 --- a/dist/client/agent-chat-adapter.js
 +++ b/dist/client/agent-chat-adapter.js
-@@ -793,9 +793,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
+@@ -1,6 +1,6 @@
+ import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
+ import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
+-import { formatLlmCredentialErrorMessage, isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "../agent/engine/credential-errors.js";
++import { formatLlmCredentialErrorMessage, isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage, } from "../agent/engine/credential-errors.js";
+ import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+ import { clearPendingTurnIfMatches, getActiveRun, setActiveRun, updateActiveRunSeq, clearActiveRun, clearActiveRunIfMatches, setPendingTurn, } from "./active-run-state.js";
+ import { getAnalyticsClientPlatform } from "./analytics-platform.js";
+@@ -285,8 +285,13 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES = {
+     background_worker_never_started: "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
+     background_continuation_dispatch_failed: "The agent's background worker could not hand off the next step of this run. Retry to continue from the preserved context.",
+     dispatch_payload_missing: "The agent's background run lost its saved request data and could not continue. Retry to start a fresh run.",
+-    missing_api_key: LLM_MISSING_CREDENTIALS_MESSAGE,
+-    missing_credentials: LLM_MISSING_CREDENTIALS_MESSAGE,
++    // Getters, so the text follows the Builder offers switch when it is read.
++    get missing_api_key() {
++        return llmMissingCredentialsMessage();
++    },
++    get missing_credentials() {
++        return llmMissingCredentialsMessage();
++    },
+     turn_continuation_budget_exhausted: "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
+ };
+ /**
+@@ -793,9 +798,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
      }
      return messages;
  }
@@ -1931,7 +2158,7 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb
      const structured = [];
      for (const message of messages) {
          if (message.role === "user") {
-@@ -1953,7 +1963,7 @@ export function createAgentChatAdapter(options) {
+@@ -1953,7 +1968,7 @@ export function createAgentChatAdapter(options) {
              const attemptedRunIds = [];
              let authRecoveryAttempted = false;
              let continuationToolCallCounter = 0;
@@ -1941,10 +2168,51 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb
                  const pageOrigin = typeof window !== "undefined" && window.location?.origin
                      ? window.location.origin
 diff --git a/dist/client/agent-page/AgentJobsTab.js b/dist/client/agent-page/AgentJobsTab.js
-index 8faa0bc883197d5e0e03469947ef0854cbf671ab..fd2473102dbcff05db0ff65ac121f0f0ca251d85 100644
+index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad777eeb427 100644
 --- a/dist/client/agent-page/AgentJobsTab.js
 +++ b/dist/client/agent-page/AgentJobsTab.js
-@@ -347,7 +347,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -6,6 +6,8 @@ import { AgentAskPopover } from "../AgentAskPopover.js";
+ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "../components/ui/dialog.js";
+ import { Popover, PopoverContent, PopoverTrigger, } from "../components/ui/popover.js";
+ import { useFormatters, useT } from "../i18n.js";
++import { automationWebhookReach } from "../../shared/automation-webhook-reach.js";
++import { automationWebhookUrl, isLoopbackWebhookUrl, } from "../integrations/webhook-url.js";
+ import { automationCreationContext } from "../settings/AutomationsSection.js";
+ import { AgentEmptyState } from "./AgentEmptyState.js";
+ import { AgentTabFrame } from "./AgentTabFrame.js";
+@@ -100,11 +102,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
+         });
+     }
+     if (entry.kind === "automation" && entry.triggerType === "webhook") {
++        const webhookUrl = automationWebhookUrl(entry.resource.webhookPath);
+         fields.push({
+             label: t("jobs.webhookUrl", { defaultValue: "Webhook URL" }),
+-            value: entry.resource.webhookPath || unset,
++            value: webhookUrl || unset,
+             mono: true,
+         });
++        if (webhookUrl) {
++            const reach = automationWebhookReach() ??
++                (isLoopbackWebhookUrl(webhookUrl) ? "local" : "public");
++            fields.push({
++                label: t("jobs.webhookAccess", { defaultValue: "Who can call it" }),
++                value: reach === "local"
++                    ? t("jobs.webhookLocalOnly", {
++                        defaultValue: "Reachable only from this computer while Vivary is open.",
++                    })
++                    : reach === "owner-proxy"
++                        ? t("jobs.webhookOwnerProxy", {
++                            defaultValue: "Reachable only through your private Zo access.",
++                        })
++                        : t("jobs.webhookPublic", {
++                            defaultValue: "Anyone with this URL can start this automation.",
++                        }),
++            });
++        }
+     }
+     fields.push({
+         label: t("jobs.nextRun", { defaultValue: "Next run" }),
+@@ -347,7 +368,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                      if (!open && !runAutomationMutation.isPending)
                          setRunTarget(null);
                  }, children: _jsxs(DialogContent, { children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: t("jobs.runNowTitle", { defaultValue: "Run automation now?" }) }), _jsx(DialogDescription, { children: t("jobs.runNowDescription", {
@@ -2105,6 +2373,38 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
+index 851a9d9763239e262cc940db36d9d6669f5688ab..cc89dc6b18df95d6ba01cc90b69d2b4204561bd0 100644
+--- a/dist/client/chat/run-recovery.js
++++ b/dist/client/chat/run-recovery.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ // Owns: run-error metadata extractors, recovery helpers, RunErrorRecoveryCard,
+ // LoopLimitContinueCard, BuilderConnectCta, BuilderSetupCard, ApiKeyConnect,
+ // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
+@@ -169,6 +170,12 @@ export function BuilderSetupContent({ onConnected, layout = "default", }) {
+     const t = useT();
+     const [keyOpen, setKeyOpen] = useState(false);
+     const sidebarLayout = layout === "sidebar";
++    if (!builderOffersEnabled()) {
++        // Without Builder offers the key form is the only path, so it shows at once.
++        return (_jsxs("div", { className: cn("agent-builder-setup-content", sidebarLayout && "agent-builder-setup-card--sidebar"), children: [_jsxs("div", { className: "agent-builder-setup-card__copy min-w-0", children: [_jsx("h3", { className: "text-[13px] font-medium text-foreground", children: t("agentPanel.connectAi", { defaultValue: "Connect AI" }) }), _jsx("p", { className: "mt-0.5 text-[11px] leading-relaxed text-muted-foreground", children: t("agentPanel.ownProviderKeys", {
++                                defaultValue: "Add your own provider keys.",
++                            }) })] }), _jsx("div", { className: "mt-3", children: _jsx(ApiKeyConnect, { onConnected: onConnected }) })] }));
++    }
+     return (_jsxs("div", { className: cn("agent-builder-setup-content", sidebarLayout && "agent-builder-setup-card--sidebar"), children: [_jsxs("div", { className: cn("agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between", sidebarLayout ? "gap-2" : "gap-3"), children: [_jsxs("div", { className: "agent-builder-setup-card__copy min-w-0", children: [_jsx("h3", { className: "text-[13px] font-medium text-foreground", children: t("agentPanel.connectAi", { defaultValue: "Connect AI" }) }), _jsx("p", { className: "mt-0.5 text-[11px] leading-relaxed text-muted-foreground", children: t("agentPanel.builderOrOwnKeys", {
+                                     defaultValue: "Choose Builder.io or custom keys.",
+                                 }) })] }), _jsxs("div", { className: cn("agent-builder-setup-card__actions flex shrink-0", sidebarLayout
+@@ -225,7 +232,7 @@ export function RunErrorRecoveryCard({ info, onContinue, onRetry, onFork, onDism
+         trackingSource: "assistant_chat_reconnect_error",
+     });
+     const canRecover = info.recoverable === true;
+-    const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
++    const shouldShowBuilderReconnect = builderOffersEnabled() && isBuilderReconnectRunError(info);
+     const isProviderAuthError = isProviderAuthenticationError([info.message, info.details].filter(Boolean).join("\n"), info.errorCode);
+     const shouldShowProviderSetup = isMissingLlmProviderRunError(info) ||
+         isDesktopChatRelayRunError(info) ||
 diff --git a/dist/client/chat-model-groups.d.ts b/dist/client/chat-model-groups.d.ts
 index ab985c5f9156c2418ea7a228dafcbd18ea4cfae4..915356fb989d2cd63a8bd9bf7075c644ac2cd637 100644
 --- a/dist/client/chat-model-groups.d.ts
@@ -2215,6 +2515,164 @@ index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ff
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text.trim() } : null;
      }
+diff --git a/dist/client/components/CodeRequiredDialog.js b/dist/client/components/CodeRequiredDialog.js
+index 19c9aac281c6716255388df139676e4583bea246..6595b1567a3c323ff6adb7c8f1689a4a9e2ce176 100644
+--- a/dist/client/components/CodeRequiredDialog.js
++++ b/dist/client/components/CodeRequiredDialog.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { IconPackageExport, IconCode, IconExternalLink, IconX, IconLoader2, } from "@tabler/icons-react";
+ import { useEffect, useCallback, useState } from "react";
+ import { createPortal } from "react-dom";
+@@ -78,12 +79,12 @@ export function CodeRequiredDialog({ open, onClose, featureLabel, }) {
+     if (!open || typeof document === "undefined")
+         return null;
+     return createPortal(_jsx("div", { style: s.backdrop, onClick: onClose, children: _jsxs("div", { style: s.dialog, onClick: (e) => e.stopPropagation(), role: "dialog", "aria-modal": "true", children: [_jsxs("div", { style: s.header, children: [_jsx("div", { style: s.iconWrap, children: _jsx(IconPackageExport, { size: 20 }) }), _jsxs("div", { children: [_jsx("h2", { style: s.title, children: t("codeRequired.title") }), _jsx("p", { style: s.subtitle, children: featureLabel
+-                                        ? t("codeRequired.subtitleWithFeature", {
++                                        ? t(builderOffersEnabled() ? "codeRequired.subtitleWithFeature" : "codeRequired.subtitleWithFeatureNoBuilder", {
+                                             feature: featureLabel,
+                                         })
+-                                        : t("codeRequired.subtitle") })] })] }), _jsxs("div", { style: s.options, children: [_jsxs("a", { href: DESKTOP_DOWNLOAD_URL, target: "_blank", rel: "noreferrer", style: { ...s.optionCard, ...s.optionLink }, onMouseEnter: (e) => Object.assign(e.currentTarget.style, s.optionCardHover), onMouseLeave: (e) => Object.assign(e.currentTarget.style, {
++                                        : t(builderOffersEnabled() ? "codeRequired.subtitle" : "codeRequired.subtitleNoBuilder") })] })] }), _jsxs("div", { style: s.options, children: [_jsxs("a", { href: DESKTOP_DOWNLOAD_URL, target: "_blank", rel: "noreferrer", style: { ...s.optionCard, ...s.optionLink }, onMouseEnter: (e) => Object.assign(e.currentTarget.style, s.optionCardHover), onMouseLeave: (e) => Object.assign(e.currentTarget.style, {
+                                 borderColor: "hsl(var(--border))",
+-                            }), children: [_jsx("div", { style: s.optionIcon, children: _jsx(IconCode, { size: 24 }) }), _jsxs("div", { style: s.optionText, children: [_jsx("span", { style: s.optionTitle, children: t("codeRequired.desktopTitle") }), _jsx("span", { style: s.optionDesc, children: t("codeRequired.desktopDescription") })] })] }), builderConnected && cloudAgentsAvailable ? (_jsxs("button", { style: {
++                            }), children: [_jsx("div", { style: s.optionIcon, children: _jsx(IconCode, { size: 24 }) }), _jsxs("div", { style: s.optionText, children: [_jsx("span", { style: s.optionTitle, children: t("codeRequired.desktopTitle") }), _jsx("span", { style: s.optionDesc, children: t("codeRequired.desktopDescription") })] })] }), !builderOffersEnabled() ? null : builderConnected && cloudAgentsAvailable ? (_jsxs("button", { style: {
+                                 ...s.optionCard,
+                                 ...(submitting
+                                     ? { opacity: 0.7, pointerEvents: "none" }
+diff --git a/dist/client/composer/runtime-adapters.js b/dist/client/composer/runtime-adapters.js
+index e043637cb79c273483b22e3d6871107a2ec77360..3fca972cbe5536c442d02f27e7af373359db6cff 100644
+--- a/dist/client/composer/runtime-adapters.js
++++ b/dist/client/composer/runtime-adapters.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ComposerRuntimeAdaptersProvider, } from "@agent-native/toolkit/composer";
+ import { useMemo } from "react";
+ import { DEFAULT_REASONING_EFFORT, getReasoningEffortOptionsForModel, reasoningEffortLabel, resolveReasoningEffortSelection, } from "../../shared/reasoning-effort.js";
+@@ -56,6 +57,9 @@ const coreComposerAdapters = {
+         StaleIndexBoundary: AssistantUiStaleIndexErrorBoundary,
+     },
+     builder: {
++        get offersEnabled() {
++            return builderOffersEnabled();
++        },
+         useConnectFlow: useBuilderConnectFlow,
+         BuilderConnectPopover,
+         tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
+diff --git a/dist/client/i18n.js b/dist/client/i18n.js
+index dade1f26162201e4858aa7b12828351dd7fd1540..5c19b427aaaad58941226bc939acff13cb8c67f1 100644
+--- a/dist/client/i18n.js
++++ b/dist/client/i18n.js
+@@ -471,6 +471,8 @@ const CORE_FALLBACK_MESSAGES = {
+     "codeRequired.title": "Code changes required",
+     "codeRequired.subtitleWithFeature": '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
+     "codeRequired.subtitle": "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
++    "codeRequired.subtitleNoBuilder": "This action creates or modifies source code, which needs Desktop from this surface.",
++    "codeRequired.subtitleWithFeatureNoBuilder": '"{{feature}}" creates or modifies source code, which needs Desktop from this surface.',
+     "codeRequired.desktopTitle": "Use Agent-Native Desktop",
+     "codeRequired.desktopDescription": "Open the project in the desktop app to enable source edits and CLI access.",
+     "codeRequired.builderAgentTitle": "Use Builder.io Agent",
+diff --git a/dist/client/integrations/webhook-url.d.ts b/dist/client/integrations/webhook-url.d.ts
+index 39d13fc2e3f8c26057d51c9c8600e769435ba688..76cfbaa13f9a82de7541f7758ee40782cac6a517 100644
+--- a/dist/client/integrations/webhook-url.d.ts
++++ b/dist/client/integrations/webhook-url.d.ts
+@@ -4,3 +4,5 @@
+  * pass verification no matter what the user pastes.
+  */
+ export declare function isNonPublicWebhookUrl(rawUrl: string): boolean;
++export declare function automationWebhookUrl(path: string | null | undefined, origin?: string): string | null;
++export declare function isLoopbackWebhookUrl(rawUrl: string): boolean;
+diff --git a/dist/client/integrations/webhook-url.js b/dist/client/integrations/webhook-url.js
+index ec98f2c4c68f092ac667ab04df8275e8d81e6928..4dd87312f1383319929bf401381ab19b24df8106 100644
+--- a/dist/client/integrations/webhook-url.js
++++ b/dist/client/integrations/webhook-url.js
+@@ -15,6 +15,33 @@ export function isNonPublicWebhookUrl(rawUrl) {
+         return true;
+     return isNonPublicHost(url.hostname);
+ }
++/**
++ * The full URL of an automation webhook. The server reports only the path,
++ * because the origin that callers use is the one this page was opened from.
++ */
++export function automationWebhookUrl(path, origin = globalThis.location?.origin) {
++    if (!path)
++        return null;
++    return origin ? new URL(path, origin).toString() : path;
++}
++/**
++ * Whether a URL names this computer only. A local desktop server listens on
++ * the loopback address, so only programs on the same computer can call it.
++ */
++export function isLoopbackWebhookUrl(rawUrl) {
++    let url;
++    try {
++        url = new URL(rawUrl);
++    }
++    catch {
++        return false;
++    }
++    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
++    return (host === "localhost" ||
++        host.endsWith(".localhost") ||
++        host === "::1" ||
++        /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host));
++}
+ function isNonPublicHost(hostname) {
+     const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+     if (host === "localhost" || host.endsWith(".localhost"))
+diff --git a/dist/client/onboarding/FirstRunOnboarding.js b/dist/client/onboarding/FirstRunOnboarding.js
+index 6d4135e6606d13d523c72a153fcc7ca960d45ef6..06d37f8a9b4269fe3b30ea0f3fdb20858519ea7c 100644
+--- a/dist/client/onboarding/FirstRunOnboarding.js
++++ b/dist/client/onboarding/FirstRunOnboarding.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+ import { IconArrowRight, IconBrandGithub, IconCheck, IconExternalLink, IconInfoCircle, IconKey, IconLoader2, IconSearch, IconX, } from "@tabler/icons-react";
+ import React, { useCallback, useEffect, useMemo, useRef, useState, } from "react";
+@@ -302,10 +303,10 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+     if (screen === "intro") {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "intro", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-lg flex-col items-center text-center", children: [_jsxs("h1", { className: "text-3xl font-semibold tracking-[-0.05em] sm:text-4xl", children: ["Free forever.", _jsx("br", {}), _jsx("span", { className: "text-primary", children: "Open source for life." })] }), _jsxs("div", { className: "mt-7 grid w-full gap-2 text-left sm:grid-cols-3", children: [_jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Fully customizable" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Change the UI, code, and behavior." })] }), _jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Bring your own keys" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Use your own providers and accounts." })] }), _jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Build your own" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Mix and match toolkit pieces in your own apps." })] })] }), _jsxs("button", { type: "button", className: cn(primaryButtonClass, "mt-6"), onClick: () => {
+                             trackFirstRunStepCompleted("intro");
+-                            setScreen("choice");
++                            setScreen(builderOffersEnabled() ? "choice" : "manual");
+                         }, children: ["Continue", _jsx(IconArrowRight, { size: 15 })] }), _jsxs("a", { href: "https://github.com/builderio/agent-native", target: "_blank", rel: "noreferrer", className: "mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: [_jsx(IconBrandGithub, { size: 14 }), _jsx("span", { children: "View source" }), _jsx(IconExternalLink, { size: 13 })] })] }) }));
+     }
+-    if (screen === "choice") {
++    if (screen === "choice" && builderOffersEnabled()) {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "choice", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-3xl flex-col gap-4", children: [_jsx("h1", { className: "text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl", children: "Choose your setup." }), _jsxs("div", { className: "grid gap-3 sm:grid-cols-2", children: [_jsxs("section", { className: "rounded-xl bg-primary/[0.06] p-4 shadow-sm", children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold", children: canActivateBuilderFreeCredits
+                                                             ? t("agentChat.onboarding.builderActivateCredits")
+                                                             : t("agentChat.onboarding.builderConnectCredits") }), _jsx("p", { className: "mt-1 max-w-xs text-xs leading-5 text-muted-foreground", children: canActivateBuilderFreeCredits ? (t("agentChat.onboarding.builderActivateDescription")) : (_jsxs(_Fragment, { children: ["One click connects", " ", _jsx("a", { href: "https://www.builder.io/", target: "_blank", rel: "noreferrer", className: "text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: "Builder.io free credits" }), " ", "with the services this app needs."] })) })] }), _jsx(IconArrowRight, { className: "mt-0.5 text-primary", size: 17 })] }), _jsxs("div", { className: "mt-5 pt-3", children: [_jsx("p", { className: "text-[11px] font-medium text-muted-foreground", children: canActivateBuilderFreeCredits
+@@ -323,7 +324,8 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                                     setScreen("manual");
+                                 }, children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold", children: "Use my own keys" }), _jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: "See what this app needs" })] }), _jsx(IconKey, { className: "text-muted-foreground", size: 17 })] }), _jsx(CapabilityList, { capabilities: profile.capabilities, compact: true, className: "mt-5 pt-3" })] })] }), import.meta.env.DEV ? (_jsxs("p", { "data-testid": "first-run-local-provider-note", className: "mx-auto max-w-2xl text-center text-[11px] leading-5 text-muted-foreground", children: ["Or set", " ", _jsx("code", { className: "rounded bg-muted px-1", children: "ANTHROPIC_API_KEY" }), " ", "or ", _jsx("code", { className: "rounded bg-muted px-1", children: "OPENAI_API_KEY" }), " ", "in ", _jsx("code", { className: "rounded bg-muted px-1", children: ".env" }), " to make that provider available to everyone using this app.", " ", _jsxs("a", { href: docsUrl("environment-variables"), target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: ["Read the setup guide", _jsx(IconExternalLink, { size: 12 })] })] })) : null] }) }));
+     }
+-    if (screen === "manual") {
++    // Without Builder offers, the choice screen is the key form.
++    if (screen === "manual" || screen === "choice") {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "choice", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-xl flex-col gap-4", children: [_jsxs("div", { children: [_jsx("button", { type: "button", className: "mb-4 text-xs text-muted-foreground hover:text-foreground", onClick: () => setScreen("choice"), children: "Back" }), _jsx("h1", { className: "text-xl font-semibold tracking-[-0.04em] sm:text-2xl", children: "Your keys" })] }), _jsxs("div", { className: "rounded-xl bg-muted/35 p-4", children: [_jsx(CapabilityList, { capabilities: profile.capabilities }), _jsxs("div", { className: "mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between", children: [_jsx("button", { type: "button", className: secondaryButtonClass, onClick: () => setScreen("choice"), children: "Back" }), _jsxs("button", { type: "button", className: primaryButtonClass, onClick: handleOpenSettings, children: ["Open key settings", _jsx(IconArrowRight, { size: 15 })] }), _jsx("button", { type: "button", className: secondaryButtonClass, onClick: () => {
+                                             trackFirstRunStepCompleted("manual");
+                                             setScreen(skipIntegrations ? "role" : "tools");
+@@ -385,7 +387,7 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                             ],
+                             [
+                                 "Flexible providers",
+-                                "Use Builder.io free credits or your own keys.",
++                                (builderOffersEnabled() ? "Use Builder.io free credits or your own keys." : "Use your own provider keys."),
+                             ],
+                         ]
+                         : [
+@@ -393,7 +395,7 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                             ["Agent integrations", "Connect tools from Settings anytime."],
+                             [
+                                 "Flexible providers",
+-                                "Use Builder.io free credits or your own keys.",
++                                (builderOffersEnabled() ? "Use Builder.io free credits or your own keys." : "Use your own provider keys."),
+                             ],
+                         ]).map(([title, description]) => (_jsxs("div", { className: "rounded-xl bg-muted/35 px-4 py-4", children: [_jsx("span", { className: "flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary", children: _jsx(IconCheck, { size: 14 }) }), _jsx("p", { className: "mt-3 text-sm font-medium", children: title }), _jsx("p", { className: "mt-1 text-xs leading-5 text-muted-foreground", children: description })] }, title))) }), _jsxs("button", { type: "button", "data-testid": "first-run-open-app", className: cn(primaryButtonClass, "mt-7"), onClick: () => void finishOnboarding("ready"), children: ["Open app", _jsx(IconArrowRight, { size: 15 })] })] }) }));
+ }
 diff --git a/dist/client/settings/AutomationsSection.js b/dist/client/settings/AutomationsSection.js
 index 9b62abee9d417d96a895cbc30b95503bbfd8810b..00d4c2ede6f5c0bf3fac2f41f454c6a5fc5c8c45 100644
 --- a/dist/client/settings/AutomationsSection.js
@@ -2228,6 +2686,144 @@ index 9b62abee9d417d96a895cbc30b95503bbfd8810b..00d4c2ede6f5c0bf3fac2f41f454c6a5
                  }) }), _jsxs("div", { className: "flex flex-wrap gap-2 text-[11px] text-muted-foreground", children: [_jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconClock, { className: "size-3" }), t("jobs.scheduledTrigger", { defaultValue: "Scheduled" })] }), _jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconBolt, { className: "size-3" }), t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })] }), _jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconCalendarEvent, { className: "size-3" }), t("jobs.eventTrigger", { defaultValue: "Event-triggered" })] })] }), _jsx(Button, { asChild: true, variant: "outline", size: "sm", children: _jsxs(Link, { to: "/settings/agent/automations", children: [t("jobs.openAutomations", {
                              defaultValue: "Open Automations",
                          }), _jsx(IconArrowRight, { className: "size-3.5" })] }) })] }));
+diff --git a/dist/client/settings/BuilderConnectPopover.js b/dist/client/settings/BuilderConnectPopover.js
+index 1bf5b1dc6f1b25f959d09dc1237f3837d20db050..d99a9845ea26ee88b613120caf245cf703096a60 100644
+--- a/dist/client/settings/BuilderConnectPopover.js
++++ b/dist/client/settings/BuilderConnectPopover.js
+@@ -1,10 +1,14 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
+ import React, { useEffect, useRef, useState } from "react";
+ import { Popover, PopoverContent, PopoverTrigger, } from "../components/ui/popover.js";
+ import { useT } from "../i18n.js";
+ import { cn } from "../utils.js";
+ export function BuilderConnectPopover({ flow, children, onConnect, onTriggerClick, contentTestId, primaryTestId, secondaryTestId, }) {
++    // The switch is fixed for the page's life, so the hook order below never changes.
++    if (!builderOffersEnabled())
++        return null;
+     const t = useT();
+     const [open, setOpen] = useState(false);
+     const capabilityResolved = flow.statusResolved === true;
+diff --git a/dist/client/settings/SettingsPanel.js b/dist/client/settings/SettingsPanel.js
+index 2aa4e0db60ff7621021d016ecf0c3b4304065139..8ada4c8277605197c04239020805095495c88663 100644
+--- a/dist/client/settings/SettingsPanel.js
++++ b/dist/client/settings/SettingsPanel.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { Checkbox, Picker, Skeleton, TextField, } from "@agent-native/toolkit/design-system";
+ import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, } from "@agent-native/toolkit/ui/command";
+@@ -94,8 +95,17 @@ function SettingsSelect({ label, labelAdornment, value, options, onValueChange,
+                         onValueChange(String(next));
+                 }, disabled: disabled, "aria-label": label, placeholder: value, style: controlStyle, className: cn("w-full text-start text-foreground", isPage ? "text-sm" : "text-[12px]") })] }));
+ }
++/** The provider setup summary, without the Builder.io choice when offers are off. */
++function providerSetupSummary(t) {
++    return builderOffersEnabled()
++        ? t("agentPanel.builderOrOwnKeys", { defaultValue: "Choose Builder.io or custom keys." })
++        : t("agentPanel.ownProviderKeys", { defaultValue: "Add your own provider keys." });
++}
+ // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
+-function UseBuilderCard({ builderFlow, connectUrl, connected, orgName, envManaged, credentialSource, trackingSource = "settings_panel_builder_card", trackingFlow = "connect_llm", label = "Connect Builder.io", subtitle = "Builder.io free credits to start - no API key needed.", dim, compact = false, }) {
++function UseBuilderCard(props) {
++    return builderOffersEnabled() ? _jsx(BuilderOfferCard, { ...props }) : null;
++}
++function BuilderOfferCard({ builderFlow, connectUrl, connected, orgName, envManaged, credentialSource, trackingSource = "settings_panel_builder_card", trackingFlow = "connect_llm", label = "Connect Builder.io", subtitle = "Builder.io free credits to start - no API key needed.", dim, compact = false, }) {
+     const isPage = useSettingsSurface() === "page";
+     const effectiveConnected = connected || builderFlow.configured;
+     const effectiveOrgName = builderFlow.orgName ?? orgName;
+@@ -523,13 +533,9 @@ function LLMSectionInner({ builderFlow, builderLoading, builderStatusAvailable,
+             ? undefined
+             : anyKeyConfigured, subtitle: isPage
+             ? undefined
+-            : t("agentPanel.builderOrOwnKeys", {
+-                defaultValue: "Choose Builder.io or custom keys.",
+-            }), grouped: isPage && grouped, open: open, onToggle: onToggle, children: initialLoading ? (_jsx(SettingsLoadingRow, { controlCount: 2 })) : (_jsxs("div", { className: cn(isPage
++            : providerSetupSummary(t), grouped: isPage && grouped, open: open, onToggle: onToggle, children: initialLoading ? (_jsx(SettingsLoadingRow, { controlCount: 2 })) : (_jsxs("div", { className: cn(isPage
+                 ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
+-                : "flex items-center justify-between gap-2"), children: [isPage && (_jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-foreground", children: "AI provider" }), _jsx("p", { className: "mt-1 text-sm leading-6 text-muted-foreground", children: t("agentPanel.builderOrOwnKeys", {
+-                                defaultValue: "Choose Builder.io or custom keys.",
+-                            }) })] })), _jsxs("div", { className: cn("flex flex-wrap items-center justify-end gap-2"), children: [selectedConfigurationKnown && !anyKeyConfigured && (_jsx(UseBuilderCard, { builderFlow: builderFlow, connectUrl: connectUrl, connected: builderConnected, orgName: orgName, envManaged: envManaged, credentialSource: credentialSource, trackingSource: "llm_settings", trackingFlow: "connect_llm", label: "Connect Builder.io", compact: true })), _jsx(ManualSetupCard, { id: "llm-manual-setup", title: "Custom keys", hint: manualSetupHint, sourceBadge: builderConnected ? undefined : sourceBadge, bare: isPage, popover: true, popoverLabel: settingsConfigured
++                : "flex items-center justify-between gap-2"), children: [isPage && (_jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-foreground", children: "AI provider" }), _jsx("p", { className: "mt-1 text-sm leading-6 text-muted-foreground", children: providerSetupSummary(t) })] })), _jsxs("div", { className: cn("flex flex-wrap items-center justify-end gap-2"), children: [selectedConfigurationKnown && !anyKeyConfigured && (_jsx(UseBuilderCard, { builderFlow: builderFlow, connectUrl: connectUrl, connected: builderConnected, orgName: orgName, envManaged: envManaged, credentialSource: credentialSource, trackingSource: "llm_settings", trackingFlow: "connect_llm", label: "Connect Builder.io", compact: true })), _jsx(ManualSetupCard, { id: "llm-manual-setup", title: "Custom keys", hint: manualSetupHint, sourceBadge: builderConnected ? undefined : sourceBadge, bare: isPage, popover: true, popoverLabel: settingsConfigured
+                                 ? "Manage"
+                                 : t("agentPanel.addOwnKeys", {
+                                     defaultValue: "Custom keys",
+@@ -1035,12 +1041,15 @@ function SettingsPanelContent({ isDevMode, initialSection, sectionRequestKey, se
+             });
+         });
+     }, []);
+-    const { focusSecretKey, isSectionVisible: shouldShowSection, openSection, toggleSection: toggle, openSettingsSection: openControllerSection, } = useSettingsPanelController({
++    const { focusSecretKey, isSectionVisible: controllerSectionVisible, openSection, toggleSection: toggle, openSettingsSection: openControllerSection, } = useSettingsPanelController({
+         sections,
+         initialSection,
+         sectionRequestKey,
+         onScrollToSection: scrollSectionIntoView,
+     });
++    // Browser Automation and Background Agent hold only a Builder.io offer.
++    const shouldShowSection = (section) => controllerSectionVisible(section) &&
++        (builderOffersEnabled() || (section !== "browser" && section !== "background"));
+     const openSettingsSection = useCallback((section, scroll = false) => openControllerSection(section, { scroll }), [openControllerSection]);
+     const isPage = surface === "page";
+     const isWorkspacePage = isPage && sections.includes("hosting");
+diff --git a/dist/client/settings/VoiceTranscriptionSection.js b/dist/client/settings/VoiceTranscriptionSection.js
+index 6d2d0289d79f520ed465c7e6fbc99f9f37c092b1..7927141df9ecd69b0240c47caa21476927d9a53d 100644
+--- a/dist/client/settings/VoiceTranscriptionSection.js
++++ b/dist/client/settings/VoiceTranscriptionSection.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * <VoiceTranscriptionSection /> — source + cleanup settings for voice input.
+  *
+@@ -291,22 +292,22 @@ export function VoiceTranscriptionSection({ compact = false, } = {}) {
+     return (_jsxs("div", { className: "space-y-2", children: [_jsxs("div", { className: "rounded-md border border-border bg-background p-2", children: [_jsx("div", { className: "mb-2 flex items-start justify-between gap-3 px-0.5", children: _jsxs("div", { children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "Live transcription" }), _jsx("p", { className: "mt-0.5 text-[10px] text-muted-foreground", children: "Choose where real-time words come from. Batch still runs after recording stops." })] }) }), _jsxs("div", { className: "space-y-2", children: [_jsx(ProviderOption, { id: "mac-native", selected: transcriptionMode === "mac-native", onSelect: () => chooseSource("mac-native"), title: "Mac Native", subtitle: "Free and fast in the macOS Tauri app. Web clients use the existing browser-native path when available.", rightSlot: _jsx("span", { className: "text-[10px] text-muted-foreground", children: "Tauri default" }) }), _jsx(ProviderOption, { id: "google-realtime", selected: transcriptionMode === "google-realtime", onSelect: () => chooseSource("google-realtime"), disabled: !googleRealtimeReady, title: "Google Realtime", subtitle: googleRealtimeReady
+                                     ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
+                                     : googleRealtimeConfigured
+-                                        ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
++                                        ? (builderOffersEnabled() ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session." : "Google credentials are set. The managed realtime session needs a service this app does not offer.")
+                                         : "BYOK only for v1. Configure Google service account before selecting this source.", rightSlot: googleRealtimeReady ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Ready"] })) : googleRealtimeConfigured ? (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: "Connect Builder.io" }) })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+                                         setShowAdvanced(true);
+                                         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+-                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "batch", selected: transcriptionMode === "batch", onSelect: () => chooseSource("batch"), title: "Batch", subtitle: "Universal fallback. Sends audio after recording stops through Builder Gemini, Gemini, Groq, then OpenAI." }), _jsx(SystemAudioStatus, {})] })] }), _jsxs("div", { className: "flex items-start justify-between gap-3 rounded-md border border-border bg-accent/30 px-2.5 py-2", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "AI cleanup" }), _jsx("p", { className: "text-[10px] text-muted-foreground mt-0.5", children: "Polish punctuation, casing, filler words, titles, and summaries after capture. Builder Gemini is tried first; BYOK Gemini is the fallback." })] }), _jsxs("div", { className: "flex shrink-0 flex-col items-end gap-1", children: [_jsx(Switch, { checked: !!cleanupEnabled, onChange: toggleCleanup, "aria-label": "AI cleanup", className: "shrink-0" }), cleanupEnabled && (_jsx("span", { className: "text-[10px] text-muted-foreground", children: builderStatus?.configured
++                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "batch", selected: transcriptionMode === "batch", onSelect: () => chooseSource("batch"), title: "Batch", subtitle: (builderOffersEnabled() ? "Universal fallback. Sends audio after recording stops through Builder Gemini, Gemini, Groq, then OpenAI." : "Universal fallback. Sends audio after recording stops through Gemini, Groq, then OpenAI.") }), _jsx(SystemAudioStatus, {})] })] }), _jsxs("div", { className: "flex items-start justify-between gap-3 rounded-md border border-border bg-accent/30 px-2.5 py-2", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "AI cleanup" }), _jsx("p", { className: "text-[10px] text-muted-foreground mt-0.5", children: (builderOffersEnabled() ? "Polish punctuation, casing, filler words, titles, and summaries after capture. Builder Gemini is tried first; BYOK Gemini is the fallback." : "Polish punctuation, casing, filler words, titles, and summaries after capture with your Gemini key.") })] }), _jsxs("div", { className: "flex shrink-0 flex-col items-end gap-1", children: [_jsx(Switch, { checked: !!cleanupEnabled, onChange: toggleCleanup, "aria-label": "AI cleanup", className: "shrink-0" }), cleanupEnabled && (_jsx("span", { className: "text-[10px] text-muted-foreground", children: builderStatus?.configured
+                                     ? "Builder ready"
+                                     : geminiConfigured
+                                         ? "Gemini key set"
+                                         : "Needs key" }))] })] }), _jsxs("div", { className: "rounded-md border border-border bg-background", children: [_jsxs("button", { type: "button", onClick: () => setShowAdvanced((v) => !v), className: "w-full flex items-center justify-between gap-2 px-2.5 py-2 cursor-pointer", children: [_jsxs("span", { className: "text-[11px] font-medium text-foreground inline-flex items-center gap-1", children: [showAdvanced ? (_jsx(IconChevronDown, { size: 12 })) : (_jsx(IconChevronRight, { size: 12, className: "rtl:-scale-x-100" })), "Add API keys"] }), _jsx("span", { className: "text-[10px] text-muted-foreground", children: "Google STT \u00B7 Gemini \u00B7 Groq \u00B7 OpenAI" })] }), showAdvanced && (_jsxs("div", { className: "px-2 pb-2 space-y-2", children: [_jsx(ProviderOption, { id: "google-service-account", selected: transcriptionMode === "google-realtime", onSelect: () => chooseSource("google-realtime"), disabled: !googleRealtimeReady, title: "Google Speech-to-Text service account", subtitle: googleRealtimeConfigured
+-                                    ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
++                                    ? (builderOffersEnabled() ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session." : "Service-account JSON is set. The managed realtime session needs a service this app does not offer.")
+                                     : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize.", rightSlot: googleRealtimeConfigured ===
+                                     null ? null : googleRealtimeReady ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Ready"] })) : googleRealtimeConfigured ? (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: "Connect Builder.io" }) })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+                                         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+-                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "auto", selected: transcriptionMode === "batch" && provider === "auto", onSelect: () => chooseBatchProvider("auto"), title: "Automatic batch fallback", subtitle: "Keep the current Clips fallback chain: Builder Gemini, Gemini, Groq, then OpenAI." }), _jsx(ProviderOption, { id: "builder-gemini", selected: transcriptionMode === "batch" && provider === "builder-gemini", onSelect: () => chooseBatchProvider("builder-gemini"), disabled: !builderStatus?.configured, title: "Builder.io Connect", subtitle: builderStatus?.configured
++                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "auto", selected: transcriptionMode === "batch" && provider === "auto", onSelect: () => chooseBatchProvider("auto"), title: "Automatic batch fallback", subtitle: (builderOffersEnabled() ? "Keep the current Clips fallback chain: Builder Gemini, Gemini, Groq, then OpenAI." : "Keep the current Clips fallback chain: Gemini, Groq, then OpenAI.") }), builderOffersEnabled() && _jsx(ProviderOption, { id: "builder-gemini", selected: transcriptionMode === "batch" && provider === "builder-gemini", onSelect: () => chooseBatchProvider("builder-gemini"), disabled: !builderStatus?.configured, title: "Builder.io Connect", subtitle: builderStatus?.configured
+                                     ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
+                                     : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed.", rightSlot: builderStatus?.configured ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Connected"] })) : (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: "Connect Builder.io" }) })) }), _jsx(ProviderOption, { id: "gemini", selected: transcriptionMode === "batch" && provider === "gemini", onSelect: () => chooseBatchProvider("gemini"), title: "Google Gemini", subtitle: "BYOK Gemini for AI cleanup and optional strict batch transcription.", rightSlot: geminiConfigured === null ? null : geminiConfigured ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Key set"] })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+diff --git a/dist/client/setup-connections/BuilderConnectCard.js b/dist/client/setup-connections/BuilderConnectCard.js
+index 49c99de2b4d7231e8be8a0f4b1b655480d5cdd3f..6401d2cb28be9713e644e7259c5d34a963b8a3bc 100644
+--- a/dist/client/setup-connections/BuilderConnectCard.js
++++ b/dist/client/setup-connections/BuilderConnectCard.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ActionButton, DesignSystemErrorBoundary, Status, Surface, } from "@agent-native/toolkit/design-system";
+ import { Button } from "@agent-native/toolkit/ui/button";
+ import { IconCheck, IconDotsVertical, IconLoader2, IconPlugConnected, IconRefresh, } from "@tabler/icons-react";
+@@ -123,6 +124,9 @@ export function DefaultBuilderConnectCardView({ viewModel, className, showManage
+                         : "border-border bg-muted text-muted-foreground"), children: viewModel.configured ? (_jsx(IconCheck, { className: "size-4" })) : (_jsx(IconPlugConnected, { className: "size-4" })) }), _jsxs("div", { className: "min-w-0 flex-1", children: [_jsxs("div", { className: "flex items-start justify-between gap-2", children: [_jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: viewModel.title }), _jsx(Status, { tone: statusTone, size: "compact", className: "rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground", children: viewModel.status.label })] }), showManage && viewModel.configured && viewModel.connectFlow ? (_jsx(BuilderConnectionMenu, { flow: viewModel.connectFlow, trackingSource: trackingSource })) : null] }), _jsx("p", { className: "mt-1 text-sm leading-5 text-muted-foreground", children: viewModel.description }), viewModel.error ? (_jsx("p", { className: "mt-2 text-xs text-destructive", children: viewModel.error })) : null, action ? (_jsx("div", { className: "mt-3", children: viewModel.connectFlow ? (_jsx(BuilderConnectPopover, { flow: viewModel.connectFlow, onConnect: action.onPress, children: _jsx(ActionButton, { type: "button", intent: "primary", size: "compact", pending: action.pending, disabled: action.disabled, className: "inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60", leadingIcon: _jsx(IconPlugConnected, { className: "size-3.5" }), children: action.label }) })) : (_jsx(ActionButton, { type: "button", intent: "primary", size: "compact", pending: action.pending, disabled: action.disabled, className: "inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60", leadingIcon: _jsx(IconPlugConnected, { className: "size-3.5" }), onPress: () => action.onPress(), children: action.label })) })) : null] })] }) }));
+ }
+ export function BuilderConnectCard({ title, description, trackingSource, className, onConnected, render, showManage = false, }) {
++    // The switch is fixed for the page's life, so the hook order below never changes.
++    if (!builderOffersEnabled())
++        return null;
+     const viewModel = useBuilderConnectCardController({
+         title,
+         description,
 diff --git a/dist/client/sse-event-processor.d.ts b/dist/client/sse-event-processor.d.ts
 index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c897bc51865 100644
 --- a/dist/client/sse-event-processor.d.ts
@@ -2243,6 +2839,25 @@ index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c89
      type: "text";
      text: string;
  } | {
+diff --git a/dist/client/sse-event-processor.js b/dist/client/sse-event-processor.js
+index 8372920704dd4163171edc9078281e38d76869cb..5d918796d8def5fdd90658db3f190bf4a98f8e05 100644
+--- a/dist/client/sse-event-processor.js
++++ b/dist/client/sse-event-processor.js
+@@ -1,4 +1,4 @@
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "../agent/engine/credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage, } from "../agent/engine/credential-errors.js";
+ import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+ import { emitChatFirstOpenApp } from "./chat-first.js";
+ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
+@@ -1412,7 +1412,7 @@ export function processEvent(ev, content, toolCallCounter, tabId, state) {
+         return { action: "continue" };
+     }
+     if (ev.type === "missing_api_key") {
+-        const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
++        const errMsg = llmMissingCredentialsMessage();
+         const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+         const runError = {
+             message: normalizeChatError(errMsg, errorCode).message,
 diff --git a/dist/client/thread-save-queue.js b/dist/client/thread-save-queue.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac85dd3af93
@@ -2271,6 +2886,26 @@ index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac8
 +    }).catch(() => undefined);
 +    return current;
 +}
+diff --git a/dist/client/uploads/upload-editor-image.js b/dist/client/uploads/upload-editor-image.js
+index 102632e36a40bcf57a7df79639ee402950ffc5b9..4ed6baa218ac6e52507b4264bd29f7e6abf3b625 100644
+--- a/dist/client/uploads/upload-editor-image.js
++++ b/dist/client/uploads/upload-editor-image.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { callAction } from "../use-action.js";
+ /**
+  * Read a {@link File} as a base64 data URL (`data:image/...;base64,...`).
+@@ -48,7 +49,9 @@ export const uploadEditorImage = async (file) => {
+     });
+     if (!result || typeof result.url !== "string" || !result.url) {
+         throw new Error(result?.error ||
+-            "Image upload failed. Connect Builder.io (free tier available) in Settings → File uploads, then try again.");
++            (builderOffersEnabled()
++                ? "Image upload failed. Connect Builder.io (free tier available) in Settings → File uploads, then try again."
++                : "Image upload failed. Configure a storage provider in Settings → File uploads, then try again."));
+     }
+     // Use the filename (sans extension) as a reasonable default alt text.
+     const alt = file.name ? file.name.replace(/\.[^./\\]+$/, "") : "";
 diff --git a/dist/client/use-chat-models.js b/dist/client/use-chat-models.js
 index 49cf993e882e89ecfe454b93eaf40de1712e64f8..640eb749acdf0cbd241fbbc54bbeb27c98bbfcb7 100644
 --- a/dist/client/use-chat-models.js
@@ -2488,6 +3123,682 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/extensions/web-search-tool.js b/dist/extensions/web-search-tool.js
+index 2d28621c2b109d176351b47aa6027adff40b8868..73d3787bcac13db54cd8463962031919639dd8f4 100644
+--- a/dist/extensions/web-search-tool.js
++++ b/dist/extensions/web-search-tool.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * Web-search tool — agent tool for searching the public web.
+  *
+@@ -18,6 +19,8 @@
+  * variables.
+  */
+ const DEFAULT_COUNT = 5;
++// Vivary #104: the tool description for hosts that turned Builder offers off.
++const WEB_SEARCH_DESCRIPTION_NO_BUILDER = "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from a configured search provider. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires a search provider key: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.";
+ const MAX_COUNT = 10;
+ async function resolveSearchKey(key, opts) {
+     let usedRequestScopedResolver = false;
+@@ -209,7 +212,7 @@ export function createWebSearchToolEntry(opts = {}) {
+     return {
+         "web-search": {
+             tool: {
+-                description: "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.",
++                description: builderOffersEnabled() ? "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY." : WEB_SEARCH_DESCRIPTION_NO_BUILDER,
+                 parameters: {
+                     type: "object",
+                     properties: {
+@@ -267,7 +270,9 @@ export function createWebSearchToolEntry(opts = {}) {
+                     else {
+                         return [
+                             "No web-search backend configured.",
+-                            "Connect Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:",
++                            builderOffersEnabled()
++                                ? "Connect Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:"
++                                : "Web search needs a search provider key. Add one of the following keys via app settings or environment variables:",
+                             "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
+                             "  • TAVILY_API_KEY        — https://tavily.com/",
+                             "  • EXA_API_KEY           — https://exa.ai/",
+diff --git a/dist/file-upload/actions/upload-image.js b/dist/file-upload/actions/upload-image.js
+index 6aa5c90af068072374e05085556fe87ee4bbf5b0..55239d47d923840c9559526f3746af3e3ae1c3ed 100644
+--- a/dist/file-upload/actions/upload-image.js
++++ b/dist/file-upload/actions/upload-image.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { z } from "zod";
+ import { defineAction } from "../../action.js";
+ import { ssrfSafeFetch } from "../../extensions/url-safety.js";
+@@ -117,10 +118,12 @@ async function fetchRemote(url) {
+ function uploadNotConfiguredError() {
+     return [
+         "Image uploads are not configured for this app.",
+-        "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
++        builderOffersEnabled()
++            ? "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider()."
++            : "Configure a file storage provider (S3, R2, GCS, etc.) for this app, or register one via registerFileUploadProvider().",
+     ].join(" ");
+ }
+-export default defineAction({
++const uploadImageAction = defineAction({
+     description: "Upload an image to the configured file-upload provider (Builder.io by default) and return a hosted CDN URL. " +
+         "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
+         'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Falls back to a clear ' +
+@@ -172,7 +175,7 @@ export default defineAction({
+             return {
+                 error: uploadNotConfiguredError(),
+                 configured: false,
+-                connectPath: "/_agent-native/builder/connect",
++                ...(builderOffersEnabled() ? { connectPath: "/_agent-native/builder/connect" } : {}),
+             };
+         }
+         return {
+@@ -182,3 +185,13 @@ export default defineAction({
+         };
+     },
+ });
++// Vivary #104: defineAction copies the description at module load, so a getter reads the switch per request.
++const UPLOAD_IMAGE_DESCRIPTION = uploadImageAction.tool.description;
++const UPLOAD_IMAGE_DESCRIPTION_NO_BUILDER = "Upload an image to the configured file-upload provider and return a hosted CDN URL. " +
++    "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
++    'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Returns a clear error when no provider is configured.';
++Object.defineProperty(uploadImageAction.tool, "description", {
++    enumerable: true,
++    get: () => (builderOffersEnabled() ? UPLOAD_IMAGE_DESCRIPTION : UPLOAD_IMAGE_DESCRIPTION_NO_BUILDER),
++});
++export default uploadImageAction;
+diff --git a/dist/file-upload/pre-upload-attachments.js b/dist/file-upload/pre-upload-attachments.js
+index ae2729bfa87006866bbbc618275915ec7ad822d4..fd716f89a85c3f2d23df60e9b650663a88039b61 100644
+--- a/dist/file-upload/pre-upload-attachments.js
++++ b/dist/file-upload/pre-upload-attachments.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { isSpreadsheetDocument, parseSpreadsheetDocument, } from "../ingestion/spreadsheet.js";
+ import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
+ const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
+@@ -284,7 +285,9 @@ export async function preUploadAttachments(opts) {
+             ].filter((line) => Boolean(line));
+             linesWithMetadata.push("<chat-file-attachment-upload-error>", ...failureLines, ...(providerMissing
+                 ? [
+-                    "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references.",
++                    (builderOffersEnabled()
++                        ? "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references."
++                        : "Call `connect-file-storage` now so the user can configure custom storage keys, then continue using the hosted references."),
+                 ]
+                 : [
+                     "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+@@ -299,7 +302,9 @@ export async function preUploadAttachments(opts) {
+                 ? "The user attached one or more images or files, but durable object storage is not configured for this app."
+                 : `The user attached one or more images or files, but the configured storage provider failed to upload them${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`,
+             providerMissing
+-                ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
++                ? (builderOffersEnabled()
++                    ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
++                    : "Call `connect-file-storage` now to render the inline storage setup card. The user can add custom storage keys there for S3-compatible object storage.")
+                 : "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+             "Do not persist the base64 contents in SQL. Until storage succeeds, use the attachment only for this turn.",
+             "</chat-file-attachment-upload-error>",
+diff --git a/dist/integrations/automation-webhook-task.d.ts b/dist/integrations/automation-webhook-task.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca1ddd519e48e2229c8f710616723174004e3d58
+--- /dev/null
++++ b/dist/integrations/automation-webhook-task.d.ts
+@@ -0,0 +1,13 @@
++import type { PendingTask } from "./pending-tasks-store.js";
++export type AutomationWebhookTaskOutcome = "completed" | "retry" | "failed" | "invalid";
++export declare function runClaimedAutomationWebhookTask(task: PendingTask, options?: {
++    event?: unknown;
++    baseUrl?: string;
++}): Promise<AutomationWebhookTaskOutcome>;
++export declare const AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS: number;
++export declare const AUTOMATION_WEBHOOK_EXPIRED_MESSAGE: string;
++export declare function webhookTaskBelongsToApp(taskId: string, appId?: string | null): Promise<boolean>;
++export declare function expireAutomationWebhookTask(taskId: string, expectedUpdatedAt?: number): Promise<boolean>;
++export declare function runAutomationWebhookTaskInProcess(taskId: string, options?: {
++    appId?: string | null;
++}): Promise<AutomationWebhookTaskOutcome | "skipped">;
+diff --git a/dist/integrations/automation-webhook-task.js b/dist/integrations/automation-webhook-task.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..3183ce114fce51af910b97b60a7ef5d7fac28af2
+--- /dev/null
++++ b/dist/integrations/automation-webhook-task.js
+@@ -0,0 +1,145 @@
++import { jobBelongsToApp, parseJobResource } from "../jobs/frontmatter.js";
++import { resourceGetByPath } from "../resources/store.js";
++import { runWithRequestContext } from "../server/request-context.js";
++import { AutomationWebhookRefusedError, dispatchAutomationWebhookTask, recordAutomationWebhookFailure, } from "../triggers/dispatcher.js";
++import { dispatchPendingIntegrationTask } from "./integration-durable-dispatch.js";
++import { claimPendingTask, failOpenPendingTask, getNextPendingTaskForThread, getPendingTask, MAX_PENDING_TASK_ATTEMPTS, markTaskCompleted, markTaskFailed, markTaskRetryable, } from "./pending-tasks-store.js";
++/** A queued webhook call older than this is expired instead of run. */
++export const AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS = 24 * 60 * 60 * 1000;
++export const AUTOMATION_WEBHOOK_EXPIRED_MESSAGE = "This webhook call waited more than 24 hours, for example because the app was closed, so it was not run. No delivery was confirmed.";
++function parseWebhookTaskPayload(task) {
++    try {
++        const payload = JSON.parse(task.payload);
++        return payload?.kind === "automation-webhook" ? payload : null;
++    }
++    catch {
++        return null;
++    }
++}
++/**
++ * Run one claimed automation webhook task and record the outcome on its row.
++ * The process-task route and the in-process runner both use it, after a
++ * claim, so only one delivery of a task runs it. It never throws.
++ *
++ * - `completed`: the automation ran, or had nothing to run. The next queued
++ *   call for the same automation is dispatched.
++ * - `retry`: the automation is already running. The row returns to pending
++ *   with its attempts reset, and the retry sweep delivers it again.
++ * - `failed`: the run threw. The row returns to pending until its attempts
++ *   run out, then fails with an errored history row. A refusal, such as a
++ *   condition without a usable key, fails the row at once. The dispatcher
++ *   has recorded it. The error is logged here.
++ * - `invalid`: the row does not hold a webhook task. The row fails.
++ */
++export async function runClaimedAutomationWebhookTask(task, options = {}) {
++    const taskPayload = parseWebhookTaskPayload(task);
++    if (!taskPayload) {
++        await markTaskFailed(task.id, "Invalid automation webhook task");
++        return "invalid";
++    }
++    try {
++        const result = await runWithRequestContext({
++            userEmail: task.ownerEmail,
++            ...(task.orgId ? { orgId: task.orgId } : {}),
++            isIntegrationCaller: true,
++        }, () => dispatchAutomationWebhookTask(taskPayload));
++        if (result === "retry") {
++            await markTaskRetryable(task.id, "Automation is already running.", {
++                resetAttempts: true,
++            });
++            return "retry";
++        }
++        await markTaskCompleted(task.id);
++    }
++    catch (error) {
++        const message = error instanceof Error ? error.message : String(error);
++        const refused = error instanceof AutomationWebhookRefusedError;
++        try {
++            if (refused) {
++                await markTaskFailed(task.id, message);
++            }
++            else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
++                await markTaskFailed(task.id, message);
++                await recordAutomationWebhookFailure(taskPayload, `The webhook call failed ${task.attempts} times and will not be retried. Last error: ${message.replace(/\.$/, "")}. No delivery was confirmed.`, "automation_webhook_failed", { userEmail: task.ownerEmail, orgId: task.orgId });
++            }
++            else {
++                await markTaskRetryable(task.id, message);
++            }
++        }
++        catch (markError) {
++            console.error(`[automations] Could not record the failure of webhook task ${task.id}:`, markError);
++        }
++        console.error(`[automations] Webhook task ${task.id} failed:`, error);
++        return "failed";
++    }
++    try {
++        const nextTask = await getNextPendingTaskForThread(task.platform, task.externalThreadId);
++        if (nextTask) {
++            await dispatchPendingIntegrationTask({
++                taskId: nextTask.id,
++                task: {
++                    platform: task.platform,
++                    externalThreadId: task.externalThreadId,
++                },
++                event: options.event,
++                baseUrl: options.baseUrl,
++            });
++        }
++    }
++    catch (error) {
++        // The retry sweep still delivers the next call.
++        console.error(`[automations] Could not dispatch the call queued after webhook task ${task.id}:`, error);
++    }
++    return "completed";
++}
++/**
++ * Whether a queued webhook task targets an automation of `appId`. A task whose
++ * automation is gone or unreadable counts as this app's, so the dispatcher
++ * records why it cannot run.
++ */
++export async function webhookTaskBelongsToApp(taskId, appId) {
++    const task = await getPendingTask(taskId);
++    const payload = task ? parseWebhookTaskPayload(task) : null;
++    if (!payload)
++        return true;
++    const resource = await resourceGetByPath(payload.owner, payload.path);
++    if (!resource || resource.id !== payload.automationId)
++        return true;
++    return jobBelongsToApp(parseJobResource(resource.content).meta, appId);
++}
++/**
++ * Fail a queued webhook call that waited past AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS
++ * instead of running it with an old payload, and record it in the
++ * automation's history. Returns whether this call expired it. The sweep passes
++ * the `updated_at` it read, so a row claimed since then is not expired.
++ */
++export async function expireAutomationWebhookTask(taskId, expectedUpdatedAt) {
++    const task = await getPendingTask(taskId);
++    const payload = task ? parseWebhookTaskPayload(task) : null;
++    if (!(await failOpenPendingTask(taskId, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, expectedUpdatedAt)))
++        return false;
++    if (payload) {
++        await recordAutomationWebhookFailure(payload, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, "automation_webhook_expired", { userEmail: task.ownerEmail, orgId: task.orgId });
++    }
++    return true;
++}
++/**
++ * The in-process runner for automation webhook tasks. It claims the task, so
++ * a second delivery of the same task returns `skipped`, and a task of another
++ * app that shares the database is left pending for that app's own process.
++ */
++export async function runAutomationWebhookTaskInProcess(taskId, options = {}) {
++    try {
++        if (!(await webhookTaskBelongsToApp(taskId, options.appId ?? undefined))) {
++            return "skipped";
++        }
++        const task = await claimPendingTask(taskId, { dispatchOutcome: "in-process" });
++        if (!task)
++            return "skipped";
++        return await runClaimedAutomationWebhookTask(task);
++    }
++    catch (error) {
++        console.error(`[automations] In-process webhook task ${taskId} failed:`, error);
++        return "failed";
++    }
++}
+diff --git a/dist/integrations/integration-durable-dispatch.d.ts b/dist/integrations/integration-durable-dispatch.d.ts
+index aa81642530ecac2b5c70aa0febe3e86b250b1905..5cb08fcda9a09444e72ae9bef184ba4fce50165a 100644
+--- a/dist/integrations/integration-durable-dispatch.d.ts
++++ b/dist/integrations/integration-durable-dispatch.d.ts
+@@ -1,7 +1,25 @@
+ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured } from "./integration-durable-dispatch-config.js";
+ export { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured, };
+-export type IntegrationDispatchOutcome = "background-acknowledged" | "portable-unconfirmed" | "failed";
++export type IntegrationDispatchOutcome = "background-acknowledged" | "portable-unconfirmed" | "in-process" | "failed";
+ export declare const INTEGRATION_CAMPAIGN_PROCESSOR_FIELD = "__integrationCampaignContinuation";
++export type InProcessIntegrationTaskRunner = (taskId: string, options: {
++    appId: string | null;
++}) => Promise<unknown>;
++export declare function setInProcessIntegrationTaskRunner(runner: InProcessIntegrationTaskRunner | null, options?: {
++    platforms?: readonly string[];
++    appId?: string;
++    acceptsTask?: (taskId: string, appId: string | null) => Promise<boolean>;
++    expireTask?: (taskId: string, expectedUpdatedAt?: number) => Promise<boolean>;
++    maxTaskAgeMs?: number;
++}): void;
++export declare function inProcessIntegrationTaskRunnerFor(platform: string): {
++    run: InProcessIntegrationTaskRunner;
++    platforms: Set<string>;
++    appId: string | null;
++    acceptsTask: ((taskId: string, appId: string | null) => Promise<boolean>) | null;
++    expireTask: ((taskId: string, expectedUpdatedAt?: number) => Promise<boolean>) | null;
++    maxTaskAgeMs: number | null;
++} | null;
+ export interface IntegrationDispatchTaskScope {
+     platform: string;
+     externalThreadId: string;
+diff --git a/dist/integrations/integration-durable-dispatch.js b/dist/integrations/integration-durable-dispatch.js
+index c67091b5fd7c9ce643192317b2606c211dc8fe09..6880de9b61aca81296a49a28f0f76320c66a04f3 100644
+--- a/dist/integrations/integration-durable-dispatch.js
++++ b/dist/integrations/integration-durable-dispatch.js
+@@ -5,6 +5,53 @@ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_E
+ import { recordPendingTaskDispatchAttempt } from "./pending-tasks-store.js";
+ export { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured, };
+ export const INTEGRATION_CAMPAIGN_PROCESSOR_FIELD = "__integrationCampaignContinuation";
++/**
++ * A long-lived server that owns the recurring-jobs timer runs queued tasks of
++ * the platforms it names in its own process. The HTTP self-dispatch below
++ * needs an app URL in production and an A2A_SECRET to sign the request, and a
++ * packaged desktop server has neither. Hosts that register no runner keep the
++ * self-dispatch.
++ */
++let inProcessIntegrationTaskRunner = null;
++/**
++ * Register the function that runs a queued task of the named platforms in
++ * this process, or pass null to restore self-dispatch. The runner must claim
++ * the task before it runs it, as `claimPendingTask` does, so a repeated
++ * delivery cannot start a second run. It must record a failure on the task
++ * and log it, because the dispatch does not wait for it. `appId` names the
++ * app whose tasks it runs, and the runner receives it. One process holds one
++ * runner.
++ *
++ * The retry sweep uses the optional hooks. `acceptsTask(taskId, appId)` says
++ * whether a task is this app's. The sweep leaves another app's task as it is,
++ * so it does not keep moving that task's `updated_at` ahead of the owning
++ * app's sweep. `expireTask(taskId, updatedAt)` ends a task older than
++ * `maxTaskAgeMs`, if it is unchanged since the sweep read it,
++ * instead of running it with an old payload.
++ */
++export function setInProcessIntegrationTaskRunner(runner, options) {
++    inProcessIntegrationTaskRunner = runner
++        ? {
++            run: runner,
++            platforms: new Set(options?.platforms ?? []),
++            appId: options?.appId?.trim() || null,
++            acceptsTask: options?.acceptsTask ?? null,
++            expireTask: options?.expireTask ?? null,
++            maxTaskAgeMs: options?.maxTaskAgeMs ?? null,
++        }
++        : null;
++}
++/** The registered runner for a platform, or null when that platform self-dispatches. */
++export function inProcessIntegrationTaskRunnerFor(platform) {
++    return inProcessIntegrationTaskRunner?.platforms.has(platform)
++        ? inProcessIntegrationTaskRunner
++        : null;
++}
++function inProcessRunnerForTask(input) {
++    return input.campaignContinuation
++        ? null
++        : inProcessIntegrationTaskRunnerFor(input.task.platform);
++}
+ export function integrationDispatchScopeValue(task) {
+     const value = task.platformContext?.channelId;
+     return typeof value === "string" && value.trim() ? value.trim() : null;
+@@ -71,6 +118,20 @@ function logDispatch(taskId, outcome, startedAt) {
+ }
+ export async function dispatchPendingIntegrationTask(input) {
+     const startedAt = Date.now();
++    const inProcess = inProcessRunnerForTask(input);
++    if (inProcess) {
++        // Recorded first, so the retry sweep gives the task the in-process
++        // cutoff even before the runner claims it.
++        await recordDispatch(input.taskId, "in-process");
++        // Not awaited, so the caller answers while the task runs. Calling the
++        // runner inside `then` also catches a synchronous throw. The runner
++        // has already recorded and logged a failure.
++        Promise.resolve()
++            .then(() => inProcess.run(input.taskId, { appId: inProcess.appId }))
++            .catch(() => { });
++        logDispatch(input.taskId, "in-process", startedAt);
++        return "in-process";
++    }
+     const durable = isIntegrationDurableDispatchEnabledForTask(input.task);
+     if (input.campaignContinuation &&
+         !durable &&
+diff --git a/dist/integrations/pending-tasks-retry-job.js b/dist/integrations/pending-tasks-retry-job.js
+index d9006e9e1f631be07b165c78dc28242c3284211f..6064439d9989ea703bd167d817cdd9ecf427dae4 100644
+--- a/dist/integrations/pending-tasks-retry-job.js
++++ b/dist/integrations/pending-tasks-retry-job.js
+@@ -1,7 +1,8 @@
+ import { getDbExec } from "../db/client.js";
++import { automationRunClaimLeaseMs } from "../jobs/run-history.js";
+ import { startIntervalJob, } from "../server/interval-job.js";
+ import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
+-import { configuredIntegrationDurableDispatchScopes, dispatchPendingIntegrationTask, isIntegrationDurableDispatchEnabledForTask, } from "./integration-durable-dispatch.js";
++import { configuredIntegrationDurableDispatchScopes, dispatchPendingIntegrationTask, inProcessIntegrationTaskRunnerFor, isIntegrationDurableDispatchEnabledForTask, } from "./integration-durable-dispatch.js";
+ import { ensurePendingTasksTable, MAX_PENDING_TASK_ATTEMPTS, } from "./pending-tasks-store.js";
+ /**
+  * Retries stuck integration webhook tasks.
+@@ -38,8 +39,25 @@ const PENDING_STUCK_AFTER_MS = 90_000;
+ const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+ const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
+ const DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS = 16 * 60 * 1000;
++/**
++ * A task that this host's in-process runner claimed can run as long as a
++ * background automation run, whose hard abort defaults to 10 minutes. Resetting
++ * it after the 5-minute default would start a second run beside a live one. Its
++ * cutoff is the Run now claim lease, 1.5 times that hard abort, so it follows
++ * AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS. Past it the run is certainly over, for
++ * example because the app quit, and the sweep delivers the task again.
++ */
++function inProcessProcessingStuckAfterMs() {
++    return Math.max(automationRunClaimLeaseMs(), getProcessingStuckAfterMs());
++}
+ /** After this many attempts we give up and mark the task failed */
+ const DEFAULT_SWEEP_LIMIT = 100;
++/**
++ * Another app's rows are skipped without a write, so they stay at the front
++ * of the updated_at order. When a full page held such rows, the sweep reads
++ * the next page, up to this many pages per pass.
++ */
++const MAX_SWEEP_PAGES = 10;
+ let job = null;
+ let startupTimer = null;
+ let activeWebhookBaseUrl;
+@@ -92,6 +110,16 @@ export async function retryStuckPendingTasks(input) {
+     const scopeSql = options.durableOnly
+         ? durableScopeSql()
+         : { clause: "", args: [] };
++    const cursorSql = options.after
++        ? {
++            clause: " AND (updated_at > ? OR (updated_at = ? AND id > ?))",
++            args: [options.after.updatedAt, options.after.updatedAt, options.after.id],
++        }
++        : { clause: "", args: [] };
++    const pagesLeft = options.pagesLeft ?? MAX_SWEEP_PAGES;
++    let pageFull = false;
++    let pageEnd = null;
++    let foreignSkipped = 0;
+     const result = {
+         selected: 0,
+         dispatched: 0,
+@@ -105,22 +133,25 @@ export async function retryStuckPendingTasks(input) {
+     const pendingCutoff = now - PENDING_STUCK_AFTER_MS;
+     const processingCutoff = now - getProcessingStuckAfterMs();
+     const durableProcessingCutoff = now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
++    const inProcessProcessingCutoff = now - inProcessProcessingStuckAfterMs();
+     let stuckRows;
+     try {
+         const { rows } = await client.execute({
+             sql: `
+-        SELECT id, platform, external_thread_id, dispatch_scope, status, attempts, updated_at
++        SELECT id, platform, external_thread_id, dispatch_scope, status, attempts, created_at, updated_at
+           FROM integration_pending_tasks
+          WHERE ((status = 'pending' AND created_at <= ? AND updated_at <= ?)
+             OR (status = 'processing' AND (
+               (last_dispatch_outcome = 'background-acknowledged'
+                 AND updated_at <= ?)
++              OR (last_dispatch_outcome = 'in-process'
++                AND updated_at <= ?)
+               OR ((last_dispatch_outcome IS NULL
+-                    OR last_dispatch_outcome <> 'background-acknowledged')
++                    OR last_dispatch_outcome NOT IN ('background-acknowledged', 'in-process'))
+                 AND updated_at <= ?)
+             )))
+-         ${scopeSql.clause}
+-         ORDER BY updated_at ASC
++         ${scopeSql.clause}${cursorSql.clause}
++         ORDER BY updated_at ASC, id ASC
+          LIMIT ?
+       `,
+             // `updated_at` is initialized to `created_at` on insert, so a genuinely
+@@ -131,17 +162,24 @@ export async function retryStuckPendingTasks(input) {
+                 pendingCutoff,
+                 pendingCutoff,
+                 durableProcessingCutoff,
++                inProcessProcessingCutoff,
+                 processingCutoff,
+                 ...scopeSql.args,
++                ...cursorSql.args,
+                 limit,
+             ],
+         });
++        pageFull = rows.length === limit;
++        pageEnd = rows.length
++            ? { updatedAt: Number(rows.at(-1).updated_at ?? 0), id: String(rows.at(-1).id) }
++            : null;
+         stuckRows = rows.map((r) => ({
+             id: r.id,
+             platform: r.platform,
+             externalThreadId: r.external_thread_id,
+             status: r.status,
+             attempts: Number(r.attempts ?? 0),
++            createdAt: Number(r.created_at ?? 0),
+             updatedAt: Number(r.updated_at ?? 0),
+             dispatchScope: r.dispatch_scope ?? null,
+         }));
+@@ -175,6 +213,22 @@ export async function retryStuckPendingTasks(input) {
+         return result;
+     for (const row of stuckRows) {
+         try {
++            const inProcess = inProcessIntegrationTaskRunnerFor(row.platform);
++            if (inProcess?.acceptsTask &&
++                !(await inProcess.acceptsTask(row.id, inProcess.appId))) {
++                result.skipped += 1;
++                foreignSkipped += 1;
++                continue;
++            }
++            if (inProcess?.expireTask &&
++                inProcess.maxTaskAgeMs &&
++                row.createdAt <= now - inProcess.maxTaskAgeMs) {
++                if (await inProcess.expireTask(row.id, row.updatedAt))
++                    result.markedFailed += 1;
++                else
++                    result.skipped += 1;
++                continue;
++            }
+             if (row.status === "processing" &&
+                 (await hasActiveIntegrationCampaign(row.id))) {
+                 result.skipped += 1;
+@@ -252,6 +306,16 @@ export async function retryStuckPendingTasks(input) {
+             console.error(`[integrations] Failed to retry pending task ${row.id}:`, err);
+         }
+     }
++    if (pageFull && foreignSkipped > 0 && pageEnd && pagesLeft > 1) {
++        const next = await retryStuckPendingTasks({
++            ...options,
++            webhookBaseUrl: baseUrl,
++            after: pageEnd,
++            pagesLeft: pagesLeft - 1,
++        });
++        for (const key of Object.keys(result))
++            result[key] += next[key];
++    }
+     return result;
+ }
+ function getProcessingStuckAfterMs() {
+diff --git a/dist/integrations/pending-tasks-store.d.ts b/dist/integrations/pending-tasks-store.d.ts
+index d9ddc31ec85c482bcede436b85ad1ecedfca4347..05dc4e71bbffc6562479b7fa8ef1c2818769e2de 100644
+--- a/dist/integrations/pending-tasks-store.d.ts
++++ b/dist/integrations/pending-tasks-store.d.ts
+@@ -50,6 +50,9 @@ export declare function insertPendingTask(input: {
+ export declare function isDuplicateEventError(err: unknown): boolean;
+ /** Fetch a pending task by id. */
+ export declare function getPendingTask(id: string): Promise<PendingTask | null>;
++export declare function failOpenPendingTask(id: string, errorMessage: string, expectedUpdatedAt?: number): Promise<boolean>;
++export declare function countOpenTasksForThread(platform: string, externalThreadId: string): Promise<number>;
++export declare function hasTaskWithEventKey(externalEventKey: string): Promise<boolean>;
+ export interface ResolvedIntegrationSourceContext {
+     platform: "slack";
+     sourceUrl: string;
+diff --git a/dist/integrations/pending-tasks-store.js b/dist/integrations/pending-tasks-store.js
+index 72b4cb62e23ed8f5c109d44e3211675c51b19f5c..7af7e7f80bd6f6e608bafaac2ac5fe36c69a1f29 100644
+--- a/dist/integrations/pending-tasks-store.js
++++ b/dist/integrations/pending-tasks-store.js
+@@ -450,6 +450,46 @@ export async function failTaskDeliveryTransition(id, errorMessage) {
+         throw new Error("Integration task delivery failure transition lost its race");
+     }
+ }
++/**
++ * Fail a task that is still pending or processing, and return whether this
++ * call failed it. With `expectedUpdatedAt`, only a row unchanged since it was
++ * read is failed, so a worker that claimed it meanwhile keeps it.
++ */
++export async function failOpenPendingTask(id, errorMessage, expectedUpdatedAt) {
++    await ensureTable();
++    const unchanged = expectedUpdatedAt === undefined ? "" : " AND updated_at = ?";
++    const result = await getDbExec().execute({
++        sql: `UPDATE integration_pending_tasks
++          SET status = 'failed', updated_at = ?, error_message = ?, payload = '{}', external_event_key = NULL
++          WHERE id = ? AND status IN ('pending', 'processing')${unchanged}`,
++        args: [
++            Date.now(),
++            errorMessage.slice(0, 2000),
++            id,
++            ...(expectedUpdatedAt === undefined ? [] : [expectedUpdatedAt]),
++        ],
++    });
++    return Number(result.rowsAffected ?? result.rowCount ?? 0) > 0;
++}
++/** How many tasks of one provider thread are waiting or running. */
++export async function countOpenTasksForThread(platform, externalThreadId) {
++    await ensureTable();
++    const { rows } = await getDbExec().execute({
++        sql: `SELECT COUNT(*) AS open FROM integration_pending_tasks
++          WHERE platform = ? AND external_thread_id = ? AND status IN ('pending', 'processing')`,
++        args: [platform, externalThreadId],
++    });
++    return Number(rows[0]?.open ?? 0);
++}
++/** Whether a task with this external event key is stored. */
++export async function hasTaskWithEventKey(externalEventKey) {
++    await ensureTable();
++    const { rows } = await getDbExec().execute({
++        sql: `SELECT 1 FROM integration_pending_tasks WHERE external_event_key = ? LIMIT 1`,
++        args: [externalEventKey],
++    });
++    return rows.length > 0;
++}
+ /** Mark a task as failed and stash an error message. */
+ export async function markTaskFailed(id, errorMessage) {
+     await ensureTable();
+diff --git a/dist/integrations/plugin.js b/dist/integrations/plugin.js
+index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f4ab7bf79 100644
+--- a/dist/integrations/plugin.js
++++ b/dist/integrations/plugin.js
+@@ -15,7 +15,7 @@ import { decodeOAuthState, encodeOAuthState, logOAuthStateDecodeFailure, oauthCa
+ import { readBody } from "../server/h3-helpers.js";
+ import { startIntervalJob, } from "../server/interval-job.js";
+ import { runWithRequestContext } from "../server/request-context.js";
+-import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
++import { runClaimedAutomationWebhookTask } from "./automation-webhook-task.js";
+ import { AUTOMATION_WEBHOOK_PLATFORM, } from "../triggers/webhook.js";
+ import { processA2AContinuationById, processDueA2AContinuations, reconcileTerminalA2AParentIfDisabled, recoverA2AContinuationAfterProcessorFailure, recoverDueA2AContinuations, } from "./a2a-continuation-processor.js";
+ import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
+@@ -1601,34 +1601,28 @@ export function createIntegrationsPlugin(options) {
+             let campaignDeliveryLease;
+             try {
+                 if (task.platform === AUTOMATION_WEBHOOK_PLATFORM) {
+-                    if (taskPayload.kind !== "automation-webhook" ||
+-                        campaignContinuation) {
++                    if (campaignContinuation) {
+                         await markTaskFailed(taskId, "Invalid automation webhook task");
+                         setResponseStatus(event, 400);
+                         return { error: "Invalid automation webhook task" };
+                     }
+-                    const webhookResult = await runWithRequestContext({
+-                        userEmail: task.ownerEmail,
+-                        ...(task.orgId ? { orgId: task.orgId } : {}),
+-                        isIntegrationCaller: true,
+-                    }, () => dispatchAutomationWebhookTask(taskPayload));
+-                    if (webhookResult === "retry") {
+-                        await markTaskRetryable(taskId, "Automation is already running.", { resetAttempts: true });
++                    // The in-process runner uses the same worker, which records
++                    // the outcome on the row and logs a failure.
++                    const webhookOutcome = await runClaimedAutomationWebhookTask(task, {
++                        event,
++                        baseUrl: getBaseUrl(event),
++                    });
++                    if (webhookOutcome === "invalid") {
++                        setResponseStatus(event, 400);
++                        return { error: "Invalid automation webhook task" };
++                    }
++                    if (webhookOutcome === "retry") {
+                         setResponseStatus(event, 202);
+                         return { ok: true, taskId, retrying: "automation-active" };
+                     }
+-                    await markTaskCompleted(taskId);
+-                    const nextTask = await getNextPendingTaskForThread(task.platform, task.externalThreadId);
+-                    if (nextTask) {
+-                        await dispatchPendingIntegrationTask({
+-                            taskId: nextTask.id,
+-                            task: {
+-                                platform: task.platform,
+-                                externalThreadId: task.externalThreadId,
+-                            },
+-                            event,
+-                            baseUrl: getBaseUrl(event),
+-                        });
++                    if (webhookOutcome === "failed") {
++                        setResponseStatus(event, 500);
++                        return { error: "Internal task failed" };
+                     }
+                     setResponseStatus(event, 200);
+                     return { ok: true, taskId };
 diff --git a/dist/jobs/background-automation-runner.js b/dist/jobs/background-automation-runner.js
 index 069adb196878a306f92883587c9153e506e23910..6ea3aca77953268d4fb426fd83331327a8e78dfd 100644
 --- a/dist/jobs/background-automation-runner.js
@@ -3071,8 +4382,23 @@ index 0000000000000000000000000000000000000000..fbd2cbf498ed027b0737f4169df596fe
 +    }
 +    return restricted;
 +}
+diff --git a/dist/localization/default-messages.d.ts b/dist/localization/default-messages.d.ts
+index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..917696717d4c1a520a3a1f0799416e4179c84dd7 100644
+--- a/dist/localization/default-messages.d.ts
++++ b/dist/localization/default-messages.d.ts
+@@ -742,6 +742,10 @@ declare const messages: {
+         webhookTrigger: string;
+         webhookUrl: string;
+         webhookUrlHint: string;
++        webhookAccess: string;
++        webhookLocalOnly: string;
++        webhookOwnerProxy: string;
++        webhookPublic: string;
+         deleteAutomationTitle: string;
+         deleteAutomationDescription: string;
+         runNow: string;
 diff --git a/dist/localization/default-messages.js b/dist/localization/default-messages.js
-index a534663feca2ca8960b6782390c5a97f944c35b5..5ef6ef0d86a05f18e3bf2ee22e78d689efbe43e5 100644
+index a534663feca2ca8960b6782390c5a97f944c35b5..341f48649e7fae17714b0a68e29823b6527582f8 100644
 --- a/dist/localization/default-messages.js
 +++ b/dist/localization/default-messages.js
 @@ -729,7 +729,7 @@ const messages = {
@@ -3084,7 +4410,15 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..5ef6ef0d86a05f18e3bf2ee22e78d689
          automationEventTrigger: "On {{event}}",
          webhook: "Webhook",
          automationWebhookDetails: "Runs when a webhook is received.",
-@@ -752,13 +752,13 @@ const messages = {
+@@ -748,17 +748,21 @@ const messages = {
+         webhookTrigger: "Webhook-triggered",
+         webhookUrl: "Webhook URL",
+         webhookUrlHint: "Paste this URL into a service that sends HTTP POST webhooks.",
++        webhookAccess: "Who can call it",
++        webhookLocalOnly: "Reachable only from this computer while Vivary is open.",
++        webhookOwnerProxy: "Reachable only through your private Zo access.",
++        webhookPublic: "Anyone with this URL can start this automation.",
+         deleteAutomationTitle: "Delete automation?",
          deleteAutomationDescription: "This permanently removes the automation and cannot be undone.",
          runNow: "Run now",
          runNowTitle: "Run automation now?",
@@ -3223,6 +4557,149 @@ index 4a3abfe4918097e29c0feeee835196e4faf46fa5..9831435b99b7a5067cbbd1b37511d7e8
      await ensureTable();
      invalidateRequestSecret(ref);
      const { key, scope, scopeId } = ref;
+diff --git a/dist/server/agent-chat/browser-team-tools.js b/dist/server/agent-chat/browser-team-tools.js
+index d17541a8886db23eca66fdaf3b7a34bc08068a85..858f28b48dbd5d6944031e8b6cd444d8304890c3 100644
+--- a/dist/server/agent-chat/browser-team-tools.js
++++ b/dist/server/agent-chat/browser-team-tools.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { createHash } from "node:crypto";
+ import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
+ import { areBuiltinMcpCapabilitiesSupported, buildMergedConfig, setBuiltinMcpCapabilityEnabled, } from "../../mcp-client/index.js";
+@@ -89,7 +90,9 @@ export function createBuilderBrowserTool(deps) {
+                     kind: "connect-file-storage-card",
+                     configured: !!activeProvider,
+                     provider: activeProvider?.name ?? null,
+-                    connectUrl: getBuilderBrowserConnectUrlForOwner(deps.getOrigin(), ownerEmail),
++                    ...(builderOffersEnabled()
++                        ? { connectUrl: getBuilderBrowserConnectUrlForOwner(deps.getOrigin(), ownerEmail) }
++                        : {}),
+                 });
+             },
+         },
+@@ -326,6 +329,14 @@ export function createBuilderBrowserTool(deps) {
+         delete entries["set-browser-control"];
+         delete entries["set-computer-use"];
+     }
++    // Vivary #104: no Builder handoff, Builder-hosted browser, or Builder storage offer when the host turned Builder offers off.
++    if (!builderOffersEnabled()) {
++        delete entries["connect-builder"];
++        delete entries["activate-browser"];
++        entries["connect-file-storage"].tool.description = "Render the inline file-storage setup card when an image " +
++            "or file attachment could not be durably uploaded. The card lets the user add custom storage keys. Call it " +
++            "immediately when the attachment context says storage is missing, and do not ask the user to upload the file again.";
++    }
+     return entries;
+ }
+ /**
+diff --git a/dist/server/agent-chat/context-tools.js b/dist/server/agent-chat/context-tools.js
+index 1cc1215b0fba22fe5619a3b8e57ea60334d312a3..338631c700cfa105cfb265e7b2332b862b344cab 100644
+--- a/dist/server/agent-chat/context-tools.js
++++ b/dist/server/agent-chat/context-tools.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
+ import { clampDataWidgetRows, DATA_WIDGET_MAX_CHART_POINTS, DATA_WIDGET_MAX_ROWS, dataWidgetResultSchema, } from "../../data-widgets/index.js";
+ import { getRequestRunContext } from "../request-context.js";
+@@ -195,8 +196,15 @@ When database tools are enabled, \`db-schema\` refreshes the schema and \`db-que
+ ### External data sources vs the app database
+ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
+ };
++// Vivary #104: the builder and browser topics teach Builder tools, so they go when the host turned Builder offers off.
++function frameworkContextSections() {
++    if (builderOffersEnabled())
++        return FRAMEWORK_CONTEXT_SECTIONS;
++    const { builder: _builder, browser: _browser, ...sections } = FRAMEWORK_CONTEXT_SECTIONS;
++    return sections;
++}
+ export function createFrameworkContextEntry() {
+-    const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
++    const topicList = Object.keys(frameworkContextSections()).join(", ");
+     return {
+         "get-framework-context": {
+             tool: {
+@@ -215,9 +223,9 @@ export function createFrameworkContextEntry() {
+             run: async (args) => {
+                 const topic = String(args.topic ?? "all").toLowerCase();
+                 if (topic === "all") {
+-                    return Object.values(FRAMEWORK_CONTEXT_SECTIONS).join("\n\n");
++                    return Object.values(frameworkContextSections()).join("\n\n");
+                 }
+-                const section = FRAMEWORK_CONTEXT_SECTIONS[topic];
++                const section = frameworkContextSections()[topic];
+                 if (!section) {
+                     return `Unknown topic "${topic}". Available: ${topicList}`;
+                 }
+diff --git a/dist/server/agent-chat/framework-prompts.js b/dist/server/agent-chat/framework-prompts.js
+index 5a20c95723aa0d8ce70ad13508514c22416ec104..96b3e08ed22874ff43f58166b8bed3cd457b7704 100644
+--- a/dist/server/agent-chat/framework-prompts.js
++++ b/dist/server/agent-chat/framework-prompts.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import nodePath from "node:path";
+ import { buildFrameworkCore, buildFrameworkCoreCompact, } from "../prompts/index.js";
+ import { getRequestOrgId } from "../request-context.js";
+@@ -19,6 +20,12 @@ import { lazyFs } from "./lazy-fs.js";
+  * request) with the template's promptExamples, producing the four assembled
+  * prompt strings used at request time.
+  */
++// Vivary #104: replaces the Builder code-change handoff when the host turned Builder offers off.
++const NO_BUILDER_CODE_CHANGES = `
++### Code Changes
++
++In Act mode, a request that needs source-file edits (the UI chrome, a component, a route, styles, or a bug in the app itself) is outside what you can do from this chat. Say so in one sentence and point the user to a coding agent or editor working in the project. Do not explore code, write patches, or plan the implementation here.
++`;
+ export function buildFrameworkPrompts(examples, options) {
+     const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
+     const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
+@@ -31,9 +38,14 @@ export function buildFrameworkPrompts(examples, options) {
+     const planModeArtifactList = extensionToolsEnabled
+         ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
+         : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
+-    const planModeBlockedTools = extensionToolsEnabled
++    const builderOffers = builderOffersEnabled();
++    const planModeBlockedToolsWithBuilder = extensionToolsEnabled
+         ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+         : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
++    // Vivary #104: the plan-mode list names no Builder tool when the host turned Builder offers off.
++    const planModeBlockedTools = builderOffers
++        ? planModeBlockedToolsWithBuilder
++        : planModeBlockedToolsWithBuilder.replace("`connect-builder`, ", "");
+     const extensionConnectBuilderGuard = extensionToolsEnabled
+         ? "Prefer native app artifacts and actions. Use an extension only when the user explicitly requests one, or when the result is clearly bespoke and one-off and the native format cannot express it. Reusable or product-wide behavior belongs in app code. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
+         : "";
+@@ -76,7 +88,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
+ If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} until the user switches back to Act mode.
+ 
+ ${extensionInstructionsFull}
+-
++${builderOffers ? `
+ ### Code Changes — Hand Off With \`connect-builder\`
+ 
+ ${extensionConnectBuilderGuard}
+@@ -90,7 +102,7 @@ Keep the whole turn to three beats:
+ 3. One sentence framing the next click around what they asked for rather than pitching Builder. Read \`builderEnabled\` from the result first; the tool's own description defines what each value lets you claim and offer.
+ 
+ Nothing else belongs in that turn: no code exploration, no implementation plan, no \`resources\` write of a spec, and no sub-agents (they have no code-editing tools either). You don't need filesystem access to hand off, so don't reach for it or list tools you lack.
+-${FRAMEWORK_CORE}`;
++` : NO_BUILDER_CODE_CHANGES}${FRAMEWORK_CORE}`;
+     const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
+ 
+ You are an AI agent in an agent-native application, running in **development mode**.
+@@ -126,11 +138,11 @@ The agent and the UI are equal partners — everything the UI can do, you can do
+ If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} until the user switches back to Act mode.
+ 
+ ${extensionInstructionsCompact}
+-
++${builderOffers ? `
+ ### Code Changes — Hand Off With \`connect-builder\`
+ 
+ In Act mode, a request that genuinely needs a source-code edit (per the rules above) is a handoff, not a task you plan. Keep the turn to three beats: (1) one short clause acknowledging their specific ask in their own terms, no preamble; (2) the \`connect-builder\` call with their request verbatim as \`prompt\`; (3) one sentence framing the next click around what they asked for, not a Builder pitch — read \`builderEnabled\` from the result first, and let the tool's own description tell you what each value lets you claim. Nothing else belongs in that turn: no code, no file lists, no plans, no sub-agents.
+-${FRAMEWORK_CORE_COMPACT}`;
++` : NO_BUILDER_CODE_CHANGES}${FRAMEWORK_CORE_COMPACT}`;
+     const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode
+ 
+ You are an AI agent in an agent-native application, running in **development mode**.
 diff --git a/dist/server/agent-chat/plugin-options.d.ts b/dist/server/agent-chat/plugin-options.d.ts
 index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa74a4516d 100644
 --- a/dist/server/agent-chat/plugin-options.d.ts
@@ -3407,10 +4884,15 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229bc77dd8fe 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c17f64211 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
-@@ -128,6 +128,7 @@ import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import crypto from "node:crypto";
+ import nodePath from "node:path";
+ import { createError, defineEventHandler, setResponseStatus, setResponseHeader, getMethod, getQuery, getHeader, getRequestIP, } from "h3";
+@@ -128,6 +129,7 @@ import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
  import { createAgentEngineScriptEntries, createAgentLoopSettingsScriptEntries, createCallAgentScriptEntry, createChatScriptEntries, createDbScriptEntries, createDocsScriptEntries, createResourceScriptEntries, } from "./agent-chat/script-entries.js";
  import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./agent-chat/skill-frontmatter.js";
  import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
@@ -3418,7 +4900,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
  export { loadResourcesForPrompt };
  export { _agentChatPromptSectionsForTests };
  export { buildPublicAgentA2ASkills };
-@@ -404,7 +405,6 @@ export function createAgentChatPlugin(options) {
+@@ -404,7 +406,6 @@ export function createAgentChatPlugin(options) {
              // `externalAgents` into `mcp`. A2A reads the same object, so the
              // connector policy cannot diverge between the two external surfaces.
              const mcpOptions = resolveAgentChatMcpOptions(options);
@@ -3426,7 +4908,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
              const mcpActionEntryOptions = options?.resolveMcpActionEntry
                  ? { resolveActionEntry: options.resolveMcpActionEntry }
                  : {};
-@@ -454,23 +454,6 @@ export function createAgentChatPlugin(options) {
+@@ -454,23 +455,6 @@ export function createAgentChatPlugin(options) {
                  return mcpInitializationPromise;
              };
              setGlobalMcpManager(mcpManager, ensureMcpInitialized);
@@ -3450,7 +4932,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
              // Mount status + management routes so the settings UI can list / add /
              // remove remote MCP servers and hot-reload the running manager.
              mountMcpStatusRoute(nitroApp, mcpManager);
-@@ -581,6 +564,31 @@ export function createAgentChatPlugin(options) {
+@@ -581,6 +565,31 @@ export function createAgentChatPlugin(options) {
                  ? await createCallAgentScriptEntry(options?.appId)
                  : {};
              let runNowSchedulerDeps = null;
@@ -3482,7 +4964,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
              const browserTools = createBuilderBrowserTool({
                  getOrigin: () => getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
                  getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
-@@ -956,32 +964,22 @@ export function createAgentChatPlugin(options) {
+@@ -956,32 +965,22 @@ export function createAgentChatPlugin(options) {
                  coreAttachmentTools = createCoreAttachmentActionEntries();
              }
              catch { }
@@ -3531,7 +5013,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
              // -----------------------------------------------------------------------
              // Production code-execution mode resolution.
              //
-@@ -1906,6 +1904,14 @@ export function createAgentChatPlugin(options) {
+@@ -1906,6 +1905,14 @@ export function createAgentChatPlugin(options) {
              const getFrameworkPromptActions = () => Object.fromEntries(Object.entries(prodActions).filter(([name]) => !templateScripts[name] && !mcpActionEntries[name]));
              const resolveRequestBasePrompt = () => (options?.systemPrompt ??
                  filterFrameworkPromptToSurface(lazyContext ? PROD_FRAMEWORK_PROMPT_COMPACT : PROD_FRAMEWORK_PROMPT, getFrameworkPromptActions(), getRequestRunContext()?.allowedActionNames)) + resolveRequestActionsPrompt("tool");
@@ -3546,7 +5028,29 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
              const resolveRequestLeanPrompt = () => (options?.systemPrompt ?? "") + resolveRequestLeanActionsPrompt();
              const resolveRequestDevPrompt = () => {
                  if (devNative)
-@@ -4649,6 +4655,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -2838,6 +2845,10 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
+ 
+ Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
+ </app-rendered-chat-no-direct-code-edits>`;
++            // Vivary #104: the same rule without the Builder handoff, for hosts that turned Builder offers off.
++            const APP_RENDERED_CHAT_NO_BUILDER_PROMPT = APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                .replace("call `connect-builder` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give", "give")
++                .replace(" and no Builder handoff is available", "");
+             // System-prompt note appended when production code execution is enabled.
+             const prodCodeExecPromptNote = !canToggle && effectiveProdCodeExec !== "off"
+                 ? effectiveProdCodeExec === "trusted"
+@@ -2854,7 +2865,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                     const requestLeanPrompt = resolveRequestLeanPrompt();
+                     const runtimeContext = runtimeContextForEvent(event);
+                     const codeEditingSurfaceRestriction = shouldBlockInProductCodeEditing(event)
+-                        ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                        ? builderOffersEnabled()
++                            ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                            : APP_RENDERED_CHAT_NO_BUILDER_PROMPT
+                         : "";
+                     const hostedHarnessRuntime = getRequestRunContext()?.hostedHarnessRuntime;
+                     const hostedHarnessPromptNote = hostedHarnessRuntime
+@@ -4649,6 +4662,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -3566,7 +5070,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4685,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4692,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -3613,7 +5117,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4706,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4713,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -3622,7 +5126,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
-@@ -5113,32 +5118,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5113,32 +5125,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      ? preparedMarker.automationRunId
                      : undefined;
                  if (typeof automationRunId === "string" && automationRunId) {
@@ -3656,7 +5160,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                          }
                          catch {
                              setResponseStatus(event, 500);
-@@ -5146,7 +5132,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5146,7 +5139,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                          }
                      }
                      const waitUntil = event.req?.waitUntil;
@@ -3665,7 +5169,13 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5326,29 +5312,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5314,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+             // Poll every 60 seconds for due recurring jobs and execute them.
+             // Long-lived runtimes use setInterval; serverless runtimes rely on a
+             // platform-owned sweep because an invocation cannot own a durable loop.
++            let ownsInProcessScheduler = false;
+             try {
+                 const { processRecurringJobs } = await import("../jobs/scheduler.js");
                  const schedulerDeps = {
                      getActions: getBackgroundActionEntries,
                      getSystemPrompt: async (owner) => {
@@ -3697,7 +5207,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5408,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,6 +5416,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -3709,10 +5219,11 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
 +                    // requests until this init settles.
 +                    const { setInProcessAutomationRunner } = await import("../jobs/run-now.js");
 +                    setInProcessAutomationRunner(runQueuedAutomationRun, { appId: options?.appId });
++                    ownsInProcessScheduler = true;
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,20 +5739,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5748,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -3735,11 +5246,99 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                  apiKey: options?.apiKey,
                  model: resolveConfiguredAgentModel(options),
                  appId: options?.appId,
+             });
++            // The process that owns the in-process timer also runs webhook
++            // automation tasks, for the same reason as Run now. The runner needs
++            // the dispatcher's dependencies, so it registers after
++            // initTriggerDispatcher. No webhook call is queued earlier:
++            // trackPluginInit below holds the webhook path until this init
++            // settles.
++            if (ownsInProcessScheduler) {
++                const { setInProcessIntegrationTaskRunner } = await import("../integrations/integration-durable-dispatch.js");
++                const { AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS, expireAutomationWebhookTask, runAutomationWebhookTaskInProcess, webhookTaskBelongsToApp, } = await import("../integrations/automation-webhook-task.js");
++                const { AUTOMATION_WEBHOOK_PLATFORM } = await import("../triggers/webhook.js");
++                setInProcessIntegrationTaskRunner(runAutomationWebhookTaskInProcess, {
++                    platforms: [AUTOMATION_WEBHOOK_PLATFORM],
++                    appId: options?.appId,
++                    acceptsTask: webhookTaskBelongsToApp,
++                    expireTask: expireAutomationWebhookTask,
++                    maxTaskAgeMs: AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS,
++                });
++            }
+         })().catch((err) => {
+             // If the init fails, the routes never get registered and requests
+             // to /_agent-native/agent-chat silently 404. Register a fallback
+@@ -5803,6 +5799,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                 "/mcp",
+                 "/.well-known/agent-card.json",
+                 "/_agent-native/a2a",
++                "/_agent-native/automations/webhook",
+             ],
+         });
+     };
+diff --git a/dist/server/app-origin-config.js b/dist/server/app-origin-config.js
+index 3a0b26044a6fced7857ce5a19cd54b19c484bac9..9de7d6cd502551f576edd9f6aa9d1974b1a61101 100644
+--- a/dist/server/app-origin-config.js
++++ b/dist/server/app-origin-config.js
+@@ -1,4 +1,6 @@
+ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
++import { automationWebhookReach } from "../shared/automation-webhook-reach.js";
+ import { normalizeAppBasePath } from "./app-base-path.js";
+ function workspaceAppMountPathsFromJson(value) {
+     if (!value?.trim())
+@@ -66,6 +68,10 @@ export function resolvePublicAppOriginConfig() {
+             : {}),
+         ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+         ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
++        ...(builderOffersEnabled() ? {} : { builderOffers: false }),
++        ...(automationWebhookReach()
++            ? { automationWebhookReach: automationWebhookReach() }
++            : {}),
+     };
+     return Object.keys(resolved).length > 0 ? resolved : null;
+ }
+diff --git a/dist/server/core-routes-plugin.js b/dist/server/core-routes-plugin.js
+index f77de2d59ca84ac154cfe3f99a9034516baf8c0d..0952bdeef616c1d0a75dbe2488f208d930ccda6b 100644
+--- a/dist/server/core-routes-plugin.js
++++ b/dist/server/core-routes-plugin.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { createHash } from "node:crypto";
+ import { assertBodySize, defineEventHandler, setResponseStatus, setResponseHeader, getMethod, getHeader, getRequestURL, getRequestIP, readRawBody, getCookie, setCookie, deleteCookie, } from "h3";
+ import { readMultipartFormData } from "h3";
+@@ -2874,7 +2875,9 @@ export function createCoreRoutesPlugin(options = {}) {
+                     if (!creds.privateKey || !creds.publicKey) {
+                         setResponseStatus(event, 400);
+                         return {
+-                            error: "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
++                            error: builderOffersEnabled()
++                                ? "Builder not connected. Connect Builder (free tier available) in Setup to use background agent."
++                                : "The background agent is not available in this app.",
+                         };
+                     }
+                     const body = (await readBody(event));
+@@ -3294,7 +3297,9 @@ export function createCoreRoutesPlugin(options = {}) {
+                 }
+                 setResponseStatus(event, 503);
+                 return {
+-                    error: "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
++                    error: builderOffersEnabled()
++                        ? "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider."
++                        : "No file upload provider configured. Configure a storage provider in Settings → File uploads, or register a provider.",
+                 };
+             }));
+             // ─── Voice transcription (Whisper) ───────────────────────────────
 diff --git a/dist/server/credential-provider.js b/dist/server/credential-provider.js
-index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d4d019995 100644
+index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc5924ac769e5 100644
 --- a/dist/server/credential-provider.js
 +++ b/dist/server/credential-provider.js
-@@ -20,6 +20,7 @@
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * Credential provider abstraction.
+  *
+@@ -20,6 +21,7 @@
  import { createHash } from "node:crypto";
  import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE, GATEWAY_UNAVAILABLE_VISITOR_MESSAGE, } from "../agent/engine/credential-errors.js";
  import { getAppConfig } from "../app-config/index.js";
@@ -3747,7 +5346,18 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d
  import { getDbExec, isLocalDatabase, isTransientDatabaseError, } from "../db/client.js";
  import { getOrgSetting } from "../settings/org-settings.js";
  import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-@@ -1054,7 +1055,8 @@ export async function recordProviderCredentialAuthFailure(opts) {
+@@ -90,7 +92,9 @@ export class FeatureNotConfiguredError extends Error {
+     byokDocsUrl;
+     constructor(opts) {
+         super(opts.message ??
+-            `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`);
++            (builderOffersEnabled()
++                ? `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`
++                : `Feature requires credential "${opts.requiredCredential}". Set your own key.`));
+         this.name = "FeatureNotConfiguredError";
+         this.requiredCredential = opts.requiredCredential;
+         this.builderConnectUrl = opts.builderConnectUrl;
+@@ -1054,7 +1058,8 @@ export async function recordProviderCredentialAuthFailure(opts) {
          await putSetting(settingKey, {
              fingerprint,
              key,
@@ -3757,6 +5367,214 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d
              ...(typeof opts.status === "number" && { status: opts.status }),
              ...(opts.code && { code: opts.code }),
              strikes,
+diff --git a/dist/server/index.d.ts b/dist/server/index.d.ts
+index ef529363366369eb3b9951325fa467bdf579c1a8..8bf22a84bb7b6998d9bfe6723bd322f93e26db72 100644
+--- a/dist/server/index.d.ts
++++ b/dist/server/index.d.ts
+@@ -43,6 +43,8 @@ export { createThread, getThread, listThreads, updateThreadData, deleteThread, s
+ export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
+ export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, type CoreRoutesPluginOptions, } from "./core-routes-plugin.js";
+ export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
++export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
++export { automationWebhookReach, setAutomationWebhookReach, } from "../shared/automation-webhook-reach.js";
+ export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, type RuntimeConfigEnvironment, type RuntimeConfigIssue, type RuntimeConfigIssueCode, type RuntimeConfigIssueSeverity, type RuntimeConfigPhase, type RuntimeConfigReport, type RuntimeConfigRequirements, } from "../shared/runtime-config.js";
+ export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, type AgentNativeOgImageInput, } from "./social-og-image.js";
+ export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+diff --git a/dist/server/index.js b/dist/server/index.js
+index 329970038cc7e238469045f3cd119647e7cfdfc6..82dd9d41cabd58eebcb6a9cadebbad600a59d067 100644
+--- a/dist/server/index.js
++++ b/dist/server/index.js
+@@ -43,6 +43,8 @@ export { configureAgentNativeEmbeddedEnvironment, createAgentNativeEmbeddedAuthO
+ export { createThread, getThread, listThreads, updateThreadData, deleteThread, setThreadArchived, setThreadPinned, setThreadScope, } from "../chat-threads/store.js";
+ export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
+ export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, } from "./core-routes-plugin.js";
++export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
++export { automationWebhookReach, setAutomationWebhookReach, } from "../shared/automation-webhook-reach.js";
+ export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, } from "../shared/runtime-config.js";
+ export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, } from "./social-og-image.js";
+ export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+diff --git a/dist/server/prompts/framework-core-compact.js b/dist/server/prompts/framework-core-compact.js
+index 51a8722f4e5b7c7fb824a01814425aa207c0e5d1..b1ab4f0cd0fde28a889ce08f1fbe2b2ac40ad61d 100644
+--- a/dist/server/prompts/framework-core-compact.js
++++ b/dist/server/prompts/framework-core-compact.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * Compact framework core instructions (FRAMEWORK_CORE_COMPACT).
+  * Used in lazy-context mode (lazyContext: true — the default).
+@@ -31,7 +32,8 @@ Workspace resources are user-facing by default. If you need temporary working fi
+         groupOn("chat") ? "chat history search (`chat-history`)" : "",
+         groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+         "structured memory (`save-memory`/`delete-memory`)",
+-        "browser automation (`activate-browser` in production, `set-browser-control` locally)",
++        // Vivary #104: the browser topic and activate-browser go when the host turned Builder offers off.
++        builderOffersEnabled() ? "browser automation (`activate-browser` in production, `set-browser-control` locally)" : "",
+     ].filter(Boolean);
+     const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+     const callAgentSection = groupOn("workspaceApps")
+@@ -56,6 +58,7 @@ For generated media, prefer this app's native generation action; otherwise use \
+         : "registered actions and MCP tools";
+     const codeHandoffClause = options?.canEditSource === true
+         ? ""
++        : !builderOffersEnabled() ? ", and you don't edit source yourself"
+         : ", and hand code changes to Builder — you don't edit source yourself";
+     return `
+ ### How You Work
+diff --git a/dist/server/prompts/framework-core.js b/dist/server/prompts/framework-core.js
+index d08d34b47898edade52e2f6c9136518233e699ba..3688b6d613bf48f6839671c74201c560e2650197 100644
+--- a/dist/server/prompts/framework-core.js
++++ b/dist/server/prompts/framework-core.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * Full framework core instructions (FRAMEWORK_CORE).
+  * Used in the verbose prompt variant (lazyContext: false).
+@@ -41,8 +42,11 @@ export function buildFrameworkCore(examples, options) {
+     const actionSurface = options?.extensionTools === true
+         ? "this app's registered actions, extensions, and connected MCP tools"
+         : "this app's registered actions and connected MCP tools";
++    // Vivary #104: no Builder handoff or Builder browser in the prompt when the host turned Builder offers off.
++    const builderOffers = builderOffersEnabled();
+     const codeHandoffClause = options?.canEditSource === true
+         ? ""
++        : !builderOffers ? ", and you do not edit source yourself"
+         : " — and you hand code changes to Builder rather than editing source yourself";
+     const groupOn = (group) => frameworkGroupEnabled(options?.disabledFrameworkGroups, group);
+     const resourcesSection = groupOn("resources")
+@@ -61,8 +65,8 @@ Workspace resources are user-facing by default. If you need temporary working fi
+         "inline embeds (`embed` fenced code block)",
+         groupOn("chat") ? "chat history search (`chat-history`)" : "",
+         groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+-        "connecting Builder.io (`connect-builder`)",
+-        "browser automation (`set-browser-control`/`activate-browser`)",
++        builderOffers ? "connecting Builder.io (`connect-builder`)" : "",
++        builderOffers ? "browser automation (`set-browser-control`/`activate-browser`)" : "",
+         "structured memory (`save-memory`/`delete-memory`)",
+     ].filter(Boolean);
+     const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+diff --git a/dist/server/realtime-voice.js b/dist/server/realtime-voice.js
+index 2defe54f6be8cc526cab9fd64ef0ed506104913a..e51b37c748015f56a09c17cb91410b08f5e78ba8 100644
+--- a/dist/server/realtime-voice.js
++++ b/dist/server/realtime-voice.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { defineEventHandler, getHeader, getMethod, readRawBody, setResponseHeader, setResponseStatus, } from "h3";
+ import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
+ import { actionsToEngineTools, } from "../agent/production-agent.js";
+@@ -388,7 +389,9 @@ function createSessionHandler(tools, options) {
+             if (!builderConfigured && !apiKey) {
+                 setResponseStatus(event, 409);
+                 return {
+-                    error: gatewayLaneUnavailableMessage("Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice."),
++                    error: gatewayLaneUnavailableMessage(builderOffersEnabled()
++                        ? "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice."
++                        : "Configure an OpenAI API key to use realtime voice."),
+                     code: "realtime_voice_setup_required",
+                 };
+             }
+diff --git a/dist/server/transcribe-voice.js b/dist/server/transcribe-voice.js
+index 6b282d84cfb33d21437daf39ea80fab34790583d..90b0bb9bbd6ad7ce848f88df94a7401cbcac6b43 100644
+--- a/dist/server/transcribe-voice.js
++++ b/dist/server/transcribe-voice.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * POST /_agent-native/transcribe-voice
+  *
+@@ -269,7 +270,9 @@ export function createTranscribeVoiceHandler() {
+             if (!(await hasBuilderCredential())) {
+                 setResponseStatus(event, 400);
+                 return {
+-                    error: gatewayLaneUnavailableMessage(`${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`),
++                    error: gatewayLaneUnavailableMessage(builderOffersEnabled()
++                        ? `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`
++                        : "The selected transcription provider is not available in this app. Change the provider preference in Settings."),
+                 };
+             }
+             try {
+@@ -405,7 +408,9 @@ export function createTranscribeVoiceHandler() {
+             return {
+                 error: gatewayLaneUnavailableMessage(builderError
+                     ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+-                    : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys."),
++                    : builderOffersEnabled()
++                        ? "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys."
++                        : "No voice transcription provider configured. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys."),
+             };
+         }
+         return await callWhisperCompat({
+diff --git a/dist/shared/automation-webhook-reach.d.ts b/dist/shared/automation-webhook-reach.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8bddc69a3b754a8c36ca8c93339ad8972a6b1368
+--- /dev/null
++++ b/dist/shared/automation-webhook-reach.d.ts
+@@ -0,0 +1,3 @@
++export type AutomationWebhookReach = "local" | "owner-proxy" | "public";
++export declare function setAutomationWebhookReach(reach: AutomationWebhookReach | undefined): void;
++export declare function automationWebhookReach(): AutomationWebhookReach | null;
+diff --git a/dist/shared/automation-webhook-reach.js b/dist/shared/automation-webhook-reach.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..96de576aca94b4a94b420a78c2185d399408c18a
+--- /dev/null
++++ b/dist/shared/automation-webhook-reach.js
+@@ -0,0 +1,21 @@
++/**
++ * Who can reach this app's automation webhook URLs, as the host knows it:
++ * "local" (the loopback address of this computer), "owner-proxy" (a private
++ * proxy that admits only the owner), or "public". The page origin cannot tell
++ * these apart, so the host sets it. Unset, the Automations page falls back to
++ * reading the origin.
++ *
++ * Like the Builder offers switch, the server keeps the value on globalThis and
++ * the browser reads it from the page config.
++ */
++const REACH_KEY = "__agentNativeAutomationWebhookReach";
++const REACHES = new Set(["local", "owner-proxy", "public"]);
++export function setAutomationWebhookReach(reach) {
++    globalThis[REACH_KEY] = REACHES.has(reach) ? reach : undefined;
++}
++export function automationWebhookReach() {
++    const reach = typeof window !== "undefined"
++        ? window.__AGENT_NATIVE_CONFIG__?.automationWebhookReach
++        : globalThis[REACH_KEY];
++    return REACHES.has(reach) ? reach : null;
++}
+diff --git a/dist/shared/builder-offers.d.ts b/dist/shared/builder-offers.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6572becc4a71a931c5fd8a668a46aaf185651a8
+--- /dev/null
++++ b/dist/shared/builder-offers.d.ts
+@@ -0,0 +1,2 @@
++export declare function setBuilderOffersEnabled(enabled: boolean): void;
++export declare function builderOffersEnabled(): boolean;
+diff --git a/dist/shared/builder-offers.js b/dist/shared/builder-offers.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d2b4779b23028b8e1abbc39f8d12e78aa4253c1
+--- /dev/null
++++ b/dist/shared/builder-offers.js
+@@ -0,0 +1,22 @@
++/**
++ * Whether Core offers Builder.io: its credits, its connect buttons, and the
++ * model guidance that points to it. A host turns the offers off when it wants
++ * owners to use their own provider keys only, as the Vivary desktop app does.
++ * Core's own behavior, with offers on, is the default.
++ *
++ * The server keeps the value on globalThis, because Core can load twice in one
++ * process. The browser reads the value the server put in the page config, so
++ * both sides agree without a request. Read it when an offer would render or a
++ * prompt is built, never at module load, because the host sets it after Core
++ * loads.
++ */
++const BUILDER_OFFERS_KEY = "__agentNativeBuilderOffers";
++export function setBuilderOffersEnabled(enabled) {
++    globalThis[BUILDER_OFFERS_KEY] = enabled !== false;
++}
++export function builderOffersEnabled() {
++    if (typeof window !== "undefined") {
++        return window.__AGENT_NATIVE_CONFIG__?.builderOffers !== false;
++    }
++    return globalThis[BUILDER_OFFERS_KEY] !== false;
++}
 diff --git a/dist/triggers/actions.js b/dist/triggers/actions.js
 index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908ddab2b60f1 100644
 --- a/dist/triggers/actions.js
@@ -3807,6 +5625,288 @@ index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908dd
                  const action = args.action;
                  switch (action) {
                      case "list-events":
+diff --git a/dist/triggers/condition-evaluator.d.ts b/dist/triggers/condition-evaluator.d.ts
+index 18951709d9496b46e651a35a4ef1412896ed7c6e..59385fa3ee7874ad2df700c9ca0d8885c7482bdf 100644
+--- a/dist/triggers/condition-evaluator.d.ts
++++ b/dist/triggers/condition-evaluator.d.ts
+@@ -17,6 +17,8 @@
+  * Evaluate whether a natural-language condition matches an event payload.
+  * Returns true if the condition is empty/undefined (unconditional trigger).
+  */
+-export declare function evaluateCondition(condition: string | undefined, payload: unknown, apiKey: string): Promise<boolean>;
++export declare function evaluateCondition(condition: string | undefined, payload: unknown, apiKey: string, options?: {
++    throwOnError?: boolean;
++}): Promise<boolean>;
+ /** Clear the condition cache (for testing). */
+ export declare function __clearConditionCache(): void;
+diff --git a/dist/triggers/condition-evaluator.js b/dist/triggers/condition-evaluator.js
+index 69ea404501700b166369ebb3d74b94dae1eaef18..fd936c175fc49389896ff6d28180af5bdaa25167 100644
+--- a/dist/triggers/condition-evaluator.js
++++ b/dist/triggers/condition-evaluator.js
+@@ -51,18 +51,23 @@ function cacheKey(condition, payload) {
+  * Evaluate whether a natural-language condition matches an event payload.
+  * Returns true if the condition is empty/undefined (unconditional trigger).
+  */
+-export async function evaluateCondition(condition, payload, apiKey) {
++/**
++ * With `throwOnError`, a classifier failure throws instead of reading as "no
++ * match", so the caller can say why nothing ran. An HTTP failure carries its
++ * `status`.
++ */
++export async function evaluateCondition(condition, payload, apiKey, options) {
+     if (!condition || !condition.trim())
+         return true;
+     const key = cacheKey(condition, payload);
+     const cached = _cache.get(key);
+     if (cached !== undefined)
+         return cached;
+-    const result = await callHaikuClassifier(condition, payload, apiKey);
++    const result = await callHaikuClassifier(condition, payload, apiKey, options);
+     _cache.set(key, result);
+     return result;
+ }
+-async function callHaikuClassifier(condition, payload, apiKey) {
++async function callHaikuClassifier(condition, payload, apiKey, options) {
+     let payloadStr;
+     try {
+         payloadStr = JSON.stringify(payload, null, 2);
+@@ -105,6 +110,9 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
+         });
+         if (!res.ok) {
+             console.error(`[triggers] Condition eval failed: ${res.status} ${res.statusText}`);
++            if (options?.throwOnError) {
++                throw Object.assign(new Error(`Anthropic answered HTTP ${res.status}`), { status: res.status });
++            }
+             return false;
+         }
+         const data = (await res.json());
+@@ -115,6 +123,8 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
+         return text.startsWith("yes");
+     }
+     catch (err) {
++        if (options?.throwOnError)
++            throw err;
+         console.error("[triggers] Condition eval error:", err);
+         return false;
+     }
+diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..3306b61e84fd1bb7165f92d440eb0e7c376b8e31 100644
+--- a/dist/triggers/dispatcher.js
++++ b/dist/triggers/dispatcher.js
+@@ -5,12 +5,13 @@
+  * subscribes to their events, and dispatches them (condition eval → agent
+  * loop) when matching events fire.
+  */
+-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
++import { getOwnerActiveApiKey, getOwnerApiKeyForEngine } from "../agent/production-agent.js";
++import { finishAutomationRun, startAutomationRun } from "../jobs/run-history.js";
+ import { automationMatchesEventOwner, resolveAutomationExecutionIdentity, } from "../automations/service.js";
+ import { subscribe, unsubscribe } from "../event-bus/index.js";
+ import { isBackgroundAutomationRunActive, runBackgroundAutomation, } from "../jobs/background-automation-runner.js";
+ import { buildJobResourceContent, jobBelongsToApp, parseJobResource, } from "../jobs/frontmatter.js";
+-import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
++import { organizationResourceOwner, resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
+ import { evaluateCondition } from "./condition-evaluator.js";
+ export function parseTriggerFrontmatter(content) {
+     const { meta, body } = parseJobResource(content);
+@@ -286,6 +287,62 @@ async function handleEvent(eventName, payload, eventMeta) {
+         console.error(`[triggers] Error handling event "${eventName}":`, err);
+     }
+ }
++/**
++ * A webhook call that cannot run however often it is retried. The task worker
++ * fails its row at once instead of retrying it.
++ */
++export class AutomationWebhookRefusedError extends Error {
++    errorCode;
++    constructor(message, errorCode) {
++        super(message);
++        this.name = "AutomationWebhookRefusedError";
++        this.errorCode = errorCode;
++    }
++}
++export const CONDITION_KEY_MISSING_MESSAGE = "This automation has a condition. Conditions are checked with Anthropic's API, which needs an Anthropic API key, and none is available. Add an Anthropic key, or remove the condition. The webhook call did not run.";
++export function conditionKeyRejectedMessage(status) {
++    return `Anthropic rejected the API key used to check this automation's condition (HTTP ${status}). Update the Anthropic key, or remove the condition. The webhook call did not run.`;
++}
++/**
++ * Record a webhook call that did not run where the owner sees it: an errored
++ * history row and the automation's last status. `task` is the queued webhook
++ * payload, and `identity` names the user and organization the run would have
++ * used. A failure to record is logged, never thrown.
++ */
++export async function recordAutomationWebhookFailure(task, message, errorCode, identity) {
++    const orgId = identity?.orgId ?? null;
++    const historyOwner = orgId
++        ? organizationResourceOwner(orgId)
++        : task.owner === "__shared__"
++            ? identity?.userEmail ?? task.owner
++            : task.owner;
++    try {
++        const historyId = await startAutomationRun({
++            owner: historyOwner,
++            automation: task.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
++            path: task.path,
++            scope: orgId ? "organization" : "personal",
++            orgId,
++            appId: _deps?.appId,
++        });
++        await finishAutomationRun(historyId, "error", message, errorCode);
++        const resource = await resourceGetByPath(task.owner, task.path);
++        if (resource && resource.id === task.automationId) {
++            await recordTriggerExecutionOutcome(resource, {
++                lastRun: new Date().toISOString(),
++                lastStatus: "error",
++                lastError: message.slice(0, 200),
++            });
++        }
++    }
++    catch (error) {
++        console.error(`[triggers] Could not record the failed webhook call for "${task.path}":`, error);
++    }
++}
++async function refuseWebhookCall(task, message, errorCode, identity) {
++    await recordAutomationWebhookFailure(task, message, errorCode, identity);
++    return new AutomationWebhookRefusedError(message, errorCode);
++}
+ /**
+  * Process a webhook task after the public route has persisted it. The queue
+  * worker supplies the target resource identity; the request body never gets
+@@ -297,11 +354,11 @@ export async function dispatchAutomationWebhookTask(task) {
+         throw new Error("Automation trigger dispatcher is not initialized.");
+     const resource = await resourceGetByPath(task.owner, task.path);
+     if (!resource || resource.id !== task.automationId) {
+-        throw new Error("Webhook automation no longer exists.");
++        throw new AutomationWebhookRefusedError("Webhook automation no longer exists.", "automation_webhook_target_missing");
+     }
+     const { meta, body } = parseTriggerFrontmatter(resource.content);
+     if (meta.triggerType !== "webhook") {
+-        throw new Error("Webhook target is no longer a webhook automation.");
++        throw new AutomationWebhookRefusedError("Webhook target is no longer a webhook automation.", "automation_webhook_target_missing");
+     }
+     if (!meta.enabled)
+         return "completed";
+@@ -314,13 +371,35 @@ export async function dispatchAutomationWebhookTask(task) {
+     if (!resolved.ok)
+         throw new Error(resolved.reason);
+     const identity = resolved.identity;
+-    const apiKey = (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
+-    if (!apiKey)
+-        throw new Error("No API key is available for this automation.");
++    // The condition classifier calls Anthropic's API directly, whatever provider
++    // runs the automation, so it takes an Anthropic key only. Another
++    // provider's key would be rejected there, and the call skipped without a
++    // word. Without a condition the run resolves its engine and credential as a
++    // scheduled run does, which covers a key from the launch environment, a
++    // Builder gateway, and a keyless local model.
++    const hasCondition = Boolean(meta.condition?.trim());
++    const conditionKey = hasCondition
++        ? (await getOwnerApiKeyForEngine("anthropic", identity.userEmail)).apiKey ||
++            deps.apiKey
++        : undefined;
++    if (hasCondition && !conditionKey) {
++        throw await refuseWebhookCall(task, CONDITION_KEY_MISSING_MESSAGE, "automation_condition_key_missing", identity);
++    }
+     if (isBackgroundAutomationRunActive(meta)) {
+         return "retry";
+     }
+-    const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
++    let matches;
++    try {
++        matches = await evaluateCondition(meta.condition, task.payload, conditionKey, { throwOnError: true });
++    }
++    catch (error) {
++        // A rejected key fails the same way every time. Other failures, such as
++        // a network error, are retried.
++        if (error?.status === 401 || error?.status === 403) {
++            throw await refuseWebhookCall(task, conditionKeyRejectedMessage(error.status), "automation_condition_key_rejected", identity);
++        }
++        throw error;
++    }
+     if (!matches) {
+         await recordTriggerSkip(resource, "skipped", undefined);
+         return "completed";
+diff --git a/dist/triggers/routes.js b/dist/triggers/routes.js
+index 046dfefce9319f004cc03ee7fca6eede3f5ffa23..1d3a9991acc0542837c76c3a8215fa23ec524ab3 100644
+--- a/dist/triggers/routes.js
++++ b/dist/triggers/routes.js
+@@ -1,10 +1,10 @@
+ import { randomUUID } from "node:crypto";
+-import { defineEventHandler, getRequestHeader, getMethod, setResponseStatus, } from "h3";
++import { defineEventHandler, getRequestHeader, getMethod, setResponseHeader, setResponseStatus, } from "h3";
+ import { AutomationConnectorError, readBoundedRequestBody, } from "../automation/index.js";
+ import { canUpdateAutomationResource } from "../automations/service.js";
+ import { getDbExec } from "../db/client.js";
+ import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
+-import { insertPendingTask, isDuplicateEventError, } from "../integrations/pending-tasks-store.js";
++import { countOpenTasksForThread, hasTaskWithEventKey, insertPendingTask, isDuplicateEventError, } from "../integrations/pending-tasks-store.js";
+ import { nextOccurrence, describeCron, effectiveTimezone, isValidCron, } from "../jobs/cron.js";
+ import { buildJobResourceContent, parseJobResource, } from "../jobs/frontmatter.js";
+ import { getOrgContext } from "../org/context.js";
+@@ -13,7 +13,7 @@ import { getSession } from "../server/auth.js";
+ import { readBody } from "../server/h3-helpers.js";
+ import { refreshEventSubscriptions } from "./dispatcher.js";
+ import { findAutomationWebhookTarget, readAutomationWebhookPath, } from "./webhook-store.js";
+-import { AUTOMATION_WEBHOOK_MAX_BODY_BYTES, AUTOMATION_WEBHOOK_PLATFORM, isAutomationWebhookToken, } from "./webhook.js";
++import { AUTOMATION_WEBHOOK_MAX_BODY_BYTES, AUTOMATION_WEBHOOK_MAX_OPEN_CALLS, AUTOMATION_WEBHOOK_PLATFORM, isAutomationWebhookToken, } from "./webhook.js";
+ function automationName(path) {
+     return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+ }
+@@ -300,6 +300,21 @@ async function enqueueAutomationWebhook(event, token) {
+     const eventId = webhookEventId(event, payload);
+     const ownerEmail = match.meta.createdBy?.trim().toLowerCase() || match.resource.owner;
+     const externalThreadId = `${match.resource.owner}:${match.resource.path}`;
++    const externalEventKey = `${match.resource.id}:${eventId}`;
++    // A caller in a loop could otherwise queue unlimited runs. The count is
++    // not atomic with the insert, so the cap is soft by a call or two.
++    if ((await countOpenTasksForThread(AUTOMATION_WEBHOOK_PLATFORM, externalThreadId)) >=
++        AUTOMATION_WEBHOOK_MAX_OPEN_CALLS) {
++        if (await hasTaskWithEventKey(externalEventKey)) {
++            setResponseStatus(event, 200);
++            return { accepted: true, duplicate: true, eventId };
++        }
++        setResponseStatus(event, 429);
++        setResponseHeader(event, "retry-after", "60");
++        return {
++            error: `This automation already has ${AUTOMATION_WEBHOOK_MAX_OPEN_CALLS} calls waiting. Try again later.`,
++        };
++    }
+     const taskId = randomUUID();
+     const taskPayload = {
+         kind: "automation-webhook",
+@@ -317,7 +332,7 @@ async function enqueueAutomationWebhook(event, token) {
+             payload: JSON.stringify(taskPayload),
+             ownerEmail,
+             orgId: match.meta.orgId ?? null,
+-            externalEventKey: `${match.resource.id}:${eventId}`,
++            externalEventKey,
+         });
+     }
+     catch (error) {
+diff --git a/dist/triggers/webhook.d.ts b/dist/triggers/webhook.d.ts
+index 2905338020cb1dba3387acbaf157b6f2e975d564..f4f8d0bb6c799e591b6efeebf1fbdb2de4f26510 100644
+--- a/dist/triggers/webhook.d.ts
++++ b/dist/triggers/webhook.d.ts
+@@ -1,5 +1,6 @@
+ export declare const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
+ export declare const AUTOMATION_WEBHOOK_MAX_BODY_BYTES: number;
++export declare const AUTOMATION_WEBHOOK_MAX_OPEN_CALLS = 20;
+ export interface AutomationWebhookTaskPayload {
+     kind: "automation-webhook";
+     automationId: string;
+diff --git a/dist/triggers/webhook.js b/dist/triggers/webhook.js
+index e7562dd40f03bee7f4a50164eda22b4b5f4ca9b5..b11d7004218b727a0d825da7bf5297d9e4f656ef 100644
+--- a/dist/triggers/webhook.js
++++ b/dist/triggers/webhook.js
+@@ -1,6 +1,8 @@
+ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+ export const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
+ export const AUTOMATION_WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
++/** Calls one automation may have waiting or running before new ones get HTTP 429. */
++export const AUTOMATION_WEBHOOK_MAX_OPEN_CALLS = 20;
+ const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+ export function createAutomationWebhookToken() {
+     return randomBytes(32).toString("base64url");
 diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
 index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
 --- a/dist/usage/metrics-store.js

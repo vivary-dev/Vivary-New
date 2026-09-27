@@ -198,6 +198,216 @@ app for that case, and may prefer to pass the runner through the plugin options
 instead of a module registry. Remove this part of the patch after an upstream
 release passes the same test and a packaged Run now check.
 
+## In-process webhook automations
+
+Issue #113 makes webhook automations work in the packaged app, as the owner
+decided on 2026-09-27. A call to `/_agent-native/automations/webhook/<token>`
+is stored in `integration_pending_tasks`, and Core then sent the task to its own
+process-task route over HTTP. That needs an app URL in local mode and an
+`A2A_SECRET` in hosted mode, and the packaged app has neither. The caller still
+got HTTP 202, the task never ran, and the retry sweep sent it again about every
+90 seconds without end.
+
+`integration-durable-dispatch.js` now exports
+`setInProcessIntegrationTaskRunner(runner, { platforms, appId })`, a sibling of
+the Run now registry. When a runner is registered for the task's platform,
+`dispatchPendingIntegrationTask` records the dispatch as `in-process`, starts
+the runner without waiting, and returns `in-process`. The webhook route and the
+retry sweep both call that function, so both reach the runner. Without a
+runner, Core keeps the self-dispatch.
+
+The webhook branch of the process-task route is lifted into
+`dist/integrations/automation-webhook-task.js`.
+`runClaimedAutomationWebhookTask` runs a claimed task, marks it completed,
+retryable, or failed, logs a failure, and dispatches the next queued call for
+the same automation. The route and `runAutomationWebhookTaskInProcess` both use
+it. The in-process runner claims the task first with `claimPendingTask`, so a
+second delivery returns `skipped`. It leaves a task of another app that shares
+the database pending, unclaimed, for that app's own process.
+
+`agent-chat-plugin.js` registers the runner only where it starts the in-process
+recurring-jobs timer, and only after `initTriggerDispatcher`, because the
+dispatcher's dependencies are null before then. The plugin's `trackPluginInit`
+paths now include `/_agent-native/automations/webhook`, so the readiness gate
+holds a webhook call until the runner is registered.
+
+The retry sweep reset a `processing` task after 5 minutes, while a background
+run can last 10. An `in-process` task now gets the Run now claim lease as its
+cutoff: 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, 15 minutes by
+default, and never less than the 5-minute default. A live run is not reset,
+and a task whose process quit mid-run is reset and delivered again after the
+lease. A pending task, accepted before a quit and never started, runs about 90
+seconds after the next start, when the sweep finds it. Either way the call runs
+once to completion. A run cut off by a quit leaves its history row reading that
+the run stopped before it recorded a result. The rerun starts from the
+beginning, so it can repeat a local step the cut-off run already took, such as
+a memory write. Until the rerun, later calls for the same automation wait
+behind it, because tasks of one automation run in order. A prompt reset at
+startup is not safe here: the automation's own "running" status also holds a
+rerun back until the hard timeout passes, and a second server on the same data
+folder could still own the claim.
+
+A pending task older than 24 hours is expired instead of run, so a build that
+starts after a long gap, or after an older build left calls pending, does not
+replay old payloads. The sweep fails the task and writes an errored history row
+with the code `automation_webhook_expired`. An automation with 20 calls waiting
+or running answers new calls with HTTP 429 and `Retry-After: 60`, so a caller in
+a loop cannot queue unlimited runs. A repeated event id still gets its 200
+duplicate. The count is not atomic with the insert, so the cap can pass by a
+call or two. The registry's optional `acceptsTask`, `expireTask`, and
+`maxTaskAgeMs` carry the app check and the expiry to the sweep, which also
+leaves another app's task untouched instead of moving its `updated_at`. Those
+untouched rows stay first in the sweep's `updated_at` order, so when a full
+page held any, the sweep reads the next page, up to 10 pages a pass. The expiry
+fails a task only if its `updated_at` still matches what the sweep read, so a
+task claimed in between runs instead of expiring.
+
+`dispatchAutomationWebhookTask` in `triggers/dispatcher.js` required a stored
+API key for the active engine setting before every webhook run. Scheduled runs
+have no such check. The key feeds only the condition classifier, so the check
+now applies only to an automation with a condition. Before, a webhook run
+failed with "No API key is available for this automation." for an owner whose
+key came from the launch environment under another engine, a Builder gateway,
+or a keyless local model. Event triggers keep the old check.
+
+The condition classifier calls Anthropic's API directly with a small Claude
+model, whatever provider runs the automation, and it sends the webhook payload
+there. It now takes only an Anthropic key, from the owner's settings or the
+launch environment. Before, it took the active provider's key, so an
+OpenRouter key was sent to Anthropic, rejected, and the call skipped without a
+word. Without an Anthropic key, or when Anthropic rejects it with 401 or 403,
+the call fails at once instead of retrying three times. The automation's
+history gets an errored row, with the code `automation_condition_key_missing`
+or `automation_condition_key_rejected` and a message that names the cause, and
+its last status reads as an error. A network error or other answer is retried
+as before. A call that fails all three attempts for another reason also gets an
+errored history row, `automation_webhook_failed`. Defining a condition is not
+refused, so an owner without an Anthropic key learns of the problem from the
+first call's history row.
+
+The Automations details dialog showed only the path. `AgentJobsTab.js` now
+shows the full URL with the page's origin, from `automationWebhookUrl` in
+`client/integrations/webhook-url.js`, and a "Who can call it" line. The page
+origin cannot tell a local server from an owner-only proxy, so
+`dist/shared/automation-webhook-reach.js` holds the reach that the host sets,
+and the page config carries it to the browser, like the Builder offers switch.
+Vivary's `server/plugins/00-webhook-reach.ts` sets it from the access mode.
+Local mode reads "Reachable only from this computer while Vivary is open."
+Private-proxy mode reads "Reachable only through your private Zo access."
+Hosted mode reads "Anyone with this URL can start this automation." Without a
+host setting, `isLoopbackWebhookUrl` picks the local or the public wording,
+because `isNonPublicWebhookUrl` also counts LAN and plain HTTP hosts, which
+other computers can reach.
+
+The token is an app secret. Credential redaction holds every stored secret, so
+the token becomes a placeholder in tool results, threads, logs, and run events.
+The agent therefore cannot show the URL, and the owner copies it from the
+details dialog. The payload still reaches the run fenced as untrusted data, and
+the run gets the local-only surface described below.
+
+Run `node --test packages/workbench/tests/automation-webhook.test.mjs`. It uses
+a disposable SQLite database with `NODE_ENV=production`, no app URL,
+`A2A_SECRET`, or provider key, a fake engine, and Core's automations handler on
+a loopback port. It checks that an accepted call runs once with one history
+row and its thread, that a wrong token gets 404 and queues nothing, that a
+repeated event id runs once and gets a 200 duplicate, that a task left pending
+by a quit runs once through the sweep, that a 6-minute-old `in-process` task is
+not reset while one past the lease is recovered and runs once, that a claimed
+task is skipped, that another app's task stays pending, that a condition still
+needs a key, the URL helpers, and a source pin on the registration. It failed
+10 of 10 on the previous patch. Review fixes add cases for a condition with only
+an OpenRouter key and one whose Anthropic key is rejected, each failing at once
+with an errored history row and a stubbed Anthropic endpoint, a 25-hour-old
+call expired without a run, the 429 cap with its duplicate answer, another
+app's task left untouched by the sweep, and the reach in the page config. Those
+7 cases fail on the first version of this patch.
+
+A live check on Zo ran `bin/start.mjs` in local mode with a fake Builder
+gateway, no stored provider key, and a 40-second hard timeout. A call to a new
+webhook automation got 202 and ran once, with one history row and its thread.
+Its model request carried the fenced payload and the 11-tool local-only
+surface. The same event id got a 200 duplicate and no run, and a wrong token got
+404. A call whose run was cut off by stopping the server ran once more after the
+restart, when the sweep passed the 5-minute floor, and its first history row
+reads as interrupted. The token appeared in no server output, provider log, or
+data file.
+
+Upstream could take the registry as it is, because nothing changes until a
+host registers a runner. The same limits as Run now apply: one runner per
+process.
+
+## Builder.io offers in local mode
+
+Issue #104. The owner decided on 2026-09-27 that the local app offers no
+Builder.io: no free credits and no Connect Builder.io button. Owners use their
+own provider keys. Self-hosted mode keeps Core's offers for now. Core has no
+option for this, so the patch adds one switch.
+
+`dist/shared/builder-offers.js` exports `setBuilderOffersEnabled` and
+`builderOffersEnabled`, and the `./server` entry re-exports both. Offers are on
+unless a host turns them off. The server keeps the value on `globalThis`,
+because Core can load twice. `resolvePublicAppOriginConfig` adds
+`builderOffers: false` to the page config that every document carries, so the
+browser reads the same value without a request. It is the same for every
+visitor, which the cached page shell requires. Each surface reads the switch
+when it renders or builds text, never at module load, because the host sets it
+after Core loads. Vivary's `server/plugins/00-builder-offers.ts` turns the
+offers off when `VIVARY_ACCESS_MODE` is `local`.
+
+With the switch off:
+
+- The chat's missing-access card reads "Connect AI. Add your own provider
+  keys." and shows the provider-key form at once, with no Builder.io button
+  and no toggle. A rejected Builder credential shows the same key form instead
+  of Reconnect Builder.io.
+- `BuilderConnectPopover` and `BuilderConnectCard` render nothing, which
+  removes every connect button built on them, in the chat, Settings,
+  Connections, and voice setup. `FileStorageSetupCard` keeps its "Use custom
+  storage keys" path, which the upload instructions send the model to, and
+  drops only its Builder part.
+- Settings drops the Builder.io card from the LLM, hosting, database, uploads,
+  and authentication rows, and hides Browser Automation and Background Agent,
+  which hold only that card. The LLM summary reads "Add your own provider
+  keys." Voice settings drop the Builder Gemini option and the Builder wording.
+- First-run onboarding goes from the intro to the key form.
+- The code-access panel drops its "Use Builder" link. The code-required
+  dialog drops its Builder.io agent and connect options and keeps Desktop.
+- The remaining Builder wording goes too: the `FeatureNotConfiguredError`
+  default message, the background agent and file upload errors in
+  `core-routes-plugin.js`, and the editor image upload error.
+- Core's composer adapters pass `builder.offersEnabled` to Toolkit. The
+  Toolkit patch adds it with a default of true. The model picker keeps its
+  add-keys action and drops Connect Builder.io, and voice mode setup drops its
+  Builder.io button and says to add your own keys.
+- The server surfaces are listed in the next paragraph.
+
+The model and the server drop Builder too. `connect-builder` and
+`activate-browser` are not registered, and `get-framework-context` loses its
+`builder` and `browser` topics. The framework prompts replace the Builder code
+handoff with a sentence that source edits belong to a coding agent, and leave
+Builder tools out of the plan-mode list. The web search, upload-image, and
+file-storage card descriptions name only provider keys and custom storage.
+Missing-provider, web search, upload, transcription, and realtime voice errors
+point to the owner's own keys. `llmMissingCredentialsMessage()` returns "No LLM
+provider is connected. Add your own provider key in Settings.", which keeps the
+prefix that the chat's recovery card matches. Its callers in the run store, the
+production agent, the engines, and the run manager call it when they report
+the error. Core builds its tool list and prompts when the agent-chat plugin
+starts, so Vivary's plugin sets the switch when its module loads.
+
+Run `node --test packages/workbench/tests/builder-offers.test.mjs
+packages/workbench/tests/builder-offers-component.test.mjs`. The component test
+bundles Core's `run-recovery.js` and `FileStorageSetupCard.js` with esbuild,
+with Core's real provider-key form, and renders them with the local page
+config. The missing-access card shows no Builder text or button and shows the
+key field. The storage card shows its custom-key path and no Builder text.
+Control renders with offers on show Builder text. The unit test checks the switch, the page config, and each server
+surface with the switch off and on, and pins the client and Toolkit call sites.
+
+Upstream could take the switch as an option, because nothing changes until a
+host turns it off. Remove this part of the patch only when an upstream release
+offers the same option and passes the same tests.
+
 ## Local-only automation runs
 
 The owner decided on 2026-09-26 (issue #51) that unattended automation runs are

@@ -1,3 +1,25 @@
+diff --git a/dist/composer/RealtimeVoiceMode.js b/dist/composer/RealtimeVoiceMode.js
+index 79f08a69220401ee275387865d58a1f7c5da8fd0..82c5863501ae66faa335f1c6baba47e6a1d49296 100644
+--- a/dist/composer/RealtimeVoiceMode.js
++++ b/dist/composer/RealtimeVoiceMode.js
+@@ -13,7 +13,7 @@ import { createRealtimeVoiceAudioLevelStore, } from "./realtime-voice-audio-leve
+  * The first click offers voice mode without silently changing the existing
+  * editable-dictation behavior.
+  */
+-export function RealtimeVoiceModeEntry({ copy, disabled, providerStatusPending = false, open: controlledOpen, onOpenChange, onStartVoiceMode, onKeepDictating, preferredMode = null, onRememberPreference, setupRequired = false, openAiConfigured = false, connectingBuilder = false, onConnectBuilder, builderConnectFlow, builderConnectPopover: BuilderConnectPopover, onUseOpenAiKey, className, }) {
++export function RealtimeVoiceModeEntry({ copy, disabled, providerStatusPending = false, open: controlledOpen, onOpenChange, onStartVoiceMode, onKeepDictating, preferredMode = null, onRememberPreference, setupRequired = false, openAiConfigured = false, connectingBuilder = false, onConnectBuilder, builderConnectFlow, builderConnectPopover: BuilderConnectPopover, showConnectBuilder = true, onUseOpenAiKey, className, }) {
+     const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+     const open = controlledOpen ?? uncontrolledOpen;
+     const titleId = useId();
+@@ -50,7 +50,7 @@ export function RealtimeVoiceModeEntry({ copy, disabled, providerStatusPending =
+                                         : onKeepDictating);
+                                 }, className: cn("size-7 shrink-0 text-muted-foreground hover:text-foreground", className), children: _jsx(IconMicrophone, {}) }) }) }), _jsx(TooltipContent, { children: copy.entryButtonLabel })] }), _jsx(PopoverContent, { side: "top", align: "end", sideOffset: 10, collisionBoundary: collisionBoundary ?? undefined, collisionPadding: 16, "data-collision-boundary": collisionBoundary ? "agent-panel" : "viewport", className: cn(setupRequired ? "p-3.5" : "p-3", setupRequired
+                     ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]"
+-                    : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]"), "aria-labelledby": titleId, "aria-describedby": setupRequired ? descriptionId : undefined, children: _jsxs("div", { className: cn("grid", setupRequired ? "gap-3.5" : "gap-2.5"), children: [_jsxs("div", { className: cn(setupRequired ? "flex items-start gap-3" : "grid gap-1"), children: [setupRequired ? (_jsx("div", { className: "flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary", children: _jsx(IconMicrophone, { "aria-hidden": "true" }) })) : null, _jsxs("div", { className: "grid gap-1", children: [_jsx("h2", { id: titleId, className: "text-sm font-semibold leading-5 text-foreground", children: setupRequired ? copy.setupTitle : copy.promptTitle }), setupRequired ? (_jsx("p", { id: descriptionId, className: "text-xs leading-5 text-muted-foreground", children: copy.setupDescription })) : null] })] }), _jsx("div", { className: cn("grid gap-2", setupRequired ? "rounded-lg bg-muted/30 p-1" : null), children: setupRequired ? (_jsxs(_Fragment, { children: [BuilderConnectPopover && builderConnectFlow ? (_jsx(BuilderConnectPopover, { flow: builderConnectFlow, onConnect: (provisionAccount) => choose("realtime", () => onConnectBuilder
++                    : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]"), "aria-labelledby": titleId, "aria-describedby": setupRequired ? descriptionId : undefined, children: _jsxs("div", { className: cn("grid", setupRequired ? "gap-3.5" : "gap-2.5"), children: [_jsxs("div", { className: cn(setupRequired ? "flex items-start gap-3" : "grid gap-1"), children: [setupRequired ? (_jsx("div", { className: "flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary", children: _jsx(IconMicrophone, { "aria-hidden": "true" }) })) : null, _jsxs("div", { className: "grid gap-1", children: [_jsx("h2", { id: titleId, className: "text-sm font-semibold leading-5 text-foreground", children: setupRequired ? copy.setupTitle : copy.promptTitle }), setupRequired ? (_jsx("p", { id: descriptionId, className: "text-xs leading-5 text-muted-foreground", children: copy.setupDescription })) : null] })] }), _jsx("div", { className: cn("grid gap-2", setupRequired ? "rounded-lg bg-muted/30 p-1" : null), children: setupRequired ? (_jsxs(_Fragment, { children: [!showConnectBuilder ? null : BuilderConnectPopover && builderConnectFlow ? (_jsx(BuilderConnectPopover, { flow: builderConnectFlow, onConnect: (provisionAccount) => choose("realtime", () => onConnectBuilder
+                                             ? onConnectBuilder({ provisionAccount })
+                                             : onStartVoiceMode()), children: _jsxs(Button, { type: "button", size: "sm", className: "w-full justify-start px-3", disabled: connectingBuilder, children: [connectingBuilder ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconPlugConnected, { "aria-hidden": "true" })), copy.connectBuilder] }) })) : (_jsxs(Button, { type: "button", size: "sm", className: "w-full justify-start px-3", disabled: connectingBuilder, onClick: () => choose("realtime", onConnectBuilder ?? onStartVoiceMode), children: [connectingBuilder ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconPlugConnected, { "aria-hidden": "true" })), copy.connectBuilder] })), _jsxs(Button, { type: "button", variant: "outline", size: "sm", className: "w-full justify-start bg-background px-3", onClick: () => choose("realtime", onUseOpenAiKey ?? onStartVoiceMode), children: [_jsx(IconKey, { "aria-hidden": "true" }), openAiConfigured
+                                                 ? copy.startWithOpenAiKey
 diff --git a/dist/composer/TiptapComposer.d.ts b/dist/composer/TiptapComposer.d.ts
 index c4236b795a64fa82e1a983339d202cc4b8aa8099..2b74244bd785f2c33feb48acc5f8fc14a233d879 100644
 --- a/dist/composer/TiptapComposer.d.ts
@@ -21,7 +43,7 @@ index c4236b795a64fa82e1a983339d202cc4b8aa8099..2b74244bd785f2c33feb48acc5f8fc14
  //# sourceMappingURL=TiptapComposer.d.ts.map
 \ No newline at end of file
 diff --git a/dist/composer/TiptapComposer.js b/dist/composer/TiptapComposer.js
-index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbfa306d79a 100644
+index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..8f1e298da62658de3e7afff0d4a170baf4fc1ca9 100644
 --- a/dist/composer/TiptapComposer.js
 +++ b/dist/composer/TiptapComposer.js
 @@ -485,8 +485,23 @@ function ComposerModeChip({ mode, onRemove, }) {
@@ -49,7 +71,28 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
      return {
          type: "doc",
          content: lines.map((line) => ({
-@@ -1107,7 +1122,7 @@ function ModelSelectorSkeleton() {
+@@ -895,7 +910,7 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+         !LOCAL_RUNTIME_ENGINES.has(group.engine));
+     const hasUnconfiguredVisibleModels = modelProviderGroups.some((group) => !group.configured);
+     const hasConfiguredProvider = providerGroups.some((group) => group.configured);
+-    const showBuilderAction = !isClaudeCodeAgent &&
++    const providerSetupWanted = !isClaudeCodeAgent &&
+         !hasConfiguredCloudProviderReady &&
+         (Boolean(onConnectProvider) ||
+             (providerConnectStatusEnabled &&
+@@ -903,9 +918,10 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+                 !builderFlow.envManaged &&
+                 !hasConfiguredBuilderModels &&
+                 !hasConnectedSubscription));
++    const showBuilderAction = adapters.builder.offersEnabled !== false && providerSetupWanted;
+     const showAddKeysAction = !isClaudeCodeAgent &&
+         !hasConfiguredCloudProviderReady &&
+-        (hasUnconfiguredVisibleModels || showBuilderAction);
++        (hasUnconfiguredVisibleModels || providerSetupWanted);
+     const showProviderActions = showBuilderAction || showAddKeysAction;
+     const onlyConnectPathAvailable = shouldShowOnlyConnectPath(showProviderActions, providerGroups);
+     const openLlmSettings = useCallback(() => {
+@@ -1107,7 +1123,7 @@ function ModelSelectorSkeleton() {
                      defaultValue: "Loading models…",
                  }) }), ["w-24", "w-32", "w-20", "w-28"].map((width, index) => (_jsxs("div", { className: "flex items-center gap-1.5 px-1 py-1.5", children: [_jsx(Skeleton, { className: "size-3 rounded-sm" }), _jsx(Skeleton, { className: `h-3 ${width}` })] }, index)))] }));
  }
@@ -58,7 +101,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
      const adapters = useComposerRuntimeAdapters();
      const t = adapters.translate;
      const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
-@@ -1202,6 +1217,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1202,6 +1218,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      }, []);
      const onTextChangeRef = useRef(onTextChange);
      onTextChangeRef.current = onTextChange;
@@ -67,7 +110,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
      const contextItemsRef = useRef(contextItems);
      contextItemsRef.current = contextItems;
      const onRemoveContextItemRef = useRef(onRemoveContextItem);
-@@ -1292,7 +1309,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1292,7 +1310,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              // Drive the send button's enabled state from the actual editor contents;
              // the composer runtime is only synced on submit, so its isEmpty lags.
              setEditorHasText(composerDocumentHasContent(ed.state.doc));
@@ -76,7 +119,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
              scheduleComposerDraftPersist(ed);
          },
          onSelectionUpdate: ({ editor: ed }) => {
-@@ -1569,8 +1586,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1569,8 +1587,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      useEffect(() => {
          if (!isComposerEditorUsable(editor) || !onTextChange)
              return;
@@ -87,7 +130,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
      const insertReference = useCallback((ref) => {
          const normalized = adapters.agentChat.normalizeReference(ref);
          const ed = editor;
-@@ -1675,13 +1692,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1675,13 +1693,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
          setText(text) {
              if (!isComposerEditorUsable(editor))
                  return;
@@ -103,7 +146,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
              flushComposerDraft();
          },
          insertReference,
-@@ -2361,12 +2378,12 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2361,12 +2379,12 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
                      initialTextKeyRef.current = key;
              }
              else if (initialText === undefined) {
@@ -118,7 +161,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
                  editor.commands.focus("end");
              }
              else {
-@@ -2375,7 +2392,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2375,7 +2393,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              const trimmed = editor.state.doc.textContent.trim();
              setEditorHasText(composerDocumentHasContent(editor.state.doc));
              composerRuntime.setText(trimmed);
@@ -127,3 +170,44 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e1cb857dfb2c54492dec00b3ea8f1dbf
              scheduleComposerDraftPersist(editor);
          }
          catch {
+diff --git a/dist/composer/VoiceButton.js b/dist/composer/VoiceButton.js
+index 8a64666b3eb53005aea238b0936f593c88866e35..89e89ffb469ad0e653826b748de6bd0a6e666c12 100644
+--- a/dist/composer/VoiceButton.js
++++ b/dist/composer/VoiceButton.js
+@@ -40,6 +40,15 @@ export function VoiceButton({ voice, isMac, disabled }) {
+     const { state, start, stop, supported } = voice;
+     const realtimeVoice = useRealtimeVoiceModeOptional();
+     const realtimeCopy = useRealtimeVoiceModeCopy();
++    const builderOffers = adapters.builder.offersEnabled !== false;
++    const setupCopy = builderOffers
++        ? realtimeCopy
++        : {
++            ...realtimeCopy,
++            setupDescription: adapters.translate("agentChat.voiceMode.setupDescriptionOwnKeys", {
++                defaultValue: "Add your own keys to use voice mode.",
++            }),
++        };
+     const voiceProviders = adapters.voice.useProviderStatus();
+     const builderConnect = adapters.builder.useConnectFlow({
+         provisionAccount: true,
+@@ -78,7 +87,7 @@ export function VoiceButton({ voice, isMac, disabled }) {
+     if (realtimeVoice?.active && !recording && !transcribing)
+         return null;
+     if (realtimeVoice && !recording && !transcribing) {
+-        return (_jsx(RealtimeVoiceModeEntry, { copy: realtimeCopy, disabled: disabled, providerStatusPending: voiceProviders.status === null, setupRequired: isRealtimeVoiceSetupRequired(voiceProviders.status, builderConnect.statusResolved ? builderConnect.configured : null), openAiConfigured: voiceProviders.status?.openai === true, connectingBuilder: builderConnect.connecting, onConnectBuilder: builderConnect.start, builderConnectFlow: builderConnect, builderConnectPopover: adapters.builder?.BuilderConnectPopover, onUseOpenAiKey: () => {
++        return (_jsx(RealtimeVoiceModeEntry, { copy: setupCopy, showConnectBuilder: builderOffers, disabled: disabled, providerStatusPending: voiceProviders.status === null, setupRequired: isRealtimeVoiceSetupRequired(voiceProviders.status, builderConnect.statusResolved ? builderConnect.configured : null), openAiConfigured: voiceProviders.status?.openai === true, connectingBuilder: builderConnect.connecting, onConnectBuilder: builderConnect.start, builderConnectFlow: builderConnect, builderConnectPopover: adapters.builder?.BuilderConnectPopover, onUseOpenAiKey: () => {
+                 if (voiceProviders.status?.openai)
+                     void realtimeVoice.start();
+                 else
+diff --git a/dist/composer/runtime-adapters.js b/dist/composer/runtime-adapters.js
+index 2552d3be034fe8cecde3d2347fa8bb6da3487e6b..232df8bf279cf7b58730c4efae3058053b0bee55 100644
+--- a/dist/composer/runtime-adapters.js
++++ b/dist/composer/runtime-adapters.js
+@@ -60,6 +60,7 @@ const fallbackAdapters = {
+         StaleIndexBoundary: FragmentBoundary,
+     },
+     builder: {
++        offersEnabled: true,
+         useConnectFlow: () => fallbackBuilderFlow,
+         tryDelegateBuildRequest: () => false,
+         isTrustedFrameMessage: () => false,

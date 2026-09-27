@@ -138,6 +138,23 @@ test("the secret store and legacy credential settings are read from the database
   await refreshHeldCredentials(noSources);
 });
 
+test("an automation webhook token is a stored secret, so a webhook URL is redacted", async () => {
+  const { realpath } = await import("node:fs/promises");
+  const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
+  const { defineAutomation } = await import(pathToFileURL(path.join(coreRoot, "dist", "automations", "service.js")).href);
+  const defined = await defineAutomation({ userEmail: "owner@example.test", appId: "workbench" },
+    { scope: "personal", name: "webhook-probe", body: "Say hi.", triggerType: "webhook" });
+  const token = String(defined.webhookPath).split("/").pop() ?? "";
+  generated.push(token);
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  await refreshHeldCredentials({ ...defaultCredentialSources, environment: () => ({}), mcpConfig: () => null });
+  const shown = redactCredentials(`Webhook URL: http://127.0.0.1:4777${defined.webhookPath}`);
+  assertHidden(shown, [token], "webhook URL");
+  // The placeholder names the secret by its key, which holds the automation id.
+  assertMatch(shown, /\/_agent-native\/automations\/webhook\/\[redacted automation-webhook:/);
+  await refreshHeldCredentials(noSources);
+});
+
 test("a redactor exposes redact and a count, never its values", async () => {
   const [first, second] = [synthetic(40), synthetic(40)];
   const redactor = createCredentialRedactor([{ name: "A_TOKEN", value: first }, { name: "B_TOKEN", value: second },

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { registerHooks } from "node:module";
@@ -13,7 +16,7 @@ const hooks = registerHooks({
     return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
   },
 });
-const { createExternalWindowHandler, attachProjectFolderChooser, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
+const { createExternalWindowHandler, attachProjectFolderChooser, chooseDesktopPort, DESKTOP_PORT_RANGE, desktopDataDir, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment, portChangeNotice, saveDesktopPort, selectLoopbackPort, startOnDesktopPort } = await import("../main.mjs");
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -238,4 +241,97 @@ test("desktop close waits for same-origin draft acknowledgement and refuses fail
   window.webContents.executeJavaScript = () => new Promise(() => undefined);
   assert.equal(await flushDraftsBeforeQuit(window, origin, 5), false);
   assert.deepEqual(enabled, [false, false, true, false, true]);
+});
+
+test("the desktop reuses its saved port, retries it briefly, and replaces an unavailable one", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-desktop-port-"));
+  try {
+    let picks = 0;
+    const selectPort = async () => 42_100 + ++picks;
+    const free = { selectPort, isFree: async () => true, retryDelayMs: 1 };
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 42_101, saved: null }, "a first launch picks a port");
+    await saveDesktopPort(dataDir, 42_101);
+    assert.equal(await readFile(path.join(dataDir, "desktop-port"), "utf8"), "42101\n");
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 42_101, saved: 42_101 }, "a later launch reuses it");
+    let probes = 0;
+    const freeOnThirdTry = { selectPort, retryDelayMs: 1, isFree: async () => ++probes >= 3 };
+    assert.deepEqual(await chooseDesktopPort(dataDir, freeOnThirdTry), { port: 42_101, saved: 42_101 },
+      "a port the previous instance still holds is reused once it frees");
+    assert.equal(picks, 1);
+    assert.deepEqual(await chooseDesktopPort(dataDir, { selectPort, retryDelayMs: 1, isFree: async () => false }),
+      { port: 42_102, saved: 42_101 });
+    await saveDesktopPort(dataDir, 50_010);
+    const probed = [];
+    const upgrade = await chooseDesktopPort(dataDir, { selectPort, retryDelayMs: 1,
+      isFree: async port => { probed.push(port); return true; } });
+    assert.deepEqual(upgrade, { port: 42_103, saved: 50_010 }, "a saved port in the dynamic range is not reused");
+    assert.deepEqual(probed, [], "and is not retried");
+    const started = await startOnDesktopPort(upgrade, async port => ({ origin: `http://127.0.0.1:${port}` }));
+    assert.equal(started.replaced, 50_010, "the window shows the notice for the replaced port");
+    await writeFile(path.join(dataDir, "desktop-port"), "not a port\n");
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 42_104, saved: null }, "an unreadable file counts as none");
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("new ports come from the fixed range below the Windows dynamic range", async () => {
+  assert.ok(DESKTOP_PORT_RANGE.first >= 1024 && DESKTOP_PORT_RANGE.last < 49_152);
+  const tried = [];
+  const port = await selectLoopbackPort({ random: () => 0.5, isFree: async candidate => { tried.push(candidate); return tried.length > 1; } });
+  assert.ok(port >= DESKTOP_PORT_RANGE.first && port <= DESKTOP_PORT_RANGE.last);
+  await assert.rejects(selectLoopbackPort({ isFree: async () => false }), /Could not find a free local port for Vivary from 42100 to 42999\./);
+  const real = await selectLoopbackPort();
+  assert.ok(real >= DESKTOP_PORT_RANGE.first && real <= DESKTOP_PORT_RANGE.last);
+});
+
+test("a saved port that another program holds is replaced, and reused once it is free", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-desktop-port-"));
+  const blocker = createServer();
+  try {
+    const busy = await selectLoopbackPort();
+    await new Promise(resolve => blocker.listen(busy, "127.0.0.1", resolve));
+    await saveDesktopPort(dataDir, busy);
+    const choice = await chooseDesktopPort(dataDir, { retryDelayMs: 1 });
+    assert.equal(choice.saved, busy);
+    assert.notEqual(choice.port, busy);
+    await new Promise(resolve => blocker.close(resolve));
+    assert.deepEqual(await chooseDesktopPort(dataDir, { retryDelayMs: 1 }), { port: busy, saved: busy });
+  } finally {
+    if (blocker.listening) await new Promise(resolve => blocker.close(resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a server that loses its port at bind starts once more on a fresh port", async () => {
+  const launched = [];
+  const launch = async port => {
+    launched.push(port);
+    if (launched.length === 1) throw new Error(`Port ${port} is already in use. Stop that instance or choose --port.`);
+    return { origin: `http://127.0.0.1:${port}` };
+  };
+  const started = await startOnDesktopPort({ port: 42_150, saved: 42_150 }, launch, { selectPort: async () => 42_151 });
+  assert.deepEqual(launched, [42_150, 42_151]);
+  assert.deepEqual(started, { origin: "http://127.0.0.1:42151", port: 42_151, replaced: 42_150 });
+  const first = await startOnDesktopPort({ port: 42_160, saved: null }, async port => ({ origin: `x:${port}` }));
+  assert.equal(first.replaced, null, "a first launch has no notice");
+  await assert.rejects(startOnDesktopPort({ port: 42_170, saved: null }, async () => { throw new Error("startup timed out"); }),
+    /startup timed out/, "other failures are not retried");
+});
+
+test("the port notice names both ports and where to copy the new webhook URL", () => {
+  const notice = portChangeNotice(42_101, 42_102);
+  assert.equal(notice.message, "Port 42101 was unavailable, so Vivary now uses port 42102.");
+  assert.match(notice.detail, /Webhook URLs with the old port no longer reach Vivary\. Copy each new URL from Automations/);
+});
+
+test("the desktop data folder is the local server's default and is passed to it", async () => {
+  const { startupOptions } = await import("../../workbench/bin/start.mjs");
+  assert.equal(desktopDataDir(), startupOptions([], {}).dataDir);
+  assert.equal(desktopDataDir("/home/owner"), path.join("/home/owner", ".vivary", "workbench"));
+  const source = await readFile(new URL("../main.mjs", import.meta.url), "utf8");
+  assert.match(source, /fork\(entry, \["--port", String\(port\), "--data-dir", dataDir\]/);
+  const start = source.indexOf("const started = await startOnDesktopPort(");
+  const save = source.indexOf("await saveDesktopPort(dataDir, started.port)");
+  assert.ok(start > 0 && save > start, "the port is saved after the server started");
 });
