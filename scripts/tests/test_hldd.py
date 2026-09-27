@@ -416,5 +416,61 @@ class HlddGateTests(unittest.TestCase):
             "HLDD review passed for 2 introduced commit(s), 1 of them dependency-only update(s).\n",
         )
 
+    def test_merge_restoring_an_ancestor_workflow_fails(self):
+        seed = self.seed({".github/workflows/ci.yml": WORKFLOW})
+        self.commit_as(DEPENDABOT, {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@v7.0.2")})
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        merge = self.git("commit-tree", f"{seed}^{{tree}}", "-p", base, "-p", seed, "-m", "merge ancestor").stdout
+        self.git("reset", "-q", "--hard", merge.strip())
+        self.reject("--base", base)
+
+    def test_merge_restoring_a_stale_side_copy_fails(self):
+        self.seed({"site/package.json": package()})
+        self.git("switch", "-qc", "side")
+        self.commit_as(HUMAN, {"packages/example/tests/test_app.py": "assert True\n"})
+        self.git("switch", "-q", "-")
+        self.commit_as(DEPENDABOT, {"site/package.json": package(dependencies={"astro": "^7.3.3"})})
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("merge", "-q", "--no-ff", "--no-commit", "side")
+        self.git("checkout", "side", "--", "site/package.json")
+        self.git("commit", "-qm", "merge side branch")
+        self.reject("--base", base)
+
+    def test_merge_carrying_a_change_from_before_gate_adoption_fails(self):
+        self.git("switch", "-qc", "pre-gate", self.legacy)
+        self.commit_as(HUMAN, {".github/workflows/ci.yml": WORKFLOW})
+        self.git("switch", "-qc", "unchecked")
+        self.commit_as(HUMAN, {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@v7.0.2")})
+        self.git("switch", "-qc", "gated", self.base)
+        self.git("merge", "-q", "--no-ff", "pre-gate", "-m", "adopt the pre-gate workflow")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("merge", "-q", "--no-ff", "unchecked", "-m", "merge unchecked branch")
+        self.reject("--base", base)
+
+    def test_dependabot_branch_updated_from_dev_passes(self):
+        self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
+        self.dependabot_branch({
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "site/package-lock.json": lockfile("7.3.3"),
+        })
+        self.stage_code()
+        self.write("docs/ARCHITECTURE.md", DOC + "\nThe app now uses value two.\n")
+        self.git("add", "docs/ARCHITECTURE.md")
+        self.git("commit", "-qm", "documented change")
+        dev = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("switch", "-q", "dependabot")
+        self.git("merge", "-q", "--no-ff", dev, "-m", "Merge branch dev into dependabot")
+        self.git("switch", "-q", "-")
+        self.git("merge", "-q", "--no-ff", "dependabot", "-m", "Merge pull request from dependabot")
+        result = self.gate("--base", dev)
+        self.assertIn("3 introduced commit(s), 2 of them dependency-only update(s)", result.stdout)
+
+    def test_dependabot_package_too_deep_to_parse_fails(self):
+        base = self.seed({"site/package.json": package()})
+        deep = "[" * 100000 + "]" * 100000
+        self.commit_as(DEPENDABOT, {"site/package.json": package().replace('"version"', f'"deep": {deep},\n  "version"', 1)})
+        self.reject("--base", base)
+
+
 if __name__ == "__main__":
     unittest.main()

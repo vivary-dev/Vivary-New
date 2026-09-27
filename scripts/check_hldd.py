@@ -221,13 +221,20 @@ def version_only(path: str, before: str, after: str) -> bool:
     return old == new
 
 
-def carried(path: str, revision: str, merged: list[str]) -> bool:
-    # A merge adds nothing when it keeps a merged parent's file, and the range checks that parent's commits.
+def carried(path: str, revision: str, first: str, merged: list[str], judged: set[str]) -> bool:
+    # Only the merged side changed the path since the merge base, and the range judged each commit that brought it.
     entry = tree_entry(revision, path)
-    return any(tree_entry(parent, path) == entry for parent in merged)
+    for parent in merged:
+        base = git("merge-base", first, parent, check=False).stdout.decode().strip()
+        if (
+            base and tree_entry(parent, path) == entry and tree_entry(base, path) == tree_entry(first, path)
+            and set(git("rev-list", f"{base}..{parent}").stdout.decode().split()) <= judged
+        ):
+            return True
+    return False
 
 
-def dependency_update(revision: str, parents: list[str]) -> bool:
+def dependency_update(revision: str, parents: list[str], judged: set[str]) -> bool:
     if not parents:
         return False
     first, merged = parents[0], parents[1:]
@@ -237,7 +244,7 @@ def dependency_update(revision: str, parents: list[str]) -> bool:
     changed = git("diff", "--name-only", "--no-renames", "-z", first, revision).stdout.decode("utf-8")
     impact = [path for path in changed.split("\0") if relevant(path)]
     return bool(impact) and all(
-        version_only(path, first, revision) and (not merged or carried(path, revision, merged))
+        version_only(path, first, revision) and (not merged or carried(path, revision, first, merged, judged))
         for path in impact
     )
 
@@ -260,23 +267,24 @@ def check_range(base: str, head: str) -> tuple[int, int]:
     validate_document(text_at(end))
     if not has_gate(end):
         raise ValueError("The candidate removes the HLDD checker. Restore the maintenance gate.")
-    checked = exempt = 0
+    judged: set[str] = set()
+    exempt = 0
     for revision in revisions.stdout.decode().splitlines():
         parents = git("rev-list", "--parents", "-n", "1", revision).stdout.decode().split()[1:]
         if not has_gate(revision):
             if any(has_gate(parent) for parent in parents):
                 raise ValueError(f"{revision[:12]} removes the HLDD checker.")
             continue  # Historical commits before adoption are not retroactively gated.
-        checked += 1
         try:
-            if dependency_update(revision, parents):
+            if dependency_update(revision, parents, judged):
                 validate_document(text_at(revision))
                 exempt += 1
             else:
                 check_change(parents[0] if parents else None, revision)
         except ValueError as error:
             raise ValueError(f"{revision[:12]}: {error}") from error
-    return checked, exempt
+        judged.add(revision)
+    return len(judged), exempt
 
 
 def install_hook() -> None:
