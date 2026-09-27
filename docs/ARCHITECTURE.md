@@ -171,6 +171,13 @@ Issue #113. Webhook automations run in process in the packaged app, the desktop 
 Automations dialog shows the full webhook URL and its reach. The automation-run row now states webhook reach, the
 token's redaction, and the untrusted body, and the delivery section records the change and its evidence.
 
+Dependabot PR #119 updates the documentation site: `@astrojs/starlight` 0.42.0 to 0.42.2 and
+`astro` 7.3.2 to 7.3.3, which adds `verkit` 0.4.1 and moves `find-proc` to 0.2.0 in
+`site/package-lock.json`. All four versions passed the dependency gate on 2026-09-27: published
+more than 72 hours earlier, provenance attestations built from their stated repositories, no
+install scripts, and no native build files. The site build only changes, so the design
+description holds.
+
 The #97 receipt and a Credentials row in the acceptance register record the packaged Windows redaction
 check on `88b60dd9`. Documentation only, so the design description holds.
 
