@@ -50,15 +50,21 @@ const stubs = new Map([
   // Analytics is unrelated to delivery and would start network reporting.
   ["./analytics.js", `export function trackEvent() {}`],
   ["@/components/projects/ProjectContext", `
-    export const projectProof = { activeProject: null, selectResult: true, selections: [] };
+    import { useSyncExternalStore } from "react";
+    let state = { activeProject: null, checking: false, historyAvailable: true };
+    const listeners = new Set();
+    export const projectProof = { selectResult: true, selectGate: null, selections: [], path: "",
+      set(next) { state = { ...state, ...next }; for (const listener of listeners) listener(); } };
     export function useProjects() {
-      return {
-        activeProject: projectProof.activeProject,
-        async selectProject(projectId) {
-          projectProof.selections.push(projectId);
-          return projectProof.selectResult;
-        },
-      };
+      const current = useSyncExternalStore(listener => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }, () => state);
+      return { ...current, async selectProject(projectId) {
+        projectProof.selections.push({ projectId, path: projectProof.path });
+        if (projectProof.selectGate) await projectProof.selectGate;
+        return projectProof.selectResult;
+      } };
     }`],
 ]);
 
@@ -69,16 +75,19 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { Layout } from "@proof/Layout";
 import { projectProof } from "@/components/projects/ProjectContext";
-import { _resetAgentChatSubmitBufferForTests, drainBufferedAgentChatSubmits,
+import { _resetAgentChatSubmitBufferForTests, drainBufferedAgentChatSubmits, reportAgentChatSubmitResult,
   reportAgentChatSubmitTarget, sendToAgentChat } from "@agent-native/core/client/agent-chat";
 
 const PROMPT = "Create an automation that summarizes new files every morning.";
 const CONTEXT = "The user wants to create a new personal automation. Use manage-automations with action=define to create it.";
+const PERSONAL_CHAT = "/?runtime=native&history=project";
+const ALPHA = { projectId: "project-a", displayName: "Project Alpha" };
 let path = "";
 
 function Where() {
   const location = useLocation();
   path = location.pathname + location.search;
+  projectProof.path = path;
   return null;
 }
 
@@ -88,10 +97,11 @@ async function flush() {
   });
 }
 
-async function mount(selectResult) {
+async function mount({ selectResult = true, projects = { activeProject: ALPHA, checking: false } } = {}) {
   _resetAgentChatSubmitBufferForTests();
-  projectProof.activeProject = { projectId: "project-a", displayName: "Project Alpha" };
+  projectProof.set({ historyAvailable: true, ...projects });
   projectProof.selectResult = selectResult;
+  projectProof.selectGate = null;
   projectProof.selections = [];
   const container = document.createElement("div");
   document.body.append(container);
@@ -110,9 +120,11 @@ async function mount(selectResult) {
 }
 
 // The same call Core's AgentAskPopover makes for "New automation".
-async function submitFromSettings(tick) {
+async function submitFromSettings(tick, times = 1) {
   await act(async () => {
-    sendToAgentChat({ message: PROMPT, context: CONTEXT, submit: true, newTab: true });
+    for (let index = 0; index < times; index += 1) {
+      sendToAgentChat({ message: PROMPT, context: CONTEXT, submit: true, newTab: true });
+    }
   });
   await act(async () => { tick(0); });
   await flush();
@@ -128,12 +140,18 @@ function alertText(container) {
   return container.querySelector("[role=alert]")?.textContent ?? null;
 }
 
+function button(container, name) {
+  const found = [...container.querySelectorAll("button")].find(candidate => candidate.textContent === name);
+  assert.ok(found, "missing button " + name);
+  return found;
+}
+
 export async function handsOffToPersonalNativeChat(tick) {
-  const mounted = await mount(true);
+  const mounted = await mount();
   try {
     await submitFromSettings(tick);
-    assert.deepEqual(projectProof.selections, [null]);
-    assert.equal(path, "/?runtime=native&history=project");
+    assert.deepEqual(projectProof.selections, [{ projectId: null, path: "${SETTINGS_PATH}" }]);
+    assert.equal(path, PERSONAL_CHAT);
     // Core keeps the submit unclaimed for the Native chat to replay. The
     // context travels separately, so the chat appends it exactly once.
     const buffered = drainBufferedAgentChatSubmits();
@@ -145,7 +163,7 @@ export async function handsOffToPersonalNativeChat(tick) {
 }
 
 export async function undeliveredPromptShowsAlert(tick) {
-  const mounted = await mount(true);
+  const mounted = await mount();
   try {
     await submitFromSettings(tick);
     assert.equal(alertText(mounted.container), null);
@@ -153,13 +171,23 @@ export async function undeliveredPromptShowsAlert(tick) {
     await flush();
     assert.match(alertText(mounted.container) ?? "", /did not reach a chat/);
     assert.equal(promptShown(mounted.container), PROMPT);
-    assert.ok([...mounted.container.querySelectorAll("button")]
-      .some(button => button.textContent === "Copy prompt"));
+    assert.ok(document.activeElement === mounted.container.querySelector("[role=alert] textarea"),
+      "the alert moves focus to the prompt");
+    // linkedom has no clipboard, like a page the browser denies it to.
+    assert.equal(navigator.clipboard, undefined);
+    await act(async () => { button(mounted.container, "Copy prompt").click(); });
+    await flush();
+    assert.match(alertText(mounted.container) ?? "", /Copy failed\. The text is selected/);
+    await act(async () => { button(mounted.container, "Dismiss").click(); });
+    assert.equal(alertText(mounted.container), null);
+    // Focus was on the page body when the alert appeared, so it returns to the content region.
+    assert.ok(document.activeElement === document.getElementById("workbench-content"),
+      "dismissing the alert returns focus to the content region");
   } finally { await mounted.dispose(); }
 }
 
 export async function deliveredPromptShowsNoAlert(tick) {
-  const mounted = await mount(true);
+  const mounted = await mount();
   try {
     await submitFromSettings(tick);
     const [submit] = drainBufferedAgentChatSubmits();
@@ -171,14 +199,72 @@ export async function deliveredPromptShowsNoAlert(tick) {
 }
 
 export async function failedSwitchKeepsPrompt(tick) {
-  const mounted = await mount(false);
+  const mounted = await mount({ selectResult: false });
   try {
     await submitFromSettings(tick);
-    assert.deepEqual(projectProof.selections, [null]);
+    assert.deepEqual(projectProof.selections, [{ projectId: null, path: "${SETTINGS_PATH}" }]);
     assert.equal(path, "${SETTINGS_PATH}");
     assert.match(alertText(mounted.container) ?? "", /could not switch to Personal workspace/);
     assert.equal(promptShown(mounted.container), PROMPT);
   } finally { await mounted.dispose(); }
+}
+
+export async function loadingProjectsAreWaitedFor(tick) {
+  const mounted = await mount({ projects: { activeProject: null, checking: true } });
+  try {
+    await submitFromSettings(tick);
+    assert.deepEqual(projectProof.selections, []);
+    assert.equal(path, "${SETTINGS_PATH}");
+    // The saved project loads. It must be left before the Native chat opens.
+    await act(async () => { projectProof.set({ activeProject: ALPHA, checking: false }); });
+    await flush();
+    assert.deepEqual(projectProof.selections, [{ projectId: null, path: "${SETTINGS_PATH}" }]);
+    assert.equal(path, PERSONAL_CHAT);
+    assert.equal(alertText(mounted.container), null);
+  } finally { await mounted.dispose(); }
+}
+
+export async function projectsThatNeverLoadFailClosed(tick) {
+  const mounted = await mount({ projects: { activeProject: null, checking: true } });
+  try {
+    await submitFromSettings(tick);
+    await act(async () => { tick(9_000); });
+    await flush();
+    assert.deepEqual(projectProof.selections, []);
+    assert.equal(path, "${SETTINGS_PATH}");
+    assert.match(alertText(mounted.container) ?? "", /could not switch to Personal workspace/);
+    // A late load must not switch projects after the owner saw the alert.
+    await act(async () => { projectProof.set({ activeProject: ALPHA, checking: false }); });
+    await flush();
+    assert.deepEqual(projectProof.selections, []);
+    assert.equal(path, "${SETTINGS_PATH}");
+  } finally { await mounted.dispose(); }
+}
+
+export async function immediateRejectionShowsAlert(tick) {
+  const mounted = await mount();
+  try {
+    await submitFromSettings(tick);
+    const [submit] = drainBufferedAgentChatSubmits();
+    await act(async () => { reportAgentChatSubmitResult(submit.submitMessageId, false, "thread-create-failed"); });
+    assert.match(alertText(mounted.container) ?? "", /did not reach a chat/);
+    assert.equal(promptShown(mounted.container), PROMPT);
+  } finally { await mounted.dispose(); }
+}
+
+export async function quickSubmitsShareOneSwitch(tick) {
+  const mounted = await mount();
+  let release = () => {};
+  projectProof.selectGate = new Promise(resolve => { release = resolve; });
+  try {
+    await submitFromSettings(tick, 2);
+    assert.equal(projectProof.selections.length, 1);
+    await act(async () => { release(); });
+    await flush();
+    assert.equal(path, PERSONAL_CHAT);
+    assert.equal(projectProof.selections.length, 1);
+    assert.equal(alertText(mounted.container), null);
+  } finally { release(); await mounted.dispose(); }
 }
 `;
 
@@ -221,7 +307,8 @@ async function buildProof() {
     }],
   });
   const inputs = Object.keys(result.metafile.inputs).map(input => resolve(WORKBENCH, input));
-  for (const source of [LAYOUT, join(APP, "lib", "settings-chat-handoff.ts"), CORE_AGENT_CHAT]) {
+  for (const source of [LAYOUT, join(APP, "lib", "settings-chat-handoff.ts"),
+    join(APP, "components", "layout", "SettingsPromptAlert.tsx"), CORE_AGENT_CHAT]) {
     assert.ok(inputs.includes(source), `proof did not bundle ${source}`);
   }
   return result.outputFiles[0].text;
@@ -240,6 +327,12 @@ function installDom() {
     view.dispatchEvent(event);
   };
   class ResizeObserver { observe() {} disconnect() {} }
+  // linkedom has no text selection or focus tracking. The alert selects its
+  // prompt and moves focus, so the proof records both.
+  view.HTMLTextAreaElement.prototype.select ??= function select() {};
+  let focused = null;
+  view.HTMLElement.prototype.focus = function focus() { focused = this; };
+  Object.defineProperty(view.document, "activeElement", { configurable: true, get: () => focused ?? view.document.body });
   // React schedules through MessageChannel. Open ports keep Node alive, so the
   // proof closes every port it created.
   const channels = [];
@@ -269,6 +362,10 @@ test("Settings agent prompts reach a Personal Native chat or come back as an ale
     ["a prompt no chat claims within 8 s shows an alert", proof.undeliveredPromptShowsAlert],
     ["a delivered prompt shows no alert", proof.deliveredPromptShowsNoAlert],
     ["a failed switch keeps the prompt in an alert", proof.failedSwitchKeepsPrompt],
+    ["a prompt sent while projects load waits for them", proof.loadingProjectsAreWaitedFor],
+    ["projects that never load fail closed", proof.projectsThatNeverLoadFailClosed],
+    ["an immediate Core rejection shows the alert at once", proof.immediateRejectionShowsAlert],
+    ["quick submits share one project switch", proof.quickSubmitsShareOneSwitch],
   ];
   for (const [name, run] of cases) {
     await t.test(name, async sub => {

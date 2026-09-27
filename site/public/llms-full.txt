@@ -7230,6 +7230,25 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #51 review fixes for the Settings prompt handoff. The hook no longer
+treats a project list that is still loading as Personal workspace. A prompt sent
+then waits for the projects, up to Core's eight-second buffer, and switches away
+from the saved project before the Native chat opens. If the projects never load,
+it switches nothing and shows the could-not-switch alert. A missing or unreadable
+saved project also counts as not Personal. Core's immediate rejections, a
+disabled composer or a failed thread create, now show the not-delivered alert at
+once through the public `AGENT_CHAT_SUBMIT_RESULT_EVENT`. Prompts sent together
+share one project switch, so the second request cannot make the first fail. The
+alert moved to
+[`SettingsPromptAlert.tsx`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/app/components/layout/SettingsPromptAlert.tsx).
+It moves focus to the prompt text, selected, and returns focus on Dismiss. It
+also says when the browser blocks the clipboard. The handoff still routes an
+existing Core flow into the existing Native chat, so the design description
+holds. Evidence: `settings-chat-handoff-component.test.mjs` grew from 4 to 8
+cases. On the previous commit, the 4 new cases and the extended alert case fail,
+and all 8 pass on this one. The CI node steps, the workbench typecheck, and the
+maintained checks pass on Zo.
+
 Issue #51 fixes the Settings controls that ask the agent. New automation on
 Settings > Agent > Automations, including its empty-state and Organization
 forms, and the Resources create menu's Create Automation, Schedule Task, and

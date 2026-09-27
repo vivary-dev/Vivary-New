@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Header } from "./Header";
 import { CodeRunControl } from "./CodeRunControl";
 import { Sidebar } from "./Sidebar";
+import { SettingsPromptAlert } from "./SettingsPromptAlert";
 import { Workspace } from "../workspace/Workspace";
 import { useSettingsChatHandoff } from "@/lib/settings-chat-handoff";
 import { readPanelWidth, savePanelWidth, useNarrowLayout, type PanelHandle } from "./use-workspace-layout";
@@ -23,7 +24,6 @@ export function Layout({ children }: { children: ReactNode }) {
   const previousPathname = useRef(location.pathname);
   const settings = location.pathname.startsWith("/settings");
   const handoff = useSettingsChatHandoff(settings);
-  const undelivered = handoff.undelivered;
   const narrow = useNarrowLayout();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readClosed);
@@ -89,15 +89,9 @@ export function Layout({ children }: { children: ReactNode }) {
               {settings && <Link className="ml-auto text-sm underline" to="/">Return to workspace</Link>}
             </header>
             <CodeRunControl />
-            {undelivered && <div className="workspace-recovery" role="alert">
-              <span>{undelivered.reason === "selection-failed"
-                ? "Vivary could not switch to Personal workspace, so this prompt was not sent."
-                : "This prompt did not reach a chat. Copy it and send it from a Native chat."}</span>
-              <textarea readOnly aria-label="Prompt that was not sent" value={undelivered.prompt} />
-              <Button size="sm" variant="outline"
-                onClick={() => void navigator.clipboard.writeText(undelivered.prompt).catch(() => {})}>Copy prompt</Button>
-              <Button size="sm" variant="ghost" onClick={handoff.dismiss}>Dismiss</Button>
-            </div>}
+            {handoff.undelivered && <SettingsPromptAlert
+              key={handoff.undelivered.submitMessageId ?? handoff.undelivered.prompt}
+              undelivered={handoff.undelivered} onDismiss={handoff.dismiss} />}
             <main id="workbench-content" tabIndex={-1} className="relative min-h-0 min-w-0 flex-1">
               {!settings && <div className="h-full"><Workspace /></div>}
               {settings && <div className="h-full overflow-auto"><Header />{children}</div>}

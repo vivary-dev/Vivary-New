@@ -53,8 +53,11 @@ installation and sign-in instructions.
 Settings has no chat of its own. A Settings control that asks the agent, such as
 **New automation** under Agent > Automations or an item in the Resources create
 menu, switches to Personal workspace, opens a Native chat, and sends the prompt
-there as a new conversation. If the switch fails, or no chat receives the prompt
-within eight seconds, an alert shows the prompt with **Copy prompt**.
+there as a new conversation. A prompt sent while projects are still loading
+waits for them, up to eight seconds, so it never reaches the saved project by
+mistake. If the switch fails, the chat rejects the prompt, or no chat receives it
+within eight seconds, an alert shows the prompt, selected for copying, with
+**Copy prompt**. If the browser blocks the clipboard, the alert says so.
 
 Code conversations use local CLI accounts. Native conversations use Native's
 configured providers. Model access is separate from opening Vivary.
