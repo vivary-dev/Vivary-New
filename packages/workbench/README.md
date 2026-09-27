@@ -500,6 +500,9 @@ the run and its limits. Issue #113 makes webhook automations run in the
 packaged app through an in-process runner in the maintained Core patch, and
 the desktop keeps its port across launches so a webhook URL stays valid. The
 [patch notes](patches/README.md#in-process-webhook-automations) record it.
+Issue #104 removes Builder.io offers from the local app. Its missing-access
+card and Settings point to your own provider keys, and
+`server/plugins/00-builder-offers.ts` sets Core's switch from the access mode.
 Codex selection and file execution passed on the
 locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
 memory, existing-folder adoption, and final self-hosted access remain open.

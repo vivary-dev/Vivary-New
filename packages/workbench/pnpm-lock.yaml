@@ -4,20 +4,20 @@ settings:
   excludeLinksFromLockfile: false
 patchedDependencies:
   '@agent-native/core@0.176.5':
-    hash: 257338e93aef80353d69e94b826fb778b2cbe7e0cf56ff72a26ec41d49a150e3
+    hash: 4f6e9d08ee35c4a144f288b5511587b15c0459ca54ace74f43e58dce397f177f
     path: patches/@agent-native__core@0.176.5.patch
   '@agent-native/toolkit@0.19.3':
-    hash: cc8130b93c7b1e398255a40c8dad4fa2826ee6afecf70d16333e4153304640c6
+    hash: e8af4983f6c9b5f9df5eedafacb18ab633bcc407b3c1d1b7c1a9b55df3351c9a
     path: patches/@agent-native__toolkit@0.19.3.patch
 importers:
   .:
     dependencies:
       '@agent-native/core':
         specifier: 0.176.5
-        version: 0.176.5(patch_hash=257338e93aef80353d69e94b826fb778b2cbe7e0cf56ff72a26ec41d49a150e3)(14ba03a0448bf5b261ff31be916baf2d)
+        version: 0.176.5(patch_hash=4f6e9d08ee35c4a144f288b5511587b15c0459ca54ace74f43e58dce397f177f)(14ba03a0448bf5b261ff31be916baf2d)
       '@agent-native/toolkit':
         specifier: 0.19.3
-        version: 0.19.3(patch_hash=cc8130b93c7b1e398255a40c8dad4fa2826ee6afecf70d16333e4153304640c6)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))
+        version: 0.19.3(patch_hash=e8af4983f6c9b5f9df5eedafacb18ab633bcc407b3c1d1b7c1a9b55df3351c9a)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))
       '@ai-sdk/cohere':
         specifier: 3.0.60
         version: 3.0.60(zod@4.5.4)
@@ -6804,10 +6804,10 @@ packages:
     os:
     - win32
 snapshots:
-  ? '@agent-native/core@0.176.5(patch_hash=257338e93aef80353d69e94b826fb778b2cbe7e0cf56ff72a26ec41d49a150e3)(14ba03a0448bf5b261ff31be916baf2d)'
+  ? '@agent-native/core@0.176.5(patch_hash=4f6e9d08ee35c4a144f288b5511587b15c0459ca54ace74f43e58dce397f177f)(14ba03a0448bf5b261ff31be916baf2d)'
   : dependencies:
       '@agent-native/recap-cli': 0.5.25
-      '@agent-native/toolkit': 0.19.3(patch_hash=cc8130b93c7b1e398255a40c8dad4fa2826ee6afecf70d16333e4153304640c6)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))
+      '@agent-native/toolkit': 0.19.3(patch_hash=e8af4983f6c9b5f9df5eedafacb18ab633bcc407b3c1d1b7c1a9b55df3351c9a)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))
       '@amplitude/analytics-browser': 2.45.8
       '@anthropic-ai/sdk': 0.90.0(zod@4.5.4)
       '@anthropic-ai/tokenizer': 0.0.4
@@ -7021,7 +7021,7 @@ snapshots:
   '@agent-native/recap-cli@0.5.25':
     optionalDependencies:
       playwright: 1.63.0
-  ? '@agent-native/toolkit@0.19.3(patch_hash=cc8130b93c7b1e398255a40c8dad4fa2826ee6afecf70d16333e4153304640c6)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))'
+  ? '@agent-native/toolkit@0.19.3(patch_hash=e8af4983f6c9b5f9df5eedafacb18ab633bcc407b3c1d1b7c1a9b55df3351c9a)(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))'
   : dependencies:
       '@assistant-ui/react': 0.12.28(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
       '@radix-ui/react-accordion': 1.2.20(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

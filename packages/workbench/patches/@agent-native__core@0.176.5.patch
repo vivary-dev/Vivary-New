@@ -1,7 +1,134 @@
+diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..16b66b169adb6cd145d5bd650e149b54a67b5e76 100644
+--- a/dist/agent/engine/ai-sdk-engine.js
++++ b/dist/agent/engine/ai-sdk-engine.js
+@@ -14,7 +14,7 @@
+ import { clearProviderCredentialAuthFailure, readDeployCredentialEnv, recordProviderCredentialAuthFailure, } from "../../server/credential-provider.js";
+ import { allowsSamplingParams, anthropicManualThinkingBudget, normalizeReasoningEffortForModel, supportsClaudeAdaptiveThinking, } from "../../shared/reasoning-effort.js";
+ import { AI_SDK_MODEL_CONFIG } from "../model-config.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { classifyProviderError, describeErrorWithCauses, } from "./error-detail.js";
+ import { createFirstEventAbortController } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -209,7 +209,7 @@ class AISDKEngine {
+             yield {
+                 type: "stop",
+                 reason: "error",
+-                error: `${LLM_MISSING_CREDENTIALS_MESSAGE} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
++                error: `${llmMissingCredentialsMessage()} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
+                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+             };
+             return;
+diff --git a/dist/agent/engine/anthropic-engine.js b/dist/agent/engine/anthropic-engine.js
+index f66ece32d03e3a4e719ad745449a0d31c7dbf16f..4221dfff002a55f511add203f47e9f025b2b1d47 100644
+--- a/dist/agent/engine/anthropic-engine.js
++++ b/dist/agent/engine/anthropic-engine.js
+@@ -10,7 +10,7 @@
+ import { clearProviderCredentialAuthFailure, readDeployCredentialEnv, recordProviderCredentialAuthFailure, } from "../../server/credential-provider.js";
+ import { allowsSamplingParams, anthropicManualThinkingBudget, normalizeReasoningEffortForModel, supportsClaudeAdaptiveThinking, } from "../../shared/reasoning-effort.js";
+ import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { describeErrorWithCauses } from "./error-detail.js";
+ import { createFirstEventAbortController } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -320,7 +320,7 @@ export function createAnthropicEngine(config = {}) {
+                 yield {
+                     type: "stop",
+                     reason: "error",
+-                    error: LLM_MISSING_CREDENTIALS_MESSAGE,
++                    error: llmMissingCredentialsMessage(),
+                     errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+                 };
+             },
+diff --git a/dist/agent/engine/builder-engine.js b/dist/agent/engine/builder-engine.js
+index a51ba530b7289349af78353436ead14051da8eff..01bd6502c72020cc6bdf828fd39aa17ab90f85ae 100644
+--- a/dist/agent/engine/builder-engine.js
++++ b/dist/agent/engine/builder-engine.js
+@@ -24,7 +24,7 @@ import { allowsSamplingParams, isGPTReasoningModel, normalizeReasoningEffortForM
+ import { isInBackgroundFunctionRuntime } from "../durable-background.js";
+ import { BUILDER_MODEL_CONFIG } from "../model-config.js";
+ import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
+-import { gatewayVisitorFacingError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./credential-errors.js";
++import { gatewayVisitorFacingError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./credential-errors.js";
+ import { classifyTerminalErrorCode, canonicalizeBuilderGatewayErrorCode, describeErrorWithCauses, isBuilderGatewayInternalErrorMessage, isContextOverflowCode, isContextOverflowMessage, isProviderConnectionErrorMessage, } from "./error-detail.js";
+ import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+ import { limitProviderTools } from "./limit-provider-tools.js";
+@@ -165,7 +165,7 @@ class BuilderEngine {
+         const creditsLane = oauthAccess ? false : isBuilderCreditsLane(creds);
+         if (!authHeader || (!oauthAccess && !spaceId)) {
+             yield gatewayErrorStop({
+-                error: LLM_MISSING_CREDENTIALS_MESSAGE,
++                error: llmMissingCredentialsMessage(),
+                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+             }, creditsLane);
+             return;
+diff --git a/dist/agent/engine/credential-errors.d.ts b/dist/agent/engine/credential-errors.d.ts
+index 76e1687f743dbe7bf7eef7c49abc3db3c093828d..7445cadf682d6ed791fa737fc8da19d7e40ef001 100644
+--- a/dist/agent/engine/credential-errors.d.ts
++++ b/dist/agent/engine/credential-errors.d.ts
+@@ -6,6 +6,9 @@ export declare const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
+  */
+ export declare const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE = "credential_store_unavailable";
+ export declare const LLM_MISSING_CREDENTIALS_MESSAGE = "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
++export declare const LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER = "No LLM provider is connected. Add your own provider key in Settings.";
++/** The missing-credentials message for this host, read at call time. */
++export declare function llmMissingCredentialsMessage(): string;
+ /**
+  * The one line a site visitor sees for every gateway rejection. Quota,
+  * concurrency, a revoked token, a disabled gateway and an unreadable credential
+diff --git a/dist/agent/engine/credential-errors.js b/dist/agent/engine/credential-errors.js
+index 19033d1506f417150185e287bb2d0d0f3dfb14d0..2f9d0c4380a588c24a9162980582d63149b9a72c 100644
+--- a/dist/agent/engine/credential-errors.js
++++ b/dist/agent/engine/credential-errors.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { PROVIDER_ENV_VARS } from "./provider-env-vars.js";
+ export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
+ /**
+@@ -14,6 +15,14 @@ const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
+     "unauthorized",
+ ]);
+ export const LLM_MISSING_CREDENTIALS_MESSAGE = "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
++// Vivary #104: keeps the "No LLM provider is connected" prefix that run-recovery matches.
++export const LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER = "No LLM provider is connected. Add your own provider key in Settings.";
++/** The missing-credentials message for this host, read at call time. */
++export function llmMissingCredentialsMessage() {
++    return builderOffersEnabled()
++        ? LLM_MISSING_CREDENTIALS_MESSAGE
++        : LLM_MISSING_CREDENTIALS_MESSAGE_NO_BUILDER;
++}
+ /**
+  * The one line a site visitor sees for every gateway rejection. Quota,
+  * concurrency, a revoked token, a disabled gateway and an unreadable credential
+@@ -68,9 +77,11 @@ export function formatLlmCredentialErrorMessage(options) {
+         return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
+     const agentName = options?.agentName?.trim();
+     if (agentName) {
+-        return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.`;
++        return builderOffersEnabled()
++            ? `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.`
++            : `The ${agentName} agent could not finish this request because that app needs an LLM connection. Add your own provider key in that app's Settings.`;
+     }
+-    return LLM_MISSING_CREDENTIALS_MESSAGE;
++    return llmMissingCredentialsMessage();
+ }
+ export function userFacingLlmCredentialError(error, options) {
+     return isLlmCredentialError(error)
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9c806f59f 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e783c88e8ba 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
+@@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
+ import { AGENT_CHAT_BACKGROUND_RUN_FIELD, AGENT_CHAT_PROCESS_RUN_PATH, backgroundRuntimeDiagnosticDetail, dispatchPathTargetsNetlifyBackgroundFunction, isAgentChatDurableBackgroundEnabled, isAgentChatForegroundSelfChainEnabled, isInBackgroundFunctionRuntime, resolveAgentChatProcessRunDispatchPath, shouldUseBackgroundFunctionTimeoutForWorker, } from "./durable-background.js";
+ import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
+ import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
+-import { formatLlmCredentialErrorMessage, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, userFacingLlmCredentialError, } from "./engine/credential-errors.js";
++import { formatLlmCredentialErrorMessage, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, userFacingLlmCredentialError, } from "./engine/credential-errors.js";
+ import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE, isContextOverflowCode, isContextOverflowMessage, isProviderConnectionErrorMessage, } from "./engine/error-detail.js";
+ import { resolveEngine, explicitEngineName, registerBuiltinEngines, getStoredModelForEngine, normalizeModelForEngine, isResolvedEngineUsableForRequest, } from "./engine/index.js";
+ import { resolveEmptyResponseRetryMaxOutputTokens, resolveMainChatMaxOutputTokens, resolveMaxOutputTokensForEngine, } from "./engine/output-tokens.js";
 @@ -49,6 +49,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
  import { consumeAgentToolApproval, createAgentToolApproval, isAgentToolAlwaysAllowed, resolveAgentToolApprovalTurnId, } from "./tool-approval-store.js";
  import { findCompletedJournalEntry, } from "./tool-call-journal.js";
@@ -53,6 +180,15 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
+@@ -5890,7 +5899,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+             await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
+         }
+         else if (terminalEvent?.type === "missing_api_key") {
+-            await persistError(opts.runId, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE);
++            await persistError(opts.runId, LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage());
+         }
+     }
+     return updated;
 @@ -7389,12 +7398,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
@@ -69,17 +205,19 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9
              ...historyMessages,
              { role: "user", content: userContent },
 diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
-index d633a29f3ebe57ff878a909a583f3a02cde20946..670e3f6cd527cc11b590e2415b98fd9af358c2bb 100644
+index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b1a64f4fe 100644
 --- a/dist/agent/run-manager.js
 +++ b/dist/agent/run-manager.js
-@@ -1,6 +1,7 @@
+@@ -1,7 +1,8 @@
  import { getAppConfig } from "../app-config/index.js";
  import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS, BACKGROUND_SOFT_TIMEOUT_CEILING_MS, RUN_NO_PROGRESS_HARD_TIMEOUT_MS, } from "../app-config/run-lifecycle-invariants.js";
  import { captureError } from "../server/capture-error.js";
+-import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
 +import { redactTextInValue, textRedactionHoldback } from "../audit/redact.js";
- import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
++import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./engine/credential-errors.js";
  import { classifyTerminalErrorCode, describeErrorWithCauses, isProviderConnectionError, } from "./engine/error-detail.js";
  import { EngineError } from "./engine/types.js";
+ import { insertRun, insertRunEvent, updateRunStatusIfRunning, markRunAborted, getRunAbortState, getRunStatus, getRunEventsSince, getRunById, getRunByThread, getRunTurnRef, markTurnAborted, cleanupOldRuns, updateRunHeartbeat, bumpRunProgress, setRunInFlightMarker, reapIfStale, reapUnclaimedBackgroundRun, shouldRedispatchUnclaimedBackgroundRun, reconcileTerminalRunFromEvents, ensureTerminalRunEvent, getLastTerminalRunEvent, resolveErroredRunTerminalEvent, setRunError, setRunTerminalReason, persistRunCheckpointEvent, recordRunDiagnostic, RUN_DIAG_STAGE, terminalEventForAbortReason, } from "./run-store.js";
 @@ -449,6 +450,33 @@ export function resolveBackgroundAutomationSoftTimeoutMs(overrideMs) {
      // `0` means "no soft-timeout regime" (local dev) and is never clamped up.
      return resolved > 0 ? Math.min(resolved, budget) : 0;
@@ -186,11 +324,20 @@ index d633a29f3ebe57ff878a909a583f3a02cde20946..670e3f6cd527cc11b590e2415b98fd9a
          let completionError = null;
          let terminalPersistenceError = null;
          // Populated in step 5b for errored runs; read by the terminal tracking
+@@ -1751,7 +1825,7 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
+                 const ev = diagnosticEvents[i].event;
+                 if (ev.type === "missing_api_key") {
+                     errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+-                    errorDetail = LLM_MISSING_CREDENTIALS_MESSAGE;
++                    errorDetail = llmMissingCredentialsMessage();
+                     break;
+                 }
+                 else if (ev.type === "error") {
 diff --git a/dist/agent/run-store.js b/dist/agent/run-store.js
-index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e1774934a87 100644
+index 52ffb623b103f0032033045f3f8132c559e3b80b..11fdfe186e075a1458509af565177231ffc0ce31 100644
 --- a/dist/agent/run-store.js
 +++ b/dist/agent/run-store.js
-@@ -5,6 +5,7 @@
+@@ -5,11 +5,12 @@
   */
  import { MAX_BACKGROUND_RUN_CONTINUATIONS, TURN_RUN_LEDGER_SLACK, } from "../app-config/run-lifecycle-invariants.js";
  import { isArtifactReceipt, } from "../artifacts/detect.js";
@@ -198,6 +345,12 @@ index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e17
  import { getDbExec, intType, isPostgres } from "../db/client.js";
  import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
  import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+ import { captureError } from "../server/capture-error.js";
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, llmMissingCredentialsMessage, } from "./engine/credential-errors.js";
+ import { isContinuationTerminalReason } from "./types.js";
+ let _initPromise;
+ /**
 @@ -613,7 +614,10 @@ const LEDGER_RESULT_MAX_CHARS = 8_000;
   * promise continuation after `Promise.race` abandons it. Best-effort — never
   * throws so a ledger write failure doesn't break any caller.
@@ -218,6 +371,15 @@ index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e17
              artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
          };
      }
+@@ -1289,7 +1293,7 @@ function errorCodeForTerminalEvent(event) {
+ }
+ function errorDetailForTerminalEvent(event) {
+     if (event.type === "missing_api_key")
+-        return LLM_MISSING_CREDENTIALS_MESSAGE;
++        return llmMissingCredentialsMessage();
+     if (event.type !== "error")
+         return null;
+     return (event.details || event.error || "").slice(0, 2000) || null;
 diff --git a/dist/agent/thread-data-builder.d.ts b/dist/agent/thread-data-builder.d.ts
 index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e537efc0dc 100644
 --- a/dist/agent/thread-data-builder.d.ts
@@ -1280,6 +1442,25 @@ index 0000000000000000000000000000000000000000..b17699cccc0bba6f27eb3b8953d9ef7b
 +        }
 +    }
 +}
+diff --git a/dist/client/AgentPanel.js b/dist/client/AgentPanel.js
+index 8b0b0f7f2e229e36492fffd10b84c6103342b45f..9231a771b09ab4eb09990abbd32a60dceea2ee88 100644
+--- a/dist/client/AgentPanel.js
++++ b/dist/client/AgentPanel.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * AgentPanel — unified agent component with chat, CLI, and workspace modes.
+  *
+@@ -493,7 +494,7 @@ function CodeAccessUnavailablePanel({ title, description, ctaLabel, ctaHref, sec
+             : withBuilderUtmTrackingParams("https://builder.io", {
+                 content: "code_access_unavailable_panel",
+             });
+-    return (_jsxs("div", { className: cn("rounded-lg border border-border bg-muted/35 text-center", compact ? "mx-3 mt-2 px-3 py-2.5" : "max-w-[300px] px-4 py-4"), children: [_jsx("div", { className: cn("mx-auto flex items-center justify-center rounded-full bg-background text-muted-foreground", compact ? "mb-2 h-8 w-8" : "mb-3 h-10 w-10"), children: _jsx(IconTerminal2, { className: compact ? "h-4 w-4" : "h-5 w-5" }) }), _jsx("p", { className: "text-sm font-medium text-foreground", children: title }), _jsx("p", { className: cn("mt-1 text-muted-foreground", compact ? "text-[11px] leading-snug" : "text-xs leading-relaxed"), children: description }), _jsxs("div", { className: "mt-3 flex flex-wrap items-center justify-center gap-2", children: [ctaHref ? (_jsxs("a", { href: ctaHref, target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90", children: [ctaLabel, _jsx(IconExternalLink, { className: "h-3 w-3" })] })) : null, _jsx("a", { href: builderHref, target: "_blank", rel: "noreferrer", onClick: () => {
++    return (_jsxs("div", { className: cn("rounded-lg border border-border bg-muted/35 text-center", compact ? "mx-3 mt-2 px-3 py-2.5" : "max-w-[300px] px-4 py-4"), children: [_jsx("div", { className: cn("mx-auto flex items-center justify-center rounded-full bg-background text-muted-foreground", compact ? "mb-2 h-8 w-8" : "mb-3 h-10 w-10"), children: _jsx(IconTerminal2, { className: compact ? "h-4 w-4" : "h-5 w-5" }) }), _jsx("p", { className: "text-sm font-medium text-foreground", children: title }), _jsx("p", { className: cn("mt-1 text-muted-foreground", compact ? "text-[11px] leading-snug" : "text-xs leading-relaxed"), children: description }), _jsxs("div", { className: "mt-3 flex flex-wrap items-center justify-center gap-2", children: [ctaHref ? (_jsxs("a", { href: ctaHref, target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90", children: [ctaLabel, _jsx(IconExternalLink, { className: "h-3 w-3" })] })) : null, builderOffersEnabled() && _jsx("a", { href: builderHref, target: "_blank", rel: "noreferrer", onClick: () => {
+                             trackEvent("builder connect clicked", {
+                                 feature: "builder",
+                                 stage: "client",
 diff --git a/dist/client/AssistantChat.d.ts b/dist/client/AssistantChat.d.ts
 index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1f539b3c1 100644
 --- a/dist/client/AssistantChat.d.ts
@@ -1630,6 +1811,26 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  });
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
+diff --git a/dist/client/FileStorageSetupCard.js b/dist/client/FileStorageSetupCard.js
+index e30f3fd04b4949bfe81bc340f1142dfe4398db6f..6b8df21809e851b1343397d9d6b8c8a3512b6659 100644
+--- a/dist/client/FileStorageSetupCard.js
++++ b/dist/client/FileStorageSetupCard.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { ActionButton } from "@agent-native/toolkit/design-system";
+ import { BuilderConnectCard, DefaultBuilderConnectCardView, } from "./setup-connections/BuilderConnectCard.js";
+ /**
+@@ -7,6 +8,9 @@ import { BuilderConnectCard, DefaultBuilderConnectCardView, } from "./setup-conn
+  * surface so the user does not have to understand provider internals first.
+  */
+ export function FileStorageSetupCard() {
++    // The card offers Builder storage only.
++    if (!builderOffersEnabled())
++        return null;
+     const openCustomStorage = () => {
+         if (typeof window === "undefined")
+             return;
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
 index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac99042112f1f886 100644
 --- a/dist/client/MultiTabAssistantChat.js
@@ -1906,10 +2107,34 @@ index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac990421
                      })] })] }));
  }
 diff --git a/dist/client/agent-chat-adapter.js b/dist/client/agent-chat-adapter.js
-index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb35e15f5c 100644
+index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..a93c8008c7fead57e27f0b5f87540aa256b72e86 100644
 --- a/dist/client/agent-chat-adapter.js
 +++ b/dist/client/agent-chat-adapter.js
-@@ -793,9 +793,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
+@@ -1,6 +1,6 @@
+ import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
+ import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
+-import { formatLlmCredentialErrorMessage, isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "../agent/engine/credential-errors.js";
++import { formatLlmCredentialErrorMessage, isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage, } from "../agent/engine/credential-errors.js";
+ import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+ import { clearPendingTurnIfMatches, getActiveRun, setActiveRun, updateActiveRunSeq, clearActiveRun, clearActiveRunIfMatches, setPendingTurn, } from "./active-run-state.js";
+ import { getAnalyticsClientPlatform } from "./analytics-platform.js";
+@@ -285,8 +285,13 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES = {
+     background_worker_never_started: "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
+     background_continuation_dispatch_failed: "The agent's background worker could not hand off the next step of this run. Retry to continue from the preserved context.",
+     dispatch_payload_missing: "The agent's background run lost its saved request data and could not continue. Retry to start a fresh run.",
+-    missing_api_key: LLM_MISSING_CREDENTIALS_MESSAGE,
+-    missing_credentials: LLM_MISSING_CREDENTIALS_MESSAGE,
++    // Getters, so the text follows the Builder offers switch when it is read.
++    get missing_api_key() {
++        return llmMissingCredentialsMessage();
++    },
++    get missing_credentials() {
++        return llmMissingCredentialsMessage();
++    },
+     turn_continuation_budget_exhausted: "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
+ };
+ /**
+@@ -793,9 +798,19 @@ function contentToStructuredMessages(content, nextToolCallId, options) {
      }
      return messages;
  }
@@ -1931,7 +2156,7 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..7ea56ae097a306a8a9133421342795fb
      const structured = [];
      for (const message of messages) {
          if (message.role === "user") {
-@@ -1953,7 +1963,7 @@ export function createAgentChatAdapter(options) {
+@@ -1953,7 +1968,7 @@ export function createAgentChatAdapter(options) {
              const attemptedRunIds = [];
              let authRecoveryAttempted = false;
              let continuationToolCallCounter = 0;
@@ -2139,6 +2364,38 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
+index 851a9d9763239e262cc940db36d9d6669f5688ab..cc89dc6b18df95d6ba01cc90b69d2b4204561bd0 100644
+--- a/dist/client/chat/run-recovery.js
++++ b/dist/client/chat/run-recovery.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ // Owns: run-error metadata extractors, recovery helpers, RunErrorRecoveryCard,
+ // LoopLimitContinueCard, BuilderConnectCta, BuilderSetupCard, ApiKeyConnect,
+ // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
+@@ -169,6 +170,12 @@ export function BuilderSetupContent({ onConnected, layout = "default", }) {
+     const t = useT();
+     const [keyOpen, setKeyOpen] = useState(false);
+     const sidebarLayout = layout === "sidebar";
++    if (!builderOffersEnabled()) {
++        // Without Builder offers the key form is the only path, so it shows at once.
++        return (_jsxs("div", { className: cn("agent-builder-setup-content", sidebarLayout && "agent-builder-setup-card--sidebar"), children: [_jsxs("div", { className: "agent-builder-setup-card__copy min-w-0", children: [_jsx("h3", { className: "text-[13px] font-medium text-foreground", children: t("agentPanel.connectAi", { defaultValue: "Connect AI" }) }), _jsx("p", { className: "mt-0.5 text-[11px] leading-relaxed text-muted-foreground", children: t("agentPanel.ownProviderKeys", {
++                                defaultValue: "Add your own provider keys.",
++                            }) })] }), _jsx("div", { className: "mt-3", children: _jsx(ApiKeyConnect, { onConnected: onConnected }) })] }));
++    }
+     return (_jsxs("div", { className: cn("agent-builder-setup-content", sidebarLayout && "agent-builder-setup-card--sidebar"), children: [_jsxs("div", { className: cn("agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between", sidebarLayout ? "gap-2" : "gap-3"), children: [_jsxs("div", { className: "agent-builder-setup-card__copy min-w-0", children: [_jsx("h3", { className: "text-[13px] font-medium text-foreground", children: t("agentPanel.connectAi", { defaultValue: "Connect AI" }) }), _jsx("p", { className: "mt-0.5 text-[11px] leading-relaxed text-muted-foreground", children: t("agentPanel.builderOrOwnKeys", {
+                                     defaultValue: "Choose Builder.io or custom keys.",
+                                 }) })] }), _jsxs("div", { className: cn("agent-builder-setup-card__actions flex shrink-0", sidebarLayout
+@@ -225,7 +232,7 @@ export function RunErrorRecoveryCard({ info, onContinue, onRetry, onFork, onDism
+         trackingSource: "assistant_chat_reconnect_error",
+     });
+     const canRecover = info.recoverable === true;
+-    const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
++    const shouldShowBuilderReconnect = builderOffersEnabled() && isBuilderReconnectRunError(info);
+     const isProviderAuthError = isProviderAuthenticationError([info.message, info.details].filter(Boolean).join("\n"), info.errorCode);
+     const shouldShowProviderSetup = isMissingLlmProviderRunError(info) ||
+         isDesktopChatRelayRunError(info) ||
 diff --git a/dist/client/chat-model-groups.d.ts b/dist/client/chat-model-groups.d.ts
 index ab985c5f9156c2418ea7a228dafcbd18ea4cfae4..915356fb989d2cd63a8bd9bf7075c644ac2cd637 100644
 --- a/dist/client/chat-model-groups.d.ts
@@ -2249,6 +2506,26 @@ index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ff
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text.trim() } : null;
      }
+diff --git a/dist/client/composer/runtime-adapters.js b/dist/client/composer/runtime-adapters.js
+index e043637cb79c273483b22e3d6871107a2ec77360..3fca972cbe5536c442d02f27e7af373359db6cff 100644
+--- a/dist/client/composer/runtime-adapters.js
++++ b/dist/client/composer/runtime-adapters.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ComposerRuntimeAdaptersProvider, } from "@agent-native/toolkit/composer";
+ import { useMemo } from "react";
+ import { DEFAULT_REASONING_EFFORT, getReasoningEffortOptionsForModel, reasoningEffortLabel, resolveReasoningEffortSelection, } from "../../shared/reasoning-effort.js";
+@@ -56,6 +57,9 @@ const coreComposerAdapters = {
+         StaleIndexBoundary: AssistantUiStaleIndexErrorBoundary,
+     },
+     builder: {
++        get offersEnabled() {
++            return builderOffersEnabled();
++        },
+         useConnectFlow: useBuilderConnectFlow,
+         BuilderConnectPopover,
+         tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
 diff --git a/dist/client/integrations/webhook-url.d.ts b/dist/client/integrations/webhook-url.d.ts
 index 39d13fc2e3f8c26057d51c9c8600e769435ba688..76cfbaa13f9a82de7541f7758ee40782cac6a517 100644
 --- a/dist/client/integrations/webhook-url.d.ts
@@ -2297,6 +2574,57 @@ index ec98f2c4c68f092ac667ab04df8275e8d81e6928..4dd87312f1383319929bf401381ab19b
  function isNonPublicHost(hostname) {
      const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
      if (host === "localhost" || host.endsWith(".localhost"))
+diff --git a/dist/client/onboarding/FirstRunOnboarding.js b/dist/client/onboarding/FirstRunOnboarding.js
+index 6d4135e6606d13d523c72a153fcc7ca960d45ef6..06d37f8a9b4269fe3b30ea0f3fdb20858519ea7c 100644
+--- a/dist/client/onboarding/FirstRunOnboarding.js
++++ b/dist/client/onboarding/FirstRunOnboarding.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+ import { IconArrowRight, IconBrandGithub, IconCheck, IconExternalLink, IconInfoCircle, IconKey, IconLoader2, IconSearch, IconX, } from "@tabler/icons-react";
+ import React, { useCallback, useEffect, useMemo, useRef, useState, } from "react";
+@@ -302,10 +303,10 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+     if (screen === "intro") {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "intro", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-lg flex-col items-center text-center", children: [_jsxs("h1", { className: "text-3xl font-semibold tracking-[-0.05em] sm:text-4xl", children: ["Free forever.", _jsx("br", {}), _jsx("span", { className: "text-primary", children: "Open source for life." })] }), _jsxs("div", { className: "mt-7 grid w-full gap-2 text-left sm:grid-cols-3", children: [_jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Fully customizable" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Change the UI, code, and behavior." })] }), _jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Bring your own keys" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Use your own providers and accounts." })] }), _jsxs("div", { className: "rounded-lg bg-muted/35 px-3 py-3", children: [_jsx("p", { className: "text-xs font-medium", children: "Build your own" }), _jsx("p", { className: "mt-1 text-[11px] leading-4 text-muted-foreground", children: "Mix and match toolkit pieces in your own apps." })] })] }), _jsxs("button", { type: "button", className: cn(primaryButtonClass, "mt-6"), onClick: () => {
+                             trackFirstRunStepCompleted("intro");
+-                            setScreen("choice");
++                            setScreen(builderOffersEnabled() ? "choice" : "manual");
+                         }, children: ["Continue", _jsx(IconArrowRight, { size: 15 })] }), _jsxs("a", { href: "https://github.com/builderio/agent-native", target: "_blank", rel: "noreferrer", className: "mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: [_jsx(IconBrandGithub, { size: 14 }), _jsx("span", { children: "View source" }), _jsx(IconExternalLink, { size: 13 })] })] }) }));
+     }
+-    if (screen === "choice") {
++    if (screen === "choice" && builderOffersEnabled()) {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "choice", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-3xl flex-col gap-4", children: [_jsx("h1", { className: "text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl", children: "Choose your setup." }), _jsxs("div", { className: "grid gap-3 sm:grid-cols-2", children: [_jsxs("section", { className: "rounded-xl bg-primary/[0.06] p-4 shadow-sm", children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold", children: canActivateBuilderFreeCredits
+                                                             ? t("agentChat.onboarding.builderActivateCredits")
+                                                             : t("agentChat.onboarding.builderConnectCredits") }), _jsx("p", { className: "mt-1 max-w-xs text-xs leading-5 text-muted-foreground", children: canActivateBuilderFreeCredits ? (t("agentChat.onboarding.builderActivateDescription")) : (_jsxs(_Fragment, { children: ["One click connects", " ", _jsx("a", { href: "https://www.builder.io/", target: "_blank", rel: "noreferrer", className: "text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: "Builder.io free credits" }), " ", "with the services this app needs."] })) })] }), _jsx(IconArrowRight, { className: "mt-0.5 text-primary", size: 17 })] }), _jsxs("div", { className: "mt-5 pt-3", children: [_jsx("p", { className: "text-[11px] font-medium text-muted-foreground", children: canActivateBuilderFreeCredits
+@@ -323,7 +324,8 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                                     setScreen("manual");
+                                 }, children: [_jsxs("div", { className: "flex items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold", children: "Use my own keys" }), _jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: "See what this app needs" })] }), _jsx(IconKey, { className: "text-muted-foreground", size: 17 })] }), _jsx(CapabilityList, { capabilities: profile.capabilities, compact: true, className: "mt-5 pt-3" })] })] }), import.meta.env.DEV ? (_jsxs("p", { "data-testid": "first-run-local-provider-note", className: "mx-auto max-w-2xl text-center text-[11px] leading-5 text-muted-foreground", children: ["Or set", " ", _jsx("code", { className: "rounded bg-muted px-1", children: "ANTHROPIC_API_KEY" }), " ", "or ", _jsx("code", { className: "rounded bg-muted px-1", children: "OPENAI_API_KEY" }), " ", "in ", _jsx("code", { className: "rounded bg-muted px-1", children: ".env" }), " to make that provider available to everyone using this app.", " ", _jsxs("a", { href: docsUrl("environment-variables"), target: "_blank", rel: "noreferrer", className: "inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", children: ["Read the setup guide", _jsx(IconExternalLink, { size: 12 })] })] })) : null] }) }));
+     }
+-    if (screen === "manual") {
++    // Without Builder offers, the choice screen is the key form.
++    if (screen === "manual" || screen === "choice") {
+         return (_jsx(OnboardingShell, { profile: profile, screen: "choice", onDismiss: dismissOnboarding, ...completionErrorProps, children: _jsxs("div", { className: "mx-auto flex w-full max-w-xl flex-col gap-4", children: [_jsxs("div", { children: [_jsx("button", { type: "button", className: "mb-4 text-xs text-muted-foreground hover:text-foreground", onClick: () => setScreen("choice"), children: "Back" }), _jsx("h1", { className: "text-xl font-semibold tracking-[-0.04em] sm:text-2xl", children: "Your keys" })] }), _jsxs("div", { className: "rounded-xl bg-muted/35 p-4", children: [_jsx(CapabilityList, { capabilities: profile.capabilities }), _jsxs("div", { className: "mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between", children: [_jsx("button", { type: "button", className: secondaryButtonClass, onClick: () => setScreen("choice"), children: "Back" }), _jsxs("button", { type: "button", className: primaryButtonClass, onClick: handleOpenSettings, children: ["Open key settings", _jsx(IconArrowRight, { size: 15 })] }), _jsx("button", { type: "button", className: secondaryButtonClass, onClick: () => {
+                                             trackFirstRunStepCompleted("manual");
+                                             setScreen(skipIntegrations ? "role" : "tools");
+@@ -385,7 +387,7 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                             ],
+                             [
+                                 "Flexible providers",
+-                                "Use Builder.io free credits or your own keys.",
++                                (builderOffersEnabled() ? "Use Builder.io free credits or your own keys." : "Use your own provider keys."),
+                             ],
+                         ]
+                         : [
+@@ -393,7 +395,7 @@ export function FirstRunOnboarding({ skipIntegrations = shouldSkipFirstRunIntegr
+                             ["Agent integrations", "Connect tools from Settings anytime."],
+                             [
+                                 "Flexible providers",
+-                                "Use Builder.io free credits or your own keys.",
++                                (builderOffersEnabled() ? "Use Builder.io free credits or your own keys." : "Use your own provider keys."),
+                             ],
+                         ]).map(([title, description]) => (_jsxs("div", { className: "rounded-xl bg-muted/35 px-4 py-4", children: [_jsx("span", { className: "flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary", children: _jsx(IconCheck, { size: 14 }) }), _jsx("p", { className: "mt-3 text-sm font-medium", children: title }), _jsx("p", { className: "mt-1 text-xs leading-5 text-muted-foreground", children: description })] }, title))) }), _jsxs("button", { type: "button", "data-testid": "first-run-open-app", className: cn(primaryButtonClass, "mt-7"), onClick: () => void finishOnboarding("ready"), children: ["Open app", _jsx(IconArrowRight, { size: 15 })] })] }) }));
+ }
 diff --git a/dist/client/settings/AutomationsSection.js b/dist/client/settings/AutomationsSection.js
 index 9b62abee9d417d96a895cbc30b95503bbfd8810b..00d4c2ede6f5c0bf3fac2f41f454c6a5fc5c8c45 100644
 --- a/dist/client/settings/AutomationsSection.js
@@ -2310,6 +2638,144 @@ index 9b62abee9d417d96a895cbc30b95503bbfd8810b..00d4c2ede6f5c0bf3fac2f41f454c6a5
                  }) }), _jsxs("div", { className: "flex flex-wrap gap-2 text-[11px] text-muted-foreground", children: [_jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconClock, { className: "size-3" }), t("jobs.scheduledTrigger", { defaultValue: "Scheduled" })] }), _jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconBolt, { className: "size-3" }), t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })] }), _jsxs("span", { className: "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1", children: [_jsx(IconCalendarEvent, { className: "size-3" }), t("jobs.eventTrigger", { defaultValue: "Event-triggered" })] })] }), _jsx(Button, { asChild: true, variant: "outline", size: "sm", children: _jsxs(Link, { to: "/settings/agent/automations", children: [t("jobs.openAutomations", {
                              defaultValue: "Open Automations",
                          }), _jsx(IconArrowRight, { className: "size-3.5" })] }) })] }));
+diff --git a/dist/client/settings/BuilderConnectPopover.js b/dist/client/settings/BuilderConnectPopover.js
+index 1bf5b1dc6f1b25f959d09dc1237f3837d20db050..d99a9845ea26ee88b613120caf245cf703096a60 100644
+--- a/dist/client/settings/BuilderConnectPopover.js
++++ b/dist/client/settings/BuilderConnectPopover.js
+@@ -1,10 +1,14 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
+ import React, { useEffect, useRef, useState } from "react";
+ import { Popover, PopoverContent, PopoverTrigger, } from "../components/ui/popover.js";
+ import { useT } from "../i18n.js";
+ import { cn } from "../utils.js";
+ export function BuilderConnectPopover({ flow, children, onConnect, onTriggerClick, contentTestId, primaryTestId, secondaryTestId, }) {
++    // The switch is fixed for the page's life, so the hook order below never changes.
++    if (!builderOffersEnabled())
++        return null;
+     const t = useT();
+     const [open, setOpen] = useState(false);
+     const capabilityResolved = flow.statusResolved === true;
+diff --git a/dist/client/settings/SettingsPanel.js b/dist/client/settings/SettingsPanel.js
+index 2aa4e0db60ff7621021d016ecf0c3b4304065139..8ada4c8277605197c04239020805095495c88663 100644
+--- a/dist/client/settings/SettingsPanel.js
++++ b/dist/client/settings/SettingsPanel.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { Checkbox, Picker, Skeleton, TextField, } from "@agent-native/toolkit/design-system";
+ import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, } from "@agent-native/toolkit/ui/command";
+@@ -94,8 +95,17 @@ function SettingsSelect({ label, labelAdornment, value, options, onValueChange,
+                         onValueChange(String(next));
+                 }, disabled: disabled, "aria-label": label, placeholder: value, style: controlStyle, className: cn("w-full text-start text-foreground", isPage ? "text-sm" : "text-[12px]") })] }));
+ }
++/** The provider setup summary, without the Builder.io choice when offers are off. */
++function providerSetupSummary(t) {
++    return builderOffersEnabled()
++        ? t("agentPanel.builderOrOwnKeys", { defaultValue: "Choose Builder.io or custom keys." })
++        : t("agentPanel.ownProviderKeys", { defaultValue: "Add your own provider keys." });
++}
+ // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
+-function UseBuilderCard({ builderFlow, connectUrl, connected, orgName, envManaged, credentialSource, trackingSource = "settings_panel_builder_card", trackingFlow = "connect_llm", label = "Connect Builder.io", subtitle = "Builder.io free credits to start - no API key needed.", dim, compact = false, }) {
++function UseBuilderCard(props) {
++    return builderOffersEnabled() ? _jsx(BuilderOfferCard, { ...props }) : null;
++}
++function BuilderOfferCard({ builderFlow, connectUrl, connected, orgName, envManaged, credentialSource, trackingSource = "settings_panel_builder_card", trackingFlow = "connect_llm", label = "Connect Builder.io", subtitle = "Builder.io free credits to start - no API key needed.", dim, compact = false, }) {
+     const isPage = useSettingsSurface() === "page";
+     const effectiveConnected = connected || builderFlow.configured;
+     const effectiveOrgName = builderFlow.orgName ?? orgName;
+@@ -523,13 +533,9 @@ function LLMSectionInner({ builderFlow, builderLoading, builderStatusAvailable,
+             ? undefined
+             : anyKeyConfigured, subtitle: isPage
+             ? undefined
+-            : t("agentPanel.builderOrOwnKeys", {
+-                defaultValue: "Choose Builder.io or custom keys.",
+-            }), grouped: isPage && grouped, open: open, onToggle: onToggle, children: initialLoading ? (_jsx(SettingsLoadingRow, { controlCount: 2 })) : (_jsxs("div", { className: cn(isPage
++            : providerSetupSummary(t), grouped: isPage && grouped, open: open, onToggle: onToggle, children: initialLoading ? (_jsx(SettingsLoadingRow, { controlCount: 2 })) : (_jsxs("div", { className: cn(isPage
+                 ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
+-                : "flex items-center justify-between gap-2"), children: [isPage && (_jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-foreground", children: "AI provider" }), _jsx("p", { className: "mt-1 text-sm leading-6 text-muted-foreground", children: t("agentPanel.builderOrOwnKeys", {
+-                                defaultValue: "Choose Builder.io or custom keys.",
+-                            }) })] })), _jsxs("div", { className: cn("flex flex-wrap items-center justify-end gap-2"), children: [selectedConfigurationKnown && !anyKeyConfigured && (_jsx(UseBuilderCard, { builderFlow: builderFlow, connectUrl: connectUrl, connected: builderConnected, orgName: orgName, envManaged: envManaged, credentialSource: credentialSource, trackingSource: "llm_settings", trackingFlow: "connect_llm", label: "Connect Builder.io", compact: true })), _jsx(ManualSetupCard, { id: "llm-manual-setup", title: "Custom keys", hint: manualSetupHint, sourceBadge: builderConnected ? undefined : sourceBadge, bare: isPage, popover: true, popoverLabel: settingsConfigured
++                : "flex items-center justify-between gap-2"), children: [isPage && (_jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-sm font-medium text-foreground", children: "AI provider" }), _jsx("p", { className: "mt-1 text-sm leading-6 text-muted-foreground", children: providerSetupSummary(t) })] })), _jsxs("div", { className: cn("flex flex-wrap items-center justify-end gap-2"), children: [selectedConfigurationKnown && !anyKeyConfigured && (_jsx(UseBuilderCard, { builderFlow: builderFlow, connectUrl: connectUrl, connected: builderConnected, orgName: orgName, envManaged: envManaged, credentialSource: credentialSource, trackingSource: "llm_settings", trackingFlow: "connect_llm", label: "Connect Builder.io", compact: true })), _jsx(ManualSetupCard, { id: "llm-manual-setup", title: "Custom keys", hint: manualSetupHint, sourceBadge: builderConnected ? undefined : sourceBadge, bare: isPage, popover: true, popoverLabel: settingsConfigured
+                                 ? "Manage"
+                                 : t("agentPanel.addOwnKeys", {
+                                     defaultValue: "Custom keys",
+@@ -1035,12 +1041,15 @@ function SettingsPanelContent({ isDevMode, initialSection, sectionRequestKey, se
+             });
+         });
+     }, []);
+-    const { focusSecretKey, isSectionVisible: shouldShowSection, openSection, toggleSection: toggle, openSettingsSection: openControllerSection, } = useSettingsPanelController({
++    const { focusSecretKey, isSectionVisible: controllerSectionVisible, openSection, toggleSection: toggle, openSettingsSection: openControllerSection, } = useSettingsPanelController({
+         sections,
+         initialSection,
+         sectionRequestKey,
+         onScrollToSection: scrollSectionIntoView,
+     });
++    // Browser Automation and Background Agent hold only a Builder.io offer.
++    const shouldShowSection = (section) => controllerSectionVisible(section) &&
++        (builderOffersEnabled() || (section !== "browser" && section !== "background"));
+     const openSettingsSection = useCallback((section, scroll = false) => openControllerSection(section, { scroll }), [openControllerSection]);
+     const isPage = surface === "page";
+     const isWorkspacePage = isPage && sections.includes("hosting");
+diff --git a/dist/client/settings/VoiceTranscriptionSection.js b/dist/client/settings/VoiceTranscriptionSection.js
+index 6d2d0289d79f520ed465c7e6fbc99f9f37c092b1..7927141df9ecd69b0240c47caa21476927d9a53d 100644
+--- a/dist/client/settings/VoiceTranscriptionSection.js
++++ b/dist/client/settings/VoiceTranscriptionSection.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * <VoiceTranscriptionSection /> — source + cleanup settings for voice input.
+  *
+@@ -291,22 +292,22 @@ export function VoiceTranscriptionSection({ compact = false, } = {}) {
+     return (_jsxs("div", { className: "space-y-2", children: [_jsxs("div", { className: "rounded-md border border-border bg-background p-2", children: [_jsx("div", { className: "mb-2 flex items-start justify-between gap-3 px-0.5", children: _jsxs("div", { children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "Live transcription" }), _jsx("p", { className: "mt-0.5 text-[10px] text-muted-foreground", children: "Choose where real-time words come from. Batch still runs after recording stops." })] }) }), _jsxs("div", { className: "space-y-2", children: [_jsx(ProviderOption, { id: "mac-native", selected: transcriptionMode === "mac-native", onSelect: () => chooseSource("mac-native"), title: "Mac Native", subtitle: "Free and fast in the macOS Tauri app. Web clients use the existing browser-native path when available.", rightSlot: _jsx("span", { className: "text-[10px] text-muted-foreground", children: "Tauri default" }) }), _jsx(ProviderOption, { id: "google-realtime", selected: transcriptionMode === "google-realtime", onSelect: () => chooseSource("google-realtime"), disabled: !googleRealtimeReady, title: "Google Realtime", subtitle: googleRealtimeReady
+                                     ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
+                                     : googleRealtimeConfigured
+-                                        ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
++                                        ? (builderOffersEnabled() ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session." : "Google credentials are set. The managed realtime session needs a service this app does not offer.")
+                                         : "BYOK only for v1. Configure Google service account before selecting this source.", rightSlot: googleRealtimeReady ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Ready"] })) : googleRealtimeConfigured ? (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: "Connect Builder.io" }) })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+                                         setShowAdvanced(true);
+                                         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+-                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "batch", selected: transcriptionMode === "batch", onSelect: () => chooseSource("batch"), title: "Batch", subtitle: "Universal fallback. Sends audio after recording stops through Builder Gemini, Gemini, Groq, then OpenAI." }), _jsx(SystemAudioStatus, {})] })] }), _jsxs("div", { className: "flex items-start justify-between gap-3 rounded-md border border-border bg-accent/30 px-2.5 py-2", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "AI cleanup" }), _jsx("p", { className: "text-[10px] text-muted-foreground mt-0.5", children: "Polish punctuation, casing, filler words, titles, and summaries after capture. Builder Gemini is tried first; BYOK Gemini is the fallback." })] }), _jsxs("div", { className: "flex shrink-0 flex-col items-end gap-1", children: [_jsx(Switch, { checked: !!cleanupEnabled, onChange: toggleCleanup, "aria-label": "AI cleanup", className: "shrink-0" }), cleanupEnabled && (_jsx("span", { className: "text-[10px] text-muted-foreground", children: builderStatus?.configured
++                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "batch", selected: transcriptionMode === "batch", onSelect: () => chooseSource("batch"), title: "Batch", subtitle: (builderOffersEnabled() ? "Universal fallback. Sends audio after recording stops through Builder Gemini, Gemini, Groq, then OpenAI." : "Universal fallback. Sends audio after recording stops through Gemini, Groq, then OpenAI.") }), _jsx(SystemAudioStatus, {})] })] }), _jsxs("div", { className: "flex items-start justify-between gap-3 rounded-md border border-border bg-accent/30 px-2.5 py-2", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("div", { className: "text-[11px] font-medium text-foreground", children: "AI cleanup" }), _jsx("p", { className: "text-[10px] text-muted-foreground mt-0.5", children: (builderOffersEnabled() ? "Polish punctuation, casing, filler words, titles, and summaries after capture. Builder Gemini is tried first; BYOK Gemini is the fallback." : "Polish punctuation, casing, filler words, titles, and summaries after capture with your Gemini key.") })] }), _jsxs("div", { className: "flex shrink-0 flex-col items-end gap-1", children: [_jsx(Switch, { checked: !!cleanupEnabled, onChange: toggleCleanup, "aria-label": "AI cleanup", className: "shrink-0" }), cleanupEnabled && (_jsx("span", { className: "text-[10px] text-muted-foreground", children: builderStatus?.configured
+                                     ? "Builder ready"
+                                     : geminiConfigured
+                                         ? "Gemini key set"
+                                         : "Needs key" }))] })] }), _jsxs("div", { className: "rounded-md border border-border bg-background", children: [_jsxs("button", { type: "button", onClick: () => setShowAdvanced((v) => !v), className: "w-full flex items-center justify-between gap-2 px-2.5 py-2 cursor-pointer", children: [_jsxs("span", { className: "text-[11px] font-medium text-foreground inline-flex items-center gap-1", children: [showAdvanced ? (_jsx(IconChevronDown, { size: 12 })) : (_jsx(IconChevronRight, { size: 12, className: "rtl:-scale-x-100" })), "Add API keys"] }), _jsx("span", { className: "text-[10px] text-muted-foreground", children: "Google STT \u00B7 Gemini \u00B7 Groq \u00B7 OpenAI" })] }), showAdvanced && (_jsxs("div", { className: "px-2 pb-2 space-y-2", children: [_jsx(ProviderOption, { id: "google-service-account", selected: transcriptionMode === "google-realtime", onSelect: () => chooseSource("google-realtime"), disabled: !googleRealtimeReady, title: "Google Speech-to-Text service account", subtitle: googleRealtimeConfigured
+-                                    ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
++                                    ? (builderOffersEnabled() ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session." : "Service-account JSON is set. The managed realtime session needs a service this app does not offer.")
+                                     : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize.", rightSlot: googleRealtimeConfigured ===
+                                     null ? null : googleRealtimeReady ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Ready"] })) : googleRealtimeConfigured ? (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: "Connect Builder.io" }) })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+                                         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+-                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "auto", selected: transcriptionMode === "batch" && provider === "auto", onSelect: () => chooseBatchProvider("auto"), title: "Automatic batch fallback", subtitle: "Keep the current Clips fallback chain: Builder Gemini, Gemini, Groq, then OpenAI." }), _jsx(ProviderOption, { id: "builder-gemini", selected: transcriptionMode === "batch" && provider === "builder-gemini", onSelect: () => chooseBatchProvider("builder-gemini"), disabled: !builderStatus?.configured, title: "Builder.io Connect", subtitle: builderStatus?.configured
++                                    }, className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: ["Configure", _jsx(IconExternalLink, { size: 10 })] })) }), _jsx(ProviderOption, { id: "auto", selected: transcriptionMode === "batch" && provider === "auto", onSelect: () => chooseBatchProvider("auto"), title: "Automatic batch fallback", subtitle: (builderOffersEnabled() ? "Keep the current Clips fallback chain: Builder Gemini, Gemini, Groq, then OpenAI." : "Keep the current Clips fallback chain: Gemini, Groq, then OpenAI.") }), builderOffersEnabled() && _jsx(ProviderOption, { id: "builder-gemini", selected: transcriptionMode === "batch" && provider === "builder-gemini", onSelect: () => chooseBatchProvider("builder-gemini"), disabled: !builderStatus?.configured, title: "Builder.io Connect", subtitle: builderStatus?.configured
+                                     ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
+                                     : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed.", rightSlot: builderStatus?.configured ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Connected"] })) : (_jsx(BuilderConnectPopover, { flow: builderConnect, onTriggerClick: (event) => event.stopPropagation(), children: _jsx("button", { type: "button", className: "inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40", children: "Connect Builder.io" }) })) }), _jsx(ProviderOption, { id: "gemini", selected: transcriptionMode === "batch" && provider === "gemini", onSelect: () => chooseBatchProvider("gemini"), title: "Google Gemini", subtitle: "BYOK Gemini for AI cleanup and optional strict batch transcription.", rightSlot: geminiConfigured === null ? null : geminiConfigured ? (_jsxs("span", { className: "flex items-center gap-1 text-[10px] text-green-500", children: [_jsx(IconCheck, { size: 10 }), "Key set"] })) : (_jsxs("button", { type: "button", onClick: (e) => {
+                                         e.stopPropagation();
+diff --git a/dist/client/setup-connections/BuilderConnectCard.js b/dist/client/setup-connections/BuilderConnectCard.js
+index 49c99de2b4d7231e8be8a0f4b1b655480d5cdd3f..6401d2cb28be9713e644e7259c5d34a963b8a3bc 100644
+--- a/dist/client/setup-connections/BuilderConnectCard.js
++++ b/dist/client/setup-connections/BuilderConnectCard.js
+@@ -1,4 +1,5 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ActionButton, DesignSystemErrorBoundary, Status, Surface, } from "@agent-native/toolkit/design-system";
+ import { Button } from "@agent-native/toolkit/ui/button";
+ import { IconCheck, IconDotsVertical, IconLoader2, IconPlugConnected, IconRefresh, } from "@tabler/icons-react";
+@@ -123,6 +124,9 @@ export function DefaultBuilderConnectCardView({ viewModel, className, showManage
+                         : "border-border bg-muted text-muted-foreground"), children: viewModel.configured ? (_jsx(IconCheck, { className: "size-4" })) : (_jsx(IconPlugConnected, { className: "size-4" })) }), _jsxs("div", { className: "min-w-0 flex-1", children: [_jsxs("div", { className: "flex items-start justify-between gap-2", children: [_jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: viewModel.title }), _jsx(Status, { tone: statusTone, size: "compact", className: "rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground", children: viewModel.status.label })] }), showManage && viewModel.configured && viewModel.connectFlow ? (_jsx(BuilderConnectionMenu, { flow: viewModel.connectFlow, trackingSource: trackingSource })) : null] }), _jsx("p", { className: "mt-1 text-sm leading-5 text-muted-foreground", children: viewModel.description }), viewModel.error ? (_jsx("p", { className: "mt-2 text-xs text-destructive", children: viewModel.error })) : null, action ? (_jsx("div", { className: "mt-3", children: viewModel.connectFlow ? (_jsx(BuilderConnectPopover, { flow: viewModel.connectFlow, onConnect: action.onPress, children: _jsx(ActionButton, { type: "button", intent: "primary", size: "compact", pending: action.pending, disabled: action.disabled, className: "inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60", leadingIcon: _jsx(IconPlugConnected, { className: "size-3.5" }), children: action.label }) })) : (_jsx(ActionButton, { type: "button", intent: "primary", size: "compact", pending: action.pending, disabled: action.disabled, className: "inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60", leadingIcon: _jsx(IconPlugConnected, { className: "size-3.5" }), onPress: () => action.onPress(), children: action.label })) })) : null] })] }) }));
+ }
+ export function BuilderConnectCard({ title, description, trackingSource, className, onConnected, render, showManage = false, }) {
++    // The switch is fixed for the page's life, so the hook order below never changes.
++    if (!builderOffersEnabled())
++        return null;
+     const viewModel = useBuilderConnectCardController({
+         title,
+         description,
 diff --git a/dist/client/sse-event-processor.d.ts b/dist/client/sse-event-processor.d.ts
 index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c897bc51865 100644
 --- a/dist/client/sse-event-processor.d.ts
@@ -2325,6 +2791,25 @@ index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c89
      type: "text";
      text: string;
  } | {
+diff --git a/dist/client/sse-event-processor.js b/dist/client/sse-event-processor.js
+index 8372920704dd4163171edc9078281e38d76869cb..5d918796d8def5fdd90658db3f190bf4a98f8e05 100644
+--- a/dist/client/sse-event-processor.js
++++ b/dist/client/sse-event-processor.js
+@@ -1,4 +1,4 @@
+-import { LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "../agent/engine/credential-errors.js";
++import { LLM_MISSING_CREDENTIALS_ERROR_CODE, llmMissingCredentialsMessage, } from "../agent/engine/credential-errors.js";
+ import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+ import { emitChatFirstOpenApp } from "./chat-first.js";
+ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
+@@ -1412,7 +1412,7 @@ export function processEvent(ev, content, toolCallCounter, tabId, state) {
+         return { action: "continue" };
+     }
+     if (ev.type === "missing_api_key") {
+-        const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
++        const errMsg = llmMissingCredentialsMessage();
+         const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+         const runError = {
+             message: normalizeChatError(errMsg, errorCode).message,
 diff --git a/dist/client/thread-save-queue.js b/dist/client/thread-save-queue.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac85dd3af93
@@ -2570,6 +3055,122 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/extensions/web-search-tool.js b/dist/extensions/web-search-tool.js
+index 2d28621c2b109d176351b47aa6027adff40b8868..73d3787bcac13db54cd8463962031919639dd8f4 100644
+--- a/dist/extensions/web-search-tool.js
++++ b/dist/extensions/web-search-tool.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * Web-search tool — agent tool for searching the public web.
+  *
+@@ -18,6 +19,8 @@
+  * variables.
+  */
+ const DEFAULT_COUNT = 5;
++// Vivary #104: the tool description for hosts that turned Builder offers off.
++const WEB_SEARCH_DESCRIPTION_NO_BUILDER = "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from a configured search provider. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires a search provider key: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.";
+ const MAX_COUNT = 10;
+ async function resolveSearchKey(key, opts) {
+     let usedRequestScopedResolver = false;
+@@ -209,7 +212,7 @@ export function createWebSearchToolEntry(opts = {}) {
+     return {
+         "web-search": {
+             tool: {
+-                description: "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.",
++                description: builderOffersEnabled() ? "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY." : WEB_SEARCH_DESCRIPTION_NO_BUILDER,
+                 parameters: {
+                     type: "object",
+                     properties: {
+@@ -267,7 +270,9 @@ export function createWebSearchToolEntry(opts = {}) {
+                     else {
+                         return [
+                             "No web-search backend configured.",
+-                            "Connect Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:",
++                            builderOffersEnabled()
++                                ? "Connect Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:"
++                                : "Web search needs a search provider key. Add one of the following keys via app settings or environment variables:",
+                             "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
+                             "  • TAVILY_API_KEY        — https://tavily.com/",
+                             "  • EXA_API_KEY           — https://exa.ai/",
+diff --git a/dist/file-upload/actions/upload-image.js b/dist/file-upload/actions/upload-image.js
+index 6aa5c90af068072374e05085556fe87ee4bbf5b0..55239d47d923840c9559526f3746af3e3ae1c3ed 100644
+--- a/dist/file-upload/actions/upload-image.js
++++ b/dist/file-upload/actions/upload-image.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { z } from "zod";
+ import { defineAction } from "../../action.js";
+ import { ssrfSafeFetch } from "../../extensions/url-safety.js";
+@@ -117,10 +118,12 @@ async function fetchRemote(url) {
+ function uploadNotConfiguredError() {
+     return [
+         "Image uploads are not configured for this app.",
+-        "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
++        builderOffersEnabled()
++            ? "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider()."
++            : "Configure a file storage provider (S3, R2, GCS, etc.) for this app, or register one via registerFileUploadProvider().",
+     ].join(" ");
+ }
+-export default defineAction({
++const uploadImageAction = defineAction({
+     description: "Upload an image to the configured file-upload provider (Builder.io by default) and return a hosted CDN URL. " +
+         "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
+         'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Falls back to a clear ' +
+@@ -172,7 +175,7 @@ export default defineAction({
+             return {
+                 error: uploadNotConfiguredError(),
+                 configured: false,
+-                connectPath: "/_agent-native/builder/connect",
++                ...(builderOffersEnabled() ? { connectPath: "/_agent-native/builder/connect" } : {}),
+             };
+         }
+         return {
+@@ -182,3 +185,13 @@ export default defineAction({
+         };
+     },
+ });
++// Vivary #104: defineAction copies the description at module load, so a getter reads the switch per request.
++const UPLOAD_IMAGE_DESCRIPTION = uploadImageAction.tool.description;
++const UPLOAD_IMAGE_DESCRIPTION_NO_BUILDER = "Upload an image to the configured file-upload provider and return a hosted CDN URL. " +
++    "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
++    'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Returns a clear error when no provider is configured.';
++Object.defineProperty(uploadImageAction.tool, "description", {
++    enumerable: true,
++    get: () => (builderOffersEnabled() ? UPLOAD_IMAGE_DESCRIPTION : UPLOAD_IMAGE_DESCRIPTION_NO_BUILDER),
++});
++export default uploadImageAction;
+diff --git a/dist/file-upload/pre-upload-attachments.js b/dist/file-upload/pre-upload-attachments.js
+index ae2729bfa87006866bbbc618275915ec7ad822d4..fd716f89a85c3f2d23df60e9b650663a88039b61 100644
+--- a/dist/file-upload/pre-upload-attachments.js
++++ b/dist/file-upload/pre-upload-attachments.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { isSpreadsheetDocument, parseSpreadsheetDocument, } from "../ingestion/spreadsheet.js";
+ import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
+ const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
+@@ -284,7 +285,9 @@ export async function preUploadAttachments(opts) {
+             ].filter((line) => Boolean(line));
+             linesWithMetadata.push("<chat-file-attachment-upload-error>", ...failureLines, ...(providerMissing
+                 ? [
+-                    "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references.",
++                    (builderOffersEnabled()
++                        ? "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references."
++                        : "Call `connect-file-storage` now so the user can configure custom storage keys, then continue using the hosted references."),
+                 ]
+                 : [
+                     "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+@@ -299,7 +302,9 @@ export async function preUploadAttachments(opts) {
+                 ? "The user attached one or more images or files, but durable object storage is not configured for this app."
+                 : `The user attached one or more images or files, but the configured storage provider failed to upload them${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`,
+             providerMissing
+-                ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
++                ? (builderOffersEnabled()
++                    ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
++                    : "Call `connect-file-storage` now to render the inline storage setup card. The user can add custom storage keys there for S3-compatible object storage.")
+                 : "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+             "Do not persist the base64 contents in SQL. Until storage succeeds, use the attachment only for this turn.",
+             "</chat-file-attachment-upload-error>",
 diff --git a/dist/integrations/automation-webhook-task.d.ts b/dist/integrations/automation-webhook-task.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..4bef4d7617e68f6a4da455dcd4c99d3787ca476f
@@ -3670,6 +4271,149 @@ index 4a3abfe4918097e29c0feeee835196e4faf46fa5..9831435b99b7a5067cbbd1b37511d7e8
      await ensureTable();
      invalidateRequestSecret(ref);
      const { key, scope, scopeId } = ref;
+diff --git a/dist/server/agent-chat/browser-team-tools.js b/dist/server/agent-chat/browser-team-tools.js
+index d17541a8886db23eca66fdaf3b7a34bc08068a85..858f28b48dbd5d6944031e8b6cd444d8304890c3 100644
+--- a/dist/server/agent-chat/browser-team-tools.js
++++ b/dist/server/agent-chat/browser-team-tools.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { createHash } from "node:crypto";
+ import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
+ import { areBuiltinMcpCapabilitiesSupported, buildMergedConfig, setBuiltinMcpCapabilityEnabled, } from "../../mcp-client/index.js";
+@@ -89,7 +90,9 @@ export function createBuilderBrowserTool(deps) {
+                     kind: "connect-file-storage-card",
+                     configured: !!activeProvider,
+                     provider: activeProvider?.name ?? null,
+-                    connectUrl: getBuilderBrowserConnectUrlForOwner(deps.getOrigin(), ownerEmail),
++                    ...(builderOffersEnabled()
++                        ? { connectUrl: getBuilderBrowserConnectUrlForOwner(deps.getOrigin(), ownerEmail) }
++                        : {}),
+                 });
+             },
+         },
+@@ -326,6 +329,14 @@ export function createBuilderBrowserTool(deps) {
+         delete entries["set-browser-control"];
+         delete entries["set-computer-use"];
+     }
++    // Vivary #104: no Builder handoff, Builder-hosted browser, or Builder storage offer when the host turned Builder offers off.
++    if (!builderOffersEnabled()) {
++        delete entries["connect-builder"];
++        delete entries["activate-browser"];
++        entries["connect-file-storage"].tool.description = "Render the inline file-storage setup card when an image " +
++            "or file attachment could not be durably uploaded. The card lets the user add custom storage keys. Call it " +
++            "immediately when the attachment context says storage is missing, and do not ask the user to upload the file again.";
++    }
+     return entries;
+ }
+ /**
+diff --git a/dist/server/agent-chat/context-tools.js b/dist/server/agent-chat/context-tools.js
+index 1cc1215b0fba22fe5619a3b8e57ea60334d312a3..338631c700cfa105cfb265e7b2332b862b344cab 100644
+--- a/dist/server/agent-chat/context-tools.js
++++ b/dist/server/agent-chat/context-tools.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
+ import { clampDataWidgetRows, DATA_WIDGET_MAX_CHART_POINTS, DATA_WIDGET_MAX_ROWS, dataWidgetResultSchema, } from "../../data-widgets/index.js";
+ import { getRequestRunContext } from "../request-context.js";
+@@ -195,8 +196,15 @@ When database tools are enabled, \`db-schema\` refreshes the schema and \`db-que
+ ### External data sources vs the app database
+ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
+ };
++// Vivary #104: the builder and browser topics teach Builder tools, so they go when the host turned Builder offers off.
++function frameworkContextSections() {
++    if (builderOffersEnabled())
++        return FRAMEWORK_CONTEXT_SECTIONS;
++    const { builder: _builder, browser: _browser, ...sections } = FRAMEWORK_CONTEXT_SECTIONS;
++    return sections;
++}
+ export function createFrameworkContextEntry() {
+-    const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
++    const topicList = Object.keys(frameworkContextSections()).join(", ");
+     return {
+         "get-framework-context": {
+             tool: {
+@@ -215,9 +223,9 @@ export function createFrameworkContextEntry() {
+             run: async (args) => {
+                 const topic = String(args.topic ?? "all").toLowerCase();
+                 if (topic === "all") {
+-                    return Object.values(FRAMEWORK_CONTEXT_SECTIONS).join("\n\n");
++                    return Object.values(frameworkContextSections()).join("\n\n");
+                 }
+-                const section = FRAMEWORK_CONTEXT_SECTIONS[topic];
++                const section = frameworkContextSections()[topic];
+                 if (!section) {
+                     return `Unknown topic "${topic}". Available: ${topicList}`;
+                 }
+diff --git a/dist/server/agent-chat/framework-prompts.js b/dist/server/agent-chat/framework-prompts.js
+index 5a20c95723aa0d8ce70ad13508514c22416ec104..96b3e08ed22874ff43f58166b8bed3cd457b7704 100644
+--- a/dist/server/agent-chat/framework-prompts.js
++++ b/dist/server/agent-chat/framework-prompts.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import nodePath from "node:path";
+ import { buildFrameworkCore, buildFrameworkCoreCompact, } from "../prompts/index.js";
+ import { getRequestOrgId } from "../request-context.js";
+@@ -19,6 +20,12 @@ import { lazyFs } from "./lazy-fs.js";
+  * request) with the template's promptExamples, producing the four assembled
+  * prompt strings used at request time.
+  */
++// Vivary #104: replaces the Builder code-change handoff when the host turned Builder offers off.
++const NO_BUILDER_CODE_CHANGES = `
++### Code Changes
++
++In Act mode, a request that needs source-file edits (the UI chrome, a component, a route, styles, or a bug in the app itself) is outside what you can do from this chat. Say so in one sentence and point the user to a coding agent or editor working in the project. Do not explore code, write patches, or plan the implementation here.
++`;
+ export function buildFrameworkPrompts(examples, options) {
+     const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
+     const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
+@@ -31,9 +38,14 @@ export function buildFrameworkPrompts(examples, options) {
+     const planModeArtifactList = extensionToolsEnabled
+         ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
+         : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
+-    const planModeBlockedTools = extensionToolsEnabled
++    const builderOffers = builderOffersEnabled();
++    const planModeBlockedToolsWithBuilder = extensionToolsEnabled
+         ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+         : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
++    // Vivary #104: the plan-mode list names no Builder tool when the host turned Builder offers off.
++    const planModeBlockedTools = builderOffers
++        ? planModeBlockedToolsWithBuilder
++        : planModeBlockedToolsWithBuilder.replace("`connect-builder`, ", "");
+     const extensionConnectBuilderGuard = extensionToolsEnabled
+         ? "Prefer native app artifacts and actions. Use an extension only when the user explicitly requests one, or when the result is clearly bespoke and one-off and the native format cannot express it. Reusable or product-wide behavior belongs in app code. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
+         : "";
+@@ -76,7 +88,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
+ If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} until the user switches back to Act mode.
+ 
+ ${extensionInstructionsFull}
+-
++${builderOffers ? `
+ ### Code Changes — Hand Off With \`connect-builder\`
+ 
+ ${extensionConnectBuilderGuard}
+@@ -90,7 +102,7 @@ Keep the whole turn to three beats:
+ 3. One sentence framing the next click around what they asked for rather than pitching Builder. Read \`builderEnabled\` from the result first; the tool's own description defines what each value lets you claim and offer.
+ 
+ Nothing else belongs in that turn: no code exploration, no implementation plan, no \`resources\` write of a spec, and no sub-agents (they have no code-editing tools either). You don't need filesystem access to hand off, so don't reach for it or list tools you lack.
+-${FRAMEWORK_CORE}`;
++` : NO_BUILDER_CODE_CHANGES}${FRAMEWORK_CORE}`;
+     const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
+ 
+ You are an AI agent in an agent-native application, running in **development mode**.
+@@ -126,11 +138,11 @@ The agent and the UI are equal partners — everything the UI can do, you can do
+ If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} until the user switches back to Act mode.
+ 
+ ${extensionInstructionsCompact}
+-
++${builderOffers ? `
+ ### Code Changes — Hand Off With \`connect-builder\`
+ 
+ In Act mode, a request that genuinely needs a source-code edit (per the rules above) is a handoff, not a task you plan. Keep the turn to three beats: (1) one short clause acknowledging their specific ask in their own terms, no preamble; (2) the \`connect-builder\` call with their request verbatim as \`prompt\`; (3) one sentence framing the next click around what they asked for, not a Builder pitch — read \`builderEnabled\` from the result first, and let the tool's own description tell you what each value lets you claim. Nothing else belongs in that turn: no code, no file lists, no plans, no sub-agents.
+-${FRAMEWORK_CORE_COMPACT}`;
++` : NO_BUILDER_CODE_CHANGES}${FRAMEWORK_CORE_COMPACT}`;
+     const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode
+ 
+ You are an AI agent in an agent-native application, running in **development mode**.
 diff --git a/dist/server/agent-chat/plugin-options.d.ts b/dist/server/agent-chat/plugin-options.d.ts
 index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa74a4516d 100644
 --- a/dist/server/agent-chat/plugin-options.d.ts
@@ -3854,10 +4598,15 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6ab350f49 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..70e37f46afb84db0952a644dff7ec65159d2aa3e 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
-@@ -128,6 +128,7 @@ import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import crypto from "node:crypto";
+ import nodePath from "node:path";
+ import { createError, defineEventHandler, setResponseStatus, setResponseHeader, getMethod, getQuery, getHeader, getRequestIP, } from "h3";
+@@ -128,6 +129,7 @@ import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
  import { createAgentEngineScriptEntries, createAgentLoopSettingsScriptEntries, createCallAgentScriptEntry, createChatScriptEntries, createDbScriptEntries, createDocsScriptEntries, createResourceScriptEntries, } from "./agent-chat/script-entries.js";
  import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./agent-chat/skill-frontmatter.js";
  import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
@@ -3865,7 +4614,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
  export { loadResourcesForPrompt };
  export { _agentChatPromptSectionsForTests };
  export { buildPublicAgentA2ASkills };
-@@ -404,7 +405,6 @@ export function createAgentChatPlugin(options) {
+@@ -404,7 +406,6 @@ export function createAgentChatPlugin(options) {
              // `externalAgents` into `mcp`. A2A reads the same object, so the
              // connector policy cannot diverge between the two external surfaces.
              const mcpOptions = resolveAgentChatMcpOptions(options);
@@ -3873,7 +4622,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              const mcpActionEntryOptions = options?.resolveMcpActionEntry
                  ? { resolveActionEntry: options.resolveMcpActionEntry }
                  : {};
-@@ -454,23 +454,6 @@ export function createAgentChatPlugin(options) {
+@@ -454,23 +455,6 @@ export function createAgentChatPlugin(options) {
                  return mcpInitializationPromise;
              };
              setGlobalMcpManager(mcpManager, ensureMcpInitialized);
@@ -3897,7 +4646,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              // Mount status + management routes so the settings UI can list / add /
              // remove remote MCP servers and hot-reload the running manager.
              mountMcpStatusRoute(nitroApp, mcpManager);
-@@ -581,6 +564,31 @@ export function createAgentChatPlugin(options) {
+@@ -581,6 +565,31 @@ export function createAgentChatPlugin(options) {
                  ? await createCallAgentScriptEntry(options?.appId)
                  : {};
              let runNowSchedulerDeps = null;
@@ -3929,7 +4678,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              const browserTools = createBuilderBrowserTool({
                  getOrigin: () => getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
                  getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
-@@ -956,32 +964,22 @@ export function createAgentChatPlugin(options) {
+@@ -956,32 +965,22 @@ export function createAgentChatPlugin(options) {
                  coreAttachmentTools = createCoreAttachmentActionEntries();
              }
              catch { }
@@ -3978,7 +4727,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              // -----------------------------------------------------------------------
              // Production code-execution mode resolution.
              //
-@@ -1906,6 +1904,14 @@ export function createAgentChatPlugin(options) {
+@@ -1906,6 +1905,14 @@ export function createAgentChatPlugin(options) {
              const getFrameworkPromptActions = () => Object.fromEntries(Object.entries(prodActions).filter(([name]) => !templateScripts[name] && !mcpActionEntries[name]));
              const resolveRequestBasePrompt = () => (options?.systemPrompt ??
                  filterFrameworkPromptToSurface(lazyContext ? PROD_FRAMEWORK_PROMPT_COMPACT : PROD_FRAMEWORK_PROMPT, getFrameworkPromptActions(), getRequestRunContext()?.allowedActionNames)) + resolveRequestActionsPrompt("tool");
@@ -3993,7 +4742,29 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              const resolveRequestLeanPrompt = () => (options?.systemPrompt ?? "") + resolveRequestLeanActionsPrompt();
              const resolveRequestDevPrompt = () => {
                  if (devNative)
-@@ -4649,6 +4655,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -2838,6 +2845,10 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
+ 
+ Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
+ </app-rendered-chat-no-direct-code-edits>`;
++            // Vivary #104: the same rule without the Builder handoff, for hosts that turned Builder offers off.
++            const APP_RENDERED_CHAT_NO_BUILDER_PROMPT = APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                .replace("call `connect-builder` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give", "give")
++                .replace(" and no Builder handoff is available", "");
+             // System-prompt note appended when production code execution is enabled.
+             const prodCodeExecPromptNote = !canToggle && effectiveProdCodeExec !== "off"
+                 ? effectiveProdCodeExec === "trusted"
+@@ -2854,7 +2865,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                     const requestLeanPrompt = resolveRequestLeanPrompt();
+                     const runtimeContext = runtimeContextForEvent(event);
+                     const codeEditingSurfaceRestriction = shouldBlockInProductCodeEditing(event)
+-                        ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                        ? builderOffersEnabled()
++                            ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
++                            : APP_RENDERED_CHAT_NO_BUILDER_PROMPT
+                         : "";
+                     const hostedHarnessRuntime = getRequestRunContext()?.hostedHarnessRuntime;
+                     const hostedHarnessPromptNote = hostedHarnessRuntime
+@@ -4649,6 +4662,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -4013,7 +4784,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4685,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4692,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -4060,7 +4831,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4706,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4713,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -4069,7 +4840,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
-@@ -5113,32 +5118,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5113,32 +5125,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      ? preparedMarker.automationRunId
                      : undefined;
                  if (typeof automationRunId === "string" && automationRunId) {
@@ -4103,7 +4874,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                          }
                          catch {
                              setResponseStatus(event, 500);
-@@ -5146,7 +5132,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5146,7 +5139,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                          }
                      }
                      const waitUntil = event.req?.waitUntil;
@@ -4112,7 +4883,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5321,34 +5307,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5314,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              // Poll every 60 seconds for due recurring jobs and execute them.
              // Long-lived runtimes use setInterval; serverless runtimes rely on a
              // platform-owned sweep because an invocation cannot own a durable loop.
@@ -4150,7 +4921,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5409,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,6 +5416,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -4166,7 +4937,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5741,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5748,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -4208,7 +4979,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5789,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5796,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",
@@ -4216,6 +4987,24 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..9d87547c3c8d8448fece80d7eaf908e6
              ],
          });
      };
+diff --git a/dist/server/app-origin-config.js b/dist/server/app-origin-config.js
+index 3a0b26044a6fced7857ce5a19cd54b19c484bac9..44c8025541448c9ddeb9a9e47803b7bcc18f1eca 100644
+--- a/dist/server/app-origin-config.js
++++ b/dist/server/app-origin-config.js
+@@ -1,4 +1,5 @@
+ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { normalizeAppBasePath } from "./app-base-path.js";
+ function workspaceAppMountPathsFromJson(value) {
+     if (!value?.trim())
+@@ -66,6 +67,7 @@ export function resolvePublicAppOriginConfig() {
+             : {}),
+         ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+         ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
++        ...(builderOffersEnabled() ? {} : { builderOffers: false }),
+     };
+     return Object.keys(resolved).length > 0 ? resolved : null;
+ }
 diff --git a/dist/server/credential-provider.js b/dist/server/credential-provider.js
 index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d4d019995 100644
 --- a/dist/server/credential-provider.js
@@ -4238,6 +5027,176 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d
              ...(typeof opts.status === "number" && { status: opts.status }),
              ...(opts.code && { code: opts.code }),
              strikes,
+diff --git a/dist/server/index.d.ts b/dist/server/index.d.ts
+index ef529363366369eb3b9951325fa467bdf579c1a8..b5ad57476678a85c4c01526afb22e52335d2f426 100644
+--- a/dist/server/index.d.ts
++++ b/dist/server/index.d.ts
+@@ -43,6 +43,7 @@ export { createThread, getThread, listThreads, updateThreadData, deleteThread, s
+ export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
+ export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, type CoreRoutesPluginOptions, } from "./core-routes-plugin.js";
+ export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
++export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
+ export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, type RuntimeConfigEnvironment, type RuntimeConfigIssue, type RuntimeConfigIssueCode, type RuntimeConfigIssueSeverity, type RuntimeConfigPhase, type RuntimeConfigReport, type RuntimeConfigRequirements, } from "../shared/runtime-config.js";
+ export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, type AgentNativeOgImageInput, } from "./social-og-image.js";
+ export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+diff --git a/dist/server/index.js b/dist/server/index.js
+index 329970038cc7e238469045f3cd119647e7cfdfc6..2fb58af7d7be0033254b44b14eeaba1f989e5441 100644
+--- a/dist/server/index.js
++++ b/dist/server/index.js
+@@ -43,6 +43,7 @@ export { configureAgentNativeEmbeddedEnvironment, createAgentNativeEmbeddedAuthO
+ export { createThread, getThread, listThreads, updateThreadData, deleteThread, setThreadArchived, setThreadPinned, setThreadScope, } from "../chat-threads/store.js";
+ export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
+ export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, } from "./core-routes-plugin.js";
++export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
+ export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, } from "../shared/runtime-config.js";
+ export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, } from "./social-og-image.js";
+ export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+diff --git a/dist/server/prompts/framework-core-compact.js b/dist/server/prompts/framework-core-compact.js
+index 51a8722f4e5b7c7fb824a01814425aa207c0e5d1..b1ab4f0cd0fde28a889ce08f1fbe2b2ac40ad61d 100644
+--- a/dist/server/prompts/framework-core-compact.js
++++ b/dist/server/prompts/framework-core-compact.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * Compact framework core instructions (FRAMEWORK_CORE_COMPACT).
+  * Used in lazy-context mode (lazyContext: true — the default).
+@@ -31,7 +32,8 @@ Workspace resources are user-facing by default. If you need temporary working fi
+         groupOn("chat") ? "chat history search (`chat-history`)" : "",
+         groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+         "structured memory (`save-memory`/`delete-memory`)",
+-        "browser automation (`activate-browser` in production, `set-browser-control` locally)",
++        // Vivary #104: the browser topic and activate-browser go when the host turned Builder offers off.
++        builderOffersEnabled() ? "browser automation (`activate-browser` in production, `set-browser-control` locally)" : "",
+     ].filter(Boolean);
+     const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+     const callAgentSection = groupOn("workspaceApps")
+@@ -56,6 +58,7 @@ For generated media, prefer this app's native generation action; otherwise use \
+         : "registered actions and MCP tools";
+     const codeHandoffClause = options?.canEditSource === true
+         ? ""
++        : !builderOffersEnabled() ? ", and you don't edit source yourself"
+         : ", and hand code changes to Builder — you don't edit source yourself";
+     return `
+ ### How You Work
+diff --git a/dist/server/prompts/framework-core.js b/dist/server/prompts/framework-core.js
+index d08d34b47898edade52e2f6c9136518233e699ba..3688b6d613bf48f6839671c74201c560e2650197 100644
+--- a/dist/server/prompts/framework-core.js
++++ b/dist/server/prompts/framework-core.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ /**
+  * Full framework core instructions (FRAMEWORK_CORE).
+  * Used in the verbose prompt variant (lazyContext: false).
+@@ -41,8 +42,11 @@ export function buildFrameworkCore(examples, options) {
+     const actionSurface = options?.extensionTools === true
+         ? "this app's registered actions, extensions, and connected MCP tools"
+         : "this app's registered actions and connected MCP tools";
++    // Vivary #104: no Builder handoff or Builder browser in the prompt when the host turned Builder offers off.
++    const builderOffers = builderOffersEnabled();
+     const codeHandoffClause = options?.canEditSource === true
+         ? ""
++        : !builderOffers ? ", and you do not edit source yourself"
+         : " — and you hand code changes to Builder rather than editing source yourself";
+     const groupOn = (group) => frameworkGroupEnabled(options?.disabledFrameworkGroups, group);
+     const resourcesSection = groupOn("resources")
+@@ -61,8 +65,8 @@ Workspace resources are user-facing by default. If you need temporary working fi
+         "inline embeds (`embed` fenced code block)",
+         groupOn("chat") ? "chat history search (`chat-history`)" : "",
+         groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+-        "connecting Builder.io (`connect-builder`)",
+-        "browser automation (`set-browser-control`/`activate-browser`)",
++        builderOffers ? "connecting Builder.io (`connect-builder`)" : "",
++        builderOffers ? "browser automation (`set-browser-control`/`activate-browser`)" : "",
+         "structured memory (`save-memory`/`delete-memory`)",
+     ].filter(Boolean);
+     const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+diff --git a/dist/server/realtime-voice.js b/dist/server/realtime-voice.js
+index 2defe54f6be8cc526cab9fd64ef0ed506104913a..e51b37c748015f56a09c17cb91410b08f5e78ba8 100644
+--- a/dist/server/realtime-voice.js
++++ b/dist/server/realtime-voice.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { defineEventHandler, getHeader, getMethod, readRawBody, setResponseHeader, setResponseStatus, } from "h3";
+ import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
+ import { actionsToEngineTools, } from "../agent/production-agent.js";
+@@ -388,7 +389,9 @@ function createSessionHandler(tools, options) {
+             if (!builderConfigured && !apiKey) {
+                 setResponseStatus(event, 409);
+                 return {
+-                    error: gatewayLaneUnavailableMessage("Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice."),
++                    error: gatewayLaneUnavailableMessage(builderOffersEnabled()
++                        ? "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice."
++                        : "Configure an OpenAI API key to use realtime voice."),
+                     code: "realtime_voice_setup_required",
+                 };
+             }
+diff --git a/dist/server/transcribe-voice.js b/dist/server/transcribe-voice.js
+index 6b282d84cfb33d21437daf39ea80fab34790583d..90b0bb9bbd6ad7ce848f88df94a7401cbcac6b43 100644
+--- a/dist/server/transcribe-voice.js
++++ b/dist/server/transcribe-voice.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * POST /_agent-native/transcribe-voice
+  *
+@@ -269,7 +270,9 @@ export function createTranscribeVoiceHandler() {
+             if (!(await hasBuilderCredential())) {
+                 setResponseStatus(event, 400);
+                 return {
+-                    error: gatewayLaneUnavailableMessage(`${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`),
++                    error: gatewayLaneUnavailableMessage(builderOffersEnabled()
++                        ? `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`
++                        : "The selected transcription provider is not available in this app. Change the provider preference in Settings."),
+                 };
+             }
+             try {
+@@ -405,7 +408,9 @@ export function createTranscribeVoiceHandler() {
+             return {
+                 error: gatewayLaneUnavailableMessage(builderError
+                     ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+-                    : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys."),
++                    : builderOffersEnabled()
++                        ? "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys."
++                        : "No voice transcription provider configured. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys."),
+             };
+         }
+         return await callWhisperCompat({
+diff --git a/dist/shared/builder-offers.d.ts b/dist/shared/builder-offers.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6572becc4a71a931c5fd8a668a46aaf185651a8
+--- /dev/null
++++ b/dist/shared/builder-offers.d.ts
+@@ -0,0 +1,2 @@
++export declare function setBuilderOffersEnabled(enabled: boolean): void;
++export declare function builderOffersEnabled(): boolean;
+diff --git a/dist/shared/builder-offers.js b/dist/shared/builder-offers.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d2b4779b23028b8e1abbc39f8d12e78aa4253c1
+--- /dev/null
++++ b/dist/shared/builder-offers.js
+@@ -0,0 +1,22 @@
++/**
++ * Whether Core offers Builder.io: its credits, its connect buttons, and the
++ * model guidance that points to it. A host turns the offers off when it wants
++ * owners to use their own provider keys only, as the Vivary desktop app does.
++ * Core's own behavior, with offers on, is the default.
++ *
++ * The server keeps the value on globalThis, because Core can load twice in one
++ * process. The browser reads the value the server put in the page config, so
++ * both sides agree without a request. Read it when an offer would render or a
++ * prompt is built, never at module load, because the host sets it after Core
++ * loads.
++ */
++const BUILDER_OFFERS_KEY = "__agentNativeBuilderOffers";
++export function setBuilderOffersEnabled(enabled) {
++    globalThis[BUILDER_OFFERS_KEY] = enabled !== false;
++}
++export function builderOffersEnabled() {
++    if (typeof window !== "undefined") {
++        return window.__AGENT_NATIVE_CONFIG__?.builderOffers !== false;
++    }
++    return globalThis[BUILDER_OFFERS_KEY] !== false;
++}
 diff --git a/dist/triggers/actions.js b/dist/triggers/actions.js
 index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908ddab2b60f1 100644
 --- a/dist/triggers/actions.js

@@ -157,6 +157,9 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #104. A Core patch switch hides Builder.io offers, and Vivary turns it off in local mode. No component, flow,
+or boundary changes, so the design description holds. The delivery section records the change and its tests.
+
 Issue #97 is closed. PR #118 merged into `dev` as `8e7a8fc`, and the owner closed the issue on 2026-09-27. The receipt
 and the Credentials row in the acceptance register record the merge. Documentation only, so the design description holds.
 
@@ -340,6 +343,16 @@ reach. Evidence: the new `automation-webhook.test.mjs` failed 10 of 10 on the
 previous patch and passes on this one, and the new desktop port tests pass. The
 [patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#in-process-webhook-automations)
 record the change.
+
+Issue #104 removes every Builder.io offer from the local app, as the owner
+decided on 2026-09-27. The maintained Core patch adds one switch, and Vivary
+turns it off in local mode from its access mode. The chat's missing-access
+card, Settings, onboarding, the model picker, voice, uploads, web search, the
+model's guidance, and credential errors then point to the owner's own provider
+keys. Self-hosted mode keeps Core's offers. The change adds no Vivary component,
+flow, or trust boundary, so the design description holds. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#builderio-offers-in-local-mode)
+list each surface and the tests.
 
 Issue #50 is closed. PR #100 merged into `dev` as `8a5d262`, and the owner
 accepted the packaged run on 2026-09-26. Its receipt, the acceptance register,

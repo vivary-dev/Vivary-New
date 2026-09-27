@@ -52,6 +52,8 @@ Vivary opens locally without a Vivary account. Claude Code, Codex, and model
 provider access require their own supported installation and authentication.
 Use your existing runtime subscription, tools, skills, and configured connections.
 Bundling Vivary does not include model-provider credentials or paid service access.
+Later builds offer no Builder.io account or credits. To use Native chat, add your own
+provider key when the chat asks you to connect AI, or in Settings > Agent > LLM.
 
 The executable is unsigned. Windows may display an unknown-publisher warning.
 Verify the download before deciding whether to run it. Keep Defender enabled.

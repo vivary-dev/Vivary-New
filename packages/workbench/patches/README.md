@@ -289,6 +289,71 @@ Upstream could take the registry as it is, because nothing changes until a
 host registers a runner. The same limits as Run now apply: one runner per
 process.
 
+## Builder.io offers in local mode
+
+Issue #104. The owner decided on 2026-09-27 that the local app offers no
+Builder.io: no free credits and no Connect Builder.io button. Owners use their
+own provider keys. Self-hosted mode keeps Core's offers for now. Core has no
+option for this, so the patch adds one switch.
+
+`dist/shared/builder-offers.js` exports `setBuilderOffersEnabled` and
+`builderOffersEnabled`, and the `./server` entry re-exports both. Offers are on
+unless a host turns them off. The server keeps the value on `globalThis`,
+because Core can load twice. `resolvePublicAppOriginConfig` adds
+`builderOffers: false` to the page config that every document carries, so the
+browser reads the same value without a request. It is the same for every
+visitor, which the cached page shell requires. Each surface reads the switch
+when it renders or builds text, never at module load, because the host sets it
+after Core loads. Vivary's `server/plugins/00-builder-offers.ts` turns the
+offers off when `VIVARY_ACCESS_MODE` is `local`.
+
+With the switch off:
+
+- The chat's missing-access card reads "Connect AI. Add your own provider
+  keys." and shows the provider-key form at once, with no Builder.io button
+  and no toggle. A rejected Builder credential shows the same key form instead
+  of Reconnect Builder.io.
+- `BuilderConnectPopover`, `BuilderConnectCard`, and `FileStorageSetupCard`
+  render nothing, which removes every connect button built on them, in the
+  chat, Settings, Connections, voice setup, and the file storage card.
+- Settings drops the Builder.io card from the LLM, hosting, database, uploads,
+  and authentication rows, and hides Browser Automation and Background Agent,
+  which hold only that card. The LLM summary reads "Add your own provider
+  keys." Voice settings drop the Builder Gemini option and the Builder wording.
+- First-run onboarding goes from the intro to the key form.
+- The code-access panel drops its "Use Builder" link.
+- Core's composer adapters pass `builder.offersEnabled` to Toolkit. The
+  Toolkit patch adds it with a default of true. The model picker keeps its
+  add-keys action and drops Connect Builder.io, and voice mode setup drops its
+  Builder.io button and says to add your own keys.
+- The server surfaces are listed in the next paragraph.
+
+The model and the server drop Builder too. `connect-builder` and
+`activate-browser` are not registered, and `get-framework-context` loses its
+`builder` and `browser` topics. The framework prompts replace the Builder code
+handoff with a sentence that source edits belong to a coding agent, and leave
+Builder tools out of the plan-mode list. The web search, upload-image, and
+file-storage card descriptions name only provider keys and custom storage.
+Missing-provider, web search, upload, transcription, and realtime voice errors
+point to the owner's own keys. `llmMissingCredentialsMessage()` returns "No LLM
+provider is connected. Add your own provider key in Settings.", which keeps the
+prefix that the chat's recovery card matches. Its callers in the run store, the
+production agent, the engines, and the run manager call it when they report
+the error. Core builds its tool list and prompts when the agent-chat plugin
+starts, so Vivary's plugin sets the switch when its module loads.
+
+Run `node --test packages/workbench/tests/builder-offers.test.mjs
+packages/workbench/tests/builder-offers-component.test.mjs`. The component test
+bundles Core's `run-recovery.js` with esbuild, renders the missing-access card
+with the local page config, and checks that it shows no Builder text or button
+and does show the key form. A control render with offers on shows Builder
+text. The unit test checks the switch, the page config, and each server
+surface with the switch off and on, and pins the client and Toolkit call sites.
+
+Upstream could take the switch as an option, because nothing changes until a
+host turns it off. Remove this part of the patch only when an upstream release
+offers the same option and passes the same tests.
+
 ## Local-only automation runs
 
 The owner decided on 2026-09-26 (issue #51) that unattended automation runs are
