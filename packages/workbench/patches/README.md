@@ -123,6 +123,230 @@ history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
 exported so the test can replay a turn. Run
 `node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
 
+## In-process Run now
+
+Issue #51 changes how Core starts Automations > Manage > Run now.
+`queueAutomationRunNow` in `dist/jobs/run-now.js` writes a `running` history
+row and then sends an HTTP request back to the app's own process-run route. In
+production, that self-dispatch needs an app URL and an `A2A_SECRET` to sign the
+request. The packaged app has no app URL in local mode and no `A2A_SECRET` in
+hosted mode. Every Run now click therefore failed and left an unclaimed
+`running` row. The 30-second queued-run sweep then retried that row forever
+with "Could not redeliver queued run". Scheduled runs were not affected,
+because the in-process recurring-jobs timer starts them.
+
+`run-now.js` now exports `setInProcessAutomationRunner`. When a runner is
+registered, Run now calls it without waiting for the run and returns its
+receipt. Without a runner, Core keeps the self-dispatch, so development,
+Netlify, and other serverless hosts behave as before. `agent-chat-plugin.js`
+lifts the process-run route's worker into `runQueuedAutomationRun`. It
+registers that function only in the branch that starts the in-process
+recurring-jobs timer. The route and the runner both reach
+`runQueuedAutomation`, whose claim in `run-history.js` lets only one delivery
+of a row run. A failed run is recorded on its row and logged once, by
+`runQueuedAutomationRun`. It never becomes an unhandled rejection.
+
+The plugin registers the runner with its `appId`. The runner takes only rows
+of that app and legacy rows with no app, which are the rows
+`runQueuedAutomation` accepts. Another app's rows that share the database keep
+self-dispatch, and this process does not end them late.
+
+The runner registers after several awaits in the plugin's init, but no Run now
+can arrive before it. The plugin passes its init promise to `trackPluginInit`
+with the `/_agent-native/actions`, agent-chat, A2A, and MCP paths, and the
+readiness gate in `framework-request-handler.js` holds requests on those paths
+until that promise settles. In a live check on Zo, a Run now sent the moment
+the restarted server accepted a connection returned HTTP 200 and ran in
+process. That check cannot tell the gate from an init that had already
+finished.
+
+With a runner registered, the sweep passes a queued row of the runner's app
+to the runner only while the row is younger than the claim lease. The lease
+is 1.5 times the background run's hard timeout: 15 minutes by default, or 1.5
+times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`. A queued row can therefore still
+start up to the claim lease after the click. The sweep claims an older row and
+ends it as an error instead of running it. Only a process with a registered
+runner ends old rows, and only rows of its app. Elsewhere the sweep keeps
+redelivering them. An unclaimed row gets the error code
+`automation_run_not_started` and a message that says it did not start and why.
+A row that a worker claimed and then lost keeps the interruption message.
+
+That interruption message told desktop users that a serverless worker may have
+timed out. It now reads "The run stopped before it recorded a result, for
+example because the app quit or its worker restarted. No delivery was
+confirmed." `run-history.js` owns the text and `scheduler.js` imports it.
+History rows also report `claimedAt`.
+
+Run `node --test packages/workbench/tests/automation-run-now.test.mjs`. The test
+uses a disposable SQLite database with `NODE_ENV=production` and no app URL or
+`A2A_SECRET`. It checks that Run now reaches a registered runner, that Run now
+still fails without one, and that the sweep ends old rows instead of running
+them. It also checks that another app's row is neither run nor ended, that a
+failed run is not logged a second time, that a second delivery of a claimed
+row returns `skipped` and leaves the row unchanged, and that a failure inside
+the real `runQueuedAutomation` lands on the row as an error. A source pin
+checks that the installed plugin registers the runner once, with its app id,
+in the branch that starts the in-process timer, and that `trackPluginInit`
+holds the actions and agent-chat paths.
+
+Upstream can take this change without Vivary-specific edits for a process that
+serves one app. It adds exports and changes behavior only on hosts that start
+the in-process timer. A process holds one runner, so a process that mounts the
+agent-chat plugin for two apps keeps only the last registration, and the other
+app's Run now falls back to self-dispatch. Upstream would need one runner per
+app for that case, and may prefer to pass the runner through the plugin options
+instead of a module registry. Remove this part of the patch after an upstream
+release passes the same test and a packaged Run now check.
+
+## Local-only automation runs
+
+The owner decided on 2026-09-26 (issue #51) that unattended automation runs are
+local-only. That covers scheduled runs, event and webhook triggers, and Run now.
+Interactive chats do not change.
+
+Before this change, every run got the background surface that
+`getBackgroundActionEntries` in `dist/server/agent-chat-plugin.js` builds. It
+held the template actions, `web-request`, `web-search`, `core-send-email`,
+`call-agent`, the 36 add-on actions, and the MCP tools an automation listed.
+Nobody is present during a run to approve or deny a step, so a model-chosen
+outward call ran unreviewed.
+
+`dist/jobs/unattended-surface.js` is new. Its `restrictActionsForUnattendedRun`
+keeps 12 tools and wraps each one with a refusal check:
+
+- `resources`, `save-memory`, `delete-memory`, `chat-history`
+- `manage-progress`, `manage-notifications`, `manage-jobs`, `manage-automations`
+- `docs-search`, `framework-search`, `source-search`, `get-framework-context`
+
+The four lookups read files bundled with Core only. The list is an allowlist,
+not a denylist, so a tool that a later Core release adds stays out of runs until
+someone reviews it. Both background entry points, the recurring-jobs scheduler
+and the event and webhook dispatcher, use `getBackgroundActionEntries`, and Run
+now reuses the scheduler's dependencies.
+
+Some kept tools refuse part of their work in a run:
+
+- `manage-jobs` lists only. Create, update, and delete are refused.
+- `manage-automations` runs `list`, `list-events`, and `list-hosts` only.
+  `define`, `update`, `delete`, `fire-test`, and `run-now` are refused.
+  `fire-test` would emit `test.event.fired`, which fires event automations. This
+  replaces the narrower "an automation cannot run another automation" check.
+- `resources` refuses `read`, `effective`, `write`, `promote`, and `delete` on
+  the paths Core reads as configuration. The scheduler and the dispatcher load automations from `jobs/`.
+  Custom agent profiles under `agents/` set a model and tools. Remote agent
+  manifests under `remote-agents/`, and legacy `agents/*.json`, hold the URLs
+  that `call-agent` reaches from an interactive chat. In local file mode, the
+  workspace control files `agent-native.json`, `mcp.config.json`, and
+  `.mcp.json` set the data mode and the MCP servers. The check ignores case and
+  a leading slash. Other resources, including `AGENTS.md`, `instructions/`,
+  `skills/`, `LEARNINGS.md`, and `memory/`, stay writable. Core loads those into
+  prompts as text, like memory.
+- `manage-notifications` sends to the in-app inbox only. The webhook, Slack, and
+  email channels take a model-supplied `webhookUrl` or `emailRecipients`.
+- `chat-history` refuses only `open`, which drives the app window. Search,
+  rename, pin, unpin, and archive stay allowed because they change local
+  thread metadata only.
+- `save-memory` and `delete-memory` refuse a name that holds `/`, `\`, or `..`,
+  because the scripts build `memory/<name>.md` from the name as given.
+- Reads count too. `mcp.config.json`, `.mcp.json`, `agents/`, and
+  `remote-agents/` can hold server headers or tokens that a run could copy into
+  memory.
+
+The wrapper forces `caller: "automation"` into the tool context. Each kept tool
+also checks that caller itself (`triggers/actions.js`, `jobs/tools.js`,
+`server/agent-chat/script-entries.js`, and `notifications/actions.js`), so a
+tool reached some other way enforces the same limits.
+
+An automation that lists `mcpTools` fails before any model call. Its history
+row reads "This automation lists MCP tools (names). Automation runs cannot call
+MCP tools. Nothing ran. No delivery was confirmed." with the error code
+`automation_mcp_tools_refused`. The run is refused rather than sent through
+approval because approval cannot be granted after the fact in an unattended
+run. The runner passes no approval callbacks, the approval stop reaches the
+model as text, the run manager marks the run completed, and history recorded a
+success for a step that never ran. `getJobMcpActionEntries` is gone, and the
+`backgroundMcpTools` plugin option no longer has an effect. The runner's
+`assertRequestedMcpToolsAvailable` is gone too, because the refusal fires
+first for every automation that lists MCP tools.
+
+A review of the first version found a bypass. The CLI bridge in
+`server/agent-chat/script-entries.js` turns each argument into a `--name value`
+pair, and `scripts/parse-args.js` reads `--name=value` and lets a later flag
+win. A run could call `resources` with `path: "notes/ok.md"` and an extra
+argument named `path=jobs/x.md`. The refusal checked `notes/ok.md`, and the
+write script received `jobs/x.md`. A value that starts with `--` could do the
+same. The run surface now refuses an argument that the tool's input schema
+does not declare, and every kept tool refuses an argument name that holds `=`
+or starts with `-`. For an automation caller only, the bridge also refuses
+those names and passes each value inline as `--name=value`, so a value that
+starts with `--` stays a value. Interactive chats keep the older bridge form.
+There, a value that starts with `--`, such as Markdown front matter, is still
+read as a flag and stored as `true`. That is a separate follow-up.
+
+The run surface is built from Core's own tool groups only, so a template or
+tool action that reuses a kept name cannot replace Core's checked entry.
+
+A run's system prompt is the framework prompt filtered by
+`filterFrameworkPromptToSurface` to the 12 tools, plus a two-line note that the
+run is local-only. It no longer carries the template action list, so the model
+is not told about tools it lacks. Its resources block also leaves out the
+workspace apps list, which tells the model to use `call-agent`. Both dependency
+blocks drop
+`getInitialToolNames`, so all 12 tools load up front and no `tool-search` is
+attached.
+
+The user-visible text now says what a run can do. The Run now confirmation,
+the Automations settings summary, and the MCP tools label in automation details
+changed in `localization/default-messages.js` and in the matching
+`defaultValue` strings in the client components. The other locale files do not
+carry these keys. The `manage-automations` description says that Run now uses
+the same local-only tools and that `define` cannot promise email, web, MCP,
+settings, or automation steps. `mcpTools` is no longer listed among the
+`define` options. It stays in the tool schema and in the app, where the label
+warns that runs cannot use it. The `manage-jobs` description says that
+recurring jobs cannot call MCP tools.
+
+Two outward paths stay, and the owner configures both:
+
+- Reply delivery. When an automation has `deliveryPlatform` and
+  `deliveryDestination`, `background-automation-runner.js` sends the final
+  reply there.
+- A paired execution host. When an automation has `executionHostId`,
+  `scheduler.js` queues the run on that host instead of running it here.
+
+Only an interactive chat or the app can set either field, and a run can no
+longer change automations. An inbox notification still emits
+`notification.sent`, which can fire an event automation the owner defined.
+That run is local-only too.
+
+Run `node --test packages/workbench/tests/automation-local-only.test.mjs`. It
+uses a disposable SQLite database. It checks the exact 12 keys against stand-ins
+for every dropped tool, a future tool, and an MCP tool. It also checks the MCP
+refusal, the `manage-automations`, `manage-jobs`, `resources`, and
+`chat-history` refusals with no `jobs/` write, `fire-test` emitting nothing,
+notifications reaching the inbox and no registered channel, and a source pin on
+the plugin. Later cases cover the crafted argument names on `resources`,
+`save-memory`, `delete-memory`, and `manage-automations`, a value that starts
+with `--`, `JOBS/` and `./jobs/` paths, unsafe memory names, and a read of
+`mcp.config.json`, refused for a run and allowed for a chat. The resources
+cases read back the stored path and content.
+
+A live check on Zo ran `bin/start.mjs` in local mode against a fake Builder
+gateway, with no real provider key. The Run now request offered 11 tools, the
+allowlist without `source-search`, which Core registers only when its source
+corpus is bundled. The run's scripted `web-request` call got "Unknown tool"
+and never reached the fake server. Its `manage-automations` define and its
+`jobs/` write were refused, and no automation was added. Run now on an
+automation that lists an MCP tool ended with the named error and made no model
+request. An ordinary chat still received `web-request`, `call-agent`, and
+`resources`, and defined that MCP automation.
+
+Upstream could take this as an opt-in plugin option, because its hosted
+templates rely on email, web, and MCP tools in automations. It would also need
+a way to approve an MCP step before a run starts. Remove this part of the patch
+only when an upstream release offers a local-only mode that passes the same
+test.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's

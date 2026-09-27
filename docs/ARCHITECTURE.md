@@ -119,6 +119,7 @@ Coordinated releases publish Core before its dependent role packages.
 | Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, a backslash, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed. Neither is a fact file the engine did not check. Both sides list a memory folder the same way: the first 200 `.md` names of regular files and links, secret-looking names left out, in UTF-16 order, from at most 4,000 scanned entries. The engine checks the regular files among them whose paths the Workbench answer schema accepts, at most 3,000 paths and 96 KiB of JSON in all. The Workbench skips a link as linked, a name the engine can never report as unsupported, and a file created after the check as not checked, and Correct and Forget refuse each. Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: memory treats a path as private when any positive rule could match it and ignores negations, so it may refuse a file Git would re-include. The owner can choose a memory folder that no rule matches. A rule matches in exact case or without regard to case, a run of two or more stars reads the same whatever its length, as in Git, and a run not bounded by slashes crosses `/`, a rule and a path match as code points or as UTF-8 bytes, and a trailing `/` also matches a file. Each `.gitignore` is read as bytes: a UTF-8 byte order mark is skipped, lines split only on a newline, with one carriage return before it dropped, and an entry ends at its first NUL. Memory reads a bracket body itself only when it holds plain members and ranges, such as `[._]` or `[a-v]`, with an optional leading `!` or `^`. A body that holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class, an equivalence class, or a collating symbol, a negated body holding an ASCII capital letter outside a range, such as `[!B]`, an unescaped `[` that never closes, a set Python cannot compile, and a rule longer than 256 characters make the rule match everything under its folder. Matching tracks reachable positions without backtracking, and each context read spends from a fixed matching budget. When the budget runs out, every path not yet decided counts as private, the answer sets `privacy_limited`, and the context block and the panel say the ignore rules were too costly to check in full. The budget is 20 million units: each positive rule and path pair costs its rule length plus 64 (a negated rule is skipped without a charge), and each match step costs the path positions it visits. A read that loads more than 2,000 rules from the `.gitignore` files it consults stops the same way. The budget bounds the work a read does, not its time on every machine. On Zo the slowest case measured, 1,999 rules against 200 files, stopped at the budget in about 1.7 seconds. Outside brackets a backslash escapes the next character. A differential test checks this against `git check-ignore`. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. |
+| Unattended automation runs | Scheduled, event, webhook, and Run now runs execute in the Vivary server process with no one present to approve a step. The owner decided on 2026-09-26 that they are local-only, and the maintained Core patch enforces it with an allowlist. A run gets 12 Native tools: `resources`, `save-memory`, `delete-memory`, `chat-history`, `manage-progress`, `manage-notifications`, `manage-jobs`, `manage-automations`, and four lookups over files bundled with Core. It cannot send email or messages, reach the web or other agents, call MCP tools, change settings, jobs, or automations, or read or change agent profiles, remote agent manifests, or MCP configuration. It cannot pass an argument its tool does not declare. Notifications from a run reach the in-app inbox only. An automation that lists MCP tools fails before any model call, because an approval cannot be granted after the fact in an unattended run. A run can still read and change other resources, memory, chat history, and progress. Two outward paths stay, and only the owner sets them from a chat or the app: reply delivery to the automation's delivery platform and dispatch to a paired execution host. Interactive chats keep their tools. The [patch notes](../packages/workbench/patches/README.md#local-only-automation-runs) own the allowlist and the refusals. |
 | CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. A coding runtime runs commands its agent chooses. [`local-runtime-setup.ts`](../packages/workbench/server/local-runtime-setup.ts) builds the Codex launch and the CLI status checks from the host environment without any credential-shaped name, in any letter case. A name is withheld when it contains PASSWORD, PASSWD, SECRET, TOKEN, APIKEY, CREDENTIAL, CONNECTION_STRING, CONNECTIONSTRING, COOKIE, or WEBHOOK, when one of its `_`-separated words is KEY, KEYS, PASS, PAT, or DSN, when its last word is AUTH, or when a URL or URI word follows a word that ends in DB or starts with DATABASE, DATASOURCE, POSTGRES, PG, MYSQL, MARIADB, MONGO, REDIS, KV, BROKER, AMQP, or CLOUDAMQP. It is also withheld when it is `MCP_SERVERS`, `MYSQL_PWD`, `DOCKER_AUTH_CONFIG`, `GIT_CONFIG_PARAMETERS`, or `BW_SESSION`, when it starts with `OP_SESSION_`, or when it belongs to Git's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, and `GIT_CONFIG_VALUE_n` group, which is withheld whole because Git needs complete pairs. Five names that match stay, because tools need them and they hold no secret: `GCM_CREDENTIAL_STORE`, `GCM_AZREPOS_CREDENTIALTYPE`, `NUGET_CREDENTIALPROVIDERS_PATH`, `COOKIECUTTER_CONFIG`, and `TIKTOKEN_CACHE_DIR`. That covers Native provider keys, the sign-in secret, secret-store keys, and the conventional names of integration secrets. A credential under an unconventional name still passes. Proxies, locale, and most toolchain paths pass through, including a proxy URL that carries a user name and password. A path whose name matches the rule, such as `PASSWORD_STORE_DIR`, is withheld. A user's own token variables, such as `GITHUB_TOKEN`, are withheld too, so each CLI uses its own login. Claude Code turns receive only Agent-Native's short allowlist. The filter controls what a runtime inherits, not what it can reach. The runtime runs as the same operating-system user, so a determined command can still read the private data folder, including the sign-in secret file and the database, and the environment of the Vivary processes that started it. App-invoked original command receipts go to private application data. |
 | Search results and indexes | Project file search reads the authorized folder with bounded work. A future derived index is rebuildable and belongs in private application data. |
 | Preview processes | Start only from reviewed project commands. Preview content is isolated from privileged Workbench state. Stop and host shutdown own cleanup. |
@@ -135,7 +136,7 @@ Issue #19's five project read reports entered `dev` in PR #89. Its receipt recor
 
 Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. PR #95 merged it into `dev` as `7fb73bd`, and the owner closed issue #20 on 2026-09-26. Its [receipt](product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. The unpublished `1249572d` Windows package passed the panel checks and a 14-check agent turn with a fake provider. No real provider turn has run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
 
-Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns passed under issue #50 on the unpublished `265a7ede` Windows package, with OpenRouter and the project read and evaluate tools, and its [receipt](product/multi-project/receipts/50-real-native-provider.md) records the limits that remain. Automation execution depends on that separate work. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](product/multi-project/desktop-release.md), [module catalog](product/multi-project/specification/modules.md), and live issues own the precise current status.
+Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns passed under issue #50 on the unpublished `265a7ede` Windows package, with OpenRouter and the project read and evaluate tools, and its [receipt](product/multi-project/receipts/50-real-native-provider.md) records the limits that remain. Automations passed their lifecycle journey under issue #51 on the unpublished `c096528a` Windows package, and the [#51 receipt](product/multi-project/receipts/51-automation-lifecycle.md) records the journey and the limits that remain. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](product/multi-project/desktop-release.md), [module catalog](product/multi-project/specification/modules.md), and live issues own the precise current status.
 
 ## Maintaining this document
 
@@ -150,6 +151,144 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+`.gitattributes` now disables only the trailing-whitespace rule for maintained pnpm patches
+under `packages/workbench/patches/`. A patch writes a blank source line as a single-space context
+line, and the #51 Core patch is the first to change text next to blank lines, so CI's
+`git diff --check` flagged those required spaces. Repository tooling only, so the design
+description holds.
+
+The #51 receipt, the acceptance register, and the release target record the packaged Settings
+retest on `f0c3cac0` and correct which commits had independent reviews. Documentation only, so
+the design description holds.
+
+Issue #51's receipt records the packaged automation lifecycle run on the unpublished
+`c096528a` package, the Zo check with no client connected, the three defects fixed on the
+branch, the review rounds, and follow-up issues #108 through #115. The acceptance register,
+the release target, the Workbench README, the delivery section above, and the Windows
+install guide now point at it. The install guide gains an Automations section and four
+troubleshooting entries. The data and trust boundaries table already describes the
+local-only automation boundary. Documentation only, so the design description holds.
+
+Issue #51 review fixes for the Settings prompt handoff. The hook no longer
+treats a project list that is still loading as Personal workspace. A prompt sent
+then waits for the projects, up to Core's eight-second buffer, and switches away
+from the saved project before the Native chat opens. If the projects never load,
+it switches nothing and shows the could-not-switch alert. A missing or unreadable
+saved project also counts as not Personal. Core's immediate rejections, a
+disabled composer or a failed thread create, now show the not-delivered alert at
+once through the public `AGENT_CHAT_SUBMIT_RESULT_EVENT`. Prompts sent together
+share one project switch, so the second request cannot make the first fail. The
+alert moved to
+[`SettingsPromptAlert.tsx`](../packages/workbench/app/components/layout/SettingsPromptAlert.tsx).
+It moves focus to the prompt text, selected, and returns focus on Dismiss. It
+also says when the browser blocks the clipboard. The handoff still routes an
+existing Core flow into the existing Native chat, so the design description
+holds. Evidence: `settings-chat-handoff-component.test.mjs` grew from 4 to 8
+cases. On the previous commit, the 4 new cases and the extended alert case fail,
+and all 8 pass on this one. The CI node steps, the workbench typecheck, and the
+maintained checks pass on Zo.
+
+Issue #51 fixes the Settings controls that ask the agent. New automation on
+Settings > Agent > Automations, including its empty-state and Organization
+forms, and the Resources create menu's Create Automation, Schedule Task, and
+describe paths for Create Skill and Create Custom Agent call Core's
+`sendToAgentChat`. It posts the prompt to this window and buffers it for eight
+seconds. `Layout.tsx` mounts the workspace, and with it every chat, only outside
+`/settings`, so nothing received the prompt and it was lost. The new
+[`settings-chat-handoff.ts`](../packages/workbench/app/lib/settings-chat-handoff.ts)
+hook, mounted by `Layout.tsx`, listens only under `/settings`. It switches an
+active project to Personal workspace and opens
+`/?runtime=native&history=project`, where Core's Native chat replays the
+buffered prompt into a new Personal thread and appends its context once. A
+failed switch, or a prompt that no chat claims within the buffer, shows an alert
+with the prompt and Copy prompt. The change routes an existing Core flow into the
+existing Native chat and adds no component, flow, or trust boundary, so the
+design description holds. Evidence: the new
+`settings-chat-handoff-component.test.mjs` renders `Layout` with Core's real
+`sendToAgentChat`. It fails on the previous `Layout.tsx` and passes its 4 cases
+on this one. The CI node steps, the workbench typecheck, and the maintained
+checks pass on Zo. A local-mode `bin/start.mjs` check on Zo with a fake provider
+and headless Chromium had project Alpha active, submitted New automation, and
+reached a Personal Native thread in 0.6 seconds. The model received the prompt
+with one context block, the reply rendered, no alert appeared after 9 seconds,
+and the database recorded the thread under Personal workspace. The Organization
+form took the same route and carried its organization context.
+
+Issue #51 review fixes for the Run now change. The in-process runner now
+registers with its app id and handles only that app's rows and legacy rows with
+no app. Another app's rows that share the database keep self-dispatch and are
+not ended late. A failed in-process run is logged once. A queued row can still
+start up to the claim lease after the click, 15 minutes by default or 1.5 times
+`AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, and only a process with a registered
+runner ends older rows. The reviewed startup window does not occur, because the
+readiness gate holds the actions, agent-chat, A2A, and MCP paths until the
+plugin init that registers the runner settles. Core still owns automation
+execution, and no Vivary component, flow, or trust boundary changes, so the
+design description holds. The same commit closes a bypass of the local-only
+refusals: a run could pass an argument named `path=jobs/x.md`, which Core's
+CLI bridge read as a second `--path` flag after the check had passed. Runs now
+pass only declared argument names without `=` or a leading `-`, and the bridge
+passes a run's values inline. Runs also cannot read configuration files or use
+a memory name with a path in it. Evidence: `automation-run-now.test.mjs` grew from 3
+to 8 cases, 3 of the new cases failed on the previous patch, and all 8 pass.
+The CI node step, the workbench typecheck, and the maintained checks pass on Zo.
+A local-mode `bin/start.mjs` check on Zo repeated the local-only results,
+refused a run's crafted `path=jobs/crafted.md` argument, and found only the two
+test automations under `jobs/` in the database afterward. A
+Run now sent the moment the restarted server accepted a connection returned
+HTTP 200 and ran in process, with no redelivery or self-dispatch error in the
+log. The
+[patch notes](../packages/workbench/patches/README.md#in-process-run-now)
+record the details.
+
+Issue #51 makes unattended automation runs local-only, as the owner decided on
+2026-09-26. This changes a trust boundary, so the data and trust boundaries
+table gains an automation-run row. Scheduled, event, webhook, and Run now runs
+now get 12 allowlisted Native tools instead of the whole background surface.
+They cannot send email, reach the web or other agents, call MCP tools, or change
+settings, jobs, automations, agent profiles, remote agent manifests, or MCP
+configuration. An automation that lists MCP tools fails before any model call.
+Interactive chats keep their tools. Reply delivery and paired-host dispatch stay
+as owner-configured outward paths. Evidence: the new
+`automation-local-only.test.mjs` failed 7 of 7 on the previous patch and passes
+7 of 7 on this one, and the CI node step, the workbench typecheck, and the
+maintained checks pass on Zo. A local-mode `bin/start.mjs` run on Zo with a
+fake Builder gateway and no real provider key showed Run now offering the
+allowlist (11 tools, because this build has no `source-search` corpus),
+refusing a scripted `web-request`, automation define, and `jobs/` write with
+nothing sent or written, and failing an MCP automation with the named error
+and no model request, while an ordinary chat kept `web-request`,
+`call-agent`, and `resources`. The
+[patch notes](../packages/workbench/patches/README.md#local-only-automation-runs)
+record the allowlist, the refusals, and the configuration paths a run cannot
+change.
+
+Issue #51 changes the maintained Core patch so Automations > Manage > Run now
+runs inside the server process that owns the recurring-jobs timer. Before, Core
+sent Run now back to itself over HTTP, which needs an app URL and `A2A_SECRET`
+that the packaged app does not set, so every click failed and the queued-run
+sweep retried the row forever. Where an in-process runner is registered, the
+sweep now ends that app's queued row once it is older than the claim lease (15
+minutes by default, or 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`), so a
+row can still start up to that long after the click. The interruption message
+no longer blames a serverless worker. This page describes automations only as release
+work that depends on Native execution. Core still owns automation storage,
+claims, and execution, and the change adds no Vivary component, flow, or trust
+boundary, so the design description holds. Evidence: the new
+`automation-run-now.test.mjs` failed on the previous patch and passes on this
+one, the workbench typecheck and maintained checks pass on Zo, and a local-mode
+`bin/start.mjs` run on Zo with no provider key returned HTTP 200 for Run now.
+Its row left `running` with a thread, ended at the model step with "No LLM
+provider is connected", and the log had no redelivery retry. The
+[patch notes](../packages/workbench/patches/README.md#in-process-run-now)
+record the change.
+
+Issue #50 is closed. PR #100 merged into `dev` as `8a5d262`, and the owner
+accepted the packaged run on 2026-09-26. Its receipt, the acceptance register,
+and the release target now record the merge and closure, link the seven
+follow-up issues, and mark issue #51's prerequisite as met. Documentation only,
+so the design description holds.
 
 Issue #50's receipt, the acceptance register, the release target, the Workbench
 README's Native provider setup, and the delivery section above record the packaged

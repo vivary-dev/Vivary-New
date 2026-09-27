@@ -7,7 +7,9 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Header } from "./Header";
 import { CodeRunControl } from "./CodeRunControl";
 import { Sidebar } from "./Sidebar";
+import { SettingsPromptAlert } from "./SettingsPromptAlert";
 import { Workspace } from "../workspace/Workspace";
+import { useSettingsChatHandoff } from "@/lib/settings-chat-handoff";
 import { readPanelWidth, savePanelWidth, useNarrowLayout, type PanelHandle } from "./use-workspace-layout";
 
 const WIDTH_KEY = "vivary.navigation.width";
@@ -21,6 +23,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigationType = useNavigationType();
   const previousPathname = useRef(location.pathname);
   const settings = location.pathname.startsWith("/settings");
+  const handoff = useSettingsChatHandoff(settings);
   const narrow = useNarrowLayout();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readClosed);
@@ -86,6 +89,9 @@ export function Layout({ children }: { children: ReactNode }) {
               {settings && <Link className="ml-auto text-sm underline" to="/">Return to workspace</Link>}
             </header>
             <CodeRunControl />
+            {handoff.undelivered && <SettingsPromptAlert
+              key={handoff.undelivered.submitMessageId ?? handoff.undelivered.prompt}
+              undelivered={handoff.undelivered} onDismiss={handoff.dismiss} />}
             <main id="workbench-content" tabIndex={-1} className="relative min-h-0 min-w-0 flex-1">
               {!settings && <div className="h-full"><Workspace /></div>}
               {settings && <div className="h-full overflow-auto"><Header />{children}</div>}

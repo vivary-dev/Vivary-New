@@ -198,10 +198,12 @@ must remain visible and reopenable after browser navigation.
 
 [Issue #50](https://github.com/vivary-dev/Vivary-New/issues/50) owns real Native-provider
 access and real-provider turns in the packaged Windows app. Its journeys passed on the unpublished
-`265a7ede` package, and the [#50 receipt](receipts/50-real-native-provider.md) records them. Owner acceptance and
-closure remain. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
-owns automation creation, execution, restart recovery, and lifecycle acceptance and is
-blocked on #50. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
+`265a7ede` package, and the [#50 receipt](receipts/50-real-native-provider.md) records them. PR #100
+merged into `dev` as `8a5d262`, and the owner closed #50 on 2026-09-26. [Issue #51](https://github.com/vivary-dev/Vivary-New/issues/51)
+owns automation creation, execution, restart recovery, and lifecycle acceptance. Its automation
+lifecycle journey passed on the unpublished `c096528a` package, and the
+[#51 receipt](receipts/51-automation-lifecycle.md) records it. The Settings prompt retest passed on the unpublished `f0c3cac0` package.
+Owner acceptance and closure of #51 remain. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
 linked conversations and broader cross-runtime integration, including OpenCode.
 Its Codex catalog and tool increment has separate evidence in the acceptance register.
 

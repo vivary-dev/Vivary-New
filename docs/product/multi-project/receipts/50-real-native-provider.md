@@ -4,8 +4,9 @@ Issue [#50](https://github.com/vivary-dev/Vivary-New/issues/50) requires real Na
 through the normal packaged UI. This receipt records the owner-approved run on 2026-09-26, the three
 defects it found and fixed on `fix/native-openrouter-in-package`, and the limits that remain.
 
-Delivery status: the branch is pushed and reviewed. The PR, its Entire trail, the merge, and issue
-closure wait for the owner.
+Delivery status: [PR #100](https://github.com/vivary-dev/Vivary-New/pull/100) merged into `dev` as
+`8a5d262` after all eight checks passed, including Entire Gates. The owner accepted the run and
+closed issue #50 on 2026-09-26.
 
 ## Source, artifact, provider
 
@@ -62,14 +63,13 @@ the key encrypted in the profile. It was not used.
 ## Remaining limits and findings
 
 - Core maps a stream that ends with an error to "Engine stream error" and drops the provider's
-  message. That error offers Dismiss and Copy, not Retry.
-- The Send button has no accessible name. Its tooltip reads "Queue message".
+  message. That error offers Dismiss and Copy, not Retry. Tracked in [#101](https://github.com/vivary-dev/Vivary-New/issues/101).
+- The Send button has no accessible name. Its tooltip reads "Queue message". Tracked in [#102](https://github.com/vivary-dev/Vivary-New/issues/102).
 - Vivary's usage table estimated 48.31 cents for this $0 model. OpenRouter's own activity is the
-  source for spend.
-- The missing-access card advertises Builder.io credits inside the local app.
-- Archived chats have no visible restore in the sidebar.
-- Stop took effect after the running tool step, and the stopped reply carries no stopped label.
+  source for spend. Tracked in [#103](https://github.com/vivary-dev/Vivary-New/issues/103).
+- The missing-access card advertises Builder.io credits inside the local app. Tracked in [#104](https://github.com/vivary-dev/Vivary-New/issues/104).
+- Archived chats have no visible restore in the sidebar. Tracked in [#105](https://github.com/vivary-dev/Vivary-New/issues/105).
+- Stop took effect after the running tool step, and the stopped reply carries no stopped label. Tracked in [#106](https://github.com/vivary-dev/Vivary-New/issues/106).
 - Background-run fallback ids of the form `<runId>:tc_<n>` can collide the same way. They reach a
-  provider only on hosted runtimes.
+  provider only on hosted runtimes. Tracked in [#107](https://github.com/vivary-dev/Vivary-New/issues/107).
 - OpenRouter does not state this anonymous model's data policy. The run used fixture projects only.
-- The owner decides the follow-up issues for these findings.
