@@ -157,6 +157,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #117. The coding worker host no longer sends a run to a worker that reports ready after the host asked it to
+stop, whether the 15-second startup deadline or the owner's abort made that request. The deadline error now reads
+"The coding worker did not start within 15 seconds.", and `local-code-agent.ts` records that text as the run's
+failure. This page describes the coding worker at the trust-boundary level and not its startup handshake, so the
+description holds. A host test forks a worker that reports ready only after a stop request and checks both cases.
+
 Issue #98. The host forks the coding worker with `codingRuntimeEnvironment`, the filter the Codex launch and the
 CLI status checks use, and still removes `VIVARY_DESKTOP_HOST` and `VIVARY_STANDALONE_HOST`. The worker runs only
 Claude Code and native Codex. Claude Code gets `--strict-mcp-config` with no configuration, native Codex returns
