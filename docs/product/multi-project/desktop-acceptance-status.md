@@ -652,10 +652,15 @@ the failure.
 
 OpenCode Go separately completed a read-only file turn through its CLI using
 `opencode-go/glm-5.3-flash`. It is not integrated into Vivary by this increment.
-Broader issue #38 integration and automations in #51 remain open. Real
+Broader issue #38 integration remains open. Real
 Native-provider turns passed under #50 on the unpublished `265a7ede` Windows package,
 and the [#50 receipt](receipts/50-real-native-provider.md) records the run and its limits.
 PR #100 merged into `dev` as `8a5d262`, and the owner closed #50 on 2026-09-26.
+The #51 automation lifecycle passed on the unpublished `c096528a` Windows package, with
+automations created through a Personal Native chat. The
+[#51 receipt](receipts/51-automation-lifecycle.md) records the run, a Zo check with no
+client connected, three fixed defects, and the limits tracked in issues #108 through #115.
+Owner acceptance and closure of #51 remain.
 
 ## Capability and acceptance gaps
 
@@ -665,7 +670,7 @@ PR #100 merged into `dev` as `8a5d262`, and the owner closed #50 on 2026-09-26.
 | Codex CLI | Subscription turns, file tools, MCP call, child public result, long command, native action decisions, and command cancellation in local `2f4a5df`. The `df4aedc` Windows package completed a real Codex/Astra file turn and Stop | Further connection-specific journeys and broader issue #38 scope. The public `9884670` prerelease retains its earlier-candidate proof boundary |
 | Native conversations | Project-scoped storage, history controls, saved-head repair, and deterministic-provider journeys. Real OpenRouter turns with project read and evaluate tools, follow-up history, project isolation, rename, pin, archive, Stop, provider failure, and Retry passed on the unpublished `265a7ede` package ([#50 receipt](receipts/50-real-native-provider.md)) | The findings in the #50 receipt, tracked in issues #101 through #107 |
 | Models and providers | Codex model choices come from its catalog; saved conversations keep their model; CLI choices do not enter Native provider setup | Broader provider modes and other runtime catalogs in their owning issues |
-| Automations | Settings can display the automation surface | Real creation, execution, recovery, and lifecycle acceptance remain under [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51). Its #50 prerequisite is met |
+| Automations | Owner-scoped automations created in a Personal Native chat, every-minute runs with no overlap, in-process Run now, pause and resume, chat and dialog edits, the MCP refusal and next-run retry, a local-only probe, closed-app and quit recovery, and delete passed on the unpublished `c096528a` package. Scheduled runs continued on Zo with no client connected ([#51 receipt](receipts/51-automation-lifecycle.md)) | Settings retest on f0c3cac0: pending. Owner acceptance and closure of [issue #51](https://github.com/vivary-dev/Vivary-New/issues/51), and the limits tracked in issues #108 through #115 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
 | Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search stays in its owning issue. Scoped memory (#21) passed its hosted journey and one real Codex check and waits for packaged Windows acceptance |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE. Issue #20 adds public Review and Impact and owner and agent Decide and Control, with hosted and packaged Windows fake-provider proof | Complete GUI/agent flows for every original operation on the final product journey |

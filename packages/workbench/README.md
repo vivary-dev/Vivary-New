@@ -465,9 +465,11 @@ acceptance remains under issue #23.
 
 The [desktop acceptance register](../../docs/product/multi-project/desktop-acceptance-status.md)
 distinguishes the tested private candidate from the complete release target. In
-particular, real Native-provider turns passed under issue #50 and wait for owner
-acceptance, and automation execution/recovery remains under issue #51. The current settings surfaces
-alone are not execution proof. Codex selection and file execution passed on the
+particular, the owner accepted real Native-provider turns and closed issue #50 after
+PR #100 merged into `dev` as `8a5d262`. Automations passed their packaged journey under
+issue #51 and wait for owner acceptance. The
+[#51 receipt](../../docs/product/multi-project/receipts/51-automation-lifecycle.md) records
+the run and its limits. Codex selection and file execution passed on the
 locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
 memory, existing-folder adoption, and final self-hosted access remain open.
 
