@@ -152,6 +152,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+`.gitattributes` now disables only the trailing-whitespace rule for maintained pnpm patches
+under `packages/workbench/patches/`. A patch writes a blank source line as a single-space context
+line, and the #51 Core patch is the first to change text next to blank lines, so CI's
+`git diff --check` flagged those required spaces. Repository tooling only, so the design
+description holds.
+
 The #51 receipt, the acceptance register, and the release target record the packaged Settings
 retest on `f0c3cac0` and correct which commits had independent reviews. Documentation only, so
 the design description holds.
