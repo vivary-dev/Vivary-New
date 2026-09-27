@@ -43,7 +43,8 @@ REQUIREMENT = re.compile(
 )
 # A ref can name a branch, tag, or commit, so only a release tag shape or a full commit SHA counts as a version.
 ACTION_TAG = r"v?\d+(?:\.\d+){0,2}"
-ACTION_SHA = r"[0-9a-f]{40}|[0-9a-f]{64}"
+# GitHub Actions resolves commits by 40-character SHA-1 ids. A longer hex string can only be a branch or tag.
+ACTION_SHA = r"[0-9a-f]{40}"
 ACTION_REF = rf"(?:{ACTION_TAG}|{ACTION_SHA})"
 # The ref and its version comment must look like versions, since a uses: line inside a run: heredoc is shell text.
 USES = re.compile(
@@ -228,9 +229,10 @@ def version_only(path: str, before: str, after: str) -> bool:
         return False  # An added, deleted, executable, or non-file entry is never a version-only change.
     try:
         old, new = (normalize(git("cat-file", "blob", entry[2]).stdout.decode("utf-8")) for entry in entries)
+        # Canonical JSON keeps false and 0 apart, which Python equality does not.
+        return json.dumps(old, sort_keys=True) == json.dumps(new, sort_keys=True)
     except (ValueError, TypeError, AttributeError, RecursionError):
         return False  # A file that does not parse as its expected shape is never version-only.
-    return old == new
 
 
 def carried(path: str, revision: str, first: str, merged: list[str], judged: set[str], ancestor: str) -> bool:
@@ -254,6 +256,8 @@ def dependency_update(revision: str, parents: list[str], judged: set[str], ances
     # Git author identity is self-asserted. The exemption still only covers version-only dependency changes.
     if not merged and git("log", "-1", "--format=%an <%ae>", revision).stdout.decode().strip() != DEPENDABOT:
         return False
+    if tree_entry(first, DOCUMENT) != tree_entry(revision, DOCUMENT):
+        return False  # A commit that edits the HLDD is not dependency-only, so the normal check judges it.
     changed = git("diff", "--name-only", "--no-renames", "-z", first, revision).stdout.decode("utf-8")
     impact = [path for path in changed.split("\0") if relevant(path)]
     return bool(impact) and all(
