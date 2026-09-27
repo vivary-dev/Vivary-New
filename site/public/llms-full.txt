@@ -7280,6 +7280,9 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The #97 receipt and a Credentials row in the acceptance register record the packaged Windows redaction
+check on `88b60dd9`. Documentation only, so the design description holds.
+
 Issue #97 second review. Pagination names are exempt only when a TOKEN name has a whole PAGE, NEXT, CONTINUATION, or
 CURSOR word, so names such as NEXTAUTH_SECRET and CURSOR_API_KEY redact again. Webhook-named assignments with a URL
 value redact, and a dotted held value with digits in its last label is held rather than read as a host. The redaction
