@@ -7314,6 +7314,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #98 and #117 are closed. PR #125 merged into `dev` as `9cf1ed7` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-27. The receipt and the Coding worker environment and
+Coding worker startup rows in the acceptance register record the merge. Documentation only, so the design
+description holds.
+
 Issues #98 and #117, closure documentation. The [#98 and #117
 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/98-coding-worker-environment.md) records the Zo tests and CI, the packaged
 Windows check before and after the fix, Codex's own MCP server with a secret header, and the packaged worker's
