@@ -5,9 +5,9 @@ pass through the normal packaged UI. This receipt records the owner-approved run
 check with no client connected, the three defects found and fixed on `feat/automation-lifecycle`, the
 review rounds, and the limits that remain.
 
-Delivery status: `feat/automation-lifecycle` is pushed to GitHub through `f0c3cac`, and each code
-commit was reviewed. The PR, the Entire trail, the merge, and closing #51 wait for the owner.
-Settings retest on f0c3cac0: pending.
+Delivery status: `feat/automation-lifecycle` is pushed to GitHub and Entire. The Settings retest
+passed on the `f0c3cac0` package. The PR, the Entire trail, the merge, and closing #51 wait for
+the owner.
 
 ## Source, artifacts, provider
 
@@ -16,12 +16,13 @@ Settings retest on f0c3cac0: pending.
   argument-key bypass), `77628c4` (Settings prompt handoff), and `f0c3cac` (handoff review fixes).
   `962bd39` changes a test regex only.
 - Journey package: `Vivary-windows-x64-c096528a.zip`, 223,845,560 bytes, SHA-256
-  `c33dc2bd552dd4834f2e38079c82918bf3c078e05b8d41de6c35b6a8b3ee2168`, built on Zo from `c096528`. Zo
+  `c33dc2bd552dd4834f2e38079c82918bf3c078e05b8d41de6c35b6a8b3ee2168`, built on Zo from `c096528` and checked on Zo and the laptop. Zo
   CI on `c096528` passed lines 113 to 115 of `.github/workflows/ci.yml`, the Python suite, the
   workbench typecheck, and `test:maintained`. Line 112 failed one test whose regex did not match the
   patched `save-memory` entry. `962bd39` fixed the regex with no product change.
 - Settings retest package: `Vivary-windows-x64-f0c3cac0.zip`, 223,850,141 bytes, SHA-256
-  `d6be9949d45fb52a13dfc0ad8bd18b3182b67534379391cb3ab9f44e85ebf15d`, built from `f0c3cac` after CI
+  `d6be9949d45fb52a13dfc0ad8bd18b3182b67534379391cb3ab9f44e85ebf15d`, checked on Zo and the laptop,
+  built from `f0c3cac` after CI
   lines 112 to 115, the Python suite, the typecheck, and `test:maintained` passed on Zo.
 - Provider and model: OpenRouter, `stealth/space-bunny-alpha`, as in [#50](50-real-native-provider.md).
   The owner's key reached Vivary only through the launch environment.
@@ -121,6 +122,13 @@ the allowlist and every refusal.
 Steps 1, 2, and 4 to 12 passed on `c096528a`. Step 3 passed through the Personal Native chat and
 failed through Settings. `77628c4` and `f0c3cac` fix the Settings path.
 
+The Settings retest ran on `f0c3cac0` with the same profile. With `orchard-notes` active, Settings >
+Agent > Automations > New automation opened a new Native chat in Personal workspace within five
+seconds. The prompt was its first message, with the automation context once, and the agent
+defined `vivary-51-retest` (hourly, `America/Denver`). The database stored the thread under
+Personal workspace and held `jobs/vivary-51-retest.md`. Delete removed it. In the empty state,
+Ask the agent also reached a new Personal Native chat and created nothing.
+
 ## Zo check with no client connected
 
 At `962bd39`, a Zo check ran `bin/start.mjs` in local mode with a throwaway data folder, a fake
@@ -159,12 +167,13 @@ new run while the scheduler kept checking. A delete removed the automation and i
    active, New automation reached a Personal Native thread in 0.57 seconds with one context block.
    The Organization form carried its organization context. A prompt sent while the project list was
    held still arrived. The alert took focus and copied the prompt. The packaged retest on `f0c3cac0`
-   is the pending item in the delivery status.
+   passed, as the journey section records.
 
 ## Review rounds
 
-Opus and Fable reviewed each code commit: `79067e0`, `4c07324`, `c096528`, `77628c4`, and `f0c3cac`.
-The reviews used Claude models only.
+The reviews used Claude models only. Opus and Fable reviewed `79067e0` and `4c07324`. Fable
+reviewed `c096528` and `77628c4`. `f0c3cac` fixes the `77628c4` findings and had no separate
+review. Its tests, Zo CI, a live browser check, and the packaged retest cover it.
 
 - `79067e0`: Both found no double execution, no lost run, one runner registry in the built bundle,
   and no change on hosts without the in-process timer. They raised five lower findings: a test gap,
@@ -206,5 +215,8 @@ The reviews used Claude models only.
 - Details shows no LAST CHECKED value while the scheduler checks every minute, and a past run has no
   way to open its thread. A paused automation keeps a next run time that has passed. Tracked in
   [#115](https://github.com/vivary-dev/Vivary-New/issues/115).
+- Asked what an automation run can do, a chat agent answered from general knowledge and listed
+  sending and webhooks. The run prompt, the Run now dialog, and the `manage-automations`
+  description state the local-only limits.
 - Delete removes the run history with the automation. A run already in progress still writes its
   reply to its thread.

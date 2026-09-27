@@ -156,6 +156,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The #51 receipt, the acceptance register, and the release target record the packaged Settings
+retest on `f0c3cac0` and correct which commits had independent reviews. Documentation only, so
+the design description holds.
+
 Issue #51's receipt records the packaged automation lifecycle run on the unpublished
 `c096528a` package, the Zo check with no client connected, the three defects fixed on the
 branch, the review rounds, and follow-up issues #108 through #115. The acceptance register,
