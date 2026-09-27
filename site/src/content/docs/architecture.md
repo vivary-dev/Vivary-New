@@ -156,6 +156,32 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #51 fixes the Settings controls that ask the agent. New automation on
+Settings > Agent > Automations, including its empty-state and Organization
+forms, and the Resources create menu's Create Automation, Schedule Task, and
+describe paths for Create Skill and Create Custom Agent call Core's
+`sendToAgentChat`. It posts the prompt to this window and buffers it for eight
+seconds. `Layout.tsx` mounts the workspace, and with it every chat, only outside
+`/settings`, so nothing received the prompt and it was lost. The new
+[`settings-chat-handoff.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/app/lib/settings-chat-handoff.ts)
+hook, mounted by `Layout.tsx`, listens only under `/settings`. It switches an
+active project to Personal workspace and opens
+`/?runtime=native&history=project`, where Core's Native chat replays the
+buffered prompt into a new Personal thread and appends its context once. A
+failed switch, or a prompt that no chat claims within the buffer, shows an alert
+with the prompt and Copy prompt. The change routes an existing Core flow into the
+existing Native chat and adds no component, flow, or trust boundary, so the
+design description holds. Evidence: the new
+`settings-chat-handoff-component.test.mjs` renders `Layout` with Core's real
+`sendToAgentChat`. It fails on the previous `Layout.tsx` and passes its 4 cases
+on this one. The CI node steps, the workbench typecheck, and the maintained
+checks pass on Zo. A local-mode `bin/start.mjs` check on Zo with a fake provider
+and headless Chromium had project Alpha active, submitted New automation, and
+reached a Personal Native thread in 0.6 seconds. The model received the prompt
+with one context block, the reply rendered, no alert appeared after 9 seconds,
+and the database recorded the thread under Personal workspace. The Organization
+form took the same route and carried its organization context.
+
 Issue #51 review fixes for the Run now change. The in-process runner now
 registers with its app id and handles only that app's rows and legacy rows with
 no app. Another app's rows that share the database keep self-dispatch and are

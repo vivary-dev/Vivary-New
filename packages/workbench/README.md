@@ -50,6 +50,12 @@ restore an older saved value over an unsaved choice.
 Coding runtimes shows installed CLI account status and links to official
 installation and sign-in instructions.
 
+Settings has no chat of its own. A Settings control that asks the agent, such as
+**New automation** under Agent > Automations or an item in the Resources create
+menu, switches to Personal workspace, opens a Native chat, and sends the prompt
+there as a new conversation. If the switch fails, or no chat receives the prompt
+within eight seconds, an alert shows the prompt with **Copy prompt**.
+
 Code conversations use local CLI accounts. Native conversations use Native's
 configured providers. Model access is separate from opening Vivary.
 
