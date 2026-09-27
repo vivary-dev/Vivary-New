@@ -128,6 +128,7 @@ const rewrite = (s) =>
    .replaceAll('](bellamente-memory/', `](${GH}/docs/bellamente-memory/`)
    .replaceAll('](product/multi-project/', `](${APP_GH}/docs/product/multi-project/`)
    .replaceAll('](../.agents/', `](${APP_GH}/.agents/`)
+   .replaceAll('](../CONTRIBUTING.md', `](${APP_GH}/CONTRIBUTING.md`)
    .replaceAll('](../packages)', `](${APP_GH.replace('/blob/', '/tree/')}/packages)`)
    .replaceAll('](../packages/core/README.md)', `](${APP_GH}/packages/core/README.md)`)
    .replaceAll('](../packages/workbench/', `](${APP_GH}/packages/workbench/`)

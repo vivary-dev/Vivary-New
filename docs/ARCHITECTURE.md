@@ -153,6 +153,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #123 site link. The site build rejected the maintenance section's relative link to `CONTRIBUTING.md`, which
+has no page on the site. The docs sync now points that link at the file on GitHub, the way it already treats
+`.agents/` links. Build tooling only, so the design description holds.
+
 Issue #123 fourth review. A merged dependency update now tries every merge base of the merge's parents, not only the
 one Git picks. On a criss-cross history where `dev` and `main` merge each other, that single base depends on commit
 dates and could reject a valid merge of a second Dependabot update into `dev`. The maintain-hldd skill now says the
