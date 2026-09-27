@@ -7304,7 +7304,7 @@ Issue #21's scoped file memory is implemented. Code and Full chat load each proj
 
 This page owns the full-product structure, data owners, trust boundaries, and cross-component flows. Detailed contracts and source paths live in the [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) and [source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/index.md). Product decisions live in [design.md](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md). GitHub issues own goals, acceptance, dependencies, and lifecycle. Update those owners with this page when their facts change.
 
-For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. No commit hook rewrites this page automatically.
+For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. The branch checker passes a commit authored by Dependabot without a document update when every relevant file it changes is a dependency file. In `package.json` dependency maps and `pyproject.toml` requirements, only version values may change. On a workflow `uses:` line, only the ref and the version comment after it may change, and a SHA pin must stay a SHA. An npm or pnpm lockfile may change in any way, because the checker does not inspect lockfile content. A merge commit passes the same way when it takes a merged branch's copy of each dependency file it changes and the other line left that file alone since one of their common ancestors. The range must also have checked every commit on that branch, and commits already on the base branch count as checked. An exempt commit leaves this document unchanged and still needs it complete. The staged checker never makes these exceptions. Git author identity is self-asserted, so anyone can claim to be Dependabot. That is acceptable because the exception allows no change beyond those version values and lockfiles. The dependency review in [CONTRIBUTING.md](https://github.com/vivary-dev/Vivary-New/blob/dev/CONTRIBUTING.md) is the control for what a lockfile brings in. No commit hook rewrites this page automatically.
 
 The application bundles this document at build time and exposes it through
 Settings > Documentation. The reader uses the existing read-only Markdown
@@ -7313,6 +7313,67 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #123 exemption edges. The branch HLDD checker now treats only 40-character hex refs as commit pins, since a
+64-character hex string can only name a branch or tag on GitHub Actions. It compares normalized files as canonical
+JSON, so a change such as `false` to `0` is no longer read as unchanged. A commit that edits this document is no
+longer dependency-only, and the normal check judges it. Internal to the checker, so the design description holds.
+
+Issue #123 action pins. The branch HLDD checker now keeps whether a workflow `uses:` ref is a release tag or a full
+commit SHA, so a commit that replaces an immutable SHA pin with a moving tag is no longer version-only. Dependabot
+keeps the kind when it bumps a ref, and every ref in this repo's workflows still normalizes. Internal to the
+checker, so the design description holds.
+
+Issue #123 action refs. The branch HLDD checker now counts a workflow `uses:` ref as a version only when it is a
+release tag such as `v7` or `v7.0.1`, or a full commit SHA. A digit-led branch name such as `123main` passed the
+old pattern, and GitHub resolves a ref as a branch, tag, or SHA. Every ref in this repo's workflows still matches.
+Internal to the checker, so the design description holds.
+
+Issue #123 npm values. The branch HLDD checker now counts a `package.json` dependency value as a version only when
+it parses under node-semver's range grammar. A value such as `1evil` passed the old first-character check although
+npm reads it as a dist-tag. The checker tests cover the tag cases and eight real range shapes. Internal to the
+checker, so the design description holds.
+
+Issue #123 site link. The site build rejected the maintenance section's relative link to `CONTRIBUTING.md`, which
+has no page on the site. The docs sync now points that link at the file on GitHub, the way it already treats
+`.agents/` links. Build tooling only, so the design description holds.
+
+Issue #123 fourth review. A merged dependency update now tries every merge base of the merge's parents, not only the
+one Git picks. On a criss-cross history where `dev` and `main` merge each other, that single base depends on commit
+dates and could reject a valid merge of a second Dependabot update into `dev`. The maintain-hldd skill now says the
+merge's own change against its first parent must be version-only. The checker tests cover the criss-cross case.
+
+Issue #123 third review. A merged dependency update now counts commits already on the base branch as checked. A
+Dependabot security update merged into `main` and then brought into `dev` now passes the promotion range from `main`
+to `dev`, not only the push range on `dev`. Side commits new to the range must still be judged, so a merge that
+carries a change from a branch before gate adoption still fails. The checker tests cover both ranges of that flow.
+
+Issue #123 second review. The branch HLDD checker now passes a merge only when it takes a merged branch's copy of a
+dependency file that the first parent left alone since their merge base, and the range judged every commit between
+that base and the merged parent. A merge that restores an older copy from an ancestor or a stale side branch, or that
+carries a change from a branch before gate adoption, now needs a document update. A Dependabot PR brought up to date
+with the Update branch button still passes. A `package.json` nested too deep to parse fails as a missing review. The
+maintenance section now says a `uses:` version comment may change. The checker tests cover each case.
+
+Issue #123 review fixes. The branch HLDD checker now passes a merge commit whose dependency files each match a merged
+parent and change only versions against the first parent, so merging a Dependabot PR no longer fails `dev` CI. A
+dependency file must stay a regular file on both sides. npm values, workflow refs, and Python specifiers count as
+versions only in version shapes, and a duplicate `package.json` key fails. Each exempt commit must keep a complete
+HLDD. The maintenance section now says lockfile content is not inspected. CONTRIBUTING.md notes that `cooldown` does
+not delay security updates. The checker tests cover each case.
+
+Issue #123 merge review. CONTRIBUTING.md now holds the dependency review for Dependabot PRs, because dependency-only
+Dependabot commits pass the HLDD gate. The review covers publish age or provenance, install scripts, `binding.gyp`
+actions, and new transitive packages. Documentation only, so the design description holds.
+
+Issue #123. The branch HLDD checker passes a Dependabot-authored commit with one parent when each relevant file it
+changes is a version-only edit to a dependency manifest, lockfile, or workflow action ref. Its success line counts
+those commits. The staged check never exempts a commit. The maintenance section states the rule and its self-asserted
+author limit. The checker tests and a run against the real Dependabot commit `7a2887c0` from PR #119 cover it.
+
+Issues #113 and #104 are closed. PR #122 merged into `dev` as `15fed03`, and the owner closed both issues on
+2026-09-27. The two receipts and the Webhook automations and Provider setup offers rows in the acceptance register
+record the merge. Documentation only, so the design description holds.
 
 The #113 and #104 receipts and two acceptance register rows record the packaged Windows check on
 `ec82a872`. Documentation only, so the design description holds.

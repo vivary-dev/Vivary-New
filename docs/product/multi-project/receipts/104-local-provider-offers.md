@@ -5,8 +5,8 @@ offer Builder.io. The owner decided on 2026-09-27 to remove every Builder.io off
 local mode, and to keep Core's behavior in self-hosted mode for now. This receipt records the change on
 `feat/webhooks-and-local-providers`.
 
-Delivery status: the branch is pushed to GitHub and Entire. The PR, the Entire trail, the merge, and
-closing #104 wait for the owner.
+Delivery status: PR #122 merged into `dev` as `15fed03` after all eight checks passed, including
+Entire Gates, and the owner closed issue #104 on 2026-09-27.
 
 ## Source and artifacts
 

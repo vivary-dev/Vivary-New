@@ -6,8 +6,8 @@ same port across launches so a webhook URL survives restarts, and that a call ac
 quits runs once after restart. This receipt records the change on `feat/webhooks-and-local-providers`
 and its verification.
 
-Delivery status: the branch is pushed to GitHub and Entire. The PR, the Entire trail, the merge, and
-closing #113 wait for the owner.
+Delivery status: PR #122 merged into `dev` as `15fed03` after all eight checks passed, including
+Entire Gates, and the owner closed issue #113 on 2026-09-27.
 
 ## Source and artifacts
 
