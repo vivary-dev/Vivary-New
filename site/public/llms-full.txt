@@ -7314,6 +7314,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #123 npm values. The branch HLDD checker now counts a `package.json` dependency value as a version only when
+it parses under node-semver's range grammar. A value such as `1evil` passed the old first-character check although
+npm reads it as a dist-tag. The checker tests cover the tag cases and eight real range shapes. Internal to the
+checker, so the design description holds.
+
 Issue #123 site link. The site build rejected the maintenance section's relative link to `CONTRIBUTING.md`, which
 has no page on the site. The docs sync now points that link at the file on GitHub, the way it already treats
 `.agents/` links. Build tooling only, so the design description holds.

@@ -270,6 +270,15 @@ class HlddGateTests(unittest.TestCase):
         result = self.gate("--base", base)
         self.assertIn("1 of them dependency-only update(s)", result.stdout)
 
+    def test_dependabot_npm_range_shapes_pass(self):
+        base = self.seed({"site/package.json": package()})
+        for value in (">=7.3.3 <8", "7.3.2 - 7.3.3", "^7 || ^8", "~7.3", "7.x", "*", "7.3.3-beta.1", "=v7.3.3"):
+            with self.subTest(value=value):
+                self.commit_as(DEPENDABOT, {"site/package.json": package(dependencies={"astro": value})})
+                result = self.gate("--base", base)
+                self.assertIn("1 of them dependency-only update(s)", result.stdout)
+                self.git("reset", "-q", "--hard", base)
+
     def test_merged_dependabot_pull_request_passes(self):
         base = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
         self.dependabot_branch({
@@ -340,7 +349,7 @@ class HlddGateTests(unittest.TestCase):
         base = self.seed({"site/package.json": package()})
         self.reject_dependabot(base, {
             value: {"site/package.json": package(dependencies={"astro": value})}
-            for value in ("evil.tgz", "7.3.3.tgz", "latest", "..", "")
+            for value in ("evil.tgz", "7.3.3.tgz", "latest", "..", "", "1evil", "123foo", "1...2")
         })
 
     def test_dependabot_lockfile_mode_or_type_change_fails(self):

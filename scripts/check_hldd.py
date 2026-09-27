@@ -26,9 +26,14 @@ HEADINGS = (
 )
 DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
 DEPENDENCY_MAPS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
-# npm reads any other value as a tag, a local path or tarball, or a source such as git or a URL.
-NPM_VERSION = re.compile(r"[0-9^~<>=*][^:/\\]*")
-NPM_TARBALL = (".tgz", ".tar", ".tar.gz")
+# npm reads a value as a version only when it parses as a semver range. It reads anything else as a tag,
+# a local path or tarball, or a source such as git or a URL. This follows node-semver's range grammar.
+NPM_NUMBER = r"(?:[xX*]|0|[1-9]\d*)"
+NPM_IDENTIFIERS = r"[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*"
+NPM_PARTIAL = rf"v?{NPM_NUMBER}(?:\.{NPM_NUMBER}(?:\.{NPM_NUMBER}(?:-{NPM_IDENTIFIERS})?(?:\+{NPM_IDENTIFIERS})?)?)?"
+NPM_COMPARATOR = rf"(?:(?:<=|>=|<|>|=|~>?|\^)\s*)?{NPM_PARTIAL}"
+NPM_RANGE = rf"(?:{NPM_PARTIAL}\s+-\s+{NPM_PARTIAL}|{NPM_COMPARATOR}(?:\s+{NPM_COMPARATOR})*)"
+NPM_RANGE_SET = re.compile(rf"\s*{NPM_RANGE}(?:\s*\|\|\s*{NPM_RANGE})*\s*")
 SPECIFIER = r"(?:===|~=|==|!=|<=|>=|<|>)\s*[\w.*+!-]+"
 SPECIFIERS = rf"{SPECIFIER}(?:\s*,\s*{SPECIFIER})*"
 REQUIREMENT = re.compile(
@@ -149,10 +154,7 @@ def unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def npm_version(value: object) -> bool:
-    return (
-        isinstance(value, str) and NPM_VERSION.fullmatch(value) is not None
-        and not value.lower().endswith(NPM_TARBALL)
-    )
+    return isinstance(value, str) and NPM_RANGE_SET.fullmatch(value) is not None
 
 
 def package_manifest(text: str) -> object:
