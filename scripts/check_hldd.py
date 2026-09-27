@@ -222,13 +222,14 @@ def version_only(path: str, before: str, after: str) -> bool:
 
 
 def carried(path: str, revision: str, first: str, merged: list[str], judged: set[str], ancestor: str) -> bool:
-    # Only the merged side changed the path since the merge base. Its commits off the base branch must be judged.
+    # Only the merged side changed the path since some merge base. Its commits off the base branch must be judged.
     entry = tree_entry(revision, path)
     for parent in merged:
-        base = git("merge-base", first, parent, check=False).stdout.decode().strip()
-        if (
-            base and tree_entry(parent, path) == entry and tree_entry(base, path) == tree_entry(first, path)
+        bases = git("merge-base", "--all", first, parent, check=False).stdout.decode().split()
+        if tree_entry(parent, path) == entry and any(
+            tree_entry(base, path) == tree_entry(first, path)
             and set(git("rev-list", parent, f"^{base}", f"^{ancestor}").stdout.decode().split()) <= judged
+            for base in bases
         ):
             return True
     return False

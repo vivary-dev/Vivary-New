@@ -487,6 +487,51 @@ class HlddGateTests(unittest.TestCase):
         promoted = self.gate("--base", "main", "--head", "dev").stdout
         self.assertIn("2 introduced commit(s), 1 of them dependency-only update(s)", promoted)
 
+    def test_criss_cross_dependency_merge_passes(self):
+        clock = iter(range(1_800_000_000, 1_800_100_000, 60))
+
+        def tick():
+            moment = f"@{next(clock)} +0000"
+            self.env.update(GIT_AUTHOR_DATE=moment, GIT_COMMITTER_DATE=moment)
+
+        self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
+        self.git("switch", "-qC", "main")
+        self.git("branch", "dev")
+        tick()
+        self.dependabot_branch({
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "site/package-lock.json": lockfile("7.3.3"),
+        })
+        tick()
+        self.git("merge", "-q", "--no-ff", "dependabot", "-m", "Merge security update")
+        self.git("switch", "-q", "dev")
+        tick()
+        self.stage_code()
+        self.write("docs/ARCHITECTURE.md", DOC + "\nThe app now uses value two.\n")
+        self.git("add", "docs/ARCHITECTURE.md")
+        self.git("commit", "-qm", "documented dev change")
+        dev_change = self.git("rev-parse", "HEAD").stdout.strip()
+        tick()
+        self.git("merge", "-q", "--no-ff", "main", "-m", "Merge main into dev")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("switch", "-q", "main")
+        tick()
+        self.git("merge", "-q", "--no-ff", dev_change, "-m", "Promote dev change")
+        self.git("switch", "-qc", "dependabot-2")
+        tick()
+        self.commit_as(DEPENDABOT, {
+            "site/package.json": package(dependencies={"astro": "^7.3.4"}),
+            "site/package-lock.json": lockfile("7.3.4"),
+        })
+        self.git("switch", "-q", "main")
+        tick()
+        self.git("merge", "-q", "--no-ff", "dependabot-2", "-m", "Merge second update")
+        self.git("switch", "-q", "dev")
+        tick()
+        self.git("merge", "-q", "--no-ff", "main", "-m", "Merge main into dev again")
+        result = self.gate("--base", base)
+        self.assertIn("4 introduced commit(s), 3 of them dependency-only update(s)", result.stdout)
+
     def test_dependabot_package_too_deep_to_parse_fails(self):
         base = self.seed({"site/package.json": package()})
         deep = "[" * 100000 + "]" * 100000
