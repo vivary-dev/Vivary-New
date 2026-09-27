@@ -7304,7 +7304,7 @@ Issue #21's scoped file memory is implemented. Code and Full chat load each proj
 
 This page owns the full-product structure, data owners, trust boundaries, and cross-component flows. Detailed contracts and source paths live in the [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) and [source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/index.md). Product decisions live in [design.md](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md). GitHub issues own goals, acceptance, dependencies, and lifecycle. Update those owners with this page when their facts change.
 
-For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. No commit hook rewrites this page automatically.
+For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. The branch checker passes a commit authored by Dependabot without a document update when every relevant file it changes is a dependency file with only version changes: `package.json` dependency maps, npm and pnpm lockfiles, `pyproject.toml` requirement specifiers, and workflow `uses:` refs. The staged checker never makes that exception. Git author identity is self-asserted, so anyone can claim to be Dependabot. That is acceptable only because the exception never covers more than a version-only change to those files. No commit hook rewrites this page automatically.
 
 The application bundles this document at build time and exposes it through
 Settings > Documentation. The reader uses the existing read-only Markdown
@@ -7313,6 +7313,11 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #123. The branch HLDD checker passes a Dependabot-authored commit with one parent when each relevant file it
+changes is a version-only edit to a dependency manifest, lockfile, or workflow action ref. Its success line counts
+those commits. The staged check never exempts a commit. The maintenance section states the rule and its self-asserted
+author limit. The checker tests and a run against the real Dependabot commit `7a2887c0` from PR #119 cover it.
 
 Issues #113 and #104 are closed. PR #122 merged into `dev` as `15fed03`, and the owner closed both issues on
 2026-09-27. The two receipts and the Webhook automations and Provider setup offers rows in the acceptance register

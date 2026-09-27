@@ -39,6 +39,9 @@ side branches are checked too. Test-only and generated site-mirror changes
 do not require documentation churn. Source, delivery scripts,
 workflow, project instruction, and durable documentation changes do. Whitespace,
 comments, and date-only edits do not satisfy the gate. Do not bypass a failure.
+The branch check, never the staged hook, passes a Dependabot-authored commit whose
+relevant changes are all version-only edits to dependency manifests, lockfiles,
+or workflow action refs.
 
 The application bundles this same Markdown at build time in Settings >
 Documentation. Do not hand-maintain a second copy. Check the built reader when
