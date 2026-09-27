@@ -6639,7 +6639,8 @@ cannot show it, because Vivary hides the URL's token like a password. The URL st
 only while Vivary is open. Anyone on this computer who has the URL can start the
 automation. Vivary keeps the same port across launches. It picks ports from 42100 to 42999,
 below the range Windows reserves for Hyper-V, WSL, and Docker. If the saved port is
-unavailable when Vivary starts, Vivary picks a new one and says so. Then copy the new URL
+unavailable when Vivary starts, or an earlier build saved a port in that reserved range,
+Vivary picks a new one and says so. Then copy the new URL
 from **Details** and update the program that calls it.
 
 Vivary answers an accepted call with status 202, a repeated event with 200, and an unknown
@@ -7312,6 +7313,10 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #113 second review. The desktop now shows its port notice when it replaces a saved port from the Windows
+dynamic range, the sweep reads past another app's untouched rows, and the expiry fails a call only if nothing claimed
+it since the sweep read it. Internal fixes, so the design description holds.
 
 Issue #104 review fixes. The file storage card keeps its custom-key path with Builder offers off, and the remaining
 Builder wording in errors and the code-required dialog follows the switch. No component, flow, or boundary changes.

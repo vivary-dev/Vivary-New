@@ -261,8 +261,13 @@ test("the desktop reuses its saved port, retries it briefly, and replaces an una
     assert.deepEqual(await chooseDesktopPort(dataDir, { selectPort, retryDelayMs: 1, isFree: async () => false }),
       { port: 42_102, saved: 42_101 });
     await saveDesktopPort(dataDir, 50_010);
-    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 42_103, saved: null },
-      "a saved port in the dynamic range is not reused");
+    const probed = [];
+    const upgrade = await chooseDesktopPort(dataDir, { selectPort, retryDelayMs: 1,
+      isFree: async port => { probed.push(port); return true; } });
+    assert.deepEqual(upgrade, { port: 42_103, saved: 50_010 }, "a saved port in the dynamic range is not reused");
+    assert.deepEqual(probed, [], "and is not retried");
+    const started = await startOnDesktopPort(upgrade, async port => ({ origin: `http://127.0.0.1:${port}` }));
+    assert.equal(started.replaced, 50_010, "the window shows the notice for the replaced port");
     await writeFile(path.join(dataDir, "desktop-port"), "not a port\n");
     assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 42_104, saved: null }, "an unreadable file counts as none");
   } finally {

@@ -93,15 +93,21 @@ async function readSavedPort(dataDir) {
     return null;
   }
   const port = Number(text.trim());
-  // A port in the dynamic range may be reserved after a restart, so it is replaced.
-  return Number.isInteger(port) && port >= 1024 && port < 49152 ? port : null;
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+}
+
+/** A port in the Windows dynamic range may be reserved after a restart, so it is not reused. */
+function isReusablePort(port) {
+  return port < 49152;
 }
 
 /**
  * A webhook URL names the local port, so the app reuses the port saved in its
  * data folder. A port can be briefly busy while the previous instance lets it
  * go, so the saved port is tried for a few seconds before a new one is taken.
- * `saved` is the saved port, or null.
+ * A saved port in the dynamic range, which an earlier build could pick, is
+ * replaced at once. `saved` is the saved port, or null, so the window says
+ * when the port changed.
  */
 export async function chooseDesktopPort(dataDir, {
   isFree = loopbackPortIsFree,
@@ -109,7 +115,8 @@ export async function chooseDesktopPort(dataDir, {
   retryDelayMs = SAVED_PORT_RETRY_DELAY_MS,
 } = {}) {
   const saved = await readSavedPort(dataDir);
-  for (let attempt = 0; saved !== null && attempt < SAVED_PORT_ATTEMPTS; attempt += 1) {
+  const reusable = saved !== null && isReusablePort(saved);
+  for (let attempt = 0; reusable && attempt < SAVED_PORT_ATTEMPTS; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     if (await isFree(saved)) return { port: saved, saved };
   }

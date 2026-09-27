@@ -3241,7 +3241,7 @@ index ae2729bfa87006866bbbc618275915ec7ad822d4..fd716f89a85c3f2d23df60e9b650663a
              "</chat-file-attachment-upload-error>",
 diff --git a/dist/integrations/automation-webhook-task.d.ts b/dist/integrations/automation-webhook-task.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0382f3e4fae4afc90a4d3a833ba04b95a9febc3b
+index 0000000000000000000000000000000000000000..ca1ddd519e48e2229c8f710616723174004e3d58
 --- /dev/null
 +++ b/dist/integrations/automation-webhook-task.d.ts
 @@ -0,0 +1,13 @@
@@ -3254,16 +3254,16 @@ index 0000000000000000000000000000000000000000..0382f3e4fae4afc90a4d3a833ba04b95
 +export declare const AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS: number;
 +export declare const AUTOMATION_WEBHOOK_EXPIRED_MESSAGE: string;
 +export declare function webhookTaskBelongsToApp(taskId: string, appId?: string | null): Promise<boolean>;
-+export declare function expireAutomationWebhookTask(taskId: string): Promise<boolean>;
++export declare function expireAutomationWebhookTask(taskId: string, expectedUpdatedAt?: number): Promise<boolean>;
 +export declare function runAutomationWebhookTaskInProcess(taskId: string, options?: {
 +    appId?: string | null;
 +}): Promise<AutomationWebhookTaskOutcome | "skipped">;
 diff --git a/dist/integrations/automation-webhook-task.js b/dist/integrations/automation-webhook-task.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..9b6b22ea08e0f2261637f898350f379b0d0f1802
+index 0000000000000000000000000000000000000000..3183ce114fce51af910b97b60a7ef5d7fac28af2
 --- /dev/null
 +++ b/dist/integrations/automation-webhook-task.js
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,145 @@
 +import { jobBelongsToApp, parseJobResource } from "../jobs/frontmatter.js";
 +import { resourceGetByPath } from "../resources/store.js";
 +import { runWithRequestContext } from "../server/request-context.js";
@@ -3376,12 +3376,13 @@ index 0000000000000000000000000000000000000000..9b6b22ea08e0f2261637f898350f379b
 +/**
 + * Fail a queued webhook call that waited past AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS
 + * instead of running it with an old payload, and record it in the
-+ * automation's history. Returns whether this call expired it.
++ * automation's history. Returns whether this call expired it. The sweep passes
++ * the `updated_at` it read, so a row claimed since then is not expired.
 + */
-+export async function expireAutomationWebhookTask(taskId) {
++export async function expireAutomationWebhookTask(taskId, expectedUpdatedAt) {
 +    const task = await getPendingTask(taskId);
 +    const payload = task ? parseWebhookTaskPayload(task) : null;
-+    if (!(await failOpenPendingTask(taskId, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE)))
++    if (!(await failOpenPendingTask(taskId, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, expectedUpdatedAt)))
 +        return false;
 +    if (payload) {
 +        await recordAutomationWebhookFailure(payload, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, "automation_webhook_expired", { userEmail: task.ownerEmail, orgId: task.orgId });
@@ -3409,7 +3410,7 @@ index 0000000000000000000000000000000000000000..9b6b22ea08e0f2261637f898350f379b
 +    }
 +}
 diff --git a/dist/integrations/integration-durable-dispatch.d.ts b/dist/integrations/integration-durable-dispatch.d.ts
-index aa81642530ecac2b5c70aa0febe3e86b250b1905..6705ed22450a9b823bcda5c044f6c2a60f4c0ad1 100644
+index aa81642530ecac2b5c70aa0febe3e86b250b1905..5cb08fcda9a09444e72ae9bef184ba4fce50165a 100644
 --- a/dist/integrations/integration-durable-dispatch.d.ts
 +++ b/dist/integrations/integration-durable-dispatch.d.ts
 @@ -1,7 +1,25 @@
@@ -3425,7 +3426,7 @@ index aa81642530ecac2b5c70aa0febe3e86b250b1905..6705ed22450a9b823bcda5c044f6c2a6
 +    platforms?: readonly string[];
 +    appId?: string;
 +    acceptsTask?: (taskId: string, appId: string | null) => Promise<boolean>;
-+    expireTask?: (taskId: string) => Promise<boolean>;
++    expireTask?: (taskId: string, expectedUpdatedAt?: number) => Promise<boolean>;
 +    maxTaskAgeMs?: number;
 +}): void;
 +export declare function inProcessIntegrationTaskRunnerFor(platform: string): {
@@ -3433,17 +3434,17 @@ index aa81642530ecac2b5c70aa0febe3e86b250b1905..6705ed22450a9b823bcda5c044f6c2a6
 +    platforms: Set<string>;
 +    appId: string | null;
 +    acceptsTask: ((taskId: string, appId: string | null) => Promise<boolean>) | null;
-+    expireTask: ((taskId: string) => Promise<boolean>) | null;
++    expireTask: ((taskId: string, expectedUpdatedAt?: number) => Promise<boolean>) | null;
 +    maxTaskAgeMs: number | null;
 +} | null;
  export interface IntegrationDispatchTaskScope {
      platform: string;
      externalThreadId: string;
 diff --git a/dist/integrations/integration-durable-dispatch.js b/dist/integrations/integration-durable-dispatch.js
-index c67091b5fd7c9ce643192317b2606c211dc8fe09..3f97d146fabe6b583674459fd7d3d0fb916a09ad 100644
+index c67091b5fd7c9ce643192317b2606c211dc8fe09..6880de9b61aca81296a49a28f0f76320c66a04f3 100644
 --- a/dist/integrations/integration-durable-dispatch.js
 +++ b/dist/integrations/integration-durable-dispatch.js
-@@ -5,6 +5,52 @@ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_E
+@@ -5,6 +5,53 @@ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_E
  import { recordPendingTaskDispatchAttempt } from "./pending-tasks-store.js";
  export { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured, };
  export const INTEGRATION_CAMPAIGN_PROCESSOR_FIELD = "__integrationCampaignContinuation";
@@ -3467,7 +3468,8 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..3f97d146fabe6b583674459fd7d3d0fb
 + * The retry sweep uses the optional hooks. `acceptsTask(taskId, appId)` says
 + * whether a task is this app's. The sweep leaves another app's task as it is,
 + * so it does not keep moving that task's `updated_at` ahead of the owning
-+ * app's sweep. `expireTask(taskId)` ends a task older than `maxTaskAgeMs`
++ * app's sweep. `expireTask(taskId, updatedAt)` ends a task older than
++ * `maxTaskAgeMs`, if it is unchanged since the sweep read it,
 + * instead of running it with an old payload.
 + */
 +export function setInProcessIntegrationTaskRunner(runner, options) {
@@ -3496,7 +3498,7 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..3f97d146fabe6b583674459fd7d3d0fb
  export function integrationDispatchScopeValue(task) {
      const value = task.platformContext?.channelId;
      return typeof value === "string" && value.trim() ? value.trim() : null;
-@@ -71,6 +117,20 @@ function logDispatch(taskId, outcome, startedAt) {
+@@ -71,6 +118,20 @@ function logDispatch(taskId, outcome, startedAt) {
  }
  export async function dispatchPendingIntegrationTask(input) {
      const startedAt = Date.now();
@@ -3518,7 +3520,7 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..3f97d146fabe6b583674459fd7d3d0fb
      if (input.campaignContinuation &&
          !durable &&
 diff --git a/dist/integrations/pending-tasks-retry-job.js b/dist/integrations/pending-tasks-retry-job.js
-index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e37c55b95 100644
+index d9006e9e1f631be07b165c78dc28242c3284211f..6064439d9989ea703bd167d817cdd9ecf427dae4 100644
 --- a/dist/integrations/pending-tasks-retry-job.js
 +++ b/dist/integrations/pending-tasks-retry-job.js
 @@ -1,7 +1,8 @@
@@ -3531,7 +3533,7 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
  import { ensurePendingTasksTable, MAX_PENDING_TASK_ATTEMPTS, } from "./pending-tasks-store.js";
  /**
   * Retries stuck integration webhook tasks.
-@@ -38,6 +39,17 @@ const PENDING_STUCK_AFTER_MS = 90_000;
+@@ -38,8 +39,25 @@ const PENDING_STUCK_AFTER_MS = 90_000;
  const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
  const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
  const DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS = 16 * 60 * 1000;
@@ -3548,8 +3550,33 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
 +}
  /** After this many attempts we give up and mark the task failed */
  const DEFAULT_SWEEP_LIMIT = 100;
++/**
++ * Another app's rows are skipped without a write, so they stay at the front
++ * of the updated_at order. When a full page held such rows, the sweep reads
++ * the next page, up to this many pages per pass.
++ */
++const MAX_SWEEP_PAGES = 10;
  let job = null;
-@@ -105,18 +117,21 @@ export async function retryStuckPendingTasks(input) {
+ let startupTimer = null;
+ let activeWebhookBaseUrl;
+@@ -92,6 +110,16 @@ export async function retryStuckPendingTasks(input) {
+     const scopeSql = options.durableOnly
+         ? durableScopeSql()
+         : { clause: "", args: [] };
++    const cursorSql = options.after
++        ? {
++            clause: " AND (updated_at > ? OR (updated_at = ? AND id > ?))",
++            args: [options.after.updatedAt, options.after.updatedAt, options.after.id],
++        }
++        : { clause: "", args: [] };
++    const pagesLeft = options.pagesLeft ?? MAX_SWEEP_PAGES;
++    let pageFull = false;
++    let pageEnd = null;
++    let foreignSkipped = 0;
+     const result = {
+         selected: 0,
+         dispatched: 0,
+@@ -105,22 +133,25 @@ export async function retryStuckPendingTasks(input) {
      const pendingCutoff = now - PENDING_STUCK_AFTER_MS;
      const processingCutoff = now - getProcessingStuckAfterMs();
      const durableProcessingCutoff = now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
@@ -3572,16 +3599,31 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
 +                    OR last_dispatch_outcome NOT IN ('background-acknowledged', 'in-process'))
                  AND updated_at <= ?)
              )))
-          ${scopeSql.clause}
-@@ -131,6 +146,7 @@ export async function retryStuckPendingTasks(input) {
+-         ${scopeSql.clause}
+-         ORDER BY updated_at ASC
++         ${scopeSql.clause}${cursorSql.clause}
++         ORDER BY updated_at ASC, id ASC
+          LIMIT ?
+       `,
+             // `updated_at` is initialized to `created_at` on insert, so a genuinely
+@@ -131,17 +162,24 @@ export async function retryStuckPendingTasks(input) {
                  pendingCutoff,
                  pendingCutoff,
                  durableProcessingCutoff,
 +                inProcessProcessingCutoff,
                  processingCutoff,
                  ...scopeSql.args,
++                ...cursorSql.args,
                  limit,
-@@ -142,6 +158,7 @@ export async function retryStuckPendingTasks(input) {
+             ],
+         });
++        pageFull = rows.length === limit;
++        pageEnd = rows.length
++            ? { updatedAt: Number(rows.at(-1).updated_at ?? 0), id: String(rows.at(-1).id) }
++            : null;
+         stuckRows = rows.map((r) => ({
+             id: r.id,
+             platform: r.platform,
              externalThreadId: r.external_thread_id,
              status: r.status,
              attempts: Number(r.attempts ?? 0),
@@ -3589,7 +3631,7 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
              updatedAt: Number(r.updated_at ?? 0),
              dispatchScope: r.dispatch_scope ?? null,
          }));
-@@ -175,6 +192,21 @@ export async function retryStuckPendingTasks(input) {
+@@ -175,6 +213,22 @@ export async function retryStuckPendingTasks(input) {
          return result;
      for (const row of stuckRows) {
          try {
@@ -3597,12 +3639,13 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
 +            if (inProcess?.acceptsTask &&
 +                !(await inProcess.acceptsTask(row.id, inProcess.appId))) {
 +                result.skipped += 1;
++                foreignSkipped += 1;
 +                continue;
 +            }
 +            if (inProcess?.expireTask &&
 +                inProcess.maxTaskAgeMs &&
 +                row.createdAt <= now - inProcess.maxTaskAgeMs) {
-+                if (await inProcess.expireTask(row.id))
++                if (await inProcess.expireTask(row.id, row.updatedAt))
 +                    result.markedFailed += 1;
 +                else
 +                    result.skipped += 1;
@@ -3611,39 +3654,63 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e
              if (row.status === "processing" &&
                  (await hasActiveIntegrationCampaign(row.id))) {
                  result.skipped += 1;
+@@ -252,6 +306,16 @@ export async function retryStuckPendingTasks(input) {
+             console.error(`[integrations] Failed to retry pending task ${row.id}:`, err);
+         }
+     }
++    if (pageFull && foreignSkipped > 0 && pageEnd && pagesLeft > 1) {
++        const next = await retryStuckPendingTasks({
++            ...options,
++            webhookBaseUrl: baseUrl,
++            after: pageEnd,
++            pagesLeft: pagesLeft - 1,
++        });
++        for (const key of Object.keys(result))
++            result[key] += next[key];
++    }
+     return result;
+ }
+ function getProcessingStuckAfterMs() {
 diff --git a/dist/integrations/pending-tasks-store.d.ts b/dist/integrations/pending-tasks-store.d.ts
-index d9ddc31ec85c482bcede436b85ad1ecedfca4347..4dd1dda247aeb243d937e06c53736fae45a8efa4 100644
+index d9ddc31ec85c482bcede436b85ad1ecedfca4347..05dc4e71bbffc6562479b7fa8ef1c2818769e2de 100644
 --- a/dist/integrations/pending-tasks-store.d.ts
 +++ b/dist/integrations/pending-tasks-store.d.ts
 @@ -50,6 +50,9 @@ export declare function insertPendingTask(input: {
  export declare function isDuplicateEventError(err: unknown): boolean;
  /** Fetch a pending task by id. */
  export declare function getPendingTask(id: string): Promise<PendingTask | null>;
-+export declare function failOpenPendingTask(id: string, errorMessage: string): Promise<boolean>;
++export declare function failOpenPendingTask(id: string, errorMessage: string, expectedUpdatedAt?: number): Promise<boolean>;
 +export declare function countOpenTasksForThread(platform: string, externalThreadId: string): Promise<number>;
 +export declare function hasTaskWithEventKey(externalEventKey: string): Promise<boolean>;
  export interface ResolvedIntegrationSourceContext {
      platform: "slack";
      sourceUrl: string;
 diff --git a/dist/integrations/pending-tasks-store.js b/dist/integrations/pending-tasks-store.js
-index 72b4cb62e23ed8f5c109d44e3211675c51b19f5c..9a2c4d66df93279fb0ada2ca11bb263e2014af99 100644
+index 72b4cb62e23ed8f5c109d44e3211675c51b19f5c..7af7e7f80bd6f6e608bafaac2ac5fe36c69a1f29 100644
 --- a/dist/integrations/pending-tasks-store.js
 +++ b/dist/integrations/pending-tasks-store.js
-@@ -450,6 +450,39 @@ export async function failTaskDeliveryTransition(id, errorMessage) {
+@@ -450,6 +450,46 @@ export async function failTaskDeliveryTransition(id, errorMessage) {
          throw new Error("Integration task delivery failure transition lost its race");
      }
  }
 +/**
 + * Fail a task that is still pending or processing, and return whether this
-+ * call failed it. A task another worker finished meanwhile is left alone.
++ * call failed it. With `expectedUpdatedAt`, only a row unchanged since it was
++ * read is failed, so a worker that claimed it meanwhile keeps it.
 + */
-+export async function failOpenPendingTask(id, errorMessage) {
++export async function failOpenPendingTask(id, errorMessage, expectedUpdatedAt) {
 +    await ensureTable();
++    const unchanged = expectedUpdatedAt === undefined ? "" : " AND updated_at = ?";
 +    const result = await getDbExec().execute({
 +        sql: `UPDATE integration_pending_tasks
 +          SET status = 'failed', updated_at = ?, error_message = ?, payload = '{}', external_event_key = NULL
-+          WHERE id = ? AND status IN ('pending', 'processing')`,
-+        args: [Date.now(), errorMessage.slice(0, 2000), id],
++          WHERE id = ? AND status IN ('pending', 'processing')${unchanged}`,
++        args: [
++            Date.now(),
++            errorMessage.slice(0, 2000),
++            id,
++            ...(expectedUpdatedAt === undefined ? [] : [expectedUpdatedAt]),
++        ],
 +    });
 +    return Number(result.rowsAffected ?? result.rowCount ?? 0) > 0;
 +}

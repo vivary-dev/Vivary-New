@@ -256,7 +256,11 @@ a loop cannot queue unlimited runs. A repeated event id still gets its 200
 duplicate. The count is not atomic with the insert, so the cap can pass by a
 call or two. The registry's optional `acceptsTask`, `expireTask`, and
 `maxTaskAgeMs` carry the app check and the expiry to the sweep, which also
-leaves another app's task untouched instead of moving its `updated_at`.
+leaves another app's task untouched instead of moving its `updated_at`. Those
+untouched rows stay first in the sweep's `updated_at` order, so when a full
+page held any, the sweep reads the next page, up to 10 pages a pass. The expiry
+fails a task only if its `updated_at` still matches what the sweep read, so a
+task claimed in between runs instead of expiring.
 
 `dispatchAutomationWebhookTask` in `triggers/dispatcher.js` required a stored
 API key for the active engine setting before every webhook run. Scheduled runs

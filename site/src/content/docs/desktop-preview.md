@@ -199,7 +199,8 @@ cannot show it, because Vivary hides the URL's token like a password. The URL st
 only while Vivary is open. Anyone on this computer who has the URL can start the
 automation. Vivary keeps the same port across launches. It picks ports from 42100 to 42999,
 below the range Windows reserves for Hyper-V, WSL, and Docker. If the saved port is
-unavailable when Vivary starts, Vivary picks a new one and says so. Then copy the new URL
+unavailable when Vivary starts, or an earlier build saved a port in that reserved range,
+Vivary picks a new one and says so. Then copy the new URL
 from **Details** and update the program that calls it.
 
 Vivary answers an accepted call with status 202, a repeated event with 200, and an unknown

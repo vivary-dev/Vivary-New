@@ -83,8 +83,8 @@ const registerRunner = (runnerAppId = appId) => runAutomationWebhookTaskInProces
     acceptsTask: webhookTaskBelongsToApp, expireTask: expireAutomationWebhookTask,
     maxTaskAgeMs: webhookTask.AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS });
 
-const defineWebhook = async (name, extra = {}) => {
-  const defined = await defineAutomation({ userEmail: owner, appId }, {
+const defineWebhook = async (name, extra = {}, automationAppId = appId) => {
+  const defined = await defineAutomation({ userEmail: owner, appId: automationAppId }, {
     scope: "personal", name, body: "Summarize the event in one sentence.", triggerType: "webhook", ...extra,
   });
   assert.match(defined.webhookPath, /^\/_agent-native\/automations\/webhook\/[A-Za-z0-9_-]{43}$/);
@@ -92,6 +92,7 @@ const defineWebhook = async (name, extra = {}) => {
 };
 const hookPath = await defineWebhook("hook");
 const conditionPath = await defineWebhook("conditional", { condition: "The event is about billing." });
+await defineWebhook("other-hook", {}, "other-app");
 
 const app = new H3().post("/_agent-native/automations/**", createAutomationsHandler());
 const server = createServer(toNodeHandler(app));
@@ -138,8 +139,8 @@ const age = async (id, status, outcome, agoMs) => getDbExec().execute({
   args: [status, outcome, Date.now() - agoMs, Date.now() - agoMs, id],
 });
 // The row a call leaves when its process quits before running it: queued, never dispatched.
-const queuedTask = async eventId => {
-  const resource = await resourceGetByPath(owner, "jobs/hook.md");
+const queuedTask = async (eventId, name = "hook") => {
+  const resource = await resourceGetByPath(owner, `jobs/${name}.md`);
   const id = `task-${eventId}`;
   await insertPendingTask({
     id, platform: PLATFORM, externalThreadId: `${resource.owner}:${resource.path}`, ownerEmail: owner, orgId: null,
@@ -315,6 +316,33 @@ test("a call that waited more than 24 hours is expired with a history record ins
   assert.equal(run.errorCode, "automation_webhook_expired");
   await settled();
   assert.equal(engineCalls.length, 0, "the old payload never reached a run");
+});
+
+test("an expiry leaves a call that was claimed after the sweep read it", async () => {
+  setInProcessIntegrationTaskRunner?.(null);
+  const id = await queuedTask("evt-stale-claimed");
+  await age(id, "pending", null, 25 * 60 * 60_000);
+  const [read] = await tasks();
+  // A chained dispatch claims the row between the sweep's read and its expiry.
+  await getDbExec().execute({ sql: "UPDATE integration_pending_tasks SET status = 'processing', updated_at = ? WHERE id = ?",
+    args: [Date.now(), id] });
+  assert.equal(await expireAutomationWebhookTask?.(id, Number(read.updated_at)), false);
+  const [row] = await tasks();
+  assert.equal(row.status, "processing", "the claimed row is not failed");
+  assert.deepEqual(await runsOf("hook"), [], "no expired history row");
+});
+
+test("another app's rows cannot keep this app's rows out of the sweep", async () => {
+  for (let index = 0; index < 3; index += 1) {
+    await age(await queuedTask(`evt-foreign-${index}`, "other-hook"), "pending", null, 3 * 60_000 + index);
+  }
+  const own = await queuedTask("evt-own-behind-foreign");
+  await age(own, "pending", null, 2 * 60_000);
+  const sweep = await retryStuckPendingTasks({ limit: 2 });
+  assert.equal(sweep.skipped, 3, "the other app's rows are skipped");
+  assert.equal(sweep.dispatched, 1, "this app's row, behind a full page of them, is delivered");
+  await settled(rows => rows.find(row => row.id === own)?.status === "completed");
+  assert.equal(engineCalls.length, 1);
 });
 
 test("an automation with 20 calls waiting answers new calls with 429", async () => {

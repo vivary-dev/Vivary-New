@@ -157,6 +157,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #113 second review. The desktop now shows its port notice when it replaces a saved port from the Windows
+dynamic range, the sweep reads past another app's untouched rows, and the expiry fails a call only if nothing claimed
+it since the sweep read it. Internal fixes, so the design description holds.
+
 Issue #104 review fixes. The file storage card keeps its custom-key path with Builder offers off, and the remaining
 Builder wording in errors and the code-required dialog follows the switch. No component, flow, or boundary changes.
 
