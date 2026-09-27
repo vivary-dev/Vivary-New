@@ -239,7 +239,24 @@ and a task whose process quit mid-run is reset and delivered again after the
 lease. A pending task, accepted before a quit and never started, runs about 90
 seconds after the next start, when the sweep finds it. Either way the call runs
 once to completion. A run cut off by a quit leaves its history row reading that
-the run stopped before it recorded a result.
+the run stopped before it recorded a result. The rerun starts from the
+beginning, so it can repeat a local step the cut-off run already took, such as
+a memory write. Until the rerun, later calls for the same automation wait
+behind it, because tasks of one automation run in order. A prompt reset at
+startup is not safe here: the automation's own "running" status also holds a
+rerun back until the hard timeout passes, and a second server on the same data
+folder could still own the claim.
+
+A pending task older than 24 hours is expired instead of run, so a build that
+starts after a long gap, or after an older build left calls pending, does not
+replay old payloads. The sweep fails the task and writes an errored history row
+with the code `automation_webhook_expired`. An automation with 20 calls waiting
+or running answers new calls with HTTP 429 and `Retry-After: 60`, so a caller in
+a loop cannot queue unlimited runs. A repeated event id still gets its 200
+duplicate. The count is not atomic with the insert, so the cap can pass by a
+call or two. The registry's optional `acceptsTask`, `expireTask`, and
+`maxTaskAgeMs` carry the app check and the expiry to the sweep, which also
+leaves another app's task untouched instead of moving its `updated_at`.
 
 `dispatchAutomationWebhookTask` in `triggers/dispatcher.js` required a stored
 API key for the active engine setting before every webhook run. Scheduled runs
@@ -249,13 +266,34 @@ failed with "No API key is available for this automation." for an owner whose
 key came from the launch environment under another engine, a Builder gateway,
 or a keyless local model. Event triggers keep the old check.
 
+The condition classifier calls Anthropic's API directly with a small Claude
+model, whatever provider runs the automation, and it sends the webhook payload
+there. It now takes only an Anthropic key, from the owner's settings or the
+launch environment. Before, it took the active provider's key, so an
+OpenRouter key was sent to Anthropic, rejected, and the call skipped without a
+word. Without an Anthropic key, or when Anthropic rejects it with 401 or 403,
+the call fails at once instead of retrying three times. The automation's
+history gets an errored row, with the code `automation_condition_key_missing`
+or `automation_condition_key_rejected` and a message that names the cause, and
+its last status reads as an error. A network error or other answer is retried
+as before. A call that fails all three attempts for another reason also gets an
+errored history row, `automation_webhook_failed`. Defining a condition is not
+refused, so an owner without an Anthropic key learns of the problem from the
+first call's history row.
+
 The Automations details dialog showed only the path. `AgentJobsTab.js` now
 shows the full URL with the page's origin, from `automationWebhookUrl` in
-`client/integrations/webhook-url.js`, and a "Who can call it" line. A loopback
-URL reads "Reachable only from this computer while Vivary is open." Any other
-reads "Anyone with this URL can start this automation." `isLoopbackWebhookUrl`
-decides, because `isNonPublicWebhookUrl` also counts LAN and plain HTTP hosts,
-which other computers can reach.
+`client/integrations/webhook-url.js`, and a "Who can call it" line. The page
+origin cannot tell a local server from an owner-only proxy, so
+`dist/shared/automation-webhook-reach.js` holds the reach that the host sets,
+and the page config carries it to the browser, like the Builder offers switch.
+Vivary's `server/plugins/00-webhook-reach.ts` sets it from the access mode.
+Local mode reads "Reachable only from this computer while Vivary is open."
+Private-proxy mode reads "Reachable only through your private Zo access."
+Hosted mode reads "Anyone with this URL can start this automation." Without a
+host setting, `isLoopbackWebhookUrl` picks the local or the public wording,
+because `isNonPublicWebhookUrl` also counts LAN and plain HTTP hosts, which
+other computers can reach.
 
 The token is an app secret. Credential redaction holds every stored secret, so
 the token becomes a placeholder in tool results, threads, logs, and run events.
@@ -273,7 +311,12 @@ by a quit runs once through the sweep, that a 6-minute-old `in-process` task is
 not reset while one past the lease is recovered and runs once, that a claimed
 task is skipped, that another app's task stays pending, that a condition still
 needs a key, the URL helpers, and a source pin on the registration. It failed
-10 of 10 on the previous patch.
+10 of 10 on the previous patch. Review fixes add cases for a condition with only
+an OpenRouter key and one whose Anthropic key is rejected, each failing at once
+with an errored history row and a stubbed Anthropic endpoint, a 25-hour-old
+call expired without a run, the 429 cap with its duplicate answer, another
+app's task left untouched by the sweep, and the reach in the page config. Those
+7 cases fail on the first version of this patch.
 
 A live check on Zo ran `bin/start.mjs` in local mode with a fake Builder
 gateway, no stored provider key, and a 40-second hard timeout. A call to a new

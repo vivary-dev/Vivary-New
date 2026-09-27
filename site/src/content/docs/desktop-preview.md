@@ -197,16 +197,27 @@ agent for a webhook automation, then copy the URL from **Manage** > **Details**.
 cannot show it, because Vivary hides the URL's token like a password. The URL starts with
 `http://127.0.0.1:` and the app's port, so only programs on this computer can call it, and
 only while Vivary is open. Anyone on this computer who has the URL can start the
-automation. Vivary keeps the same port across launches. If another program holds that port
-when Vivary starts, Vivary picks a new one and says so. Then copy the new URL from
-**Details** and update the program that calls it.
+automation. Vivary keeps the same port across launches. It picks ports from 42100 to 42999,
+below the range Windows reserves for Hyper-V, WSL, and Docker. If the saved port is
+unavailable when Vivary starts, Vivary picks a new one and says so. Then copy the new URL
+from **Details** and update the program that calls it.
 
 Vivary answers an accepted call with status 202, a repeated event with 200, and an unknown
 URL with 404. A call that repeats an event id, sent as the `X-Webhook-Event-Id` header or
-as an `id` field of a JSON body, runs once. A call without an id always runs. A call that
-Vivary accepted before it quit runs once after you reopen Vivary. The request body reaches
-the run as untrusted data, and the run has the same limits as any other. Each webhook run
-writes a chat thread whose name starts with `Trigger: <name>`.
+as an `id` field of a JSON body, runs once. A call without an id always runs. When 20 calls
+for one automation are already waiting, Vivary answers new calls with 429. A call that
+Vivary accepted before it quit runs once after you reopen Vivary, unless it waited more
+than 24 hours. Then it is not run, and **Details** shows it as an error. A call whose run
+was cut off by the quit runs again from the start, so a step it already took, such as a
+memory write, can happen twice. The request body reaches the run as untrusted data, and
+the run has the same limits as any other. Each webhook run writes a chat thread whose name
+starts with `Trigger: <name>`.
+
+An automation can have a condition that decides whether a call runs. Vivary checks the
+condition with Anthropic's API, whatever provider you use for chats, and sends the request
+body to Anthropic for the check. It needs an Anthropic API key. Without one, a call to that
+automation does not run, and **Details** shows the reason. Remove the condition, or add an
+Anthropic key.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
@@ -237,7 +248,9 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
 | A webhook call cannot connect | Vivary must be open, and the caller must run on this computer. Compare the port in the caller's URL with **Manage** > **Details**. After Vivary reports a port change, update the caller. |
 | A webhook call gets 404 | The URL is wrong or the automation was deleted. Copy the URL again from **Manage** > **Details**. |
-| A webhook call runs late after a restart | A call accepted before a quit runs about 90 seconds after the next start. A call whose run was cut off by the quit runs again after the claim lease, 15 minutes by default. |
+| A webhook call runs late after a restart | A call accepted before a quit runs about 90 seconds after the next start. A call whose run was cut off by the quit runs again after the claim lease, 15 minutes by default, and later calls for that automation wait behind it. |
+| A webhook call gets 429 | The automation has 20 calls waiting. Wait for them to run, then send the call again. |
+| A webhook automation with a condition never runs | Conditions need an Anthropic API key. Open **Manage** > **Details** for the reason, then add an Anthropic key or remove the condition. |
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
 does not publish your laptop to the internet. Consult the

@@ -2166,18 +2166,19 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..a93c8008c7fead57e27f0b5f87540aa2
                  const pageOrigin = typeof window !== "undefined" && window.location?.origin
                      ? window.location.origin
 diff --git a/dist/client/agent-page/AgentJobsTab.js b/dist/client/agent-page/AgentJobsTab.js
-index 8faa0bc883197d5e0e03469947ef0854cbf671ab..725df737b1bef436fac2bab8957a8afc03e22c02 100644
+index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad777eeb427 100644
 --- a/dist/client/agent-page/AgentJobsTab.js
 +++ b/dist/client/agent-page/AgentJobsTab.js
-@@ -6,6 +6,7 @@ import { AgentAskPopover } from "../AgentAskPopover.js";
+@@ -6,6 +6,8 @@ import { AgentAskPopover } from "../AgentAskPopover.js";
  import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "../components/ui/dialog.js";
  import { Popover, PopoverContent, PopoverTrigger, } from "../components/ui/popover.js";
  import { useFormatters, useT } from "../i18n.js";
++import { automationWebhookReach } from "../../shared/automation-webhook-reach.js";
 +import { automationWebhookUrl, isLoopbackWebhookUrl, } from "../integrations/webhook-url.js";
  import { automationCreationContext } from "../settings/AutomationsSection.js";
  import { AgentEmptyState } from "./AgentEmptyState.js";
  import { AgentTabFrame } from "./AgentTabFrame.js";
-@@ -100,11 +101,24 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
+@@ -100,11 +102,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
          });
      }
      if (entry.kind === "automation" && entry.triggerType === "webhook") {
@@ -2189,21 +2190,27 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..725df737b1bef436fac2bab8957a8afc
              mono: true,
          });
 +        if (webhookUrl) {
++            const reach = automationWebhookReach() ??
++                (isLoopbackWebhookUrl(webhookUrl) ? "local" : "public");
 +            fields.push({
 +                label: t("jobs.webhookAccess", { defaultValue: "Who can call it" }),
-+                value: isLoopbackWebhookUrl(webhookUrl)
++                value: reach === "local"
 +                    ? t("jobs.webhookLocalOnly", {
 +                        defaultValue: "Reachable only from this computer while Vivary is open.",
 +                    })
-+                    : t("jobs.webhookPublic", {
-+                        defaultValue: "Anyone with this URL can start this automation.",
-+                    }),
++                    : reach === "owner-proxy"
++                        ? t("jobs.webhookOwnerProxy", {
++                            defaultValue: "Reachable only through your private Zo access.",
++                        })
++                        : t("jobs.webhookPublic", {
++                            defaultValue: "Anyone with this URL can start this automation.",
++                        }),
 +            });
 +        }
      }
      fields.push({
          label: t("jobs.nextRun", { defaultValue: "Next run" }),
-@@ -347,7 +361,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -347,7 +368,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                      if (!open && !runAutomationMutation.isPending)
                          setRunTarget(null);
                  }, children: _jsxs(DialogContent, { children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: t("jobs.runNowTitle", { defaultValue: "Run automation now?" }) }), _jsx(DialogDescription, { children: t("jobs.runNowDescription", {
@@ -3173,31 +3180,38 @@ index ae2729bfa87006866bbbc618275915ec7ad822d4..fd716f89a85c3f2d23df60e9b650663a
              "</chat-file-attachment-upload-error>",
 diff --git a/dist/integrations/automation-webhook-task.d.ts b/dist/integrations/automation-webhook-task.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4bef4d7617e68f6a4da455dcd4c99d3787ca476f
+index 0000000000000000000000000000000000000000..0382f3e4fae4afc90a4d3a833ba04b95a9febc3b
 --- /dev/null
 +++ b/dist/integrations/automation-webhook-task.d.ts
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,13 @@
 +import type { PendingTask } from "./pending-tasks-store.js";
 +export type AutomationWebhookTaskOutcome = "completed" | "retry" | "failed" | "invalid";
 +export declare function runClaimedAutomationWebhookTask(task: PendingTask, options?: {
 +    event?: unknown;
 +    baseUrl?: string;
 +}): Promise<AutomationWebhookTaskOutcome>;
++export declare const AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS: number;
++export declare const AUTOMATION_WEBHOOK_EXPIRED_MESSAGE: string;
++export declare function webhookTaskBelongsToApp(taskId: string, appId?: string | null): Promise<boolean>;
++export declare function expireAutomationWebhookTask(taskId: string): Promise<boolean>;
 +export declare function runAutomationWebhookTaskInProcess(taskId: string, options?: {
 +    appId?: string | null;
 +}): Promise<AutomationWebhookTaskOutcome | "skipped">;
 diff --git a/dist/integrations/automation-webhook-task.js b/dist/integrations/automation-webhook-task.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e27421602b5fe
+index 0000000000000000000000000000000000000000..9b6b22ea08e0f2261637f898350f379b0d0f1802
 --- /dev/null
 +++ b/dist/integrations/automation-webhook-task.js
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,144 @@
 +import { jobBelongsToApp, parseJobResource } from "../jobs/frontmatter.js";
 +import { resourceGetByPath } from "../resources/store.js";
 +import { runWithRequestContext } from "../server/request-context.js";
-+import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
++import { AutomationWebhookRefusedError, dispatchAutomationWebhookTask, recordAutomationWebhookFailure, } from "../triggers/dispatcher.js";
 +import { dispatchPendingIntegrationTask } from "./integration-durable-dispatch.js";
-+import { claimPendingTask, getNextPendingTaskForThread, getPendingTask, MAX_PENDING_TASK_ATTEMPTS, markTaskCompleted, markTaskFailed, markTaskRetryable, } from "./pending-tasks-store.js";
++import { claimPendingTask, failOpenPendingTask, getNextPendingTaskForThread, getPendingTask, MAX_PENDING_TASK_ATTEMPTS, markTaskCompleted, markTaskFailed, markTaskRetryable, } from "./pending-tasks-store.js";
++/** A queued webhook call older than this is expired instead of run. */
++export const AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS = 24 * 60 * 60 * 1000;
++export const AUTOMATION_WEBHOOK_EXPIRED_MESSAGE = "This webhook call waited more than 24 hours, for example because the app was closed, so it was not run. No delivery was confirmed.";
 +function parseWebhookTaskPayload(task) {
 +    try {
 +        const payload = JSON.parse(task.payload);
@@ -3217,7 +3231,9 @@ index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e2742
 + * - `retry`: the automation is already running. The row returns to pending
 + *   with its attempts reset, and the retry sweep delivers it again.
 + * - `failed`: the run threw. The row returns to pending until its attempts
-+ *   run out, then fails. The error is logged here.
++ *   run out, then fails with an errored history row. A refusal, such as a
++ *   condition without a usable key, fails the row at once. The dispatcher
++ *   has recorded it. The error is logged here.
 + * - `invalid`: the row does not hold a webhook task. The row fails.
 + */
 +export async function runClaimedAutomationWebhookTask(task, options = {}) {
@@ -3242,9 +3258,14 @@ index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e2742
 +    }
 +    catch (error) {
 +        const message = error instanceof Error ? error.message : String(error);
++        const refused = error instanceof AutomationWebhookRefusedError;
 +        try {
-+            if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
++            if (refused) {
 +                await markTaskFailed(task.id, message);
++            }
++            else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
++                await markTaskFailed(task.id, message);
++                await recordAutomationWebhookFailure(taskPayload, `The webhook call failed ${task.attempts} times and will not be retried. Last error: ${message.replace(/\.$/, "")}. No delivery was confirmed.`, "automation_webhook_failed", { userEmail: task.ownerEmail, orgId: task.orgId });
 +            }
 +            else {
 +                await markTaskRetryable(task.id, message);
@@ -3281,7 +3302,7 @@ index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e2742
 + * automation is gone or unreadable counts as this app's, so the dispatcher
 + * records why it cannot run.
 + */
-+async function webhookTaskBelongsToApp(taskId, appId) {
++export async function webhookTaskBelongsToApp(taskId, appId) {
 +    const task = await getPendingTask(taskId);
 +    const payload = task ? parseWebhookTaskPayload(task) : null;
 +    if (!payload)
@@ -3290,6 +3311,21 @@ index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e2742
 +    if (!resource || resource.id !== payload.automationId)
 +        return true;
 +    return jobBelongsToApp(parseJobResource(resource.content).meta, appId);
++}
++/**
++ * Fail a queued webhook call that waited past AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS
++ * instead of running it with an old payload, and record it in the
++ * automation's history. Returns whether this call expired it.
++ */
++export async function expireAutomationWebhookTask(taskId) {
++    const task = await getPendingTask(taskId);
++    const payload = task ? parseWebhookTaskPayload(task) : null;
++    if (!(await failOpenPendingTask(taskId, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE)))
++        return false;
++    if (payload) {
++        await recordAutomationWebhookFailure(payload, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, "automation_webhook_expired", { userEmail: task.ownerEmail, orgId: task.orgId });
++    }
++    return true;
 +}
 +/**
 + * The in-process runner for automation webhook tasks. It claims the task, so
@@ -3312,10 +3348,10 @@ index 0000000000000000000000000000000000000000..17f7c83e0600b57afbf42ea0108e2742
 +    }
 +}
 diff --git a/dist/integrations/integration-durable-dispatch.d.ts b/dist/integrations/integration-durable-dispatch.d.ts
-index aa81642530ecac2b5c70aa0febe3e86b250b1905..2c0d9bdeaee9d84825bc7e8e6eaa2895c63a9cd2 100644
+index aa81642530ecac2b5c70aa0febe3e86b250b1905..6705ed22450a9b823bcda5c044f6c2a60f4c0ad1 100644
 --- a/dist/integrations/integration-durable-dispatch.d.ts
 +++ b/dist/integrations/integration-durable-dispatch.d.ts
-@@ -1,7 +1,14 @@
+@@ -1,7 +1,25 @@
  import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured } from "./integration-durable-dispatch-config.js";
  export { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured, };
 -export type IntegrationDispatchOutcome = "background-acknowledged" | "portable-unconfirmed" | "failed";
@@ -3327,15 +3363,26 @@ index aa81642530ecac2b5c70aa0febe3e86b250b1905..2c0d9bdeaee9d84825bc7e8e6eaa2895
 +export declare function setInProcessIntegrationTaskRunner(runner: InProcessIntegrationTaskRunner | null, options?: {
 +    platforms?: readonly string[];
 +    appId?: string;
++    acceptsTask?: (taskId: string, appId: string | null) => Promise<boolean>;
++    expireTask?: (taskId: string) => Promise<boolean>;
++    maxTaskAgeMs?: number;
 +}): void;
++export declare function inProcessIntegrationTaskRunnerFor(platform: string): {
++    run: InProcessIntegrationTaskRunner;
++    platforms: Set<string>;
++    appId: string | null;
++    acceptsTask: ((taskId: string, appId: string | null) => Promise<boolean>) | null;
++    expireTask: ((taskId: string) => Promise<boolean>) | null;
++    maxTaskAgeMs: number | null;
++} | null;
  export interface IntegrationDispatchTaskScope {
      platform: string;
      externalThreadId: string;
 diff --git a/dist/integrations/integration-durable-dispatch.js b/dist/integrations/integration-durable-dispatch.js
-index c67091b5fd7c9ce643192317b2606c211dc8fe09..7dd4ddd1325270a41da10bad996a5930e41567af 100644
+index c67091b5fd7c9ce643192317b2606c211dc8fe09..3f97d146fabe6b583674459fd7d3d0fb916a09ad 100644
 --- a/dist/integrations/integration-durable-dispatch.js
 +++ b/dist/integrations/integration-durable-dispatch.js
-@@ -5,6 +5,39 @@ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_E
+@@ -5,6 +5,52 @@ import { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_E
  import { recordPendingTaskDispatchAttempt } from "./pending-tasks-store.js";
  export { INTEGRATION_DURABLE_DISPATCH_ENV, INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV, INTEGRATION_PROCESS_TASK_PATH, INTEGRATION_RECOVERY_RUNTIME_MARKER, INTEGRATION_RETRY_SWEEP_PATH, INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, isInIntegrationRecoveryRuntime, isIntegrationDurableDispatchConfigured, };
  export const INTEGRATION_CAMPAIGN_PROCESSOR_FIELD = "__integrationCampaignContinuation";
@@ -3355,6 +3402,12 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..7dd4ddd1325270a41da10bad996a5930
 + * and log it, because the dispatch does not wait for it. `appId` names the
 + * app whose tasks it runs, and the runner receives it. One process holds one
 + * runner.
++ *
++ * The retry sweep uses the optional hooks. `acceptsTask(taskId, appId)` says
++ * whether a task is this app's. The sweep leaves another app's task as it is,
++ * so it does not keep moving that task's `updated_at` ahead of the owning
++ * app's sweep. `expireTask(taskId)` ends a task older than `maxTaskAgeMs`
++ * instead of running it with an old payload.
 + */
 +export function setInProcessIntegrationTaskRunner(runner, options) {
 +    inProcessIntegrationTaskRunner = runner
@@ -3362,20 +3415,27 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..7dd4ddd1325270a41da10bad996a5930
 +            run: runner,
 +            platforms: new Set(options?.platforms ?? []),
 +            appId: options?.appId?.trim() || null,
++            acceptsTask: options?.acceptsTask ?? null,
++            expireTask: options?.expireTask ?? null,
++            maxTaskAgeMs: options?.maxTaskAgeMs ?? null,
 +        }
 +        : null;
 +}
-+function inProcessRunnerForTask(input) {
-+    if (input.campaignContinuation)
-+        return null;
-+    return inProcessIntegrationTaskRunner?.platforms.has(input.task.platform)
++/** The registered runner for a platform, or null when that platform self-dispatches. */
++export function inProcessIntegrationTaskRunnerFor(platform) {
++    return inProcessIntegrationTaskRunner?.platforms.has(platform)
 +        ? inProcessIntegrationTaskRunner
 +        : null;
++}
++function inProcessRunnerForTask(input) {
++    return input.campaignContinuation
++        ? null
++        : inProcessIntegrationTaskRunnerFor(input.task.platform);
 +}
  export function integrationDispatchScopeValue(task) {
      const value = task.platformContext?.channelId;
      return typeof value === "string" && value.trim() ? value.trim() : null;
-@@ -71,6 +104,20 @@ function logDispatch(taskId, outcome, startedAt) {
+@@ -71,6 +117,20 @@ function logDispatch(taskId, outcome, startedAt) {
  }
  export async function dispatchPendingIntegrationTask(input) {
      const startedAt = Date.now();
@@ -3397,15 +3457,19 @@ index c67091b5fd7c9ce643192317b2606c211dc8fe09..7dd4ddd1325270a41da10bad996a5930
      if (input.campaignContinuation &&
          !durable &&
 diff --git a/dist/integrations/pending-tasks-retry-job.js b/dist/integrations/pending-tasks-retry-job.js
-index d9006e9e1f631be07b165c78dc28242c3284211f..5c23005a0bbd27af055c539d71db473da7d9567b 100644
+index d9006e9e1f631be07b165c78dc28242c3284211f..e49706606e52dd1f17b28b98d4a21d6e37c55b95 100644
 --- a/dist/integrations/pending-tasks-retry-job.js
 +++ b/dist/integrations/pending-tasks-retry-job.js
-@@ -1,4 +1,5 @@
+@@ -1,7 +1,8 @@
  import { getDbExec } from "../db/client.js";
 +import { automationRunClaimLeaseMs } from "../jobs/run-history.js";
  import { startIntervalJob, } from "../server/interval-job.js";
  import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
- import { configuredIntegrationDurableDispatchScopes, dispatchPendingIntegrationTask, isIntegrationDurableDispatchEnabledForTask, } from "./integration-durable-dispatch.js";
+-import { configuredIntegrationDurableDispatchScopes, dispatchPendingIntegrationTask, isIntegrationDurableDispatchEnabledForTask, } from "./integration-durable-dispatch.js";
++import { configuredIntegrationDurableDispatchScopes, dispatchPendingIntegrationTask, inProcessIntegrationTaskRunnerFor, isIntegrationDurableDispatchEnabledForTask, } from "./integration-durable-dispatch.js";
+ import { ensurePendingTasksTable, MAX_PENDING_TASK_ATTEMPTS, } from "./pending-tasks-store.js";
+ /**
+  * Retries stuck integration webhook tasks.
 @@ -38,6 +39,17 @@ const PENDING_STUCK_AFTER_MS = 90_000;
  const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
  const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
@@ -3424,7 +3488,7 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..5c23005a0bbd27af055c539d71db473d
  /** After this many attempts we give up and mark the task failed */
  const DEFAULT_SWEEP_LIMIT = 100;
  let job = null;
-@@ -105,6 +117,7 @@ export async function retryStuckPendingTasks(input) {
+@@ -105,18 +117,21 @@ export async function retryStuckPendingTasks(input) {
      const pendingCutoff = now - PENDING_STUCK_AFTER_MS;
      const processingCutoff = now - getProcessingStuckAfterMs();
      const durableProcessingCutoff = now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
@@ -3432,7 +3496,11 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..5c23005a0bbd27af055c539d71db473d
      let stuckRows;
      try {
          const { rows } = await client.execute({
-@@ -115,8 +128,10 @@ export async function retryStuckPendingTasks(input) {
+             sql: `
+-        SELECT id, platform, external_thread_id, dispatch_scope, status, attempts, updated_at
++        SELECT id, platform, external_thread_id, dispatch_scope, status, attempts, created_at, updated_at
+           FROM integration_pending_tasks
+          WHERE ((status = 'pending' AND created_at <= ? AND updated_at <= ?)
              OR (status = 'processing' AND (
                (last_dispatch_outcome = 'background-acknowledged'
                  AND updated_at <= ?)
@@ -3452,6 +3520,94 @@ index d9006e9e1f631be07b165c78dc28242c3284211f..5c23005a0bbd27af055c539d71db473d
                  processingCutoff,
                  ...scopeSql.args,
                  limit,
+@@ -142,6 +158,7 @@ export async function retryStuckPendingTasks(input) {
+             externalThreadId: r.external_thread_id,
+             status: r.status,
+             attempts: Number(r.attempts ?? 0),
++            createdAt: Number(r.created_at ?? 0),
+             updatedAt: Number(r.updated_at ?? 0),
+             dispatchScope: r.dispatch_scope ?? null,
+         }));
+@@ -175,6 +192,21 @@ export async function retryStuckPendingTasks(input) {
+         return result;
+     for (const row of stuckRows) {
+         try {
++            const inProcess = inProcessIntegrationTaskRunnerFor(row.platform);
++            if (inProcess?.acceptsTask &&
++                !(await inProcess.acceptsTask(row.id, inProcess.appId))) {
++                result.skipped += 1;
++                continue;
++            }
++            if (inProcess?.expireTask &&
++                inProcess.maxTaskAgeMs &&
++                row.createdAt <= now - inProcess.maxTaskAgeMs) {
++                if (await inProcess.expireTask(row.id))
++                    result.markedFailed += 1;
++                else
++                    result.skipped += 1;
++                continue;
++            }
+             if (row.status === "processing" &&
+                 (await hasActiveIntegrationCampaign(row.id))) {
+                 result.skipped += 1;
+diff --git a/dist/integrations/pending-tasks-store.d.ts b/dist/integrations/pending-tasks-store.d.ts
+index d9ddc31ec85c482bcede436b85ad1ecedfca4347..4dd1dda247aeb243d937e06c53736fae45a8efa4 100644
+--- a/dist/integrations/pending-tasks-store.d.ts
++++ b/dist/integrations/pending-tasks-store.d.ts
+@@ -50,6 +50,9 @@ export declare function insertPendingTask(input: {
+ export declare function isDuplicateEventError(err: unknown): boolean;
+ /** Fetch a pending task by id. */
+ export declare function getPendingTask(id: string): Promise<PendingTask | null>;
++export declare function failOpenPendingTask(id: string, errorMessage: string): Promise<boolean>;
++export declare function countOpenTasksForThread(platform: string, externalThreadId: string): Promise<number>;
++export declare function hasTaskWithEventKey(externalEventKey: string): Promise<boolean>;
+ export interface ResolvedIntegrationSourceContext {
+     platform: "slack";
+     sourceUrl: string;
+diff --git a/dist/integrations/pending-tasks-store.js b/dist/integrations/pending-tasks-store.js
+index 72b4cb62e23ed8f5c109d44e3211675c51b19f5c..9a2c4d66df93279fb0ada2ca11bb263e2014af99 100644
+--- a/dist/integrations/pending-tasks-store.js
++++ b/dist/integrations/pending-tasks-store.js
+@@ -450,6 +450,39 @@ export async function failTaskDeliveryTransition(id, errorMessage) {
+         throw new Error("Integration task delivery failure transition lost its race");
+     }
+ }
++/**
++ * Fail a task that is still pending or processing, and return whether this
++ * call failed it. A task another worker finished meanwhile is left alone.
++ */
++export async function failOpenPendingTask(id, errorMessage) {
++    await ensureTable();
++    const result = await getDbExec().execute({
++        sql: `UPDATE integration_pending_tasks
++          SET status = 'failed', updated_at = ?, error_message = ?, payload = '{}', external_event_key = NULL
++          WHERE id = ? AND status IN ('pending', 'processing')`,
++        args: [Date.now(), errorMessage.slice(0, 2000), id],
++    });
++    return Number(result.rowsAffected ?? result.rowCount ?? 0) > 0;
++}
++/** How many tasks of one provider thread are waiting or running. */
++export async function countOpenTasksForThread(platform, externalThreadId) {
++    await ensureTable();
++    const { rows } = await getDbExec().execute({
++        sql: `SELECT COUNT(*) AS open FROM integration_pending_tasks
++          WHERE platform = ? AND external_thread_id = ? AND status IN ('pending', 'processing')`,
++        args: [platform, externalThreadId],
++    });
++    return Number(rows[0]?.open ?? 0);
++}
++/** Whether a task with this external event key is stored. */
++export async function hasTaskWithEventKey(externalEventKey) {
++    await ensureTable();
++    const { rows } = await getDbExec().execute({
++        sql: `SELECT 1 FROM integration_pending_tasks WHERE external_event_key = ? LIMIT 1`,
++        args: [externalEventKey],
++    });
++    return rows.length > 0;
++}
+ /** Mark a task as failed and stash an error message. */
+ export async function markTaskFailed(id, errorMessage) {
+     await ensureTable();
 diff --git a/dist/integrations/plugin.js b/dist/integrations/plugin.js
 index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f4ab7bf79 100644
 --- a/dist/integrations/plugin.js
@@ -4099,21 +4255,22 @@ index 0000000000000000000000000000000000000000..fbd2cbf498ed027b0737f4169df596fe
 +    return restricted;
 +}
 diff --git a/dist/localization/default-messages.d.ts b/dist/localization/default-messages.d.ts
-index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..d6103c769e2ea7f430930f419a3859d98a6ade05 100644
+index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..917696717d4c1a520a3a1f0799416e4179c84dd7 100644
 --- a/dist/localization/default-messages.d.ts
 +++ b/dist/localization/default-messages.d.ts
-@@ -742,6 +742,9 @@ declare const messages: {
+@@ -742,6 +742,10 @@ declare const messages: {
          webhookTrigger: string;
          webhookUrl: string;
          webhookUrlHint: string;
 +        webhookAccess: string;
 +        webhookLocalOnly: string;
++        webhookOwnerProxy: string;
 +        webhookPublic: string;
          deleteAutomationTitle: string;
          deleteAutomationDescription: string;
          runNow: string;
 diff --git a/dist/localization/default-messages.js b/dist/localization/default-messages.js
-index a534663feca2ca8960b6782390c5a97f944c35b5..020e16ab5f6115f046be7ba38ca2edd31a266779 100644
+index a534663feca2ca8960b6782390c5a97f944c35b5..341f48649e7fae17714b0a68e29823b6527582f8 100644
 --- a/dist/localization/default-messages.js
 +++ b/dist/localization/default-messages.js
 @@ -729,7 +729,7 @@ const messages = {
@@ -4125,12 +4282,13 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..020e16ab5f6115f046be7ba38ca2edd3
          automationEventTrigger: "On {{event}}",
          webhook: "Webhook",
          automationWebhookDetails: "Runs when a webhook is received.",
-@@ -748,17 +748,20 @@ const messages = {
+@@ -748,17 +748,21 @@ const messages = {
          webhookTrigger: "Webhook-triggered",
          webhookUrl: "Webhook URL",
          webhookUrlHint: "Paste this URL into a service that sends HTTP POST webhooks.",
 +        webhookAccess: "Who can call it",
 +        webhookLocalOnly: "Reachable only from this computer while Vivary is open.",
++        webhookOwnerProxy: "Reachable only through your private Zo access.",
 +        webhookPublic: "Anyone with this URL can start this automation.",
          deleteAutomationTitle: "Delete automation?",
          deleteAutomationDescription: "This permanently removes the automation and cannot be undone.",
@@ -4598,7 +4756,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..70e37f46afb84db0952a644dff7ec65159d2aa3e 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c17f64211 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -4937,7 +5095,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..70e37f46afb84db0952a644dff7ec651
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5748,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5748,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -4969,17 +5127,20 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..70e37f46afb84db0952a644dff7ec651
 +            // settles.
 +            if (ownsInProcessScheduler) {
 +                const { setInProcessIntegrationTaskRunner } = await import("../integrations/integration-durable-dispatch.js");
-+                const { runAutomationWebhookTaskInProcess } = await import("../integrations/automation-webhook-task.js");
++                const { AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS, expireAutomationWebhookTask, runAutomationWebhookTaskInProcess, webhookTaskBelongsToApp, } = await import("../integrations/automation-webhook-task.js");
 +                const { AUTOMATION_WEBHOOK_PLATFORM } = await import("../triggers/webhook.js");
 +                setInProcessIntegrationTaskRunner(runAutomationWebhookTaskInProcess, {
 +                    platforms: [AUTOMATION_WEBHOOK_PLATFORM],
 +                    appId: options?.appId,
++                    acceptsTask: webhookTaskBelongsToApp,
++                    expireTask: expireAutomationWebhookTask,
++                    maxTaskAgeMs: AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS,
 +                });
 +            }
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5796,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5799,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",
@@ -4988,20 +5149,24 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..70e37f46afb84db0952a644dff7ec651
          });
      };
 diff --git a/dist/server/app-origin-config.js b/dist/server/app-origin-config.js
-index 3a0b26044a6fced7857ce5a19cd54b19c484bac9..44c8025541448c9ddeb9a9e47803b7bcc18f1eca 100644
+index 3a0b26044a6fced7857ce5a19cd54b19c484bac9..9de7d6cd502551f576edd9f6aa9d1974b1a61101 100644
 --- a/dist/server/app-origin-config.js
 +++ b/dist/server/app-origin-config.js
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 +import { builderOffersEnabled } from "../shared/builder-offers.js";
++import { automationWebhookReach } from "../shared/automation-webhook-reach.js";
  import { normalizeAppBasePath } from "./app-base-path.js";
  function workspaceAppMountPathsFromJson(value) {
      if (!value?.trim())
-@@ -66,6 +67,7 @@ export function resolvePublicAppOriginConfig() {
+@@ -66,6 +68,10 @@ export function resolvePublicAppOriginConfig() {
              : {}),
          ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
          ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
 +        ...(builderOffersEnabled() ? {} : { builderOffers: false }),
++        ...(automationWebhookReach()
++            ? { automationWebhookReach: automationWebhookReach() }
++            : {}),
      };
      return Object.keys(resolved).length > 0 ? resolved : null;
  }
@@ -5028,26 +5193,28 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d
              ...(opts.code && { code: opts.code }),
              strikes,
 diff --git a/dist/server/index.d.ts b/dist/server/index.d.ts
-index ef529363366369eb3b9951325fa467bdf579c1a8..b5ad57476678a85c4c01526afb22e52335d2f426 100644
+index ef529363366369eb3b9951325fa467bdf579c1a8..8bf22a84bb7b6998d9bfe6723bd322f93e26db72 100644
 --- a/dist/server/index.d.ts
 +++ b/dist/server/index.d.ts
-@@ -43,6 +43,7 @@ export { createThread, getThread, listThreads, updateThreadData, deleteThread, s
+@@ -43,6 +43,8 @@ export { createThread, getThread, listThreads, updateThreadData, deleteThread, s
  export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
  export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, type CoreRoutesPluginOptions, } from "./core-routes-plugin.js";
  export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 +export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
++export { automationWebhookReach, setAutomationWebhookReach, } from "../shared/automation-webhook-reach.js";
  export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, type RuntimeConfigEnvironment, type RuntimeConfigIssue, type RuntimeConfigIssueCode, type RuntimeConfigIssueSeverity, type RuntimeConfigPhase, type RuntimeConfigReport, type RuntimeConfigRequirements, } from "../shared/runtime-config.js";
  export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, type AgentNativeOgImageInput, } from "./social-og-image.js";
  export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 diff --git a/dist/server/index.js b/dist/server/index.js
-index 329970038cc7e238469045f3cd119647e7cfdfc6..2fb58af7d7be0033254b44b14eeaba1f989e5441 100644
+index 329970038cc7e238469045f3cd119647e7cfdfc6..82dd9d41cabd58eebcb6a9cadebbad600a59d067 100644
 --- a/dist/server/index.js
 +++ b/dist/server/index.js
-@@ -43,6 +43,7 @@ export { configureAgentNativeEmbeddedEnvironment, createAgentNativeEmbeddedAuthO
+@@ -43,6 +43,8 @@ export { configureAgentNativeEmbeddedEnvironment, createAgentNativeEmbeddedAuthO
  export { createThread, getThread, listThreads, updateThreadData, deleteThread, setThreadArchived, setThreadPinned, setThreadScope, } from "../chat-threads/store.js";
  export { createResourcesPlugin, defaultResourcesPlugin, } from "./resources-plugin.js";
  export { createCoreRoutesPlugin, defaultCoreRoutesPlugin, FRAMEWORK_ROUTE_PREFIX, } from "./core-routes-plugin.js";
 +export { builderOffersEnabled, setBuilderOffersEnabled, } from "../shared/builder-offers.js";
++export { automationWebhookReach, setAutomationWebhookReach, } from "../shared/automation-webhook-reach.js";
  export { buildRuntimeConfigPrompt, formatRuntimeConfigReport, getRuntimeConfigReport, parseRuntimeConfigReport, runtimeConfigRequirementsFromSearchParams, } from "../shared/runtime-config.js";
  export { AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_HEIGHT, AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL, AGENT_NATIVE_OG_IMAGE_WIDTH, agentNativeOgImageResponseHeaders, createAgentNativeOgImageHandler, renderAgentNativeOgImagePng, renderAgentNativeOgImageSvg, } from "./social-og-image.js";
  export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
@@ -5161,6 +5328,42 @@ index 6b282d84cfb33d21437daf39ea80fab34790583d..90b0bb9bbd6ad7ce848f88df94a7401c
              };
          }
          return await callWhisperCompat({
+diff --git a/dist/shared/automation-webhook-reach.d.ts b/dist/shared/automation-webhook-reach.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8bddc69a3b754a8c36ca8c93339ad8972a6b1368
+--- /dev/null
++++ b/dist/shared/automation-webhook-reach.d.ts
+@@ -0,0 +1,3 @@
++export type AutomationWebhookReach = "local" | "owner-proxy" | "public";
++export declare function setAutomationWebhookReach(reach: AutomationWebhookReach | undefined): void;
++export declare function automationWebhookReach(): AutomationWebhookReach | null;
+diff --git a/dist/shared/automation-webhook-reach.js b/dist/shared/automation-webhook-reach.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..96de576aca94b4a94b420a78c2185d399408c18a
+--- /dev/null
++++ b/dist/shared/automation-webhook-reach.js
+@@ -0,0 +1,21 @@
++/**
++ * Who can reach this app's automation webhook URLs, as the host knows it:
++ * "local" (the loopback address of this computer), "owner-proxy" (a private
++ * proxy that admits only the owner), or "public". The page origin cannot tell
++ * these apart, so the host sets it. Unset, the Automations page falls back to
++ * reading the origin.
++ *
++ * Like the Builder offers switch, the server keeps the value on globalThis and
++ * the browser reads it from the page config.
++ */
++const REACH_KEY = "__agentNativeAutomationWebhookReach";
++const REACHES = new Set(["local", "owner-proxy", "public"]);
++export function setAutomationWebhookReach(reach) {
++    globalThis[REACH_KEY] = REACHES.has(reach) ? reach : undefined;
++}
++export function automationWebhookReach() {
++    const reach = typeof window !== "undefined"
++        ? window.__AGENT_NATIVE_CONFIG__?.automationWebhookReach
++        : globalThis[REACH_KEY];
++    return REACHES.has(reach) ? reach : null;
++}
 diff --git a/dist/shared/builder-offers.d.ts b/dist/shared/builder-offers.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..b6572becc4a71a931c5fd8a668a46aaf185651a8
@@ -5247,28 +5450,288 @@ index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908dd
                  const action = args.action;
                  switch (action) {
                      case "list-events":
+diff --git a/dist/triggers/condition-evaluator.d.ts b/dist/triggers/condition-evaluator.d.ts
+index 18951709d9496b46e651a35a4ef1412896ed7c6e..59385fa3ee7874ad2df700c9ca0d8885c7482bdf 100644
+--- a/dist/triggers/condition-evaluator.d.ts
++++ b/dist/triggers/condition-evaluator.d.ts
+@@ -17,6 +17,8 @@
+  * Evaluate whether a natural-language condition matches an event payload.
+  * Returns true if the condition is empty/undefined (unconditional trigger).
+  */
+-export declare function evaluateCondition(condition: string | undefined, payload: unknown, apiKey: string): Promise<boolean>;
++export declare function evaluateCondition(condition: string | undefined, payload: unknown, apiKey: string, options?: {
++    throwOnError?: boolean;
++}): Promise<boolean>;
+ /** Clear the condition cache (for testing). */
+ export declare function __clearConditionCache(): void;
+diff --git a/dist/triggers/condition-evaluator.js b/dist/triggers/condition-evaluator.js
+index 69ea404501700b166369ebb3d74b94dae1eaef18..fd936c175fc49389896ff6d28180af5bdaa25167 100644
+--- a/dist/triggers/condition-evaluator.js
++++ b/dist/triggers/condition-evaluator.js
+@@ -51,18 +51,23 @@ function cacheKey(condition, payload) {
+  * Evaluate whether a natural-language condition matches an event payload.
+  * Returns true if the condition is empty/undefined (unconditional trigger).
+  */
+-export async function evaluateCondition(condition, payload, apiKey) {
++/**
++ * With `throwOnError`, a classifier failure throws instead of reading as "no
++ * match", so the caller can say why nothing ran. An HTTP failure carries its
++ * `status`.
++ */
++export async function evaluateCondition(condition, payload, apiKey, options) {
+     if (!condition || !condition.trim())
+         return true;
+     const key = cacheKey(condition, payload);
+     const cached = _cache.get(key);
+     if (cached !== undefined)
+         return cached;
+-    const result = await callHaikuClassifier(condition, payload, apiKey);
++    const result = await callHaikuClassifier(condition, payload, apiKey, options);
+     _cache.set(key, result);
+     return result;
+ }
+-async function callHaikuClassifier(condition, payload, apiKey) {
++async function callHaikuClassifier(condition, payload, apiKey, options) {
+     let payloadStr;
+     try {
+         payloadStr = JSON.stringify(payload, null, 2);
+@@ -105,6 +110,9 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
+         });
+         if (!res.ok) {
+             console.error(`[triggers] Condition eval failed: ${res.status} ${res.statusText}`);
++            if (options?.throwOnError) {
++                throw Object.assign(new Error(`Anthropic answered HTTP ${res.status}`), { status: res.status });
++            }
+             return false;
+         }
+         const data = (await res.json());
+@@ -115,6 +123,8 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
+         return text.startsWith("yes");
+     }
+     catch (err) {
++        if (options?.throwOnError)
++            throw err;
+         console.error("[triggers] Condition eval error:", err);
+         return false;
+     }
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..d6173e7a380502dbe8d70d8dcca9c934a087b948 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..3306b61e84fd1bb7165f92d440eb0e7c376b8e31 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
-@@ -314,8 +314,15 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -5,12 +5,13 @@
+  * subscribes to their events, and dispatches them (condition eval → agent
+  * loop) when matching events fire.
+  */
+-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
++import { getOwnerActiveApiKey, getOwnerApiKeyForEngine } from "../agent/production-agent.js";
++import { finishAutomationRun, startAutomationRun } from "../jobs/run-history.js";
+ import { automationMatchesEventOwner, resolveAutomationExecutionIdentity, } from "../automations/service.js";
+ import { subscribe, unsubscribe } from "../event-bus/index.js";
+ import { isBackgroundAutomationRunActive, runBackgroundAutomation, } from "../jobs/background-automation-runner.js";
+ import { buildJobResourceContent, jobBelongsToApp, parseJobResource, } from "../jobs/frontmatter.js";
+-import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
++import { organizationResourceOwner, resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
+ import { evaluateCondition } from "./condition-evaluator.js";
+ export function parseTriggerFrontmatter(content) {
+     const { meta, body } = parseJobResource(content);
+@@ -286,6 +287,62 @@ async function handleEvent(eventName, payload, eventMeta) {
+         console.error(`[triggers] Error handling event "${eventName}":`, err);
+     }
+ }
++/**
++ * A webhook call that cannot run however often it is retried. The task worker
++ * fails its row at once instead of retrying it.
++ */
++export class AutomationWebhookRefusedError extends Error {
++    errorCode;
++    constructor(message, errorCode) {
++        super(message);
++        this.name = "AutomationWebhookRefusedError";
++        this.errorCode = errorCode;
++    }
++}
++export const CONDITION_KEY_MISSING_MESSAGE = "This automation has a condition. Conditions are checked with Anthropic's API, which needs an Anthropic API key, and none is available. Add an Anthropic key, or remove the condition. The webhook call did not run.";
++export function conditionKeyRejectedMessage(status) {
++    return `Anthropic rejected the API key used to check this automation's condition (HTTP ${status}). Update the Anthropic key, or remove the condition. The webhook call did not run.`;
++}
++/**
++ * Record a webhook call that did not run where the owner sees it: an errored
++ * history row and the automation's last status. `task` is the queued webhook
++ * payload, and `identity` names the user and organization the run would have
++ * used. A failure to record is logged, never thrown.
++ */
++export async function recordAutomationWebhookFailure(task, message, errorCode, identity) {
++    const orgId = identity?.orgId ?? null;
++    const historyOwner = orgId
++        ? organizationResourceOwner(orgId)
++        : task.owner === "__shared__"
++            ? identity?.userEmail ?? task.owner
++            : task.owner;
++    try {
++        const historyId = await startAutomationRun({
++            owner: historyOwner,
++            automation: task.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
++            path: task.path,
++            scope: orgId ? "organization" : "personal",
++            orgId,
++            appId: _deps?.appId,
++        });
++        await finishAutomationRun(historyId, "error", message, errorCode);
++        const resource = await resourceGetByPath(task.owner, task.path);
++        if (resource && resource.id === task.automationId) {
++            await recordTriggerExecutionOutcome(resource, {
++                lastRun: new Date().toISOString(),
++                lastStatus: "error",
++                lastError: message.slice(0, 200),
++            });
++        }
++    }
++    catch (error) {
++        console.error(`[triggers] Could not record the failed webhook call for "${task.path}":`, error);
++    }
++}
++async function refuseWebhookCall(task, message, errorCode, identity) {
++    await recordAutomationWebhookFailure(task, message, errorCode, identity);
++    return new AutomationWebhookRefusedError(message, errorCode);
++}
+ /**
+  * Process a webhook task after the public route has persisted it. The queue
+  * worker supplies the target resource identity; the request body never gets
+@@ -297,11 +354,11 @@ export async function dispatchAutomationWebhookTask(task) {
+         throw new Error("Automation trigger dispatcher is not initialized.");
+     const resource = await resourceGetByPath(task.owner, task.path);
+     if (!resource || resource.id !== task.automationId) {
+-        throw new Error("Webhook automation no longer exists.");
++        throw new AutomationWebhookRefusedError("Webhook automation no longer exists.", "automation_webhook_target_missing");
+     }
+     const { meta, body } = parseTriggerFrontmatter(resource.content);
+     if (meta.triggerType !== "webhook") {
+-        throw new Error("Webhook target is no longer a webhook automation.");
++        throw new AutomationWebhookRefusedError("Webhook target is no longer a webhook automation.", "automation_webhook_target_missing");
+     }
+     if (!meta.enabled)
+         return "completed";
+@@ -314,13 +371,35 @@ export async function dispatchAutomationWebhookTask(task) {
      if (!resolved.ok)
          throw new Error(resolved.reason);
      const identity = resolved.identity;
 -    const apiKey = (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
 -    if (!apiKey)
-+    // The key feeds only the condition classifier. Without a condition the run
-+    // resolves its engine and credential as a scheduled run does, which covers a
-+    // key from the launch environment, a Builder gateway, and a keyless local
-+    // model. Requiring a stored key of the active setting refused all three.
+-        throw new Error("No API key is available for this automation.");
++    // The condition classifier calls Anthropic's API directly, whatever provider
++    // runs the automation, so it takes an Anthropic key only. Another
++    // provider's key would be rejected there, and the call skipped without a
++    // word. Without a condition the run resolves its engine and credential as a
++    // scheduled run does, which covers a key from the launch environment, a
++    // Builder gateway, and a keyless local model.
 +    const hasCondition = Boolean(meta.condition?.trim());
-+    const apiKey = hasCondition
-+        ? (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey
++    const conditionKey = hasCondition
++        ? (await getOwnerApiKeyForEngine("anthropic", identity.userEmail)).apiKey ||
++            deps.apiKey
 +        : undefined;
-+    if (hasCondition && !apiKey)
-         throw new Error("No API key is available for this automation.");
++    if (hasCondition && !conditionKey) {
++        throw await refuseWebhookCall(task, CONDITION_KEY_MISSING_MESSAGE, "automation_condition_key_missing", identity);
++    }
      if (isBackgroundAutomationRunActive(meta)) {
          return "retry";
+     }
+-    const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
++    let matches;
++    try {
++        matches = await evaluateCondition(meta.condition, task.payload, conditionKey, { throwOnError: true });
++    }
++    catch (error) {
++        // A rejected key fails the same way every time. Other failures, such as
++        // a network error, are retried.
++        if (error?.status === 401 || error?.status === 403) {
++            throw await refuseWebhookCall(task, conditionKeyRejectedMessage(error.status), "automation_condition_key_rejected", identity);
++        }
++        throw error;
++    }
+     if (!matches) {
+         await recordTriggerSkip(resource, "skipped", undefined);
+         return "completed";
+diff --git a/dist/triggers/routes.js b/dist/triggers/routes.js
+index 046dfefce9319f004cc03ee7fca6eede3f5ffa23..1d3a9991acc0542837c76c3a8215fa23ec524ab3 100644
+--- a/dist/triggers/routes.js
++++ b/dist/triggers/routes.js
+@@ -1,10 +1,10 @@
+ import { randomUUID } from "node:crypto";
+-import { defineEventHandler, getRequestHeader, getMethod, setResponseStatus, } from "h3";
++import { defineEventHandler, getRequestHeader, getMethod, setResponseHeader, setResponseStatus, } from "h3";
+ import { AutomationConnectorError, readBoundedRequestBody, } from "../automation/index.js";
+ import { canUpdateAutomationResource } from "../automations/service.js";
+ import { getDbExec } from "../db/client.js";
+ import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
+-import { insertPendingTask, isDuplicateEventError, } from "../integrations/pending-tasks-store.js";
++import { countOpenTasksForThread, hasTaskWithEventKey, insertPendingTask, isDuplicateEventError, } from "../integrations/pending-tasks-store.js";
+ import { nextOccurrence, describeCron, effectiveTimezone, isValidCron, } from "../jobs/cron.js";
+ import { buildJobResourceContent, parseJobResource, } from "../jobs/frontmatter.js";
+ import { getOrgContext } from "../org/context.js";
+@@ -13,7 +13,7 @@ import { getSession } from "../server/auth.js";
+ import { readBody } from "../server/h3-helpers.js";
+ import { refreshEventSubscriptions } from "./dispatcher.js";
+ import { findAutomationWebhookTarget, readAutomationWebhookPath, } from "./webhook-store.js";
+-import { AUTOMATION_WEBHOOK_MAX_BODY_BYTES, AUTOMATION_WEBHOOK_PLATFORM, isAutomationWebhookToken, } from "./webhook.js";
++import { AUTOMATION_WEBHOOK_MAX_BODY_BYTES, AUTOMATION_WEBHOOK_MAX_OPEN_CALLS, AUTOMATION_WEBHOOK_PLATFORM, isAutomationWebhookToken, } from "./webhook.js";
+ function automationName(path) {
+     return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+ }
+@@ -300,6 +300,21 @@ async function enqueueAutomationWebhook(event, token) {
+     const eventId = webhookEventId(event, payload);
+     const ownerEmail = match.meta.createdBy?.trim().toLowerCase() || match.resource.owner;
+     const externalThreadId = `${match.resource.owner}:${match.resource.path}`;
++    const externalEventKey = `${match.resource.id}:${eventId}`;
++    // A caller in a loop could otherwise queue unlimited runs. The count is
++    // not atomic with the insert, so the cap is soft by a call or two.
++    if ((await countOpenTasksForThread(AUTOMATION_WEBHOOK_PLATFORM, externalThreadId)) >=
++        AUTOMATION_WEBHOOK_MAX_OPEN_CALLS) {
++        if (await hasTaskWithEventKey(externalEventKey)) {
++            setResponseStatus(event, 200);
++            return { accepted: true, duplicate: true, eventId };
++        }
++        setResponseStatus(event, 429);
++        setResponseHeader(event, "retry-after", "60");
++        return {
++            error: `This automation already has ${AUTOMATION_WEBHOOK_MAX_OPEN_CALLS} calls waiting. Try again later.`,
++        };
++    }
+     const taskId = randomUUID();
+     const taskPayload = {
+         kind: "automation-webhook",
+@@ -317,7 +332,7 @@ async function enqueueAutomationWebhook(event, token) {
+             payload: JSON.stringify(taskPayload),
+             ownerEmail,
+             orgId: match.meta.orgId ?? null,
+-            externalEventKey: `${match.resource.id}:${eventId}`,
++            externalEventKey,
+         });
+     }
+     catch (error) {
+diff --git a/dist/triggers/webhook.d.ts b/dist/triggers/webhook.d.ts
+index 2905338020cb1dba3387acbaf157b6f2e975d564..f4f8d0bb6c799e591b6efeebf1fbdb2de4f26510 100644
+--- a/dist/triggers/webhook.d.ts
++++ b/dist/triggers/webhook.d.ts
+@@ -1,5 +1,6 @@
+ export declare const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
+ export declare const AUTOMATION_WEBHOOK_MAX_BODY_BYTES: number;
++export declare const AUTOMATION_WEBHOOK_MAX_OPEN_CALLS = 20;
+ export interface AutomationWebhookTaskPayload {
+     kind: "automation-webhook";
+     automationId: string;
+diff --git a/dist/triggers/webhook.js b/dist/triggers/webhook.js
+index e7562dd40f03bee7f4a50164eda22b4b5f4ca9b5..b11d7004218b727a0d825da7bf5297d9e4f656ef 100644
+--- a/dist/triggers/webhook.js
++++ b/dist/triggers/webhook.js
+@@ -1,6 +1,8 @@
+ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+ export const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
+ export const AUTOMATION_WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
++/** Calls one automation may have waiting or running before new ones get HTTP 429. */
++export const AUTOMATION_WEBHOOK_MAX_OPEN_CALLS = 20;
+ const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+ export function createAutomationWebhookToken() {
+     return randomBytes(32).toString("base64url");
 diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
 index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
 --- a/dist/usage/metrics-store.js

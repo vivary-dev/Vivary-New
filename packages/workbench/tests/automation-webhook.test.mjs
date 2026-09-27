@@ -37,7 +37,8 @@ globalThis.setTimeout = (handler, delay, ...args) => {
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
 const [dispatch, webhookTask, pendingTasks, retryJob, { initTriggerDispatcher }, { createAutomationsHandler },
-  { defineAutomation }, { getDbExec }, { listAutomationRuns }, { getThread }, webhookUrl, { resourceGetByPath }] = await Promise.all([
+  { defineAutomation }, { getDbExec }, { listAutomationRuns }, { getThread }, webhookUrl, { resourceGetByPath },
+  webhookReach, { resolvePublicAppOriginConfig }] = await Promise.all([
   load("integrations/integration-durable-dispatch.js"),
   // A missing module fails each case below rather than the whole file.
   load("integrations/automation-webhook-task.js").catch(() => ({})),
@@ -51,9 +52,11 @@ const [dispatch, webhookTask, pendingTasks, retryJob, { initTriggerDispatcher },
   load("chat-threads/store.js"),
   load("client/integrations/webhook-url.js"),
   load("resources/store.js"),
+  load("shared/automation-webhook-reach.js").catch(() => ({})),
+  load("server/app-origin-config.js"),
 ]);
 const { setInProcessIntegrationTaskRunner } = dispatch;
-const { runAutomationWebhookTaskInProcess } = webhookTask;
+const { runAutomationWebhookTaskInProcess, webhookTaskBelongsToApp, expireAutomationWebhookTask } = webhookTask;
 const { claimPendingTask, insertPendingTask } = pendingTasks;
 const { retryStuckPendingTasks } = retryJob;
 const { H3, toNodeHandler } = await import("h3");
@@ -74,8 +77,11 @@ const engine = {
   },
 };
 await initTriggerDispatcher({ appId, engine, model: "fake-model", getActions: () => ({}), getSystemPrompt: async () => "" });
-const registerRunner = () => runAutomationWebhookTaskInProcess &&
-  setInProcessIntegrationTaskRunner?.(runAutomationWebhookTaskInProcess, { platforms: [PLATFORM], appId });
+// The same registration the plugin makes.
+const registerRunner = (runnerAppId = appId) => runAutomationWebhookTaskInProcess &&
+  setInProcessIntegrationTaskRunner?.(runAutomationWebhookTaskInProcess, { platforms: [PLATFORM], appId: runnerAppId,
+    acceptsTask: webhookTaskBelongsToApp, expireTask: expireAutomationWebhookTask,
+    maxTaskAgeMs: webhookTask.AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS });
 
 const defineWebhook = async (name, extra = {}) => {
   const defined = await defineAutomation({ userEmail: owner, appId }, {
@@ -236,11 +242,104 @@ test("another app's task is left pending for that app", async () => {
   assert.equal(engineCalls.length, 0);
 });
 
-test("a stored key is required only to evaluate a condition", async () => {
-  assert.equal((await post(conditionPath, "evt-condition")).status, 202);
-  const [row] = await settled(rows => rows[0]?.error_message != null);
-  assert.equal(row.status, "pending", "a condition without a key is retried, then fails");
-  assert.equal(row.error_message, "No API key is available for this automation.");
+// The condition classifier calls Anthropic directly. Count those calls and answer them without a network.
+async function withAnthropicStub(status, run) {
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input?.url ?? input);
+    if (!url.startsWith("https://api.anthropic.com/")) return realFetch(input, init);
+    calls.push(url);
+    return new Response(JSON.stringify({ error: { type: "authentication_error" } }), { status });
+  };
+  try {
+    await run(calls);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+const conditionAutomation = async () => (await resourceGetByPath(owner, "jobs/conditional.md"))?.content ?? "";
+
+test("a condition without an Anthropic key fails at once with a visible error", async () => {
+  // An OpenRouter key alone cannot check a condition, because the check calls Anthropic's API.
+  Object.assign(process.env, { OPENROUTER_API_KEY: `sk-or-v1-${randomBytes(24).toString("hex")}` }); // guard:allow-env-credential - A random fake key for a disposable run.
+  try {
+    await withAnthropicStub(401, async anthropicCalls => {
+      assert.equal((await post(conditionPath, "evt-condition-openrouter")).status, 202);
+      const [row] = await settled();
+      assert.equal(row.status, "failed", "retrying cannot help, so the call fails at once");
+      assert.equal(row.attempts, 1);
+      assert.match(row.error_message ?? "", /Conditions are checked with Anthropic's API, which needs an Anthropic API key/);
+      assert.equal(anthropicCalls.length, 0, "no key was sent to Anthropic");
+    });
+  } finally {
+    for (const name of ["OPENROUTER_API_KEY"]) delete process.env[name]; // guard:allow-env-credential - Removes the fake key set above.
+  }
+  const [run] = await runsOf("conditional");
+  assert.equal(run?.status, "error", "the history shows the refused call");
+  assert.equal(run.errorCode, "automation_condition_key_missing");
+  assert.match(run.error, /Add an Anthropic key, or remove the condition\. The webhook call did not run\.$/);
+  assert.match(await conditionAutomation(), /lastStatus: "?error/);
+  assert.equal(engineCalls.length, 0);
+});
+
+test("a condition whose Anthropic key is rejected fails at once with a visible error", async () => {
+  Object.assign(process.env, { ANTHROPIC_API_KEY: `sk-ant-${randomBytes(24).toString("hex")}` }); // guard:allow-env-credential - A random fake key for a disposable run.
+  try {
+    await withAnthropicStub(401, async anthropicCalls => {
+      assert.equal((await post(conditionPath, "evt-condition-rejected")).status, 202);
+      const [row] = await settled();
+      assert.equal(row.status, "failed");
+      assert.equal(row.attempts, 1);
+      assert.equal(anthropicCalls.length, 1);
+    });
+  } finally {
+    for (const name of ["ANTHROPIC_API_KEY"]) delete process.env[name]; // guard:allow-env-credential - Removes the fake key set above.
+  }
+  const [run] = await runsOf("conditional");
+  assert.equal(run?.errorCode, "automation_condition_key_rejected");
+  assert.match(run.error, /^Anthropic rejected the API key used to check this automation's condition \(HTTP 401\)/);
+  assert.equal(engineCalls.length, 0);
+});
+
+test("a call that waited more than 24 hours is expired with a history record instead of run", async () => {
+  const id = await queuedTask("evt-stale");
+  await age(id, "pending", null, 25 * 60 * 60_000);
+  const sweep = await retryStuckPendingTasks();
+  assert.equal(sweep.markedFailed, 1);
+  const [row] = await tasks();
+  assert.equal(row.status, "failed");
+  assert.match(row.error_message ?? "", /^This webhook call waited more than 24 hours/);
+  const [run] = await runsOf("hook");
+  assert.equal(run?.status, "error");
+  assert.equal(run.errorCode, "automation_webhook_expired");
+  await settled();
+  assert.equal(engineCalls.length, 0, "the old payload never reached a run");
+});
+
+test("an automation with 20 calls waiting answers new calls with 429", async () => {
+  setInProcessIntegrationTaskRunner?.(null);
+  for (let index = 0; index < 20; index += 1) await queuedTask(`evt-queued-${index}`);
+  const refused = await post(hookPath, "evt-over-cap");
+  assert.equal(refused.status, 429);
+  assert.equal(refused.headers.get("retry-after"), "60");
+  assert.match((await refused.json()).error, /already has 20 calls waiting/);
+  const repeat = await post(hookPath, "evt-queued-3");
+  assert.equal(repeat.status, 200, "a repeated event is still a duplicate");
+  assert.equal((await tasks()).length, 20, "nothing was queued");
+});
+
+test("the sweep leaves another app's task untouched", async () => {
+  const id = await queuedTask("evt-other-app-sweep");
+  await age(id, "pending", null, 2 * 60_000);
+  const before = (await tasks())[0];
+  registerRunner("other-app");
+  const sweep = await retryStuckPendingTasks();
+  assert.equal(sweep.skipped, 1);
+  const after = (await tasks())[0];
+  assert.equal(after.status, "pending");
+  assert.equal(after.attempts, 0);
+  assert.equal(after.updated_at, before.updated_at, "updated_at did not move ahead of the owning app's sweep");
   assert.equal(engineCalls.length, 0);
 });
 
@@ -256,6 +355,25 @@ test("the Automations page shows the full URL and who can call it", async () => 
   assert.match(tab, /automationWebhookUrl\(entry\.resource\.webhookPath\)/);
   assert.match(tab, /Reachable only from this computer while Vivary is open\./);
   assert.match(tab, /Anyone with this URL can start this automation\./);
+  assert.match(tab, /Reachable only through your private Zo access\./);
+  assert.match(tab, /automationWebhookReach\(\) \?\?/);
+});
+
+test("the page config carries the webhook reach that Vivary sets from its access mode", async () => {
+  assert.equal(typeof webhookReach.setAutomationWebhookReach, "function", "Core exports the reach switch");
+  try {
+    assert.equal(resolvePublicAppOriginConfig()?.automationWebhookReach, undefined, "unset by default");
+    for (const reach of ["local", "owner-proxy", "public"]) {
+      webhookReach.setAutomationWebhookReach(reach);
+      assert.equal(resolvePublicAppOriginConfig()?.automationWebhookReach, reach);
+    }
+  } finally {
+    webhookReach.setAutomationWebhookReach(undefined);
+  }
+  const plugin = await readFile(new URL("../server/plugins/00-webhook-reach.ts", import.meta.url), "utf8").catch(() => "");
+  assert.match(plugin, /local: "local"/);
+  assert.match(plugin, /"private-proxy": "owner-proxy"/);
+  assert.match(plugin, /hosted: "public"/);
 });
 
 test("the plugin registers the webhook runner, with its app, where the timer runs and after the dispatcher", async () => {

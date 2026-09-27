@@ -11,6 +11,15 @@ const START_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 15_000;
 const DRAFT_CLOSE_TIMEOUT_MS = 8_000;
 const DESKTOP_PORT_FILE = "desktop-port";
+/**
+ * The desktop picks its port from this range. Windows reserves blocks of its
+ * dynamic range (49152 to 65535) for Hyper-V, WSL, and Docker, and the blocks
+ * move when the computer restarts, so a saved port there could stop working.
+ * IANA assigns no service in this range.
+ */
+export const DESKTOP_PORT_RANGE = Object.freeze({ first: 42100, last: 42999 });
+const SAVED_PORT_RETRY_DELAY_MS = 750;
+const SAVED_PORT_ATTEMPTS = 5;
 const sourceFile = fileURLToPath(import.meta.url);
 const sourceRoot = path.dirname(sourceFile);
 
@@ -47,17 +56,14 @@ function ordinaryNodePath() {
   return configured;
 }
 
-async function selectLoopbackPort() {
-  const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", resolve);
-  });
-  const address = probe.address();
-  const port = typeof address === "object" && address ? address.port : null;
-  await new Promise((resolve) => probe.close(resolve));
-  if (!port) throw new Error("Could not reserve a local Vivary port.");
-  return port;
+/** A free loopback port from DESKTOP_PORT_RANGE, tried in random order. */
+export async function selectLoopbackPort({ isFree = loopbackPortIsFree, random = Math.random } = {}) {
+  const { first, last } = DESKTOP_PORT_RANGE;
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    const port = first + Math.floor(random() * (last - first + 1));
+    if (await isFree(port)) return port;
+  }
+  throw new Error(`Could not find a free local port for Vivary from ${first} to ${last}.`);
 }
 
 /**
@@ -87,18 +93,51 @@ async function readSavedPort(dataDir) {
     return null;
   }
   const port = Number(text.trim());
-  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+  // A port in the dynamic range may be reserved after a restart, so it is replaced.
+  return Number.isInteger(port) && port >= 1024 && port < 49152 ? port : null;
 }
 
 /**
  * A webhook URL names the local port, so the app reuses the port saved in its
- * data folder while that port is free. Otherwise it takes a new port, and
- * `replaced` names the saved one so the window can say that the URLs changed.
+ * data folder. A port can be briefly busy while the previous instance lets it
+ * go, so the saved port is tried for a few seconds before a new one is taken.
+ * `saved` is the saved port, or null.
  */
-export async function chooseDesktopPort(dataDir, { isFree = loopbackPortIsFree, selectPort = selectLoopbackPort } = {}) {
+export async function chooseDesktopPort(dataDir, {
+  isFree = loopbackPortIsFree,
+  selectPort = selectLoopbackPort,
+  retryDelayMs = SAVED_PORT_RETRY_DELAY_MS,
+} = {}) {
   const saved = await readSavedPort(dataDir);
-  if (saved !== null && await isFree(saved)) return { port: saved, replaced: null };
-  return { port: await selectPort(), replaced: saved };
+  for (let attempt = 0; saved !== null && attempt < SAVED_PORT_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    if (await isFree(saved)) return { port: saved, saved };
+  }
+  return { port: await selectPort(), saved };
+}
+
+export function isPortInUseError(error) {
+  return error instanceof Error && /already in use/i.test(error.message);
+}
+
+/**
+ * Start the server on the chosen port. Another program can take the port
+ * between the probe and the server's bind, so startup then tries once more on
+ * a fresh port instead of failing. `replaced` is the saved port when the
+ * server ended up on another one, for the notice.
+ */
+export async function startOnDesktopPort(choice, launch, { selectPort = selectLoopbackPort } = {}) {
+  let port = choice.port;
+  let started;
+  try {
+    started = await launch(port);
+  } catch (error) {
+    if (!isPortInUseError(error)) throw error;
+    port = await selectPort();
+    started = await launch(port);
+  }
+  const replaced = choice.saved !== null && choice.saved !== port ? choice.saved : null;
+  return { ...started, port, replaced };
 }
 
 export async function saveDesktopPort(dataDir, port) {
@@ -106,14 +145,14 @@ export async function saveDesktopPort(dataDir, port) {
   await writeFile(path.join(dataDir, DESKTOP_PORT_FILE), `${port}\n`, { mode: 0o600 });
 }
 
-/** The notice shown when another program held the saved port. */
+/** The notice shown when the saved port could not be used. */
 export function portChangeNotice(replaced, port) {
   return {
     type: "info",
     buttons: ["OK"],
     defaultId: 0,
     title: "Vivary changed its local port",
-    message: `Port ${replaced} was in use, so Vivary now uses port ${port}.`,
+    message: `Port ${replaced} was unavailable, so Vivary now uses port ${port}.`,
     detail: "Webhook URLs with the old port no longer reach Vivary. Copy each new URL from Automations and update the program that calls it.",
   };
 }
@@ -151,9 +190,16 @@ async function startServer() {
   const entry = path.join(root, "bin", "desktop-server.mjs");
   await Promise.all([access(node), access(entry)]);
   const dataDir = desktopDataDir();
-  const { port, replaced } = await chooseDesktopPort(dataDir);
-  const origin = `http://127.0.0.1:${port}`;
+  const started = await startOnDesktopPort(await chooseDesktopPort(dataDir),
+    (port) => launchServer({ root, node, entry, dataDir, port }));
+  // Saved only after the server started, so a port that failed is not kept.
+  // A failed save costs only the next launch's port, not this one.
+  await saveDesktopPort(dataDir, started.port).catch(() => undefined);
+  return started;
+}
 
+async function launchServer({ root, node, entry, dataDir, port }) {
+  const origin = `http://127.0.0.1:${port}`;
   const child = fork(entry, ["--port", String(port), "--data-dir", dataDir], {
     cwd: root,
     detached: process.platform !== "win32",
@@ -198,11 +244,10 @@ async function startServer() {
     child.on("message", onMessage);
   }).catch((error) => {
     forceServerTree(child);
+    disposeProjectChooser();
+    serverChild = null;
     throw error;
   });
-  // Saved only after the server started, so a port that failed is not kept.
-  // A failed save costs only the next launch's port, not this one.
-  await saveDesktopPort(dataDir, port).catch(() => undefined);
 
   child.once("exit", (code, signal) => {
     if (process.platform !== "win32") forceServerTree(child);
@@ -214,7 +259,7 @@ async function startServer() {
       void beginQuit({ skipDraftFlush: true });
     }
   });
-  return { origin, port, replaced };
+  return { origin };
 }
 
 function forceServerTree(child) {
