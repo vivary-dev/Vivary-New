@@ -93,7 +93,8 @@ async function storedText(directory: string): Promise<string> {
   return parts.join("\n");
 }
 
-test("worker-side transcript and record writes keep placeholders only, on every platform", async () => {
+// This case has no POSIX-only step. The Windows CI job runs no Node tests, so it covers Windows only when run there.
+test("worker-side transcript and record writes keep placeholders only, with no POSIX-only step", async () => {
   const token = `ghp_${synthetic(36)}`;
   await redaction.refreshHeldCredentials({ environment: () => ({ VIVARY_PROBE_TOKEN: held }), mcpConfig: () => null, storedSecrets: async () => [] });
   // As the coding worker does, redact with fingerprints only, then write what the CLI printed.

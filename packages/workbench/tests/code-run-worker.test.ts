@@ -46,7 +46,7 @@ function assertHidden(text: string, values: string[], label: string) {
 }
 
 test("a Claude run that prints a held value keeps placeholders only in the transcript, the state, and the follow-up prompt",
-  // The stub CLI is a POSIX script. code-run-redaction.test.ts covers the same writes on every platform.
+  // The stub CLI is a POSIX script. code-run-redaction.test.ts checks the same writes with no POSIX-only step.
   { timeout: 120_000, skip: process.platform === "win32" }, async () => {
     await redaction.refreshHeldCredentials({ environment: () => ({}), mcpConfig: () => null, storedSecrets: async () => [] });
     const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-redaction-run-"));

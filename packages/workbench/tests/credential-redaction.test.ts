@@ -325,3 +325,30 @@ test("the streamed delta holdback covers the longest held form", async () => {
   }
   assert.equal(heldCredentialHoldback(), 256);
 });
+
+test("credential names that contain a pagination word, and webhook URLs, are redacted", () => {
+  const value = synthetic(40);
+  for (const name of ["NEXTAUTH_SECRET", "PAGERDUTY_API_KEY", "CURSOR_API_KEY", "NEXTCLOUD_PASSWORD", "PAGE_ADMIN_PASSWORD"]) {
+    assertText(redactCredentialPatterns(`${name}=${value}`), `${name}=[redacted credential]`, name);
+  }
+  const slack = `https://hooks.slack.com/services/T0000/B0000/${synthetic(24)}`;
+  const discord = `https://discord.com/api/webhooks/1234567890/${synthetic(40)}`;
+  generated.push(slack, discord);
+  assertText(redactCredentialPatterns(`SLACK_WEBHOOK_URL=${slack}`), "SLACK_WEBHOOK_URL=[redacted credential]");
+  assertText(redactCredentialPatterns(`DISCORD_WEBHOOK=${discord}`), "DISCORD_WEBHOOK=[redacted credential]");
+  assertText(redactCredentialPatterns(`"slackWebhookUrl": "${slack}"`), '"slackWebhookUrl": "[redacted credential]"');
+  assertText(redactCredentialPatterns("OPENAI_BASE_URL=https://api.example.test/v1"), "OPENAI_BASE_URL=https://api.example.test/v1");
+});
+
+test("a dotted held value that looks like a token is held, and a host name is not", async () => {
+  const label = () => `${randomBytes(8).toString("hex").slice(0, 10)}7a`;
+  const dotted = `${label()}.${label()}`;
+  generated.push(dotted);
+  await refreshHeldCredentials({ ...noSources, environment: () => ({ SERVICE_TOKEN: dotted, CACHE_TOKEN_HOST: "cache.internal.example.com" }) });
+  try {
+    assertText(redactCredentials(`token ${dotted} end`), "token [redacted SERVICE_TOKEN] end");
+    assertText(redactCredentials("cache.internal.example.com"), "cache.internal.example.com");
+  } finally {
+    await refreshHeldCredentials(noSources);
+  }
+});

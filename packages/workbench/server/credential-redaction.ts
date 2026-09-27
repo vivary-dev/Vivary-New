@@ -39,7 +39,8 @@ export type CredentialSources = {
 const MIN_HELD_LENGTH = 16;
 const PATTERN_PLACEHOLDER = "[redacted credential]";
 const SCALAR = /^(?:true|false|null|undefined|yes|no|on|off|[+-]?\d+(?:\.\d+)?)$/i;
-const HOST = /^(?=.*[a-z])[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?$/;
+// A host name ends in a letters-only label, as a top-level domain does, so a dotted token with digits is not one.
+const HOST = /^(?=.*[a-z])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}(?::\d{1,5})?$/;
 const FILE_URL = /^file:/i;
 const LOCAL_PATH = /^(?:\/|~[/\\]|[A-Za-z]:[/\\]|\\\\)/;
 const DOTTED_IDENTIFIER = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
@@ -164,7 +165,14 @@ function looksLikeToken(value: string): boolean {
 const DATA_LAST_WORDS = new Set(["ID", "NAME", "ARN", "PATH", "FILE", "DIR", "URL", "URI", "ENDPOINT", "TYPE", "COUNT",
   "TTL", "EXPIRY", "EXPIRES", "ALIAS", "FINGERPRINT"]);
 const DATA_KEY_NAMES = ["PUBLIC_KEY", "PRIMARY_KEY", "CACHE_KEY", "OBJECT_KEY", "S3_KEY", "IDEMPOTENCY_KEY"];
-const PAGINATION = /PAGE|NEXT|CONTINUATION|CURSOR/;
+// A pagination token: a TOKEN name with a whole PAGE, NEXT, CONTINUATION, or CURSOR word before it.
+const PAGINATION_WORDS = new Set(["PAGE", "NEXT", "CONTINUATION", "CURSOR"]);
+
+// A webhook setting's whole URL is the credential, so its value is redacted even though names
+// that end in URL and values with a scheme are otherwise left alone.
+function isWebhookName(name: string): boolean {
+  return credentialNameWords(name).split("_").some(part => part === "WEBHOOK" || part === "WEBHOOKS");
+}
 
 function isPrintedCredentialName(name: string): boolean {
   const words = credentialNameWords(name);
@@ -172,7 +180,7 @@ function isPrintedCredentialName(name: string): boolean {
   const last = parts.at(-1) ?? "";
   // A lone "key" names ordinary data too often, such as a storage key or a map key.
   if (words === "KEY" || words === "KEYS" || DATA_LAST_WORDS.has(last) || (last === "AT" && parts.at(-2) === "EXPIRES")
-    || PAGINATION.test(words) || DATA_KEY_NAMES.some(key => words === key || words.endsWith(`_${key}`))) return false;
+    || (last === "TOKEN" && parts.slice(0, -1).some(part => PAGINATION_WORDS.has(part))) || DATA_KEY_NAMES.some(key => words === key || words.endsWith(`_${key}`))) return false;
   return isCredentialName(words);
 }
 
@@ -195,13 +203,14 @@ function redactAssignments(text: string): string {
   ASSIGNMENT_HEAD.lastIndex = 0;
   for (let head = ASSIGNMENT_HEAD.exec(text); head; head = ASSIGNMENT_HEAD.exec(text)) {
     const valueStart = head.index + head[0].length;
-    if (!isPrintedCredentialName(head[1])) {
+    const webhook = isWebhookName(head[1]);
+    if (!webhook && !isPrintedCredentialName(head[1])) {
       ASSIGNMENT_HEAD.lastIndex = Math.max(valueStart, head.index + 1);
       continue;
     }
     ASSIGNMENT_VALUE.lastIndex = valueStart;
     const value = ASSIGNMENT_VALUE.exec(text)?.[0] ?? "";
-    if (assignedCredential(head[1], value)) {
+    if ((webhook && URL_WITH_SCHEME.test(value)) || (isPrintedCredentialName(head[1]) && assignedCredential(head[1], value))) {
       output += text.slice(cursor, valueStart) + PATTERN_PLACEHOLDER;
       cursor = valueStart + value.length;
     }

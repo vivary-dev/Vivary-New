@@ -410,7 +410,9 @@ Core calls the hook in these places:
   `deleteAppSecret` call its listeners after the write, and Vivary reloads its
   held set from them.
 
-Run `pnpm test:credential-redaction`. It runs
+Run `pnpm test:credential-redaction`. CI runs it once, in the maintained
+Workbench checks on Linux. The Windows CI job runs no Node tests, so a
+platform-neutral test file is covered on Windows only when run there. It runs
 `tests/credential-redaction.test.ts`, `tests/native-redaction.test.ts`,
 `tests/code-run-redaction.test.ts`, and `tests/code-run-worker.test.ts` one
 file at a time with random synthetic values and disposable SQLite databases.
