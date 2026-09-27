@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, waitForLinuxWo
   VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
+import { isCredentialName } from "../server/local-runtime-setup.ts";
 
 const request = {
   type: "vivary:code-worker:start", runId: "vivary-local-code-test",
@@ -107,6 +109,53 @@ process.send({type:"vivary:code-worker:ready"});
   }
 });
 
+test("the coding worker starts without any credential-shaped name in its environment", { timeout: 12_000 }, async () => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-environment-"));
+  const server = path.join(fixture, ".output", "server");
+  const names = path.join(fixture, "names.json");
+  await mkdir(server, { recursive: true });
+  // Issue #98. On Linux a child reads its parent's start environment, as a command in a coding run could.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+const readParent = "const entries = require('node:fs').readFileSync('/proc/' + process.ppid + '/environ', 'utf8');"
+  + "process.stdout.write(JSON.stringify(entries.split(String.fromCharCode(0)).filter(Boolean)"
+  + ".map(entry => entry.slice(0, entry.indexOf('=')))));";
+writeFileSync(${JSON.stringify(names)}, process.platform === "linux"
+  ? execFileSync(process.execPath, ["-e", readParent], { encoding: "utf8", env: {} })
+  : JSON.stringify(Object.keys(process.env)));
+process.on("message", message => {
+  if (message.type === "vivary:code-worker:start") process.send({ type: "vivary:code-worker:done", runId: message.runId });
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  const suffix = randomBytes(4).toString("hex").toUpperCase();
+  const credentialName = `VIVARY_PROBE_${suffix}_TOKEN`;
+  const controlName = `VIVARY_PROBE_${suffix}_SETTING`;
+  const seeded = Object.fromEntries(["BETTER_AUTH_SECRET", "DATABASE_URL", "OPENROUTER_API_KEY", credentialName,
+    controlName, "VIVARY_DESKTOP_HOST", "VIVARY_STANDALONE_HOST"].map(name => [name, randomBytes(24).toString("hex")]));
+  const previous = { ...process.env };
+  try {
+    Object.assign(process.env, seeded);
+    process.chdir(fixture);
+    await executeVivaryCodeWorker({ runId: request.runId, prompt: "report the start environment",
+      ownerEmail: request.ownerEmail, signal: new AbortController().signal });
+    const started: string[] = JSON.parse(await readFile(names, "utf8"));
+    assert.ok(started.includes(controlName), "an ordinary setting reaches the worker");
+    assert.deepEqual(started.filter(name => isCredentialName(name.toUpperCase())), [],
+      "credential-shaped names in the worker's start environment");
+    assert.deepEqual(started.filter(name => name === "VIVARY_DESKTOP_HOST" || name === "VIVARY_STANDALONE_HOST"), []);
+  } finally {
+    for (const name of Object.keys(seeded)) {
+      // guard:allow-env-credential - Removes a random test setting seeded above.
+      if (previous[name] === undefined) delete process.env[name];
+      else Object.assign(process.env, { [name]: previous[name] });
+    }
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
 
 test("worker relays native approvals and remains active beyond the former turn deadline", { timeout: 12_000 }, async t => {
   const originalCwd = process.cwd();
