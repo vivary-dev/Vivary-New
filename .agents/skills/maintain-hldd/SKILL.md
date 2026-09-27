@@ -43,8 +43,9 @@ The branch check, never the staged hook, passes a Dependabot-authored commit who
 relevant changes are version-only edits to dependency manifests or workflow
 action refs, or lockfile changes. It does not inspect lockfile content. It also
 passes a merge commit that takes a merged branch's copy of a dependency file the
-other line left alone, when the range checked every commit on that branch. The
-dependency review in `CONTRIBUTING.md` covers what a lockfile brings in.
+other line left alone, when the range checked every commit on that branch,
+counting commits already on the base branch as checked. The dependency review
+in `CONTRIBUTING.md` covers what a lockfile brings in.
 
 The application bundles this same Markdown at build time in Settings >
 Documentation. Do not hand-maintain a second copy. Check the built reader when

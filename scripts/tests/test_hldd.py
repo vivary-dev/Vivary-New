@@ -465,6 +465,28 @@ class HlddGateTests(unittest.TestCase):
         result = self.gate("--base", dev)
         self.assertIn("3 introduced commit(s), 2 of them dependency-only update(s)", result.stdout)
 
+    def test_security_update_brought_from_main_into_dev_passes(self):
+        seed = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
+        self.git("switch", "-qC", "main", seed)
+        self.git("switch", "-qc", "dev")
+        self.stage_code()
+        self.write("docs/ARCHITECTURE.md", DOC + "\nThe app now uses value two.\n")
+        self.git("add", "docs/ARCHITECTURE.md")
+        self.git("commit", "-qm", "documented dev change")
+        dev = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("switch", "-q", "main")
+        self.dependabot_branch({
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "site/package-lock.json": lockfile("7.3.3"),
+        })
+        self.git("merge", "-q", "--no-ff", "dependabot", "-m", "Merge security update")
+        self.git("switch", "-q", "dev")
+        self.git("merge", "-q", "--no-ff", "main", "-m", "Merge main into dev")
+        pushed = self.gate("--base", dev).stdout
+        self.assertIn("3 introduced commit(s), 3 of them dependency-only update(s)", pushed)
+        promoted = self.gate("--base", "main", "--head", "dev").stdout
+        self.assertIn("2 introduced commit(s), 1 of them dependency-only update(s)", promoted)
+
     def test_dependabot_package_too_deep_to_parse_fails(self):
         base = self.seed({"site/package.json": package()})
         deep = "[" * 100000 + "]" * 100000

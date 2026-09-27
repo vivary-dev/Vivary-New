@@ -221,20 +221,20 @@ def version_only(path: str, before: str, after: str) -> bool:
     return old == new
 
 
-def carried(path: str, revision: str, first: str, merged: list[str], judged: set[str]) -> bool:
-    # Only the merged side changed the path since the merge base, and the range judged each commit that brought it.
+def carried(path: str, revision: str, first: str, merged: list[str], judged: set[str], ancestor: str) -> bool:
+    # Only the merged side changed the path since the merge base. Its commits off the base branch must be judged.
     entry = tree_entry(revision, path)
     for parent in merged:
         base = git("merge-base", first, parent, check=False).stdout.decode().strip()
         if (
             base and tree_entry(parent, path) == entry and tree_entry(base, path) == tree_entry(first, path)
-            and set(git("rev-list", f"{base}..{parent}").stdout.decode().split()) <= judged
+            and set(git("rev-list", parent, f"^{base}", f"^{ancestor}").stdout.decode().split()) <= judged
         ):
             return True
     return False
 
 
-def dependency_update(revision: str, parents: list[str], judged: set[str]) -> bool:
+def dependency_update(revision: str, parents: list[str], judged: set[str], ancestor: str) -> bool:
     if not parents:
         return False
     first, merged = parents[0], parents[1:]
@@ -244,7 +244,7 @@ def dependency_update(revision: str, parents: list[str], judged: set[str]) -> bo
     changed = git("diff", "--name-only", "--no-renames", "-z", first, revision).stdout.decode("utf-8")
     impact = [path for path in changed.split("\0") if relevant(path)]
     return bool(impact) and all(
-        version_only(path, first, revision) and (not merged or carried(path, revision, first, merged, judged))
+        version_only(path, first, revision) and (not merged or carried(path, revision, first, merged, judged, ancestor))
         for path in impact
     )
 
@@ -276,7 +276,7 @@ def check_range(base: str, head: str) -> tuple[int, int]:
                 raise ValueError(f"{revision[:12]} removes the HLDD checker.")
             continue  # Historical commits before adoption are not retroactively gated.
         try:
-            if dependency_update(revision, parents, judged):
+            if dependency_update(revision, parents, judged, ancestor):
                 validate_document(text_at(revision))
                 exempt += 1
             else:
