@@ -153,6 +153,14 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101, failing tests. `tests/native-stream-errors.test.ts` drives Core's OpenRouter engine against a loopback
+fake that streams a text chunk and then an in-stream error chunk with code 502, once directly and once through
+`startRun` with Vivary's redactor and a held synthetic value in the provider message.
+`tests/native-chat-components.test.mjs` passes the resulting error event through the client's event handling into
+`RunErrorRecoveryCard`. The new `test:native-chat` script runs both files and joins `test:maintained`. On this commit
+the engine's final stop has no text, the run's error event reads "Engine stream error" with no code, and the client
+continues an error event whose message names 502 on its own. Test wiring only, so the design description holds.
+
 Issues #98 and #117 are closed. PR #125 merged into `dev` as `9cf1ed7` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-27. The receipt and the Coding worker environment and
 Coding worker startup rows in the acceptance register record the merge. Documentation only, so the design
