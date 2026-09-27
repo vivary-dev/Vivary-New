@@ -356,15 +356,21 @@ With the switch off:
   keys." and shows the provider-key form at once, with no Builder.io button
   and no toggle. A rejected Builder credential shows the same key form instead
   of Reconnect Builder.io.
-- `BuilderConnectPopover`, `BuilderConnectCard`, and `FileStorageSetupCard`
-  render nothing, which removes every connect button built on them, in the
-  chat, Settings, Connections, voice setup, and the file storage card.
+- `BuilderConnectPopover` and `BuilderConnectCard` render nothing, which
+  removes every connect button built on them, in the chat, Settings,
+  Connections, and voice setup. `FileStorageSetupCard` keeps its "Use custom
+  storage keys" path, which the upload instructions send the model to, and
+  drops only its Builder part.
 - Settings drops the Builder.io card from the LLM, hosting, database, uploads,
   and authentication rows, and hides Browser Automation and Background Agent,
   which hold only that card. The LLM summary reads "Add your own provider
   keys." Voice settings drop the Builder Gemini option and the Builder wording.
 - First-run onboarding goes from the intro to the key form.
-- The code-access panel drops its "Use Builder" link.
+- The code-access panel drops its "Use Builder" link. The code-required
+  dialog drops its Builder.io agent and connect options and keeps Desktop.
+- The remaining Builder wording goes too: the `FeatureNotConfiguredError`
+  default message, the background agent and file upload errors in
+  `core-routes-plugin.js`, and the editor image upload error.
 - Core's composer adapters pass `builder.offersEnabled` to Toolkit. The
   Toolkit patch adds it with a default of true. The model picker keeps its
   add-keys action and drops Connect Builder.io, and voice mode setup drops its
@@ -387,10 +393,11 @@ starts, so Vivary's plugin sets the switch when its module loads.
 
 Run `node --test packages/workbench/tests/builder-offers.test.mjs
 packages/workbench/tests/builder-offers-component.test.mjs`. The component test
-bundles Core's `run-recovery.js` with esbuild, renders the missing-access card
-with the local page config, and checks that it shows no Builder text or button
-and does show the key form. A control render with offers on shows Builder
-text. The unit test checks the switch, the page config, and each server
+bundles Core's `run-recovery.js` and `FileStorageSetupCard.js` with esbuild,
+with Core's real provider-key form, and renders them with the local page
+config. The missing-access card shows no Builder text or button and shows the
+key field. The storage card shows its custom-key path and no Builder text.
+Control renders with offers on show Builder text. The unit test checks the switch, the page config, and each server
 surface with the switch off and on, and pins the client and Toolkit call sites.
 
 Upstream could take the switch as an option, because nothing changes until a

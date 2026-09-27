@@ -83,6 +83,25 @@ test("voice, transcription, and attachment messages check the switch", async () 
   }
 });
 
+test("the remaining server and client Builder texts follow the switch", async () => {
+  assert.equal(typeof offers.setBuilderOffersEnabled, "function", "Core exports the switch");
+  const { FeatureNotConfiguredError } = await load("server/credential-provider.js");
+  assert.match(new FeatureNotConfiguredError({ requiredCredential: "PROBE_KEY" }).message, /Connect Builder/);
+  offers.setBuilderOffersEnabled(false);
+  assert.equal(new FeatureNotConfiguredError({ requiredCredential: "PROBE_KEY" }).message,
+    'Feature requires credential "PROBE_KEY". Set your own key.');
+  const routes = await coreSource("server/core-routes-plugin.js");
+  assert.match(routes, /builderOffersEnabled\(\)\s*\?\s*"Builder not connected\.[^"]*"\s*:\s*"The background agent is not available in this app\."/);
+  assert.match(routes, /builderOffersEnabled\(\)\s*\?\s*"No file upload provider configured\. Connect Builder\.io[^"]*"\s*:\s*"No file upload provider configured\. Configure a storage provider/);
+  assert.match(await coreSource("client/uploads/upload-editor-image.js"),
+    /builderOffersEnabled\(\)\s*\?\s*"Image upload failed\. Connect Builder\.io[^"]*"\s*:\s*"Image upload failed\. Configure a storage provider/);
+  const dialog = await coreSource("client/components/CodeRequiredDialog.js");
+  assert.match(dialog, /!builderOffersEnabled\(\) \? null : builderConnected && cloudAgentsAvailable \?/);
+  assert.match(dialog, /builderOffersEnabled\(\) \? "codeRequired\.subtitle" : "codeRequired\.subtitleNoBuilder"/);
+  const i18n = await coreSource("client/i18n.js");
+  assert.match(i18n, /"codeRequired\.subtitleNoBuilder": "This action creates or modifies source code, which needs Desktop from this surface\."/);
+});
+
 test("Vivary turns the offers off in local mode only", async () => {
   const plugin = await readFile(new URL("../server/plugins/00-builder-offers.ts", import.meta.url), "utf8")
     .catch(() => "");
@@ -103,7 +122,8 @@ test("Settings, onboarding, and the code-access panel check the switch", async (
   for (const [file, pattern] of [
     ["client/settings/BuilderConnectPopover.js", /BuilderConnectPopover\([^)]*\) \{\n[^\n]*\n\s+if \(!builderOffersEnabled\(\)\)\n\s+return null;/],
     ["client/setup-connections/BuilderConnectCard.js", /BuilderConnectCard\([^)]*\) \{\n[^\n]*\n\s+if \(!builderOffersEnabled\(\)\)\n\s+return null;/],
-    ["client/FileStorageSetupCard.js", /FileStorageSetupCard\(\) \{\n[^\n]*\n\s+if \(!builderOffersEnabled\(\)\)\n\s+return null;/],
+    // The file storage card keeps its custom-key path. builder-offers-component.test.mjs renders it.
+    ["client/FileStorageSetupCard.js", /if \(!builderOffersEnabled\(\)\) \{\n\s+return \(_jsx\("div", \{ className: "space-y-2", "data-testid": "file-storage-setup-card", children: customStorageButton \}\)\);/],
     ["client/AgentPanel.js", /builderOffersEnabled\(\) && _jsx\("a", \{ href: builderHref/],
     ["client/chat/run-recovery.js", /const shouldShowBuilderReconnect = builderOffersEnabled\(\) && isBuilderReconnectRunError\(info\);/],
     ["client/composer/runtime-adapters.js", /get offersEnabled\(\) \{\n\s+return builderOffersEnabled\(\);/],

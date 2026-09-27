@@ -7313,6 +7313,9 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #104 review fixes. The file storage card keeps its custom-key path with Builder offers off, and the remaining
+Builder wording in errors and the code-required dialog follows the switch. No component, flow, or boundary changes.
+
 Issue #113 review fixes. A condition without a usable Anthropic key fails at once with an errored history row, stale
 webhook calls expire after 24 hours, an automation holds at most 20 waiting calls, the sweep leaves other apps' tasks
 alone, the Automations dialog words reach by access mode, and the desktop picks ports from 42100 to 42999 and retries

@@ -1812,7 +1812,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  export const AssistantChat = forwardRef(function AssistantChat({ apiUrl = agentNativePath("/_agent-native/agent-chat"), tabId, browserTabId, threadId, contextScope, contextNamespace, isActiveComposer, ...props }, ref) {
      const modelRef = useRef(props.selectedModel);
 diff --git a/dist/client/FileStorageSetupCard.js b/dist/client/FileStorageSetupCard.js
-index e30f3fd04b4949bfe81bc340f1142dfe4398db6f..6b8df21809e851b1343397d9d6b8c8a3512b6659 100644
+index e30f3fd04b4949bfe81bc340f1142dfe4398db6f..fa56229a0256de81c8c9116d83b89dda36157330 100644
 --- a/dist/client/FileStorageSetupCard.js
 +++ b/dist/client/FileStorageSetupCard.js
 @@ -1,4 +1,5 @@
@@ -1821,16 +1821,18 @@ index e30f3fd04b4949bfe81bc340f1142dfe4398db6f..6b8df21809e851b1343397d9d6b8c8a3
  import { ActionButton } from "@agent-native/toolkit/design-system";
  import { BuilderConnectCard, DefaultBuilderConnectCardView, } from "./setup-connections/BuilderConnectCard.js";
  /**
-@@ -7,6 +8,9 @@ import { BuilderConnectCard, DefaultBuilderConnectCardView, } from "./setup-conn
-  * surface so the user does not have to understand provider internals first.
-  */
- export function FileStorageSetupCard() {
-+    // The card offers Builder storage only.
-+    if (!builderOffersEnabled())
-+        return null;
-     const openCustomStorage = () => {
-         if (typeof window === "undefined")
-             return;
+@@ -14,5 +15,10 @@ export function FileStorageSetupCard() {
+             detail: { section: "uploads" },
+         }));
+     };
+-    return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: _jsx(BuilderConnectCard, { title: "Connect Builder for file storage", description: "Builder keeps uploaded images and files on durable object storage so the agent can reuse them throughout this thread.", trackingSource: "file_upload_chat_card", render: ({ viewModel, className }) => (_jsxs("div", { className: "space-y-2", children: [_jsx(DefaultBuilderConnectCardView, { viewModel: viewModel, className: className }), _jsxs(ActionButton, { type: "button", intent: "neutral", emphasis: "outline", size: "compact", onPress: openCustomStorage, className: "h-auto w-full justify-start rounded-md px-3 py-2 text-left text-xs font-medium text-foreground", children: ["Use custom storage keys", _jsx("span", { className: "mt-0.5 block text-[11px] font-normal text-muted-foreground", children: "Configure an S3-compatible bucket with a stable public URL." })] })] })) }) }));
++    const customStorageButton = (_jsxs(ActionButton, { type: "button", intent: "neutral", emphasis: "outline", size: "compact", onPress: openCustomStorage, className: "h-auto w-full justify-start rounded-md px-3 py-2 text-left text-xs font-medium text-foreground", children: ["Use custom storage keys", _jsx("span", { className: "mt-0.5 block text-[11px] font-normal text-muted-foreground", children: "Configure an S3-compatible bucket with a stable public URL." })] }));
++    // Without Builder offers the custom-key path is the whole card.
++    if (!builderOffersEnabled()) {
++        return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: customStorageButton }));
++    }
++    return (_jsx("div", { className: "space-y-2", "data-testid": "file-storage-setup-card", children: _jsx(BuilderConnectCard, { title: "Connect Builder for file storage", description: "Builder keeps uploaded images and files on durable object storage so the agent can reuse them throughout this thread.", trackingSource: "file_upload_chat_card", render: ({ viewModel, className }) => (_jsxs("div", { className: "space-y-2", children: [_jsx(DefaultBuilderConnectCardView, { viewModel: viewModel, className: className }), customStorageButton] })) }) }));
+ }
 diff --git a/dist/client/MultiTabAssistantChat.js b/dist/client/MultiTabAssistantChat.js
 index 24eb57b9a053b7205f14e29b94c03a91151a1200..922799cb95f14f4627b36fbcac99042112f1f886 100644
 --- a/dist/client/MultiTabAssistantChat.js
@@ -2513,6 +2515,32 @@ index 9e6a1cc474c7c53ffc22b6b75105476b1f7abf6a..d340a407634ae4fb80fd0dc4dd5f93ff
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text.trim() } : null;
      }
+diff --git a/dist/client/components/CodeRequiredDialog.js b/dist/client/components/CodeRequiredDialog.js
+index 19c9aac281c6716255388df139676e4583bea246..6595b1567a3c323ff6adb7c8f1689a4a9e2ce176 100644
+--- a/dist/client/components/CodeRequiredDialog.js
++++ b/dist/client/components/CodeRequiredDialog.js
+@@ -1,4 +1,5 @@
+ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { IconPackageExport, IconCode, IconExternalLink, IconX, IconLoader2, } from "@tabler/icons-react";
+ import { useEffect, useCallback, useState } from "react";
+ import { createPortal } from "react-dom";
+@@ -78,12 +79,12 @@ export function CodeRequiredDialog({ open, onClose, featureLabel, }) {
+     if (!open || typeof document === "undefined")
+         return null;
+     return createPortal(_jsx("div", { style: s.backdrop, onClick: onClose, children: _jsxs("div", { style: s.dialog, onClick: (e) => e.stopPropagation(), role: "dialog", "aria-modal": "true", children: [_jsxs("div", { style: s.header, children: [_jsx("div", { style: s.iconWrap, children: _jsx(IconPackageExport, { size: 20 }) }), _jsxs("div", { children: [_jsx("h2", { style: s.title, children: t("codeRequired.title") }), _jsx("p", { style: s.subtitle, children: featureLabel
+-                                        ? t("codeRequired.subtitleWithFeature", {
++                                        ? t(builderOffersEnabled() ? "codeRequired.subtitleWithFeature" : "codeRequired.subtitleWithFeatureNoBuilder", {
+                                             feature: featureLabel,
+                                         })
+-                                        : t("codeRequired.subtitle") })] })] }), _jsxs("div", { style: s.options, children: [_jsxs("a", { href: DESKTOP_DOWNLOAD_URL, target: "_blank", rel: "noreferrer", style: { ...s.optionCard, ...s.optionLink }, onMouseEnter: (e) => Object.assign(e.currentTarget.style, s.optionCardHover), onMouseLeave: (e) => Object.assign(e.currentTarget.style, {
++                                        : t(builderOffersEnabled() ? "codeRequired.subtitle" : "codeRequired.subtitleNoBuilder") })] })] }), _jsxs("div", { style: s.options, children: [_jsxs("a", { href: DESKTOP_DOWNLOAD_URL, target: "_blank", rel: "noreferrer", style: { ...s.optionCard, ...s.optionLink }, onMouseEnter: (e) => Object.assign(e.currentTarget.style, s.optionCardHover), onMouseLeave: (e) => Object.assign(e.currentTarget.style, {
+                                 borderColor: "hsl(var(--border))",
+-                            }), children: [_jsx("div", { style: s.optionIcon, children: _jsx(IconCode, { size: 24 }) }), _jsxs("div", { style: s.optionText, children: [_jsx("span", { style: s.optionTitle, children: t("codeRequired.desktopTitle") }), _jsx("span", { style: s.optionDesc, children: t("codeRequired.desktopDescription") })] })] }), builderConnected && cloudAgentsAvailable ? (_jsxs("button", { style: {
++                            }), children: [_jsx("div", { style: s.optionIcon, children: _jsx(IconCode, { size: 24 }) }), _jsxs("div", { style: s.optionText, children: [_jsx("span", { style: s.optionTitle, children: t("codeRequired.desktopTitle") }), _jsx("span", { style: s.optionDesc, children: t("codeRequired.desktopDescription") })] })] }), !builderOffersEnabled() ? null : builderConnected && cloudAgentsAvailable ? (_jsxs("button", { style: {
+                                 ...s.optionCard,
+                                 ...(submitting
+                                     ? { opacity: 0.7, pointerEvents: "none" }
 diff --git a/dist/client/composer/runtime-adapters.js b/dist/client/composer/runtime-adapters.js
 index e043637cb79c273483b22e3d6871107a2ec77360..3fca972cbe5536c442d02f27e7af373359db6cff 100644
 --- a/dist/client/composer/runtime-adapters.js
@@ -2533,6 +2561,19 @@ index e043637cb79c273483b22e3d6871107a2ec77360..3fca972cbe5536c442d02f27e7af3733
          useConnectFlow: useBuilderConnectFlow,
          BuilderConnectPopover,
          tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
+diff --git a/dist/client/i18n.js b/dist/client/i18n.js
+index dade1f26162201e4858aa7b12828351dd7fd1540..5c19b427aaaad58941226bc939acff13cb8c67f1 100644
+--- a/dist/client/i18n.js
++++ b/dist/client/i18n.js
+@@ -471,6 +471,8 @@ const CORE_FALLBACK_MESSAGES = {
+     "codeRequired.title": "Code changes required",
+     "codeRequired.subtitleWithFeature": '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
+     "codeRequired.subtitle": "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
++    "codeRequired.subtitleNoBuilder": "This action creates or modifies source code, which needs Desktop from this surface.",
++    "codeRequired.subtitleWithFeatureNoBuilder": '"{{feature}}" creates or modifies source code, which needs Desktop from this surface.',
+     "codeRequired.desktopTitle": "Use Agent-Native Desktop",
+     "codeRequired.desktopDescription": "Open the project in the desktop app to enable source edits and CLI access.",
+     "codeRequired.builderAgentTitle": "Use Builder.io Agent",
 diff --git a/dist/client/integrations/webhook-url.d.ts b/dist/client/integrations/webhook-url.d.ts
 index 39d13fc2e3f8c26057d51c9c8600e769435ba688..76cfbaa13f9a82de7541f7758ee40782cac6a517 100644
 --- a/dist/client/integrations/webhook-url.d.ts
@@ -2845,6 +2886,26 @@ index 0000000000000000000000000000000000000000..3a59860405fc6dd9d3dde9e352f94ac8
 +    }).catch(() => undefined);
 +    return current;
 +}
+diff --git a/dist/client/uploads/upload-editor-image.js b/dist/client/uploads/upload-editor-image.js
+index 102632e36a40bcf57a7df79639ee402950ffc5b9..4ed6baa218ac6e52507b4264bd29f7e6abf3b625 100644
+--- a/dist/client/uploads/upload-editor-image.js
++++ b/dist/client/uploads/upload-editor-image.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../../shared/builder-offers.js";
+ import { callAction } from "../use-action.js";
+ /**
+  * Read a {@link File} as a base64 data URL (`data:image/...;base64,...`).
+@@ -48,7 +49,9 @@ export const uploadEditorImage = async (file) => {
+     });
+     if (!result || typeof result.url !== "string" || !result.url) {
+         throw new Error(result?.error ||
+-            "Image upload failed. Connect Builder.io (free tier available) in Settings → File uploads, then try again.");
++            (builderOffersEnabled()
++                ? "Image upload failed. Connect Builder.io (free tier available) in Settings → File uploads, then try again."
++                : "Image upload failed. Configure a storage provider in Settings → File uploads, then try again."));
+     }
+     // Use the filename (sans extension) as a reasonable default alt text.
+     const alt = file.name ? file.name.replace(/\.[^./\\]+$/, "") : "";
 diff --git a/dist/client/use-chat-models.js b/dist/client/use-chat-models.js
 index 49cf993e882e89ecfe454b93eaf40de1712e64f8..640eb749acdf0cbd241fbbc54bbeb27c98bbfcb7 100644
 --- a/dist/client/use-chat-models.js
@@ -5170,11 +5231,47 @@ index 3a0b26044a6fced7857ce5a19cd54b19c484bac9..9de7d6cd502551f576edd9f6aa9d1974
      };
      return Object.keys(resolved).length > 0 ? resolved : null;
  }
+diff --git a/dist/server/core-routes-plugin.js b/dist/server/core-routes-plugin.js
+index f77de2d59ca84ac154cfe3f99a9034516baf8c0d..0952bdeef616c1d0a75dbe2488f208d930ccda6b 100644
+--- a/dist/server/core-routes-plugin.js
++++ b/dist/server/core-routes-plugin.js
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ import { createHash } from "node:crypto";
+ import { assertBodySize, defineEventHandler, setResponseStatus, setResponseHeader, getMethod, getHeader, getRequestURL, getRequestIP, readRawBody, getCookie, setCookie, deleteCookie, } from "h3";
+ import { readMultipartFormData } from "h3";
+@@ -2874,7 +2875,9 @@ export function createCoreRoutesPlugin(options = {}) {
+                     if (!creds.privateKey || !creds.publicKey) {
+                         setResponseStatus(event, 400);
+                         return {
+-                            error: "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
++                            error: builderOffersEnabled()
++                                ? "Builder not connected. Connect Builder (free tier available) in Setup to use background agent."
++                                : "The background agent is not available in this app.",
+                         };
+                     }
+                     const body = (await readBody(event));
+@@ -3294,7 +3297,9 @@ export function createCoreRoutesPlugin(options = {}) {
+                 }
+                 setResponseStatus(event, 503);
+                 return {
+-                    error: "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
++                    error: builderOffersEnabled()
++                        ? "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider."
++                        : "No file upload provider configured. Configure a storage provider in Settings → File uploads, or register a provider.",
+                 };
+             }));
+             // ─── Voice transcription (Whisper) ───────────────────────────────
 diff --git a/dist/server/credential-provider.js b/dist/server/credential-provider.js
-index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d4d019995 100644
+index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc5924ac769e5 100644
 --- a/dist/server/credential-provider.js
 +++ b/dist/server/credential-provider.js
-@@ -20,6 +20,7 @@
+@@ -1,3 +1,4 @@
++import { builderOffersEnabled } from "../shared/builder-offers.js";
+ /**
+  * Credential provider abstraction.
+  *
+@@ -20,6 +21,7 @@
  import { createHash } from "node:crypto";
  import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE, GATEWAY_UNAVAILABLE_VISITOR_MESSAGE, } from "../agent/engine/credential-errors.js";
  import { getAppConfig } from "../app-config/index.js";
@@ -5182,7 +5279,18 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d
  import { getDbExec, isLocalDatabase, isTransientDatabaseError, } from "../db/client.js";
  import { getOrgSetting } from "../settings/org-settings.js";
  import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-@@ -1054,7 +1055,8 @@ export async function recordProviderCredentialAuthFailure(opts) {
+@@ -90,7 +92,9 @@ export class FeatureNotConfiguredError extends Error {
+     byokDocsUrl;
+     constructor(opts) {
+         super(opts.message ??
+-            `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`);
++            (builderOffersEnabled()
++                ? `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`
++                : `Feature requires credential "${opts.requiredCredential}". Set your own key.`));
+         this.name = "FeatureNotConfiguredError";
+         this.requiredCredential = opts.requiredCredential;
+         this.builderConnectUrl = opts.builderConnectUrl;
+@@ -1054,7 +1058,8 @@ export async function recordProviderCredentialAuthFailure(opts) {
          await putSetting(settingKey, {
              fingerprint,
              key,
