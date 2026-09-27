@@ -157,6 +157,56 @@ process.send({ type: "vivary:code-worker:ready" });
   }
 });
 
+test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000 }, async t => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-late-ready-"));
+  const server = path.join(fixture, ".output", "server");
+  const loaded = path.join(fixture, "loaded.json");
+  const received = path.join(fixture, "received-run.txt");
+  await mkdir(server, { recursive: true });
+  // Issue #117. This worker reports ready only once the host has asked it to stop, like a worker that loads too slowly.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type === "vivary:code-worker:start") {
+    writeFileSync(${JSON.stringify(received)}, "received");
+    process.exit(0);
+  }
+  if (message.type === "vivary:code-worker:abort") {
+    process.send({ type: "vivary:code-worker:ready" });
+    setTimeout(() => process.exit(0), 500);
+  }
+});
+writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid }));
+`);
+  try {
+    process.chdir(fixture);
+    for (const stop of ["startup deadline", "abort"] as const) await t.test(stop, async t => {
+      await rm(loaded, { force: true });
+      await rm(received, { force: true });
+      const controller = new AbortController();
+      if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
+      const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
+        signal: controller.signal }).then(() => null, (error: unknown) => error);
+      await waitForPids(loaded);
+      if (stop === "startup deadline") {
+        t.mock.timers.tick(15_000);
+        t.mock.timers.reset();
+      } else {
+        controller.abort();
+      }
+      const error = await outcome;
+      await assert.rejects(readFile(received), { code: "ENOENT" }, "the worker received its run after the stop request");
+      assert.ok(error instanceof Error);
+      if (stop === "startup deadline") assert.equal(error.message, "The coding worker did not start within 15 seconds.");
+      else assert.equal(error.name, "AbortError");
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("worker relays native approvals and remains active beyond the former turn deadline", { timeout: 12_000 }, async t => {
   const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-request-"));
