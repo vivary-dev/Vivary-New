@@ -7278,6 +7278,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #51 is closed. PR #116 merged into `dev` as `c39e22f`, and the owner accepted the packaged
+automation run on 2026-09-27. Its receipt, the acceptance register, the release target, and the
+Workbench README now record the merge and closure. Documentation only, so the design description
+holds.
+
 `.gitattributes` now disables only the trailing-whitespace rule for maintained pnpm patches
 under `packages/workbench/patches/`. A patch writes a blank source line as a single-space context
 line, and the #51 Core patch is the first to change text next to blank lines, so CI's
