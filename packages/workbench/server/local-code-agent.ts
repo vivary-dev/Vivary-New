@@ -21,7 +21,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
-import { refreshHeldCredentials } from "./credential-redaction.ts";
+import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
 import type { ProjectContextBlock, ProjectContextLoad } from "./project-memory.ts";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
 
@@ -263,7 +263,8 @@ export async function getVivaryCodeHostState(
   const recent = owned.find(run => !activeRuns.has(run.id));
   return {
     activeRun: active ? { id: active.id, title: active.title, projectId: metadataString(active, "projectId") } : null,
-    pendingApproval: pending && active ? { ...pending, runId: active.id, title: active.title, projectId: metadataString(active, "projectId"), workspaceLabel: activeRuns.get(active.id)!.workspace.label } : null,
+    // The card shows a redacted copy. The stored request stays as Codex sent it, so the answer matches it.
+    pendingApproval: pending && active ? { ...redactCredentialsInValue(pending), runId: active.id, title: active.title, projectId: metadataString(active, "projectId"), workspaceLabel: activeRuns.get(active.id)!.workspace.label } : null,
     recentRun: recent ? {
       id: recent.id,
       title: recent.title,

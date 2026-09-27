@@ -172,18 +172,22 @@ saved record, a log, or the screen (issue #97). A value Vivary holds shows as
 `[redacted NAME]`, such as `[redacted OPENROUTER_API_KEY]`. Held values are
 credential-named settings in the server environment, keys saved in Settings,
 legacy credential settings, and the credential environments and headers in
-`mcp.config.json`. A common key format that Vivary does not hold, such as an
-`sk-`, `ghp_`, or `Bearer` token, shows as `[redacted credential]`. The original
-stays where it is kept, in the file, the environment, or Settings.
+`mcp.config.json`. The held set reloads when a key is saved or removed. A common
+key format that Vivary does not hold, such as an `sk-`, `ghp_`, `glpat-`,
+Stripe live, JSON Web Token, or `Bearer` token, shows as `[redacted credential]`.
+Names that print ordinary data, such as `nextPageToken`, `publicKey`, or
+`kms_key_id`, are left alone. The original stays where it is kept, in the file,
+the environment, or Settings.
 
-Native chat tool results, tool and provider errors, run events, saved threads,
-automation run errors, the project context block, original command output and
-receipts, and server output are redacted. Codex and Claude Code transcripts and
-run records are redacted before they are written. The coding worker receives
-salted fingerprints of the held values, not the values. The coding CLI still
-sends raw tool output to its own provider and keeps its own session files. A key
-typed into a chat reaches the model in that turn and is redacted where the
-thread is saved. The
+Native chat tool results, tool and provider errors, run events, saved and forked
+threads, automation run errors, the project context block, Codex approval cards,
+original command output and receipts, and server output are redacted. Codex and
+Claude Code transcripts and run records are redacted before they are written.
+The host sends the coding worker salted fingerprints of the held values, not the
+values, though the worker still inherits the server environment until issue #98.
+The coding CLI still sends raw tool output to its own provider and keeps its own
+session files. A key typed into a chat reaches the model in the turn it is typed.
+Later turns, the saved thread, and forks get the placeholder. The
 [HLDD](../../docs/ARCHITECTURE.md#data-and-trust-boundaries) lists the limits of
 pattern matching, and the [patch notes](patches/README.md#credential-redaction)
 list the Core call sites.
@@ -555,8 +559,8 @@ fails fast with one sentence naming it.
 pnpm test:maintained
 ```
 
-That runs the registry, project-services, shell, mutation, and chat-title
-suites in sequence with disposable proof roots and a disposable database.
+That runs the registry, project-services, shell, mutation, chat-title, and
+credential redaction suites in sequence with disposable proof roots and a disposable database.
 Set `VIVARY_REGISTRY_PROOF_ROOT`, `VIVARY_12H_PROOF_ROOT`,
 `VIVARY_17A_PROOF_ROOT`, or `VIVARY_TEST_CORE_PACKAGE_JSON` to absolute paths
 only when a task needs to own them. Core creates an empty `data/` directory

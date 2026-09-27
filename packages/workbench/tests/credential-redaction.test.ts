@@ -24,8 +24,8 @@ Object.assign(process.env, { DATABASE_URL: database, DATABASE_URL_UNPOOLED: data
 after(() => rm(caseRoot, { recursive: true, force: true }));
 
 const {
-  createCredentialRedactor, heldCredentialCount, redactCredentialPatterns, redactCredentials, refreshHeldCredentials,
-  defaultCredentialSources,
+  createCredentialRedactor, heldCredentialCount, heldCredentialHoldback, redactCredentialPatterns, redactCredentials,
+  refreshHeldCredentials, defaultCredentialSources, watchHeldCredentialSources,
 } = await import("../server/credential-redaction.ts");
 
 const masked = (text: string) => generated.reduce((out, value) => out.split(value).join("<generated>"), text);
@@ -218,4 +218,110 @@ setTimeout(() => process.exit(0), 200).unref();`;
   assertMatch(stderr, /console \[redacted VIVARY_PROBE_TOKEN\] \[redacted credential\]/);
   assertMatch(stderr, /direct \[redacted VIVARY_PROBE_TOKEN\] \[redacted credential\]/);
   assertMatch(stdout, /stdout \[redacted VIVARY_PROBE_TOKEN\]\nbuffer \[redacted VIVARY_PROBE_TOKEN\]/);
+});
+
+test("adversarial single-line text is redacted in linear time", () => {
+  const held = Array.from({ length: 40 }, (_, index) => ({ name: `SYNTH_${index}_API_KEY`, value: synthetic(24 + index) }));
+  const redactor = createCredentialRedactor(held);
+  const inputs: Record<string, string> = {
+    "dash-joined words": "ab-".repeat(87_382), "base64url": randomBytes(786_432).toString("base64url"),
+    "dotted pairs": "a.".repeat(131_072), "name separators": "token:".repeat(43_690), "scheme-like runs": "a:/".repeat(87_382),
+    "bearer runs": "Bearer ".repeat(37_449), "prefix runs": "sk-".repeat(87_382), "jwt-like runs": "eyJ.".repeat(65_536),
+  };
+  for (const [label, text] of Object.entries(inputs)) {
+    const started = performance.now();
+    redactor.redact(text);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 1_000, `${label} took ${Math.round(elapsed)} ms`);
+  }
+});
+
+test("ordinary names, CSS classes, and prose are not redacted", () => {
+  const value = synthetic(40);
+  for (const name of ["nextPageToken", "pageToken", "NextToken", "continuation_token", "page_token", "s3Key", "cacheKey",
+    "object_key", "primaryKey", "publicKey", "KEY_ID", "kms_key_id", "api_key_id", "secret_arn", "secretName",
+    "idempotencyKey", "access_token_expires_at", "SSH_KEY_PATH", "TOKEN_FILE", "SECRETS_DIR", "AUTH_ENDPOINT"]) {
+    assertText(redactCredentialPatterns(`${name}=${value}`), `${name}=${value}`, name);
+    assertText(redactCredentialPatterns(`"${name}": "${value}"`), `"${name}": "${value}"`, name);
+  }
+  for (const text of [".sk-circle-bounce-delay-animation { }", "div.sk-fading-circle-container-large", "Bearer token-based-authentication-v2",
+    "Bearer tokens-for-machine-to-machine-calls"]) assertText(redactCredentialPatterns(text), text);
+  // The credential names beside them still redact.
+  for (const name of ["access_token", "refresh_token", "api_key", "clientSecret", "privateKey", "password"]) {
+    assertText(redactCredentialPatterns(`${name}=${value}`), `${name}=[redacted credential]`, name);
+  }
+});
+
+test("Stripe, GitLab, and JSON Web Token formats are redacted, and look-alikes are not", () => {
+  const jwt = `eyJ${synthetic(20)}.eyJ${synthetic(40)}.${synthetic(43)}`;
+  for (const token of [`sk_live_${synthetic(24)}`, `rk_live_${synthetic(24)}`, `glpat-${synthetic(20)}`, jwt]) {
+    generated.push(token);
+    assertText(redactCredentialPatterns(`value ${token} end`), "value [redacted credential] end");
+  }
+  for (const text of ["sk_live_ is the live prefix", "rk_live_short", "glpat- is the GitLab prefix", "eyJhbGciOiJIUzI1NiJ9 alone",
+    "version 1.2.3 and eyJ.a.b", "sk_test_placeholder_value", "a.eyJ.b"]) assertText(redactCredentialPatterns(text), text);
+});
+
+test("a value that starts with a slash is held unless its setting names a path", async () => {
+  const [awsSecret, keyPath, credentials, folder] = [`/${synthetic(39)}`, `/home/owner/${synthetic(20)}/key.pem`,
+    `/home/owner/${synthetic(20)}.json`, `/var/lib/${synthetic(20)}`];
+  await refreshHeldCredentials({ ...noSources, environment: () => ({ AWS_SECRET_ACCESS_KEY: awsSecret, SSH_KEY_PATH: keyPath,
+    GOOGLE_APPLICATION_CREDENTIALS: credentials, SECRETS_DIR: folder }) });
+  try {
+    assertText(redactCredentials(`secret ${awsSecret} end`), "secret [redacted AWS_SECRET_ACCESS_KEY] end");
+    for (const text of [keyPath, credentials, folder]) assertText(redactCredentials(text), text);
+    assertText(redactCredentialPatterns(`AWS_SECRET_ACCESS_KEY=${awsSecret}`), "AWS_SECRET_ACCESS_KEY=[redacted credential]");
+    assertText(redactCredentialPatterns(`GOOGLE_APPLICATION_CREDENTIALS=${credentials}`), `GOOGLE_APPLICATION_CREDENTIALS=${credentials}`);
+  } finally {
+    await refreshHeldCredentials(noSources);
+  }
+});
+
+test("a credential-named query value in a database URL is held", async () => {
+  const authToken = synthetic(48);
+  await refreshHeldCredentials({ ...noSources, environment: () => ({
+    DATABASE_URL: `libsql://db-probe.example.test?authToken=${authToken}&tls=1` }) });
+  try {
+    assertText(redactCredentials(`token ${authToken} end`), "token [redacted DATABASE_URL] end");
+    assertText(redactCredentials("libsql://db-probe.example.test"), "libsql://db-probe.example.test");
+  } finally {
+    await refreshHeldCredentials(noSources);
+  }
+});
+
+test("saving or deleting a stored secret reloads the held set without a send", async () => {
+  const { writeAppSecret, deleteAppSecret } = await import("@agent-native/core/secrets");
+  const { putSetting } = await import("@agent-native/core/settings");
+  assert.equal(typeof watchHeldCredentialSources, "function", "the redaction module does not watch secret writes");
+  const until = async (done: () => boolean) => {
+    for (let attempt = 0; attempt < 100 && !done(); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+  };
+  const stop = watchHeldCredentialSources({ ...defaultCredentialSources, environment: () => ({}), mcpConfig: () => null });
+  const [saved, legacy] = [synthetic(44), synthetic(40)];
+  try {
+    await writeAppSecret({ key: "ANTHROPIC_API_KEY", value: saved, scope: "user", scopeId: "watch@example.test" });
+    await until(() => redactCredentials(saved) !== saved);
+    assertText(redactCredentials(saved), "[redacted ANTHROPIC_API_KEY]");
+    await putSetting("u:watch@example.test:credential:WATCH_TOKEN", { value: legacy });
+    await until(() => redactCredentials(legacy) !== legacy);
+    assertText(redactCredentials(legacy), "[redacted WATCH_TOKEN]");
+    await deleteAppSecret({ key: "ANTHROPIC_API_KEY", scope: "user", scopeId: "watch@example.test" });
+    await until(() => redactCredentials(saved) === saved);
+    assertText(redactCredentials(saved), saved);
+  } finally {
+    stop();
+    await refreshHeldCredentials(noSources);
+  }
+});
+
+test("the streamed delta holdback covers the longest held form", async () => {
+  assert.equal(typeof heldCredentialHoldback, "function", "the redaction module has no holdback");
+  const long = synthetic(403);
+  await refreshHeldCredentials({ ...noSources, environment: () => ({ REFRESH_TOKEN: long }) });
+  try {
+    assert.ok(heldCredentialHoldback() >= Buffer.from(long).toString("base64").length);
+  } finally {
+    await refreshHeldCredentials(noSources);
+  }
+  assert.equal(heldCredentialHoldback(), 256);
 });

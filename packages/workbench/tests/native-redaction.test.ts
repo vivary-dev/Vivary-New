@@ -37,10 +37,10 @@ const { defineAction } = await import("@agent-native/core/action");
 const { getDbExec } = await import("@agent-native/core/db");
 const { MCP_ACTION_RESULT_MARKER } = await import("@agent-native/core/mcp-client");
 const { actionsToEngineTools, loadActionsFromStaticRegistry, runAgentLoop, runWithRequestContext } = await import("@agent-native/core/server");
-const { redactCredentials, refreshHeldCredentials } = await import("../server/credential-redaction.ts");
+const { heldCredentialHoldback, redactCredentials, refreshHeldCredentials } = await import("../server/credential-redaction.ts");
 type AgentEngine = import("@agent-native/core/agent/engine").AgentEngine;
 
-audit.setTextRedactor?.(redactCredentials);
+audit.setTextRedactor?.(redactCredentials, { holdback: () => heldCredentialHoldback?.() ?? 256 });
 const owner = "owner@example.test";
 const generated: string[] = [];
 const synthetic = (length = 40) => {
@@ -194,4 +194,138 @@ test("a saved thread and an automation run error keep placeholders only", async 
   await automationRuns.finishAutomationRun(runId, "error", `step failed with ${held}`, "probe_failed");
   const run = await automationRuns.getAutomationRun(runId);
   assertText(String(run?.error), "step failed with [redacted VIVARY_PROBE_TOKEN]");
+});
+
+const joinedText = (events: Array<Record<string, unknown>>, type: string, id?: string) => events
+  .filter(event => event.type === type && (id === undefined || event.id === id)).map(event => String(event.text)).join("");
+
+async function probeTurn(actions: ReturnType<typeof loadActionsFromStaticRegistry>, names: string[]) {
+  const requests: string[] = [];
+  const engine: AgentEngine = { name: "fake", label: "Fake", defaultModel: "fake-model", supportedModels: ["fake-model"],
+    capabilities: { thinking: false, promptCaching: false, vision: false, computerUse: false, parallelToolCalls: false },
+    async *stream(options) {
+      requests.push(JSON.stringify(options.messages));
+      if (requests.length === 1) {
+        const calls = names.map((name, index) => ({ type: "tool-call" as const, id: `call-${index}`, name, input: {} }));
+        for (const call of calls) yield call;
+        yield { type: "assistant-content", parts: calls };
+        yield { type: "stop", reason: "tool_use" };
+      } else {
+        yield { type: "assistant-content", parts: [{ type: "text", text: "Done." }] };
+        yield { type: "stop", reason: "end_turn" };
+      }
+    } };
+  const events: Array<{ type: string; id?: string; result?: string }> = [];
+  await runWithRequestContext({ userEmail: owner, orgId: "org-a", run: {} }, () => runAgentLoop({ engine, model: "fake-model",
+    systemPrompt: "", tools: actionsToEngineTools(actions), actions, signal: new AbortController().signal,
+    messages: [{ role: "user", content: [{ type: "text", text: "Read the probe." }] }],
+    send: event => { events.push(event as { type: string; id?: string; result?: string }); } }));
+  return { requests, events };
+}
+const probeAction = (run: () => Promise<unknown>) => ({ default: defineAction({ description: "Read the probe.",
+  schema: z.object({}), agentTool: true, http: false, readOnly: true, dedupe: false, run }) });
+const pieces = (value: string) => Array.from({ length: Math.floor(value.length / 64) }, (_, index) => value.slice(index * 64, index * 64 + 32));
+
+test("a held value that crosses the tool result limit is redacted whole", async () => {
+  const long = synthetic(6_000);
+  await holding({ LONG_PROBE_TOKEN: long });
+  const actions = loadActionsFromStaticRegistry({
+    "probe-large": probeAction(async () => `${"x".repeat(49_000)}${long}${"y".repeat(2_000)}`) });
+  const { requests, events } = await probeTurn(actions, ["probe-large"]);
+  const result = events.find(event => event.type === "tool_done")?.result ?? "";
+  assertHidden(result + requests.join("\n"), pieces(long), "tool result");
+  assertMatch(result, /x\[redacted LONG_PROBE_TOKEN\]y/);
+});
+
+test("a recovered tool result is stored and replayed with placeholders", async () => {
+  const held = synthetic();
+  await holding({ VIVARY_PROBE_TOKEN: held });
+  const runStore = await load("agent/run-store.js");
+  const threadId = `thread-${randomUUID()}`;
+  await runStore.writeLedgerEntry(threadId, "probe:write", `wrote ${held}`);
+  const [row] = await rows("SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ?", [threadId]);
+  assertText(String(row?.result_summary), "wrote [redacted VIVARY_PROBE_TOKEN]");
+  // A row stored before redaction is redacted when it is replayed to the model.
+  await getDbExec().execute({ sql: "UPDATE agent_tool_ledger SET result_summary = ? WHERE thread_id = ?", args: [`old ${held}`, threadId] });
+  const replayed = await runStore.readLedgerEntry(threadId, "probe:write");
+  assertText(String(replayed?.result), "old [redacted VIVARY_PROBE_TOKEN]");
+});
+
+test("tool input streamed for two calls at once is redacted whole", async () => {
+  const [first, second] = [synthetic(), synthetic()];
+  await holding({ VIVARY_PROBE_TOKEN: first, OTHER_PROBE_TOKEN: second });
+  const { shown, stored } = await runToEnd(async send => {
+    send({ type: "tool_input_delta", tool: "probe", id: "call-a", text: `{"note":"${first.slice(0, 15)}` });
+    send({ type: "tool_input_delta", tool: "probe", id: "call-b", text: `{"note":"${second.slice(0, 9)}` });
+    send({ type: "tool_input_delta", tool: "probe", id: "call-a", text: `${first.slice(15)}"}` });
+    send({ type: "tool_input_delta", tool: "probe", id: "call-b", text: `${second.slice(9)}"}` });
+    send({ type: "tool_start", tool: "probe", id: "call-a", input: { note: first } });
+    send({ type: "done" });
+  });
+  const [inputA, inputB] = [joinedText(shown, "tool_input_delta", "call-a"), joinedText(shown, "tool_input_delta", "call-b")];
+  assertHidden(`${inputA}\n${inputB}\n${stored}`, [first, second], "tool input");
+  assertText(inputA, '{"note":"[redacted VIVARY_PROBE_TOKEN]"}');
+  assertText(inputB, '{"note":"[redacted OTHER_PROBE_TOKEN]"}');
+});
+
+test("a held value longer than 256 characters is redacted whole across text deltas", async () => {
+  const long = synthetic(403);
+  await holding({ REFRESH_TOKEN: long });
+  const { shown } = await runToEnd(async send => {
+    send({ type: "text", text: `token: ${long.slice(0, 150)}` });
+    send({ type: "text", text: long.slice(150, 300) });
+    send({ type: "text", text: `${long.slice(300)} end` });
+    send({ type: "done" });
+  });
+  const text = joinedText(shown, "text");
+  assertHidden(text, pieces(long), "streamed text");
+  assertText(text, "token: [redacted REFRESH_TOKEN] end");
+});
+
+test("an automation's last error keeps placeholders only", async () => {
+  const held = synthetic();
+  await holding({ VIVARY_PROBE_TOKEN: held });
+  const [scheduler, resources] = await Promise.all([load("jobs/scheduler.js"), load("resources/store.js")]);
+  await resources.resourcePut(owner, "jobs/probe97.md", scheduler.buildJobContent({ schedule: "0 0 1 1 *" }, "Say hello."));
+  // The run fails with the provider's message. The scheduler logs it, so this test keeps its console quiet.
+  const deps = new Proxy({}, { get() { throw new Error(`the provider rejected ${held}`); } });
+  const quiet = { log: console.log, error: console.error, warn: console.warn };
+  Object.assign(console, { log: () => undefined, error: () => undefined, warn: () => undefined });
+  let outcome: unknown;
+  try {
+    outcome = await runWithRequestContext({ userEmail: owner }, () => scheduler.runJobNow(owner, "probe97", deps));
+  } finally {
+    Object.assign(console, quiet);
+  }
+  const saved = await resources.resourceGetByPath(owner, "jobs/probe97.md");
+  assertHidden(`${JSON.stringify(outcome)}\n${saved?.content ?? ""}`, [held], "automation last error");
+  assertMatch(String(saved?.content), /the provider rejected \[redacted VIVARY_PROBE_TOKEN\]/);
+});
+
+test("a fork of a thread saved before redaction keeps placeholders only", async () => {
+  const held = synthetic();
+  await holding({ VIVARY_PROBE_TOKEN: held });
+  const sourceId = `thread-${randomUUID()}`;
+  await threads.createThread(owner, { id: sourceId, title: "Source" });
+  const repository = { headId: "m1", messages: [{ parentId: null, message: { id: "m1", role: "user",
+    content: [{ type: "text", text: `my key is ${held}` }], createdAt: new Date().toISOString(), metadata: {} } }] };
+  // Written directly, as a row saved before this change would be.
+  await getDbExec().execute({ sql: "UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = 1 WHERE id = ?",
+    args: [JSON.stringify(repository), `Key ${held}`, `my key is ${held}`, sourceId] });
+  const fork = await runWithRequestContext({ userEmail: owner }, () => threads.forkThread(sourceId, owner));
+  const [row] = await rows("SELECT thread_data, title, preview FROM chat_threads WHERE id = ?", [fork.id]);
+  assertHidden(`${row?.thread_data}\n${row?.title}\n${row?.preview}`, [held], "forked thread");
+  assertMatch(String(row?.thread_data), /my key is \[redacted VIVARY_PROBE_TOKEN\]/);
+});
+
+test("earlier turns sent back by the browser reach the model with placeholders", async () => {
+  const held = synthetic();
+  await holding({ VIVARY_PROBE_TOKEN: held });
+  const { structuredHistoryToEngineMessages } = await load("agent/production-agent.js");
+  const messages = JSON.stringify(structuredHistoryToEngineMessages([
+    { role: "user", content: [{ type: "text", text: `my key is ${held}` }] },
+    { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+  ]));
+  assertHidden(messages, [held], "history");
+  assertMatch(messages, /my key is \[redacted VIVARY_PROBE_TOKEN\]/);
 });

@@ -36,7 +36,8 @@ async function receive(message: unknown) {
   if (started || !isVivaryCodeWorkerRequest(message)) return;
   started = true;
   // Issue #97. Core redacts each transcript event before it is written, using fingerprints of the
-  // host's held credentials. The CLI this worker starts can read this process, so it never holds the values.
+  // host's held credentials. The CLI this worker starts can read this process, so the host sends
+  // fingerprints rather than values. The worker still inherits the server environment until #98.
   setTextRedactor(createFingerprintRedactor(message.redaction).redact);
   const record = getCodeAgentRunRecord(message.runId);
   if (!record || record.metadata?.ownerEmail !== message.ownerEmail ||
