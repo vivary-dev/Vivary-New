@@ -5,6 +5,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest, isCodexActionRequest, type CodexActionRequest } from "./code-execution-protocol";
+import { credentialFingerprints } from "./credential-redaction.ts";
 
 const TERMINATION_GRACE_MS = 5_000;
 const EXIT_TIMEOUT_MS = 3_000;
@@ -39,6 +40,8 @@ export async function executeVivaryCodeWorker(input: {
   const request: VivaryCodeWorkerRequest = {
     type: "vivary:code-worker:start", runId: input.runId, prompt: input.prompt,
     model: input.model, permissionMode: input.permissionMode, ownerEmail: input.ownerEmail, orgId: input.orgId,
+    // The worker redacts transcript events with fingerprints of the values the host holds now.
+    redaction: credentialFingerprints(),
   };
   if (!isVivaryCodeWorkerRequest(request)) throw new Error("The coding worker received an invalid run request.");
   // startVivary pins cwd to the Workbench package, including relocated desktop builds.

@@ -16,6 +16,7 @@ import {
   type EvaluateAs, type GovernedRefusalReason,
 } from "../app/lib/project-evaluate-schema.ts";
 import { parseStrictJson } from "../../../scripts/registry_contract_model.mjs";
+import { redactCredentials } from "./credential-redaction.ts";
 import { EvidenceCodecError, governedDocument, projectAgentActorId, type BoundActor } from "./governed-request.ts";
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
@@ -238,7 +239,8 @@ async function componentReceipts(childLog: string): Promise<string> {
   const info = await lstat(childLog).catch(() => null);
   if (!info?.isFile() || info.nlink !== 1 || info.size === 0 || info.size > CHILD_RECEIPT_BYTES) return "";
   const lines = await readFile(childLog, "utf8").catch(receiptFileError);
-  return lines.endsWith("\n") ? lines : lines + "\n";
+  // A component receipt can quote command output, so it is redacted before the shared log keeps it.
+  return redactCredentials(lines.endsWith("\n") ? lines : lines + "\n");
 }
 
 // A crash leaves its private folder behind, sometimes with a receipt the app
@@ -609,7 +611,9 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
       commandHost.active.delete(active);
       markSettled();
       if (failure) reject(failure);
-      else resolve({ exitCode, stdout: Buffer.concat(output).toString("utf8"), stderr: Buffer.concat(errors).toString("utf8"), signal: exitSignal });
+      // Output reaches the model, the screen, and receipts, so credentials are redacted first.
+      else resolve({ exitCode, stdout: redactCredentials(Buffer.concat(output).toString("utf8")),
+        stderr: redactCredentials(Buffer.concat(errors).toString("utf8")), signal: exitSignal });
     });
     child.stdin.end(stdin);
   });

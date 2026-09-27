@@ -347,6 +347,93 @@ a way to approve an MCP step before a run starts. Remove this part of the patch
 only when an upstream release offers a local-only mode that passes the same
 test.
 
+## Credential redaction
+
+Issue #97 adds a text redaction hook. The owner asked on 2026-09-26 that
+credentials never appear in anything Vivary shows, stores, or sends to a model,
+even when an agent, a tool, or a provider error prints one. No existing Core
+hook can change a tool result or a run event, so the patch adds one.
+
+`dist/audit/redact.js` exports `setTextRedactor`, `redactText`,
+`redactTextInValue`, and `textRedactionHoldback`, and the `./audit` entry
+re-exports them. A host registers one function that takes text and returns
+text, and can pass `holdback`, a function that returns how many trailing
+characters a streamed delta keeps back. `redactText` applies the redactor, and
+returns text unchanged when none is registered. `redactTextInValue` applies it
+to every string in a plain object or array, and returns the same value when
+nothing changed. If the redactor throws or returns something other than text,
+the text is withheld as `[text withheld because redaction failed]`. Vivary's
+`server/plugins/00-credential-redaction.ts` registers `redactCredentials` from
+`server/credential-redaction.ts`, with a holdback that covers its longest held
+form plus 256 characters, at most 16,384.
+
+Core calls the hook in these places:
+
+- `agent/production-agent.js` redacts a whole tool result before truncation, so
+  the model, the `tool_done` event, the loop journal, and the read cache get one
+  redacted string and a credential that crosses the limit is found whole. Every
+  tool error result passes through `finalizeToolErrorResult`, which now redacts
+  after `sanitizeToolErrorText`. Warnings appended to a result are redacted too.
+  `structuredHistoryToEngineMessages` and the plain `history` fallback redact the
+  earlier turns the browser sends back, so a credential typed in an earlier
+  message reaches the model as its placeholder.
+- `agent/run-store.js` redacts a recovered tool result in `writeLedgerEntry`
+  before it is stored, and again in `readLedgerEntry`, so a row stored before
+  this change is not replayed raw.
+- `agent/run-manager.js` redacts every run event in `emitRunEvent`, before it is
+  kept in memory, sent to subscribers, or inserted into `agent_run_events`. That
+  covers tool starts and results, provider errors, and the terminal event, which
+  `send` also redacts when it stashes it. A `text`, `thinking`, or
+  `tool_input_delta` delta keeps back its last word, and the word before it when
+  only spaces or tabs separate them, up to the host's holdback. Text and thinking
+  share one slot, flushed before any other event. Each tool call's input has its
+  own slot, flushed before any event that is not a delta, so input streamed for
+  two calls at once stays whole. Everything held goes out when the run ends and
+  when it is aborted. The last word or two appears a moment later while text
+  streams. The joined text is unchanged apart from redaction.
+- `server/credential-provider.js` redacts the provider error message it saves
+  after a 401.
+- `chat-threads/store.js` redacts `thread_data`, the title, and the preview in
+  `updateThreadData`, a catch-all for browser saves and automation runs, and in
+  the row `forkThread` inserts, because the source row can predate redaction and
+  a snapshot comes from the browser. It redacts each string of the parsed
+  repository and keeps the stored text as sent when nothing matched.
+- `jobs/run-history.js` redacts the error of a finished automation run, and
+  `jobs/scheduler.js` redacts the last error it stores in the automation's file.
+- `cli/code-agent-runs.js` redacts a Code transcript event's message and
+  metadata before `appendCodeAgentTranscriptEvent` writes it, and the title,
+  subtitle, details, progress, and metadata of a run record before it is
+  created or updated. The Vivary server and the coding worker each register a
+  redactor. The worker's is built from salted fingerprints the host sends with
+  the start request, so the host never sends the worker the values.
+- `secrets/storage.js` exports `onAppSecretsChanged`. `writeAppSecret` and
+  `deleteAppSecret` call its listeners after the write, and Vivary reloads its
+  held set from them.
+
+Run `pnpm test:credential-redaction`. CI runs it once, in the maintained
+Workbench checks on Linux. The Windows CI job runs no Node tests, so a
+platform-neutral test file is covered on Windows only when run there. It runs
+`tests/credential-redaction.test.ts`, `tests/native-redaction.test.ts`,
+`tests/code-run-redaction.test.ts`, and `tests/code-run-worker.test.ts` one
+file at a time with random synthetic values and disposable SQLite databases.
+The Native test registers Vivary's redactor and drives the agent loop with a
+fake engine whose tools return a held value from an action, from an MCP-shaped
+result, from a thrown error, and across the 50,000-character result limit. It
+runs `startRun` with text, thinking, and tool-input deltas that split held
+values, including one of 403 characters, with a thrown provider error, and with
+an abort. It also checks the ledger, the saved provider failure, saved and
+forked threads, earlier turns, an automation run error, and an automation's
+last error. `tests/code-run-worker.test.ts` forks the real coding worker source
+through tsx with a stub Claude CLI that reads a project file holding a held
+value and a `ghp_` token, and checks the start request, the transcript file,
+every file under the code-runs folder, the Code state, and the follow-up prompt.
+It loads Core's server modules, which take several seconds, so it runs only in
+this sequential suite.
+
+Upstream could take the hook as it is, because nothing changes until a host
+registers a redactor. Remove this part of the patch only when an upstream
+release offers the same call sites and passes the same tests.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's

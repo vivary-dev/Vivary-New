@@ -1,3 +1,223 @@
+diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..8c48ffb8370ba34331f5801695b516b9c806f59f 100644
+--- a/dist/agent/production-agent.js
++++ b/dist/agent/production-agent.js
+@@ -49,6 +49,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
+ import { consumeAgentToolApproval, createAgentToolApproval, isAgentToolAlwaysAllowed, resolveAgentToolApprovalTurnId, } from "./tool-approval-store.js";
+ import { findCompletedJournalEntry, } from "./tool-call-journal.js";
+ import { redactSensitiveFields, sanitizeToolErrorText, sanitizeToolErrorValue, } from "./tool-error-redaction.js";
++import { redactText, redactTextInValue } from "../audit/redact.js";
+ import { describeToolResultImages, extractAgentImagesFromActionResult, } from "./tool-result-images.js";
+ import { createToolSearchEntry, searchToolRegistry, TOOL_SEARCH_ACTION_NAME, } from "./tool-search.js";
+ // Register built-in engines on first import
+@@ -1395,8 +1396,11 @@ export function structuredHistoryToEngineMessages(history) {
+             messages.push({ role: message.role, content });
+         }
+     }
++    // Vivary #97: earlier turns come back from the browser. A credential typed
++    // in an earlier message, or kept in an older saved thread, reaches the
++    // model as its placeholder.
+     return messages.length > 0
+-        ? backfillEngineMessagesToolResults(messages)
++        ? redactTextInValue(backfillEngineMessagesToolResults(messages))
+         : null;
+ }
+ /** Build enriched message with file/skill/mention references */
+@@ -4363,7 +4367,8 @@ export async function runAgentLoop(opts) {
+                 });
+             };
+             const finalizeToolErrorResult = (rawResult) => {
+-                const sanitizedResult = sanitizeToolErrorText(rawResult);
++                // Vivary #97: every tool error result passes through here.
++                const sanitizedResult = redactText(sanitizeToolErrorText(rawResult));
+                 // Counting is the wrong instrument for a precondition the turn cannot
+                 // satisfy: six identical round-trips through a missing API key cost the
+                 // user minutes and end where the first one did. Classified first so the
+@@ -5085,6 +5090,10 @@ export async function runAgentLoop(opts) {
+                     let resultStr = typeof resultForAgent === "string"
+                         ? resultForAgent
+                         : JSON.stringify(resultForAgent, null, 2);
++                    // Vivary #97: redact the whole result before truncation, so a credential
++                    // that crosses the limit is found whole. One redacted string then feeds
++                    // the model, the screen, the journal, and the cache.
++                    resultStr = redactText(resultStr);
+                     if (resultStr.length > toolMaxResultChars) {
+                         const truncated = resultStr.slice(0, toolMaxResultChars);
+                         resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
+@@ -5136,7 +5145,7 @@ export async function runAgentLoop(opts) {
+                 // so nothing stays pending to bleed into a later tool's result.
+                 const agentWarnings = drainAgentWarnings();
+                 if (agentWarnings.length > 0) {
+-                    result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
++                    result = `${result}\n\n${redactText(formatAgentWarningsForToolResult(agentWarnings))}`;
+                 }
+                 // Auto-refresh the UI after a successful mutating tool call. Any call
+                 // that isn't read-only — by its own per-call Plan-mode effect, else the
+@@ -7389,12 +7398,12 @@ export function createProductionAgentHandler(options) {
+             attachments: requestAttachments,
+         });
+         const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
+-            history
++            redactTextInValue(history
+                 .filter((m) => m.content.trim())
+                 .map((m) => ({
+                 role: m.role,
+                 content: [{ type: "text", text: m.content }],
+-            }));
++            })));
+         const messages = [
+             ...historyMessages,
+             { role: "user", content: userContent },
+diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
+index d633a29f3ebe57ff878a909a583f3a02cde20946..670e3f6cd527cc11b590e2415b98fd9af358c2bb 100644
+--- a/dist/agent/run-manager.js
++++ b/dist/agent/run-manager.js
+@@ -1,6 +1,7 @@
+ import { getAppConfig } from "../app-config/index.js";
+ import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS, BACKGROUND_SOFT_TIMEOUT_CEILING_MS, RUN_NO_PROGRESS_HARD_TIMEOUT_MS, } from "../app-config/run-lifecycle-invariants.js";
+ import { captureError } from "../server/capture-error.js";
++import { redactTextInValue, textRedactionHoldback } from "../audit/redact.js";
+ import { isLlmCredentialError, LLM_MISSING_CREDENTIALS_ERROR_CODE, LLM_MISSING_CREDENTIALS_MESSAGE, } from "./engine/credential-errors.js";
+ import { classifyTerminalErrorCode, describeErrorWithCauses, isProviderConnectionError, } from "./engine/error-detail.js";
+ import { EngineError } from "./engine/types.js";
+@@ -449,6 +450,33 @@ export function resolveBackgroundAutomationSoftTimeoutMs(overrideMs) {
+     // `0` means "no soft-timeout regime" (local dev) and is never clamped up.
+     return resolved > 0 ? Math.min(resolved, budget) : 0;
+ }
++// Vivary #97: a streamed text, thinking, or tool-input delta keeps back its
++// trailing word, and the word before it when only spaces or tabs separate them,
++// so a credential split across deltas, or a name and its value, is redacted
++// whole. The host sets how many characters may be kept back.
++function isDeltaSpace(char) {
++    return char === " " || char === "\t" || char === "\n" || char === "\r" || char === "\f" || char === "\v";
++}
++function deltaHoldbackLength(text) {
++    const floor = Math.max(0, text.length - textRedactionHoldback());
++    let start = text.length;
++    while (start > floor && !isDeltaSpace(text[start - 1]))
++        start--;
++    let gap = start;
++    while (gap > floor && (text[gap - 1] === " " || text[gap - 1] === "\t"))
++        gap--;
++    if (gap < start) {
++        let word = gap;
++        while (word > floor && !isDeltaSpace(text[word - 1]))
++            word--;
++        if (word < gap)
++            start = word;
++    }
++    // Never split a surrogate pair at the limit.
++    if (start > 0 && start < text.length && /[\uDC00-\uDFFF]/.test(text[start]))
++        start--;
++    return text.length - start;
++}
+ function isTerminalRunEvent(event) {
+     return (event.type === "done" ||
+         event.type === "error" ||
+@@ -1397,6 +1425,9 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
+         });
+     };
+     const emitRunEvent = (runEvent, options) => {
++        // Vivary #97: every event is redacted before it is kept, sent to
++        // subscribers, or stored, including the terminal event after the run.
++        runEvent.event = redactTextInValue(runEvent.event);
+         run.events.push(runEvent);
+         // Notify in-memory subscribers (same isolate, fast path)
+         for (const subscriber of run.subscribers) {
+@@ -1440,11 +1471,52 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
+         checkSqlAbort();
+         return persistence;
+     };
++    // Vivary #97: deltas kept back by deltaHoldbackLength. Text and thinking
++    // share one slot, flushed before any other event. Each tool call's input
++    // has its own slot, flushed before any event that is not a delta, so input
++    // streamed for two calls at once stays whole. Everything held is emitted
++    // when the run ends and on abort.
++    const heldDeltas = new Map();
++    const deltaSlot = (event) => event.type === "tool_input_delta"
++        ? `tool:${event.id ?? event.tool ?? ""}`
++        : "prose";
++    const flushHeldDelta = (slot) => {
++        const event = heldDeltas.get(slot);
++        if (!event)
++            return;
++        heldDeltas.delete(slot);
++        void emitRunEvent({ seq: run.events.length, event });
++    };
++    const flushHeldDeltas = () => {
++        for (const slot of [...heldDeltas.keys()])
++            flushHeldDelta(slot);
++    };
++    abort.signal.addEventListener("abort", flushHeldDeltas, { once: true });
+     const send = (event) => {
+         if (run.status === "aborted" && abort.signal.aborted)
+             return;
++        if ((event.type === "text" || event.type === "thinking" || event.type === "tool_input_delta") &&
++            typeof event.text === "string") {
++            const slot = deltaSlot(event);
++            const held = heldDeltas.get(slot);
++            if (slot !== "prose" || (held && held.type !== event.type))
++                flushHeldDelta("prose");
++            const text = (heldDeltas.get(slot)?.text ?? "") + event.text;
++            const keep = deltaHoldbackLength(text);
++            if (keep > 0)
++                heldDeltas.set(slot, { ...event, text: text.slice(text.length - keep) });
++            else
++                heldDeltas.delete(slot);
++            if (keep === text.length)
++                return;
++            event = { ...event, text: text.slice(0, text.length - keep) };
++        }
++        else {
++            flushHeldDeltas();
++        }
+         const runEvent = { seq: run.events.length, event };
+         if (isTerminalRunEvent(event)) {
++            runEvent.event = redactTextInValue(event);
+             pendingTerminalEvent = runEvent;
+             return;
+         }
+@@ -1524,6 +1596,8 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
+         // 1. Await the completion callback (thread_data save). Heartbeat is
+         //    still ticking so the run doesn't look stale to any concurrent
+         //    /runs/active check while we wait for SQL writes to land.
++        // Vivary #97: deltas still kept back when the run ends are emitted first.
++        flushHeldDeltas();
+         let completionError = null;
+         let terminalPersistenceError = null;
+         // Populated in step 5b for errored runs; read by the terminal tracking
+diff --git a/dist/agent/run-store.js b/dist/agent/run-store.js
+index 52ffb623b103f0032033045f3f8132c559e3b80b..6a7b48a8695ffe780a284e16cf1e7e1774934a87 100644
+--- a/dist/agent/run-store.js
++++ b/dist/agent/run-store.js
+@@ -5,6 +5,7 @@
+  */
+ import { MAX_BACKGROUND_RUN_CONTINUATIONS, TURN_RUN_LEDGER_SLACK, } from "../app-config/run-lifecycle-invariants.js";
+ import { isArtifactReceipt, } from "../artifacts/detect.js";
++import { redactText } from "../audit/redact.js";
+ import { getDbExec, intType, isPostgres } from "../db/client.js";
+ import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+@@ -613,7 +614,10 @@ const LEDGER_RESULT_MAX_CHARS = 8_000;
+  * promise continuation after `Promise.race` abandons it. Best-effort — never
+  * throws so a ledger write failure doesn't break any caller.
+  */
++// Vivary #97: a recovered tool result is redacted before it is stored and again
++// when it is read back, so a row written before redaction is not replayed raw.
+ export async function writeLedgerEntry(threadId, toolKey, resultSummary, artifacts = []) {
++    resultSummary = redactText(resultSummary);
+     try {
+         await ensureRunTables();
+         const client = getDbExec();
+@@ -651,7 +655,7 @@ export async function readLedgerEntry(threadId, toolKey) {
+             return null;
+         const row = rows[0];
+         return {
+-            result: row.result_summary,
++            result: redactText(row.result_summary),
+             artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
+         };
+     }
 diff --git a/dist/agent/thread-data-builder.d.ts b/dist/agent/thread-data-builder.d.ts
 index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e537efc0dc 100644
 --- a/dist/agent/thread-data-builder.d.ts
@@ -64,6 +284,129 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..b13cd995724d8c240923328c18732ac0
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text } : null;
      }
+diff --git a/dist/audit/index.d.ts b/dist/audit/index.d.ts
+index ddce9821b28bb8e4ec70a082939de4f0c38410f5..79200cbf47e6a3810b543309ede821d781689a61 100644
+--- a/dist/audit/index.d.ts
++++ b/dist/audit/index.d.ts
+@@ -6,7 +6,7 @@
+  */
+ export type { ActionAuditConfig, AuditActorKind, AuditCallMeta, AuditEvent, AuditQueryFilters, AuditStatus, AuditTarget, AuditVisibility, } from "./types.js";
+ export { deriveActorKind, isAuditDisabled, normalizeAuditConfig, resolveAuditAttach, shouldRecordAudit, } from "./config.js";
+-export { redactArgsToJson } from "./redact.js";
++export { redactArgsToJson, redactText, redactTextInValue, setTextRedactor, textRedactionHoldback } from "./redact.js";
+ export { ensureAuditTables, insertAuditEvent, queryAuditEvents, getAuditEventById, deleteOldAuditEvents, type AuditReadScope, } from "./store.js";
+ export { recordActionAudit } from "./record.js";
+ export { runAuditCleanupOnce, startAuditCleanupJob, stopAuditCleanupJob, } from "./cleanup-job.js";
+diff --git a/dist/audit/index.js b/dist/audit/index.js
+index 91d471d00e2468d51cbc57ce99c7ab34e6c15605..2f3a750f2c94695f1feff25c34989d28ecf75b31 100644
+--- a/dist/audit/index.js
++++ b/dist/audit/index.js
+@@ -1,5 +1,5 @@
+ export { deriveActorKind, isAuditDisabled, normalizeAuditConfig, resolveAuditAttach, shouldRecordAudit, } from "./config.js";
+-export { redactArgsToJson } from "./redact.js";
++export { redactArgsToJson, redactText, redactTextInValue, setTextRedactor, textRedactionHoldback } from "./redact.js";
+ export { ensureAuditTables, insertAuditEvent, queryAuditEvents, getAuditEventById, deleteOldAuditEvents, } from "./store.js";
+ export { recordActionAudit } from "./record.js";
+ export { runAuditCleanupOnce, startAuditCleanupJob, stopAuditCleanupJob, } from "./cleanup-job.js";
+diff --git a/dist/audit/redact.d.ts b/dist/audit/redact.d.ts
+index 718c5e7a503b2de623c9df3acc6108f3ad210b9e..4b5f20c5108a3dea8e7404d9576ca78812f7bc73 100644
+--- a/dist/audit/redact.d.ts
++++ b/dist/audit/redact.d.ts
+@@ -40,6 +40,16 @@ export declare function redactArgsToValue(args: unknown, limits?: RedactLimits):
+  * always tell a short result from a clipped one.
+  */
+ export declare function redactTextToSummary(text: string, maxChars?: number): string | null;
++/** Register the host's text redactor (Vivary #97). Pass null to remove it. */
++export declare function setTextRedactor(redactor: ((text: string) => string) | null, options?: {
++    holdback?: () => number;
++}): void;
++/** Trailing characters a streamed delta keeps back: 256 unless the host asks for more, at most 16,384. */
++export declare function textRedactionHoldback(): number;
++/** Apply the registered text redactor. Text passes through when none is registered. */
++export declare function redactText<T extends string | null | undefined>(text: T): T;
++/** Apply the registered text redactor to every string in a plain object or array. */
++export declare function redactTextInValue<T>(value: T): T;
+ /** Exposed for tests. */
+ export declare const __test: {
+     looksSecret: typeof looksSecret;
+diff --git a/dist/audit/redact.js b/dist/audit/redact.js
+index 71c5fa372a31c21fdcdbffd04d6bf132b221352a..a361383bd35835fe799d290628dfd740ff07f536 100644
+--- a/dist/audit/redact.js
++++ b/dist/audit/redact.js
+@@ -164,6 +164,73 @@ export function redactTextToSummary(text, maxChars = MAX_STRING) {
+     return `${redactedHead.slice(0, keep)}…(${text.length - keep} more chars)`;
+ }
+ /** Exposed for tests. */
++// Vivary #97: the host registers one text redactor. Core calls redactText before
++// a tool result, a run event, an error message, a saved thread, an automation
++// error, or a Code transcript event is kept, shown, stored, or sent to a model.
++// With no redactor registered, text passes through unchanged. A redactor that
++// fails withholds the text rather than letting it through.
++const TEXT_REDACTION_FAILED = "[text withheld because redaction failed]";
++let registeredTextRedactor = null;
++let registeredHoldback = null;
++// The host can pass `holdback`, a function that returns how many trailing
++// characters a streamed delta keeps back. It covers the longest held value.
++export function setTextRedactor(redactor, options = {}) {
++    registeredTextRedactor = typeof redactor === "function" ? redactor : null;
++    registeredHoldback = registeredTextRedactor && typeof options.holdback === "function" ? options.holdback : null;
++}
++/** Trailing characters a streamed delta keeps back: 256 unless the host asks for more, at most 16,384. */
++export function textRedactionHoldback() {
++    let requested = 256;
++    try {
++        requested = Number(registeredHoldback?.() ?? 256);
++    }
++    catch { }
++    return Number.isFinite(requested) ? Math.min(16_384, Math.max(256, Math.floor(requested))) : 256;
++}
++export function redactText(text) {
++    if (typeof text !== "string" || text.length === 0 || !registeredTextRedactor)
++        return text;
++    try {
++        const redacted = registeredTextRedactor(text);
++        return typeof redacted === "string" ? redacted : TEXT_REDACTION_FAILED;
++    }
++    catch {
++        return TEXT_REDACTION_FAILED;
++    }
++}
++/**
++ * Redact every string in a plain object or array. The same value comes back
++ * when nothing changed, so an unchanged event keeps its identity.
++ */
++export function redactTextInValue(value) {
++    return registeredTextRedactor ? redactTextWalk(value, 0) : value;
++}
++function redactTextWalk(value, depth) {
++    if (typeof value === "string")
++        return redactText(value);
++    if (!value || typeof value !== "object" || depth > 32)
++        return value;
++    if (Array.isArray(value)) {
++        let changed = false;
++        const out = value.map((entry) => {
++            const next = redactTextWalk(entry, depth + 1);
++            changed ||= next !== entry;
++            return next;
++        });
++        return changed ? out : value;
++    }
++    const prototype = Object.getPrototypeOf(value);
++    if (prototype !== Object.prototype && prototype !== null)
++        return value;
++    let changed = false;
++    const out = {};
++    for (const [key, entry] of Object.entries(value)) {
++        const next = redactTextWalk(entry, depth + 1);
++        changed ||= next !== entry;
++        out[key] = next;
++    }
++    return changed ? out : value;
++}
+ export const __test = {
+     looksSecret,
+     redact,
 diff --git a/dist/chat-threads/store.d.ts b/dist/chat-threads/store.d.ts
 index 354f2c362706756b805b6ad958816f473a695636..211316ca82539fc0ab7cdbfd2f463b8201a1c550 100644
 --- a/dist/chat-threads/store.d.ts
@@ -84,13 +427,54 @@ index 354f2c362706756b805b6ad958816f473a695636..211316ca82539fc0ab7cdbfd2f463b82
      engineName: string;
      model: string;
 diff --git a/dist/chat-threads/store.js b/dist/chat-threads/store.js
-index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf53b36719 100644
+index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..e44095315cfd3d7da1a256907cd9ae2f3eeb96c0 100644
 --- a/dist/chat-threads/store.js
 +++ b/dist/chat-threads/store.js
-@@ -811,6 +811,13 @@ function parseThreadData(value) {
+@@ -1,5 +1,6 @@
+ import crypto from "node:crypto";
+ import { mergeThreadDataForClientSave, normalizeThreadRepository, normalizeThreadTitle, } from "../agent/thread-data-builder.js";
++import { redactText, redactTextInValue } from "../audit/redact.js";
+ import { getDbExec, intType, isPostgres } from "../db/client.js";
+ import { createGetDb } from "../db/create-get-db.js";
+ import { ensureColumnExists, ensureIndexExists, ensureTableExists, } from "../db/ddl-guard.js";
+@@ -559,9 +560,10 @@ export async function forkThread(sourceId, ownerEmail, opts) {
+         args: [
+             id,
+             ownerEmail,
+-            title,
+-            source.preview,
+-            source.threadData,
++            // Vivary #97: the source row can predate redaction, and a snapshot comes from the browser.
++            redactText(title),
++            redactText(source.preview),
++            redactThreadData(source.threadData),
+             source.messageCount,
+             now,
+             now,
+@@ -810,7 +812,33 @@ function parseThreadData(value) {
+         return {};
      }
  }
++// Vivary #97: a saved thread is redacted as a catch-all. It also covers a
++// credential typed into the chat. The saved text changes. The request already
++// sent to the model does not. Unparsed text is redacted as text.
++function redactThreadData(threadData) {
++    if (typeof threadData !== "string" || threadData.length === 0)
++        return threadData;
++    let parsed;
++    try {
++        parsed = JSON.parse(threadData);
++    }
++    catch {
++        return redactText(threadData);
++    }
++    const redacted = redactTextInValue(parsed);
++    return redacted === parsed ? threadData : JSON.stringify(redacted);
++}
  export async function updateThreadData(id, threadData, title, preview, messageCount, options = {}) {
++    threadData = redactThreadData(threadData);
++    title = redactText(title);
++    preview = redactText(preview);
 +    const incoming = options.expectedHeadRevision === undefined
 +        ? parseThreadData(threadData) : JSON.parse(threadData);
 +    if (options.expectedHeadRevision !== undefined
@@ -101,7 +485,7 @@ index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf
      // getThread() ensures the table exists. Keep that bootstrap inside the
      // retry boundary below so a cold serverless process can recover from a
      // transient initialization/read failure too.
-@@ -823,21 +830,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
+@@ -823,21 +851,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
              const current = await getThread(id);
              if (!current)
                  return;
@@ -130,7 +514,7 @@ index 138fdcf9cfda2723bb599878d7f0923d9c5196ee..f320f09dc6f2f5632e4ae9af44985bdf
              const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
              const result = await client.execute({
                  sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
-@@ -853,7 +852,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
+@@ -853,7 +873,13 @@ export async function updateThreadData(id, threadData, title, preview, messageCo
              });
              if (result.rowsAffected > 0) {
                  emitChatThreadChange(id);
@@ -324,6 +708,71 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..afa97e17fd5870f993ebe16e7f9b5a4e
              if (pendingJson.trim())
                  consumeCodexJsonLine(pendingJson, options.onEvent);
              finish({ exitCode, exitSignal });
+diff --git a/dist/cli/code-agent-runs.js b/dist/cli/code-agent-runs.js
+index e285181b4bfb2bf2d6ac63cbf8c3453f2e939dc6..77f4e3427a39d6a4e72c061db6ecbf89d2157af3 100644
+--- a/dist/cli/code-agent-runs.js
++++ b/dist/cli/code-agent-runs.js
+@@ -3,6 +3,19 @@ import fs from "fs";
+ import os from "os";
+ import path from "path";
+ import { appendUniqueJsonLineAtomically, updateJsonFileAtomically, withFileLockSync, writeJsonFileAtomically, } from "./atomic-json-file.js";
++import { redactText, redactTextInValue } from "../audit/redact.js";
++// Vivary #97: the text fields of a run record are redacted before they are written.
++const RUN_RECORD_TEXT_FIELDS = ["title", "subtitle", "details", "progress", "metadata"];
++function redactRunRecordText(record) {
++    if (!record || typeof record !== "object")
++        return record;
++    const redacted = { ...record };
++    for (const field of RUN_RECORD_TEXT_FIELDS) {
++        if (field in redacted)
++            redacted[field] = redactTextInValue(redacted[field]);
++    }
++    return redacted;
++}
+ export const CODE_AGENT_PERMISSION_MODES = [
+     "read-only",
+     "ask-before-edit",
+@@ -67,7 +80,7 @@ export function createCodeAgentRunRecord(input) {
+     const now = new Date().toISOString();
+     const id = input.id ??
+         `${input.goalId}-${timestampSlug(now)}-${crypto.randomUUID().slice(0, 8)}`;
+-    const record = {
++    const record = redactRunRecordText({
+         schemaVersion: 1,
+         id,
+         goalId: input.goalId,
+@@ -85,7 +98,7 @@ export function createCodeAgentRunRecord(input) {
+         createdAt: now,
+         updatedAt: now,
+         metadata: input.metadata,
+-    };
++    });
+     writeCodeAgentRunRecord(record);
+     return record;
+ }
+@@ -107,7 +120,7 @@ export function updateCodeAgentRunRecord(runId, updates) {
+     return updateJsonFileAtomically(codeAgentRunRecordPath(runId), readRunValue, (record) => {
+         if (!record)
+             return null;
+-        const patch = typeof updates === "function" ? updates(record) : updates;
++        const patch = redactRunRecordText(typeof updates === "function" ? updates(record) : updates);
+         return {
+             ...record,
+             ...patch,
+@@ -148,9 +161,11 @@ export function appendCodeAgentTranscriptEvent(input) {
+             `evt-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
+         runId: input.runId,
+         kind: input.kind,
+-        message: input.message,
++        // Vivary #97: a transcript event is redacted before it is written. The
++        // screen, the browser's saved thread, and follow-up prompts read it back.
++        message: redactText(input.message),
+         createdAt,
+-        metadata: input.metadata,
++        metadata: redactTextInValue(input.metadata),
+         ...(input.signal ? { signal: input.signal } : {}),
+     };
+     const persisted = appendUniqueJsonLineAtomically(codeAgentRunTranscriptPath(input.runId), event, readTranscriptValue);
 diff --git a/dist/cli/codex-app-server-executor.d.ts b/dist/cli/codex-app-server-executor.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e242551e6527ff0d1cdddf224cddcf06c8508b7d
@@ -2109,10 +2558,18 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..ca094450eb8e3f31b277739c8f78fb76
  export declare function runAutomationRunMigrations(nitroApp: unknown): Promise<void>;
  export declare function ensureTable(): Promise<void>;
 diff --git a/dist/jobs/run-history.js b/dist/jobs/run-history.js
-index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b98393645b80 100644
+index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..b7000b1d0dd3730134f078acbcbb05da43f68d6e 100644
 --- a/dist/jobs/run-history.js
 +++ b/dist/jobs/run-history.js
-@@ -40,16 +40,16 @@ const MAX_ERROR_CODE_LENGTH = 100;
+@@ -5,6 +5,7 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
+ import { ensureColumnExists, ensureIndexExists, ensureTableExists, } from "../db/ddl-guard.js";
+ import { runMigrations } from "../db/migrations.js";
+ import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
++import { redactText } from "../audit/redact.js";
+ registerEvent({
+     name: "automation.run.finished",
+     description: "Fires after a scheduled or manual automation run records a terminal status.",
+@@ -40,16 +41,16 @@ const MAX_ERROR_CODE_LENGTH = 100;
  function resolveRunLivenessCeilingMs() {
      return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
  }
@@ -2132,7 +2589,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b983
  /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
  const RUNS_RETAINED_PER_AUTOMATION = 50;
  /** Authoritative release-time schema for durable automation history. */
-@@ -188,6 +188,7 @@ function toRun(row, now) {
+@@ -188,6 +189,7 @@ function toRun(row, now) {
          threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
          status,
          startedAt,
@@ -2140,7 +2597,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b983
          finishedAt: row.finished_at == null ? null : Number(row.finished_at),
          error: row.error == null && status === "interrupted"
              ? INTERRUPTED_RUN_MESSAGE
-@@ -244,7 +245,7 @@ export async function claimAutomationRun(id) {
+@@ -244,7 +246,7 @@ export async function claimAutomationRun(id) {
      const now = Date.now();
      const result = await getDbExec().execute({
          sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
@@ -2149,7 +2606,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b983
      });
      return Number(result.rowsAffected ?? 0) > 0;
  }
-@@ -266,7 +267,7 @@ export async function listUnclaimedAutomationRuns(options) {
+@@ -266,7 +268,7 @@ export async function listUnclaimedAutomationRuns(options) {
              AND started_at <= ?
            ORDER BY started_at ASC LIMIT ${limit}`,
          args: [
@@ -2157,6 +2614,16 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..862514ca67466918be8102393309b983
 +            Date.now() - automationRunClaimLeaseMs(),
              ...(appId ? [appId] : []),
              Date.now() - olderThanMs,
+         ],
+@@ -315,7 +317,8 @@ export async function finishAutomationRun(id, status, error, errorCode) {
+         args: [
+             status,
+             finishedAt,
+-            error?.slice(0, MAX_ERROR_LENGTH) ?? null,
++            // Vivary #97: a run error can repeat a credential from a tool or provider.
++            redactText(error)?.slice(0, MAX_ERROR_LENGTH) ?? null,
+             errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+             id,
          ],
 diff --git a/dist/jobs/run-now.d.ts b/dist/jobs/run-now.d.ts
 index d171bf0e5f313133e3f0dc937bafaf9a29e25084..ab3b310f74cfe514977783531512ea91b900798c 100644
@@ -2301,10 +2768,13 @@ index 7af3befd00e560cf644d4654820686c6bfd3fc37..0c62950fccaa60ffe50e9ddcd9cb0449
          }
          catch (error) {
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..113a1a1c6c8e70d77a215fe36c6a4f7fa947d83a 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..320f45be4508fab5f24cbebacc2061dc35c54444 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
-@@ -3,7 +3,7 @@ import { backgroundRunCutOffReason, isBackgroundAutomationRunActive, resolveBack
+@@ -1,9 +1,10 @@
++import { redactText } from "../audit/redact.js";
+ import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
+ import { backgroundRunCutOffReason, isBackgroundAutomationRunActive, resolveBackgroundAutomationIdentity, runBackgroundAutomation, } from "./background-automation-runner.js";
  import { nextOccurrence, isValidCron, describeCron, effectiveTimezone, } from "./cron.js";
  import { buildJobResourceContent, isRecoveredFactoryJob, jobBelongsToApp, parseJobResource, patchJobFrontmatterFields, recoveredFactoryOwnerOrgId, } from "./frontmatter.js";
  import { dispatchRemoteAutomation, finishRemoteAutomationHistory, getRemoteAutomationStatus, } from "./remote-execution.js";
@@ -2313,7 +2783,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..113a1a1c6c8e70d77a215fe36c6a4f7f
  import { acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationSchedulerLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
  // ─── Frontmatter parsing ────────────────────────────────────────────────────
  export { classifyJobFrontmatter, classifyJobResource, normalizeJobMcpTools, parseJobResource, } from "./frontmatter.js";
-@@ -179,8 +179,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -179,8 +180,7 @@ async function processRecurringJobsWithLease(deps) {
                      continue;
                  // Stuck — reset so the next check can re-run it
                  meta.lastStatus = "error";
@@ -2323,7 +2793,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..113a1a1c6c8e70d77a215fe36c6a4f7f
                  const next = nextOccurrence(meta.schedule, now, meta.timezone);
                  meta.nextRun = next.toISOString();
                  await updateResource(resource, meta, body);
-@@ -324,7 +323,7 @@ async function recoverStaleAutomationHistory(owner, path) {
+@@ -324,7 +324,7 @@ async function recoverStaleAutomationHistory(owner, path) {
              (run.status !== "running" && run.status !== "interrupted")) {
              return;
          }
@@ -2332,6 +2802,16 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..113a1a1c6c8e70d77a215fe36c6a4f7f
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
+@@ -549,7 +549,8 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+         return { status: "success", runId: result.runId };
+     }
+     catch (err) {
+-        const lastError = err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
++        // Vivary #97: the last error is stored in the automation's file and shown.
++        const lastError = err instanceof Error ? redactText(err.message).slice(0, 200) : "Unknown error";
+         const reportedError = `${lastError}. No delivery was confirmed.`;
+         await recordExecutionOutcome(resource, {
+             lastRun: meta.lastRun,
 diff --git a/dist/jobs/tools.js b/dist/jobs/tools.js
 index 04c5f7dd462a0010e57ba3737add3fb837f4b506..78d2f56c9952164a6ba67d57851129765c5b67b5 100644
 --- a/dist/jobs/tools.js
@@ -2658,6 +3138,91 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
              },
      };
      return JSON.stringify(result, null, 2);
+diff --git a/dist/secrets/index.d.ts b/dist/secrets/index.d.ts
+index 19ab59c282011ce119477d20ea60218680fdaea6..823aff77963542185d30dd565a3dd72ffc4f1966 100644
+--- a/dist/secrets/index.d.ts
++++ b/dist/secrets/index.d.ts
+@@ -8,7 +8,7 @@
+  * See `.agents/skills/secrets/SKILL.md` for usage.
+  */
+ export { registerRequiredSecret, listRequiredSecrets, getRequiredSecret, __resetSecretsRegistry, type RegisteredSecret, type SecretScope, type SecretKind, type SecretValidator, type ValidatorResult, } from "./register.js";
+-export { writeAppSecret, readAppSecret, readAppSecretMeta, deleteAppSecret, getAppSecretMeta, listAppSecretsForScope, last4, type SecretRef, type WriteSecretArgs, type ReadSecretResult, type SecretMeta, } from "./storage.js";
++export { writeAppSecret, readAppSecret, readAppSecretMeta, deleteAppSecret, getAppSecretMeta, listAppSecretsForScope, last4, onAppSecretsChanged, type SecretRef, type WriteSecretArgs, type ReadSecretResult, type SecretMeta, } from "./storage.js";
+ export { APP_SECRETS_CREATE_SQL, appSecrets } from "./schema.js";
+ export { encryptSecretValue, decryptSecretValue, isEncryptedSecretValue, } from "./crypto.js";
+ export { createListSecretsHandler, createWriteSecretHandler, createTestSecretHandler, createAdHocSecretHandler, type SecretStatusPayload, type AdHocSecretPayload, } from "./routes.js";
+diff --git a/dist/secrets/index.js b/dist/secrets/index.js
+index 5417799efb2d2e719676d8a85ef43f529948a95b..ff9faeb0c91c84539b7afc76916ea3a404af49fd 100644
+--- a/dist/secrets/index.js
++++ b/dist/secrets/index.js
+@@ -8,7 +8,7 @@
+  * See `.agents/skills/secrets/SKILL.md` for usage.
+  */
+ export { registerRequiredSecret, listRequiredSecrets, getRequiredSecret, __resetSecretsRegistry, } from "./register.js";
+-export { writeAppSecret, readAppSecret, readAppSecretMeta, deleteAppSecret, getAppSecretMeta, listAppSecretsForScope, last4, } from "./storage.js";
++export { writeAppSecret, readAppSecret, readAppSecretMeta, deleteAppSecret, getAppSecretMeta, listAppSecretsForScope, last4, onAppSecretsChanged, } from "./storage.js";
+ export { APP_SECRETS_CREATE_SQL, appSecrets } from "./schema.js";
+ // AES-256-GCM helpers for column-level encryption of per-row secret values
+ // (e.g. a per-record share password) that don't fit the keyed app_secrets /
+diff --git a/dist/secrets/storage.d.ts b/dist/secrets/storage.d.ts
+index 989d96f155eb5f16593d91c5f94ba194186cc394..68f92006316aa0f59b3634e94b517517758d50de 100644
+--- a/dist/secrets/storage.d.ts
++++ b/dist/secrets/storage.d.ts
+@@ -35,6 +35,8 @@ export interface WriteSecretArgs extends SecretRef {
+  * stored — the caller's plaintext is never persisted. Returns the new
+  * record's id.
+  */
++/** Vivary #97: call `listener` after each secret write or delete. Returns a function that stops it. */
++export declare function onAppSecretsChanged(listener: () => void): () => void;
+ export declare function writeAppSecret(args: WriteSecretArgs): Promise<string>;
+ export interface ReadSecretResult {
+     value: string;
+diff --git a/dist/secrets/storage.js b/dist/secrets/storage.js
+index 4a3abfe4918097e29c0feeee835196e4faf46fa5..9831435b99b7a5067cbbd1b37511d7e820241f87 100644
+--- a/dist/secrets/storage.js
++++ b/dist/secrets/storage.js
+@@ -101,7 +101,29 @@ export function last4(value) {
+  * stored — the caller's plaintext is never persisted. Returns the new
+  * record's id.
+  */
++// Vivary #97: a host that redacts stored secrets reloads them after each write
++// or delete. A listener that throws does not affect the write.
++const appSecretsChangeListeners = new Set();
++export function onAppSecretsChanged(listener) {
++    appSecretsChangeListeners.add(listener);
++    return () => {
++        appSecretsChangeListeners.delete(listener);
++    };
++}
++function notifyAppSecretsChanged() {
++    for (const listener of appSecretsChangeListeners) {
++        try {
++            listener();
++        }
++        catch { }
++    }
++}
+ export async function writeAppSecret(args) {
++    const id = await writeAppSecretRow(args);
++    notifyAppSecretsChanged();
++    return id;
++}
++async function writeAppSecretRow(args) {
+     await ensureTable();
+     const { key, value, scope, scopeId, description, urlAllowlist } = args;
+     if (!key || !value || !scope || !scopeId) {
+@@ -525,6 +547,11 @@ function parseAllowlist(raw) {
+     }
+ }
+ export async function deleteAppSecret(ref) {
++    const deleted = await deleteAppSecretRow(ref);
++    notifyAppSecretsChanged();
++    return deleted;
++}
++async function deleteAppSecretRow(ref) {
+     await ensureTable();
+     invalidateRequestSecret(ref);
+     const { key, scope, scopeId } = ref;
 diff --git a/dist/server/agent-chat/plugin-options.d.ts b/dist/server/agent-chat/plugin-options.d.ts
 index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa74a4516d 100644
 --- a/dist/server/agent-chat/plugin-options.d.ts
@@ -3170,6 +3735,28 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..c5b0d12ff121c6f714b79abfc28b229b
                  apiKey: options?.apiKey,
                  model: resolveConfiguredAgentModel(options),
                  appId: options?.appId,
+diff --git a/dist/server/credential-provider.js b/dist/server/credential-provider.js
+index d042408be0c8a183093b9ddaa53e6372d08528db..96bab0287f92e2771a55bf9e5da9d29d4d019995 100644
+--- a/dist/server/credential-provider.js
++++ b/dist/server/credential-provider.js
+@@ -20,6 +20,7 @@
+ import { createHash } from "node:crypto";
+ import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE, GATEWAY_UNAVAILABLE_VISITOR_MESSAGE, } from "../agent/engine/credential-errors.js";
+ import { getAppConfig } from "../app-config/index.js";
++import { redactText } from "../audit/redact.js";
+ import { getDbExec, isLocalDatabase, isTransientDatabaseError, } from "../db/client.js";
+ import { getOrgSetting } from "../settings/org-settings.js";
+ import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+@@ -1054,7 +1055,8 @@ export async function recordProviderCredentialAuthFailure(opts) {
+         await putSetting(settingKey, {
+             fingerprint,
+             key,
+-            message: opts.message || "The model provider rejected the saved API key.",
++            // Vivary #97: provider error text can repeat a credential.
++            message: redactText(opts.message) || "The model provider rejected the saved API key.",
+             ...(typeof opts.status === "number" && { status: opts.status }),
+             ...(opts.code && { code: opts.code }),
+             strikes,
 diff --git a/dist/triggers/actions.js b/dist/triggers/actions.js
 index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908ddab2b60f1 100644
 --- a/dist/triggers/actions.js

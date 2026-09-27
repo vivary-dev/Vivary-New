@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 
+import { setTextRedactor } from "@agent-native/core/audit";
 import { executeCodeAgentRun, getCodeAgentRunRecord } from "@agent-native/core/code-agents";
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import { resolveVivaryRuntimeCommand } from "./local-runtime-setup";
 
 import { isVivaryCodeWorkerRequest } from "./code-execution-protocol";
+import { createFingerprintRedactor } from "./credential-redaction.ts";
 
 const controller = new AbortController();
 let started = false;
@@ -33,6 +35,10 @@ async function receive(message: unknown) {
   }
   if (started || !isVivaryCodeWorkerRequest(message)) return;
   started = true;
+  // Issue #97. Core redacts each transcript event before it is written, using fingerprints of the
+  // host's held credentials. The CLI this worker starts can read this process, so the host sends
+  // fingerprints rather than values. The worker still inherits the server environment until #98.
+  setTextRedactor(createFingerprintRedactor(message.redaction).redact);
   const record = getCodeAgentRunRecord(message.runId);
   if (!record || record.metadata?.ownerEmail !== message.ownerEmail ||
       record.metadata?.app !== "vivary-workbench-local-code" ||

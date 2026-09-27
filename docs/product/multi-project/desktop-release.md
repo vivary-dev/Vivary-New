@@ -203,7 +203,7 @@ merged into `dev` as `8a5d262`, and the owner closed #50 on 2026-09-26. [Issue #
 owns automation creation, execution, restart recovery, and lifecycle acceptance. Its automation
 lifecycle journey passed on the unpublished `c096528a` package, and the
 [#51 receipt](receipts/51-automation-lifecycle.md) records it. The Settings prompt retest passed on the unpublished `f0c3cac0` package.
-Owner acceptance and closure of #51 remain. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
+PR #116 merged into `dev` as `c39e22f`, and the owner closed #51 on 2026-09-27. [Issue #38](https://github.com/vivary-dev/Vivary-New/issues/38) retains
 linked conversations and broader cross-runtime integration, including OpenCode.
 Its Codex catalog and tool increment has separate evidence in the acceptance register.
 
