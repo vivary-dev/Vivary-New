@@ -12,8 +12,12 @@
  * are `sk-`, `ghp_`, `github_pat_`, `AKIA`, `AIza`, and `xox` tokens, `Bearer` tokens, URL
  * passwords, and credential-named assignments such as `OPENROUTER_API_KEY=...`.
  *
- * A redactor exposes `redact()` and a count only. It never logs or returns a held value.
+ * A redactor exposes `redact()` and a count only. It never logs or returns a held value. The
+ * coding worker runs the commands an agent chooses, so it receives salted fingerprints instead
+ * of values. See `credentialFingerprints` and `createFingerprintRedactor`.
  */
+import { createHash, randomBytes, randomInt } from "node:crypto";
+
 import { getDbExec } from "@agent-native/core/db";
 import { loadMcpConfig } from "@agent-native/core/mcp-client";
 import { decryptSecretValue, isEncryptedSecretValue, readAppSecret } from "@agent-native/core/secrets";
@@ -302,4 +306,94 @@ export function redactStreamWrites(stream: NodeJS.WritableStream & { [redactedSt
     return write(redacted === text ? chunk : redacted, ...rest);
   }) as typeof stream.write;
   stream[redactedStream] = true;
+}
+
+// Fingerprints let the coding worker find held values without holding them. The host sends a
+// fresh salt, a random odd rolling-hash base, and for each held form its length, the top 20 bits
+// of the rolling hash of its first 16 characters, a salted SHA-256 digest, and its placeholder.
+// The worker rolls one 16-character window across the text. When a window's hash bits match a
+// fingerprint, it confirms the form at that position by length and digest. The 20 hash bits and
+// the digest are all the worker learns about a value.
+const PREFIX_LENGTH = MIN_HELD_LENGTH;
+const WINDOW_BITS = 20;
+const MAX_FINGERPRINTS = 4_096;
+const MAX_FINGERPRINT_LENGTH = 16_384;
+
+export type CredentialFingerprint = { length: number; window: number; digest: string; placeholder: string };
+export type CredentialFingerprints = { salt: string; base: number; entries: CredentialFingerprint[] };
+
+// A polynomial hash modulo 2^32. Collisions only cost a digest check, never a wrong match.
+function prefixWindow(text: string, base: number): number {
+  let hash = 0;
+  for (let index = 0; index < PREFIX_LENGTH; index++) hash = (Math.imul(hash, base) + text.charCodeAt(index)) | 0;
+  return hash >>> (32 - WINDOW_BITS);
+}
+
+function saltedDigest(salt: string, text: string): string {
+  return createHash("sha256").update(salt).update(text, "utf8").digest("hex");
+}
+
+/** Fingerprints of the current held set, with a fresh salt and base for one coding run. */
+export function credentialFingerprints(): CredentialFingerprints {
+  const salt = randomBytes(16).toString("hex");
+  const base = randomInt(2 ** 30, 2 ** 31) * 2 + 1;
+  const entries = [...current.forms].filter(([form]) => form.length <= MAX_FINGERPRINT_LENGTH).slice(0, MAX_FINGERPRINTS)
+    .map(([form, placeholder]) => ({
+      length: form.length, window: prefixWindow(form, base), digest: saltedDigest(salt, form), placeholder,
+    }));
+  return { salt, base, entries };
+}
+
+const FINGERPRINT_KEYS = ["salt", "base", "entries"];
+const FINGERPRINT_ENTRY_KEYS = ["length", "window", "digest", "placeholder"];
+const hasOnlyKeys = (value: object, keys: string[]) => Object.keys(value).every(key => keys.includes(key));
+
+/** A fingerprint set as the worker accepts it. Any other field, such as a value, is refused. */
+export function isCredentialFingerprints(value: unknown): value is CredentialFingerprints {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !hasOnlyKeys(value, FINGERPRINT_KEYS)) return false;
+  const { salt, base, entries } = value as Partial<CredentialFingerprints>;
+  return typeof salt === "string" && /^[0-9a-f]{32}$/.test(salt)
+    && typeof base === "number" && Number.isInteger(base) && base > 0 && base < 2 ** 32 && base % 2 === 1
+    && Array.isArray(entries) && entries.length <= MAX_FINGERPRINTS
+    && entries.every(entry => !!entry && typeof entry === "object" && !Array.isArray(entry) && hasOnlyKeys(entry, FINGERPRINT_ENTRY_KEYS)
+      && Number.isInteger(entry.length) && entry.length >= MIN_HELD_LENGTH && entry.length <= MAX_FINGERPRINT_LENGTH
+      && Number.isInteger(entry.window) && entry.window >= 0 && entry.window < 2 ** WINDOW_BITS
+      && typeof entry.digest === "string" && /^[0-9a-f]{64}$/.test(entry.digest)
+      && typeof entry.placeholder === "string" && /^\[redacted [A-Za-z0-9_.:-]{1,64}\]$/.test(entry.placeholder));
+}
+
+/** The worker's redactor: held values found by fingerprint, then the pattern rules. */
+export function createFingerprintRedactor(fingerprints: CredentialFingerprints): CredentialRedactor {
+  const { salt, base } = fingerprints;
+  // Longest first within a window, so a value wins over a shorter value it starts with.
+  const byWindow = new Map<number, CredentialFingerprint[]>();
+  for (const entry of [...fingerprints.entries].sort((a, b) => b.length - a.length)) {
+    const bucket = byWindow.get(entry.window);
+    if (bucket) bucket.push(entry);
+    else byWindow.set(entry.window, [entry]);
+  }
+  const windowBits = new Uint32Array(2 ** WINDOW_BITS / 32);
+  for (const window of byWindow.keys()) windowBits[window >>> 5] |= 1 << (window & 31);
+  let power = 1;
+  for (let step = 1; step < PREFIX_LENGTH; step++) power = Math.imul(power, base);
+  const redact = (text: string): string => {
+    let output = "";
+    let cursor = 0;
+    let hash = 0;
+    for (let index = 0; index < text.length; index++) {
+      if (index >= PREFIX_LENGTH) hash = (hash - Math.imul(text.charCodeAt(index - PREFIX_LENGTH), power)) | 0;
+      hash = (Math.imul(hash, base) + text.charCodeAt(index)) | 0;
+      const start = index - PREFIX_LENGTH + 1;
+      if (start < cursor) continue;
+      const window = hash >>> (32 - WINDOW_BITS);
+      if ((windowBits[window >>> 5] & (1 << (window & 31))) === 0) continue;
+      const hit = byWindow.get(window)?.find(entry => start + entry.length <= text.length
+        && saltedDigest(salt, text.slice(start, start + entry.length)) === entry.digest);
+      if (!hit) continue;
+      output += text.slice(cursor, start) + hit.placeholder;
+      cursor = start + hit.length;
+    }
+    return redactCredentialPatterns(cursor === 0 ? text : output + text.slice(cursor));
+  };
+  return { redact, count: new Set(fingerprints.entries.map(entry => entry.placeholder)).size };
 }

@@ -391,6 +391,12 @@ Core calls the hook in these places:
   sent when nothing matched. This is the only place a credential typed into a
   chat is redacted. The model already received it in that turn.
 - `jobs/run-history.js` redacts the error of a finished automation run.
+- `cli/code-agent-runs.js` redacts a Code transcript event's message and
+  metadata before `appendCodeAgentTranscriptEvent` writes it, and the title,
+  subtitle, details, progress, and metadata of a run record before it is
+  created or updated. The Vivary server and the coding worker each register a
+  redactor. The worker's is built from salted fingerprints the host sends with
+  the start request, so the worker never holds the values.
 
 Run `pnpm exec tsx --test tests/native-redaction.test.ts tests/credential-redaction.test.ts`.
 The Native test registers Vivary's redactor with random synthetic held values
@@ -402,6 +408,12 @@ tool events. It runs `startRun` with deltas that split a held value and a
 error, and an abort, then checks the in-memory events and the stored rows. It
 also checks the saved provider failure, a saved thread, and an automation run
 error.
+
+`tests/code-run-redaction.test.ts` forks the real coding worker source through
+tsx with a stub Claude CLI that reads a project file holding a held value and a
+`ghp_` token. It checks that the start request carries fingerprints only, and
+that the transcript file, every file under the code-runs folder, the Code state,
+and the follow-up prompt keep placeholders only.
 
 Upstream could take the hook as it is, because nothing changes until a host
 registers a redactor. Remove this part of the patch only when an upstream

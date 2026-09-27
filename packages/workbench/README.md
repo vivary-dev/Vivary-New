@@ -178,8 +178,12 @@ stays where it is kept, in the file, the environment, or Settings.
 
 Native chat tool results, tool and provider errors, run events, saved threads,
 automation run errors, the project context block, original command output and
-receipts, and server output are redacted. A key typed into a chat reaches the
-model in that turn and is redacted where the thread is saved. The
+receipts, and server output are redacted. Codex and Claude Code transcripts and
+run records are redacted before they are written. The coding worker receives
+salted fingerprints of the held values, not the values. The coding CLI still
+sends raw tool output to its own provider and keeps its own session files. A key
+typed into a chat reaches the model in that turn and is redacted where the
+thread is saved. The
 [HLDD](../../docs/ARCHITECTURE.md#data-and-trust-boundaries) lists the limits of
 pattern matching, and the [patch notes](patches/README.md#credential-redaction)
 list the Core call sites.

@@ -614,6 +614,71 @@ index 911ded5d652659602d5f6050563d27e4c00e8de3..afa97e17fd5870f993ebe16e7f9b5a4e
              if (pendingJson.trim())
                  consumeCodexJsonLine(pendingJson, options.onEvent);
              finish({ exitCode, exitSignal });
+diff --git a/dist/cli/code-agent-runs.js b/dist/cli/code-agent-runs.js
+index e285181b4bfb2bf2d6ac63cbf8c3453f2e939dc6..77f4e3427a39d6a4e72c061db6ecbf89d2157af3 100644
+--- a/dist/cli/code-agent-runs.js
++++ b/dist/cli/code-agent-runs.js
+@@ -3,6 +3,19 @@ import fs from "fs";
+ import os from "os";
+ import path from "path";
+ import { appendUniqueJsonLineAtomically, updateJsonFileAtomically, withFileLockSync, writeJsonFileAtomically, } from "./atomic-json-file.js";
++import { redactText, redactTextInValue } from "../audit/redact.js";
++// Vivary #97: the text fields of a run record are redacted before they are written.
++const RUN_RECORD_TEXT_FIELDS = ["title", "subtitle", "details", "progress", "metadata"];
++function redactRunRecordText(record) {
++    if (!record || typeof record !== "object")
++        return record;
++    const redacted = { ...record };
++    for (const field of RUN_RECORD_TEXT_FIELDS) {
++        if (field in redacted)
++            redacted[field] = redactTextInValue(redacted[field]);
++    }
++    return redacted;
++}
+ export const CODE_AGENT_PERMISSION_MODES = [
+     "read-only",
+     "ask-before-edit",
+@@ -67,7 +80,7 @@ export function createCodeAgentRunRecord(input) {
+     const now = new Date().toISOString();
+     const id = input.id ??
+         `${input.goalId}-${timestampSlug(now)}-${crypto.randomUUID().slice(0, 8)}`;
+-    const record = {
++    const record = redactRunRecordText({
+         schemaVersion: 1,
+         id,
+         goalId: input.goalId,
+@@ -85,7 +98,7 @@ export function createCodeAgentRunRecord(input) {
+         createdAt: now,
+         updatedAt: now,
+         metadata: input.metadata,
+-    };
++    });
+     writeCodeAgentRunRecord(record);
+     return record;
+ }
+@@ -107,7 +120,7 @@ export function updateCodeAgentRunRecord(runId, updates) {
+     return updateJsonFileAtomically(codeAgentRunRecordPath(runId), readRunValue, (record) => {
+         if (!record)
+             return null;
+-        const patch = typeof updates === "function" ? updates(record) : updates;
++        const patch = redactRunRecordText(typeof updates === "function" ? updates(record) : updates);
+         return {
+             ...record,
+             ...patch,
+@@ -148,9 +161,11 @@ export function appendCodeAgentTranscriptEvent(input) {
+             `evt-${timestampSlug(createdAt)}-${crypto.randomUUID().slice(0, 8)}`,
+         runId: input.runId,
+         kind: input.kind,
+-        message: input.message,
++        // Vivary #97: a transcript event is redacted before it is written. The
++        // screen, the browser's saved thread, and follow-up prompts read it back.
++        message: redactText(input.message),
+         createdAt,
+-        metadata: input.metadata,
++        metadata: redactTextInValue(input.metadata),
+         ...(input.signal ? { signal: input.signal } : {}),
+     };
+     const persisted = appendUniqueJsonLineAtomically(codeAgentRunTranscriptPath(input.runId), event, readTranscriptValue);
 diff --git a/dist/cli/codex-app-server-executor.d.ts b/dist/cli/codex-app-server-executor.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..e242551e6527ff0d1cdddf224cddcf06c8508b7d
