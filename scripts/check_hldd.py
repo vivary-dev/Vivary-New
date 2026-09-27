@@ -42,11 +42,13 @@ REQUIREMENT = re.compile(
     re.S,
 )
 # A ref can name a branch, tag, or commit, so only a release tag shape or a full commit SHA counts as a version.
-ACTION_REF = r"(?:v?\d+(?:\.\d+){0,2}|[0-9a-f]{40}|[0-9a-f]{64})"
+ACTION_TAG = r"v?\d+(?:\.\d+){0,2}"
+ACTION_SHA = r"[0-9a-f]{40}|[0-9a-f]{64}"
+ACTION_REF = rf"(?:{ACTION_TAG}|{ACTION_SHA})"
 # The ref and its version comment must look like versions, since a uses: line inside a run: heredoc is shell text.
 USES = re.compile(
     r"(?P<action>\s*(?:-\s+)?uses:\s*['\"]?[\w.-]+/[\w.-]+(?:/[^@\s'\"#]*)?)"
-    rf"@{ACTION_REF}['\"]?(?:\s+#\s*{ACTION_REF})?\s*"
+    rf"@(?P<ref>{ACTION_REF})['\"]?(?:\s+#\s*{ACTION_REF})?\s*"
 )
 
 
@@ -191,7 +193,14 @@ def python_project(text: str) -> object:
 
 
 def workflow(text: str) -> list[str]:
-    return [match["action"] if (match := USES.fullmatch(line)) else line for line in text.splitlines()]
+    # Keep the ref's kind, so replacing an immutable SHA pin with a moving tag is not a version-only change.
+    lines = []
+    for line in text.splitlines():
+        if match := USES.fullmatch(line):
+            kind = "sha" if re.fullmatch(ACTION_SHA, match["ref"]) else "tag"
+            line = f"{match['action']}@{kind}"
+        lines.append(line)
+    return lines
 
 
 # Each normalizer removes version information, so equal results mean only versions changed.
