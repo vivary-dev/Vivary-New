@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -133,10 +133,13 @@ await import(${JSON.stringify(pathToFileURL(path.join(workbench, "server", "code
       assert.equal(reachedTest, true, "the CLI's ancestors lead to the test process");
       assert.ok(ancestors >= 1, "the CLI read at least the worker's environment");
       assert.equal(credentialNameSeen, false, "a credential-shaped name in an ancestor's start environment");
-      // The worker runs in the fixture without database settings, so a Core query from it would open data/app.db here.
-      // The data folder alone proves nothing, because Core makes it in the test process's working folder too.
-      await assert.rejects(access(path.join(fixture, "data", "app.db")), { code: "ENOENT" },
-        "the worker opened a default database in its working folder");
+      // The worker runs in the fixture without database settings, so a Core query from it would write a file in data/ here.
+      // The data folder itself can exist, because Core makes it in the test process's working folder too.
+      const written = await readdir(path.join(fixture, "data")).catch(error => {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      });
+      assert.deepEqual(written, [], "the worker opened a default database in its working folder");
 
       const transcript = await readFile(codeAgentRunTranscriptPath(runId), "utf8");
       assertHidden(transcript, [held, token], "transcript");

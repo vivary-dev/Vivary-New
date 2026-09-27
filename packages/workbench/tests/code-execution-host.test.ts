@@ -164,9 +164,10 @@ test("a worker that reports ready after a stop request never receives its run", 
   const server = path.join(fixture, ".output", "server");
   const loaded = path.join(fixture, "loaded.json");
   const received = path.join(fixture, "received-run.txt");
+  const readySent = path.join(fixture, "ready-sent.txt");
   await mkdir(server, { recursive: true });
   // Issue #117. This worker reports ready only once the host has asked it to stop, like a worker that loads too slowly.
-  // It exits after 8 seconds even when the host never stops it, so it cannot outlive the test.
+  // It exits after 8 seconds even when the host never stops it, so it cannot outlive the test by more than 8 seconds.
   await writeFile(path.join(server, "vivary-code-worker.mjs"), `
 import { writeFileSync } from "node:fs";
 setTimeout(() => process.exit(0), 8_000).unref();
@@ -176,6 +177,7 @@ process.on("message", message => {
     process.exit(0);
   }
   if (message.type === "vivary:code-worker:abort") {
+    writeFileSync(${JSON.stringify(readySent)}, "sent");
     process.send({ type: "vivary:code-worker:ready" });
     setTimeout(() => process.exit(0), 500);
   }
@@ -187,6 +189,7 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
     for (const stop of ["startup deadline", "abort"] as const) await t.test(stop, async t => {
       await rm(loaded, { force: true });
       await rm(received, { force: true });
+      await rm(readySent, { force: true });
       const controller = new AbortController();
       try {
         if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -200,6 +203,7 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
           controller.abort();
         }
         const error = await outcome;
+        await assert.doesNotReject(readFile(readySent), "the worker never sent its late ready");
         assert.equal(await isAlive(worker), false, "the worker was still running after its run settled");
         await assert.rejects(readFile(received), { code: "ENOENT" }, "the worker received its run after the stop request");
         assert.ok(error instanceof Error);
@@ -207,7 +211,9 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
         else assert.equal(error.name, "AbortError");
       } finally {
         const pid = await readFile(loaded, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
-        if (pid && await isAlive(pid)) process.kill(pid, "SIGKILL");
+        if (pid && await isAlive(pid)) {
+          try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+        }
       }
     });
   } finally {
