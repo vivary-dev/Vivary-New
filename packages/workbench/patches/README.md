@@ -347,6 +347,66 @@ a way to approve an MCP step before a run starts. Remove this part of the patch
 only when an upstream release offers a local-only mode that passes the same
 test.
 
+## Credential redaction
+
+Issue #97 adds a text redaction hook. The owner asked on 2026-09-26 that
+credentials never appear in anything Vivary shows, stores, or sends to a model,
+even when an agent, a tool, or a provider error prints one. No existing Core
+hook can change a tool result or a run event, so the patch adds one.
+
+`dist/audit/redact.js` exports `setTextRedactor`, `redactText`, and
+`redactTextInValue`, and the `./audit` entry re-exports them. A host registers
+one function that takes text and returns text. `redactText` applies it, and
+returns text unchanged when none is registered. `redactTextInValue` applies it
+to every string in a plain object or array, and returns the same value when
+nothing changed. If the redactor throws or returns something other than text,
+the text is withheld as `[text withheld because redaction failed]`. Vivary's
+`server/plugins/00-credential-redaction.ts` registers `redactCredentials` from
+`server/credential-redaction.ts`.
+
+Core calls the hook in these places:
+
+- `agent/production-agent.js` redacts a tool result before truncation, so the
+  model, the `tool_done` event, the loop journal, and the read cache get one
+  redacted string. It scans the kept length plus 4,096 characters, so a
+  credential that crosses the limit is found whole. The truncation note still
+  reports the full length. Every tool error result passes through
+  `finalizeToolErrorResult`, which now redacts after `sanitizeToolErrorText`.
+  Warnings appended to a result are redacted too.
+- `agent/run-manager.js` redacts every run event in `emitRunEvent`, before it is
+  kept in memory, sent to subscribers, or inserted into `agent_run_events`. That
+  covers tool starts and results, provider errors, and the terminal event, which
+  `send` also redacts when it stashes it. A `text` or `thinking` delta keeps back
+  its last word, and the word before it when only spaces or tabs separate them,
+  up to 256 characters. The kept text goes out as its own delta before the next
+  event of another kind, when the run ends, and when it is aborted. A credential
+  split across deltas, or a name and its value, is then redacted whole. The
+  last word or two appears a moment later while text streams. The joined text
+  is unchanged apart from redaction.
+- `server/credential-provider.js` redacts the provider error message it saves
+  after a 401.
+- `chat-threads/store.js` redacts `thread_data`, the title, and the preview in
+  `updateThreadData`, a catch-all for browser saves and automation runs. It
+  redacts each string of the parsed repository and keeps the stored text as
+  sent when nothing matched. This is the only place a credential typed into a
+  chat is redacted. The model already received it in that turn.
+- `jobs/run-history.js` redacts the error of a finished automation run.
+
+Run `pnpm exec tsx --test tests/native-redaction.test.ts tests/credential-redaction.test.ts`.
+The Native test registers Vivary's redactor with random synthetic held values
+and uses a disposable SQLite database. It drives the agent loop with a fake
+engine whose tools return a held value from an action, from an MCP-shaped
+result, and from a thrown error, and checks the model's next request and the
+tool events. It runs `startRun` with deltas that split a held value and a
+`ghp_` token, a thinking delta, a tool start and result, a thrown provider
+error, and an abort, then checks the in-memory events and the stored rows. It
+also checks the saved provider failure, a saved thread, and an automation run
+error.
+
+Upstream could take the hook as it is, because nothing changes until a host
+registers a redactor. Remove this part of the patch only when an upstream
+release offers the same call sites and passes the same tests.
+
 ## Codex integration
 
 The September 16, 2026 integration adds an explicit `codexCli` option to Core's

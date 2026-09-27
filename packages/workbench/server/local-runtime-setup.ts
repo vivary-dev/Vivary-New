@@ -66,7 +66,7 @@ function isDatabaseUrl(words: string[]): boolean {
     .some(word => word.endsWith("DB") || DATABASE_STEMS.some(stem => word.startsWith(stem)));
 }
 
-function isCredentialName(upperName: string): boolean {
+export function isCredentialName(upperName: string): boolean {
   if (ORDINARY_NAMES.has(upperName)) return false;
   const words = upperName.split("_");
   return CREDENTIAL_FRAGMENTS.some(fragment => upperName.includes(fragment))

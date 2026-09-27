@@ -25,6 +25,7 @@ import {
   type SkippedFactFile,
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
+import { redactCredentials } from "./credential-redaction.ts";
 import { isWindowsReservedName, readWorkspaceContext } from "./managed-projects.mjs";
 import {
   fileDigest,
@@ -945,7 +946,9 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
         summary = revision => `Project context ${revision} could not be loaded: ${reason}`;
       }
       const revision = contextRevision(render("code"));
-      return { block: render(surface), revision, summary: summary(revision), factCount };
+      // Native chat and Code runs send this block to a model, so held values and key patterns are redacted.
+      const block = redactCredentials(render(surface)) as ProjectContextBlock;
+      return { block, revision, summary: summary(revision), factCount };
     },
 
     /** Remember, for the panel, that a sent message used this load. Kept in memory only, per binding. */

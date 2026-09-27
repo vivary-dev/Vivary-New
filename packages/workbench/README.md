@@ -165,6 +165,25 @@ operating-system sandbox.
 are planned. The existing Full chat adapter remains; this increment does not
 extend it to coding conversations.
 
+### Credential redaction
+
+Vivary replaces credentials with a placeholder before text reaches a model, a
+saved record, a log, or the screen (issue #97). A value Vivary holds shows as
+`[redacted NAME]`, such as `[redacted OPENROUTER_API_KEY]`. Held values are
+credential-named settings in the server environment, keys saved in Settings,
+legacy credential settings, and the credential environments and headers in
+`mcp.config.json`. A common key format that Vivary does not hold, such as an
+`sk-`, `ghp_`, or `Bearer` token, shows as `[redacted credential]`. The original
+stays where it is kept, in the file, the environment, or Settings.
+
+Native chat tool results, tool and provider errors, run events, saved threads,
+automation run errors, the project context block, original command output and
+receipts, and server output are redacted. A key typed into a chat reaches the
+model in that turn and is redacted where the thread is saved. The
+[HLDD](../../docs/ARCHITECTURE.md#data-and-trust-boundaries) lists the limits of
+pattern matching, and the [patch notes](patches/README.md#credential-redaction)
+list the Core call sites.
+
 ## Projects and conversations
 
 The desktop's Open folder action uses the system directory chooser. The server

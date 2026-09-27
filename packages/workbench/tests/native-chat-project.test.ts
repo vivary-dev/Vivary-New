@@ -13,6 +13,7 @@ import {
   loadNativeProjectContext,
   OWNER_WIDE_ACTIONS,
   prepareVivaryNativeChatProject,
+  prepareVivaryNativeChatSend,
   vivaryNativeChatProjectOptions,
 } from "../server/native-chat-project";
 import { createProjectEvaluate } from "../server/project-evaluate.ts";
@@ -278,7 +279,7 @@ test("a governed evaluation takes its project from the chat scope, never from it
 });
 
 test("the Native chat plugin uses the project guard, context, and action surface", async () => {
-  assert.equal(vivaryNativeChatProjectOptions.prepareRequest, prepareVivaryNativeChatProject);
+  assert.equal(vivaryNativeChatProjectOptions.prepareRequest, prepareVivaryNativeChatSend);
   assert.equal(typeof vivaryNativeChatProjectOptions.extraContext, "function");
   assert.equal(typeof vivaryNativeChatProjectOptions.resolveActionSurface, "function");
   // The plugin module imports the generated action registry, so its wiring is read as source.

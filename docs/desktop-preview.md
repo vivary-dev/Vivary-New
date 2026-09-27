@@ -212,6 +212,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Automations stop after you quit during a run | Wait. The earlier session holds the scheduler lease for up to ten minutes after the quit. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. [Issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) tracks the fix. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
+| Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
 | A webhook automation never runs | The packaged app cannot dispatch webhook triggers. Use a schedule instead. [Issue #113](https://github.com/vivary-dev/Vivary-New/issues/113) tracks the decision. |
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
