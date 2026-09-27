@@ -26,13 +26,21 @@ HEADINGS = (
 )
 DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
 DEPENDENCY_MAPS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+# npm reads any other value as a tag, a local path or tarball, or a source such as git or a URL.
+NPM_VERSION = re.compile(r"[0-9^~<>=*][^:/\\]*")
+NPM_TARBALL = (".tgz", ".tar", ".tar.gz")
+SPECIFIER = r"(?:===|~=|==|!=|<=|>=|<|>)\s*[\w.*+!-]+"
+SPECIFIERS = rf"{SPECIFIER}(?:\s*,\s*{SPECIFIER})*"
 REQUIREMENT = re.compile(
     r"\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<extras>\[[^\]]*\])?\s*"
-    r"(?:[(<>=!~][^;]*)?(?P<marker>;.*)?",
+    rf"(?:{SPECIFIERS}|\(\s*{SPECIFIERS}\s*\))?\s*(?P<marker>;.*)?",
     re.S,
 )
+ACTION_REF = r"(?:v?\d[\w.+-]*|[0-9a-f]{40}|[0-9a-f]{64})"
+# The ref and its version comment must look like versions, since a uses: line inside a run: heredoc is shell text.
 USES = re.compile(
-    r"(?P<action>\s*(?:-\s+)?uses:\s*['\"]?[\w.-]+/[\w.-]+(?:/[^@\s'\"#]*)?)@[^\s'\"#]+['\"]?(?:\s+#.*)?\s*"
+    r"(?P<action>\s*(?:-\s+)?uses:\s*['\"]?[\w.-]+/[\w.-]+(?:/[^@\s'\"#]*)?)"
+    rf"@{ACTION_REF}['\"]?(?:\s+#\s*{ACTION_REF})?\s*"
 )
 
 
@@ -133,15 +141,27 @@ def check_change(before: str | None, after: str, *, staged: bool = False) -> Non
         )
 
 
+def unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    # npm keeps the last duplicate, so an earlier one would hide a change from review.
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise ValueError("Duplicate JSON key")
+    return dict(pairs)
+
+
+def npm_version(value: object) -> bool:
+    return (
+        isinstance(value, str) and NPM_VERSION.fullmatch(value) is not None
+        and not value.lower().endswith(NPM_TARBALL)
+    )
+
+
 def package_manifest(text: str) -> object:
-    manifest = json.loads(text)
+    manifest = json.loads(text, object_pairs_hook=unique_keys)
     for field in DEPENDENCY_MAPS:
         entries = manifest.get(field)
         if isinstance(entries, dict):
-            # A value with ":" or "/" names a source (git, file, workspace, alias, URL), not a version.
             manifest[field] = {
-                name: value if not isinstance(value, str) or ":" in value or "/" in value else "VERSION"
-                for name, value in entries.items()
+                name: "VERSION" if npm_version(value) else value for name, value in entries.items()
             }
     return manifest
 
@@ -172,7 +192,7 @@ def workflow(text: str) -> list[str]:
 
 
 # Each normalizer removes version information, so equal results mean only versions changed.
-# A lockfile holds only resolution data, so any change to it is a version change.
+# Lockfile content is not inspected. The dependency review in CONTRIBUTING.md covers what a lockfile brings in.
 DEPENDENCY_FILES = (
     (lambda path: path.name in {"package-lock.json", "pnpm-lock.yaml"}, lambda text: None),
     (lambda path: path.name == "package.json", package_manifest),
@@ -181,28 +201,45 @@ DEPENDENCY_FILES = (
 )
 
 
+def tree_entry(revision: str, path: str) -> list[str]:
+    # Mode, type, and object id, or an empty list when the path is absent.
+    listing = git("ls-tree", "-z", revision, "--", path).stdout.decode("utf-8")
+    return listing.partition("\t")[0].split()
+
+
 def version_only(path: str, before: str, after: str) -> bool:
     normalize = next((normalize for rule, normalize in DEPENDENCY_FILES if rule(PurePosixPath(path))), None)
     if normalize is None:
         return False
-    sides = [git("show", f"{revision}:{path}", check=False) for revision in (before, after)]
-    if any(side.returncode for side in sides):
-        return False  # An added or deleted file is never a version-only change.
+    entries = [tree_entry(revision, path) for revision in (before, after)]
+    if any(entry[:2] != ["100644", "blob"] for entry in entries):
+        return False  # An added, deleted, executable, or non-file entry is never a version-only change.
     try:
-        old, new = (normalize(side.stdout.decode("utf-8")) for side in sides)
-    except (ValueError, TypeError, AttributeError):
+        old, new = (normalize(git("cat-file", "blob", entry[2]).stdout.decode("utf-8")) for entry in entries)
+    except (ValueError, TypeError, AttributeError, RecursionError):
         return False  # A file that does not parse as its expected shape is never version-only.
     return old == new
 
 
+def carried(path: str, revision: str, merged: list[str]) -> bool:
+    # A merge adds nothing when it keeps a merged parent's file, and the range checks that parent's commits.
+    entry = tree_entry(revision, path)
+    return any(tree_entry(parent, path) == entry for parent in merged)
+
+
 def dependency_update(revision: str, parents: list[str]) -> bool:
-    # Git author identity is self-asserted. The exemption still only covers version-only dependency changes.
-    author = git("log", "-1", "--format=%an <%ae>", revision).stdout.decode().strip()
-    if len(parents) != 1 or author != DEPENDABOT:
+    if not parents:
         return False
-    changed = git("diff", "--name-only", "--no-renames", "-z", parents[0], revision).stdout.decode("utf-8")
+    first, merged = parents[0], parents[1:]
+    # Git author identity is self-asserted. The exemption still only covers version-only dependency changes.
+    if not merged and git("log", "-1", "--format=%an <%ae>", revision).stdout.decode().strip() != DEPENDABOT:
+        return False
+    changed = git("diff", "--name-only", "--no-renames", "-z", first, revision).stdout.decode("utf-8")
     impact = [path for path in changed.split("\0") if relevant(path)]
-    return bool(impact) and all(version_only(path, parents[0], revision) for path in impact)
+    return bool(impact) and all(
+        version_only(path, first, revision) and (not merged or carried(path, revision, merged))
+        for path in impact
+    )
 
 
 def commit(ref: str) -> str:
@@ -231,11 +268,12 @@ def check_range(base: str, head: str) -> tuple[int, int]:
                 raise ValueError(f"{revision[:12]} removes the HLDD checker.")
             continue  # Historical commits before adoption are not retroactively gated.
         checked += 1
-        if dependency_update(revision, parents):
-            exempt += 1
-            continue
         try:
-            check_change(parents[0] if parents else None, revision)
+            if dependency_update(revision, parents):
+                validate_document(text_at(revision))
+                exempt += 1
+            else:
+                check_change(parents[0] if parents else None, revision)
         except ValueError as error:
             raise ValueError(f"{revision[:12]}: {error}") from error
     return checked, exempt
@@ -283,7 +321,7 @@ def main() -> int:
             print("HLDD staged review passed.")
         else:
             count, exempt = check_range(args.base, args.head)
-            detail = f", {exempt} of them dependency-only Dependabot update(s)" if exempt else ""
+            detail = f", {exempt} of them dependency-only update(s)" if exempt else ""
             print(f"HLDD review passed for {count} introduced commit(s){detail}.")
     except (ValueError, OSError, UnicodeError, subprocess.CalledProcessError) as error:
         detail = error.stderr.decode(errors="replace").strip() if isinstance(error, subprocess.CalledProcessError) else str(error)

