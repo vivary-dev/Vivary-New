@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import {
   storageSentence,
   type WorkspaceContextPaths,
 } from "../app/lib/project-memory-schema.ts";
+import { refreshHeldCredentials } from "../server/credential-redaction.ts";
 import { createProjectFileService, isFactFileName } from "../server/project-files.ts";
 import {
   CONTEXT_BOUNDS,
@@ -167,6 +169,26 @@ async function captureWarnings(action: () => Promise<unknown>): Promise<string[]
 }
 
 describe("project memory rendering", () => {
+  it("sends held credentials and key patterns in project files only as placeholders (issue #97)", async () => {
+    const p = await project();
+    // Random values for this run only. Neither is a real credential.
+    const [held, keyValue] = [randomBytes(24).toString("hex"), randomBytes(24).toString("hex")];
+    const none = { mcpConfig: () => null, storedSecrets: async () => [] };
+    await refreshHeldCredentials({ ...none, environment: () => ({ VIVARY_PROBE_TOKEN: held }) });
+    try {
+      await writeFile(path.join(p.root, "AGENTS.md"), `Use ${held} for the probe.\nOPENROUTER_API_KEY=${keyValue}\n`);
+      p.bridge.answer = thinAnswer(undefined, [], [], ["AGENTS.md"]);
+      for (const surface of ["code", "full-chat"] as const) {
+        const { block } = await p.memory.renderForRun(p.workspace, surface);
+        assert.equal([held, keyValue].filter(value => block.includes(value)).length, 0, surface);
+        assert.match(block, /Use \[redacted VIVARY_PROBE_TOKEN\] for the probe\./);
+        assert.match(block, /OPENROUTER_API_KEY=\[redacted credential\]/);
+      }
+    } finally {
+      await refreshHeldCredentials({ ...none, environment: () => ({}) });
+    }
+  });
+
   it("keeps an instruction floor and bounds facts in the worst case", async () => {
     const p = await project();
     await writeFile(path.join(p.root, "AGENTS.md"), "a".repeat(20_000));

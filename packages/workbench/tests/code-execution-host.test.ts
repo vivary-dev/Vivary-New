@@ -8,10 +8,11 @@ import { test } from "node:test";
 import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, waitForLinuxWorkerGroupExit,
   VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
+import { credentialFingerprints } from "../server/credential-redaction.ts";
 
 const request = {
   type: "vivary:code-worker:start", runId: "vivary-local-code-test",
-  prompt: "Read the project note.", ownerEmail: "owner@local.vivary.test",
+  prompt: "Read the project note.", ownerEmail: "owner@local.vivary.test", redaction: credentialFingerprints(),
 };
 
 test("worker protocol has bounded input and no path or credential fields", () => {

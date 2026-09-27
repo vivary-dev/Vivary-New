@@ -21,6 +21,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
+import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
 import type { ProjectContextBlock, ProjectContextLoad } from "./project-memory.ts";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
 
@@ -262,7 +263,8 @@ export async function getVivaryCodeHostState(
   const recent = owned.find(run => !activeRuns.has(run.id));
   return {
     activeRun: active ? { id: active.id, title: active.title, projectId: metadataString(active, "projectId") } : null,
-    pendingApproval: pending && active ? { ...pending, runId: active.id, title: active.title, projectId: metadataString(active, "projectId"), workspaceLabel: activeRuns.get(active.id)!.workspace.label } : null,
+    // The card shows a redacted copy. The stored request stays as Codex sent it, so the answer matches it.
+    pendingApproval: pending && active ? { ...redactCredentialsInValue(pending), runId: active.id, title: active.title, projectId: metadataString(active, "projectId"), workspaceLabel: activeRuns.get(active.id)!.workspace.label } : null,
     recentRun: recent ? {
       id: recent.id,
       title: recent.title,
@@ -406,6 +408,8 @@ export async function sendVivaryCodeMessage(input: {
     fail("Choose a model reported by Codex before starting a conversation.", { errorCode: "vivary_code_model_unsupported", statusCode: 400 });
   }
   const permissionMode = await getCodePermissionMode(input.ownerEmail, input.orgId);
+  // The worker's fingerprints and the transcript's user event use the credentials held now.
+  await refreshHeldCredentials();
   if (input.revalidateWorkspace) {
     const current = await input.revalidateWorkspace();
     if (!current || !sameWorkspace(current, workspace)) {

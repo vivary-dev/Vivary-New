@@ -5,9 +5,9 @@ pass through the normal packaged UI. This receipt records the owner-approved run
 check with no client connected, the three defects found and fixed on `feat/automation-lifecycle`, the
 review rounds, and the limits that remain.
 
-Delivery status: `feat/automation-lifecycle` is pushed to GitHub and Entire. The Settings retest
-passed on the `f0c3cac0` package. The PR, the Entire trail, the merge, and closing #51 wait for
-the owner.
+Delivery status: [PR #116](https://github.com/vivary-dev/Vivary-New/pull/116) merged into `dev`
+as `c39e22f` after all eight checks passed, including Entire Gates. The Settings retest passed on
+the `f0c3cac0` package. The owner accepted the run and closed issue #51 on 2026-09-27.
 
 ## Source, artifacts, provider
 

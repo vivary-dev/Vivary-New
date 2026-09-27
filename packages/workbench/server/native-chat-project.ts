@@ -2,6 +2,7 @@ import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { AgentChatPluginOptions } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server";
 import { createError } from "h3";
+import { refreshHeldCredentials } from "./credential-redaction.ts";
 import { projectIdentity, sameProject } from "./project-files.ts";
 import {
   projectMemory,
@@ -100,6 +101,15 @@ export function createVivaryNativeChatProjectGuard(
 
 export const prepareVivaryNativeChatProject =
   createVivaryNativeChatProjectGuard();
+
+/**
+ * Native `prepareRequest`. The held credentials reload first, so a key saved
+ * since the last send is redacted in this reply. Then the project guard runs.
+ */
+export async function prepareVivaryNativeChatSend(details: PrepareRequestDetails): Promise<void> {
+  await refreshHeldCredentials();
+  await prepareVivaryNativeChatProject(details);
+}
 
 /**
  * The project a Native tool call acts on comes only from its chat's pinned
@@ -233,7 +243,7 @@ export function createVivaryNativeChatActionSurface(
 
 /** The Native chat options Vivary sets. The Nitro plugin spreads them into createAgentChatPlugin. */
 export const vivaryNativeChatProjectOptions = {
-  prepareRequest: prepareVivaryNativeChatProject,
+  prepareRequest: prepareVivaryNativeChatSend,
   extraContext: createVivaryNativeChatContext(),
   resolveActionSurface: createVivaryNativeChatActionSurface(),
 } satisfies Partial<AgentChatPluginOptions>;
