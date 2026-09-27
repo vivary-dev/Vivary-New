@@ -7314,6 +7314,9 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The #113 and #104 receipts and two acceptance register rows record the packaged Windows check on
+`ec82a872`. Documentation only, so the design description holds.
+
 Issue #113 second review. The desktop now shows its port notice when it replaces a saved port from the Windows
 dynamic range, the sweep reads past another app's untouched rows, and the expiry fails a call only if nothing claimed
 it since the sweep read it. Internal fixes, so the design description holds.
