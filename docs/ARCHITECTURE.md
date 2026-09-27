@@ -153,6 +153,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #98 and #117, review round 1. `code-execution-host.ts` exports `STARTUP_TIMEOUT_MS`, so the late-ready host
+test ticks the deadline and checks its message from the same constant. That test now skips Windows, as its sibling
+does, because Windows cleanup refuses a worker that already exited. Its fake worker exits after 8 seconds on its own
+and is killed in `finally`, so it cannot outlive the test, and each case checks that the worker stopped before the
+run settled. The export serves the test and changes no startup behavior, so the description holds.
+
 Issue #117. The coding worker host no longer sends a run to a worker that reports ready after the host asked it to
 stop, whether the 15-second startup deadline or the owner's abort made that request. The deadline error now reads
 "The coding worker did not start within 15 seconds.", and `local-code-agent.ts` records that text as the run's

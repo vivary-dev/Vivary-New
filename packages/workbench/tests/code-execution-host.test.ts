@@ -6,7 +6,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, waitForLinuxWorkerGroupExit,
+import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, STARTUP_TIMEOUT_MS, waitForLinuxWorkerGroupExit,
   VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -157,7 +157,8 @@ process.send({ type: "vivary:code-worker:ready" });
   }
 });
 
-test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000 }, async t => {
+// Skipped on Windows, where cleanup refuses a worker that already exited, and this worker exits on its own.
+test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000, skip: process.platform === "win32" }, async t => {
   const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-late-ready-"));
   const server = path.join(fixture, ".output", "server");
@@ -165,8 +166,10 @@ test("a worker that reports ready after a stop request never receives its run", 
   const received = path.join(fixture, "received-run.txt");
   await mkdir(server, { recursive: true });
   // Issue #117. This worker reports ready only once the host has asked it to stop, like a worker that loads too slowly.
+  // It exits after 8 seconds even when the host never stops it, so it cannot outlive the test.
   await writeFile(path.join(server, "vivary-code-worker.mjs"), `
 import { writeFileSync } from "node:fs";
+setTimeout(() => process.exit(0), 8_000).unref();
 process.on("message", message => {
   if (message.type === "vivary:code-worker:start") {
     writeFileSync(${JSON.stringify(received)}, "received");
@@ -185,21 +188,27 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
       await rm(loaded, { force: true });
       await rm(received, { force: true });
       const controller = new AbortController();
-      if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
-      const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
-        signal: controller.signal }).then(() => null, (error: unknown) => error);
-      await waitForPids(loaded);
-      if (stop === "startup deadline") {
-        t.mock.timers.tick(15_000);
-        t.mock.timers.reset();
-      } else {
-        controller.abort();
+      try {
+        if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
+        const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
+          signal: controller.signal }).then(() => null, (error: unknown) => error);
+        const { worker } = await waitForPids(loaded);
+        if (stop === "startup deadline") {
+          t.mock.timers.tick(STARTUP_TIMEOUT_MS);
+          t.mock.timers.reset();
+        } else {
+          controller.abort();
+        }
+        const error = await outcome;
+        assert.equal(await isAlive(worker), false, "the worker was still running after its run settled");
+        await assert.rejects(readFile(received), { code: "ENOENT" }, "the worker received its run after the stop request");
+        assert.ok(error instanceof Error);
+        if (stop === "startup deadline") assert.equal(error.message, `The coding worker did not start within ${STARTUP_TIMEOUT_MS / 1_000} seconds.`);
+        else assert.equal(error.name, "AbortError");
+      } finally {
+        const pid = await readFile(loaded, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
+        if (pid && await isAlive(pid)) process.kill(pid, "SIGKILL");
       }
-      const error = await outcome;
-      await assert.rejects(readFile(received), { code: "ENOENT" }, "the worker received its run after the stop request");
-      assert.ok(error instanceof Error);
-      if (stop === "startup deadline") assert.equal(error.message, "The coding worker did not start within 15 seconds.");
-      else assert.equal(error.name, "AbortError");
     });
   } finally {
     process.chdir(originalCwd);

@@ -8,7 +8,7 @@ import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest, isCodexActionR
 import { credentialFingerprints } from "./credential-redaction.ts";
 import { codingRuntimeEnvironment } from "./local-runtime-setup.ts";
 
-const STARTUP_TIMEOUT_MS = 15_000;
+export const STARTUP_TIMEOUT_MS = 15_000;
 const TERMINATION_GRACE_MS = 5_000;
 const EXIT_TIMEOUT_MS = 3_000;
 let cleanupBlocked = false;
