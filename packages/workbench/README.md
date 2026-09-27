@@ -184,7 +184,7 @@ threads, automation run errors, the project context block, Codex approval cards,
 original command output and receipts, and server output are redacted. Codex and
 Claude Code transcripts and run records are redacted before they are written.
 The host sends the coding worker salted fingerprints of the held values, not the
-values, though the worker still inherits the server environment until issue #98.
+values, and starts the worker without credential-shaped names (issue #98).
 The coding CLI still sends raw tool output to its own provider and keeps its own
 session files. A key typed into a chat reaches the model in the turn it is typed.
 Later turns, the saved thread, and forks get the placeholder. The

@@ -30,6 +30,7 @@ const redaction = await import("../server/credential-redaction.ts");
 const { buildVivaryCodeFollowUpPrompt, getVivaryCodeState, sendVivaryCodeMessage } = await import("../server/local-code-agent.ts");
 const { codeAgentRunTranscriptPath, getCodeAgentRunRecord, listCodeAgentTranscriptEvents } = await import("@agent-native/core/code-agents");
 const { setTextRedactor } = await import("@agent-native/core/audit");
+const { isCredentialName } = await import("../server/local-runtime-setup.ts");
 // The server process registers its redactor as the Nitro plugin does.
 setTextRedactor(redaction.redactCredentials);
 // The worker wrapper loads these natively before tsx starts, so tsx compiles only the worker's own TypeScript.
@@ -53,17 +54,31 @@ test("a Claude run that prints a held value keeps placeholders only in the trans
     const server = path.join(fixture, ".output", "server");
     const bin = path.join(fixture, "bin");
     const started = path.join(fixture, "started.json");
+    const ancestry = path.join(fixture, "ancestry.json");
+    const credentialNames = Object.keys(process.env).filter(name => isCredentialName(name.toUpperCase()));
+    assert.ok(credentialNames.length > 0, "the test process holds credential-shaped names");
     await mkdir(server, { recursive: true });
     await mkdir(bin);
     const token = `ghp_${synthetic(36)}`;
     // The project file holds both values, as a real .env or note might. The stub reads it like an agent would.
     await writeFile(path.join(fixture, "probe.txt"), `${held}\n${token}\n`);
     await writeFile(path.join(bin, "claude"), `#!/usr/bin/env node
-const { readFileSync } = require("node:fs");
+const { readFileSync, writeFileSync } = require("node:fs");
 if (process.argv[2] === "auth") {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "pro" }));
   process.exit(0);
 }
+// Issue #98. A command in the run reads each ancestor's start environment below the test process.
+const credentialNames = new Set(${JSON.stringify(credentialNames)});
+let ancestors = 0, credentialNameSeen = false, pid = process.ppid;
+while (pid > 1 && pid !== ${process.pid}) {
+  const names = readFileSync("/proc/" + pid + "/environ", "utf8").split("\\0").map(entry => entry.slice(0, entry.indexOf("=")));
+  credentialNameSeen ||= names.some(name => credentialNames.has(name));
+  ancestors++;
+  const stat = readFileSync("/proc/" + pid + "/stat", "utf8");
+  pid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+}
+writeFileSync(${JSON.stringify(ancestry)}, JSON.stringify({ reachedTest: pid === ${process.pid}, ancestors, credentialNameSeen }));
 process.stdin.resume();
 process.stdin.on("end", () => {
   const probe = readFileSync("probe.txt", "utf8");
@@ -114,6 +129,17 @@ await import(${JSON.stringify(pathToFileURL(path.join(workbench, "server", "code
         assert.fail(masked(`the run ended as ${String(record?.status)} in phase ${String(record?.phase)}: `
           + `${String(record?.metadata?.executionError ?? "")} (${statuses})`));
       }
+      const { reachedTest, ancestors, credentialNameSeen } = JSON.parse(await readFile(ancestry, "utf8"));
+      assert.equal(reachedTest, true, "the CLI's ancestors lead to the test process");
+      assert.ok(ancestors >= 1, "the CLI read at least the worker's environment");
+      assert.equal(credentialNameSeen, false, "a credential-shaped name in an ancestor's start environment");
+      // The worker runs in the fixture without database settings, so a Core query from it would write a file in data/ here.
+      // The data folder itself can exist, because Core makes it in the test process's working folder too.
+      const written = await readdir(path.join(fixture, "data")).catch(error => {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      });
+      assert.deepEqual(written, [], "the worker opened a default database in its working folder");
 
       const transcript = await readFile(codeAgentRunTranscriptPath(runId), "utf8");
       assertHidden(transcript, [held, token], "transcript");

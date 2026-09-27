@@ -6,7 +6,9 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { isVivaryCodeWorkerRequest, type VivaryCodeWorkerRequest, isCodexActionRequest, type CodexActionRequest } from "./code-execution-protocol";
 import { credentialFingerprints } from "./credential-redaction.ts";
+import { codingRuntimeEnvironment } from "./local-runtime-setup.ts";
 
+export const STARTUP_TIMEOUT_MS = 15_000;
 const TERMINATION_GRACE_MS = 5_000;
 const EXIT_TIMEOUT_MS = 3_000;
 let cleanupBlocked = false;
@@ -50,7 +52,8 @@ export async function executeVivaryCodeWorker(input: {
   if (input.signal.aborted) throw aborted();
 
   return new Promise((resolve, reject) => {
-    const environment = { ...process.env };
+    // The worker needs no credential. Claude Code and native Codex get no host MCP servers, and runs are stored in files.
+    const environment = codingRuntimeEnvironment(process.env);
     delete environment.VIVARY_DESKTOP_HOST;
     delete environment.VIVARY_STANDALONE_HOST;
     const forkOptions: ForkOptions & Pick<SpawnOptions, "windowsHide"> = {
@@ -135,6 +138,8 @@ export async function executeVivaryCodeWorker(input: {
       if (message.type === "vivary:code-worker:ready" && !sent) {
         sent = true;
         clearTimeout(startupDeadline);
+        // A ready that arrives after the deadline or an abort must not start the run the host is stopping.
+        if (failure) return;
         try {
           child.send(request, error => { if (error) requestStop(new Error("The coding worker could not receive its run.")); });
         } catch { requestStop(new Error("The coding worker connection closed.")); }
@@ -157,7 +162,8 @@ export async function executeVivaryCodeWorker(input: {
       if (message.type === "vivary:code-worker:failed") failure ??= new Error("The Native coding executor failed.");
       stopTree();
     };
-    const startupDeadline = setTimeout(() => requestStop(new Error("The coding worker did not become ready.")), 15_000);
+    const startupDeadline = setTimeout(() => requestStop(
+      new Error(`The coding worker did not start within ${STARTUP_TIMEOUT_MS / 1_000} seconds.`)), STARTUP_TIMEOUT_MS);
     child.on("message", onMessage);
     child.on("error", onError);
     child.once("exit", onExit);

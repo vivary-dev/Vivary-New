@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, waitForLinuxWorkerGroupExit,
+import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, STARTUP_TIMEOUT_MS, waitForLinuxWorkerGroupExit,
   VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
+import { isCredentialName } from "../server/local-runtime-setup.ts";
 
 const request = {
   type: "vivary:code-worker:start", runId: "vivary-local-code-test",
@@ -107,6 +109,118 @@ process.send({type:"vivary:code-worker:ready"});
   }
 });
 
+test("the coding worker starts without any credential-shaped name in its environment", { timeout: 12_000 }, async () => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-environment-"));
+  const server = path.join(fixture, ".output", "server");
+  const names = path.join(fixture, "names.json");
+  await mkdir(server, { recursive: true });
+  // Issue #98. On Linux a child reads its parent's start environment, as a command in a coding run could.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+const readParent = "const entries = require('node:fs').readFileSync('/proc/' + process.ppid + '/environ', 'utf8');"
+  + "process.stdout.write(JSON.stringify(entries.split(String.fromCharCode(0)).filter(Boolean)"
+  + ".map(entry => entry.slice(0, entry.indexOf('=')))));";
+writeFileSync(${JSON.stringify(names)}, process.platform === "linux"
+  ? execFileSync(process.execPath, ["-e", readParent], { encoding: "utf8", env: {} })
+  : JSON.stringify(Object.keys(process.env)));
+process.on("message", message => {
+  if (message.type === "vivary:code-worker:start") process.send({ type: "vivary:code-worker:done", runId: message.runId });
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  const suffix = randomBytes(4).toString("hex").toUpperCase();
+  const credentialName = `VIVARY_PROBE_${suffix}_TOKEN`;
+  const controlName = `VIVARY_PROBE_${suffix}_SETTING`;
+  const seeded = Object.fromEntries(["BETTER_AUTH_SECRET", "DATABASE_URL", "OPENROUTER_API_KEY", credentialName,
+    controlName, "VIVARY_DESKTOP_HOST", "VIVARY_STANDALONE_HOST"].map(name => [name, randomBytes(24).toString("hex")]));
+  const previous = { ...process.env };
+  try {
+    Object.assign(process.env, seeded);
+    process.chdir(fixture);
+    await executeVivaryCodeWorker({ runId: request.runId, prompt: "report the start environment",
+      ownerEmail: request.ownerEmail, signal: new AbortController().signal });
+    const started: string[] = JSON.parse(await readFile(names, "utf8"));
+    assert.ok(started.includes(controlName), "an ordinary setting reaches the worker");
+    assert.deepEqual(started.filter(name => isCredentialName(name.toUpperCase())), [],
+      "credential-shaped names in the worker's start environment");
+    assert.deepEqual(started.filter(name => name === "VIVARY_DESKTOP_HOST" || name === "VIVARY_STANDALONE_HOST"), []);
+  } finally {
+    for (const name of Object.keys(seeded)) {
+      // guard:allow-env-credential - Removes a random test setting seeded above.
+      if (previous[name] === undefined) delete process.env[name];
+      else Object.assign(process.env, { [name]: previous[name] });
+    }
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+// Skipped on Windows, where cleanup refuses a worker that already exited, and this worker exits on its own.
+test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000, skip: process.platform === "win32" }, async t => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-late-ready-"));
+  const server = path.join(fixture, ".output", "server");
+  const loaded = path.join(fixture, "loaded.json");
+  const received = path.join(fixture, "received-run.txt");
+  const readySent = path.join(fixture, "ready-sent.txt");
+  await mkdir(server, { recursive: true });
+  // Issue #117. This worker reports ready only once the host has asked it to stop, like a worker that loads too slowly.
+  // It exits after 8 seconds even when the host never stops it, so it cannot outlive the test by more than 8 seconds.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+setTimeout(() => process.exit(0), 8_000).unref();
+process.on("message", message => {
+  if (message.type === "vivary:code-worker:start") {
+    writeFileSync(${JSON.stringify(received)}, "received");
+    process.exit(0);
+  }
+  if (message.type === "vivary:code-worker:abort") {
+    writeFileSync(${JSON.stringify(readySent)}, "sent");
+    process.send({ type: "vivary:code-worker:ready" });
+    setTimeout(() => process.exit(0), 500);
+  }
+});
+writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid }));
+`);
+  try {
+    process.chdir(fixture);
+    for (const stop of ["startup deadline", "abort"] as const) await t.test(stop, async t => {
+      await rm(loaded, { force: true });
+      await rm(received, { force: true });
+      await rm(readySent, { force: true });
+      const controller = new AbortController();
+      try {
+        if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
+        const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
+          signal: controller.signal }).then(() => null, (error: unknown) => error);
+        const { worker } = await waitForPids(loaded);
+        if (stop === "startup deadline") {
+          t.mock.timers.tick(STARTUP_TIMEOUT_MS);
+          t.mock.timers.reset();
+        } else {
+          controller.abort();
+        }
+        const error = await outcome;
+        await assert.doesNotReject(readFile(readySent), "the worker never sent its late ready");
+        assert.equal(await isAlive(worker), false, "the worker was still running after its run settled");
+        await assert.rejects(readFile(received), { code: "ENOENT" }, "the worker received its run after the stop request");
+        assert.ok(error instanceof Error);
+        if (stop === "startup deadline") assert.equal(error.message, `The coding worker did not start within ${STARTUP_TIMEOUT_MS / 1_000} seconds.`);
+        else assert.equal(error.name, "AbortError");
+      } finally {
+        const pid = await readFile(loaded, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
+        if (pid && await isAlive(pid)) {
+          try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+        }
+      }
+    });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
 
 test("worker relays native approvals and remains active beyond the former turn deadline", { timeout: 12_000 }, async t => {
   const originalCwd = process.cwd();
