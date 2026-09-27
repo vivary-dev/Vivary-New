@@ -39,6 +39,20 @@ once this configuration reaches `main`. GitHub security updates still target
 promotion. Do not merge a security update that leaves the integration branch
 unfixed. See [GitHub's target-branch behavior](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
 
+Dependency-only Dependabot commits pass the HLDD gate without a design update,
+so the dependency review before merge is the gate that catches a bad update.
+Review each new or changed package version in the diff, including new transitive
+packages in the lockfile:
+
+- It was published more than 72 hours earlier, or it carries a provenance
+  attestation from its stated repository.
+- It runs no `preinstall`, `install`, or `postinstall` script beyond one that
+  selects a platform binary.
+- It ships no `binding.gyp` with an `actions` block.
+
+Give a new or low-download package a closer look. The owner's approval of the
+Entire trail stays required before merge.
+
 ### Entire session capture
 
 [Enable Entire](docs/ENTIRE.md) in your working checkout before supported agent

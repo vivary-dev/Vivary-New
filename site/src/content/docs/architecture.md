@@ -157,6 +157,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #123 merge review. CONTRIBUTING.md now holds the dependency review for Dependabot PRs, because dependency-only
+Dependabot commits pass the HLDD gate. The review covers publish age or provenance, install scripts, `binding.gyp`
+actions, and new transitive packages. Documentation only, so the design description holds.
+
 Issue #123. The branch HLDD checker passes a Dependabot-authored commit with one parent when each relevant file it
 changes is a version-only edit to a dependency manifest, lockfile, or workflow action ref. Its success line counts
 those commits. The staged check never exempts a commit. The maintenance section states the rule and its self-asserted
