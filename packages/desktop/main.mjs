@@ -1,6 +1,7 @@
 import { fork, spawnSync } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +10,7 @@ import { app, BrowserWindow, dialog, session, shell } from "electron";
 const START_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 15_000;
 const DRAFT_CLOSE_TIMEOUT_MS = 8_000;
+const DESKTOP_PORT_FILE = "desktop-port";
 const sourceFile = fileURLToPath(import.meta.url);
 const sourceRoot = path.dirname(sourceFile);
 
@@ -58,6 +60,64 @@ async function selectLoopbackPort() {
   return port;
 }
 
+/**
+ * The local server's data folder, the same default that bin/start.mjs uses.
+ * The desktop passes it to the server, so the saved port and the data always
+ * share one folder.
+ */
+export function desktopDataDir(home = homedir()) {
+  return path.join(home, ".vivary", "workbench");
+}
+
+async function loopbackPortIsFree(port) {
+  const probe = createServer();
+  const free = await new Promise((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => resolve(true));
+  });
+  if (free) await new Promise((resolve) => probe.close(resolve));
+  return free;
+}
+
+async function readSavedPort(dataDir) {
+  let text;
+  try {
+    text = await readFile(path.join(dataDir, DESKTOP_PORT_FILE), "utf8");
+  } catch {
+    return null;
+  }
+  const port = Number(text.trim());
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+}
+
+/**
+ * A webhook URL names the local port, so the app reuses the port saved in its
+ * data folder while that port is free. Otherwise it takes a new port, and
+ * `replaced` names the saved one so the window can say that the URLs changed.
+ */
+export async function chooseDesktopPort(dataDir, { isFree = loopbackPortIsFree, selectPort = selectLoopbackPort } = {}) {
+  const saved = await readSavedPort(dataDir);
+  if (saved !== null && await isFree(saved)) return { port: saved, replaced: null };
+  return { port: await selectPort(), replaced: saved };
+}
+
+export async function saveDesktopPort(dataDir, port) {
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(dataDir, DESKTOP_PORT_FILE), `${port}\n`, { mode: 0o600 });
+}
+
+/** The notice shown when another program held the saved port. */
+export function portChangeNotice(replaced, port) {
+  return {
+    type: "info",
+    buttons: ["OK"],
+    defaultId: 0,
+    title: "Vivary changed its local port",
+    message: `Port ${replaced} was in use, so Vivary now uses port ${port}.`,
+    detail: "Webhook URLs with the old port no longer reach Vivary. Copy each new URL from Automations and update the program that calls it.",
+  };
+}
+
 export function localChildEnvironment(source = process.env, packaged = app.isPackaged, resources = process.resourcesPath) {
   const environment = { ...source };
   for (const key of [
@@ -90,10 +150,11 @@ async function startServer() {
   const node = ordinaryNodePath();
   const entry = path.join(root, "bin", "desktop-server.mjs");
   await Promise.all([access(node), access(entry)]);
-  const port = await selectLoopbackPort();
+  const dataDir = desktopDataDir();
+  const { port, replaced } = await chooseDesktopPort(dataDir);
   const origin = `http://127.0.0.1:${port}`;
 
-  const child = fork(entry, ["--port", String(port)], {
+  const child = fork(entry, ["--port", String(port), "--data-dir", dataDir], {
     cwd: root,
     detached: process.platform !== "win32",
     env: localChildEnvironment(),
@@ -139,6 +200,9 @@ async function startServer() {
     forceServerTree(child);
     throw error;
   });
+  // Saved only after the server started, so a port that failed is not kept.
+  // A failed save costs only the next launch's port, not this one.
+  await saveDesktopPort(dataDir, port).catch(() => undefined);
 
   child.once("exit", (code, signal) => {
     if (process.platform !== "win32") forceServerTree(child);
@@ -150,7 +214,7 @@ async function startServer() {
       void beginQuit({ skipDraftFlush: true });
     }
   });
-  return origin;
+  return { origin, port, replaced };
 }
 
 function forceServerTree(child) {
@@ -467,9 +531,12 @@ export async function runDesktop() {
   await app.whenReady();
   hardenSession();
   try {
-    const origin = await startServer();
+    const { origin, port, replaced } = await startServer();
     serverOrigin = origin;
     await createWindow(origin);
+    if (replaced !== null && mainWindow && !mainWindow.isDestroyed()) {
+      void dialog.showMessageBox(mainWindow, portChangeNotice(replaced, port));
+    }
   } catch (error) {
     await stopServer();
     dialog.showErrorBox("Vivary could not start", error instanceof Error ? error.message : "Unknown error.");

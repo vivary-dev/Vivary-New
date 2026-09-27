@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { registerHooks } from "node:module";
@@ -13,7 +16,7 @@ const hooks = registerHooks({
     return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
   },
 });
-const { createExternalWindowHandler, attachProjectFolderChooser, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment } = await import("../main.mjs");
+const { createExternalWindowHandler, attachProjectFolderChooser, chooseDesktopPort, desktopDataDir, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment, portChangeNotice, saveDesktopPort } = await import("../main.mjs");
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -238,4 +241,58 @@ test("desktop close waits for same-origin draft acknowledgement and refuses fail
   window.webContents.executeJavaScript = () => new Promise(() => undefined);
   assert.equal(await flushDraftsBeforeQuit(window, origin, 5), false);
   assert.deepEqual(enabled, [false, false, true, false, true]);
+});
+
+test("the desktop reuses its saved port while it is free and reports a replaced one", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-desktop-port-"));
+  try {
+    let picks = 0;
+    const selectPort = async () => 40_000 + ++picks;
+    const free = { selectPort, isFree: async () => true };
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 40_001, replaced: null }, "a first launch picks a port without a notice");
+    await saveDesktopPort(dataDir, 40_001);
+    assert.equal(await readFile(path.join(dataDir, "desktop-port"), "utf8"), "40001\n");
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 40_001, replaced: null }, "a later launch reuses it");
+    assert.equal(picks, 1);
+    assert.deepEqual(await chooseDesktopPort(dataDir, { selectPort, isFree: async () => false }), { port: 40_002, replaced: 40_001 });
+    await writeFile(path.join(dataDir, "desktop-port"), "not a port\n");
+    assert.deepEqual(await chooseDesktopPort(dataDir, free), { port: 40_003, replaced: null }, "an unreadable file counts as none");
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a saved port that another program holds is replaced, and reused once it is free", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-desktop-port-"));
+  const blocker = createServer();
+  try {
+    await new Promise(resolve => blocker.listen(0, "127.0.0.1", resolve));
+    const busy = blocker.address().port;
+    await saveDesktopPort(dataDir, busy);
+    const choice = await chooseDesktopPort(dataDir);
+    assert.equal(choice.replaced, busy);
+    assert.notEqual(choice.port, busy);
+    await new Promise(resolve => blocker.close(resolve));
+    assert.deepEqual(await chooseDesktopPort(dataDir), { port: busy, replaced: null });
+  } finally {
+    if (blocker.listening) await new Promise(resolve => blocker.close(resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("the port notice names both ports and where to copy the new webhook URL", () => {
+  const notice = portChangeNotice(40_001, 40_002);
+  assert.equal(notice.message, "Port 40001 was in use, so Vivary now uses port 40002.");
+  assert.match(notice.detail, /Webhook URLs with the old port no longer reach Vivary\. Copy each new URL from Automations/);
+});
+
+test("the desktop data folder is the local server's default and is passed to it", async () => {
+  const { startupOptions } = await import("../../workbench/bin/start.mjs");
+  assert.equal(desktopDataDir(), startupOptions([], {}).dataDir);
+  assert.equal(desktopDataDir("/home/owner"), path.join("/home/owner", ".vivary", "workbench"));
+  const source = await readFile(new URL("../main.mjs", import.meta.url), "utf8");
+  assert.match(source, /fork\(entry, \["--port", String\(port\), "--data-dir", dataDir\]/);
+  const ready = source.indexOf('message?.type === "ready"');
+  const save = source.indexOf("await saveDesktopPort(dataDir, port)");
+  assert.ok(ready > 0 && save > ready, "the port is saved after the server reports ready");
 });

@@ -198,6 +198,97 @@ app for that case, and may prefer to pass the runner through the plugin options
 instead of a module registry. Remove this part of the patch after an upstream
 release passes the same test and a packaged Run now check.
 
+## In-process webhook automations
+
+Issue #113 makes webhook automations work in the packaged app, as the owner
+decided on 2026-09-27. A call to `/_agent-native/automations/webhook/<token>`
+is stored in `integration_pending_tasks`, and Core then sent the task to its own
+process-task route over HTTP. That needs an app URL in local mode and an
+`A2A_SECRET` in hosted mode, and the packaged app has neither. The caller still
+got HTTP 202, the task never ran, and the retry sweep sent it again about every
+90 seconds without end.
+
+`integration-durable-dispatch.js` now exports
+`setInProcessIntegrationTaskRunner(runner, { platforms, appId })`, a sibling of
+the Run now registry. When a runner is registered for the task's platform,
+`dispatchPendingIntegrationTask` records the dispatch as `in-process`, starts
+the runner without waiting, and returns `in-process`. The webhook route and the
+retry sweep both call that function, so both reach the runner. Without a
+runner, Core keeps the self-dispatch.
+
+The webhook branch of the process-task route is lifted into
+`dist/integrations/automation-webhook-task.js`.
+`runClaimedAutomationWebhookTask` runs a claimed task, marks it completed,
+retryable, or failed, logs a failure, and dispatches the next queued call for
+the same automation. The route and `runAutomationWebhookTaskInProcess` both use
+it. The in-process runner claims the task first with `claimPendingTask`, so a
+second delivery returns `skipped`. It leaves a task of another app that shares
+the database pending, unclaimed, for that app's own process.
+
+`agent-chat-plugin.js` registers the runner only where it starts the in-process
+recurring-jobs timer, and only after `initTriggerDispatcher`, because the
+dispatcher's dependencies are null before then. The plugin's `trackPluginInit`
+paths now include `/_agent-native/automations/webhook`, so the readiness gate
+holds a webhook call until the runner is registered.
+
+The retry sweep reset a `processing` task after 5 minutes, while a background
+run can last 10. An `in-process` task now gets the Run now claim lease as its
+cutoff: 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, 15 minutes by
+default, and never less than the 5-minute default. A live run is not reset,
+and a task whose process quit mid-run is reset and delivered again after the
+lease. A pending task, accepted before a quit and never started, runs about 90
+seconds after the next start, when the sweep finds it. Either way the call runs
+once to completion. A run cut off by a quit leaves its history row reading that
+the run stopped before it recorded a result.
+
+`dispatchAutomationWebhookTask` in `triggers/dispatcher.js` required a stored
+API key for the active engine setting before every webhook run. Scheduled runs
+have no such check. The key feeds only the condition classifier, so the check
+now applies only to an automation with a condition. Before, a webhook run
+failed with "No API key is available for this automation." for an owner whose
+key came from the launch environment under another engine, a Builder gateway,
+or a keyless local model. Event triggers keep the old check.
+
+The Automations details dialog showed only the path. `AgentJobsTab.js` now
+shows the full URL with the page's origin, from `automationWebhookUrl` in
+`client/integrations/webhook-url.js`, and a "Who can call it" line. A loopback
+URL reads "Reachable only from this computer while Vivary is open." Any other
+reads "Anyone with this URL can start this automation." `isLoopbackWebhookUrl`
+decides, because `isNonPublicWebhookUrl` also counts LAN and plain HTTP hosts,
+which other computers can reach.
+
+The token is an app secret. Credential redaction holds every stored secret, so
+the token becomes a placeholder in tool results, threads, logs, and run events.
+The agent therefore cannot show the URL, and the owner copies it from the
+details dialog. The payload still reaches the run fenced as untrusted data, and
+the run gets the local-only surface described below.
+
+Run `node --test packages/workbench/tests/automation-webhook.test.mjs`. It uses
+a disposable SQLite database with `NODE_ENV=production`, no app URL,
+`A2A_SECRET`, or provider key, a fake engine, and Core's automations handler on
+a loopback port. It checks that an accepted call runs once with one history
+row and its thread, that a wrong token gets 404 and queues nothing, that a
+repeated event id runs once and gets a 200 duplicate, that a task left pending
+by a quit runs once through the sweep, that a 6-minute-old `in-process` task is
+not reset while one past the lease is recovered and runs once, that a claimed
+task is skipped, that another app's task stays pending, that a condition still
+needs a key, the URL helpers, and a source pin on the registration. It failed
+10 of 10 on the previous patch.
+
+A live check on Zo ran `bin/start.mjs` in local mode with a fake Builder
+gateway, no stored provider key, and a 40-second hard timeout. A call to a new
+webhook automation got 202 and ran once, with one history row and its thread.
+Its model request carried the fenced payload and the 11-tool local-only
+surface. The same event id got a 200 duplicate and no run, and a wrong token got
+404. A call whose run was cut off by stopping the server ran once more after the
+restart, when the sweep passed the 5-minute floor, and its first history row
+reads as interrupted. The token appeared in no server output, provider log, or
+data file.
+
+Upstream could take the registry as it is, because nothing changes until a
+host registers a runner. The same limits as Run now apply: one runner per
+process.
+
 ## Local-only automation runs
 
 The owner decided on 2026-09-26 (issue #51) that unattended automation runs are

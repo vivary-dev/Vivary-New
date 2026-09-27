@@ -496,7 +496,11 @@ particular, the owner accepted real Native-provider turns and closed issue #50 a
 PR #100 merged into `dev` as `8a5d262`. Automations passed their packaged journey under
 issue #51, which the owner closed after PR #116 merged as `c39e22f`. The
 [#51 receipt](../../docs/product/multi-project/receipts/51-automation-lifecycle.md) records
-the run and its limits. Codex selection and file execution passed on the
+the run and its limits. Issue #113 makes webhook automations run in the
+packaged app through an in-process runner in the maintained Core patch, and
+the desktop keeps its port across launches so a webhook URL stays valid. The
+[patch notes](patches/README.md#in-process-webhook-automations) record it.
+Codex selection and file execution passed on the
 locally tested candidate. Broader issue #38 integration, clean-profile setup, search,
 memory, existing-folder adoption, and final self-hosted access remain open.
 

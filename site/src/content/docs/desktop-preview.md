@@ -166,8 +166,8 @@ The published `9884670` prerelease predates the issue #51 automation changes. Th
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
 records their test on an unpublished package.
 
-An automation is a saved instruction that the agent runs on a schedule or when you choose
-**Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
+An automation is a saved instruction that the agent runs on a schedule, when another
+program calls its webhook URL, or when you choose **Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
 start a **Native chat**, and ask the agent for it. Say what it does, when it runs, and your
 time zone. **New automation** in Settings > Agent > Automations opens the same kind of chat
 with your prompt. If the prompt cannot reach a chat, Vivary shows it with **Copy prompt**.
@@ -189,6 +189,22 @@ Settings > Agent > Automations holds the controls:
   chat history. A run already in progress finishes and writes its reply.
 
 To change what an automation does, ask the agent in a Personal workspace Native chat.
+
+A webhook automation runs when a program sends an HTTP POST to its webhook URL. Ask the
+agent for a webhook automation, then copy the URL from **Manage** > **Details**. The agent
+cannot show it, because Vivary hides the URL's token like a password. The URL starts with
+`http://127.0.0.1:` and the app's port, so only programs on this computer can call it, and
+only while Vivary is open. Anyone on this computer who has the URL can start the
+automation. Vivary keeps the same port across launches. If another program holds that port
+when Vivary starts, Vivary picks a new one and says so. Then copy the new URL from
+**Details** and update the program that calls it.
+
+Vivary answers an accepted call with status 202, a repeated event with 200, and an unknown
+URL with 404. A call that repeats an event id, sent as the `X-Webhook-Event-Id` header or
+as an `id` field of a JSON body, runs once. A call without an id always runs. A call that
+Vivary accepted before it quit runs once after you reopen Vivary. The request body reaches
+the run as untrusted data, and the run has the same limits as any other. Each webhook run
+writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
@@ -217,7 +233,9 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
-| A webhook automation never runs | The packaged app cannot dispatch webhook triggers. Use a schedule instead. [Issue #113](https://github.com/vivary-dev/Vivary-New/issues/113) tracks the decision. |
+| A webhook call cannot connect | Vivary must be open, and the caller must run on this computer. Compare the port in the caller's URL with **Manage** > **Details**. After Vivary reports a port change, update the caller. |
+| A webhook call gets 404 | The URL is wrong or the automation was deleted. Copy the URL again from **Manage** > **Details**. |
+| A webhook call runs late after a restart | A call accepted before a quit runs about 90 seconds after the next start. A call whose run was cut off by the quit runs again after the claim lease, 15 minutes by default. |
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
 does not publish your laptop to the internet. Consult the
@@ -256,7 +274,7 @@ Native-provider turns, full adoption, search/memory coverage,
 self-hosted phone access, and integrated debugging remain outside this bounded review.
 Automations were not part of this package's review either. In later builds they run only
 while Vivary is open, runs cannot use MCP tools or wait for an approval, a quit during a
-run delays scheduling for up to ten minutes, and webhook triggers are not dispatched. The
+run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
 [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
 
 See the [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
