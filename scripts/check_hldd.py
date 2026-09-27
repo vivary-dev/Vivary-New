@@ -41,7 +41,8 @@ REQUIREMENT = re.compile(
     rf"(?:{SPECIFIERS}|\(\s*{SPECIFIERS}\s*\))?\s*(?P<marker>;.*)?",
     re.S,
 )
-ACTION_REF = r"(?:v?\d[\w.+-]*|[0-9a-f]{40}|[0-9a-f]{64})"
+# A ref can name a branch, tag, or commit, so only a release tag shape or a full commit SHA counts as a version.
+ACTION_REF = r"(?:v?\d+(?:\.\d+){0,2}|[0-9a-f]{40}|[0-9a-f]{64})"
 # The ref and its version comment must look like versions, since a uses: line inside a run: heredoc is shell text.
 USES = re.compile(
     r"(?P<action>\s*(?:-\s+)?uses:\s*['\"]?[\w.-]+/[\w.-]+(?:/[^@\s'\"#]*)?)"

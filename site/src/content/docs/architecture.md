@@ -157,6 +157,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #123 action refs. The branch HLDD checker now counts a workflow `uses:` ref as a version only when it is a
+release tag such as `v7` or `v7.0.1`, or a full commit SHA. A digit-led branch name such as `123main` passed the
+old pattern, and GitHub resolves a ref as a branch, tag, or SHA. Every ref in this repo's workflows still matches.
+Internal to the checker, so the design description holds.
+
 Issue #123 npm values. The branch HLDD checker now counts a `package.json` dependency value as a version only when
 it parses under node-semver's range grammar. A value such as `1evil` passed the old first-character check although
 npm reads it as a dist-tag. The checker tests cover the tag cases and eight real range shapes. Internal to the
