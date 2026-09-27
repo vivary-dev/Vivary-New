@@ -85,6 +85,7 @@ test("common key formats that Vivary does not hold are redacted", () => {
 
 test("code, paths, settings, and short values are not redacted", () => {
   for (const text of [
+    // guard:allow-env-credential - A sample line of code text for the redactor, never an environment read.
     "const apiKey = process.env.OPENROUTER_API_KEY;", "apiKey: config.providers.openrouter.apiKey",
     "token = getToken(request)", "DATABASE_URL=file:/tmp/vivary/auth.sqlite", "OPENAI_BASE_URL=https://api.example.test/v1",
     "key: 2026-09-27T00:00:00Z", "password: short1", "the task-force report was risk-assessment-framework-document",
