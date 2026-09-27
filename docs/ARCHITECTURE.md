@@ -153,6 +153,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #113 and #104 are closed. PR #122 merged into `dev` as `15fed03`, and the owner closed both issues on
+2026-09-27. The two receipts and the Webhook automations and Provider setup offers rows in the acceptance register
+record the merge. Documentation only, so the design description holds.
+
 The #113 and #104 receipts and two acceptance register rows record the packaged Windows check on
 `ec82a872`. Documentation only, so the design description holds.
 
