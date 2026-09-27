@@ -157,6 +157,9 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #97 is closed. PR #118 merged into `dev` as `8e7a8fc`, and the owner closed the issue on 2026-09-27. The receipt
+and the Credentials row in the acceptance register record the merge. Documentation only, so the design description holds.
+
 Issue #113. Webhook automations run in process in the packaged app, the desktop reuses a saved port, and the
 Automations dialog shows the full webhook URL and its reach. The automation-run row now states webhook reach, the
 token's redaction, and the untrusted body, and the delivery section records the change and its evidence.
