@@ -7314,6 +7314,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101. The maintained Core patch shows a provider's in-stream error, such as OpenRouter's error chunk with code
+502, as its message and code, for example "Provider returned error (code 502)", with the error code
+`provider_stream_error` and a Retry on the error card. The engine keeps the error stop that carries the provider's
+text, and the translation leaves out the provider's metadata. The server and the client treat the code as final, so a
+message that names 502 no longer buys three silent retries and an automatic continuation. Retry is the chat's existing
+retry, which queues a new turn and keeps history, and the run's error event still passes through the redaction hook.
+Native still owns engines, runs, and the error card, so no component, flow, or boundary changes, and the design
+description holds. `test:native-chat` failed on the previous patch and passes on this one. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the change and its limits.
+
 Issue #101, failing tests. `tests/native-stream-errors.test.ts` drives Core's OpenRouter engine against a loopback
 fake that streams a text chunk and then an in-stream error chunk with code 502, once directly and once through
 `startRun` with Vivary's redactor and a held synthetic value in the provider message.

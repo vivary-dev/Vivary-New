@@ -123,6 +123,60 @@ history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
 exported so the test can replay a turn. Run
 `node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
 
+## Native stream errors
+
+Issue #101. OpenRouter reports a provider failure inside the stream as an error
+chunk, `{"error":{"code":502,"message":"...","metadata":{...}}}`. The AI SDK
+turns it into an `error` part followed by a `finish` part with no text. Core's
+engine kept the last stop it saw, so the provider's text was dropped and the
+chat showed only "Engine stream error", with Dismiss and Copy and no Retry.
+
+The patch changes five files:
+
+- `agent/engine/ai-sdk-engine.js` keeps a buffered error stop that carries text
+  instead of replacing it with a later stop.
+- `agent/engine/translate-ai-sdk.js` turns a plain-object provider error into
+  its message and code, for example "Provider returned error (code 502)", with
+  the error code `provider_stream_error`. It leaves out `metadata`, which can
+  hold the upstream provider's raw response, and never shows the object as
+  JSON. A classification that `classifyProviderError` finds, such as `http_429`
+  or `timeout`, still replaces the code.
+- `client/chat/run-recovery.js` offers Retry for `provider_stream_error`. The
+  button calls `retryAfterRunError` in `AssistantChat.js`, the same retry the
+  credential card uses. It queues a new turn with the last request and keeps
+  the failed turn in history.
+- `agent/production-agent.js` and `client/sse-event-processor.js` treat
+  `provider_stream_error` as final. Both read a message that names 502 as a
+  transient failure. Without these two changes, the server retried the turn
+  three more times over about 15 seconds, and the client then continued the
+  turn on its own instead of showing the message.
+
+The in-stream code is not read as an HTTP status, because `http_502` would buy
+the same silent retries and automatic continuation. Whether a transient
+in-stream 502 should retry on its own is a separate decision.
+
+The run manager already sends the engine's `errorCode` on the run's `error`
+event, and the redaction hook already covers that event, so the provider's text
+reaches the screen with held credentials replaced.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-stream-errors.test.ts` runs Core's OpenRouter engine against a
+loopback fake that streams a text chunk, an error chunk with code 502 and
+metadata, and `[DONE]`. It checks the engine's final stop. It then runs the
+same stream through `startRun` with Vivary's redactor and a held synthetic
+value in the provider message. The run's `error` event must carry the message
+with the placeholder, the code, and `provider_stream_error`, with no metadata,
+after exactly one provider request. `tests/native-chat-components.test.mjs`
+passes that error event through `processEvent` into `RunErrorRecoveryCard`.
+The turn must end instead of continuing, the card must show the message and a
+Retry that reaches the retry handler, and an unclassified code must still get
+no Retry. On the previous patch the engine, run, and card checks failed and
+the unclassified case passed.
+
+Upstream could take these changes as they are. Remove this part of the patch
+only when an upstream release shows an in-stream provider error with its
+message and a Retry, and passes the same tests.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.
