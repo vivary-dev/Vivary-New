@@ -304,6 +304,25 @@ test("a Windows target refuses by name, lifts once the scan misses it, and falls
   }
 });
 
+// Constrained Language Mode refused the earlier scan's creation-time conversion, so every row came back without one.
+test("a Windows scan whose rows lack creation times, as under Constrained Language Mode, never lifts a refusal", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t\tcodex.exe\r\n`);
+  seedRefusal("windows-untimed", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: 9_000 }] });
+  try {
+    await agent.recheckVivaryCodeCleanup();
+    assert.equal("cleanupLifted" in metadataOf("windows-untimed"), false, "a scan it cannot trust lifts nothing");
+    assert.equal((metadataOf("windows-untimed").cleanupRefusal as { scan?: string }).scan, "unavailable");
+    assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup?.heading,
+      "Vivary could not confirm that an earlier run's coding processes stopped");
+  } finally {
+    await writeFile(scanRows, SYSTEM_ROW);
+    if (!("cleanupLifted" in metadataOf("windows-untimed"))) await continueAnyway();
+  }
+});
+
 test("a Windows run whose worker exits after its run records a refusal that names the leftover", {
   ...linuxOnly, timeout: WORKER_TEST_TIMEOUT_MS,
 }, async () => {

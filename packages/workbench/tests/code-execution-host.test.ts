@@ -194,13 +194,32 @@ test("a cleanup check finds a live group by name and reads an emptied one as cle
   }
 });
 
-test("Windows process rows parse with or without a creation time, and a malformed scan is unreadable", () => {
-  assert.deepEqual(parseWindowsProcessRows("\uFEFF4\t0\t\tSystem\r\n4120\t880\t1790553600123\tcodex.exe\r\n\r\n"), [
+/** A Windows creation time as the scan prints it: 100-nanosecond intervals since 1601, from Unix milliseconds. */
+function filetime(unixMs: number): string {
+  return String(BigInt(unixMs) * 10_000n + 116_444_736_000_000_000n);
+}
+
+// Issue #121. The scan prints a creation time on every row but the System Idle Process (PID 0) and System (PID 4), then
+// a last line with the row count. Under Constrained Language Mode the script before this change printed every row
+// without a creation time and no count.
+test("Windows process rows parse only from a complete scan with a creation time on every ordinary row", () => {
+  const codex = `4120\t880\t${filetime(1790553600123)}\tcodex.exe`;
+  assert.deepEqual(parseWindowsProcessRows(`\uFEFF0\t0\t\tSystem Idle Process\r\n4\t0\t\tSystem\r\n${codex}\r\n\r\nEND\t3\r\n`), [
+    { pid: 0, parentPid: 0, created: null, name: "System Idle Process" },
     { pid: 4, parentPid: 0, created: null, name: "System" },
     { pid: 4120, parentPid: 880, created: 1790553600123, name: "codex.exe" },
   ]);
-  for (const malformed of ["", "\r\n", "4120\t880\t1790553600123\r\n", "4120 880 1790553600123 codex.exe\r\n",
-    "4\t0\t\tSystem\r\nWARNING: something\r\n"]) assert.equal(parseWindowsProcessRows(malformed), null, JSON.stringify(malformed));
+  for (const [name, output] of [
+    ["the earlier script under Constrained Language Mode", "4\t0\t\tSystem\r\n4120\t880\t\tcodex.exe\r\n"],
+    ["an ordinary row without a creation time", "4\t0\t\tSystem\r\n4120\t880\t\tcodex.exe\r\nEND\t2\r\n"],
+    ["output cut before the count", `4\t0\t\tSystem\r\n${codex}\r\n`],
+    ["output cut inside a row", `4\t0\t\tSystem\r\n${codex.slice(0, 16)}`],
+    ["a count that differs from the rows", `4\t0\t\tSystem\r\n${codex}\r\nEND\t3\r\n`],
+    ["a count that is not last", `4\t0\t\tSystem\r\nEND\t1\r\n${codex}\r\n`],
+    ["no rows", "END\t0\r\n"], ["nothing", ""], ["a blank line", "\r\n"],
+    ["a row with three fields", `4120\t880\t${filetime(1790553600123)}\r\nEND\t1\r\n`],
+    ["a warning line", `4\t0\t\tSystem\r\nWARNING: something\r\nEND\t2\r\n`],
+  ]) assert.equal(parseWindowsProcessRows(output), null, name);
 });
 
 // Issue #121. The worker (PID 100) was forked between 1,000 and 7,000. A process is traced when End them may end it.
