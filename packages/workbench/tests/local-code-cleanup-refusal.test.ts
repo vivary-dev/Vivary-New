@@ -42,6 +42,7 @@ const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
 const scanRows = path.join(fixture, "scan-rows.txt");
 const scanFails = path.join(fixture, "scan-fails");
 const leaveChild = path.join(fixture, "leave-child");
+const scanHold = path.join(fixture, "scan-hold");
 const workerRecord = path.join(fixture, "worker.txt");
 const endLog = path.join(fixture, "end.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
@@ -71,7 +72,7 @@ process.send({ type: "vivary:code-worker:ready" });
 // on the last line as the real scan does. A call that ends processes gets each PID with the lowest FILETIME its
 // creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
 // PID 4130 refuses, like a process Windows denies access to. Every such call is logged. The scan-fails marker fails
-// scans only.
+// scans only, and the scan-hold marker holds a scan for up to 10 seconds, as long as the host waits for one.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 case "$*" in *Stop-Process*)
@@ -97,6 +98,8 @@ case "$*" in *Stop-Process*)
   exit 0 ;;
 esac
 [ -f ${JSON.stringify(scanFails)} ] && exit 1
+held=0
+while [ -f ${JSON.stringify(scanHold)} ] && [ "$held" -lt 200 ]; do sleep 0.05; held=$((held + 1)); done
 {
   cat ${JSON.stringify(scanRows)}
   if [ -f ${JSON.stringify(leaveChild)} ]; then
@@ -394,6 +397,50 @@ test("a Windows run whose worker exits after its run records a refusal that name
     assert.equal((metadataOf(runId).cleanupLifted as { how?: string }).how, "rechecked");
   } finally {
     await rm(leaveChild, { force: true });
+  }
+});
+
+// The worker exits after its run, so its stop fails, and the scan after the failure is held. The refusal is on the
+// record before that scan ends. Then a lock that a live process holds on the run's record makes the next write fail
+// after Core's 10-second lock wait, and the refusal with the names stays in force from memory.
+test("a failed stop is recorded before its scan, and a refusal whose record cannot be written still refuses", {
+  ...linuxOnly, timeout: WORKER_TEST_TIMEOUT_MS,
+}, async t => {
+  const logged = t.mock.method(console, "error", () => undefined);
+  let lock: string | undefined;
+  await writeFile(leaveChild, "");
+  await writeFile(scanHold, "");
+  try {
+    const runId = await asWindows(async () => {
+      const id = (await send("exit after its run")).run!.id;
+      // The held scan ends after 10 seconds, so a refusal written only after it would arrive too late.
+      const provisional = await waitFor(() => metadataOf(id).cleanupRefusal as Record<string, unknown> | undefined,
+        AbortSignal.any([t.signal, AbortSignal.timeout(5_000)]));
+      assert.deepEqual({ scan: provisional.scan, step: provisional.step, remaining: provisional.remaining },
+        { scan: "unavailable", step: "worker-exited", remaining: [] }, "on the record while its scan still runs");
+      lock = path.join(fixture, "runs", "runs", `${id}.json.lock`);
+      await writeFile(lock, JSON.stringify({ pid: process.pid, createdAt: Date.now(), token: "held-by-this-test" }));
+      await rm(scanHold);
+      await hostSlots().activeRuns.get(id)?.execution;
+      return id;
+    });
+    await rm(lock!);
+    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining.map(({ pid, name }) => ({ pid, name })),
+      [{ pid: 4242, name: "codex.exe" }], "the names Vivary could not write still refuse");
+    assert.deepEqual((metadataOf(runId).cleanupRefusal as { remaining?: unknown }).remaining, [],
+      "the record keeps the write before the scan");
+    assert.ok(logged.mock.calls.some(call =>
+      String(call.arguments[0]).startsWith(`[vivary-code-host] cleanup-record-failed run=${runId} `)));
+    await agent.recheckVivaryCodeCleanup();
+    assert.deepEqual((metadataOf(runId).cleanupRefusal as { remaining: { pid: number }[] }).remaining.map(({ pid }) => pid),
+      [4242], "the next check writes it");
+    await rm(leaveChild);
+    await agent.recheckVivaryCodeCleanup();
+    assert.equal((metadataOf(runId).cleanupLifted as { how?: string }).how, "rechecked");
+  } finally {
+    await rm(scanHold, { force: true });
+    await rm(leaveChild, { force: true });
+    if (lock) await rm(lock, { force: true });
   }
 });
 
