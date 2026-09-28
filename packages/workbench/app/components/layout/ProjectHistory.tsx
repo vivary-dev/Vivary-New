@@ -16,6 +16,10 @@ import { useProjects } from "../projects/ProjectContext";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 import { CodeHistory } from "./CodeHistory";
 
+// One navigation token for every mounted sidebar. The hidden desktop sidebar stays mounted beside the narrow sheet,
+// so the latest navigation from either one must cancel a pending navigation in the other.
+const sharedNavigationGeneration = { current: 0 };
+
 export function ProjectHistory() {
   const query = useVivaryChatIdentity();
   if (!query.identity) return <>
@@ -32,7 +36,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { call } = useNativeActionCaller();
-  const creationGeneration = useRef(0);
+  const creationGeneration = sharedNavigationGeneration;
   const latestLocationKey = useRef(location.key);
   latestLocationKey.current = location.key;
   const creatingNative = useRef(false);
@@ -288,6 +292,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
     const focused = document.activeElement;
     // A slow restore must not pull focus back from wherever the owner moved it, inside the section or out of it.
     if (!section?.isConnected || (focused && focused !== document.body && focused !== origin)) return;
+    // A section hidden by the responsive layout cannot take focus, so leave focus to the visible sidebar.
+    if (section.getClientRects().length === 0) return;
     const next = [...section.querySelectorAll<HTMLElement>("[data-restore]")].find(button => button.dataset.restore === focusId);
     (next ?? summary.current)?.focus();
   }
