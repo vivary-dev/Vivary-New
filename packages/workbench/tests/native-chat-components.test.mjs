@@ -29,6 +29,7 @@ const proofSource = String.raw`
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { getRunErrorMetadata, RunErrorRecoveryCard } from "@proof/run-recovery";
+import * as messages from "@proof/message-components";
 import { processEvent } from "@proof/sse-event-processor";
 import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 import { TiptapComposer } from "@proof/tiptap-composer";
@@ -54,6 +55,47 @@ export async function renderRunError(event) {
   const retry = view.host.querySelector('button[aria-label="Retry"]');
   if (retry) await act(async () => { retry.dispatchEvent(new window.Event("click", { bubbles: true })); });
   const snapshot = { action: outcome.action, text: view.host.textContent, retry: Boolean(retry), retries };
+  await view.unmount();
+  return snapshot;
+}
+
+// Two clicks land before the chat re-renders, and a third after it. The chat's retry swaps the card's
+// live error for the same error read back from the message, a new object with the same key, and the
+// card stays mounted until the next render. One retry turn must be queued. A different error gets a
+// fresh Retry.
+export async function retryTwiceThenAgain(event) {
+  const info = getRunErrorMetadata({ metadata: processEvent(event, [], { value: 0 }, "probe-tab").result?.metadata });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  let retries = 0;
+  let shown = info;
+  const render = () => root.render(<RunErrorRecoveryCard info={shown} onContinue={() => {}}
+    onRetry={() => { retries += 1; shown = { ...shown }; render(); }} onDismiss={() => {}} />);
+  const click = () => host.querySelector('button[aria-label="Retry"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+  await act(async () => { render(); });
+  await act(async () => { click(); click(); });
+  await act(async () => { click(); });
+  const afterDoubleClick = retries;
+  shown = { ...info, runId: "probe-next-run" };
+  await act(async () => { render(); });
+  await act(async () => { click(); });
+  await act(async () => { root.unmount(); });
+  host.remove();
+  return { afterDoubleClick, afterNextError: retries };
+}
+
+// The inline notice under a failed message, with the Retry that the message's own rule allows.
+export const shouldOfferInlineRunErrorRetry = messages.shouldOfferInlineRunErrorRetry;
+export async function renderInlineNotice(info, isLast) {
+  let retries = 0;
+  const offered = typeof shouldOfferInlineRunErrorRetry === "function" && shouldOfferInlineRunErrorRetry({ runError: info, isLast });
+  const view = await mount(<messages.InlineRunErrorNotice info={info} onRetry={offered ? () => { retries += 1; } : undefined} />);
+  const toggle = view.host.querySelector("button[aria-expanded]");
+  await act(async () => { toggle.dispatchEvent(new window.Event("click", { bubbles: true })); });
+  const retry = [...view.host.querySelectorAll("button")].find(button => button.textContent.trim() === "Retry");
+  if (retry) await act(async () => { retry.dispatchEvent(new window.Event("click", { bubbles: true })); });
+  const snapshot = { text: view.host.textContent, retry: Boolean(retry), retries };
   await view.unmount();
   return snapshot;
 }
@@ -100,6 +142,7 @@ async function buildProof() {
       setup(build) {
         build.onResolve({ filter: /.*/ }, args => {
           if (args.path === "@proof/run-recovery") return { path: join(CLIENT, "chat", "run-recovery.js") };
+          if (args.path === "@proof/message-components") return { path: join(CLIENT, "chat", "message-components.js") };
           if (args.path === "@proof/sse-event-processor") return { path: join(CLIENT, "sse-event-processor.js") };
           if (args.path === "@proof/tiptap-composer") return { path: join(COMPOSER, "TiptapComposer.js") };
           if (args.path === "@proof/tooltip") return { path: join(TOOLKIT, "dist", "ui", "tooltip.js") };
@@ -161,6 +204,23 @@ test("Native chat controls", async t => {
     assert.match(card.text, /Provider returned error \(code 502\)/);
     assert.equal(card.retry, true, "Retry is offered");
     assert.equal(card.retries, 1, "Retry reaches the chat's retry handler");
+  });
+
+  await t.test("two quick clicks on Retry queue one retry turn, and the next error offers Retry again", async () => {
+    const clicks = await proof.retryTwiceThenAgain({ type: "error", error: "Provider returned error (code 502)",
+      errorCode: "provider_stream_error" });
+    assert.deepEqual(clicks, { afterDoubleClick: 1, afterNextError: 2 });
+  });
+
+  await t.test("the inline notice offers Retry for a provider stream error on the last message only", async () => {
+    const info = { message: "Provider returned error (code 502)", errorCode: "provider_stream_error" };
+    assert.equal(typeof proof.shouldOfferInlineRunErrorRetry, "function", "the message's inline Retry rule is exported");
+    const last = await proof.renderInlineNotice(info, true);
+    assert.match(last.text, /Provider returned error \(code 502\)/);
+    assert.deepEqual({ retry: last.retry, retries: last.retries }, { retry: true, retries: 1 });
+    assert.equal((await proof.renderInlineNotice(info, false)).retry, false, "an earlier message keeps no Retry");
+    const unclassified = await proof.renderInlineNotice({ message: "The request was refused.", errorCode: "probe_unclassified" }, true);
+    assert.equal(unclassified.retry, false, "an unclassified error keeps no Retry");
   });
 
   await t.test("an unclassified error still has no Retry", async () => {

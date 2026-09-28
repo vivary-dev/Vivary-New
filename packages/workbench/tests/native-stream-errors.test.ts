@@ -30,7 +30,8 @@ after(async () => {
 
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = (relative: string) => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
-const [audit, runs] = await Promise.all([load("audit/redact.js"), load("agent/run-manager.js")]);
+const [audit, runs, agent, threads, translate] = await Promise.all([load("audit/redact.js"), load("agent/run-manager.js"),
+  load("agent/production-agent.js"), load("agent/thread-data-builder.js"), load("agent/engine/translate-ai-sdk.js")]);
 const { createAISDKEngine } = await import("@agent-native/core/agent/engine");
 const { loadActionsFromStaticRegistry, runAgentLoop, runWithRequestContext } = await import("@agent-native/core/server");
 const { heldCredentialHoldback, redactCredentials, refreshHeldCredentials } = await import("../server/credential-redaction.ts");
@@ -52,18 +53,28 @@ function assertHidden(text: string, values: string[], label: string) {
 }
 
 const METADATA_MARKER = "upstream-metadata-marker";
+const RAW_CHUNK_MARKER = "raw-chunk-marker";
+const UNREADABLE_CHUNK = "The model provider sent a response that could not be read";
 const userTurn = [{ role: "user" as const, content: [{ type: "text" as const, text: "Hello" }] }];
 
-async function fakeOpenRouter(message: string) {
+type Chunk = Record<string, unknown>;
+const chunkOf = (choice: Record<string, unknown>) => ({ id: "gen-probe", object: "chat.completion.chunk", created: 0,
+  model: "probe/model", choices: [{ index: 0, finish_reason: null, ...choice }] });
+const text = (content: string) => chunkOf({ delta: { role: "assistant", content } });
+const finish = chunkOf({ delta: {}, finish_reason: "stop" });
+// An annotation type the OpenRouter provider does not know fails its chunk schema.
+const unknownAnnotation = chunkOf({ delta: { content: "", annotations: [{ type: "probe_annotation", probe_annotation: RAW_CHUNK_MARKER }] } });
+const providerError = (error: Record<string, unknown>) => ({ error });
+const openRouterError = (message: string, metadata: Record<string, unknown> = {}) =>
+  providerError({ code: 502, message, metadata: { provider_name: "Probe", raw: METADATA_MARKER, ...metadata } });
+
+async function fakeOpenRouter(chunks: Chunk[]) {
   const requests: string[] = [];
   const server = createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     request.resume();
     response.writeHead(200, { "content-type": "text/event-stream" });
-    const chunk = (data: unknown) => response.write(`data: ${JSON.stringify(data)}\n\n`);
-    chunk({ id: "gen-probe", object: "chat.completion.chunk", created: 0, model: "probe/model",
-      choices: [{ index: 0, delta: { role: "assistant", content: "Partial" }, finish_reason: null }] });
-    chunk({ error: { code: 502, message, metadata: { provider_name: "Probe", raw: METADATA_MARKER } } });
+    for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
     response.end("data: [DONE]\n\n");
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -85,16 +96,8 @@ async function withoutErrorLog<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-async function runToEnd(runFn: (send: (event: Record<string, unknown>) => void, signal: AbortSignal) => Promise<void>) {
-  const runId = `run-${randomUUID()}`;
-  let finished: Promise<unknown> | undefined;
-  runs.startRun(runId, `thread-${randomUUID()}`, runFn, async () => undefined, { waitUntil: (promise: Promise<unknown>) => { finished = promise; } });
-  await finished?.catch(() => undefined);
-  return runs.getRun(runId).events.map((entry: { event: Record<string, unknown> }) => entry.event) as Array<Record<string, unknown>>;
-}
-
-test("an in-stream provider error ends the stream with the provider's message and code", async () => {
-  const provider = await fakeOpenRouter("Provider returned error");
+async function streamToEnd(chunks: Chunk[]) {
+  const provider = await fakeOpenRouter(chunks);
   try {
     const events = await withoutErrorLog(async () => {
       const seen: Array<Record<string, unknown>> = [];
@@ -104,34 +107,143 @@ test("an in-stream provider error ends the stream with the provider's message an
       }
       return seen;
     });
-    const stop = events.at(-1);
-    assert.deepEqual({ type: stop?.type, reason: stop?.reason, error: stop?.error, errorCode: stop?.errorCode },
-      { type: "stop", reason: "error", error: "Provider returned error (code 502)", errorCode: "provider_stream_error" });
-    assert.deepEqual(provider.requests, ["POST /api/v1/chat/completions"]);
+    return { events, requests: provider.requests };
   } finally {
     await provider.close();
   }
+}
+
+// One turn through startRun and the agent loop, as the chat runs it. `thrown` is what the loop threw,
+// which the main chat's in-process continuation reads.
+async function runTurn(chunks: Chunk[]) {
+  const provider = await fakeOpenRouter(chunks);
+  const runId = `run-${randomUUID()}`;
+  let thrown: unknown;
+  try {
+    await withoutErrorLog(async () => {
+      let finished: Promise<unknown> | undefined;
+      runs.startRun(runId, `thread-${randomUUID()}`, async (send: (event: Record<string, unknown>) => void, signal: AbortSignal) => {
+        try {
+          await runWithRequestContext({ userEmail: "owner@example.test", orgId: "org-a", run: {} }, () => runAgentLoop({
+            engine: provider.engine, model: "probe/model", systemPrompt: "", tools: [], actions: loadActionsFromStaticRegistry({}),
+            messages: userTurn, signal, send }));
+        } catch (error) {
+          thrown = error;
+          throw error;
+        }
+      }, async () => undefined, { waitUntil: (promise: Promise<unknown>) => { finished = promise; } });
+      await finished?.catch(() => undefined);
+    });
+    const entries = runs.getRun(runId).events as Array<{ event: Record<string, unknown> }>;
+    return { runId, entries, events: entries.map(entry => entry.event), thrown, requests: provider.requests };
+  } finally {
+    await provider.close();
+  }
+}
+
+const streams: Array<{ name: string; chunks: Chunk[]; stop: Record<string, unknown> }> = [
+  { name: "an OpenRouter error chunk names its code and upstream provider",
+    chunks: [text("Partial"), openRouterError("Provider returned error")],
+    stop: { reason: "error", error: "Provider returned error (code 502, from Probe)", errorCode: "provider_stream_error" } },
+  { name: "an error chunk with no message still reads as the provider's error (Opus S2)",
+    chunks: [text("Partial"), providerError({ code: 502, metadata: { provider_name: "Probe", raw: METADATA_MARKER } })],
+    stop: { reason: "error", error: "The model provider returned an error (code 502, from Probe)", errorCode: "provider_stream_error" } },
+  { name: "OpenRouter's documented mid-stream error shape (Opus S4)",
+    chunks: [text("Partial"), { id: "cmpl-probe", object: "chat.completion.chunk", created: 0, model: "probe/model", provider: "probe",
+      error: { code: "server_error", message: "Provider disconnected unexpectedly" },
+      choices: [{ index: 0, delta: { content: "" }, finish_reason: "error" }] }],
+    stop: { reason: "error", error: "Provider disconnected unexpectedly (code server_error)", errorCode: "provider_stream_error" } },
+  { name: "an error with a type and no code shows the type (Fable 6)",
+    chunks: [text("Partial"), providerError({ type: "api_error", message: "Internal server error" })],
+    stop: { reason: "error", error: "Internal server error (code api_error)", errorCode: "provider_stream_error" } },
+  { name: "a provider name with other characters is left out",
+    chunks: [text("Partial"), openRouterError("Provider returned error", { provider_name: `Probe <${METADATA_MARKER}>` })],
+    stop: { reason: "error", error: "Provider returned error (code 502)", errorCode: "provider_stream_error" } },
+  { name: "a provider name over 64 characters is left out",
+    chunks: [text("Partial"), openRouterError("Provider returned error", { provider_name: `Probe ${"x".repeat(59)}` })],
+    stop: { reason: "error", error: "Provider returned error (code 502)", errorCode: "provider_stream_error" } },
+  { name: "an unknown chunk mid-stream, then a normal finish, ends the turn normally (Opus S3)",
+    chunks: [text("Partial"), unknownAnnotation, text(" answer"), finish],
+    stop: { reason: "end_turn", error: undefined, errorCode: undefined } },
+  { name: "an unreadable last chunk ends with a fixed sentence, not the chunk",
+    chunks: [text("Partial"), unknownAnnotation],
+    stop: { reason: "error", error: UNREADABLE_CHUNK, errorCode: undefined } },
+];
+
+test("the engine's final stop for each in-stream shape", async t => {
+  for (const stream of streams) {
+    await t.test(stream.name, async () => {
+      const { events, requests } = await streamToEnd(stream.chunks);
+      const stop = events.at(-1);
+      assert.deepEqual({ type: stop?.type, reason: stop?.reason, error: stop?.error, errorCode: stop?.errorCode },
+        { type: "stop", ...stream.stop });
+      const shown = JSON.stringify(events);
+      assert.equal(shown.includes(METADATA_MARKER), false, "provider metadata stays out of the stream");
+      assert.equal(shown.includes(RAW_CHUNK_MARKER), false, "a raw chunk stays out of the stream");
+      assert.deepEqual(requests, ["POST /api/v1/chat/completions"]);
+    });
+  }
+});
+
+// OpenAI's Responses stream reports an in-stream error as a plain object with the HTTP status its SDK
+// derived and the raw frame under `data`. The status still decides the code, and the frame is not shown.
+test("a provider error that carries its own HTTP status keeps its status code", () => {
+  const [stop] = translate.aiSdkPartToEngineEvents({ type: "error", error: { message: "Rate limit reached for requests",
+    type: "requests", code: "rate_limit_exceeded", statusCode: 429, isRetryable: true, data: { raw: METADATA_MARKER } } }, new Map());
+  assert.deepEqual({ error: stop.error, errorCode: stop.errorCode, statusCode: stop.statusCode, providerRetryable: stop.providerRetryable },
+    { error: "Rate limit reached for requests (code rate_limit_exceeded)", errorCode: "http_429", statusCode: 429, providerRetryable: true });
 });
 
 test("the run's error event carries the provider's message and code once, with held values as placeholders", async () => {
   const held = synthetic();
   await refreshHeldCredentials({ environment: () => ({ VIVARY_PROBE_TOKEN: held }), mcpConfig: () => null, storedSecrets: async () => [] });
-  const provider = await fakeOpenRouter(`Provider returned error for ${held}`);
-  try {
-    const shown = await withoutErrorLog(() => runToEnd(async (send, signal) => {
-      await runWithRequestContext({ userEmail: "owner@example.test", orgId: "org-a", run: {} }, () => runAgentLoop({
-        engine: provider.engine, model: "probe/model", systemPrompt: "", tools: [], actions: loadActionsFromStaticRegistry({}),
-        messages: userTurn, signal, send }));
-    }));
-    const text = JSON.stringify(shown);
-    assertHidden(text, [held], "run events");
-    assert.equal(text.includes(METADATA_MARKER), false, "provider metadata stays out of the run");
-    const error = shown.find(event => event.type === "error");
-    assertText(String(error?.error), "Provider returned error for [redacted VIVARY_PROBE_TOKEN] (code 502)", "error text");
-    assert.equal(error?.errorCode, "provider_stream_error");
-    // A transient-looking code in the message must not buy silent retries that hide it.
-    assert.deepEqual(provider.requests, ["POST /api/v1/chat/completions"]);
-  } finally {
-    await provider.close();
+  const turn = await runTurn([text("Partial"), openRouterError(`Provider returned error for ${held}`)]);
+  const shown = JSON.stringify(turn.events);
+  assertHidden(shown, [held], "run events");
+  assert.equal(shown.includes(METADATA_MARKER), false, "provider metadata stays out of the run");
+  const error = turn.events.find(event => event.type === "error");
+  assertText(String(error?.error), "Provider returned error for [redacted VIVARY_PROBE_TOKEN] (code 502, from Probe)", "error text");
+  assert.equal(error?.errorCode, "provider_stream_error");
+  // A transient-looking code in the message must not buy silent retries that hide it.
+  assert.deepEqual(turn.requests, ["POST /api/v1/chat/completions"]);
+});
+
+// Every server check reads the code first. A message or metadata that names 502, a timeout, an
+// overload, a closed stream, or an unavailable service must not turn the error into silent retries,
+// a continuation, or a saved turn with no error.
+const finalTurns: Array<{ name: string; chunks: Chunk[] }> = [
+  { name: "streamed text, then the error (Opus 1)", chunks: [text("Partial"), openRouterError("Provider returned error")] },
+  { name: "the error with no streamed text (Opus 1)", chunks: [openRouterError("Provider returned error")] },
+  { name: "a message naming a temporarily unavailable service (Opus S6)",
+    chunks: [text("Partial"), providerError({ code: 503, message: "Service temporarily unavailable" })] },
+  { name: "a message naming a closed stream (Fable 2)", chunks: [text("Partial"), openRouterError("Upstream stream closed")] },
+  { name: "metadata naming an overload (Fable 1)", chunks: [text("Partial"), openRouterError("Provider returned error",
+    { raw: `{"error":{"code":503,"message":"The model is overloaded. ${METADATA_MARKER}"}}` })] },
+  { name: "metadata naming a timeout (Opus S5)", chunks: [text("Partial"), openRouterError("Provider returned error",
+    { raw: `Request timed out ${METADATA_MARKER}` })] },
+];
+
+test("an in-stream provider error is final in every server check", async t => {
+  for (const turn of finalTurns) {
+    await t.test(turn.name, async () => {
+      const { runId, entries, events, thrown, requests } = await runTurn(turn.chunks);
+      const error = events.find(event => event.type === "error");
+      assert.ok(thrown instanceof Error, "the agent loop throws the provider's error");
+      // The server saves a turn from the run's stored entries, as the chat plugin's onRunComplete does.
+      const saved = threads.buildAssistantMessage(entries, runId, { suppressInternalContinuation: true });
+      assert.deepEqual({
+        errorCode: error?.errorCode,
+        requests: requests.length,
+        savedErrorCode: saved?.metadata?.custom?.runError?.errorCode,
+        continuesInBackground: agent.isRecoverableContinuationError(error),
+        resumesInProcess: agent.isResumableEngineError(thrown),
+      }, {
+        errorCode: "provider_stream_error",
+        requests: 1,
+        savedErrorCode: "provider_stream_error",
+        continuesInBackground: false,
+        resumesInProcess: false,
+      });
+    });
   }
 });
