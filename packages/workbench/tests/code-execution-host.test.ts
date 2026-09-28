@@ -6,8 +6,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, STARTUP_TIMEOUT_MS,
-  TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit, windowsWorkerStoppedCleanly,
+import { CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, linuxWorkerGroupHasLiveMember,
+  STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit, windowsWorkerStoppedCleanly,
 } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -62,6 +62,22 @@ test("Linux group observation ignores valid kernel pgrp zero and refuses malform
   assert.throws(() => linuxProcStatIsLiveGroupMember("malformed", 12345), VivaryCodeWorkerCleanupError);
   await assert.rejects(waitForLinuxWorkerGroupExit(
     12345, () => new Promise<boolean>(() => {}), 10), VivaryCodeWorkerCleanupError);
+});
+
+// Issue #121. On a Linux kernel, reading the `stat` file of a process reaped after the scan opened it fails with
+// ESRCH. That process is gone. Any other read error must still fail the stop.
+test("Linux group scan counts a process reaped mid-read as gone and refuses other read errors", async () => {
+  const procWithStatError = (code: string) => ({
+    list: async () => ["self", "42", "43"],
+    stat: async (pid: string) => {
+      if (pid === "42") throw Object.assign(new Error(`reading /proc/42/stat failed with ${code}`), { code });
+      return `${pid} (unrelated) S 1 999 999 0`;
+    },
+  });
+  for (const code of ["ENOENT", "ESRCH"]) {
+    assert.equal(await linuxWorkerGroupHasLiveMember(12345, procWithStatError(code)), false, code);
+  }
+  await assert.rejects(linuxWorkerGroupHasLiveMember(12345, procWithStatError("EACCES")), VivaryCodeWorkerCleanupError);
 });
 
 // Issue #121. Each scan advances the mocked clock by a second, so these cases take milliseconds.

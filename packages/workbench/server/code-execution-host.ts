@@ -226,14 +226,20 @@ export async function hardStopWorkerTree(
   }
 }
 
-async function linuxWorkerGroupHasLiveMember(groupId: number): Promise<boolean> {
+// Tests pass their own reader to produce read errors that a Linux kernel shows only in a race.
+const linuxProc = {
+  list: () => readdir("/proc"),
+  stat: (pid: string) => readFile(`/proc/${pid}/stat`, "utf8"),
+};
+
+export async function linuxWorkerGroupHasLiveMember(groupId: number, proc = linuxProc): Promise<boolean> {
   let entries: string[];
-  try { entries = await readdir("/proc"); }
+  try { entries = await proc.list(); }
   catch { throw new VivaryCodeWorkerCleanupError(); }
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue;
     let raw: string;
-    try { raw = await readFile(`/proc/${entry}/stat`, "utf8"); }
+    try { raw = await proc.stat(entry); }
     catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
       throw new VivaryCodeWorkerCleanupError();
