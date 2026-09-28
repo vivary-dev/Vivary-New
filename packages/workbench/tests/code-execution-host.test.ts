@@ -294,6 +294,33 @@ test("a Linux check traces only children of a traced member that started after i
 
 const errno = (code: string) => Object.assign(new Error(`failed with ${code}`), { code });
 
+// Issue #121. The host just stopped the worker's group or tree, so the check right after a failed stop traces every
+// process it finds, and End them may end them. A later check traces only what descends from those. On Linux the reader
+// shows group 12345 with 42 and its child 43. On Windows the live worker 100's own row is gone, and its child 200 is
+// found through the worker's identity, which alone would not trace it.
+test("the check right after a failed stop traces every process it finds", async () => {
+  const { checkStoppedWorker } = await import("../server/code-execution-host.ts");
+  const members: Record<string, string> = {
+    42: statLine(42, "codex", "S", 12345, 700), 43: statLine(43, "node", "S", 12345, 800).replace(" S 1 ", " S 42 "),
+  };
+  const io = { bootId: async () => null, windowsEnd: async () => assert.fail("a check ended a process"),
+    windowsProcesses: async () => [{ pid: 200, parentPid: 100, created: 3_000, name: "codex.exe" }],
+    proc: { signalGroup: () => undefined, list: async () => Object.keys(members), stat: async (pid: string) => members[pid]!,
+      kill: () => assert.fail("a check ended a process") } };
+  const group = { platform: "linux" as const, groupId: 12345, bootId: null, traced: [] };
+  const worker = { platform: "win32" as const, traced: [],
+    tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  for (const [target, traced] of [[group, [{ pid: 42, start: 700 }, { pid: 43, start: 800 }]],
+    [worker, [{ pid: 200, start: 3_000 }]]] as const) {
+    const stopped = await checkStoppedWorker(target, io);
+    assert.ok(stopped.result === "remaining", target.platform);
+    assert.deepEqual(stopped.target.traced, traced, `${target.platform}: the check after the stop traces them`);
+    const later = await checkWorkerCleanup(target, io);
+    assert.ok(later.result === "remaining", target.platform);
+    assert.deepEqual(later.target.traced, [], `${target.platform}: a later check does not`);
+  }
+});
+
 // Issue #121. Group 12345 holds the traced 42 and its child 43. Ending 43 lets 42 exit, and another process takes PID
 // 42 before End them reaches it. End them reads each `stat` again right before its kill, so it skips that process.
 test("End them on Linux reads each process again right before its kill and skips one whose start changed", async () => {
