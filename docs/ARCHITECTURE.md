@@ -153,6 +153,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #101 and #102 are closed. PR #126 merged into `dev` as `4032e96` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
+register records it. Documentation only, so the design description holds.
+
 Issue #101, documentation. The patch README now says that the stream error translation trusts a numeric
 `statusCode` and a boolean `isRetryable` on any provider object, not only a status that a provider SDK derived,
 as the round 2 re-review found. Documentation only, so the design description holds.
