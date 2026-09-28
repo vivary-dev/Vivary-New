@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 
 // Native chat controls rendered from Core's and Toolkit's installed, patched modules, bundled with
@@ -14,6 +14,7 @@ const CORE = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native
 const CLIENT = join(CORE, "dist", "client");
 const TOOLKIT = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native", "toolkit", "package.json")));
 const COMPOSER = join(TOOLKIT, "dist", "composer");
+const translate = await import(pathToFileURL(join(CORE, "dist", "agent", "engine", "translate-ai-sdk.js")).href);
 
 // Only the Builder connect flow, which polls a status route, is stubbed. It is matched by the file
 // it resolves to, so every importer gets the same stub.
@@ -59,21 +60,20 @@ export async function renderRunError(event) {
   return snapshot;
 }
 
-// Two clicks land before the chat re-renders, and a third after it. The chat's retry swaps the card's
-// live error for the same error read back from the message, a new object with the same key, and the
-// card stays mounted until the next render. One retry turn must be queued. A different error gets a
-// fresh Retry.
-export async function retryTwiceThenAgain(event) {
-  const info = getRunErrorMetadata({ metadata: processEvent(event, [], { value: 0 }, "probe-tab").result?.metadata });
+// Two clicks land before the chat re-renders, and a third after it. The chat's retry swaps the live
+// error for the same error read back from the message, a new object with the same key, and the
+// control stays mounted until the next render. One retry turn must be queued. A different error gets
+// a fresh Retry.
+async function retryTwiceThenAgain(info, control) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   let retries = 0;
   let shown = info;
-  const render = () => root.render(<RunErrorRecoveryCard info={shown} onContinue={() => {}}
-    onRetry={() => { retries += 1; shown = { ...shown }; render(); }} onDismiss={() => {}} />);
-  const click = () => host.querySelector('button[aria-label="Retry"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+  const render = () => root.render(control.render(shown, () => { retries += 1; shown = { ...shown }; render(); }));
+  const click = () => control.retry(host).dispatchEvent(new window.Event("click", { bubbles: true }));
   await act(async () => { render(); });
+  if (control.open) await act(async () => { control.open(host).dispatchEvent(new window.Event("click", { bubbles: true })); });
   await act(async () => { click(); click(); });
   await act(async () => { click(); });
   const afterDoubleClick = retries;
@@ -83,6 +83,22 @@ export async function retryTwiceThenAgain(event) {
   await act(async () => { root.unmount(); });
   host.remove();
   return { afterDoubleClick, afterNextError: retries };
+}
+
+export function retryCardTwiceThenAgain(event) {
+  const info = getRunErrorMetadata({ metadata: processEvent(event, [], { value: 0 }, "probe-tab").result?.metadata });
+  return retryTwiceThenAgain(info, {
+    render: (shown, onRetry) => <RunErrorRecoveryCard info={shown} onContinue={() => {}} onRetry={onRetry} onDismiss={() => {}} />,
+    retry: host => host.querySelector('button[aria-label="Retry"]'),
+  });
+}
+
+export function retryInlineTwiceThenAgain(info) {
+  return retryTwiceThenAgain(info, {
+    render: (shown, onRetry) => <messages.InlineRunErrorNotice info={shown} onRetry={onRetry} />,
+    open: host => host.querySelector("button[aria-expanded]"),
+    retry: host => [...host.querySelectorAll("button")].find(button => button.textContent.trim() === "Retry"),
+  });
 }
 
 // The inline notice under a failed message, with the Retry that the message's own rule allows.
@@ -207,7 +223,7 @@ test("Native chat controls", async t => {
   });
 
   await t.test("two quick clicks on Retry queue one retry turn, and the next error offers Retry again", async () => {
-    const clicks = await proof.retryTwiceThenAgain({ type: "error", error: "Provider returned error (code 502)",
+    const clicks = await proof.retryCardTwiceThenAgain({ type: "error", error: "Provider returned error (code 502)",
       errorCode: "provider_stream_error" });
     assert.deepEqual(clicks, { afterDoubleClick: 1, afterNextError: 2 });
   });
@@ -221,6 +237,20 @@ test("Native chat controls", async t => {
     assert.equal((await proof.renderInlineNotice(info, false)).retry, false, "an earlier message keeps no Retry");
     const unclassified = await proof.renderInlineNotice({ message: "The request was refused.", errorCode: "probe_unclassified" }, true);
     assert.equal(unclassified.retry, false, "an unclassified error keeps no Retry");
+  });
+
+  await t.test("two quick clicks on the inline notice's Retry queue one retry turn, and the next error offers Retry again", async () => {
+    const clicks = await proof.retryInlineTwiceThenAgain({ message: "Provider returned error (code 502)", errorCode: "provider_stream_error" });
+    assert.deepEqual(clicks, { afterDoubleClick: 1, afterNextError: 2 });
+  });
+
+  // A provider name that reads as a rejected key would swap the error card for the provider setup card.
+  await t.test("a provider name that reads as an HTTP status is left out, and the error card stays", async () => {
+    const [stop] = translate.aiSdkPartToEngineEvents({ type: "error", error: { code: 502, message: "Provider returned error",
+      metadata: { provider_name: "401 unauthorized" } } }, new Map());
+    const card = await proof.renderRunError({ type: "error", error: stop.error, errorCode: stop.errorCode });
+    assert.deepEqual({ error: stop.error, errorCard: card.text.includes(stop.error), retry: card.retry },
+      { error: "Provider returned error (code 502)", errorCard: true, retry: true });
   });
 
   await t.test("an unclassified error still has no Retry", async () => {
