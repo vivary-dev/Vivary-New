@@ -221,7 +221,7 @@ function ArchivedConversations({ storageKey, projectId, onRestore }: { storageKe
   const archived = useQuery({
     queryKey: ["vivary-native-archive", storageKey],
     queryFn: () => call<{ threads: ArchivedNativeChat[] }>("vivary-native-archive", { operation: "list", projectId }),
-    enabled, retry: false,
+    enabled, retry: false, staleTime: 0,
   });
   const refetch = archived.refetch;
   useEffect(() => {

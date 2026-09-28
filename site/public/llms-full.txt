@@ -7316,19 +7316,20 @@ No documentation route reads arbitrary host files.
 
 Issue #105, archived Native chats. Archive hides a Native chat by setting `chat_threads.archived_at`, and until now
 nothing listed archived chats for the browser. The project sidebar now ends with an Archived conversations disclosure.
-On first open it lists the project's archived chats, newest first, through the new `vivary-native-archive` owner
-action. Restore in a row's menu brings a chat back, and a click on the row restores and opens it.
-`server/native-archive.ts` pages Core's public `listThreads` with `includeArchived` in the project's scope, because
-Core has no archived-only filter. Restore calls Core's `setThreadArchived` only for the owner's chat in the same
-organization or with none and in the exact project scope, the rule drafts already use, and answers 404 otherwise. That
-rule moved from `chat-draft.ts` to `chat-identity.ts` so both owners share it. The action is on the owner-action list,
-so the private proxy session transport accepts it. No Core patch hunk was needed. The Conversations row under Data and
-trust boundaries now states the archive and restore contract. `native-archive.test.mjs` shows, against a real SQLite
-store, the list, the refusals for another project, owner, organization, and a missing chat, a repeated restore, and
-that the transcript, title, scope, and pin survive. It also restores a chat stored with a different-case owner and one
-with no organization, lists 201 archived chats across two pages in archive order, and checks that the action requires
-a session, stays off the agent, MCP, and tool surfaces, and refuses unknown keys and a malformed thread id. The
-sidebar has no unit harness here and has not yet run in the hosted or packaged app.
+Each time it opens it lists the project's archived chats again, newest first, through the new `vivary-native-archive`
+owner action, so a chat archived while it was closed appears. Restore in a row's menu brings a chat back, and a click
+on the row restores and opens it. `server/native-archive.ts` pages Core's public `listThreads` with `includeArchived`
+in the project's scope, because Core has no archived-only filter. Restore calls Core's `setThreadArchived` only for
+the owner's chat in the same organization or with none and in the exact project scope, the rule drafts already use,
+and answers 404 otherwise. That rule moved from `chat-draft.ts` to `chat-identity.ts` so both owners share it. The
+action is on the owner-action list, so the private proxy session transport accepts it. No Core patch hunk was needed.
+The Conversations row under Data and trust boundaries now states the archive and restore contract.
+`native-archive.test.mjs` shows, against a real SQLite store, the list, the refusals for another project, owner,
+organization, and a missing chat, a repeated restore, and that the transcript, title, scope, and pin survive. It also
+restores a chat stored with a different-case owner and one with no organization, lists 201 archived chats across two
+pages in archive order, and checks that the action requires a session, stays off the agent, MCP, and tool surfaces,
+and refuses unknown keys and a malformed thread id. The sidebar has no unit harness here and has not yet run in the
+hosted or packaged app.
 
 Issue #107 is closed and part A of #121 is merged. PR #129 merged into `dev` as `a4032a0` after all eight checks
 passed, including Entire Gates, and #107 was closed with the owner's approval on 2026-09-28. #121 stays open for
