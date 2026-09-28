@@ -25,11 +25,12 @@ test("worker protocol has bounded input and no path or credential fields", () =>
   ]) assert.equal(isVivaryCodeWorkerRequest({ ...request, ...patch }), false);
 });
 
-async function waitForPids(file: string): Promise<{ worker: number; descendant: number }> {
-  for (let attempt = 0; attempt < 80; attempt++) {
-    try { return JSON.parse(await readFile(file, "utf8")); } catch { await delay(25); }
+// Issue #121. The calling test's timeout bounds this wait through its signal, so a slow worker start on a loaded
+// host is not a failure.
+async function waitForPids(file: string, signal: AbortSignal): Promise<{ worker: number; descendant: number }> {
+  for (;;) {
+    try { return JSON.parse(await readFile(file, "utf8")); } catch { await delay(25, undefined, { signal }); }
   }
-  throw new Error("The disposable worker did not become ready.");
 }
 
 async function isAlive(pid: number): Promise<boolean> {
@@ -62,7 +63,28 @@ test("Linux group observation ignores valid kernel pgrp zero and refuses malform
     12345, () => new Promise<boolean>(() => {}), 10), VivaryCodeWorkerCleanupError);
 });
 
-test("native-complete and aborted workers stop descendants before settling", { timeout: 12_000, skip: process.platform === "win32" }, async () => {
+// Issue #121. Each scan advances the mocked clock by a second, so these cases take milliseconds.
+test("Linux worker cleanup accepts a group that empties after more than 3 seconds", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  let scans = 0;
+  await waitForLinuxWorkerGroupExit(12345, async () => {
+    t.mock.timers.tick(1_000);
+    return ++scans <= 5;
+  });
+  assert.equal(scans, 7, "five scans with live members, then two empty scans");
+});
+
+test("Linux worker cleanup trusts an empty scan that finished after the deadline", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  for (const scanMs of [600, 1_500]) {
+    await waitForLinuxWorkerGroupExit(12345, async () => {
+      t.mock.timers.tick(scanMs);
+      return false;
+    }, 1_000);
+  }
+});
+
+test("native-complete and aborted workers stop descendants before settling", { timeout: 12_000, skip: process.platform === "win32" }, async t => {
   const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-"));
   const server = path.join(fixture, ".output", "server");
@@ -88,7 +110,7 @@ process.send({type:"vivary:code-worker:ready"});
       const execution = executeVivaryCodeWorker({
         runId: request.runId, prompt: mode, ownerEmail: request.ownerEmail, signal: controller.signal,
       });
-      const identities = await waitForPids(pids);
+      const identities = await waitForPids(pids, t.signal);
       if (mode === "abort") {
         controller.abort();
         await assert.rejects(execution, { name: "AbortError" });
@@ -195,7 +217,7 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
         if (stop === "startup deadline") t.mock.timers.enable({ apis: ["setTimeout"] });
         const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
           signal: controller.signal }).then(() => null, (error: unknown) => error);
-        const { worker } = await waitForPids(loaded);
+        const { worker } = await waitForPids(loaded, t.signal);
         if (stop === "startup deadline") {
           t.mock.timers.tick(STARTUP_TIMEOUT_MS);
           t.mock.timers.reset();
@@ -247,6 +269,8 @@ process.on("message", message => {
 process.send({type:"vivary:code-worker:ready"});
 `);
   let resolveRequest: ((value: Record<string, unknown>) => void) | undefined;
+  let requestArrived: () => void = () => undefined;
+  const arrived = new Promise<void>(resolve => { requestArrived = resolve; });
   const received: string[] = [], resolved: string[] = [];
   let finished = false;
   const controller = new AbortController();
@@ -256,11 +280,17 @@ process.send({type:"vivary:code-worker:ready"});
     t.mock.timers.enable({ apis: ["setTimeout"] });
     execution = executeVivaryCodeWorker({ runId: request.runId, prompt: "wait for action", ownerEmail: request.ownerEmail,
       signal: controller.signal, permissionMode: "normal",
-      onRequest: action => { received.push(action.requestId); return new Promise(resolve => { resolveRequest = resolve; }); },
+      onRequest: action => {
+        received.push(action.requestId);
+        requestArrived();
+        return new Promise(resolve => { resolveRequest = resolve; });
+      },
       onRequestResolved: id => { resolved.push(id); },
     });
-    void execution.then(() => { finished = true; });
-    for (let attempt = 0; !resolveRequest && attempt < 100; attempt++) await delay(20);
+    // Issue #121. The rejection handler keeps a stopped run from replacing this test's own failure.
+    void execution.then(() => { finished = true; }, () => undefined);
+    // Wait for the request itself, however long the worker takes to start. A run that ends first fails the test.
+    await Promise.race([arrived, execution]);
     assert.ok(resolveRequest);
     t.mock.timers.tick(120_001);
     await delay(20);
@@ -299,6 +329,63 @@ process.send({type:"vivary:code-worker:ready"});
     await assert.rejects(executeVivaryCodeWorker({ runId: request.runId, prompt: "invalid interaction", ownerEmail: request.ownerEmail,
       signal: new AbortController().signal, onRequest: () => { throw new Error("Unsupported native method"); } }),
       /approval request could not be handled/);
+  } finally {
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+// Issue #121. Runs the Windows cleanup branch on any host. Only the platform name changes, so the fork, the worker,
+// and its exit are real.
+async function asWindows<T>(run: () => Promise<T>): Promise<T> {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  assert.ok(platform, "process.platform is an own property");
+  Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+  try { return await run(); } finally { Object.defineProperty(process, "platform", platform); }
+}
+
+test("a Windows worker that exits before it receives its run stops cleanly", { timeout: 12_000 }, async () => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-early-exit-"));
+  const server = path.join(fixture, ".output", "server");
+  await mkdir(server, { recursive: true });
+  // Like a worker that crashes while it loads, before the host sends its run.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), "process.exit(1);\n");
+  try {
+    process.chdir(fixture);
+    const error = await asWindows(() => executeVivaryCodeWorker({ runId: request.runId, prompt: "never sent",
+      ownerEmail: request.ownerEmail, signal: new AbortController().signal }).then(() => null, (failure: unknown) => failure));
+    assert.ok(error instanceof Error, "the run reports that its worker ended");
+    assert.equal(error instanceof VivaryCodeWorkerCleanupError, false, "a worker that started nothing needs no cleanup");
+    assert.match(error.message, /^The coding worker (ended before completing its run|connection closed)\.$/);
+  } finally {
+    process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("a cleanup failure names its step and does not refuse the next run", { timeout: 12_000 }, async () => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-cleanup-failure-"));
+  const server = path.join(fixture, ".output", "server");
+  await mkdir(server, { recursive: true });
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+process.on("message", message => {
+  if (message.type !== "vivary:code-worker:start") return;
+  if (message.prompt === "exit after its run") process.exit(0);
+  process.send({ type: "vivary:code-worker:done", runId: message.runId });
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  try {
+    process.chdir(fixture);
+    // On Windows, cleanup cannot reach the descendants of a worker that exited after it received its run.
+    const failure = await asWindows(() => executeVivaryCodeWorker({ runId: request.runId, prompt: "exit after its run",
+      ownerEmail: request.ownerEmail, signal: new AbortController().signal }).then(() => null, (error: unknown) => error));
+    await executeVivaryCodeWorker({ runId: request.runId, prompt: "complete", ownerEmail: request.ownerEmail,
+      signal: new AbortController().signal });
+    assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
+    assert.equal(failure.cause?.step, "taskkill");
   } finally {
     process.chdir(originalCwd);
     await rm(fixture, { recursive: true, force: true });
