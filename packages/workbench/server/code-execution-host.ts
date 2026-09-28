@@ -112,6 +112,11 @@ export async function executeVivaryCodeWorker(input: {
   ownerEmail: string;
   orgId?: string;
   signal: AbortSignal;
+  /**
+   * Issue #121. Called when a stop fails, before the check that names what it left, so the caller can record the
+   * refusal at once. A quit during that check then still leaves it.
+   */
+  onStopFailed?: (failure: { step: CleanupFailure["step"]; target: CleanupTarget | null }) => void;
 }): Promise<void> {
   if (input.signal.aborted) throw aborted();
   const request: VivaryCodeWorkerRequest = {
@@ -173,10 +178,11 @@ export async function executeVivaryCodeWorker(input: {
     };
     // Issue #121. One fresh check after a failed stop. When it finds nothing left, the stop did finish.
     const failedStopOutcome = async (cause: CleanupFailure): Promise<Error | null> => {
-      let target: CleanupTarget | null = null;
+      // Reading the boot id cannot reject, so the target is known before the scan starts.
+      const target = await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
       let check: CleanupCheck = { result: "unavailable" };
+      try { input.onStopFailed?.({ step: cause.step, target }); } catch { /* The error the run settles with records it. */ }
       try {
-        target = await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
         if (target) check = await checkWorkerCleanup(target);
         // This host just stopped this group or tree, so everything the check finds belongs to the run.
         if (check.result === "remaining") {

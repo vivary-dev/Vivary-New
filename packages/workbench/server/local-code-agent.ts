@@ -232,10 +232,12 @@ type CodeHostState = {
   /** Shutdown only. */
   closing: boolean;
   shutdown: Promise<void> | null;
-  /** The oldest persisted refusal still in force. */
+  /** The oldest refusal still in force. */
   cleanup: CleanupRefusal | null;
   /** One check or End at a time. Never rejects. */
   cleanupCheck: Promise<void> | null;
+  /** Refusals whose last write failed, by run. They stay in force from memory until a write succeeds or they lift. */
+  unsaved: Map<string, CleanupRefusal>;
 };
 
 // Nitro bundles plugins while Native loads action source modules. Both must own
@@ -251,6 +253,7 @@ const hostState = hostProcess[codeHostKey] ??= {
   shutdown: null,
   cleanup: null,
   cleanupCheck: null,
+  unsaved: new Map<string, CleanupRefusal>(),
 };
 const activeRuns = hostState.activeRuns;
 export async function initializeVivaryCodeAgent(): Promise<void> {
@@ -295,7 +298,7 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
       });
     }
     // Issue #121. The oldest persisted refusal is in force before any send. The check that may lift it runs behind it.
-    hostState.cleanup = persistedCleanupRefusals()[0] ?? null;
+    reloadCleanup();
     if (hostState.cleanup) void recheckVivaryCodeCleanup().catch(() => undefined);
   });
   await hostState.initialization;
@@ -304,7 +307,7 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
 /** Issue #121. Checks every persisted refusal again, after any check or End already running. */
 export function recheckVivaryCodeCleanup(): Promise<void> {
   return exclusiveCleanupWork(async () => {
-    for (const refusal of persistedCleanupRefusals()) {
+    for (const refusal of settledCleanupRefusals()) {
       if (refusal.target) recordCleanupCheck(refusal, await checkWorkerCleanup(refusal.target));
     }
   });
@@ -321,7 +324,7 @@ export async function resolveVivaryCodeCleanup(input: {
 }): Promise<VivaryCodeHostState> {
   await ensureVivaryCodeHostInitialized();
   const outcome = await exclusiveCleanupWork(async (): Promise<"done" | "changed" | "not-offered"> => {
-    const refusal = persistedCleanupRefusals()[0];
+    const refusal = settledCleanupRefusals()[0];
     if (!refusal) return "done";
     if (cleanupVersion(refusal) !== input.version) return "changed";
     const offers = cleanupOffers(refusal);
@@ -409,11 +412,9 @@ function cleanupVersion(refusal: CleanupRefusal): string {
     .digest("hex").slice(0, 16);
 }
 
-/** Runs one piece of cleanup work after any other, then reloads the refusal in force from the run records. */
+/** Runs one piece of cleanup work after any other, then reloads the refusal in force. */
 function exclusiveCleanupWork<T>(work: () => Promise<T>): Promise<T> {
-  const run = (hostState.cleanupCheck ?? Promise.resolve()).then(work).finally(() => {
-    hostState.cleanup = persistedCleanupRefusals()[0] ?? null;
-  });
+  const run = (hostState.cleanupCheck ?? Promise.resolve()).then(work).finally(reloadCleanup);
   const settled: Promise<void> = run.then(() => undefined, error => {
     console.error(`[vivary-code-host] cleanup-check-failed ${error instanceof Error ? error.name : "unknown"}`);
   }).finally(() => {
@@ -423,15 +424,28 @@ function exclusiveCleanupWork<T>(work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Every persisted refusal of this app's runs, oldest first. */
-function persistedCleanupRefusals(): CleanupRefusal[] {
-  return listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID)
-    .filter(run => metadataString(run, "app") === VIVARY_CODE_APP_MARKER)
-    .flatMap(run => {
-      const refusal = cleanupRefusalFromRun(run);
-      return refusal ? [refusal] : [];
-    })
-    .sort((left, right) => left.refusedAt.localeCompare(right.refusedAt));
+/**
+ * Every refusal in force for this app's runs, oldest first: each run record's, or the one in memory when its last write
+ * failed.
+ */
+function cleanupRefusalsInForce(): CleanupRefusal[] {
+  const refusals = new Map<string, CleanupRefusal>();
+  for (const run of listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID)) {
+    if (metadataString(run, "app") !== VIVARY_CODE_APP_MARKER) continue;
+    const refusal = cleanupRefusalFromRun(run);
+    if (refusal) refusals.set(run.id, refusal);
+  }
+  for (const [runId, refusal] of hostState.unsaved) refusals.set(runId, refusal);
+  return [...refusals.values()].sort((left, right) => left.refusedAt.localeCompare(right.refusedAt));
+}
+
+/** The refusals a check or a decision acts on. A run still stopping takes its own check first. */
+function settledCleanupRefusals(): CleanupRefusal[] {
+  return cleanupRefusalsInForce().filter(refusal => !activeRuns.has(refusal.runId));
+}
+
+function reloadCleanup(): void {
+  hostState.cleanup = cleanupRefusalsInForce()[0] ?? null;
 }
 
 /** Parses a run's refusal once, at the record boundary. A marker it cannot read still refuses. */
@@ -457,16 +471,49 @@ function recordCleanupCheck(refusal: CleanupRefusal, check: CleanupCheck): void 
     liftCleanupRefusal(refusal, { how: "rechecked", checkedAt, ends: refusal.ends });
     return;
   }
-  const next: CleanupRefusal = check.result === "remaining"
+  writeCleanupRefusal(check.result === "remaining"
     ? { ...refusal, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
       scan: "done", checkedAt }
-    : { ...refusal, scan: "unavailable", checkedAt };
-  updateCodeAgentRunRecord(refusal.runId, record => ({
-    updatedAt: record.updatedAt, metadata: { cleanupRefusal: storedCleanupRefusal(next) },
-  }));
+    : { ...refusal, scan: "unavailable", checkedAt });
+}
+
+/**
+ * Writes a refusal to its run and puts it in force. A write keeps the run's place in history unless it also records the
+ * run's failure. When the write fails, the refusal stays in force from memory and the next write retries it, so a
+ * failed write never lifts it.
+ */
+function writeCleanupRefusal(refusal: CleanupRefusal, failure?: { executionError: string }): void {
+  try {
+    const written = updateCodeAgentRunRecord(refusal.runId, record => ({
+      ...(failure ? { status: "errored" as const, phase: "cleanup-unverified" as const } : { updatedAt: record.updatedAt }),
+      metadata: { cleanupRefusal: storedCleanupRefusal(refusal), ...failure },
+    }));
+    if (!written) throw new Error("The run record is missing.");
+    hostState.unsaved.delete(refusal.runId);
+  } catch (error) {
+    hostState.unsaved.set(refusal.runId, refusal);
+    logCleanupRecordFailure(refusal.runId, error);
+  }
+  reloadCleanup();
+}
+
+function logCleanupRecordFailure(runId: string, error: unknown): void {
+  // The credential redaction plugin redacts server output. The log names the error kind only.
+  console.error(`[vivary-code-host] cleanup-record-failed run=${runId} ${error instanceof Error ? error.name : "unknown"}`);
+}
+
+/** Takes a failed stop's early refusal off when the check after it found nothing left, so the stop did finish. */
+function clearStopRefusal(runId: string): void {
+  hostState.unsaved.delete(runId);
+  // A clear that fails leaves the refusal on the record, and the next check lifts it.
+  try { updateCodeAgentRunRecord(runId, { metadata: { cleanupRefusal: undefined } }); }
+  catch (error) { logCleanupRecordFailure(runId, error); }
+  reloadCleanup();
 }
 
 function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
+  // A refusal only in memory lifts here. One on the record lifts when the write below succeeds.
+  hostState.unsaved.delete(refusal.runId);
   const remaining = lift.how === "owner-confirmed" ? lift.remaining.length : 0;
   const scan = lift.how === "owner-confirmed" ? lift.scan : "done";
   // The credential redaction plugin redacts server output. Process names stay out of the log.
@@ -479,10 +526,11 @@ function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
 }
 
 /** The refusal a failed stop leaves, from the one check the host took right after it. */
-function cleanupRefusalFromFailedStop(runId: string, error: VivaryCodeWorkerCleanupError): CleanupRefusal {
+function cleanupRefusalFromFailedStop(runId: string, error: VivaryCodeWorkerCleanupError,
+  refusedAt: string | null): CleanupRefusal {
   const now = new Date().toISOString();
   const check = error.leftovers?.check;
-  const common = { runId, step: error.cause?.step ?? null, refusedAt: now, checkedAt: now, ends: [] };
+  const common = { runId, step: error.cause?.step ?? null, refusedAt: refusedAt ?? now, checkedAt: now, ends: [] };
   return check?.result === "remaining"
     ? { ...common, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
       scan: "done" }
@@ -918,6 +966,8 @@ async function executeVivaryCodeRun(input: {
   model: string | undefined;
   runId: string;
 }): Promise<void> {
+  // Issue #121. When a stop fails, its refusal goes on the record before the check that names what it left.
+  let stopRefusedAt = null as string | null;
   try {
     await executeVivaryCodeWorker({
       runId: input.runId,
@@ -941,6 +991,11 @@ async function executeVivaryCodeRun(input: {
           status: input.activeRun.requests.size ? "needs-approval" : "running",
           phase: input.activeRun.requests.size ? "action-approval" : "running", needsApproval: input.activeRun.requests.size > 0 });
       },
+      onStopFailed: ({ step, target }) => {
+        stopRefusedAt = new Date().toISOString();
+        writeCleanupRefusal({ runId: input.runId, target, remaining: [], hidden: false, scan: "unavailable", step,
+          refusedAt: stopRefusedAt, checkedAt: stopRefusedAt, ends: [] });
+      },
     });
     if (input.activeRun.stopReason !== null) {
       recordPausedRun(input.runId, "The local code run stopped.", {
@@ -950,18 +1005,19 @@ async function executeVivaryCodeRun(input: {
     }
   } catch (error) {
     if (error instanceof VivaryCodeWorkerCleanupError) {
-      const refusal = cleanupRefusalFromFailedStop(input.runId, error);
-      // Refuse before `finally` frees the host slot, so no send starts beside the leftovers.
-      hostState.cleanup ??= refusal;
+      const refusal = cleanupRefusalFromFailedStop(input.runId, error, stopRefusedAt);
+      stopRefusedAt = null;
       // The credential redaction plugin redacts server output. Process names stay out of the log.
       console.error(`[vivary-code-host] cleanup-unverified run=${input.runId} step=${refusal.step ?? "unknown"} `
         + `scan=${refusal.scan} remaining=${refusal.remaining.length}`);
-      // The record is the refusal's source of truth, so it is written before the transcript.
+      // The record is the refusal's source of truth, so it is written before the transcript. Both happen before
+      // `finally` frees the host slot, so no send starts beside the leftovers.
       const message = cleanupFailureMessage(refusal);
-      updateCodeAgentRunRecord(input.runId, { status: "errored", phase: "cleanup-unverified",
-        metadata: { cleanupRefusal: storedCleanupRefusal(refusal), executionError: message } });
-      appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message,
-        metadata: { status: "errored", phase: "cleanup-unverified" } });
+      writeCleanupRefusal(refusal, { executionError: message });
+      try {
+        appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message,
+          metadata: { status: "errored", phase: "cleanup-unverified" } });
+      } catch (failure) { logCleanupRecordFailure(input.runId, failure); }
       return;
     }
     if (input.activeRun.stopReason !== null) {
@@ -987,6 +1043,7 @@ async function executeVivaryCodeRun(input: {
       },
     });
   } finally {
+    if (stopRefusedAt !== null) clearStopRefusal(input.runId);
     input.activeRun.requests.clear();
     activeRuns.delete(input.runId);
   }

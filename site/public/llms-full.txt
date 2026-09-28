@@ -7359,7 +7359,10 @@ matches. The worker's own window is the host clock read just before and just aft
 when it was created before the worker's observed exit, each bound with 20 ms for the clock's resolution. A check that finds nothing settles the stop as clean, so a Windows worker that exited on its own and left
 nothing behind no longer refuses later runs. A check that finds processes, or cannot run, travels on the cleanup
 error with what a later check needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the
-run, `metadata.cleanupRefusal`, with the target, the processes last seen, and whether the scan ran.
+run, `metadata.cleanupRefusal`, with the target, the processes last seen, and whether the scan ran. The host reports a
+failed stop before that check starts, so the refusal is on the record at once and gains the names after the check. A
+quit during the check still leaves it. When a write of a refusal fails, it stays in force from memory, the redacted
+log records `cleanup-record-failed`, and the next write retries it.
 `hostState.closing` now means shutdown only, with its own sentence. The oldest refusal in force refuses every Code
 send with `vivary_code_cleanup_required`, and the host state shows it to every user of the host, naming the run only
 to its owner. The host checks every refusal again at start, without waiting, and before a send, never from the
