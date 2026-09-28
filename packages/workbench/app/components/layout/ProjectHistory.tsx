@@ -2,10 +2,12 @@ import { isCodeAgentRunActive, useChatThreads } from "@agent-native/core/client/
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
-import { IconArchive, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
+import { IconArchive, IconArchiveOff, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
+import type { ArchivedNativeChat } from "../../../server/native-archive";
 import { codeDraftSelectionKey } from "../../../shared/code-draft";
 import { useChatDraftList } from "@/lib/chat-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
@@ -148,6 +150,17 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       && route.get("thread") === threadId) navigate("/");
     return archived;
   }
+  async function restoreNative(threadId: string, open: boolean) {
+    const generation = open ? ++creationGeneration.current : null;
+    const locationKey = latestLocationKey.current;
+    await call<{ restored: true }>("vivary-native-archive", { operation: "restore", projectId: identity.projectId, threadId });
+    window.dispatchEvent(new CustomEvent("agent-chat:threads-updated"));
+    if (generation === creationGeneration.current && latestLocationKey.current === locationKey) {
+      native.switchThread(threadId);
+      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
+    }
+    return true;
+  }
   function selectSession(id: string) {
     if (!sessions.some(item => item.id === id)) return;
     creationGeneration.current++;
@@ -195,5 +208,42 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
         </PopoverContent></Popover>
         {history.canExpand && <Button variant="ghost" size="icon" aria-label={history.disclosureLabel} aria-expanded={history.expanded} onClick={history.toggleExpanded}><IconDots size={14} /></Button>}
       </div>
+      <ArchivedConversations storageKey={identity.storageKey} projectId={identity.projectId}
+        onRestore={(threadId, open) => void updateNative(() => restoreNative(threadId, open), "The conversation could not be restored. Try again.")} />
   </section>;
+}
+
+function ArchivedConversations({ storageKey, projectId, onRestore }: { storageKey: string; projectId: string | null;
+  onRestore: (threadId: string, open: boolean) => void }) {
+  const { call, ready } = useNativeActionCaller();
+  const [open, setOpen] = useState(false);
+  const enabled = open && ready;
+  const archived = useQuery({
+    queryKey: ["vivary-native-archive", storageKey],
+    queryFn: () => call<{ threads: ArchivedNativeChat[] }>("vivary-native-archive", { operation: "list", projectId }),
+    enabled, retry: false,
+  });
+  const refetch = archived.refetch;
+  useEffect(() => {
+    if (!enabled) return;
+    const refresh = () => void refetch();
+    window.addEventListener("agent-chat:threads-updated", refresh);
+    return () => window.removeEventListener("agent-chat:threads-updated", refresh);
+  }, [enabled, refetch]);
+  return <details className="workspace-saved-conversations" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>Archived conversations</summary>
+    {archived.isError ? <div role="alert">
+      <p>Archived conversations could not be loaded.</p>
+      <Button variant="ghost" size="sm" onClick={() => void refetch()}>Retry history</Button>
+    </div> : <ChatHistoryList items={(archived.data?.threads ?? []).map(thread => ({ id: thread.id,
+      title: thread.title || "Untitled conversation", subtitle: "Native chat" }))}
+      onSelect={id => onRestore(id, true)} variant="rail" className="an-chat-history-rail"
+      loading={archived.isPending}
+      loadingLabel={<div className="vivary-history-skeleton" role="status"><span className="sr-only">Opening archived conversations</span><span /><span /><span /></div>}
+      emptyLabel="No archived conversations."
+      renderAdditionalRowActions={(item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item" onClick={() => {
+        closeMenu();
+        onRestore(item.id, false);
+      }}><IconArchiveOff size={13} aria-hidden /><span>Restore</span></button>} />}
+  </details>;
 }

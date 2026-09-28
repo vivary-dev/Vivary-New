@@ -1,3 +1,4 @@
+import type { ChatThread } from "@agent-native/core/server";
 import { vivaryChatScope, type VivaryChatIdentity } from "../app/lib/chat-scope";
 import { projectChatScopeId } from "./chat-project-scope.mjs";
 
@@ -20,4 +21,11 @@ export function createVivaryChatIdentity(
   const id = projectChatScopeId(owner, orgId, target.projectId);
   return { kind: "project", projectId: target.projectId,
     scope: { type: "workspace-app", id, label: target.label }, storageKey: id };
+}
+
+export function threadBelongsToChatIdentity(identity: VivaryChatIdentity,
+  thread: Pick<ChatThread, "ownerEmail" | "orgId" | "scope">, ownerEmail: string, orgId: string): boolean {
+  return thread.ownerEmail.toLowerCase() === ownerEmail.toLowerCase()
+    && (thread.orgId === null || thread.orgId === orgId)
+    && thread.scope?.type === identity.scope.type && thread.scope.id === identity.scope.id;
 }
