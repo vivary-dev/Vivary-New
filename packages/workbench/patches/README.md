@@ -316,10 +316,16 @@ The patch changes these files:
   A cost alert shows its count the same way, for example "$0.00 + 1 unknown of
   $5.00". A token alert does not, because every call's tokens are known.
 - `integrations/webhook-handler.js` sums an integration run's usage with
-  `createTurnUsage`. At both points where the handler settles a run, it passes
-  the run's usage record to the new exported
+  `createTurnUsage`. The handler settles a run after it delivers the reply, or
+  in its catch path when delivery fails, and both points call one step. Once
+  the run started a model call, whether its agent loop finished or threw, that
+  step passes the run's usage record to the new exported
   `recordAndSettleIntegrationUsage`, which writes the usage row and settles the
-  run's budget reservations from that one record. The row takes the reported
+  run's budget reservations from that one record. A run that failed before its
+  first model call, such as one whose engine did not resolve, settles nothing,
+  and the handler releases its reservations. The settlement runs in a
+  `finally` block, so a row that fails to write is logged and the reservations
+  still settle. The row takes the reported
   cost by the chat turn's rule, so a free model's integration run on
   OpenRouter records $0 as reported. Without a reported cost the row keeps the
   table price or Unknown. Its tokens are the sum of the run's usage events, as
@@ -390,7 +396,15 @@ record. A reported cost of 1.23¢ or 0 settles at that cost and records it as
 reported, whether or not the table prices the model. Sonnet with no reported
 cost settles at 6,000 currency micros and records its table price. An unpriced
 run with zero tokens settles at 0 and writes no row, and an unpriced run with
-tokens settles at its $5 reservation and records an unknown cost.
+tokens settles at its $5 reservation and records an unknown cost. When a
+database trigger refuses the usage row, the failure must be logged and the
+budget must still settle. Three claimed integration tasks run through
+`processIntegrationTask`. In two of them the agent loop's first call reports
+usage and an in-stream provider error cuts off its second call, so the loop
+throws. Whether the fallback reply is delivered or its delivery fails, the
+task must record Sonnet's table price in its row and settle at 6,000 currency
+micros. The third task's engine does not resolve, and it must complete with
+no row and no charge.
 `tests/native-chat-components.test.mjs` renders the Settings Usage tab and must
 show "12.30¢ + 1 unknown" for the total, "Unknown" for the unpriced model, and
 "$0.00 + 1 unknown of $5.00" for a cost alert.
@@ -404,7 +418,11 @@ exported. On the third patch, the two cut turns recorded the first call's cost
 as reported, the refused conversion stopped usage from recording, and the
 budget settled every unpriced run at its reservation and ignored a reported
 cost. On the fourth patch, the six integration run cases failed because
-`recordAndSettleIntegrationUsage` did not exist yet.
+`recordAndSettleIntegrationUsage` did not exist yet. On the fifth patch, the
+handler's catch path wrote no row and settled nothing after a loop that threw,
+and the task whose engine did not resolve ended as delivery-pending, because
+the handler read the run's usage record, which the run never created. The refused
+row case already passed, because the row writer logged its own failure.
 
 Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release records a provider's reported cost and an unknown cost
@@ -440,11 +458,21 @@ The patch changes these files:
   lose the flag, and the #50 turn's saved copy had none. The flag carries over
   only between copies of the same run, so a copy of a later run in the same
   turn does not take it.
+- The same file saves a turn that the owner stopped before any text,
+  reasoning, or tool call, with no content and the flag. `buildAssistantMessage`
+  no longer drops it as empty, and a client save keeps an empty reply that
+  carries the flag while it still drops other empty replies. The next
+  request's history leaves the empty reply out, as the live chat's history
+  does.
+- `client/chat/repo-helpers.js` keeps such a reply when the chat loads a saved
+  thread. `dropEmptyAssistantMessages` dropped every empty reply.
 - `client/chat/message-components.js` shows "The agent stopped before
   finishing" under every stopped reply, with or without text and after later
   turns. It reuses the `agentChat.error.stopped` string, so no locale file
   changes. A missing-response warning inside a stopped reply is hidden, and
-  the stopped notice shows under the reply in its place.
+  the stopped notice shows under the reply in its place. Once its run has
+  ended, a stopped reply with no content shows the notice alone, where the
+  message view rendered nothing for a reply without content.
 - `client/AssistantChat.js` keeps a list of the runs the owner stopped in the
   chat, by run id and turn id, and the message view reads it. Sending the next
   message clears the older stop marker but not this list. assistant-ui writes
@@ -462,8 +490,8 @@ These limits remain:
   client copy has the status `incomplete` with the reason `cancelled`, which
   assistant-ui also sets for other cancels, so the patch does not read it as a
   Stop.
-- The server still saves nothing for a turn stopped before any text, reasoning,
-  or tool call.
+- A reply stopped before any content shows no footer, so it has no timestamp
+  or Regenerate button. The owner sends the question again instead.
 - A Stop sent before the client knows the run id goes to the turn route, which
   only writes a turn marker. The running run finds it on its next check, which
   can take about 3 seconds. The investigation measured 1,979 ms.
@@ -488,7 +516,12 @@ must keep its text or its tool call and set `userStopped`, and a client save
 of a heavier copy without the flag must keep the flag and the client's
 content. A later run that finishes the same turn must drop the flag, and a
 client copy of that run must not take it. A run that a newer turn displaces
-must end with `done` and no reason and save no flag. Each test that waits for
+must end with `done` and no reason and save no flag. A Stop while OpenRouter
+sends only its keep-alive comments must end the run within 500 ms, and the
+saved turn must hold no content and set `userStopped`. A client save of the
+empty cancelled copy after the server's save, and of the flagged copy before
+it, must keep the question and the stopped reply, and the next request's
+history must leave the empty reply out. Each test that waits for
 a run to end fails after 10 seconds when the run never ends. The script's
 `--test-force-exit` then ends the file, which the run's own timers would keep
 open. `tests/native-chat-components.test.mjs` renders Core's assistant
@@ -499,11 +532,18 @@ the notice instead of the warning. The test also mounts Core's whole chat
 against a fake chat server. After a Stop on a live reply with text and the
 next message, the notice must stay under the stopped reply. After a Stop
 while the chat follows a run, the previous finished reply must stay
-unlabeled. On the first patch for #106 the timing cases passed and the label
+unlabeled. The test builds a thread whose second turn the owner stopped before
+any content, with Core's builder and client-save merge, and reloads it in the
+whole chat. The earlier turn and the question must show, followed by the
+notice. On the first patch for #106 the timing cases passed and the label
 cases failed, and with only its first and third changes the client save case
 still failed. On the patch before these review fixes, the live reply, the
 reply with the warning, the finished reply before a followed run, the later
-run in the same turn, and the displaced run failed.
+run in the same turn, and the displaced run failed. On the patch before the
+Codex review fixes, the turn stopped before any content was not saved, both
+client saves kept only the question, and the reload showed no notice. A patch
+without the load change, or without the view change, still showed no notice
+after the reload.
 
 Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release labels every stopped reply after a reload and passes

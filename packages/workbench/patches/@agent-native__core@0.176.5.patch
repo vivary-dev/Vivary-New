@@ -826,7 +826,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cbaea828d4f 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0ae4bb5ee 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -863,7 +863,18 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
          // done, missing_api_key — terminal signals, not content
      }
      // Only a truly empty turn produces nothing to persist. A turn that ended at
-@@ -268,6 +281,8 @@ export function buildAssistantMessage(events, runId, options = {}) {
+@@ -244,7 +257,9 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     // recoverable gateway error, suppressed loop_limit) DID stream real content
+     // — persist it as a partial so the continuation run can fold the next chunk
+     // onto it (foldAssistantTurn) instead of the earlier text being dropped.
+-    if (content.length === 0)
++    // A turn the owner stopped before any content is saved too, with the stop,
++    // so the conversation shows the stopped reply after a reload.
++    if (content.length === 0 && !userStopped)
+         return null;
+     const continued = endedAtInternalContinuationBoundary;
+     if (!continued) {
+@@ -268,6 +283,8 @@ export function buildAssistantMessage(events, runId, options = {}) {
      }
      if (continued)
          custom.continued = true;
@@ -872,7 +883,23 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
      if (runError) {
          custom.runError = {
              ...runError,
-@@ -545,7 +560,13 @@ function findRankedIdentityMatch(existingKeys, incomingKeySets, usedIncoming, ex
+@@ -352,6 +369,15 @@ function getMessageRunId(message) {
+         return errorRun;
+     return undefined;
+ }
++/**
++ * An assistant message that holds nothing a client save should keep. A reply
++ * the owner stopped before any content holds the stop, so it is kept.
++ */
++function isEmptyAssistantMessage(message) {
++    return (message?.role === "assistant" &&
++        messageContentIsEmpty(message.content) &&
++        message.metadata?.custom?.userStopped !== true);
++}
+ function messageContentIsEmpty(content) {
+     if (typeof content === "string")
+         return content.trim().length === 0;
+@@ -545,7 +571,13 @@ function findRankedIdentityMatch(existingKeys, incomingKeySets, usedIncoming, ex
          ? index
          : closest);
  }
@@ -887,7 +914,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
      const chosen = getStoredMessage(chosenEntry);
      const other = getStoredMessage(otherEntry);
      if (chosen?.role !== "assistant" || other?.role !== "assistant") {
-@@ -554,13 +575,24 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+@@ -554,13 +586,24 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
      const chosenCustom = chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
          ? chosen.metadata.custom
          : {};
@@ -915,7 +942,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
          return chosenEntry;
      const nextMessage = {
          ...chosen,
-@@ -568,7 +600,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+@@ -568,7 +611,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
              ...chosen.metadata,
              custom: {
                  ...chosenCustom,
@@ -924,7 +951,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
              },
          },
      };
-@@ -599,15 +631,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
+@@ -599,15 +642,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
                      !isTerminalAssistantStatus(incoming?.status)
                      ? existingEntry
                      : incomingEntry;
@@ -943,7 +970,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
  }
  function normalizeMessageEntry(entry, parentId) {
      const message = getStoredMessage(entry);
-@@ -1117,6 +1149,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -1117,6 +1160,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -965,7 +992,25 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1193,7 +1240,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1162,8 +1220,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+     for (let existingIndex = 0; existingIndex < existingMessages.length; existingIndex++) {
+         const existingEntry = existingMessages[existingIndex];
+         const existingMessage = getStoredMessage(existingEntry);
+-        if (existingMessage?.role === "assistant" &&
+-            messageContentIsEmpty(existingMessage.content)) {
++        if (isEmptyAssistantMessage(existingMessage)) {
+             continue;
+         }
+         const existingKeys = messageIdentityKeySet(existingMessage);
+@@ -1186,14 +1243,13 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+         if (usedIncoming.has(index))
+             continue;
+         const incomingMessage = getStoredMessage(incomingMessages[index]);
+-        if (incomingMessage?.role === "assistant" &&
+-            messageContentIsEmpty(incomingMessage.content)) {
++        if (isEmptyAssistantMessage(incomingMessage)) {
+             continue;
+         }
          nextMessages.push(incomingMessages[index]);
      }
      merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
@@ -974,7 +1019,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1400,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1409,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -984,7 +1029,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cba
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text } : null;
      }
-@@ -1677,6 +1727,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
+@@ -1677,6 +1736,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
      // Only the freshest chunk decides whether the turn is still continuing.
      if (incomingCustom.continued !== true)
          delete mergedCustom.continued;
@@ -2908,7 +2953,7 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..c3f5085c1679584c68f1ff34225cbbc201066e7b 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..c8d321d12b2dbc72d8acb9641efef96d8c9983b0 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
 @@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
@@ -3090,7 +3135,19 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..c3f5085c1679584c68f1ff34225cbbc2
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  turnStartedAt = parentMessage.createdAt;
-@@ -1289,15 +1396,19 @@ export function AssistantMessage() {
+@@ -1269,7 +1376,10 @@ export function AssistantMessage() {
+         chatRunning,
+         isLast,
+     });
+-    if (!hasRenderableContent || isMissingCredential)
++    // A reply the owner stopped before any content still shows the stopped
++    // notice. It has nothing else to render.
++    if ((!hasRenderableContent && !(isUserStoppedRun && statusIsTerminal)) ||
++        isMissingCredential)
+         return null;
+     return (_jsxs("div", { className: "group relative", style: { contentVisibility: isComplete ? "auto" : "visible" }, children: [_jsxs("div", { className: "w-full max-w-[95%] text-sm leading-relaxed text-foreground", children: [isComplete && (_jsx(McpConnectionSuggestion, { text: responseConnectionText, contextText: responseConnectionContext, variant: "response" })), _jsx(ToolCallStackMotion, { children: _jsx(MessagePrimitive.GroupedParts, { groupBy: groupWorkParts, children: ({ part, children }) => {
+                                 switch (part.type) {
+@@ -1289,15 +1399,19 @@ export function AssistantMessage() {
                                      case "group-ran-tools":
                                          return (_jsx(RanToolsSummary, { toolCount: assistantToolSummary.hiddenToolCount, motionKey: `assistant-${msg.id}`, children: children }));
                                      case "text":
@@ -3111,7 +3168,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..c3f5085c1679584c68f1ff34225cbbc2
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
-@@ -1307,9 +1418,12 @@ export function AssistantMessage() {
+@@ -1307,9 +1421,12 @@ export function AssistantMessage() {
                                      default:
                                          return null;
                                  }
@@ -3126,6 +3183,23 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..c3f5085c1679584c68f1ff34225cbbc2
                          missingFinalResponseNoticeText != null &&
                          !showInlineRunError && (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: missingFinalResponseNoticeText, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal })), isComplete && hasCodeAgentTools && msgContent && (_jsx(FilesChangedSummary, { parts: msgContent }))] }), isComplete && (_jsxs("div", { className: "mt-1 flex items-center justify-between", children: [_jsxs("div", { className: "flex min-w-0 items-center gap-1", children: [showHistoryRevert && (_jsx(AssistantChatHistoryRevertButton, { onRestore: handleHistoryRestore, onRestored: () => setHistoryReverted(true) })), _jsx(MessageActionsMenu, { showRevert: showRestore && restoreState === "idle", onRevert: handleRestore, threadId: cpCtx?.threadId ?? "" }), isLast && (_jsx(TooltipProvider, { delayDuration: 400, children: _jsxs(Tooltip, { children: [_jsx(TooltipTrigger, { asChild: true, children: _jsx(ActionBarPrimitive.Reload, { asChild: true, children: _jsx("button", { type: "button", "aria-label": t("agentChat.message.regenerate"), className: `flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`, children: _jsx(IconRefresh, { className: "h-3.5 w-3.5" }) }) }) }), _jsx(TooltipContent, { side: "top", className: "text-xs", children: t("agentChat.message.regenerate") })] }) })), _jsx(MessageBranchPicker, {}), timestamp && (_jsx(MessageTimestamp, { timestamp: timestamp, className: messageFooterFadeClassName }))] }), showRestore && restoreState === "confirming" ? (_jsxs("div", { className: "flex items-center gap-1 text-xs", children: [_jsx("button", { onClick: handleRestore, className: "rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90", children: t("agentChat.message.restoreQuestion") }), _jsx("button", { onClick: cancelRestore, className: "rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.cancel") })] })) : showRestore && restoreState === "restoring" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-muted-foreground", children: [_jsx(IconLoader2, { className: "h-3 w-3 animate-spin" }), t("agentChat.message.restoring")] })) : restoreState === "error" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-destructive", children: [_jsx(IconAlertTriangle, { className: "h-3 w-3 shrink-0" }), _jsx("span", { className: "truncate", children: restoreError }), _jsx("button", { onClick: cancelRestore, className: "cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.dismiss") })] })) : (_jsx(ThumbsFeedback, { threadId: cpCtx?.threadId ?? "", runId: messageRunId ?? "", messageSeq: msg.index }))] }))] }));
  }
+diff --git a/dist/client/chat/repo-helpers.js b/dist/client/chat/repo-helpers.js
+index 3e57b09962ac92ebabe291c1e7af977ea1f468a3..afaffcd888fafbec6520463593a647684a23f0f5 100644
+--- a/dist/client/chat/repo-helpers.js
++++ b/dist/client/chat/repo-helpers.js
+@@ -155,8 +155,11 @@ export function dropEmptyAssistantMessages(repo) {
+     let changed = false;
+     const messages = repo.messages.filter((entry) => {
+         const message = getRepoMessage(entry);
++        // A reply the owner stopped before any content holds the stop, so the
++        // thread keeps it and shows the stopped notice.
+         const drop = message?.role === "assistant" &&
+-            repoMessageContentIsEmpty(message.content);
++            repoMessageContentIsEmpty(message.content) &&
++            message.metadata?.custom?.userStopped !== true;
+         if (drop)
+             changed = true;
+         return !drop;
 diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
 index 851a9d9763239e262cc940db36d9d6669f5688ab..2fcff826eb2cf488cd58dfd87ffee80004e06d3c 100644
 --- a/dist/client/chat/run-recovery.js
@@ -4679,10 +4753,10 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
                      setResponseStatus(event, 200);
                      return { ok: true, taskId };
 diff --git a/dist/integrations/webhook-handler.d.ts b/dist/integrations/webhook-handler.d.ts
-index d86ba8c8975aa27234f661b9906259e40d0998b7..db35eb6fcd4960397c9e9e8598d39c1fa537d5d8 100644
+index d86ba8c8975aa27234f661b9906259e40d0998b7..59da4cffbbed15f4557d894f6f6af72bc699b281 100644
 --- a/dist/integrations/webhook-handler.d.ts
 +++ b/dist/integrations/webhook-handler.d.ts
-@@ -129,4 +129,30 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
+@@ -129,4 +129,31 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
      enabled?: boolean;
      continuationInvocation?: boolean;
  }): Promise<ProcessIntegrationTaskResult>;
@@ -4692,7 +4766,8 @@ index d86ba8c8975aa27234f661b9906259e40d0998b7..db35eb6fcd4960397c9e9e8598d39c1f
 + * call reported one. Otherwise the row records the table price or an unknown
 + * cost, and each reservation settles at the table price, at 0 when the run
 + * used no tokens, or at its estimate when a model Core has no price for used
-+ * tokens.
++ * tokens. A row that fails to write is logged, and the reservations still
++ * settle.
 + */
 +export declare function recordAndSettleIntegrationUsage(reservations: Array<{
 +    budgetId: string;
@@ -4714,7 +4789,7 @@ index d86ba8c8975aa27234f661b9906259e40d0998b7..db35eb6fcd4960397c9e9e8598d39c1f
 +}): Promise<void>;
  export declare function recordIntegrationResponseDelivery(payload: IntegrationResponseDeliveryTaskPayload, receipt: PlatformDeliveryReceipt): Promise<void>;
 diff --git a/dist/integrations/webhook-handler.js b/dist/integrations/webhook-handler.js
-index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98d6723176 100644
+index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..efd06506f7e39f9afdc4b3227d9d26b808400b42 100644
 --- a/dist/integrations/webhook-handler.js
 +++ b/dist/integrations/webhook-handler.js
 @@ -4,7 +4,7 @@ import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
@@ -4726,7 +4801,7 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
  import { appendDurableContinuationContext, runAgentLoopDirectWithSoftTimeout, } from "../agent/run-loop-with-resume.js";
  import { startRun, } from "../agent/run-manager.js";
  import { buildCurrentTimeUserContext, buildRuntimeContextPrompt, } from "../agent/runtime-context.js";
-@@ -840,6 +840,9 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+@@ -840,7 +840,29 @@ async function processIncomingMessage(incoming, options, opts = {}) {
          })).catch(() => { });
      }
      let usage = null;
@@ -4734,9 +4809,29 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
 +    // and budget settlement read.
 +    let turnUsage;
      let budgetsSettled = false;
++    // Both settlement points below call this. A run that started a model call
++    // records its usage row and settles its budget, also when its agent loop
++    // threw. A run that failed before its first call settles nothing, and the
++    // completion's finally block releases its reservations.
++    const settleRunUsage = async () => {
++        if (!(turnUsage?.startedCalls > 0))
++            return;
++        await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
++            usage: turnUsage.usageRecord(),
++            ownerEmail,
++            appId: options.appId,
++            runId,
++            threadId,
++            taskId: opts.taskId,
++            orgId: orgId ?? undefined,
++            incoming,
++        });
++        budgetsSettled = true;
++    };
      // Populated once `resolvedModel`/`engine` are known inside the run
      // callback below (stored-model + platform-default resolution can't happen
-@@ -925,6 +928,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+     // until then) and read back by run-manager's terminal tracking event via
+@@ -925,6 +947,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
                      let emittedAgentEvent = false;
                      runOptions.model = target.model;
                      runOptions.engineName = target.engine.name;
@@ -4744,7 +4839,7 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
                      try {
                          // Wrapper, not raw `runAgentLoop`: an integration turn has no
                          // browser to re-POST a continuation, so a transport-level cut
-@@ -960,6 +964,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+@@ -960,6 +983,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
                              // retry can step its effort down rather than
                              // repeatedly letting the engine choose Medium.
                              reasoningEffort: normalizeReasoningEffortForRequest(target.model, undefined),
@@ -4753,29 +4848,31 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
                          }, undefined, {
                              useHostedDefault: true,
                              backgroundFunction: isInBackgroundFunctionRuntime(),
-@@ -1230,8 +1236,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+@@ -1230,18 +1255,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
                          await stageTaskDeliveryPayload(opts.taskId, JSON.stringify(stagedDeliveryPayload));
                      }
                  }
 -                await recordIntegrationUsage({
 -                    usage,
-+                await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
-+                    usage: turnUsage.usageRecord(),
-                     ownerEmail,
-                     appId: options.appId,
-                     runId,
-@@ -1240,7 +1246,6 @@ async function processIncomingMessage(incoming, options, opts = {}) {
-                     orgId: orgId ?? undefined,
-                     incoming,
-                 });
+-                    ownerEmail,
+-                    appId: options.appId,
+-                    runId,
+-                    threadId,
+-                    taskId: opts.taskId,
+-                    orgId: orgId ?? undefined,
+-                    incoming,
+-                });
 -                await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
-                 budgetsSettled = true;
+-                budgetsSettled = true;
++                await settleRunUsage();
                  if (campaign && queuedA2AContinuation) {
                      const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
-@@ -1312,18 +1317,17 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                         runId: campaign.runId,
+@@ -1311,23 +1325,10 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                                 ? buildDeliveryHistoryMessageIds(incoming)
                                  : undefined), artifactSecrets, Boolean(campaign));
                      }
-                     if (usage) {
+-                    if (usage) {
 -                        await recordIntegrationUsage({
 -                            usage,
 -                            ownerEmail,
@@ -4786,22 +4883,19 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
 -                            orgId: orgId ?? undefined,
 -                            incoming,
 -                        }).catch(() => { });
-                         try {
+-                        try {
 -                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
-+                            await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
-+                                usage: turnUsage.usageRecord(),
-+                                ownerEmail,
-+                                appId: options.appId,
-+                                runId,
-+                                threadId,
-+                                taskId: opts.taskId,
-+                                orgId: orgId ?? undefined,
-+                                incoming,
-+                            });
-                             budgetsSettled = true;
-                         }
-                         catch { }
-@@ -1454,6 +1458,8 @@ async function recordIntegrationUsage(options) {
+-                            budgetsSettled = true;
+-                        }
+-                        catch { }
++                    try {
++                        await settleRunUsage();
+                     }
++                    catch { }
+                     outcome = {
+                         status: "delivery-pending",
+                         payload: {
+@@ -1454,6 +1455,8 @@ async function recordIntegrationUsage(options) {
              cacheReadTokens: usage.cacheReadTokens,
              cacheWriteTokens: usage.cacheWriteTokens,
              model: usage.model,
@@ -4810,17 +4904,23 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98
              label: `integration:${options.incoming.platform}`,
              app: options.appId,
              refId: options.taskId ?? options.runId,
-@@ -1541,20 +1547,43 @@ async function reserveApplicableIntegrationBudgets(options) {
+@@ -1541,20 +1544,49 @@ async function reserveApplicableIntegrationBudgets(options) {
      }
      return { allowed: true, reservations };
  }
 +/**
 + * Records an integration run's usage row and settles its budget reservations
 + * from the same usage record, so the row and the budget agree on the cost.
++ * The two do not depend on each other. A row that fails to write is logged,
++ * and the reservations still settle.
 + */
 +export async function recordAndSettleIntegrationUsage(reservations, options) {
-+    await recordIntegrationUsage(options);
-+    await settleApplicableIntegrationBudgets(reservations, options.usage);
++    try {
++        await recordIntegrationUsage(options);
++    }
++    finally {
++        await settleApplicableIntegrationBudgets(reservations, options.usage);
++    }
 +}
  async function settleApplicableIntegrationBudgets(reservations, usage) {
      if (!reservations.length)
