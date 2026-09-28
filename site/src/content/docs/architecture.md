@@ -188,6 +188,21 @@ tests drive the Windows branch with the platform name set to `win32`. They show 
 starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a `/proc`
 reader whose read fails with `ESRCH`.
 
+Issue #121, part B, in progress. A failed stop now names what it left behind. `code-execution-host.ts` takes one
+fresh check after the failure, and a check only reads. On Linux it sends signal 0 to the worker's process group. When
+the kernel reports no such group, the check is clean without reading `/proc`. Otherwise it reads each
+`/proc/<pid>/stat` for a member's `comm` name and start time, never its command line or environment, and gives the
+group one more second to empty. A `stat` read that fails with `EACCES` or `EPERM`, as under `hidepid=1`, no longer
+fails the stop. It marks the group hidden, because the unreadable entry could be a member. On Windows the check runs
+one `Get-CimInstance` query through PowerShell that selects only the process ID, parent ID, image name, and creation
+time of each process. It follows parent IDs from the worker by creation time, so a process that reused a PID never
+matches. A check that finds nothing settles the stop as clean, so a Windows worker that exited on its own and left
+nothing behind no longer refuses later runs. A check that finds processes, or cannot run, travels on the cleanup
+error with what a later check needs to find them again. The refusal itself does not change yet. This page describes
+the coding worker at the trust-boundary level, and the new query reads process names, never command lines, so the
+description holds. Host tests on Zo, which runs gVisor, check a real process group and answer the Windows query with
+a fake `powershell.exe` under `SystemRoot`.
+
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
 register records it and the `0697293f` packaged check. Documentation only, so the design description holds.

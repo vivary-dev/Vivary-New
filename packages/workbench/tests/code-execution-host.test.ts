@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -7,8 +8,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, linuxWorkerGroupHasLiveMember,
-  STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit, windowsWorkerStoppedCleanly,
+import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, parseWindowsProcessRows, readLinuxProcStat,
+  scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit,
+  windowsLeftovers, windowsWorkerStoppedCleanly,
 } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -51,40 +53,76 @@ async function isAlive(pid: number): Promise<boolean> {
   } catch { return false; }
 }
 
+/** A `/proc/<pid>/stat` line with the fields the group scan reads: state, process group, and start time (field 22). */
+function statLine(pid: number, name: string, state: string, group: number, start: number): string {
+  return `${pid} (${name}) ${state} 1 ${group} ${group} 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 ${start} 1000 100 0`;
+}
+
+const liveGroup = { members: [{ pid: 7, name: "codex", start: 900 }], hidden: false };
+const emptyGroup = { members: [], hidden: false };
+
 test("Linux worker cleanup waits until every observed group member has stopped", async () => {
-  const observations = [true, false, true, false, false];
+  const observations = [liveGroup, emptyGroup, liveGroup, emptyGroup, emptyGroup];
   const checked: number[] = [];
   await waitForLinuxWorkerGroupExit(12345, async groupId => {
     checked.push(groupId);
-    return observations.shift() ?? false;
+    return observations.shift() ?? emptyGroup;
   });
   assert.deepEqual(checked, [12345, 12345, 12345, 12345, 12345]);
 });
 
-test("Linux group observation ignores valid kernel pgrp zero and refuses malformed state", async () => {
-  assert.equal(linuxProcStatIsLiveGroupMember("42 (kernel worker) S 2 0 0 0", 12345), false);
-  assert.equal(linuxProcStatIsLiveGroupMember("43 (child) S 2 12345 0 0", 12345), true);
-  assert.equal(linuxProcStatIsLiveGroupMember("43 (child) Z 2 12345 0 0", 12345), false);
-  assert.throws(() => linuxProcStatIsLiveGroupMember("malformed", 12345), VivaryCodeWorkerCleanupError);
-  await assert.rejects(waitForLinuxWorkerGroupExit(
-    12345, () => new Promise<boolean>(() => {}), 10), VivaryCodeWorkerCleanupError);
+test("Linux stat lines give the name, state, group, and start time, and malformed lines refuse", async () => {
+  assert.deepEqual(readLinuxProcStat(statLine(42, "kernel worker", "S", 0, 3)),
+    { name: "kernel worker", state: "S", processGroup: 0, start: 3 });
+  assert.deepEqual(readLinuxProcStat(statLine(43, "a) b (c", "Z", 12345, 8417)),
+    { name: "a) b (c", state: "Z", processGroup: 12345, start: 8417 });
+  for (const malformed of ["malformed", "43 (child) S 2 12345 0 0", statLine(44, "child", "S", 12345, -1)]) {
+    assert.throws(() => readLinuxProcStat(malformed), VivaryCodeWorkerCleanupError, malformed);
+  }
+  const error = await waitForLinuxWorkerGroupExit(12345, () => new Promise(() => {}), 10).then(() => null, failure => failure);
+  assert.ok(error instanceof VivaryCodeWorkerCleanupError);
+  assert.equal(error.observation, undefined, "no scan completed");
+});
+
+// Issue #121. A reader stands in for `/proc` and for the kernel's answer to signal 0 on the group.
+function procReader(stat: (pid: string) => Promise<string>, signal: () => void = () => undefined) {
+  return { signalGroup: signal, list: async () => ["self", "42", "43", "44"], stat };
+}
+
+test("Linux group scan names live members from comm and skips zombies and other groups", async () => {
+  const observation = await scanLinuxWorkerGroup(12345, procReader(async pid => pid === "42"
+    ? statLine(42, "my ) app", "S", 12345, 777) : pid === "43" ? statLine(43, "vivary-worker", "Z", 12345, 700)
+      : statLine(44, "unrelated", "S", 999, 800)));
+  assert.deepEqual(observation, { members: [{ pid: 42, name: "my ) app", start: 777 }], hidden: false });
+});
+
+test("Linux group scan trusts the kernel when no process has the group id and never reads /proc", async () => {
+  const error = (code: string) => () => { throw Object.assign(new Error(`signal failed with ${code}`), { code }); };
+  const unread = { signalGroup: error("ESRCH"), list: async () => assert.fail("/proc was read"), stat: async () => "" };
+  assert.deepEqual(await scanLinuxWorkerGroup(12345, unread), { members: [], hidden: false });
+  const present = procReader(async pid => statLine(Number(pid), "codex", "S", 12345, 1), error("EPERM"));
+  assert.equal((await scanLinuxWorkerGroup(12345, present)).members.length, 3, "EPERM means the group exists");
+  await assert.rejects(scanLinuxWorkerGroup(12345, procReader(async () => "", error("EINVAL"))), VivaryCodeWorkerCleanupError);
 });
 
 // Issue #121. On a Linux kernel, reading the `stat` file of a process reaped after the scan opened it fails with
 // ESRCH. That process is gone. Under `hidepid=1` another user's entry fails with EACCES or EPERM, which must not fail
 // the stop. Any other read error must still fail it.
 test("Linux group scan tolerates gone and unreadable entries and refuses other read errors", async () => {
-  const procWithStatError = (code: string) => ({
-    list: async () => ["self", "42", "43"],
-    stat: async (pid: string) => {
-      if (pid === "42") throw Object.assign(new Error(`reading /proc/42/stat failed with ${code}`), { code });
-      return `${pid} (unrelated) S 1 999 999 0`;
-    },
+  const procWithStatError = (code: string, zombie: boolean) => procReader(async pid => {
+    if (pid === "42") throw Object.assign(new Error(`reading /proc/42/stat failed with ${code}`), { code });
+    if (pid === "44" && zombie) return statLine(44, "vivary-worker", "Z", 12345, 700);
+    return statLine(Number(pid), "unrelated", "S", 999, 800);
   });
-  for (const code of ["ENOENT", "ESRCH", "EACCES", "EPERM"]) {
-    assert.equal(await linuxWorkerGroupHasLiveMember(12345, procWithStatError(code)), false, code);
+  for (const code of ["ENOENT", "ESRCH"]) {
+    assert.deepEqual(await scanLinuxWorkerGroup(12345, procWithStatError(code, true)), emptyGroup, code);
   }
-  await assert.rejects(linuxWorkerGroupHasLiveMember(12345, procWithStatError("EIO")), VivaryCodeWorkerCleanupError);
+  // The group exists, so an unreadable entry could be the member. So could one `/proc` no longer shows.
+  for (const code of ["EACCES", "EPERM"]) {
+    assert.deepEqual(await scanLinuxWorkerGroup(12345, procWithStatError(code, true)), { members: [], hidden: true }, code);
+  }
+  assert.deepEqual(await scanLinuxWorkerGroup(12345, procWithStatError("ENOENT", false)), { members: [], hidden: true });
+  await assert.rejects(scanLinuxWorkerGroup(12345, procWithStatError("EIO", true)), VivaryCodeWorkerCleanupError);
 });
 
 // Issue #121. Each scan advances the mocked clock by a second, so these cases take milliseconds.
@@ -93,7 +131,7 @@ test("Linux worker cleanup accepts a group that empties after more than 3 second
   let scans = 0;
   await waitForLinuxWorkerGroupExit(12345, async () => {
     t.mock.timers.tick(1_000);
-    return ++scans <= 5;
+    return ++scans <= 5 ? liveGroup : emptyGroup;
   });
   assert.equal(scans, 7, "five scans with live members, then two empty scans");
 });
@@ -103,21 +141,97 @@ test("Linux worker cleanup trusts an empty scan that finished after the deadline
   for (const scanMs of [600, 1_500]) {
     await waitForLinuxWorkerGroupExit(12345, async () => {
       t.mock.timers.tick(scanMs);
-      return false;
+      return emptyGroup;
     }, 1_000);
   }
 });
 
-test("Linux worker cleanup refuses a group that stays live for the whole budget", async t => {
+test("Linux worker cleanup refuses a group that stays live for the whole budget and names what it saw", async t => {
   t.mock.timers.enable({ apis: ["Date"] });
   let scans = 0;
-  await assert.rejects(waitForLinuxWorkerGroupExit(12345, async () => {
+  const hidden = { members: [], hidden: true };
+  const error = await waitForLinuxWorkerGroupExit(12345, async () => {
     t.mock.timers.tick(1_000);
-    scans++;
-    return true;
-  }), VivaryCodeWorkerCleanupError);
+    return ++scans === CLEANUP_TIMEOUT_MS / 1_000 ? hidden : liveGroup;
+  }).then(() => null, failure => failure);
+  assert.ok(error instanceof VivaryCodeWorkerCleanupError);
   assert.equal(scans, CLEANUP_TIMEOUT_MS / 1_000, "every scan inside the budget ran");
+  assert.deepEqual(error.observation, hidden, "the last completed scan");
 });
+
+// Issue #121. A real process group on the kernel in use, or on gVisor on Zo. `sleep` leads its own group, as the
+// worker does.
+test("a cleanup check finds a live group by name and reads an emptied one as clean", {
+  skip: process.platform !== "linux",
+}, async () => {
+  const sleeper = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+  const groupId = sleeper.pid!;
+  const exited = once(sleeper, "exit");
+  try {
+    const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+    const target = { platform: "linux" as const, groupId, bootId };
+    const live = await checkWorkerCleanup(target);
+    assert.ok(live.result === "remaining");
+    assert.deepEqual(live.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: groupId, name: "sleep" }]);
+    assert.equal(live.hidden, false);
+    assert.ok(Number.isSafeInteger(live.remaining[0]!.start));
+    process.kill(-groupId, "SIGKILL");
+    await exited;
+    assert.deepEqual(await checkWorkerCleanup(target), { result: "clean" });
+    const rebooted = { bootId: async () => "another-boot", windowsProcesses: async () => [],
+      proc: { signalGroup: () => assert.fail("a group from before a reboot was signaled"),
+        list: async () => [], stat: async () => "" } };
+    assert.deepEqual(await checkWorkerCleanup(target, rebooted), { result: "clean" });
+  } finally {
+    if (sleeper.exitCode === null && sleeper.signalCode === null) process.kill(-groupId, "SIGKILL");
+  }
+});
+
+test("Windows process rows parse with or without a creation time, and a malformed scan is unreadable", () => {
+  assert.deepEqual(parseWindowsProcessRows("﻿4\t0\t\tSystem\r\n4120\t880\t1790553600123\tcodex.exe\r\n\r\n"), [
+    { pid: 4, parentPid: 0, created: null, name: "System" },
+    { pid: 4120, parentPid: 880, created: 1790553600123, name: "codex.exe" },
+  ]);
+  for (const malformed of ["", "\r\n", "4120\t880\t1790553600123\r\n", "4120 880 1790553600123 codex.exe\r\n",
+    "4\t0\t\tSystem\r\nWARNING: something\r\n"]) assert.equal(parseWindowsProcessRows(malformed), null, JSON.stringify(malformed));
+});
+
+// Issue #121. The worker (PID 100) was forked between 1,000 and 7,000.
+test("Windows leftovers follow parent PIDs by creation time and never through a reused PID", () => {
+  const live = { pid: 100, createdFrom: 1_000, createdTo: 7_000, childrenTo: null };
+  const exited = { ...live, childrenTo: 9_000 };
+  const row = (pid: number, parentPid: number, created: number | null, name = `p${pid}.exe`) =>
+    ({ pid, parentPid, created, name });
+  const cases = [
+    { name: "a live worker with a child and a grandchild", tracked: [live],
+      rows: [row(4, 0, null), row(100, 50, 2_000), row(200, 100, 3_000), row(300, 200, 4_000), row(400, 50, 2_500)],
+      found: [100, 200, 300] },
+    { name: "an exited worker's child inside its window", tracked: [exited], rows: [row(200, 100, 8_000)], found: [200] },
+    { name: "a child created after the worker's exit window", tracked: [exited], rows: [row(201, 100, 9_500)], found: [] },
+    { name: "the child of a process that reused the worker's PID", tracked: [live],
+      rows: [row(100, 60, 20_000), row(202, 100, 21_000)], found: [] },
+    { name: "children created before the worker or before their parent", tracked: [live],
+      rows: [row(100, 50, 2_000), row(203, 100, 500), row(200, 100, 3_000), row(301, 200, 2_900)], found: [100, 200] },
+    { name: "a tracked grandchild whose parent exited", tracked: [exited, { pid: 300, createdFrom: 4_000, createdTo: 4_000,
+      childrenTo: null }], rows: [row(300, 200, 4_000), row(301, 300, 5_000)], found: [300, 301] },
+  ];
+  for (const { name, tracked, rows, found } of cases) {
+    const result = windowsLeftovers(rows, tracked);
+    assert.deepEqual(result.remaining.map(leftover => leftover.pid).sort((a, b) => a - b), found, name);
+    for (const leftover of result.remaining) {
+      assert.equal(leftover.start, rows.find(candidate => candidate.pid === leftover.pid)?.created, name);
+      assert.ok(result.tracked.some(identity => identity.pid === leftover.pid && identity.createdFrom === leftover.start
+        && identity.createdTo === leftover.start), `${name}: ${leftover.pid} is tracked exactly`);
+    }
+    assert.deepEqual(result.tracked.slice(0, tracked.length), tracked, `${name}: earlier identities stay first`);
+  }
+  const many = Array.from({ length: 250 }, (_, index) => row(1_000 + index, 100, 3_000));
+  const capped = windowsLeftovers(many, [live]);
+  assert.equal(capped.remaining.length, 250);
+  assert.equal(capped.tracked.length, 200);
+  assert.deepEqual(capped.tracked[0], live);
+});
+
 
 test("only a Windows worker that exited before its run was sent counts as stopped", () => {
   const cases = [
@@ -471,6 +585,8 @@ process.send({ type: "vivary:code-worker:ready" });
       signal: new AbortController().signal });
     assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
     assert.equal(failure.cause?.step, "worker-exited");
+    // This host has no `powershell.exe`, so the check after the failed stop could not scan.
+    assert.deepEqual(failure.leftovers?.check, { result: "unavailable" });
   } finally {
     process.chdir(originalCwd);
     await rm(fixture, { recursive: true, force: true });
@@ -536,24 +652,25 @@ test("a Windows worker that exits after its run is checked by one process scan",
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-process-scan-"));
   const server = path.join(fixture, ".output", "server");
   const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
-  const workerPid = path.join(fixture, "worker.pid");
+  const worker = path.join(fixture, "worker.txt");
   const leaveChild = path.join(fixture, "leave-child");
   const log = path.join(fixture, "powershell.log");
   await mkdir(server, { recursive: true });
   await mkdir(scanner, { recursive: true });
-  // The System row has no creation time, like the real one. The child row names the worker as its parent.
+  // The System row has no creation time, like the real one. The child row names the worker as its parent and was
+  // created while the worker ran.
   await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
-printf '%s\n' "$*" >> ${JSON.stringify(log)}
-printf '4\t0\t\tSystem\r\n'
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+printf '4\\t0\\t\\tSystem\\r\\n'
 if [ -f ${JSON.stringify(leaveChild)} ]; then
-  printf '4242\t%s\t%s\tcodex.exe\r\n' "$(cat ${JSON.stringify(workerPid)})" "$(date +%s%3N)"
+  printf '4242\\t%s\\tcodex.exe\\r\\n' "$(cat ${JSON.stringify(worker)})"
 fi
 `, { mode: 0o755 });
   await writeFile(path.join(server, "vivary-code-worker.mjs"), `
 import { writeFileSync } from "node:fs";
 process.on("message", message => {
   if (message.type !== "vivary:code-worker:start") return;
-  writeFileSync(${JSON.stringify(workerPid)}, String(process.pid));
+  writeFileSync(${JSON.stringify(worker)}, process.pid + "\\t" + Date.now());
   process.exit(0);
 });
 process.send({ type: "vivary:code-worker:ready" });
@@ -572,7 +689,8 @@ process.send({ type: "vivary:code-worker:ready" });
       assert.ok(failure instanceof Error);
       if (!leaves) {
         assert.equal(failure instanceof VivaryCodeWorkerCleanupError, false, "a worker that left nothing stopped cleanly");
-        assert.equal(failure.message, "The coding worker ended before completing its run.");
+        // The worker's disconnect and exit race, as in the early-exit case above.
+        assert.match(failure.message, /^The coding worker (ended before completing its run|connection closed)\.$/);
         return;
       }
       assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
