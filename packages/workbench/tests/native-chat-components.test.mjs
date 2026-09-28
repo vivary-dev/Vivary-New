@@ -33,8 +33,10 @@ import { getRunErrorMetadata, RunErrorRecoveryCard } from "@proof/run-recovery";
 import * as messages from "@proof/message-components";
 import { processEvent } from "@proof/sse-event-processor";
 import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TiptapComposer } from "@proof/tiptap-composer";
 import { TooltipProvider } from "@proof/tooltip";
+import { UsageSection } from "@proof/usage-section";
 
 async function mount(element) {
   const host = document.createElement("div");
@@ -139,6 +141,20 @@ export async function renderComposer(willQueue) {
   await view.unmount();
   return snapshot;
 }
+
+// The Settings Usage tab reads its metrics and alert rules through the action query cache. The
+// cache holds what the server returns, so the tab renders without a request.
+export async function renderUsage(metrics) {
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(["action", "get-usage-metrics", { sinceDays: 30, scope: "me", appId: "vivary" }], metrics);
+  client.setQueryData(["action", "get-usage-alerts", { scope: "user", appId: "vivary" }], { rules: [] });
+  const view = await mount(<QueryClientProvider client={client}><UsageSection appId="vivary" /></QueryClientProvider>);
+  const driverCost = label => view.host.querySelector('span[title="' + label + '"]')?.nextElementSibling?.textContent ?? null;
+  const snapshot = { text: view.host.textContent, models: Object.fromEntries(metrics.byModel.map(row => [row.label, driverCost(row.label)])) };
+  await view.unmount();
+  client.clear();
+  return snapshot;
+}
 `;
 
 async function buildProof() {
@@ -162,6 +178,11 @@ async function buildProof() {
           if (args.path === "@proof/sse-event-processor") return { path: join(CLIENT, "sse-event-processor.js") };
           if (args.path === "@proof/tiptap-composer") return { path: join(COMPOSER, "TiptapComposer.js") };
           if (args.path === "@proof/tooltip") return { path: join(TOOLKIT, "dist", "ui", "tooltip.js") };
+          if (args.path === "@proof/usage-section") return { path: join(CLIENT, "settings", "UsageSection.js") };
+          // The query cache must be the copy Core's action hooks read.
+          if (args.path === "@tanstack/react-query" && args.resolveDir === HERE) {
+            return build.resolve(args.path, { kind: args.kind, resolveDir: CLIENT });
+          }
           // The workbench does not list the assistant runtime, so the proof takes the Toolkit's copy.
           if (args.path === "@assistant-ui/react" && args.resolveDir !== COMPOSER) {
             return build.resolve(args.path, { kind: args.kind, resolveDir: COMPOSER });
@@ -195,6 +216,8 @@ function installDom() {
   view.getSelection = () => selection;
   view.document.getSelection = () => selection;
   const getComputedStyle = () => new Proxy({ getPropertyValue: () => "" }, { get: (style, name) => style[name] ?? "" });
+  // linkedom has no location. Core's action paths read the page's path when they load.
+  view.location = new URL("http://127.0.0.1/settings");
   const values = { window: view, self: view, document: view.document, navigator: view.navigator,
     HTMLElement: view.HTMLElement, Element: view.Element, Node: view.Node, Event: view.Event,
     CustomEvent: view.CustomEvent, EventTarget: view.EventTarget, MessageChannel: TrackedMessageChannel,
@@ -267,6 +290,35 @@ test("Native chat controls", async t => {
     assert.equal(idle.editor, true, "the Tiptap editor mounts");
     assert.equal(idle.sendName, "Send message");
     assert.equal((await proof.renderComposer(true)).sendName, "Queue message");
+  });
+
+  // Issue #103. Yesterday a paid model cost 12.30¢. Today a free model reported $0 and a model with no
+  // price reported no cost.
+  await t.test("the Usage tab shows an unknown cost as Unknown and adds only known costs", async () => {
+    const figure = (costCents, calls, unknownCostCalls) => ({ costCents, calls, unknownCostCalls });
+    const tokens = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    const bucket = (key, ...cost) => ({ key, label: key, ...figure(...cost), ...tokens, activeUsers: 1, lastActiveAt: 0 });
+    const usage = await proof.renderUsage({
+      billing: { unit: "usd", label: "Estimated spend", source: "estimated-provider-cost" },
+      app: "vivary", appKey: "vivary", viewScope: "me", selectedUserEmail: null, availableUsers: [],
+      sinceMs: 0, sinceDays: 30, generatedAt: 0,
+      access: { viewerEmail: "owner@example.test", orgId: null, role: null, canViewWorkspace: false, totalUsers: 1 },
+      totals: { ...figure(12.3, 3, 1), ...tokens, activeUsers: 1 },
+      currentDay: { ...figure(0, 2, 1), credits: 0, tokens: 2400 },
+      byLabel: [bucket("chat", 12.3, 3, 1)],
+      byModel: [bucket("probe/paid-model", 12.3, 1, 0), bucket("probe/free-model", 0, 1, 0), bucket("probe/unpriced-model", 0, 1, 1)],
+      daily: [{ date: "2026-09-26", ...figure(12.3, 1, 0), tokens: 1200 }, { date: "2026-09-27", ...figure(0, 2, 1), tokens: 2400 }],
+      recent: [],
+    });
+    assert.deepEqual({
+      total: usage.text.match(/Estimated spend(.*?)30 day lookback/)?.[1],
+      today: usage.text.match(/Daily trend(.*?) used today/)?.[1],
+      models: usage.models,
+    }, {
+      total: "12.30¢ + 1 unknown",
+      today: "0.00¢ + 1 unknown",
+      models: { "probe/paid-model": "12.30¢", "probe/free-model": "0.00¢", "probe/unpriced-model": "Unknown" },
+    });
   });
 });
 

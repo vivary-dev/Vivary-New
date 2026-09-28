@@ -153,6 +153,14 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103, failing tests. `tests/native-usage-cost.test.ts` drives Core's OpenRouter engine against a loopback
+fake whose last chunk reports usage with a cost of 0, a positive cost, or no cost. It records each main chat turn
+through the agent loop into the usage table and reads the Usage tab's metrics for a reported $0 call, an unpriced
+call, and a Sonnet call. `tests/native-chat-components.test.mjs` renders the Settings Usage tab with an unknown cost.
+`test:native-chat` now runs the new file. On this commit the engine's usage event carries no cost, Core has no turn
+usage helper, an unpriced model is priced at Sonnet's rates, the metrics do not count unknown costs, and the Usage
+tab shows an unknown cost as 0.00¢. Test wiring only, so the design description holds.
+
 Issues #101 and #102 are closed. PR #126 merged into `dev` as `4032e96` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
 register records it. Documentation only, so the design description holds.
