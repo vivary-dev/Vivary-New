@@ -15,6 +15,7 @@ const CLIENT = join(CORE, "dist", "client");
 const TOOLKIT = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native", "toolkit", "package.json")));
 const COMPOSER = join(TOOLKIT, "dist", "composer");
 const translate = await import(pathToFileURL(join(CORE, "dist", "agent", "engine", "translate-ai-sdk.js")).href);
+const threads = await import(pathToFileURL(join(CORE, "dist", "agent", "thread-data-builder.js")).href);
 
 // Only the Builder connect flow, which polls a status route, is stubbed. It is matched by the file
 // it resolves to, so every importer gets the same stub.
@@ -221,6 +222,16 @@ export async function stopWhileFollowingRun() {
   return snapshot;
 }
 
+// A reload of a saved thread with no run in progress. The chat has loaded once the last of the texts shows.
+export async function reloadThread(threadId, texts) {
+  const chat = await mountChat(threadId, false);
+  await chat.waitForText(texts.at(-1));
+  await act(async () => { await sleep(300); });
+  const snapshot = chat.reading(texts);
+  await chat.unmount();
+  return snapshot;
+}
+
 // The Settings Usage tab reads its metrics and alert rules through the action query cache. The
 // cache holds what the server returns, so the tab renders without a request.
 export async function renderUsage(metrics, alertRules = []) {
@@ -331,9 +342,10 @@ function installDom() {
 }
 
 // The chat server for the whole-chat cases. A run's stream stays open until Stop, which ends it as the run
-// route does, with `done` and reason `user`. Every other route answers 404.
+// route does, with `done` and reason `user`. `savedThreads` maps a thread id to its saved thread data, which
+// has no run in progress. Every other route answers 404.
 const CHAT_API = "http://chat.test/_agent-native/agent-chat";
-function installChatServer() {
+function installChatServer(savedThreads = {}) {
   const encoder = new TextEncoder();
   const frame = event => encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
   const openStreams = new Map();
@@ -371,6 +383,11 @@ function installChatServer() {
       openStreams.get(runId)?.close();
       openStreams.delete(runId);
       return Response.json({ ok: true });
+    }
+    const saved = Object.keys(savedThreads).find(threadId => url.startsWith(`${CHAT_API}/threads/${threadId}`));
+    if (method === "GET" && saved) return Response.json({ id: saved, title: "Saved", threadData: savedThreads[saved] });
+    if (method === "GET" && Object.keys(savedThreads).some(threadId => url.startsWith(`${CHAT_API}/runs/active?threadId=${threadId}`))) {
+      return Response.json({ active: false });
     }
     if (method === "GET" && url.startsWith(`${CHAT_API}/threads/thread-follow`)) {
       return Response.json({ id: "thread-follow", title: "Follow", threadData: JSON.stringify(followThread) });
@@ -504,6 +521,37 @@ test("Native chat controls", async t => {
     const restoreFetch = installChatServer();
     try {
       assert.deepEqual(await proof.stopWhileFollowingRun(), { notices: [], order: ["Finished old answer", "Live partial answer"] });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  // The owner stopped the second turn before the model sent anything. The server saves the turn from the run's
+  // entries as onRunComplete does, only when it builds one, and the client then saves its cancelled copy of the
+  // reply, which has no content and no flag. The reload reads the thread that results.
+  await t.test("a reply stopped before any content shows its notice after a reload, and the history stays", async () => {
+    const createdAt = new Date("2026-09-28T00:00:00Z").toISOString();
+    const earlier = [
+      { parentId: null, message: { id: "user-earlier", role: "user", content: [{ type: "text", text: "Earlier question" }], createdAt } },
+      { parentId: "user-earlier", message: { id: "reply-earlier", role: "assistant", createdAt,
+        content: [{ type: "text", text: "Finished earlier answer" }], status: { type: "complete", reason: "stop" },
+        metadata: { runId: "run-earlier", custom: { runId: "run-earlier", turnId: "turn-earlier" } } } },
+      { parentId: "reply-earlier", message: { id: "user-stopped", role: "user", content: [{ type: "text", text: "Stopped question" }],
+        createdAt } },
+    ];
+    const stopped = { runId: "run-stopped", turnId: "turn-stopped" };
+    const serverTurn = threads.buildAssistantMessage([{ seq: 0, event: { type: "done", reason: "user" } }], stopped.runId,
+      { suppressInternalContinuation: true, turnId: stopped.turnId });
+    const serverRepo = serverTurn
+      ? threads.foldAssistantTurn({ headId: "user-stopped", messages: earlier }, serverTurn, { ...stopped, parentId: "user-stopped" })
+      : { headId: "user-stopped", messages: earlier };
+    const saved = threads.mergeThreadDataForClientSave(serverRepo, { headId: "client-reply", messages: [...earlier,
+      { parentId: "user-stopped", message: { id: "client-reply", role: "assistant", content: [], createdAt,
+        status: { type: "incomplete", reason: "cancelled" }, metadata: { runId: stopped.runId, custom: { ...stopped } } } }] });
+    const restoreFetch = installChatServer({ "thread-stopped": JSON.stringify(saved) });
+    try {
+      assert.deepEqual(await proof.reloadThread("thread-stopped", ["Earlier question", "Finished earlier answer", "Stopped question"]),
+        { notices: [notice], order: ["Earlier question", "Finished earlier answer", "Stopped question", notice] });
     } finally {
       restoreFetch();
     }

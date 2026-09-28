@@ -244,6 +244,57 @@ test("Stop during a tool step that honors its signal", RUN_TEST, async t => {
   }
 });
 
+// The owner stops the turn while OpenRouter still sends only its keep-alive comments, before any text, reasoning, or
+// tool call.
+test("Stop before the model sends anything", RUN_TEST, async t => {
+  const provider = await fakeOpenRouter((_index, response) => { response.write(": OPENROUTER PROCESSING\n\n"); });
+  try {
+    const turn = await stopTurn(provider, loadActionsFromStaticRegistry({}), () => provider.closedAt.length > 0);
+    const runEndMs = since(turn.stoppedAt, turn.loopEndedAt);
+    t.diagnostic(`run ended ${runEndMs} ms after Stop`);
+
+    await t.test("the run ends at once and the saved turn says the owner stopped it", () => {
+      assert.deepEqual({
+        runEndsInTime: runEndMs < RUN_END_MS,
+        terminal: turn.events.filter(event => TERMINAL_TYPES.has(String(event.type))),
+        content: turn.saved?.content,
+        userStopped: turn.saved?.metadata?.custom?.userStopped,
+      }, { runEndsInTime: true, terminal: [{ type: "done", reason: "user" }], content: [], userStopped: true });
+    });
+
+    // The server saves a finished run's turn only when it builds one, as onRunComplete does.
+    const question = { id: "user-1", role: "user", content: userTurn[0].content };
+    const questionRepo = { messages: [{ message: question, parentId: null }], headId: "user-1" };
+    const serverRepo = turn.saved
+      ? threads.foldAssistantTurn(questionRepo, turn.saved, { runId: turn.runId, turnId: turn.turnId, parentId: "user-1" })
+      : questionRepo;
+    const clientSave = (existing: Record<string, unknown>, clientCopy: Record<string, unknown>) => {
+      const merged = threads.mergeThreadDataForClientSave(existing, { messages: [{ message: question, parentId: null },
+        { message: clientCopy, parentId: "user-1" }], headId: "client-reply" });
+      return {
+        roles: merged.messages.map((entry: { message: { role: string } }) => entry.message.role),
+        userStopped: merged.messages.at(-1)?.message?.metadata?.custom?.userStopped,
+        nextRequestRoles: threads.threadDataToEngineMessages(merged).map((message: { role: string }) => message.role),
+      };
+    };
+    const clientCopy = (custom: Record<string, unknown>) => ({ id: "client-reply", role: "assistant", content: [],
+      status: { type: "incomplete", reason: "cancelled" }, metadata: { runId: turn.runId, custom: { runId: turn.runId,
+        turnId: turn.turnId, ...custom } } });
+    // The next request's history leaves the empty reply out, as the live chat's history does.
+    const kept = { roles: ["user", "assistant"], userStopped: true, nextRequestRoles: ["user"] };
+
+    await t.test("a client save of the cancelled copy without the flag keeps the question and the stopped reply", () => {
+      assert.deepEqual(clientSave(serverRepo, clientCopy({})), kept);
+    });
+
+    await t.test("a client save of the flagged copy before the server's save keeps the stopped reply", () => {
+      assert.deepEqual(clientSave(questionRepo, clientCopy({ userStopped: true })), kept);
+    });
+  } finally {
+    await provider.close();
+  }
+});
+
 // A new turn that arrives while the thread's older run is still in memory displaces that run. The owner did not stop it.
 test("a run that a newer turn displaces is not labeled as stopped", RUN_TEST, async () => {
   const provider = await fakeOpenRouter((_index, response) => {

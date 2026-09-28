@@ -20,9 +20,10 @@ after(() => rm(caseRoot, { recursive: true, force: true }));
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const coreUrl = (relative: string) => pathToFileURL(path.join(coreRoot, "dist", relative)).href;
 const load = (relative: string) => import(coreUrl(relative));
-const [agent, store, metrics, alerts, budgets, webhooks] = await Promise.all([load("agent/production-agent.js"),
+const [agent, store, metrics, alerts, budgets, webhooks, tasks] = await Promise.all([load("agent/production-agent.js"),
   load("usage/store.js"), load("usage/metrics-store.js"), load("usage/alerts-store.js"),
-  load("integrations/usage-budget-store.js"), load("integrations/webhook-handler.js")]);
+  load("integrations/usage-budget-store.js"), load("integrations/webhook-handler.js"),
+  load("integrations/pending-tasks-store.js")]);
 const { defineAction } = await import("@agent-native/core/action");
 const { createAISDKEngine } = await import("@agent-native/core/agent/engine");
 const { getDbExec } = await import("@agent-native/core/db");
@@ -109,10 +110,22 @@ async function usageEvent(cost?: number) {
   }
 }
 
-const usageRows = async (runId: string) => (await getDbExec().execute({
-  sql: "SELECT input_tokens, output_tokens, cost_cents_x100, cost_source FROM token_usage WHERE run_id = ?", args: [runId] }))
+const usageRows = async (column: "run_id" | "task_id", id: string) => (await getDbExec().execute({
+  sql: `SELECT input_tokens, output_tokens, cost_cents_x100, cost_source FROM token_usage WHERE ${column} = ?`, args: [id] }))
   .rows.map(row => ({ tokens: Number(row.input_tokens) + Number(row.output_tokens), centicents: Number(row.cost_cents_x100),
     source: String(row.cost_source) }));
+
+// Collects what `action` logs through console.warn and console.error, so an expected failure leaves no trace in the output.
+async function capturingLogs<T>(action: () => Promise<T>) {
+  const lines: string[] = [];
+  const { warn, error } = console;
+  console.warn = console.error = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
+  try {
+    return { result: await action(), lines };
+  } finally {
+    Object.assign(console, { warn, error });
+  }
+}
 
 // One turn: the agent loop's usage events go into the turn's usage, as the chat handler and the
 // integration handler wire it. `stopOnText` presses Stop at the turn's first streamed text. `throws`
@@ -143,7 +156,7 @@ async function runTurn(model: string, respond: Respond, { stopOnText = false, th
 async function recordTurn(model: string, respond: Respond, options: { stopOnText?: boolean; throws?: boolean } = {}) {
   const { owner, runId, turn, requests, threw } = await runTurn(model, respond, options);
   await store.recordUsage({ ownerEmail: owner, ...turn.usageRecord(), label: "chat", runId });
-  return { requests, threw, rows: await usageRows(runId) };
+  return { requests, threw, rows: await usageRows("run_id", runId) };
 }
 
 test("the engine's usage event carries the cost the provider reports", async t => {
@@ -343,18 +356,39 @@ test("a cost alert counts the calls whose cost is unknown", async () => {
 // model settles at its table price and a run with no tokens at 0. An unpriced model that used tokens
 // settles at its reservation, so a budget cap still fills, and its row reads Unknown.
 const RESERVATION_MICROS = 5_000_000;
-async function integrationRun(model: string, respond: Respond) {
-  const { owner, runId, turn } = await runTurn(model, respond);
+async function userBudget(owner: string) {
   const access = { ownerEmail: owner, orgId: null };
   const budget = await budgets.saveIntegrationUsageBudget({ subject: { type: "user", userEmail: owner }, period: "day",
     limitMicros: 4 * RESERVATION_MICROS }, access);
+  const settled = async () => {
+    const snapshot = await budgets.getIntegrationBudgetSnapshot(budget.id, access);
+    return { usedMicros: snapshot.usedMicros, reservedMicros: snapshot.reservedMicros };
+  };
+  return { budget, access, settled };
+}
+
+// `refuseRow` makes the database refuse the run's usage row, as a failed insert would.
+async function integrationRun(model: string, respond: Respond, { refuseRow = false } = {}) {
+  const { owner, runId, turn } = await runTurn(model, respond);
+  const { budget, access, settled } = await userBudget(owner);
   const reservation = { budgetId: budget.id, reservationId: runId, estimatedCostMicros: RESERVATION_MICROS };
   await budgets.reserveIntegrationUsageBudget(reservation, access);
-  await webhooks.recordAndSettleIntegrationUsage([{ ...reservation, access }], { usage: turn.usageRecord(),
-    ownerEmail: owner, appId: "vivary", runId, threadId: `thread-${runId}`,
-    incoming: { platform: "slack", platformContext: {}, replyRef: `message-${runId}` } });
-  const snapshot = await budgets.getIntegrationBudgetSnapshot(budget.id, access);
-  return { usedMicros: snapshot.usedMicros, reservedMicros: snapshot.reservedMicros, rows: await usageRows(runId) };
+  const trigger = `refuse_usage_row_${randomBytes(4).toString("hex")}`;
+  if (refuseRow) {
+    await store.ensureUsageTable();
+    await getDbExec().execute(`CREATE TRIGGER ${trigger} BEFORE INSERT ON token_usage WHEN NEW.run_id = '${runId}'
+      BEGIN SELECT RAISE(ABORT, 'usage row refused'); END`);
+  }
+  let logged: string[];
+  try {
+    ({ lines: logged } = await capturingLogs(() => webhooks.recordAndSettleIntegrationUsage([{ ...reservation, access }], {
+      usage: turn.usageRecord(), ownerEmail: owner, appId: "vivary", runId, threadId: `thread-${runId}`,
+      incoming: { platform: "slack", platformContext: {}, replyRef: `message-${runId}` } })));
+  } finally {
+    if (refuseRow) await getDbExec().execute(`DROP TRIGGER ${trigger}`);
+  }
+  return { ...await settled(), rows: await usageRows("run_id", runId),
+    ...(refuseRow ? { refusalLogged: logged.some(line => line.includes("usage row refused")) } : {}) };
 }
 
 const unpriced = "probe/unpriced-model";
@@ -382,4 +416,60 @@ test("an integration run records its usage row and settles its budget from one u
         rows: run.row ? [{ tokens: INPUT_TOKENS + OUTPUT_TOKENS, ...run.row }] : [] });
     });
   }
+});
+
+// The usage row and the settlement do not depend on each other. A row the database refuses is logged, and
+// the budget still settles.
+test("a refused usage row is logged and the integration budget still settles", async () => {
+  assert.deepEqual(await integrationRun(sonnet, answer(0.0123), { refuseRow: true }),
+    { usedMicros: 12_300, reservedMicros: 0, rows: [], refusalLogged: true });
+});
+
+// The webhook handler runs a claimed integration task end to end. Its agent loop's first call uses a tool
+// and reports usage, and an in-stream provider error cuts off its second call, so the loop throws after it
+// used tokens. The handler then posts a fallback reply. The run's usage has no reported cost, because the
+// cut call reported none, so it settles at Sonnet's table price. `engine` names an engine instead of
+// passing the fake, and `deliver` says whether the platform accepts the reply.
+const loopThatThrows: Respond = (response, index) => (index === 0 ? callTool(0.0123) : cutByProviderError)(response, index);
+async function integrationTask({ engine, deliver }: { engine?: string; deliver: boolean }) {
+  const owner = `owner-${randomUUID()}@example.test`;
+  const { settled } = await userBudget(owner);
+  const taskId = `task-${randomUUID()}`;
+  const incoming = { platform: "probe", externalThreadId: `probe-thread-${taskId}`, text: "Hello", senderId: "probe-user",
+    senderEmail: owner, platformContext: {}, timestamp: Date.now() };
+  await tasks.insertPendingTask({ id: taskId, platform: incoming.platform, externalThreadId: incoming.externalThreadId,
+    payload: JSON.stringify({ incoming }), ownerEmail: owner });
+  await tasks.claimPendingTask(taskId);
+  const adapter = { platform: incoming.platform, label: "Probe", formatAgentResponse: (text: string) => ({ text }),
+    sendResponse: async () => {
+      if (!deliver) throw new Error("probe delivery failed");
+      return { status: "delivered" };
+    } };
+  const provider = await fakeOpenRouter(loopThatThrows);
+  try {
+    const { result: outcome } = await capturingLogs(async () => webhooks.processIntegrationTask(await tasks.getPendingTask(taskId),
+      { adapter, systemPrompt: "", actions, model: sonnet, engine: engine ?? provider.engine, ownerEmail: owner, appId: "vivary" }));
+    return { status: outcome.status, ...(outcome.errorMessage ? { errorMessage: outcome.errorMessage } : {}),
+      requests: provider.requests(), ...await settled(), rows: await usageRows("task_id", taskId) };
+  } finally {
+    await provider.close();
+  }
+}
+
+const cutRunRow = { tokens: INPUT_TOKENS + OUTPUT_TOKENS, centicents: SONNET_CENTICENTS, source: "estimated" };
+test("the webhook handler records and settles a failed integration run", async t => {
+  await t.test("a loop that throws after it used tokens, with the reply delivered", async () => {
+    assert.deepEqual(await integrationTask({ deliver: true }), { status: "completed", requests: 2,
+      usedMicros: SONNET_CENTICENTS * 100, reservedMicros: 0, rows: [cutRunRow] });
+  });
+  await t.test("a loop that throws after it used tokens, with a reply that fails to deliver", async () => {
+    assert.deepEqual(await integrationTask({ deliver: false }), { status: "delivery-pending",
+      errorMessage: "probe delivery failed", requests: 2,
+      usedMicros: SONNET_CENTICENTS * 100, reservedMicros: 0, rows: [cutRunRow] });
+  });
+  // An engine that fails to resolve, as one whose package is not installed does, ends the run before its first call.
+  await t.test("a run that fails before its first model call", async () => {
+    assert.deepEqual(await integrationTask({ engine: "probe-missing-engine", deliver: true }), { status: "completed",
+      requests: 0, usedMicros: 0, reservedMicros: 0, rows: [] });
+  });
 });
