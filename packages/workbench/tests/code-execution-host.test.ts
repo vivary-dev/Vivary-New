@@ -467,7 +467,7 @@ process.send({ type: "vivary:code-worker:ready" });
     await executeVivaryCodeWorker({ runId: request.runId, prompt: "complete", ownerEmail: request.ownerEmail,
       signal: new AbortController().signal });
     assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
-    assert.equal(failure.cause?.step, "taskkill");
+    assert.equal(failure.cause?.step, "worker-exited");
   } finally {
     process.chdir(originalCwd);
     await rm(fixture, { recursive: true, force: true });

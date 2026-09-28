@@ -13,11 +13,17 @@ export const TERMINATION_GRACE_MS = 5_000;
 // Issue #121. One budget for the whole stop, from its first step. The tree was already sent SIGKILL or
 // `taskkill /F`, so a longer wait costs only Stop latency, while a false failure refuses every later run.
 export const CLEANUP_TIMEOUT_MS = 15_000;
+// On Windows `taskkill` gets the budget less this reserve, so a late `taskkill` success still leaves the exit wait
+// this long to observe the worker's exit.
+export const CLEANUP_EXIT_RESERVE_MS = 3_000;
 // The `taskkill` bound for the other modules that call `hardStopWorkerTree`.
 const TASKKILL_TIMEOUT_MS = 3_000;
 
-/** The cleanup step that failed and what it threw. */
-export type CleanupFailure = { step: "taskkill" | "exit" | "group"; error: unknown };
+/**
+ * The cleanup step that failed and what it threw. `worker-exited` means a Windows worker exited after it was sent its
+ * run. `taskkill` cannot reach that worker's descendants, so it never ran.
+ */
+export type CleanupFailure = { step: "taskkill" | "exit" | "group" | "worker-exited"; error: unknown };
 
 export class VivaryCodeWorkerCleanupError extends Error {
   declare cause?: CleanupFailure;
@@ -104,10 +110,11 @@ export async function executeVivaryCodeWorker(input: {
     const stopTree = () => {
       cleanup ??= (async () => {
         const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
-        let step: CleanupFailure["step"] = process.platform === "win32" ? "taskkill" : "group";
+        let step: CleanupFailure["step"] = process.platform !== "win32" ? "group"
+          : workerExited ? "worker-exited" : "taskkill";
         try {
           if (!windowsWorkerStoppedCleanly({ platform: process.platform, workerExited, runSent })) {
-            await hardStopWorkerTree(child, workerExited, CLEANUP_TIMEOUT_MS);
+            await hardStopWorkerTree(child, workerExited, CLEANUP_TIMEOUT_MS - CLEANUP_EXIT_RESERVE_MS);
             if (process.platform === "linux" && child.pid) {
               // The worker leads its own process group, so the group scan also sees the worker.
               await waitForLinuxWorkerGroupExit(child.pid, undefined, deadline - Date.now());
@@ -160,10 +167,19 @@ export async function executeVivaryCodeWorker(input: {
         clearTimeout(startupDeadline);
         // A ready that arrives after the deadline or an abort must not start the run the host is stopping.
         if (failure) return;
+        // A failed write did not deliver the run, so it clears `runSent`. That helps only when the failure is reported
+        // before the worker's exit, because `stopTree` reads `runSent` when it starts.
         try {
           runSent = true;
-          child.send(request, error => { if (error) requestStop(new Error("The coding worker could not receive its run.")); });
-        } catch { requestStop(new Error("The coding worker connection closed.")); }
+          child.send(request, error => {
+            if (!error) return;
+            runSent = false;
+            requestStop(new Error("The coding worker could not receive its run."));
+          });
+        } catch {
+          runSent = false;
+          requestStop(new Error("The coding worker connection closed."));
+        }
         return;
       }
       if (!("runId" in message) || message.runId !== input.runId) return;

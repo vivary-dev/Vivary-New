@@ -173,12 +173,16 @@ both still do. A stop now has one 15-second budget, `CLEANUP_TIMEOUT_MS`, from i
 SIGKILL to the worker's process group and waits on the group alone, and at the deadline the last completed scan
 decides, not the clock. The scan counts a process as gone when its `stat` read fails with `ENOENT`, or with `ESRCH`
 because a Linux kernel reaped it between the scan's open and read. Any other read error fails the stop. On Windows
-`taskkill` gets the budget and the exit wait gets what remains. A Windows worker that exited before the host sent its
-run has started nothing, so its stop is clean. The cleanup error's `cause` names the failed step, `taskkill`, `exit`,
-or `group`, and the redacted server log records it with the run ID. Lifting a persisted refusal and naming leftover
-processes are part B. This page describes the coding worker at the trust-boundary level and not its stop sequence, so
-the description holds. Host tests drive the Windows branch with the platform name set to `win32` and show that a run
-after a cleanup failure starts. A unit test gives the scan a `/proc` reader whose read fails with `ESRCH`.
+`taskkill` gets the budget less a 3-second exit reserve, `CLEANUP_EXIT_RESERVE_MS`, and the exit wait gets what
+remains, so a late `taskkill` success still leaves time to observe the exit. A Windows worker that exited before the
+host sent its run has started nothing, so its stop is clean. A run whose IPC write failed counts as not sent when that
+failure arrives before the worker's exit. The cleanup error's `cause` names the failed step, `taskkill`, `exit`,
+`group`, or `worker-exited` for a Windows worker that exited after its run, which `taskkill` cannot reach, and the
+redacted server log records it with the run ID. Lifting a persisted refusal and naming leftover processes are part B.
+This page describes the coding worker at the trust-boundary level and not its stop sequence, so the description holds.
+Host tests drive the Windows branch with the platform name set to `win32`. They show that a run after a cleanup
+failure starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a
+`/proc` reader whose read fails with `ESRCH`.
 
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
