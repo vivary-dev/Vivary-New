@@ -259,8 +259,8 @@ test("Continue anyway lifts a refusal Vivary cannot check, records who chose it,
   assert.equal("cleanupRefusal" in metadata, false);
   const lift = metadata.cleanupLifted as Record<string, unknown>;
   assert.equal(typeof lift.confirmedAt, "string");
-  assert.deepEqual({ ...lift, confirmedAt: "" }, { how: "owner-confirmed", confirmedAt: "", by: OWNER, remaining: [],
-    hidden: false, scan: "not-recorded" });
+  assert.deepEqual({ ...lift, confirmedAt: "" }, { how: "owner-confirmed", confirmedAt: "", by: OWNER, shown: [],
+    hidden: false, scan: "not-recorded", remaining: [] });
   assert.equal(lastStatus("legacy-marker"),
     "You chose to continue. Vivary could not check whether this run's coding processes stopped. "
     + "Vivary accepts new messages again.");
@@ -432,9 +432,11 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
 
   assert.equal((await continueAnyway()).cleanup, null);
-  const lift = metadataOf("end-windows").cleanupLifted as { how: string; remaining: { pid: number }[] };
+  const lift = metadataOf("end-windows").cleanupLifted as { how: string; shown?: { pid: number }[];
+    remaining: { pid: number }[] };
   assert.equal(lift.how, "owner-confirmed");
-  assert.deepEqual(lift.remaining.map(({ pid }) => pid), [4130, 4140, 4150]);
+  assert.deepEqual(lift.shown?.map(({ pid }) => pid), [4130, 4140, 4150], "what the owner was shown");
+  assert.deepEqual(lift.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what the check before the lift found");
   assert.equal(lastStatus("end-windows"), "You chose to continue while these coding processes were still running: "
     + "node.exe (PID 4130), powershell.exe (PID 4140), late.exe (PID 4150). Vivary accepts new messages again.");
   await writeFile(scanRows, SYSTEM_ROW);
@@ -467,6 +469,52 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
   await assert.rejects(readFile(endLog), { code: "ENOENT" }, "Vivary tried to end nothing");
   assert.equal((await continueAnyway()).cleanup, null);
   await writeFile(scanRows, SYSTEM_ROW);
+});
+
+// A decision carries the version of the list the strip showed. When the list changed since, the decision changes
+// nothing, and Continue anyway never covers a process the owner was not shown.
+test("End them and Continue anyway act only on the list the owner saw", { ...linuxOnly, timeout: 20_000 }, async () => {
+  const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  const shownVersion = async () => (await agent.getVivaryCodeHostState(OWNER)).cleanup?.version;
+  const resolve = (decision: "end" | "continue", version: string | undefined) => agent.resolveVivaryCodeCleanup(
+    { ownerEmail: OWNER, decision, version } as Parameters<typeof agent.resolveVivaryCodeCleanup>[0]);
+  const changed = (error: Error & { errorCode?: string; statusCode?: number }) => {
+    assert.equal(error.errorCode, "vivary_code_cleanup_changed");
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.message, "The list of leftover coding processes changed. Review it again before you choose.");
+    return true;
+  };
+  await rm(endLog, { force: true });
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe"));
+  seedRefusal("stale-choice", worker);
+  await agent.recheckVivaryCodeCleanup();
+  const seen = await shownVersion();
+  // A send from another browser checks again and finds a child the owner has not seen yet.
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4160, 4120, 4_000, "node.exe"));
+  await agent.recheckVivaryCodeCleanup();
+  await assert.rejects(resolve("end", seen), changed);
+  await assert.rejects(readFile(endLog), { code: "ENOENT" }, "a stale End them tried to end nothing");
+  await assert.rejects(resolve("continue", seen), changed);
+  assert.equal("cleanupLifted" in metadataOf("stale-choice"), false);
+  await writeFile(scanRows, SYSTEM_ROW);
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal((metadataOf("stale-choice").cleanupLifted as { how?: string }).how, "rechecked");
+
+  // Vivary could not scan when the owner looked, and the check before Continue anyway finds a process never shown.
+  await writeFile(scanFails, "");
+  seedRefusal("unscanned-choice", worker);
+  await agent.recheckVivaryCodeCleanup();
+  const unscanned = await shownVersion();
+  await rm(scanFails);
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe"));
+  await assert.rejects(resolve("continue", unscanned), changed);
+  assert.equal("cleanupLifted" in metadataOf("unscanned-choice"), false);
+  const host = await agent.getVivaryCodeHostState(OWNER);
+  assert.deepEqual(host.cleanup?.remaining.map(({ pid }) => pid), [4120], "the strip now lists it");
+  assert.equal(host.cleanup?.canEnd, true);
+  await writeFile(scanRows, SYSTEM_ROW);
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal((metadataOf("unscanned-choice").cleanupLifted as { how?: string }).how, "rechecked");
 });
 
 test("a refusal Vivary cannot read still refuses until the owner continues", linuxOnly, async () => {
