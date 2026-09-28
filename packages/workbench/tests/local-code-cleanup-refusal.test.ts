@@ -537,14 +537,23 @@ test("End them records what it ended even when the check after it cannot run", {
 
 // A group or a parent PID that Vivary did not trace to the run can belong to another program after PID reuse, so End
 // them lists such processes but never ends them.
-test("End them never ends a listed process it cannot trace to the run", { ...linuxOnly, timeout: 20_000 }, async () => {
+test("a list with no process traced to the run offers only Continue anyway and says why", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
   const stranger = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
   const groupId = stranger.pid!;
   const exited = once(stranger, "exit");
   try {
     seedRefusal("untraced-group", { platform: "linux", groupId, bootId: await bootId() });
     await agent.recheckVivaryCodeCleanup();
-    assert.deepEqual((await decide("end")).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
+    const host = await agent.getVivaryCodeHostState(OWNER);
+    assert.equal(host.cleanup?.heading, "Processes that may be left from an earlier run are still running");
+    assert.deepEqual(host.cleanup?.remaining, [{ pid: groupId, name: "sleep", confirmed: false }]);
+    assert.equal(host.cleanup?.instruction, "Vivary cannot confirm that these came from that run, so it will not end "
+      + `them. If they did, stop them with \`kill -KILL -- -${groupId}\`, then choose Continue anyway.`);
+    assert.equal(host.cleanup?.canEnd, false, "End them has nothing it may end");
+    assert.equal(host.cleanup?.canContinue, true);
+    await assert.rejects(decide("end"), { errorCode: "vivary_code_cleanup_not_offered" });
     assert.equal(stranger.exitCode === null && stranger.signalCode === null, true, "the untraced process still runs");
     assert.equal((await continueAnyway()).cleanup, null);
   } finally {
@@ -558,7 +567,11 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
   seedRefusal("untraced-parent", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
   await agent.recheckVivaryCodeCleanup();
-  assert.deepEqual((await decide("end")).cleanup?.remaining, [{ pid: 500, name: "unrelated.exe" }]);
+  const windows = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+  assert.deepEqual(windows?.remaining, [{ pid: 500, name: "unrelated.exe", confirmed: false }]);
+  assert.equal(windows?.canEnd, false);
+  assert.equal(windows?.instruction, "Vivary cannot confirm that these came from that run, so it will not end them. "
+    + "If they did, end them in Task Manager by PID, then choose Continue anyway.");
   await assert.rejects(readFile(endLog), { code: "ENOENT" }, "Vivary tried to end nothing");
   assert.equal((await continueAnyway()).cleanup, null);
   await writeFile(scanRows, SYSTEM_ROW);
