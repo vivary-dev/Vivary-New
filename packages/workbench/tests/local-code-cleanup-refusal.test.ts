@@ -32,6 +32,7 @@ const scanRows = path.join(fixture, "scan-rows.txt");
 const scanFails = path.join(fixture, "scan-fails");
 const leaveChild = path.join(fixture, "leave-child");
 const workerRecord = path.join(fixture, "worker.txt");
+const taskkillLog = path.join(fixture, "taskkill.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
 await mkdir(projectRoot);
 await mkdir(bin);
@@ -64,6 +65,13 @@ if [ -f ${JSON.stringify(leaveChild)} ]; then
 fi
 `, { mode: 0o755 });
 await writeFile(scanRows, SYSTEM_ROW);
+// Ends one process by removing its row from the next scan. PID 4130 refuses, like a process Windows denies access to.
+await writeFile(path.join(fixture, "System32", "taskkill.exe"), `#!/bin/sh
+printf '%s\\n' "$*" >> ${JSON.stringify(taskkillLog)}
+[ "$2" = 4130 ] && exit 1
+grep -v "^$2$(printf '\\t')" ${JSON.stringify(scanRows)} > ${JSON.stringify(scanRows)}.next
+mv ${JSON.stringify(scanRows)}.next ${JSON.stringify(scanRows)}
+`, { mode: 0o755 });
 
 const saved = new Map<string, string | undefined>();
 function useSetting(name: string, value: string): void {
@@ -165,9 +173,14 @@ async function sendAndSettle(message: string): Promise<string> {
   return runId;
 }
 
-async function continueAnyway() {
+/** The owner's choice on the refusal the host strip shows, through the action's own input schema. */
+async function decide(decision: string) {
   const { default: cleanupAction } = await import("../actions/vivary-code-cleanup.ts");
-  return cleanupAction.run({ decision: "continue" }, OWNER_CONTEXT);
+  return cleanupAction.run(cleanupAction.schema.parse({ decision }), OWNER_CONTEXT);
+}
+
+function continueAnyway() {
+  return decide("continue");
 }
 
 test("host start lifts a refusal whose group already emptied without a send, and keeps one it cannot check", {
@@ -311,6 +324,58 @@ test("a Windows run whose worker exits after its run records a refusal that name
   } finally {
     await rm(leaveChild, { force: true });
   }
+});
+
+test("End them ends the listed process that a fresh scan still shows, then lifts the refusal", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  const sleeper = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+  const groupId = sleeper.pid!;
+  const exited = once(sleeper, "exit");
+  try {
+    seedRefusal("end-linux", { platform: "linux", groupId, bootId: await bootId() });
+    await agent.recheckVivaryCodeCleanup();
+    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
+    assert.equal((await decide("end")).cleanup, null);
+    assert.deepEqual(await exited, [null, "SIGKILL"]);
+    const lift = metadataOf("end-linux").cleanupLifted as { how: string; by: string; ended: { pid: number; name: string }[] };
+    assert.equal(lift.how, "ended");
+    assert.equal(lift.by, OWNER);
+    assert.deepEqual(lift.ended.map(({ pid, name }) => ({ pid, name })), [{ pid: groupId, name: "sleep" }]);
+    assert.equal(lastStatus("end-linux"), `You chose End them. Vivary ended sleep (PID ${groupId}) and found no coding `
+      + "processes left. Vivary accepts new messages again.");
+  } finally {
+    if (sleeper.exitCode === null && sleeper.signalCode === null) process.kill(-groupId, "SIGKILL");
+  }
+});
+
+// The worker 4120 left a child and a grandchild. Before End them, the grandchild's PID passes to a new process, and a
+// process the owner never saw appears.
+test("End them on Windows ends each shown process by PID and creation time, never a tree, then offers Continue anyway", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  await rm(taskkillLog, { force: true });
+  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n4130\t4120\t3000\tnode.exe\r\n`
+    + "4140\t4120\t3500\tpowershell.exe\r\n");
+  seedRefusal("end-windows", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: null }] });
+  await agent.recheckVivaryCodeCleanup();
+  assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining.map(({ pid }) => pid), [4120, 4130, 4140]);
+  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n4130\t4120\t3000\tnode.exe\r\n`
+    + "4140\t4120\t9999\tpowershell.exe\r\n4150\t4120\t3600\tlate.exe\r\n");
+  const state = await decide("end");
+  assert.deepEqual((await readFile(taskkillLog, "utf8")).trim().split("\n"), ["/PID 4120 /F", "/PID 4130 /F"]);
+  assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what End them could not end");
+  assert.equal(state.cleanup?.canEnd, true);
+  assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
+
+  assert.equal((await continueAnyway()).cleanup, null);
+  const lift = metadataOf("end-windows").cleanupLifted as { how: string; remaining: { pid: number }[] };
+  assert.equal(lift.how, "owner-confirmed");
+  assert.deepEqual(lift.remaining.map(({ pid }) => pid), [4130, 4140, 4150]);
+  assert.equal(lastStatus("end-windows"), "You chose to continue while these coding processes were still running: "
+    + "node.exe (PID 4130), powershell.exe (PID 4140), late.exe (PID 4150). Vivary accepts new messages again.");
+  await writeFile(scanRows, SYSTEM_ROW);
 });
 
 test("shutdown refuses new sends with its own reason, and a check does not lift it", linuxOnly, async () => {
