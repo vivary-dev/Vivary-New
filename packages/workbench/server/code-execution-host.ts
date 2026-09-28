@@ -9,13 +9,28 @@ import { credentialFingerprints } from "./credential-redaction.ts";
 import { codingRuntimeEnvironment } from "./local-runtime-setup.ts";
 
 export const STARTUP_TIMEOUT_MS = 15_000;
-const TERMINATION_GRACE_MS = 5_000;
-const EXIT_TIMEOUT_MS = 3_000;
-let cleanupBlocked = false;
+export const TERMINATION_GRACE_MS = 5_000;
+// Issue #121. One budget for the whole stop, from its first step. The tree was already sent SIGKILL or
+// `taskkill /F`, so a longer wait costs only Stop latency, while a false failure refuses every later run.
+export const CLEANUP_TIMEOUT_MS = 15_000;
+// On Windows `taskkill` gets the budget less this reserve, so a late `taskkill` success still leaves the exit wait
+// this long to observe the worker's exit.
+export const CLEANUP_EXIT_RESERVE_MS = 3_000;
+// The `taskkill` bound for the other modules that call `hardStopWorkerTree`.
+const TASKKILL_TIMEOUT_MS = 3_000;
+
+/**
+ * The cleanup step that failed and what it threw. `worker-exited` means a Windows worker exited after it was sent its
+ * run. `taskkill` cannot reach that worker's descendants, so it never ran.
+ */
+export type CleanupFailure = { step: "taskkill" | "exit" | "group" | "worker-exited"; error: unknown };
 
 export class VivaryCodeWorkerCleanupError extends Error {
-  constructor() {
-    super("The coding process could not be stopped completely. Stop the remaining coding processes before resuming Vivary.");
+  declare cause?: CleanupFailure;
+
+  constructor(cause?: CleanupFailure) {
+    super("The coding process could not be stopped completely. Stop the remaining coding processes before resuming Vivary.",
+      cause && { cause });
     this.name = "VivaryCodeWorkerCleanupError";
   }
 }
@@ -37,7 +52,6 @@ export async function executeVivaryCodeWorker(input: {
   orgId?: string;
   signal: AbortSignal;
 }): Promise<void> {
-  if (cleanupBlocked) throw new VivaryCodeWorkerCleanupError();
   if (input.signal.aborted) throw aborted();
   const request: VivaryCodeWorkerRequest = {
     type: "vivary:code-worker:start", runId: input.runId, prompt: input.prompt,
@@ -67,6 +81,8 @@ export async function executeVivaryCodeWorker(input: {
     let reported = false;
     let settled = false;
     let sent = false;
+    // `sent` turns true when ready arrives, even when the host then withholds the run.
+    let runSent = false;
     let cleanup: Promise<void> | null = null;
     let grace: ReturnType<typeof setTimeout> | undefined;
     let exitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -93,20 +109,31 @@ export async function executeVivaryCodeWorker(input: {
     };
     const stopTree = () => {
       cleanup ??= (async () => {
+        const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
+        let step: CleanupFailure["step"] = process.platform !== "win32" ? "group"
+          : workerExited ? "worker-exited" : "taskkill";
         try {
-          await hardStopWorkerTree(child, workerExited);
-          await Promise.race([
-            exited,
-            new Promise<never>((_resolve, rejectExit) => {
-              exitTimer = setTimeout(() => rejectExit(new VivaryCodeWorkerCleanupError()), EXIT_TIMEOUT_MS);
-            }),
-          ]);
-          clearTimeout(exitTimer);
-          if (process.platform === "linux" && child.pid) await waitForLinuxWorkerGroupExit(child.pid);
+          if (!windowsWorkerStoppedCleanly({ platform: process.platform, workerExited, runSent })) {
+            await hardStopWorkerTree(child, workerExited, CLEANUP_TIMEOUT_MS - CLEANUP_EXIT_RESERVE_MS);
+            if (process.platform === "linux" && child.pid) {
+              // The worker leads its own process group, so the group scan also sees the worker.
+              await waitForLinuxWorkerGroupExit(child.pid, undefined, deadline - Date.now());
+            } else {
+              step = "exit";
+              await new Promise<void>((resolveStop, rejectStop) => {
+                void exited.then(resolveStop);
+                // A starved host can run this timer before the poll phase delivers an exit that already
+                // happened, so the verdict waits one more turn and reads the exit the host observed.
+                exitTimer = setTimeout(() => setImmediate(() => {
+                  if (workerExited) resolveStop();
+                  else rejectStop(new VivaryCodeWorkerCleanupError());
+                }), Math.max(0, deadline - Date.now()));
+              });
+            }
+          }
           finish(failure);
-        } catch {
-          cleanupBlocked = true;
-          finish(new VivaryCodeWorkerCleanupError());
+        } catch (error) {
+          finish(new VivaryCodeWorkerCleanupError({ step, error }));
         }
       })();
     };
@@ -140,9 +167,19 @@ export async function executeVivaryCodeWorker(input: {
         clearTimeout(startupDeadline);
         // A ready that arrives after the deadline or an abort must not start the run the host is stopping.
         if (failure) return;
+        // A failed write did not deliver the run, so it clears `runSent`. That helps only when the failure is reported
+        // before the worker's exit, because `stopTree` reads `runSent` when it starts.
         try {
-          child.send(request, error => { if (error) requestStop(new Error("The coding worker could not receive its run.")); });
-        } catch { requestStop(new Error("The coding worker connection closed.")); }
+          runSent = true;
+          child.send(request, error => {
+            if (!error) return;
+            runSent = false;
+            requestStop(new Error("The coding worker could not receive its run."));
+          });
+        } catch {
+          runSent = false;
+          requestStop(new Error("The coding worker connection closed."));
+        }
         return;
       }
       if (!("runId" in message) || message.runId !== input.runId) return;
@@ -173,7 +210,20 @@ export async function executeVivaryCodeWorker(input: {
   });
 }
 
-export async function hardStopWorkerTree(child: ChildProcess, workerExited: boolean): Promise<void> {
+/**
+ * Issue #121. `taskkill /T` needs a live parent, so Windows cannot stop the tree of a worker that already exited.
+ * The worker starts processes only after it receives its run, so a worker that exited before the host sent its run
+ * has started nothing and needs no cleanup.
+ */
+export function windowsWorkerStoppedCleanly(worker: {
+  platform: NodeJS.Platform; workerExited: boolean; runSent: boolean;
+}): boolean {
+  return worker.platform === "win32" && worker.workerExited && !worker.runSent;
+}
+
+export async function hardStopWorkerTree(
+  child: ChildProcess, workerExited: boolean, taskkillTimeoutMs = TASKKILL_TIMEOUT_MS,
+): Promise<void> {
   if (!child.pid) return;
   if (process.platform === "win32") {
     if (workerExited) throw new VivaryCodeWorkerCleanupError();
@@ -182,7 +232,7 @@ export async function hardStopWorkerTree(child: ChildProcess, workerExited: bool
     const taskkill = path.join(systemRoot, "System32", "taskkill.exe");
     await new Promise<void>((resolve, reject) => {
       execFile(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
-        windowsHide: true, shell: false, timeout: EXIT_TIMEOUT_MS, maxBuffer: 16 * 1024,
+        windowsHide: true, shell: false, timeout: taskkillTimeoutMs, maxBuffer: 16 * 1024,
       }, error => { if (error) reject(error); else resolve(); });
     });
     return;
@@ -192,16 +242,24 @@ export async function hardStopWorkerTree(child: ChildProcess, workerExited: bool
   }
 }
 
-async function linuxWorkerGroupHasLiveMember(groupId: number): Promise<boolean> {
+// Tests pass their own reader to produce read errors that a Linux kernel shows only in a race.
+const linuxProc = {
+  list: () => readdir("/proc"),
+  stat: (pid: string) => readFile(`/proc/${pid}/stat`, "utf8"),
+};
+
+export async function linuxWorkerGroupHasLiveMember(groupId: number, proc = linuxProc): Promise<boolean> {
   let entries: string[];
-  try { entries = await readdir("/proc"); }
+  try { entries = await proc.list(); }
   catch { throw new VivaryCodeWorkerCleanupError(); }
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue;
     let raw: string;
-    try { raw = await readFile(`/proc/${entry}/stat`, "utf8"); }
+    try { raw = await proc.stat(entry); }
     catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      // ENOENT is a process that exited before the open. ESRCH is one reaped between the open and the read, which a
+      // Linux kernel reports and gVisor does not. Neither is a live member. Any other error fails closed.
+      if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ESRCH")) continue;
       throw new VivaryCodeWorkerCleanupError();
     }
     if (linuxProcStatIsLiveGroupMember(raw, groupId)) return true;
@@ -222,26 +280,36 @@ export function linuxProcStatIsLiveGroupMember(raw: string, groupId: number): bo
 }
 
 export async function waitForLinuxWorkerGroupExit(
-  groupId: number, inspect = linuxWorkerGroupHasLiveMember, timeoutMs = EXIT_TIMEOUT_MS,
+  groupId: number, inspect = linuxWorkerGroupHasLiveMember, timeoutMs = CLEANUP_TIMEOUT_MS,
 ): Promise<void> {
   if (!Number.isSafeInteger(groupId) || groupId < 1) throw new VivaryCodeWorkerCleanupError();
   const deadline = Date.now() + timeoutMs;
   let emptyObservations = 0;
   for (;;) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new VivaryCodeWorkerCleanupError();
-    const live = await new Promise<boolean>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new VivaryCodeWorkerCleanupError()), remaining);
-      void inspect(groupId).then(
-        value => { clearTimeout(timer); resolve(value); },
-        error => { clearTimeout(timer); reject(error); },
-      );
-    });
-    if (Date.now() >= deadline) throw new VivaryCodeWorkerCleanupError();
+    const live = await scanBefore(deadline, () => inspect(groupId));
+    // Issue #121. At the deadline the last completed scan decides, not the clock. The group was sent SIGKILL
+    // before this wait, so an empty scan is trusted even when no time is left for a second one.
+    if (live === undefined) {
+      if (emptyObservations > 0) return;
+      throw new VivaryCodeWorkerCleanupError();
+    }
     emptyObservations = live ? 0 : emptyObservations + 1;
     // /proc traversal is not atomic. A second empty scan catches a group
     // member that appeared after the first scan passed its PID.
     if (emptyObservations === 2) return;
-    await delay(Math.min(20, Math.max(1, deadline - Date.now())));
+    if (live) await delay(Math.min(20, Math.max(1, deadline - Date.now())));
   }
+}
+
+/** The scan's result, or undefined when the deadline passes before the scan finishes. */
+function scanBefore(deadline: number, scan: () => Promise<boolean>): Promise<boolean | undefined> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.resolve(undefined);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(undefined), remaining);
+    void scan().then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
 }

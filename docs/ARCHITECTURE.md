@@ -153,6 +153,41 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #107. The maintained Core patch renumbers tool-call ids when a server path replays a saved conversation with
+its tool calls, which the chained background continuation and a sub-agent's continue mode do. Each replayed call gets
+`r` and eight base-36 digits from one counter per replay, and its result carries the same id, so no two replayed
+calls share their first nine characters. Saved thread data keeps its ids, which the browser's reconnect matching
+needs. The browser's own replays already used `h` and `c` ids. This page describes Native conversation storage and
+replay at the component level and not the id format, so the description holds. The patch README section
+"Server-replayed tool-call ids" has the detail, and `replay-tool-call-ids.test.mjs` replays a turn folded from two
+chunks.
+
+Issue #121, part A. One failed cleanup of a coding worker no longer refuses every later run in the process.
+`code-execution-host.ts` drops its module flag `cleanupBlocked`. Its only product caller, `local-code-agent.ts`,
+already refuses later runs through the shared `hostState.closing` and the persisted `cleanupUnverified` marker, and
+both still do. A stop now has one 15-second budget, `CLEANUP_TIMEOUT_MS`, from its first step. On Linux the host sends
+SIGKILL to the worker's process group and waits on the group alone, and at the deadline the last completed scan
+decides, not the clock. The scan counts a process as gone when its `stat` read fails with `ENOENT`, or with `ESRCH`
+because a Linux kernel reaped it between the scan's open and read. Any other read error fails the stop. On Windows
+`taskkill` gets the budget less a 3-second exit reserve, `CLEANUP_EXIT_RESERVE_MS`, and the exit wait gets what
+remains, so a late `taskkill` success still leaves time to observe the exit. A Windows worker that exited before the
+host sent its run has started nothing, so its stop is clean. A run whose IPC write failed counts as not sent when that
+failure arrives before the worker's exit. The cleanup error's `cause` names the failed step, `taskkill`, `exit`,
+`group`, or `worker-exited` for a Windows worker that exited after its run, which `taskkill` cannot reach, and the
+redacted server log records it with the run ID. Lifting a persisted refusal and naming leftover processes are part B.
+Two limits remain. Host shutdown waits `SHUTDOWN_WAIT_MS`, 10 seconds, for active runs, and a stop can take the
+5-second grace plus the 15-second budget. At quit the kill is sent, but a verification that runs longer is not
+recorded. That was already true before this change, when a stop could take up to 11 seconds. The one empty scan
+trusted at the deadline assumes SIGKILL reached every group member, which a setuid member can refuse. This page
+describes the coding worker at the trust-boundary level and not its stop sequence, so the description holds. Host
+tests drive the Windows branch with the platform name set to `win32`. They show that a run after a cleanup failure
+starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a `/proc`
+reader whose read fails with `ESRCH`.
+
+Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
+register records it and the `0697293f` packaged check. Documentation only, so the design description holds.
+
 Issue #103, Native usage cost. The maintained Core patch records the cost that a provider reports for a Native model
 call and never guesses one. The AI SDK engine reads OpenRouter's reported cost from the step's `finish-step` part and
 puts it on its usage event. `createTurnUsage` sums a turn's usage over its model calls and internal continuations. A
