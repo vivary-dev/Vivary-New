@@ -577,6 +577,8 @@ async function executeVivaryCodeRun(input: {
     }
   } catch (error) {
     if (error instanceof VivaryCodeWorkerCleanupError) {
+      // The credential redaction plugin redacts server output.
+      console.error(`[vivary-code-host] cleanup-unverified run=${input.runId} step=${error.cause?.step ?? "unknown"}`);
       hostState.closing = true;
       appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message: error.message,
         metadata: { status: "errored", phase: "cleanup-unverified" } });

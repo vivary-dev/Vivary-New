@@ -6,8 +6,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, STARTUP_TIMEOUT_MS, waitForLinuxWorkerGroupExit,
-  VivaryCodeWorkerCleanupError } from "../server/code-execution-host.ts";
+import { CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, linuxProcStatIsLiveGroupMember, STARTUP_TIMEOUT_MS,
+  TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit, windowsWorkerStoppedCleanly,
+} from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
 import { isCredentialName } from "../server/local-runtime-setup.ts";
@@ -84,7 +85,32 @@ test("Linux worker cleanup trusts an empty scan that finished after the deadline
   }
 });
 
-test("native-complete and aborted workers stop descendants before settling", { timeout: 12_000, skip: process.platform === "win32" }, async t => {
+test("Linux worker cleanup refuses a group that stays live for the whole budget", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  let scans = 0;
+  await assert.rejects(waitForLinuxWorkerGroupExit(12345, async () => {
+    t.mock.timers.tick(1_000);
+    scans++;
+    return true;
+  }), VivaryCodeWorkerCleanupError);
+  assert.equal(scans, CLEANUP_TIMEOUT_MS / 1_000, "every scan inside the budget ran");
+});
+
+test("only a Windows worker that exited before its run was sent counts as stopped", () => {
+  const cases = [
+    { platform: "win32", workerExited: true, runSent: false, clean: true },
+    { platform: "win32", workerExited: true, runSent: true, clean: false },
+    { platform: "win32", workerExited: false, runSent: false, clean: false },
+    { platform: "linux", workerExited: true, runSent: false, clean: false },
+  ] as const;
+  for (const { clean, ...worker } of cases) assert.equal(windowsWorkerStoppedCleanly(worker), clean, JSON.stringify(worker));
+});
+
+// The abort case waits out the grace, and either case can spend the whole cleanup budget. A true cleanup failure
+// then reports its own error instead of a test timeout.
+test("native-complete and aborted workers stop descendants before settling", {
+  timeout: TERMINATION_GRACE_MS + CLEANUP_TIMEOUT_MS + 10_000, skip: process.platform === "win32",
+}, async t => {
   const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-"));
   const server = path.join(fixture, ".output", "server");
@@ -179,8 +205,7 @@ process.send({ type: "vivary:code-worker:ready" });
   }
 });
 
-// Skipped on Windows, where cleanup refuses a worker that already exited, and this worker exits on its own.
-test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000, skip: process.platform === "win32" }, async t => {
+test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000 }, async t => {
   const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-late-ready-"));
   const server = path.join(fixture, ".output", "server");

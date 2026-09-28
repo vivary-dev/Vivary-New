@@ -153,6 +153,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #121, part A. One failed cleanup of a coding worker no longer refuses every later run in the process.
+`code-execution-host.ts` drops its module flag `cleanupBlocked`. Its only product caller, `local-code-agent.ts`,
+already refuses later runs through the shared `hostState.closing` and the persisted `cleanupUnverified` marker, and
+both still do. A stop now has one 15-second budget, `CLEANUP_TIMEOUT_MS`, from its first step. On Linux the host sends
+SIGKILL to the worker's process group and waits on the group alone, and at the deadline the last completed scan
+decides, not the clock. On Windows `taskkill` gets the budget and the exit wait gets what remains. A Windows worker
+that exited before the host sent its run has started nothing, so its stop is clean. The cleanup error's `cause` names
+the failed step, `taskkill`, `exit`, or `group`, and the redacted server log records it with the run ID. Lifting a
+persisted refusal and naming leftover processes are part B. This page describes the coding worker at the
+trust-boundary level and not its stop sequence, so the description holds. Host tests drive the Windows branch with
+the platform name set to `win32` and show that a run after a cleanup failure starts.
+
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
 register records it and the `0697293f` packaged check. Documentation only, so the design description holds.
