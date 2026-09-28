@@ -175,10 +175,14 @@ host sent its run has started nothing, so its stop is clean. A run whose IPC wri
 failure arrives before the worker's exit. The cleanup error's `cause` names the failed step, `taskkill`, `exit`,
 `group`, or `worker-exited` for a Windows worker that exited after its run, which `taskkill` cannot reach, and the
 redacted server log records it with the run ID. Lifting a persisted refusal and naming leftover processes are part B.
-This page describes the coding worker at the trust-boundary level and not its stop sequence, so the description holds.
-Host tests drive the Windows branch with the platform name set to `win32`. They show that a run after a cleanup
-failure starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a
-`/proc` reader whose read fails with `ESRCH`.
+Two limits remain. Host shutdown waits `SHUTDOWN_WAIT_MS`, 10 seconds, for active runs, and a stop can take the
+5-second grace plus the 15-second budget. At quit the kill is sent, but a verification that runs longer is not
+recorded. That was already true before this change, when a stop could take up to 11 seconds. The one empty scan
+trusted at the deadline assumes SIGKILL reached every group member, which a setuid member can refuse. This page
+describes the coding worker at the trust-boundary level and not its stop sequence, so the description holds. Host
+tests drive the Windows branch with the platform name set to `win32`. They show that a run after a cleanup failure
+starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a `/proc`
+reader whose read fails with `ESRCH`.
 
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance

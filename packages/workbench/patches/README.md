@@ -131,8 +131,8 @@ continuation in `agent/production-agent.js` and a sub-agent's continue mode in
 `server/agent-teams.js`. Both call `threadDataToEngineMessages` with
 `includeToolCalls`, which copied each saved tool-call id into the replayed call
 and its result. A call saved without a provider id is stored as
-`<runId>:tc_<n>`, and run ids from the same day share their first nine
-characters, so these replays met the collision in the previous section.
+`<runId>:tc_<n>`, and run ids created within about a day share their first
+nine characters, so these replays met the collision in the previous section.
 
 The replay now gives each call a new id, the prefix `r` and eight base-36
 digits from one counter for the whole replay, and the call's result carries the

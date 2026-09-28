@@ -47,7 +47,7 @@ test("a turn with several tool calls replays ids that stay distinct in their fir
 
 // Issue #107. A server-side resume, the chained background continuation or a sub-agent's continue mode, replays
 // stored tool calls from thread data. A call saved without a provider id is stored as `${runId}:tc_<n>`, and run
-// ids from the same day share their first nine characters.
+// ids created within about a day share their first nine characters.
 const toolTurn = (runId, turnId, calls) => buildAssistantMessage([
   ...calls.flatMap(({ id, n }, index) => [
     { seq: index * 2, event: { type: "tool_start", tool: "vivary-project-read", input: { report: "find", n }, ...(id && { id }) } },
