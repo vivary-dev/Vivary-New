@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -144,12 +145,14 @@ process.on("message", message => {
 });
 process.send({type:"vivary:code-worker:ready"});
 `);
+  let controller: AbortController | undefined;
+  let execution: Promise<void> | undefined;
   try {
     process.chdir(fixture);
     for (const mode of ["complete", "abort"]) {
       await rm(pids, { force: true });
-      const controller = new AbortController();
-      const execution = executeVivaryCodeWorker({
+      controller = new AbortController();
+      execution = executeVivaryCodeWorker({
         runId: request.runId, prompt: mode, ownerEmail: request.ownerEmail, signal: controller.signal,
       });
       const identities = await waitForPids(pids, t.signal);
@@ -169,6 +172,9 @@ process.send({type:"vivary:code-worker:ready"});
     }), { name: "AbortError" });
   } finally {
     process.chdir(originalCwd);
+    // A wait that the test's timeout ended leaves the detached worker and its descendant running until this stop.
+    controller?.abort();
+    await execution?.catch(() => undefined);
     await rm(fixture, { recursive: true, force: true });
   }
 });
@@ -330,9 +336,10 @@ process.send({type:"vivary:code-worker:ready"});
     });
     // Issue #121. The rejection handler keeps a stopped run from replacing this test's own failure.
     void execution.then(() => { finished = true; }, () => undefined);
-    // Wait for the request itself, however long the worker takes to start. A run that ends first fails the test.
-    await Promise.race([arrived, execution]);
-    assert.ok(resolveRequest);
+    // Wait for the request itself, however long the worker takes to start. A run that ends first fails the test, and
+    // the test's timeout ends the wait so that `finally` runs.
+    await Promise.race([arrived, execution, once(t.signal, "abort")]);
+    assert.ok(resolveRequest, "the approval request arrived before the test timed out");
     t.mock.timers.tick(120_001);
     await delay(20);
     assert.equal(finished, false);
@@ -345,10 +352,11 @@ process.send({type:"vivary:code-worker:ready"});
     assert.deepEqual(JSON.parse(await readFile(path.join(fixture, "response.json"), "utf8")),
       { type: "vivary:code-worker:response", requestId: "native-id", result: { decision: "decline" } });
   } finally {
+    // Restore cwd before anything that waits, since a stop can take the grace plus the cleanup budget.
+    process.chdir(originalCwd);
     t.mock.timers.reset();
     controller.abort();
     await execution?.catch(() => undefined);
-    process.chdir(originalCwd);
     await rm(fixture, { recursive: true, force: true });
   }
 });
@@ -401,6 +409,44 @@ test("a Windows worker that exits before it receives its run stops cleanly", { t
     assert.match(error.message, /^The coding worker (ended before completing its run|connection closed)\.$/);
   } finally {
     process.chdir(originalCwd);
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("a Windows worker that reports ready after an abort and then exits stops cleanly", { timeout: 12_000 }, async t => {
+  const originalCwd = process.cwd();
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-windows-late-ready-"));
+  const server = path.join(fixture, ".output", "server");
+  const loaded = path.join(fixture, "loaded.json");
+  await mkdir(server, { recursive: true });
+  // The host withholds the run from a ready that arrives after the abort, so this worker started nothing.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type !== "vivary:code-worker:abort") return;
+  process.send({ type: "vivary:code-worker:ready" });
+  setTimeout(() => process.exit(0), 500);
+});
+writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid }));
+`);
+  try {
+    process.chdir(fixture);
+    const controller = new AbortController();
+    const error = await asWindows(async () => {
+      const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "start late", ownerEmail: request.ownerEmail,
+        signal: controller.signal }).then(() => null, (failure: unknown) => failure);
+      await waitForPids(loaded, t.signal);
+      controller.abort();
+      return outcome;
+    });
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, "AbortError", "a run the host withheld needs no cleanup");
+  } finally {
+    process.chdir(originalCwd);
+    const pid = await readFile(loaded, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
+    if (pid && await isAlive(pid)) {
+      try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
     await rm(fixture, { recursive: true, force: true });
   }
 });
