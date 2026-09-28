@@ -4,7 +4,7 @@ import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/too
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconArchiveOff, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { VivaryCodeState } from "../../../server/local-code-agent";
 import type { ArchivedNativeChat } from "../../../server/native-archive";
@@ -221,7 +221,18 @@ type RestoreNotice =
 
 // Restores run one at a time across every mounted sidebar. The hidden desktop sidebar stays mounted beside the narrow
 // sheet, so a lock per instance would let two restores overlap.
+// Every instance reads the same pending state, so each shows busy while any restore runs.
 let restoreInFlight = false;
+const restoreListeners = new Set<() => void>();
+function setRestoreInFlight(value: boolean) {
+  restoreInFlight = value;
+  for (const listener of restoreListeners) listener();
+}
+function subscribeRestore(listener: () => void) {
+  restoreListeners.add(listener);
+  return () => { restoreListeners.delete(listener); };
+}
+const readRestoreInFlight = () => restoreInFlight;
 
 function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { storageKey: string; projectId: string | null;
   onRestore: (threadId: string, open: boolean) => Promise<boolean>; onOpen: (threadId: string) => void }) {
@@ -231,8 +242,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
   // An earlier restore can never navigate, set the notice, or strand focus after a later one. A click while one is in
-  // flight is ignored, and the section that started it reads as busy.
-  const [busy, setBusy] = useState(false);
+  // flight is ignored, and every mounted section reads as busy.
+  const busy = useSyncExternalStore(subscribeRestore, readRestoreInFlight, readRestoreInFlight);
   const enabled = open && ready;
   const archived = useQuery({
     queryKey: ["vivary-native-archive", storageKey],
@@ -252,8 +263,7 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
     ? notice : undefined;
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
     if (restoreInFlight) return;
-    restoreInFlight = true;
-    setBusy(true);
+    setRestoreInFlight(true);
     setNotice(undefined);
     const origin = document.activeElement;
     let opened: boolean;
@@ -269,8 +279,7 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
           retry: () => void restore(threadId, title, openChat, focusId) });
       return;
     } finally {
-      restoreInFlight = false;
-      setBusy(false);
+      setRestoreInFlight(false);
     }
     // The opened chat takes focus through navigation.
     if (opened) return;
