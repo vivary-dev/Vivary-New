@@ -241,7 +241,9 @@ export async function linuxWorkerGroupHasLiveMember(groupId: number, proc = linu
     let raw: string;
     try { raw = await proc.stat(entry); }
     catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") continue;
+      // ENOENT is a process that exited before the open. ESRCH is one reaped between the open and the read, which a
+      // Linux kernel reports and gVisor does not. Neither is a live member. Any other error fails closed.
+      if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ESRCH")) continue;
       throw new VivaryCodeWorkerCleanupError();
     }
     if (linuxProcStatIsLiveGroupMember(raw, groupId)) return true;
