@@ -325,17 +325,22 @@ function errorCode(error: unknown): unknown {
   return error && typeof error === "object" && "code" in error ? error.code : undefined;
 }
 
-/** Reads `/proc` and signals a process group. Tests pass their own to produce errors a kernel shows only in a race. */
+/**
+ * Reads `/proc`, signals a process group, and ends one process. Tests pass their own to produce errors a kernel shows
+ * only in a race.
+ */
 type LinuxProcReader = {
   signalGroup: (groupId: number) => void;
   list: () => Promise<string[]>;
   stat: (pid: string) => Promise<string>;
+  kill: (pid: number) => void;
 };
 
 const linuxProc: LinuxProcReader = {
   signalGroup: groupId => { process.kill(-groupId, 0); },
   list: () => readdir("/proc"),
   stat: pid => readFile(`/proc/${pid}/stat`, "utf8"),
+  kill: pid => { process.kill(pid, "SIGKILL"); },
 };
 
 /**
@@ -463,15 +468,26 @@ function windowsSystem32(): string {
   return path.join(process.env.SystemRoot || "C:\\Windows", "System32");
 }
 
-/** Issue #121. Every process on this Windows host by PID, parent PID, creation time, and image name. */
-export async function scanWindowsProcesses(): Promise<WindowsProcessRow[]> {
+function runPowerShell(script: string): Promise<string> {
   const powershell = path.join(windowsSystem32(), "WindowsPowerShell", "v1.0", "powershell.exe");
-  const output = await new Promise<string>((resolve, reject) => {
-    execFile(powershell, ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROCESS_SCAN], {
+  return new Promise((resolve, reject) => {
+    execFile(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], {
       windowsHide: true, shell: false, timeout: WINDOWS_SCAN_TIMEOUT_MS, maxBuffer: 1024 * 1024, encoding: "utf8",
     }, (error, stdout) => { if (error) reject(error); else resolve(stdout); });
   });
-  const rows = parseWindowsProcessRows(output);
+}
+
+/** The lines before a last line that counts them, or null when that count is missing or wrong. */
+function countedLines(text: string): string[] | null {
+  // PowerShell can start UTF-8 output with a byte order mark.
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line !== "");
+  const count = /^END\t(\d+)$/.exec(lines.pop() ?? "");
+  return count && Number(count[1]) === lines.length ? lines : null;
+}
+
+/** Issue #121. Every process on this Windows host by PID, parent PID, creation time, and image name. */
+export async function scanWindowsProcesses(): Promise<WindowsProcessRow[]> {
+  const rows = parseWindowsProcessRows(await runPowerShell(WINDOWS_PROCESS_SCAN));
   if (!rows) throw new Error("The Windows process scan printed output Vivary cannot read.");
   return rows;
 }
@@ -481,10 +497,8 @@ export async function scanWindowsProcesses(): Promise<WindowsProcessRow[]> {
  * and 4. So a cut output, or a scan that could not read creation times, never reads as an empty or partial one.
  */
 export function parseWindowsProcessRows(text: string): WindowsProcessRow[] | null {
-  // PowerShell can start UTF-8 output with a byte order mark.
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line !== "");
-  const count = /^END\t(\d+)$/.exec(lines.pop() ?? "");
-  if (!count || Number(count[1]) !== lines.length || lines.length === 0) return null;
+  const lines = countedLines(text);
+  if (!lines?.length) return null;
   const rows: WindowsProcessRow[] = [];
   for (const line of lines) {
     const match = /^(\d+)\t(\d+)\t(\d*)\t(.+)$/.exec(line);
@@ -499,6 +513,53 @@ export function parseWindowsProcessRows(text: string): WindowsProcessRow[] | nul
 
 function unixMsFromFiletime(digits: string): number {
   return Number((BigInt(digits) - FILETIME_UNIX_EPOCH) / 10_000n);
+}
+
+/**
+ * What End them did to one process. `mismatched` means its PID now names another process, `gone` that it had exited,
+ * and `failed` that Windows or the kernel refused.
+ */
+export type EndOutcome = "ended" | "mismatched" | "gone" | "failed";
+export type EndAttempt = LeftoverProcess & { outcome: EndOutcome };
+
+/**
+ * Issue #121. Ends Windows processes in one PowerShell call. For each PID the script takes the process, opens its
+ * handle, reads the creation time through that handle, and ends the process through the same object only when that
+ * time falls in the recorded millisecond. Windows cannot hand a PID to another process while a handle to it is open, so
+ * the check and the end act on the same process. Every step runs under Constrained Language Mode. Throws when the call
+ * cannot run or prints anything else.
+ */
+export async function endWindowsProcesses(processes: readonly LeftoverProcess[]): Promise<EndAttempt[]> {
+  // The earliest FILETIME in each process's recorded millisecond. Each target is `<pid>:<FILETIME>`.
+  const targets = processes.map(({ pid, start }) => `${pid}:${BigInt(start) * 10_000n + FILETIME_UNIX_EPOCH}`).join(";");
+  const attempts = parseWindowsEndResults(await runPowerShell([
+    "$ErrorActionPreference = 'Stop'",
+    "$count = 0",
+    `foreach ($target in '${targets}'.Split(';')) { $pair = $target.Split(':'); $id = [int]$pair[0]; `
+      + "$from = [long]$pair[1]; $outcome = 'failed'; try { $process = Get-Process -Id $id -ErrorAction SilentlyContinue; "
+      + "if (-not $process) { $outcome = 'gone' } else { $null = $process.Handle; "
+      + "$created = $process.StartTime.ToFileTimeUtc(); "
+      + "if ($created -lt $from -or $created -ge $from + 10000) { $outcome = 'mismatched' } "
+      + "else { Stop-Process -InputObject $process -Force; $outcome = 'ended' } } } "
+      + "catch { if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { $outcome = 'gone' } }; "
+      + "@($id, $outcome) -join [char]9; $count++ }",
+    "@('END', $count) -join [char]9",
+  ].join("; ")), processes);
+  if (!attempts) throw new Error("The Windows end step printed output Vivary cannot read.");
+  return attempts;
+}
+
+/** Null unless the output gives one outcome for each process, in order, then counts them. */
+export function parseWindowsEndResults(text: string, processes: readonly LeftoverProcess[]): EndAttempt[] | null {
+  const lines = countedLines(text);
+  if (lines?.length !== processes.length) return null;
+  const attempts: EndAttempt[] = [];
+  for (const [index, leftover] of processes.entries()) {
+    const match = /^(\d+)\t(ended|mismatched|gone|failed)$/.exec(lines[index]!);
+    if (!match || Number(match[1]) !== leftover.pid) return null;
+    attempts.push({ ...leftover, outcome: match[2] as EndOutcome });
+  }
+  return attempts;
 }
 
 /**
@@ -594,33 +655,16 @@ function readBootId(): Promise<string | null> {
     .then(text => BOOT_ID_PATTERN.test(text.trim()) ? text.trim() : null, () => null);
 }
 
-/** Ends one process, and only that process. */
-async function endProcess(platform: CleanupTarget["platform"], pid: number): Promise<void> {
-  if (platform === "win32") {
-    // Never `/T`: every process to end was matched on its own, and a tree could hold processes the owner never saw.
-    const taskkill = path.join(windowsSystem32(), "taskkill.exe");
-    await new Promise<void>((resolve, reject) => {
-      execFile(taskkill, ["/PID", String(pid), "/F"], {
-        windowsHide: true, shell: false, timeout: TASKKILL_TIMEOUT_MS, maxBuffer: 16 * 1024,
-      }, error => { if (error) reject(error); else resolve(); });
-    });
-    return;
-  }
-  try { process.kill(pid, "SIGKILL"); } catch (error) {
-    if (errorCode(error) !== "ESRCH") throw error;
-  }
-}
-
-/** What a check reads, and how End them ends a process. Tests pass their own. */
+/** What a check reads, and how End them ends processes. Tests pass their own. */
 type CleanupIo = {
   bootId: () => Promise<string | null>;
   proc: LinuxProcReader;
   windowsProcesses: () => Promise<WindowsProcessRow[]>;
-  end: (platform: CleanupTarget["platform"], pid: number) => Promise<void>;
+  windowsEnd: (processes: readonly LeftoverProcess[]) => Promise<EndAttempt[]>;
 };
 
 const cleanupIo: CleanupIo = {
-  bootId: readBootId, proc: linuxProc, windowsProcesses: scanWindowsProcesses, end: endProcess,
+  bootId: readBootId, proc: linuxProc, windowsProcesses: scanWindowsProcesses, windowsEnd: endWindowsProcesses,
 };
 
 /** A reboot ended every process, and after one an unrelated group can hold the same small id. */
@@ -665,39 +709,42 @@ export async function checkWorkerCleanup(target: CleanupTarget, io: CleanupIo = 
 }
 
 /**
- * Issue #121. Ends each process the owner was shown that a fresh scan still finds with the same PID and start. A PID
- * whose start changed belongs to another process now, and a process the owner never saw is left alone too. A process
- * that cannot be ended is left for the next scan to list.
+ * Issue #121. Ends one Linux group member only when its `stat`, read again right before the kill, still shows the
+ * recorded start time and group. No other read or process step comes between that read and the kill.
  */
-export async function endMatchingLeftovers(shown: readonly LeftoverProcess[], fresh: readonly LeftoverProcess[],
-  end: (pid: number) => Promise<void>): Promise<LeftoverProcess[]> {
-  const ended: LeftoverProcess[] = [];
-  for (const leftover of fresh) {
-    if (leftover.pid === process.pid) continue;
-    if (!shown.some(seen => seen.pid === leftover.pid && seen.start === leftover.start)) continue;
-    try {
-      await end(leftover.pid);
-      ended.push(leftover);
-    } catch { /* The check after the ends lists it again. */ }
-  }
-  return ended;
+async function endLinuxProcess(groupId: number, leftover: LeftoverProcess, proc: LinuxProcReader): Promise<EndOutcome> {
+  let stat: ReturnType<typeof readLinuxProcStat>;
+  try { stat = readLinuxProcStat(await proc.stat(String(leftover.pid))); }
+  catch (error) { return errorCode(error) === "ENOENT" || errorCode(error) === "ESRCH" ? "gone" : "failed"; }
+  if (stat.start !== leftover.start || stat.processGroup !== groupId) return "mismatched";
+  if (stat.state === "Z" || stat.state === "X") return "gone";
+  try {
+    proc.kill(leftover.pid);
+    return "ended";
+  } catch (error) { return errorCode(error) === "ESRCH" ? "gone" : "failed"; }
 }
 
+/** What one End them tried, or null when its Windows call could not run, and the check after it. */
+export type EndResult = { attempts: EndAttempt[] | null; check: CleanupCheck };
+
 /**
- * Issue #121. The owner's End them: one fresh scan, one end for each shown process it still finds and traces to the
- * run, then one check. A scan that cannot run ends nothing.
+ * Issue #121. The owner's End them. It tries each process the owner was shown that Vivary traced to the run, never this
+ * host, newest first, so a child goes before the parent whose exit could free the child's PID for another program. Each
+ * end checks the process's identity at the moment it acts. Then one check says what is left.
  */
 export async function endWorkerLeftovers(target: CleanupTarget, shown: readonly LeftoverProcess[],
-  io: CleanupIo = cleanupIo): Promise<{ ended: LeftoverProcess[]; check: CleanupCheck }> {
-  let fresh: CleanupCheck;
-  if (target.platform === "win32") fresh = await scanWindowsTarget(target, io);
-  else if (await rebootedSince(target, io)) fresh = { result: "clean" };
-  else fresh = await scanLinuxWorkerGroup(target.groupId, io.proc).then(
-    observation => linuxGroupCheck(observation, target), (): CleanupCheck => ({ result: "unavailable" }));
-  if (fresh.result !== "remaining") return { ended: [], check: fresh };
-  // Newest first, so a child is ended before the parent whose exit could free the child's PID for another program.
-  const traced = fresh.remaining.filter(leftover => isTraced(fresh.target.traced, leftover))
+  io: CleanupIo = cleanupIo): Promise<EndResult> {
+  const candidates = shown.filter(leftover => leftover.pid !== process.pid && isTraced(target.traced, leftover))
     .sort((left, right) => right.start - left.start);
-  const ended = await endMatchingLeftovers(shown, traced, pid => io.end(target.platform, pid));
-  return { ended, check: await checkWorkerCleanup(fresh.target, io) };
+  let attempts: EndAttempt[] | null = [];
+  if (candidates.length && target.platform === "win32") {
+    attempts = await io.windowsEnd(candidates).catch(() => null);
+  } else if (candidates.length && target.platform === "linux") {
+    const rebooted = await rebootedSince(target, io);
+    for (const leftover of candidates) {
+      attempts.push({ ...leftover,
+        outcome: rebooted ? "gone" : await endLinuxProcess(target.groupId, leftover, io.proc) });
+    }
+  }
+  return { attempts, check: await checkWorkerCleanup(target, io) };
 }

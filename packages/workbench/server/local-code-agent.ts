@@ -307,9 +307,12 @@ export async function resolveVivaryCodeCleanup(input: {
     if (!refusal) return;
     if (input.decision === "end") {
       if (!refusal.target) return;
-      const { ended, check } = await endWorkerLeftovers(refusal.target, refusal.remaining);
+      const { attempts, check } = await endWorkerLeftovers(refusal.target, refusal.remaining);
+      const ended = (attempts ?? []).filter(attempt => attempt.outcome === "ended")
+        .map(({ pid, name, start }) => ({ pid, name, start }));
       // The credential redaction plugin redacts server output. Process names stay out of the log.
-      console.error(`[vivary-code-host] cleanup-end run=${refusal.runId} ended=${ended.length} result=${check.result}`);
+      console.error(`[vivary-code-host] cleanup-end run=${refusal.runId} tried=${attempts?.length ?? "unavailable"} `
+        + `ended=${ended.length} result=${check.result}`);
       if (check.result === "clean" && ended.length) {
         liftCleanupRefusal(refusal, { how: "ended", endedAt: new Date().toISOString(), by: input.ownerEmail, ended });
       } else {

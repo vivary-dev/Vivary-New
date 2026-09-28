@@ -8,7 +8,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endMatchingLeftovers, endWorkerLeftovers, executeVivaryCodeWorker,
+import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endWorkerLeftovers, executeVivaryCodeWorker, parseWindowsEndResults,
   parseWindowsProcessRows,
   readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
   waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly,
@@ -178,17 +178,17 @@ test("a cleanup check finds a live group by name and reads an emptied one as cle
     assert.ok(Number.isSafeInteger(live.remaining[0]!.start));
     assert.deepEqual(live.target.traced, [], "a later check traces nothing the stop did not");
     // An unknown boot id, then or now, is no evidence of a reboot, so the group is still scanned.
-    const noCurrentBootId = { bootId: async () => null, windowsProcesses: async () => [], end: async () => {},
+    const noCurrentBootId = { bootId: async () => null, windowsProcesses: async () => [], windowsEnd: async () => [],
       proc: { signalGroup: (id: number) => { process.kill(-id, 0); }, list: () => readdir("/proc"),
-        stat: (pid: string) => readFile(`/proc/${pid}/stat`, "utf8") } };
+        stat: (pid: string) => readFile(`/proc/${pid}/stat`, "utf8"), kill: () => assert.fail("a check ended a process") } };
     for (const check of [await checkWorkerCleanup({ ...target, bootId: null }),
       await checkWorkerCleanup(target, noCurrentBootId)]) assert.equal(check.result, "remaining");
     process.kill(-groupId, "SIGKILL");
     await exited;
     assert.deepEqual(await checkWorkerCleanup(target), { result: "clean" });
-    const rebooted = { bootId: async () => "another-boot", windowsProcesses: async () => [], end: async () => {},
+    const rebooted = { bootId: async () => "another-boot", windowsProcesses: async () => [], windowsEnd: async () => [],
       proc: { signalGroup: () => assert.fail("a group from before a reboot was signaled"),
-        list: async () => [], stat: async () => "" } };
+        list: async () => [], stat: async () => "", kill: () => assert.fail("a check ended a process") } };
     assert.deepEqual(await checkWorkerCleanup(target, rebooted), { result: "clean" });
   } finally {
     if (sleeper.exitCode === null && sleeper.signalCode === null) process.kill(-groupId, "SIGKILL");
@@ -282,30 +282,14 @@ test("a Linux check traces only children of a traced member that started after i
     42: statLine(42, "codex", "S", 12345, 700), 43: withParent(statLine(43, "node", "S", 12345, 800), 42),
     44: statLine(44, "stranger", "S", 12345, 900), 45: withParent(statLine(45, "early", "S", 12345, 600), 42),
   };
-  const io = { bootId: async () => null, windowsProcesses: async () => [], end: async () => {},
-    proc: { signalGroup: () => undefined, list: async () => Object.keys(members), stat: async (pid: string) => members[pid]! } };
+  const io = { bootId: async () => null, windowsProcesses: async () => [], windowsEnd: async () => [],
+    proc: { signalGroup: () => undefined, list: async () => Object.keys(members), stat: async (pid: string) => members[pid]!,
+      kill: () => assert.fail("a check ended a process") } };
   const check = await checkWorkerCleanup({ platform: "linux", groupId: 12345, bootId: null,
     traced: [{ pid: 42, start: 700 }] }, io);
   assert.ok(check.result === "remaining");
   assert.deepEqual(check.remaining.map(({ pid }) => pid), [42, 43, 44, 45], "every member is listed");
   assert.deepEqual(check.target.traced, [{ pid: 42, start: 700 }, { pid: 43, start: 800 }]);
-});
-
-// Issue #121. The owner saw `shown`. `fresh` is the scan taken just before End them acts.
-test("End them ends only shown processes that the fresh scan finds with the same PID and start", async () => {
-  const codex = { pid: 10, name: "codex", start: 100 };
-  const denied = { pid: 14, name: "node", start: 140 };
-  const shown = [codex, { pid: 11, name: "node", start: 110 }, { pid: 12, name: "gone", start: 120 }, denied,
-    { pid: process.pid, name: "vivary", start: 1 }];
-  const fresh = [codex, { pid: 11, name: "other", start: 999 }, { pid: 13, name: "unseen", start: 130 }, denied,
-    { pid: process.pid, name: "vivary", start: 1 }];
-  const attempts: number[] = [];
-  const ended = await endMatchingLeftovers(shown, fresh, async pid => {
-    attempts.push(pid);
-    if (pid === denied.pid) throw Object.assign(new Error("ending PID 14 was denied"), { code: "EPERM" });
-  });
-  assert.deepEqual(attempts, [10, 14], "a reused PID, an unseen process, and this host are never ended");
-  assert.deepEqual(ended, [codex]);
 });
 
 const errno = (code: string) => Object.assign(new Error(`failed with ${code}`), { code });
@@ -331,12 +315,12 @@ test("End them on Linux reads each process again right before its kill and skips
     kill,
   };
   const io = { bootId: async () => null, proc, windowsProcesses: async () => assert.fail("Windows was scanned"),
-    windowsEnd: async () => assert.fail("Windows End ran"), end: async (_platform: string, pid: number) => kill(pid) };
+    windowsEnd: async () => assert.fail("Windows End ran") };
   const shown = [{ pid: 42, name: "codex", start: 700 }, { pid: 43, name: "node", start: 800 }];
   const result = await endWorkerLeftovers({ platform: "linux", groupId: 12345, bootId: null,
     traced: shown.map(({ pid, start }) => ({ pid, start })) }, shown, io);
   assert.deepEqual(kills, [43], "the process that took PID 42 is never ended");
-  assert.deepEqual((result as { attempts?: unknown }).attempts, [{ ...shown[1], outcome: "ended" },
+  assert.deepEqual(result.attempts, [{ ...shown[1], outcome: "ended" },
     { ...shown[0], outcome: "mismatched" }]);
 });
 
@@ -353,18 +337,66 @@ test("End them on Windows hands the shown traced processes to one identity-check
     list: async () => assert.fail("/proc was read"), stat: async () => assert.fail("/proc was read"),
     kill: () => assert.fail("a Linux kill ran") },
     windowsProcesses: async () => rows,
-    end: async (_platform: string, pid: number) => { calls.push(["taskkill", pid]); },
     windowsEnd: async (processes: { pid: number; name: string; start: number }[]) => {
       calls.push(["end", processes.map(({ pid, start }) => [pid, start])]);
       return processes.map(leftover => ({ ...leftover, outcome: leftover.pid === node.pid ? "failed" : "ended" }));
     } };
-  const traced = [codex, node, host].map(({ pid, start }) => ({ pid, start }));
+  const unseen = { pid: 4150, name: "late.exe", start: 3_600 };
+  const traced = [codex, node, host, unseen].map(({ pid, start }) => ({ pid, start }));
   const tracked = [codex, node, stranger, host].map(({ pid, start }) =>
     ({ pid, createdFrom: start, createdTo: start, childrenTo: null }));
   const result = await endWorkerLeftovers({ platform: "win32", tracked, traced }, [codex, node, stranger, host], io);
   assert.deepEqual(calls, [["end", [[4130, 3_000], [4120, 2_000]]]], "one call, and never taskkill");
-  assert.deepEqual((result as { attempts?: unknown }).attempts, [{ ...node, outcome: "failed" },
+  assert.deepEqual(result.attempts, [{ ...node, outcome: "failed" },
     { ...codex, outcome: "ended" }]);
+
+  const unavailable = await endWorkerLeftovers({ platform: "win32", tracked, traced }, [codex],
+    { ...io, windowsEnd: async () => { throw new Error("powershell.exe was refused"); } });
+  assert.equal(unavailable.attempts, null, "an End call that cannot run reports that it ended nothing");
+});
+
+test("End them on Linux reports each process as ended, mismatched, gone, or failed", async () => {
+  const members: Record<string, string> = {
+    50: statLine(50, "codex", "S", 12345, 500), 51: statLine(51, "moved", "S", 999, 510),
+    52: statLine(52, "reaped", "Z", 12345, 520), 54: statLine(54, "setuid", "S", 12345, 540),
+  };
+  const kills: number[] = [];
+  const proc = { signalGroup: () => { throw errno("ESRCH"); }, list: async () => [],
+    stat: async (pid: string) => {
+      if (pid === "53") throw errno("ENOENT");
+      return members[pid] ?? assert.fail(`read ${pid}`);
+    },
+    kill: (pid: number) => { kills.push(pid); if (pid === 54) throw errno("EPERM"); } };
+  const shown = [{ pid: 50, name: "codex", start: 500 }, { pid: 51, name: "moved", start: 510 },
+    { pid: 52, name: "reaped", start: 520 }, { pid: 53, name: "exited", start: 530 },
+    { pid: 54, name: "setuid", start: 540 }];
+  const target = { platform: "linux" as const, groupId: 12345, bootId: "11111111-1111-4111-8111-111111111111",
+    traced: shown.map(({ pid, start }) => ({ pid, start })) };
+  const io = { bootId: async () => target.bootId, proc, windowsProcesses: async () => assert.fail("Windows was scanned"),
+    windowsEnd: async () => assert.fail("Windows End ran") };
+  const result = await endWorkerLeftovers(target, shown, io);
+  assert.deepEqual(result.attempts?.map(({ pid, outcome }) => [pid, outcome]),
+    [[54, "failed"], [53, "gone"], [52, "gone"], [51, "mismatched"], [50, "ended"]]);
+  assert.deepEqual(kills, [54, 50], "a process in another group, a zombie, and an exited PID are not signaled");
+  assert.deepEqual(result.check, { result: "clean" });
+
+  const rebooted = await endWorkerLeftovers(target, shown, { ...io, bootId: async () => "22222222-2222-4222-8222-222222222222",
+    proc: { ...proc, stat: async () => assert.fail("a PID from before a reboot was read") } });
+  assert.deepEqual(rebooted.attempts?.map(({ outcome }) => outcome), ["gone", "gone", "gone", "gone", "gone"]);
+});
+
+test("the Windows End output gives one outcome per process in order and then counts them", () => {
+  const processes = [{ pid: 4130, name: "node.exe", start: 3_000 }, { pid: 4120, name: "codex.exe", start: 2_000 }];
+  assert.deepEqual(parseWindowsEndResults("﻿4130\tfailed\r\n4120\tended\r\nEND\t2\r\n", processes),
+    [{ ...processes[0], outcome: "failed" }, { ...processes[1], outcome: "ended" }]);
+  for (const [name, output] of [
+    ["cut before the count", "4130\tfailed\r\n4120\tended\r\n"],
+    ["a missing process", "4130\tfailed\r\nEND\t1\r\n"],
+    ["the processes out of order", "4120\tended\r\n4130\tfailed\r\nEND\t2\r\n"],
+    ["an unknown outcome", "4130\tkilled\r\n4120\tended\r\nEND\t2\r\n"],
+    ["an error line", "4130\tfailed\r\nGet-Process : denied\r\nEND\t2\r\n"],
+    ["nothing", ""],
+  ]) assert.equal(parseWindowsEndResults(output, processes), null, name);
 });
 
 

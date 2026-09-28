@@ -203,11 +203,14 @@ send with `vivary_code_cleanup_required`, and the host state shows it to every u
 to its owner. The host checks every refusal again at start, without waiting, and before a send, never from the
 one-second polls. A check that finds nothing lifts the refusal and adds a transcript status. A marker from before
 this change, `cleanupUnverified: true`, has no target and stays until a person continues. The `vivary-code-cleanup`
-action, which no agent or tool may call, carries a signed-in person's choice. End them takes one fresh scan and ends
-each listed process that the scan still finds with the same PID and start time, with `taskkill /PID <pid> /F` on
-Windows, never `/T`, or `SIGKILL` to that one PID on Linux, newest first. It then checks again and lifts the
-refusal when nothing is left. It ends only processes traced to the run: those the check right after the failed stop
-found, and their later children found through a parent alive in the same scan. A check still lists a process linked
+action, which no agent or tool may call, carries a signed-in person's choice. End them tries each listed process
+traced to the run, newest first, and checks its identity at the moment it acts. On Windows one PowerShell call takes
+each process by PID, reads its creation time through the handle it opens, and ends it through that same object only
+when the time matches, never with `/T`. Windows does not reuse a PID while a handle to it is open. On Linux it reads
+the process's `stat` again right before `SIGKILL` to that one PID, and skips it when the start time or group changed.
+Each process is reported as ended, mismatched, gone, or failed, and an End call that cannot run ends nothing. It then
+checks again and lifts the refusal when nothing is left. The traced processes are those the check right after the
+failed stop found, and their later children found through a parent alive in the same scan. A check still lists a process linked
 only through an exited parent or a reused Linux group id, so the refusal holds, but End them leaves it alone, because
 it could belong to another program after PID reuse. End them also leaves alone a PID whose start time changed, a
 process the owner was not shown, and the host itself. A boot id that is not a UUID fails to parse and keeps refusing.
