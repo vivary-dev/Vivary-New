@@ -157,6 +157,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101, documentation. The patch README now says that the stream error translation trusts a numeric
+`statusCode` and a boolean `isRetryable` on any provider object, not only a status that a provider SDK derived,
+as the round 2 re-review found. Documentation only, so the design description holds.
+
 Issue #101, review round 2. A re-review found three narrow gaps in round 1. The maintained Core patch now keeps the
 first error stop that carries a code, so an unreadable chunk before a provider's error chunk no longer hides the
 provider's message, code, and Retry. The upstream provider name in the text must start with a letter and hold only

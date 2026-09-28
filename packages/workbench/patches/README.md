@@ -154,8 +154,10 @@ The patch changes these files:
 The translation reads only these fields of the provider's object: `message`,
 `code`, `type` when there is no code, `metadata.provider_name` when it starts
 with a letter and holds at most 64 letters, spaces, periods, and hyphens, and
-the `statusCode` and `isRetryable` that a provider SDK derives, as OpenAI's
-Responses stream does. The name holds no digits, because the client reads the
+a numeric `statusCode` and a boolean `isRetryable` on the object, which
+OpenAI's Responses stream sets. The translation cannot tell a status an SDK
+derived from one the provider sent, so a numeric `statusCode` on any provider
+object classifies as that status. The name holds no digits, because the client reads the
 shown text for statuses, and a name such as "401 unauthorized" would swap the
 error card for the provider setup card. A name with a digit is left out, and
 the text keeps the message and code. The rest of `metadata` can hold the
