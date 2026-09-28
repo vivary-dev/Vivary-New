@@ -485,6 +485,9 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   const before = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
   assert.deepEqual(before?.remaining.map(({ pid }) => pid), [4120, 4130, 4140]);
   assert.equal(before?.canContinue, false, "Continue anyway waits until End them has run");
+  assert.equal(before?.notice, null);
+  assert.equal(before?.composer, "Coding processes from an earlier run are still running. "
+    + "Choose End them above before sending another message.");
   await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
     + row(4140, 4120, 9_999, "powershell.exe") + row(4150, 4120, 3_600, "late.exe"));
   const state = await decide("end");
@@ -495,6 +498,9 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what End them could not end");
   assert.equal(state.cleanup?.canEnd, true);
   assert.equal(state.cleanup?.canContinue, true);
+  assert.equal(state.cleanup?.notice, "End them ended codex.exe (PID 4120). Vivary could not end node.exe (PID 4130).");
+  assert.equal(state.cleanup?.composer, "Processes that may be left from an earlier run are still running. "
+    + "Choose End them or Continue anyway above before sending another message.");
   assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
   const ended = [{ by: OWNER, at: "string", attempts: [[4140, "mismatched"], [4130, "failed"], [4120, "ended"]] }];
   assert.deepEqual(endsOf(metadataOf("end-windows").cleanupRefusal), ended, "the refusal records what End them did");
@@ -525,6 +531,9 @@ test("End them records what it ended even when the check after it cannot run", {
     assert.equal(state.cleanup?.heading, "Vivary could not confirm that an earlier run's coding processes stopped");
     assert.equal(state.cleanup?.canEnd, false);
     assert.equal(state.cleanup?.canContinue, true);
+    assert.equal(state.cleanup?.notice, "End them ended codex.exe (PID 4120).");
+    assert.equal(state.cleanup?.composer, "Vivary could not confirm that an earlier run's coding processes stopped. "
+      + "Choose Continue anyway above before sending another message.");
     const refusal = metadataOf("end-unchecked").cleanupRefusal as { scan?: string };
     assert.equal(refusal.scan, "unavailable");
     assert.deepEqual(endsOf(refusal), [{ by: OWNER, at: "string", attempts: [[4120, "ended"]] }]);

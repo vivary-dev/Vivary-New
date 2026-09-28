@@ -99,6 +99,7 @@ const region = host => host.querySelector('[role="region"][aria-label="Leftover 
 const buttons = host => [...host.querySelectorAll("button")].map(button => button.textContent);
 const button = (host, label) => [...host.querySelectorAll("button")].find(item => item.textContent === label);
 const alertText = host => host.querySelector('[role="alert"]')?.textContent ?? null;
+const statusText = host => region(host)?.querySelector('[role="status"]')?.textContent ?? null;
 
 async function click(element) {
   await act(async () => { element.click(); });
@@ -142,11 +143,13 @@ export async function endThemThatLeavesProcessesOffersContinue() {
     const ended = deferred();
     callProof.answer = ended.promise;
     await click(button(host, "End them"));
-    const left = { ...NAMED, remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe", confirmed: true },
-      { pid: 6100, name: "unrelated.exe", confirmed: false }], canContinue: true };
+    const left = { ...NAMED, version: "5b6c7d8e9fa0b1c2",
+      remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe", confirmed: true },
+        { pid: 6100, name: "unrelated.exe", confirmed: false }], canContinue: true,
+      notice: "End them ended codex.exe (PID 4120). Vivary could not end mcp-server-windows-x64.exe (PID 5532)." };
     await settle(ended, left);
-    assert.equal(alertText(host),
-      "Some coding processes are still running after End them. Stop them yourself, or choose Continue anyway.");
+    assert.equal(alertText(host), null, "the strip adds no words of its own");
+    assert.equal(statusText(host), left.notice, "it shows what the server says End them did");
     assert.deepEqual([...host.querySelectorAll("li")].map(item => item.textContent),
       ["mcp-server-windows-x64.exe (PID 5532)", "unrelated.exe (PID 6100, not confirmed from that run)"]);
     assert.deepEqual(buttons(host), ["End them", "Continue anyway", "Open conversation"]);
@@ -155,9 +158,24 @@ export async function endThemThatLeavesProcessesOffersContinue() {
     await click(button(host, "Continue anyway"));
     assert.ok(button(host, "Continuing…"));
     assert.deepEqual(callProof.calls.map(call => call.params),
-      [{ decision: "end", version: NAMED.version }, { decision: "continue", version: NAMED.version }]);
+      [{ decision: "end", version: NAMED.version }, { decision: "continue", version: left.version }]);
     await settle(continued, null);
     assert.equal(region(host), null);
+  } finally { await dispose(); }
+}
+
+export async function endThemWhoseCheckCannotRunShowsTheServerState() {
+  const { host, dispose } = await mount(NAMED);
+  try {
+    const ended = deferred();
+    callProof.answer = ended.promise;
+    await click(button(host, "End them"));
+    const unchecked = { ...UNSCANNED, version: "6c7d8e9fa0b1c2d3", notice: "End them ended codex.exe (PID 4120)." };
+    await settle(ended, unchecked);
+    assert.equal(host.querySelector("h2")?.textContent, UNSCANNED.heading);
+    assert.equal(alertText(host), null, "nothing claims the processes are still running");
+    assert.equal(statusText(host), unchecked.notice);
+    assert.deepEqual(buttons(host), ["Continue anyway"]);
   } finally { await dispose(); }
 }
 
@@ -248,6 +266,7 @@ test("the host strip lists leftover coding processes and offers End them, then C
   for (const [name, run] of [
     ["End them lifts the refusal and moves focus to the page", proof.endThemLiftsTheRefusal],
     ["End them that leaves processes running offers Continue anyway", proof.endThemThatLeavesProcessesOffersContinue],
+    ["End them whose check after it cannot run shows the server's state", proof.endThemWhoseCheckCannotRunShowsTheServerState],
     ["a scan Vivary cannot run offers only Continue anyway and shows its commands", proof.aScanVivaryCannotRunOffersOnlyContinue],
     ["a check already running holds End them", proof.aRunningCheckHoldsEndThem],
   ]) await t.test(name, () => run());
