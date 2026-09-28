@@ -299,7 +299,7 @@ index 422572c276296bee64fb3f57785a9922ff576d39..3257162e14d3627c8b100f9d402038d1
      /** Final assistant content for the turn. Engines MUST emit this
       *  exactly once, immediately before the terminal `stop` event. */
 diff --git a/dist/agent/production-agent.d.ts b/dist/agent/production-agent.d.ts
-index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..bdd54e639e558dac4cf02e304b9d561a91283b1b 100644
+index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f356c8ce33 100644
 --- a/dist/agent/production-agent.d.ts
 +++ b/dist/agent/production-agent.d.ts
 @@ -534,6 +534,12 @@ export interface AgentLoopUsage {
@@ -315,12 +315,12 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..bdd54e639e558dac4cf02e304b9d561a
      /** Number of provider model-stream attempts, including retries. */
      llmCalls?: number;
      /**
-@@ -834,6 +840,33 @@ export declare function shouldGuardRepeatedSourceSweep(opts: {
+@@ -834,6 +840,35 @@ export declare function shouldGuardRepeatedSourceSweep(opts: {
      priorCalls: number;
      message: string;
  } | null;
 +/**
-+ * Usage for one main chat turn. Pass `startCall` as the agent loop's
++ * Usage for one agent turn. Pass `startCall` as the agent loop's
 + * `onModelCall` and `add` as its `onUsage`. `usageRecord` returns the fields
 + * `recordUsage` stores.
 + */
@@ -331,9 +331,11 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..bdd54e639e558dac4cf02e304b9d561a
 +    cacheWriteTokens: number;
 +    model: string;
 +    startedCalls: number;
-+    endedCalls: number;
-+    reportedCostUsd: number | undefined;
-+    startCall(): void;
++    reportedCalls: number;
++    reportedCostUsd: number;
++    startCall(call?: {
++        retry: boolean;
++    }): void;
 +    add(usage: AgentLoopUsage): void;
 +    usageRecord(): {
 +        inputTokens: number;
@@ -349,17 +351,22 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..bdd54e639e558dac4cf02e304b9d561a
  /**
   * The core agent loop — calls the engine iteratively until no more tool calls.
   * Decoupled from HTTP transport so it can run in the background.
-@@ -852,6 +885,8 @@ export declare function runAgentLoop(opts: {
+@@ -852,6 +887,13 @@ export declare function runAgentLoop(opts: {
      signal: AbortSignal;
      /** Observe usage as each model response reports it, including aborted loops. */
      onUsage?: (usage: AgentLoopUsage) => void;
-+    /** Observe each model call as it starts, including retries. */
-+    onModelCall?: () => void;
++    /**
++     * Observe each model call as it starts. `retry` is true when the call
++     * retries a failed attempt, which it replaces.
++     */
++    onModelCall?: (call: {
++        retry: boolean;
++    }) => void;
      /** Observe the attempt's typed terminal state separately from chat events. */
      onOutcome?: (outcome: AgentLoopOutcome) => void;
      ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db530953160844dfa0612 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f173ae9e6 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -416,20 +423,20 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
      if (code === "builder_gateway_timeout" ||
          code === "builder_gateway_network_error" ||
          // A gateway stream that stopped mid-turn. It reached here as
-@@ -3334,6 +3348,73 @@ function validateRawToolInput(entry, input) {
+@@ -3334,6 +3348,65 @@ function validateRawToolInput(entry, input) {
          dataVar: "input",
      });
  }
 +/**
-+ * Usage for one main chat turn, summed over its model calls and internal
-+ * continuations. `startCall` counts each model call the agent loop starts,
-+ * and `add` counts the usage each call reports when it ends. The provider's
-+ * reported cost is the turn's cost only when every call that started reported
-+ * its usage, and every usage that holds tokens also holds a cost. Empty usage,
-+ * which a rate-limited attempt reports, adds nothing. A call that Stop or a
-+ * dropped connection cut off reports no usage, so `usageRecord` then passes no
-+ * cost, and the usage store prices the tokens from its table or records the
-+ * cost as unknown.
++ * Usage for one agent turn, summed over its model calls and internal
++ * continuations. `startCall` counts each model call the agent loop starts. A
++ * retry replaces the failed attempt it retries, so it adds no call. `add` sums
++ * the usage each call reports and counts the calls whose usage holds a cost.
++ * The provider's reported cost is the turn's cost only when every counted call
++ * reported one. A call cut off by Stop, a dropped connection, or an in-stream
++ * error reports no cost, and so does a stream that ends with no usage chunk.
++ * `usageRecord` then passes no cost, and the usage store prices the tokens
++ * from its table or records the cost as unknown.
 + */
 +export function createTurnUsage(model) {
 +    const turn = {
@@ -439,10 +446,11 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
 +        cacheWriteTokens: 0,
 +        model,
 +        startedCalls: 0,
-+        endedCalls: 0,
++        reportedCalls: 0,
 +        reportedCostUsd: 0,
-+        startCall() {
-+            turn.startedCalls += 1;
++        startCall(call) {
++            if (!call?.retry)
++                turn.startedCalls += 1;
 +        },
 +        add(usage) {
 +            turn.inputTokens += usage.inputTokens;
@@ -450,18 +458,10 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
 +            turn.cacheReadTokens += usage.cacheReadTokens;
 +            turn.cacheWriteTokens += usage.cacheWriteTokens;
 +            turn.model = usage.model;
-+            turn.endedCalls += 1;
-+            const empty = usage.inputTokens +
-+                usage.outputTokens +
-+                usage.cacheReadTokens +
-+                usage.cacheWriteTokens ===
-+                0;
-+            if (empty && usage.costUsd === undefined)
++            if (usage.costUsd === undefined)
 +                return;
-+            turn.reportedCostUsd =
-+                turn.reportedCostUsd === undefined || usage.costUsd === undefined
-+                    ? undefined
-+                    : turn.reportedCostUsd + usage.costUsd;
++            turn.reportedCalls += 1;
++            turn.reportedCostUsd += usage.costUsd;
 +        },
 +        usageRecord() {
 +            const record = {
@@ -471,9 +471,8 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
 +                cacheWriteTokens: turn.cacheWriteTokens,
 +                model: turn.model,
 +            };
-+            if (turn.endedCalls === 0 ||
-+                turn.endedCalls !== turn.startedCalls ||
-+                turn.reportedCostUsd === undefined)
++            if (turn.startedCalls === 0 ||
++                turn.reportedCalls !== turn.startedCalls)
 +                return record;
 +            // Centicents, rounded as calculateCost rounds, so a small reported
 +            // cost never reads as free.
@@ -490,15 +489,15 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
  /**
   * The core agent loop — calls the engine iteratively until no more tool calls.
   * Decoupled from HTTP transport so it can run in the background.
-@@ -3625,6 +3706,7 @@ export async function runAgentLoop(opts) {
+@@ -3625,6 +3698,7 @@ export async function runAgentLoop(opts) {
                      providerOptions: opts.providerOptions,
                  };
                  usage.llmCalls = (usage.llmCalls ?? 0) + 1;
-+                opts.onModelCall?.();
++                opts.onModelCall?.({ retry: retry > 0 });
                  const eventStream = engine.stream(streamOpts);
                  let thinkingBuffer = "";
                  const toolInputNames = new Map();
-@@ -3941,6 +4023,7 @@ export async function runAgentLoop(opts) {
+@@ -3941,6 +4015,7 @@ export async function runAgentLoop(opts) {
                                  cacheReadTokens: event.cacheReadTokens ?? 0,
                                  cacheWriteTokens: event.cacheWriteTokens ?? 0,
                                  model,
@@ -506,7 +505,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                              };
                              usage.inputTokens += eventUsage.inputTokens;
                              usage.outputTokens += eventUsage.outputTokens;
-@@ -4363,7 +4446,8 @@ export async function runAgentLoop(opts) {
+@@ -4363,7 +4438,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -516,7 +515,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5169,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5161,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -527,7 +526,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5224,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5216,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -536,7 +535,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5469,6 +5557,11 @@ export function isRecoverableContinuationError(event) {
+@@ -5469,6 +5549,11 @@ export function isRecoverableContinuationError(event) {
      const message = event.error.toLowerCase();
      if (code === "builder_gateway_error")
          return false;
@@ -548,7 +547,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
      // An explicit flag outranks the message sniff below, which exists for events
      // that carry no flag at all. Every guard stop sets `recoverable: false`, and
      // sniffing its prose is how a stop that merely NAMES a connection or a
-@@ -5890,7 +5983,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5890,7 +5975,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -557,7 +556,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
          }
      }
      return updated;
-@@ -7389,12 +7482,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7474,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -572,7 +571,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
-@@ -8299,13 +8392,7 @@ export function createProductionAgentHandler(options) {
+@@ -8299,13 +8384,7 @@ export function createProductionAgentHandler(options) {
                  : typeof message === "string" && message.trim().length > 0
                      ? message
                      : undefined;
@@ -587,7 +586,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
              const agentLoopOpts = {
                  engine,
                  model: effectiveModel,
-@@ -8318,13 +8405,8 @@ export function createProductionAgentHandler(options) {
+@@ -8318,13 +8397,8 @@ export function createProductionAgentHandler(options) {
                  actions: requestActions,
                  send,
                  signal,
@@ -603,7 +602,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                  ownerEmail,
                  orgId: getRequestOrgId() ?? null,
                  attachments: requestAttachments,
-@@ -8493,11 +8575,7 @@ export function createProductionAgentHandler(options) {
+@@ -8493,11 +8567,7 @@ export function createProductionAgentHandler(options) {
                          const { recordUsage } = await import("../usage/store.js");
                          await recordUsage({
                              ownerEmail: resolvedOwnerEmail,
@@ -4680,16 +4679,18 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
                      setResponseStatus(event, 200);
                      return { ok: true, taskId };
 diff --git a/dist/integrations/webhook-handler.d.ts b/dist/integrations/webhook-handler.d.ts
-index d86ba8c8975aa27234f661b9906259e40d0998b7..d47ac264d7227bac2cb901b84cb9a77663aed1dc 100644
+index d86ba8c8975aa27234f661b9906259e40d0998b7..1c7cd19f185bcee4236a5d1460982184a13a1b19 100644
 --- a/dist/integrations/webhook-handler.d.ts
 +++ b/dist/integrations/webhook-handler.d.ts
-@@ -129,4 +129,17 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
+@@ -129,4 +129,19 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
      enabled?: boolean;
      continuationInvocation?: boolean;
  }): Promise<ProcessIntegrationTaskResult>;
 +/**
-+ * Settle a run's budget reservations at the run's priced cost, or at each
-+ * reservation's estimate when Core has no price for the model.
++ * Settle a run's budget reservations at the provider's reported cost, else at
++ * the table price, or at 0 when the run used no tokens. A run that used tokens
++ * of a model Core has no price for, with no reported cost, settles at each
++ * reservation's estimate.
 + */
 +export declare function settleApplicableIntegrationBudgets(reservations: Array<{
 +    budgetId: string;
@@ -4699,13 +4700,67 @@ index d86ba8c8975aa27234f661b9906259e40d0998b7..d47ac264d7227bac2cb901b84cb9a776
 +        ownerEmail: string;
 +        orgId?: string | null;
 +    };
-+}>, usage?: Pick<import("../agent/production-agent.js").AgentLoopUsage, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "model">): Promise<void>;
++}>, usage?: ReturnType<import("../agent/production-agent.js").TurnUsage["usageRecord"]>): Promise<void>;
  export declare function recordIntegrationResponseDelivery(payload: IntegrationResponseDeliveryTaskPayload, receipt: PlatformDeliveryReceipt): Promise<void>;
 diff --git a/dist/integrations/webhook-handler.js b/dist/integrations/webhook-handler.js
-index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..b5af81e4298910716096ad1030dc9b3feabb303f 100644
+index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..55d235bebb6e5d3c2ce1298ffc1c831cb9a3ebe5 100644
 --- a/dist/integrations/webhook-handler.js
 +++ b/dist/integrations/webhook-handler.js
-@@ -1541,20 +1541,26 @@ async function reserveApplicableIntegrationBudgets(options) {
+@@ -4,7 +4,7 @@ import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
+ import { formatLlmCredentialErrorMessage, isLlmCredentialError, } from "../agent/engine/credential-errors.js";
+ import { getConfiguredEngineNameForRequest, getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from "../agent/engine/index.js";
+ import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
+-import { actionsToEngineTools, filterInitialEngineTools, resolveOwnerEngineApiKey, } from "../agent/production-agent.js";
++import { actionsToEngineTools, createTurnUsage, filterInitialEngineTools, resolveOwnerEngineApiKey, } from "../agent/production-agent.js";
+ import { appendDurableContinuationContext, runAgentLoopDirectWithSoftTimeout, } from "../agent/run-loop-with-resume.js";
+ import { startRun, } from "../agent/run-manager.js";
+ import { buildCurrentTimeUserContext, buildRuntimeContextPrompt, } from "../agent/runtime-context.js";
+@@ -840,6 +840,9 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+         })).catch(() => { });
+     }
+     let usage = null;
++    // The run's usage with the provider's reported cost, which budget
++    // settlement reads.
++    let turnUsage;
+     let budgetsSettled = false;
+     // Populated once `resolvedModel`/`engine` are known inside the run
+     // callback below (stored-model + platform-default resolution can't happen
+@@ -925,6 +928,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                     let emittedAgentEvent = false;
+                     runOptions.model = target.model;
+                     runOptions.engineName = target.engine.name;
++                    turnUsage = createTurnUsage(target.model);
+                     try {
+                         // Wrapper, not raw `runAgentLoop`: an integration turn has no
+                         // browser to re-POST a continuation, so a transport-level cut
+@@ -960,6 +964,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                             // retry can step its effort down rather than
+                             // repeatedly letting the engine choose Medium.
+                             reasoningEffort: normalizeReasoningEffortForRequest(target.model, undefined),
++                            onUsage: turnUsage.add,
++                            onModelCall: turnUsage.startCall,
+                         }, undefined, {
+                             useHostedDefault: true,
+                             backgroundFunction: isInBackgroundFunctionRuntime(),
+@@ -1240,7 +1246,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                     orgId: orgId ?? undefined,
+                     incoming,
+                 });
+-                await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
++                await settleApplicableIntegrationBudgets(budgetReservations.reservations, turnUsage.usageRecord());
+                 budgetsSettled = true;
+                 if (campaign && queuedA2AContinuation) {
+                     const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
+@@ -1323,7 +1329,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                             incoming,
+                         }).catch(() => { });
+                         try {
+-                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
++                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, turnUsage.usageRecord());
+                             budgetsSettled = true;
+                         }
+                         catch { }
+@@ -1541,20 +1547,35 @@ async function reserveApplicableIntegrationBudgets(options) {
      }
      return { allowed: true, reservations };
  }
@@ -4714,22 +4769,32 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..b5af81e4298910716096ad1030dc9b3f
      if (!reservations.length)
          return;
      let actualCostMicros = 0;
-+    let unpriced = false;
-     if (usage) {
+-    if (usage) {
 -        const { calculateCost } = await import("../usage/store.js");
++    let unknownCost = false;
++    if (usage?.costCentsX100 != null) {
++        // The provider's reported cost wins, as it does in recordUsage.
++        actualCostMicros = usage.costCentsX100 * 100;
++    }
++    else if (usage) {
 +        const { calculateCost, hasTablePrice } = await import("../usage/store.js");
          // token_usage uses centicents; one centicent is 100 currency micros.
          actualCostMicros =
              calculateCost(usage.inputTokens, usage.outputTokens, usage.model, usage.cacheReadTokens, usage.cacheWriteTokens) * 100;
-+        // Core has no price for the model, so the run's cost is unknown. It
-+        // keeps its reservation estimate, and a budget cap still fills.
-+        unpriced = !hasTablePrice(usage.model);
++        // A run that used tokens of a model Core has no price for has an
++        // unknown cost. It keeps its reservation estimate, and a budget cap
++        // still fills. A run that used no tokens costs 0.
++        const tokens = usage.inputTokens +
++            usage.outputTokens +
++            usage.cacheReadTokens +
++            usage.cacheWriteTokens;
++        unknownCost = tokens > 0 && !hasTablePrice(usage.model);
      }
      await Promise.all(reservations.map((reservation) => settleIntegrationUsageBudget({
          budgetId: reservation.budgetId,
          reservationId: reservation.reservationId,
 -        actualCostMicros,
-+        actualCostMicros: unpriced
++        actualCostMicros: unknownCost
 +            ? reservation.estimatedCostMicros
 +            : actualCostMicros,
      }, reservation.access).catch((err) => {
@@ -7083,7 +7148,7 @@ index c9cd99152199d4c5a2cb8d8eb9c1723790e820a0..5d7e9e71da0db59d810a1ac302583c55
   * Record token usage from an LLM call.
   *
 diff --git a/dist/usage/store.js b/dist/usage/store.js
-index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088148c61fb 100644
+index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..dffbb95997f9b10b56e8edfcbe1e4dbbaf1a0c20 100644
 --- a/dist/usage/store.js
 +++ b/dist/usage/store.js
 @@ -63,6 +63,11 @@ const PRICING = [
@@ -7098,7 +7163,7 @@ index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088
      // ── OpenAI / Codex ──────────────────────────────────────────────────────────
      // Short-context rates from OpenAI's published table (read 2026-08-25):
      // https://developers.openai.com/api/docs/pricing#text-tokens
-@@ -138,18 +143,33 @@ const PRICING = [
+@@ -138,18 +143,40 @@ const PRICING = [
          match: /mistral-small|mistral-medium/i,
          pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
      },
@@ -7123,25 +7188,32 @@ index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088
 + * Rows recorded before Core stopped guessing hold the old catch-all Sonnet
 + * price for models the table does not price. Setup marks those rows unknown.
 + * It changes only estimated rows of unpriced models, so a second run changes
-+ * nothing.
++ * nothing. A failure, such as a role without UPDATE on the table, only logs,
++ * so setup still finishes and usage still records. The next process start
++ * tries again.
 + */
 +async function markUnpricedEstimatesUnknown(client) {
-+    const { rows } = await client.execute(`SELECT DISTINCT model FROM token_usage WHERE cost_source = 'estimated'`);
-+    for (const row of rows) {
-+        const model = String(row.model ?? "");
-+        if (hasTablePrice(model))
-+            continue;
-+        await client.execute({
-+            sql: `UPDATE token_usage SET cost_source = 'unavailable', cost_cents_x100 = 0
++    try {
++        const { rows } = await client.execute(`SELECT DISTINCT model FROM token_usage WHERE cost_source = 'estimated'`);
++        for (const row of rows) {
++            const model = String(row.model ?? "");
++            if (hasTablePrice(model))
++                continue;
++            await client.execute({
++                sql: `UPDATE token_usage SET cost_source = 'unavailable', cost_cents_x100 = 0
 +        WHERE cost_source = 'estimated' AND model = ?`,
-+            args: [model],
-+        });
++                args: [model],
++            });
++        }
++    }
++    catch (err) {
++        console.warn("[usage] Could not mark old estimated costs unknown:", err instanceof Error ? err.message : err);
      }
 -    return PRICING[PRICING.length - 1].pricing;
  }
  let _initPromise;
  export async function ensureUsageTable() {
-@@ -232,6 +252,7 @@ export async function ensureUsageTable() {
+@@ -232,6 +259,7 @@ export async function ensureUsageTable() {
                  // the whole release. The SHARE lock is the cost of a build that lands.
                  await ensureIndexExists("idx_token_usage_lower_owner_created", `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`);
                  await ensureIndexExists("idx_token_usage_org_app_created", `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`);
@@ -7149,7 +7221,7 @@ index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088
                  return;
              }
              // SQLite (local dev): no lock problem — keep the original behaviour.
-@@ -265,6 +286,7 @@ export async function ensureUsageTable() {
+@@ -265,6 +293,7 @@ export async function ensureUsageTable() {
                      // through the Postgres branch above, which probes before creating.
                  }
              }
@@ -7157,7 +7229,7 @@ index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088
          })().catch((err) => {
              // Retry init on the next call after a failed startup.
              _initPromise = undefined;
-@@ -292,6 +314,10 @@ export async function ensureUsageTable() {
+@@ -292,6 +321,10 @@ export async function ensureUsageTable() {
   */
  export function calculateCost(inputTokens, outputTokens, model, cacheReadTokens = 0, cacheWriteTokens = 0) {
      const p = pricingFor(model);
@@ -7168,7 +7240,7 @@ index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..5a75138e14f9840043dab8c9972e3088
      // An engine that still emits the exclusive convention would drive this
      // negative and credit the bill. Clamping keeps the partition non-negative;
      // the fix for a caller that trips it is that engine, not a wider clamp here.
-@@ -334,7 +360,14 @@ export async function recordUsage(recordOrOwner, inputTokens, outputTokens, mode
+@@ -334,7 +367,14 @@ export async function recordUsage(recordOrOwner, inputTokens, outputTokens, mode
      }
      // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
      // otherwise derive it from tokens via the pricing table.

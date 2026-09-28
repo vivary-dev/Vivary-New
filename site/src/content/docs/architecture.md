@@ -157,6 +157,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103, review round 2. The maintained Core patch counts a turn's model calls so that a retry replaces the attempt
+it retries, and it records a reported cost only when every counted call reported one. A turn whose call an in-stream
+provider error cuts off after text, or whose call's stream ends with no usage chunk, now falls back to the price table
+or Unknown instead of recording the other calls' sum as reported. An integration run sums its usage the same way, and
+its budget settles at the reported cost, at the table cost, at 0 when the run used no tokens, or at its reservation
+when an unpriced model used tokens and reported no cost. The one-time conversion of old estimated rows logs a failure
+and lets the usage table setup finish, so usage still records. Core still owns model calls, usage records, and
+integration budgets, so no component, flow, or boundary changes, and the design description holds. The new cases in
+`test:native-chat` failed on the previous patch and pass on this one. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
+
 Issue #106, review fixes. The maintained Core patch keeps a stopped reply labeled in the live chat after the owner
 sends the next message. The chat keeps a list of the runs the owner stopped, which the next message does not clear,
 and the message view reads it. A Stop flags only the stopped run's own reply, so a Stop while a reloaded chat follows
