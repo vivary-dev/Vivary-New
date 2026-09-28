@@ -239,6 +239,9 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
     return () => window.removeEventListener("agent-chat:threads-updated", refresh);
   }, [enabled, refetch]);
   const threads = archived.data?.threads ?? [];
+  // A chat archived again after its restore is listed below, so its old Restored line would contradict the list.
+  const restored = notice?.kind === "restored" && !threads.some(thread => thread.id === notice.threadId)
+    ? notice : undefined;
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
     setNotice(undefined);
     const origin = document.activeElement;
@@ -266,9 +269,9 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   }
   return <details ref={details} className="workspace-saved-conversations" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary ref={summary}>Archived conversations</summary>
-    <div role="status">{notice?.kind === "restored" && <>
-      <p>Restored: {notice.title}</p>
-      <Button variant="ghost" size="sm" aria-label={`Open ${notice.title}`} onClick={() => onOpen(notice.threadId)}>Open</Button>
+    <div role="status">{restored && <>
+      <p>Restored: {restored.title}</p>
+      <Button variant="ghost" size="sm" aria-label={`Open ${restored.title}`} onClick={() => onOpen(restored.threadId)}>Open</Button>
     </>}</div>
     {notice?.kind === "failed" && <div role="alert">
       <p>{notice.message}</p>
