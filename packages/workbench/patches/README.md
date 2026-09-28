@@ -316,21 +316,29 @@ The patch changes these files:
   A cost alert shows its count the same way, for example "$0.00 + 1 unknown of
   $5.00". A token alert does not, because every call's tokens are known.
 - `integrations/webhook-handler.js` sums an integration run's usage with
-  `createTurnUsage` and settles the run's budget reservations by three rules.
-  A run whose calls all reported a cost settles at that cost, so a free model
-  on OpenRouter settles at 0. A run with no reported cost settles at its table
+  `createTurnUsage`. At both points where the handler settles a run, it passes
+  the run's usage record to the new exported
+  `recordAndSettleIntegrationUsage`, which writes the usage row and settles the
+  run's budget reservations from that one record. The row takes the reported
+  cost by the chat turn's rule, so a free model's integration run on
+  OpenRouter records $0 as reported. Without a reported cost the row keeps the
+  table price or Unknown. Its tokens are the sum of the run's usage events, as
+  a chat turn counts them, so a run whose agent loop failed after it used
+  tokens now records a row too. The budget settles by three rules. A run whose
+  calls all reported a cost settles at that cost, so a free model on
+  OpenRouter settles at 0. A run with no reported cost settles at its table
   cost for a priced model, and at 0 when it used no tokens. A run that used
   tokens of an unpriced model and has no reported cost settles at its budget
   reservation, `INTEGRATION_RUN_RESERVATION_MICROS` or $5 by default, so a
-  budget cap still fills. The settlement function is exported so the test can
-  call it.
+  budget cap still fills. The function is exported so the test can call it as
+  the handler does.
 
 These limits remain:
 
-- Only the main chat turn records a reported cost in the usage table. Custom
-  agent calls, background automations, agent teams, and integration webhooks
+- Only the main chat turn and an integration run record a reported cost in
+  the usage table. Custom agent calls, background automations, and agent teams
   still record without one, so a free model on those paths shows Unknown
-  rather than $0. An integration run's budget settlement is the exception.
+  rather than $0.
 - A turn passes no cost when any call it counts reported no cost. A call cut
   off by Stop, by a dropped connection, or by an in-stream provider error
   after text reports none, and so does a call whose stream ends with no usage
@@ -375,13 +383,17 @@ unpriced model must keep its row among six models. A second run of the table
 setup over old rows must mark only the unpriced model's estimate unknown. When
 a database trigger refuses the conversion, setup must log it and usage must
 still record, and the next start must convert the row. A daily cost alert must
-count the unknown call. An integration budget must settle a run at its reported
-cost of 1.23¢ or 0, whether or not the table prices the model, an unpriced run
-with no tokens at 0, an unpriced run with tokens at its $5 reservation, and a
-Sonnet run at 6,000 currency micros. `tests/native-chat-components.test.mjs`
-renders the Settings Usage tab and must show "12.30¢ + 1 unknown" for the total,
-"Unknown" for the unpriced model, and "$0.00 + 1 unknown of $5.00" for a cost
-alert.
+count the unknown call. Six integration runs go through the agent loop and
+`createTurnUsage` into `recordAndSettleIntegrationUsage`, as the handler wires
+them, and each must settle its budget and write its usage row from the same
+record. A reported cost of 1.23¢ or 0 settles at that cost and records it as
+reported, whether or not the table prices the model. Sonnet with no reported
+cost settles at 6,000 currency micros and records its table price. An unpriced
+run with zero tokens settles at 0 and writes no row, and an unpriced run with
+tokens settles at its $5 reservation and records an unknown cost.
+`tests/native-chat-components.test.mjs` renders the Settings Usage tab and must
+show "12.30¢ + 1 unknown" for the total, "Unknown" for the unpriced model, and
+"$0.00 + 1 unknown of $5.00" for a cost alert.
 
 On the first patch for #103 every case of that round failed except the engine
 case with no reported cost, and the turn cases failed because
@@ -391,7 +403,8 @@ case failed. The budget case failed because the settlement function was not
 exported. On the third patch, the two cut turns recorded the first call's cost
 as reported, the refused conversion stopped usage from recording, and the
 budget settled every unpriced run at its reservation and ignored a reported
-cost.
+cost. On the fourth patch, the six integration run cases failed because
+`recordAndSettleIntegrationUsage` did not exist yet.
 
 Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release records a provider's reported cost and an unknown cost

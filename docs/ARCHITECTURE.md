@@ -153,6 +153,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103, review round 3. The maintained Core patch writes an integration run's usage row and settles its budget
+reservations from one usage record, through the new exported `recordAndSettleIntegrationUsage`, which the webhook
+handler calls at both points where it settles a run. The row takes the reported cost by the chat turn's rule, so a
+free model's integration run records $0 as reported instead of Unknown. Without a reported cost the row keeps the
+table price or Unknown. The row's tokens are the sum of the run's usage events, so a run whose agent loop failed after
+it used tokens now records a row, as a chat turn does. Core still owns integration runs, usage records, and budgets,
+so no component, flow, or boundary changes, and the design description holds. Six integration run cases in
+`test:native-chat` drive the agent loop, `createTurnUsage`, and the new function, and assert the settled amount and
+the row. They failed on the previous patch and pass on this one. The
+[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
+
 Issue #103, review round 2. The maintained Core patch counts a turn's model calls so that a retry replaces the attempt
 it retries, and it records a reported cost only when every counted call reported one. A turn whose call an in-stream
 provider error cuts off after text, or whose call's stream ends with no usage chunk, now falls back to the price table

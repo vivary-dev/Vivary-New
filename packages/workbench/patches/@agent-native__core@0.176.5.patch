@@ -4679,20 +4679,22 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
                      setResponseStatus(event, 200);
                      return { ok: true, taskId };
 diff --git a/dist/integrations/webhook-handler.d.ts b/dist/integrations/webhook-handler.d.ts
-index d86ba8c8975aa27234f661b9906259e40d0998b7..1c7cd19f185bcee4236a5d1460982184a13a1b19 100644
+index d86ba8c8975aa27234f661b9906259e40d0998b7..db35eb6fcd4960397c9e9e8598d39c1fa537d5d8 100644
 --- a/dist/integrations/webhook-handler.d.ts
 +++ b/dist/integrations/webhook-handler.d.ts
-@@ -129,4 +129,19 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
+@@ -129,4 +129,30 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
      enabled?: boolean;
      continuationInvocation?: boolean;
  }): Promise<ProcessIntegrationTaskResult>;
 +/**
-+ * Settle a run's budget reservations at the provider's reported cost, else at
-+ * the table price, or at 0 when the run used no tokens. A run that used tokens
-+ * of a model Core has no price for, with no reported cost, settles at each
-+ * reservation's estimate.
++ * Record an integration run's usage row and settle its budget reservations
++ * from the same usage record. Both use the provider's reported cost when every
++ * call reported one. Otherwise the row records the table price or an unknown
++ * cost, and each reservation settles at the table price, at 0 when the run
++ * used no tokens, or at its estimate when a model Core has no price for used
++ * tokens.
 + */
-+export declare function settleApplicableIntegrationBudgets(reservations: Array<{
++export declare function recordAndSettleIntegrationUsage(reservations: Array<{
 +    budgetId: string;
 +    reservationId: string;
 +    estimatedCostMicros: number;
@@ -4700,10 +4702,19 @@ index d86ba8c8975aa27234f661b9906259e40d0998b7..1c7cd19f185bcee4236a5d1460982184
 +        ownerEmail: string;
 +        orgId?: string | null;
 +    };
-+}>, usage?: ReturnType<import("../agent/production-agent.js").TurnUsage["usageRecord"]>): Promise<void>;
++}>, options: {
++    usage: ReturnType<import("../agent/production-agent.js").TurnUsage["usageRecord"]>;
++    ownerEmail: string;
++    appId?: string;
++    runId: string;
++    threadId: string;
++    taskId?: string;
++    orgId?: string;
++    incoming: IncomingMessage;
++}): Promise<void>;
  export declare function recordIntegrationResponseDelivery(payload: IntegrationResponseDeliveryTaskPayload, receipt: PlatformDeliveryReceipt): Promise<void>;
 diff --git a/dist/integrations/webhook-handler.js b/dist/integrations/webhook-handler.js
-index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..55d235bebb6e5d3c2ce1298ffc1c831cb9a3ebe5 100644
+index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..e2081777e39d09b4087b44123dcc5f98d6723176 100644
 --- a/dist/integrations/webhook-handler.js
 +++ b/dist/integrations/webhook-handler.js
 @@ -4,7 +4,7 @@ import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
@@ -4719,8 +4730,8 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..55d235bebb6e5d3c2ce1298ffc1c831c
          })).catch(() => { });
      }
      let usage = null;
-+    // The run's usage with the provider's reported cost, which budget
-+    // settlement reads.
++    // The run's usage with the provider's reported cost, which the usage row
++    // and budget settlement read.
 +    let turnUsage;
      let budgetsSettled = false;
      // Populated once `resolvedModel`/`engine` are known inside the run
@@ -4742,30 +4753,76 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..55d235bebb6e5d3c2ce1298ffc1c831c
                          }, undefined, {
                              useHostedDefault: true,
                              backgroundFunction: isInBackgroundFunctionRuntime(),
-@@ -1240,7 +1246,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+@@ -1230,8 +1236,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                         await stageTaskDeliveryPayload(opts.taskId, JSON.stringify(stagedDeliveryPayload));
+                     }
+                 }
+-                await recordIntegrationUsage({
+-                    usage,
++                await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
++                    usage: turnUsage.usageRecord(),
+                     ownerEmail,
+                     appId: options.appId,
+                     runId,
+@@ -1240,7 +1246,6 @@ async function processIncomingMessage(incoming, options, opts = {}) {
                      orgId: orgId ?? undefined,
                      incoming,
                  });
 -                await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
-+                await settleApplicableIntegrationBudgets(budgetReservations.reservations, turnUsage.usageRecord());
                  budgetsSettled = true;
                  if (campaign && queuedA2AContinuation) {
                      const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
-@@ -1323,7 +1329,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
-                             incoming,
-                         }).catch(() => { });
+@@ -1312,18 +1317,17 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                                 : undefined), artifactSecrets, Boolean(campaign));
+                     }
+                     if (usage) {
+-                        await recordIntegrationUsage({
+-                            usage,
+-                            ownerEmail,
+-                            appId: options.appId,
+-                            runId,
+-                            threadId,
+-                            taskId: opts.taskId,
+-                            orgId: orgId ?? undefined,
+-                            incoming,
+-                        }).catch(() => { });
                          try {
 -                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
-+                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, turnUsage.usageRecord());
++                            await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
++                                usage: turnUsage.usageRecord(),
++                                ownerEmail,
++                                appId: options.appId,
++                                runId,
++                                threadId,
++                                taskId: opts.taskId,
++                                orgId: orgId ?? undefined,
++                                incoming,
++                            });
                              budgetsSettled = true;
                          }
                          catch { }
-@@ -1541,20 +1547,35 @@ async function reserveApplicableIntegrationBudgets(options) {
+@@ -1454,6 +1458,8 @@ async function recordIntegrationUsage(options) {
+             cacheReadTokens: usage.cacheReadTokens,
+             cacheWriteTokens: usage.cacheWriteTokens,
+             model: usage.model,
++            costCentsX100: usage.costCentsX100,
++            costSource: usage.costSource,
+             label: `integration:${options.incoming.platform}`,
+             app: options.appId,
+             refId: options.taskId ?? options.runId,
+@@ -1541,20 +1547,43 @@ async function reserveApplicableIntegrationBudgets(options) {
      }
      return { allowed: true, reservations };
  }
--async function settleApplicableIntegrationBudgets(reservations, usage) {
-+export async function settleApplicableIntegrationBudgets(reservations, usage) {
++/**
++ * Records an integration run's usage row and settles its budget reservations
++ * from the same usage record, so the row and the budget agree on the cost.
++ */
++export async function recordAndSettleIntegrationUsage(reservations, options) {
++    await recordIntegrationUsage(options);
++    await settleApplicableIntegrationBudgets(reservations, options.usage);
++}
+ async function settleApplicableIntegrationBudgets(reservations, usage) {
      if (!reservations.length)
          return;
      let actualCostMicros = 0;
