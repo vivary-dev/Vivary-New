@@ -156,11 +156,12 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
   }
   async function restoreNative(threadId: string, open: boolean) {
-    const generation = open ? ++creationGeneration.current : null;
+    // Every restore takes the navigation token, so a later restore cancels an earlier restore and open still in flight.
+    const generation = ++creationGeneration.current;
     const locationKey = latestLocationKey.current;
     await call<{ restored: true }>("vivary-native-archive", { operation: "restore", projectId: identity.projectId, threadId });
     window.dispatchEvent(new CustomEvent("agent-chat:threads-updated"));
-    if (generation !== creationGeneration.current || latestLocationKey.current !== locationKey) return false;
+    if (!open || generation !== creationGeneration.current || latestLocationKey.current !== locationKey) return false;
     openNative(threadId);
     return true;
   }
