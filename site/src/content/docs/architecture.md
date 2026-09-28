@@ -163,8 +163,8 @@ Each time it opens it lists the project's archived chats again, newest first, th
 owner action, so a chat archived while it was closed appears. Each row has two buttons that Tab reaches. The row
 button restores and opens the chat, and a visible Restore button brings it back without opening it. A restored chat
 keeps its old place in recency order, which can be below the rail's visible rows, so after a Restore the section keeps
-a status line with the chat's title and an Open button, which it hides if that chat is archived again. Restores run one at a time. A click while one is in flight is
-ignored and the section reads as busy, so an earlier restore never navigates, sets the notice, or strands focus after a
+a status line with the chat's title and an Open button, which it hides if that chat is archived again. Restores run one at a time across every mounted sidebar, since
+the hidden desktop sidebar stays mounted beside the narrow sheet. A click while one is in flight is ignored and the section reads as busy, so an earlier restore never navigates, sets the notice, or strands focus after a
 later one. Focus then moves to the next archived row's Restore button, or
 to the section's summary when no row is left, unless the restore opened the chat or the owner moved focus while it
 ran. Restore errors show inside the section. A 404 that carries the action's own message shows it with no Retry,
@@ -178,8 +178,11 @@ contract. `native-archive.test.mjs` shows, against a real SQLite store, the list
 owner, organization, and a missing chat, a repeated restore, and that the transcript, title, scope, and pin survive.
 It also restores a chat stored with a different-case owner and one with no organization, lists 201 archived chats
 across two pages in archive order, and checks that the action requires a session, stays off the agent, MCP, and tool
-surfaces, and refuses unknown keys and a malformed thread id. The sidebar has no unit harness here and has not yet run
-in the hosted or packaged app.
+surfaces, and refuses unknown keys and a malformed thread id. The sidebar has no unit harness here. The packaged Windows
+build `9698ca24` ran it: archive from the row menu, a keyboard restore, the Restored line and Open, archive again with
+the section refreshing, a restore and open, and a restore in the narrow sheet. The later changes have not run in a
+package: hiding the Restored line after that chat is archived again, the navigation token for every restore, and one
+restore at a time across every mounted sidebar.
 
 Issue #107 is closed and part A of #121 is merged. PR #129 merged into `dev` as `a4032a0` after all eight checks
 passed, including Entire Gates, and #107 was closed with the owner's approval on 2026-09-28. #121 stays open for

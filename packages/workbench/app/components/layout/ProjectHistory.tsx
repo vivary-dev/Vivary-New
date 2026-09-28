@@ -219,6 +219,10 @@ type RestoreNotice =
   | { kind: "restored"; threadId: string; title: string }
   | { kind: "failed"; message: string; retry?: () => void };
 
+// Restores run one at a time across every mounted sidebar. The hidden desktop sidebar stays mounted beside the narrow
+// sheet, so a lock per instance would let two restores overlap.
+let restoreInFlight = false;
+
 function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { storageKey: string; projectId: string | null;
   onRestore: (threadId: string, open: boolean) => Promise<boolean>; onOpen: (threadId: string) => void }) {
   const { call, ready } = useNativeActionCaller();
@@ -226,9 +230,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const [notice, setNotice] = useState<RestoreNotice>();
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
-  // Restores run one at a time, so an earlier one can never navigate, set the notice, or strand focus after a later
-  // one. A click while one is in flight is ignored, and the section reads as busy.
-  const restoring = useRef(false);
+  // An earlier restore can never navigate, set the notice, or strand focus after a later one. A click while one is in
+  // flight is ignored, and the section that started it reads as busy.
   const [busy, setBusy] = useState(false);
   const enabled = open && ready;
   const archived = useQuery({
@@ -248,8 +251,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const restored = notice?.kind === "restored" && !threads.some(thread => thread.id === notice.threadId)
     ? notice : undefined;
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
-    if (restoring.current) return;
-    restoring.current = true;
+    if (restoreInFlight) return;
+    restoreInFlight = true;
     setBusy(true);
     setNotice(undefined);
     const origin = document.activeElement;
@@ -266,7 +269,7 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
           retry: () => void restore(threadId, title, openChat, focusId) });
       return;
     } finally {
-      restoring.current = false;
+      restoreInFlight = false;
       setBusy(false);
     }
     // The opened chat takes focus through navigation.
