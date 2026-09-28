@@ -773,7 +773,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b541217b0 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa23c49032 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -788,7 +788,103 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
      // An explicit `recoverable: false` outranks the code and message inference
      // below, matching `isRecoverableContinuationError`. The background
      // no-progress breaker stops a turn while PRESERVING the underlying transient
-@@ -1117,6 +1122,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -60,6 +65,7 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     let toolCallCounter = 0;
+     let runError = null;
+     let endedAtInternalContinuationBoundary = false;
++    let userStopped = false;
+     const appendText = (text) => {
+         const last = content[content.length - 1];
+         if (last && last.type === "text") {
+@@ -237,6 +243,13 @@ export function buildAssistantMessage(events, runId, options = {}) {
+             appendText(`${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`);
+             continue;
+         }
++        // Stop ends a run with this event, and the live client marks the reply
++        // as stopped when it reads it (sse-event-processor.js), so the saved
++        // turn does too.
++        if (event.type === "done" && event.reason === "user") {
++            userStopped = true;
++            continue;
++        }
+         // done, missing_api_key — terminal signals, not content
+     }
+     // Only a truly empty turn produces nothing to persist. A turn that ended at
+@@ -268,6 +281,8 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     }
+     if (continued)
+         custom.continued = true;
++    if (userStopped)
++        custom.userStopped = true;
+     if (runError) {
+         custom.runError = {
+             ...runError,
+@@ -545,7 +560,13 @@ function findRankedIdentityMatch(existingKeys, incomingKeySets, usedIncoming, ex
+         ? index
+         : closest);
+ }
+-function preserveAssistantRunDuration(chosenEntry, otherEntry) {
++/**
++ * The merge keeps one copy of an assistant turn whole. Carry over what only
++ * the other copy may know: the run's duration, and that the owner stopped the
++ * run. When assistant-ui cancels a stopped run, the client's copy can lose the
++ * stop, and the server's copy records it from the run's terminal event.
++ */
++function preserveAssistantRunMetadata(chosenEntry, otherEntry) {
+     const chosen = getStoredMessage(chosenEntry);
+     const other = getStoredMessage(otherEntry);
+     if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+@@ -554,13 +575,18 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+     const chosenCustom = chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+         ? chosen.metadata.custom
+         : {};
+-    if (assistantRunDurationMs(chosenCustom) != null)
+-        return chosenEntry;
+     const otherCustom = other.metadata?.custom && typeof other.metadata.custom === "object"
+         ? other.metadata.custom
+         : {};
++    const carried = {};
+     const durationMs = assistantRunDurationMs(otherCustom);
+-    if (durationMs == null)
++    if (assistantRunDurationMs(chosenCustom) == null && durationMs != null) {
++        carried[ASSISTANT_RUN_DURATION_METADATA_KEY] = durationMs;
++    }
++    if (otherCustom.userStopped === true && chosenCustom.userStopped !== true) {
++        carried.userStopped = true;
++    }
++    if (Object.keys(carried).length === 0)
+         return chosenEntry;
+     const nextMessage = {
+         ...chosen,
+@@ -568,7 +594,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+             ...chosen.metadata,
+             custom: {
+                 ...chosenCustom,
+-                [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
++                ...carried,
+             },
+         },
+     };
+@@ -599,15 +625,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
+                     !isTerminalAssistantStatus(incoming?.status)
+                     ? existingEntry
+                     : incomingEntry;
+-        return preserveAssistantRunDuration(chosen, chosen === existingEntry ? incomingEntry : existingEntry);
++        return preserveAssistantRunMetadata(chosen, chosen === existingEntry ? incomingEntry : existingEntry);
+     }
+     if (existing?.role === "assistant" &&
+         incoming?.role === "assistant" &&
+         isTerminalAssistantStatus(existing?.status) &&
+         !isTerminalAssistantStatus(incoming?.status)) {
+-        return preserveAssistantRunDuration(existingEntry, incomingEntry);
++        return preserveAssistantRunMetadata(existingEntry, incomingEntry);
+     }
+-    return preserveAssistantRunDuration(incomingEntry, existingEntry);
++    return preserveAssistantRunMetadata(incomingEntry, existingEntry);
+ }
+ function normalizeMessageEntry(entry, parentId) {
+     const message = getStoredMessage(entry);
+@@ -1117,6 +1143,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -810,7 +906,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1193,7 +1213,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1193,7 +1234,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
          nextMessages.push(incomingMessages[index]);
      }
      merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
@@ -819,7 +915,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1373,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1394,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -2642,7 +2738,7 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964e96c70ad 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..1b1da790d7c98294810521043bdfc89bb4392e40 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
 @@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
@@ -2773,7 +2869,30 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1079,7 +1183,9 @@ export function AssistantMessage() {
+@@ -1042,15 +1146,14 @@ export function AssistantMessage() {
+             userStoppedRun: isUserStoppedRun,
+         });
+     const showMissingFinalResponse = useSettledFlag(missingFinalResponseCandidate, isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0);
+-    const shouldShowUserStoppedNotice = isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
+-    const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
++    // Every reply the owner stopped says so, with or without text and after
++    // later turns, so a stopped reply never reads as a finished one.
++    const missingFinalResponseNoticeText = isUserStoppedRun
+         ? t("agentChat.error.stopped")
+-        : isUserStoppedRun
+-            ? null
+-            : (missingWarningText ??
+-                (showMissingFinalResponse
+-                    ? t("agentChat.message.missingFinal")
+-                    : null));
++        : (missingWarningText ??
++            (showMissingFinalResponse
++                ? t("agentChat.message.missingFinal")
++                : null));
+     const animateMissingFinalResponse = Boolean(!isUserStoppedRun &&
+         isLast &&
+         missingFinalResponseNoticeText &&
+@@ -1079,7 +1182,9 @@ export function AssistantMessage() {
      const responseConnectionContext = React.useMemo(() => {
          let parentId = msg.parentId;
          while (parentId) {
@@ -2784,7 +2903,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  return displayableUserMessageText(messageTextFromContent(parentMessage.content));
-@@ -1087,12 +1193,14 @@ export function AssistantMessage() {
+@@ -1087,12 +1192,14 @@ export function AssistantMessage() {
              parentId = parentMessage.parentId;
          }
          return "";
@@ -2801,7 +2920,19 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  turnStartedAt = parentMessage.createdAt;
-@@ -1298,6 +1406,8 @@ export function AssistantMessage() {
+@@ -1289,15 +1396,19 @@ export function AssistantMessage() {
+                                     case "group-ran-tools":
+                                         return (_jsx(RanToolsSummary, { toolCount: assistantToolSummary.hiddenToolCount, motionKey: `assistant-${msg.id}`, children: children }));
+                                     case "text":
++                                        // The stopped notice under the reply stands in
++                                        // for a missing-response warning.
+                                         if (isUserStoppedRun &&
+                                             isMissingFinalResponseWarningText(part.text)) {
+-                                            return shouldShowUserStoppedNotice ? (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: "Stopped", animate: false })) : null;
++                                            return null;
+                                         }
+                                         if (missingWarningText != null &&
+                                             part.text === missingWarningText) {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
@@ -2810,7 +2941,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
-@@ -1307,7 +1417,10 @@ export function AssistantMessage() {
+@@ -1307,7 +1418,10 @@ export function AssistantMessage() {
                                      default:
                                          return null;
                                  }

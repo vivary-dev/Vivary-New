@@ -335,6 +335,73 @@ Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release records a provider's reported cost and an unknown cost
 for an unpriced model, and passes the same tests.
 
+## Stopped replies
+
+Issue #106. In the packaged run for #50, a Stop during a long turn looked late,
+and the stopped reply carried no stopped label. The investigation found that
+Stop already reaches the model request and Vivary's tools within milliseconds.
+The run route calls `abortRunDurably`, which aborts the run's signal, and the
+signal reaches `streamText` and each tool step's `ctx.signal`. The #50 click
+most likely landed late, because the test harness read the accessibility tree
+for seconds before each click. No record of the click time exists. The label
+was missing for two reasons. The server's saved turn ignored the run's
+terminal `{ type: "done", reason: "user" }` event, and the client showed the
+stopped notice only under the last reply and only when it had no text.
+
+The patch changes these files:
+
+- `agent/thread-data-builder.js` sets `custom.userStopped` in
+  `buildAssistantMessage` when the run ends with `done` and reason `user`, as
+  the live client's `processEvent` does. The run store emits that event only
+  for a Stop, with the reason `user`, `abort`, or `user_*`. `foldAssistantTurn`
+  already merges `custom`, so the flag also reaches a turn the client saved
+  first.
+- The same file carries `userStopped` over in a client save, as it carries the
+  run duration. The merge keeps one copy of a turn whole, usually the client's
+  heavier copy. When assistant-ui cancels a stopped run, the client's copy can
+  lose the flag, and the #50 turn's saved copy had none.
+- `client/chat/message-components.js` shows "The agent stopped before
+  finishing" under every stopped reply, with or without text and after later
+  turns. It reuses the `agentChat.error.stopped` string, so no locale file
+  changes. A missing-response warning inside a stopped reply is hidden instead
+  of showing a second notice.
+
+These limits remain:
+
+- A turn saved before this patch, such as the #50 turn, keeps no label. Its
+  client copy has the status `incomplete` with the reason `cancelled`, which
+  assistant-ui also sets for other cancels, so the patch does not read it as a
+  Stop.
+- The server still saves nothing for a turn stopped before any text, reasoning,
+  or tool call.
+- A Stop sent before the client knows the run id goes to the turn route, which
+  only writes a turn marker. The running run finds it on its next check, which
+  can take about 3 seconds. The investigation measured 1,979 ms.
+- A tool that ignores its signal keeps running after Stop, although the loop
+  stops waiting for it at once.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-stop.test.ts` starts a turn through `startRun` and the agent
+loop against a loopback fake OpenRouter and presses Stop with
+`abortRunDurably(runId, "user")`, the run route's own call. While the model
+streams its reply, the run must end and the model connection must close
+within 500 ms, with one provider request and one terminal event, `done` with
+reason `user`. On Zo both took 80 to 160 ms, most of it while the engine's AI
+SDK stream settled. During a tool step that honors its signal, the signal must
+fire within 50 ms and the run must end within 500 ms. On Zo they took at most
+1 ms and 3 to 8 ms. The saved turn must keep its text or its tool call and set
+`userStopped`, and a client save of a heavier copy without the flag must keep
+the flag and the client's content. `tests/native-chat-components.test.mjs`
+renders Core's assistant message for a reloaded thread with two stopped
+replies that have text and a finished reply between them, and the notice must
+show under both stopped replies only. On the previous patch the timing cases
+passed and the label cases failed. With only the first and third changes, the
+client save case still failed.
+
+Upstream could take these changes as they are. Remove this part of the patch
+when an upstream release labels every stopped reply after a reload and passes
+the same tests.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.

@@ -7314,6 +7314,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #106. The maintained Core patch labels every reply the owner stopped. The saved turn records the stop from the
+run's terminal `done` event with reason `user`, a client save that keeps the client's heavier copy carries the flag
+over from the server's copy, and the chat shows "The agent stopped before finishing" under every stopped reply, with
+or without text and after later turns. Stop itself did not change. A Node test confirms that it ends the run and
+closes the model connection within 500 ms, 80 to 160 ms on Zo, and fires a tool's signal within 1 ms. Native still
+owns runs, saved threads, and the message view, so no component, flow, or boundary changes, and the design
+description holds. `test:native-chat` failed on the previous patch in the label cases and passes on this one. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#stopped-replies) record the change and its limits.
+
 Issue #106, failing tests. `tests/native-stop.test.ts` starts a Native turn through `startRun` and the agent loop
 against a loopback fake OpenRouter and presses Stop with the run route's own call, once while the model streams its
 reply and once during a tool step that honors its signal. It checks how fast the run ends, the model connection
