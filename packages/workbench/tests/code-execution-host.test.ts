@@ -71,8 +71,9 @@ test("Linux group observation ignores valid kernel pgrp zero and refuses malform
 });
 
 // Issue #121. On a Linux kernel, reading the `stat` file of a process reaped after the scan opened it fails with
-// ESRCH. That process is gone. Any other read error must still fail the stop.
-test("Linux group scan counts a process reaped mid-read as gone and refuses other read errors", async () => {
+// ESRCH. That process is gone. Under `hidepid=1` another user's entry fails with EACCES or EPERM, which must not fail
+// the stop. Any other read error must still fail it.
+test("Linux group scan tolerates gone and unreadable entries and refuses other read errors", async () => {
   const procWithStatError = (code: string) => ({
     list: async () => ["self", "42", "43"],
     stat: async (pid: string) => {
@@ -80,10 +81,10 @@ test("Linux group scan counts a process reaped mid-read as gone and refuses othe
       return `${pid} (unrelated) S 1 999 999 0`;
     },
   });
-  for (const code of ["ENOENT", "ESRCH"]) {
+  for (const code of ["ENOENT", "ESRCH", "EACCES", "EPERM"]) {
     assert.equal(await linuxWorkerGroupHasLiveMember(12345, procWithStatError(code)), false, code);
   }
-  await assert.rejects(linuxWorkerGroupHasLiveMember(12345, procWithStatError("EACCES")), VivaryCodeWorkerCleanupError);
+  await assert.rejects(linuxWorkerGroupHasLiveMember(12345, procWithStatError("EIO")), VivaryCodeWorkerCleanupError);
 });
 
 // Issue #121. Each scan advances the mocked clock by a second, so these cases take milliseconds.
@@ -523,6 +524,73 @@ process.send({ type: "vivary:code-worker:ready" });
     if (pid && await isAlive(pid)) {
       try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
     }
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+// Issue #121. A fake `powershell.exe` under `SystemRoot` answers the process scan with fixed rows, so the Windows check
+// after a failed stop runs on this host. The fake is a shell script, so this case cannot run on Windows.
+test("a Windows worker that exits after its run is checked by one process scan", {
+  timeout: WORKER_TEST_TIMEOUT_MS, skip: process.platform === "win32",
+}, async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-process-scan-"));
+  const server = path.join(fixture, ".output", "server");
+  const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
+  const workerPid = path.join(fixture, "worker.pid");
+  const leaveChild = path.join(fixture, "leave-child");
+  const log = path.join(fixture, "powershell.log");
+  await mkdir(server, { recursive: true });
+  await mkdir(scanner, { recursive: true });
+  // The System row has no creation time, like the real one. The child row names the worker as its parent.
+  await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
+printf '%s\n' "$*" >> ${JSON.stringify(log)}
+printf '4\t0\t\tSystem\r\n'
+if [ -f ${JSON.stringify(leaveChild)} ]; then
+  printf '4242\t%s\t%s\tcodex.exe\r\n' "$(cat ${JSON.stringify(workerPid)})" "$(date +%s%3N)"
+fi
+`, { mode: 0o755 });
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type !== "vivary:code-worker:start") return;
+  writeFileSync(${JSON.stringify(workerPid)}, String(process.pid));
+  process.exit(0);
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  // guard:allow-env-credential - Points the Windows system directory at the fake `powershell.exe` until `finally`.
+  const systemRoot = process.env.SystemRoot;
+  try {
+    // guard:allow-env-credential - Points the Windows system directory at the fake `powershell.exe`.
+    process.env.SystemRoot = fixture;
+    process.chdir(fixture);
+    for (const leaves of [true, false]) await t.test(leaves ? "a child is left" : "nothing is left", async () => {
+      await rm(leaveChild, { force: true });
+      if (leaves) await writeFile(leaveChild, "");
+      const failure = await asWindows(() => executeVivaryCodeWorker({ runId: request.runId, prompt: "exit after its run",
+        ownerEmail: request.ownerEmail, signal: new AbortController().signal }).then(() => null, (error: unknown) => error));
+      assert.ok(failure instanceof Error);
+      if (!leaves) {
+        assert.equal(failure instanceof VivaryCodeWorkerCleanupError, false, "a worker that left nothing stopped cleanly");
+        assert.equal(failure.message, "The coding worker ended before completing its run.");
+        return;
+      }
+      assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
+      assert.equal(failure.cause?.step, "worker-exited");
+      const check = failure.leftovers?.check;
+      assert.ok(check?.result === "remaining");
+      assert.deepEqual(check.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: 4242, name: "codex.exe" }]);
+    });
+    const calls = (await readFile(log, "utf8")).trim().split("\n");
+    assert.equal(calls.length, 2, "one scan for each failed stop");
+    for (const call of calls) {
+      assert.ok(call.startsWith("-NoProfile -NonInteractive -Command "), call);
+      assert.ok(call.includes("'SELECT ProcessId,ParentProcessId,Name,CreationDate FROM Win32_Process'"), call);
+    }
+  } finally {
+    process.chdir(originalCwd);
+    // guard:allow-env-credential - Restores the Windows system directory, or its absence.
+    if (systemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = systemRoot;
     await rm(fixture, { recursive: true, force: true });
   }
 });
