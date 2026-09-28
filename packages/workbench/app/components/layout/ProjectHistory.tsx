@@ -226,8 +226,10 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const [notice, setNotice] = useState<RestoreNotice>();
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
-  // Rows stay usable while a restore is in flight, so only the latest restore may set the notice or move focus.
-  const latestRestore = useRef(0);
+  // Restores run one at a time, so an earlier one can never navigate, set the notice, or strand focus after a later
+  // one. A click while one is in flight is ignored, and the section reads as busy.
+  const restoring = useRef(false);
+  const [busy, setBusy] = useState(false);
   const enabled = open && ready;
   const archived = useQuery({
     queryKey: ["vivary-native-archive", storageKey],
@@ -246,16 +248,16 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const restored = notice?.kind === "restored" && !threads.some(thread => thread.id === notice.threadId)
     ? notice : undefined;
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
-    const request = ++latestRestore.current;
+    if (restoring.current) return;
+    restoring.current = true;
+    setBusy(true);
     setNotice(undefined);
     const origin = document.activeElement;
     let opened: boolean;
     try {
       opened = await onRestore(threadId, openChat);
-      if (request !== latestRestore.current) return;
       if (!opened) setNotice({ kind: "restored", threadId, title });
     } catch (failure) {
-      if (request !== latestRestore.current) return;
       // Only the action's own 404 message is a refusal. A proxy's 404 page is a transport fault a retry can clear.
       const refusal = failure instanceof Error && "status" in failure && failure.status === 404
         ? actionErrorMessage(failure) : undefined;
@@ -263,6 +265,9 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
         : { kind: "failed", message: "The conversation could not be restored. Try again.",
           retry: () => void restore(threadId, title, openChat, focusId) });
       return;
+    } finally {
+      restoring.current = false;
+      setBusy(false);
     }
     // The opened chat takes focus through navigation.
     if (opened) return;
@@ -273,7 +278,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
     const next = [...section.querySelectorAll<HTMLElement>("[data-restore]")].find(button => button.dataset.restore === focusId);
     (next ?? summary.current)?.focus();
   }
-  return <details ref={details} className="workspace-saved-conversations" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details ref={details} className="workspace-saved-conversations" aria-busy={busy || undefined}
+    onToggle={event => setOpen(event.currentTarget.open)}>
     <summary ref={summary}>Archived conversations</summary>
     <div role="status">{restored && <>
       <p>Restored: {restored.title}</p>
