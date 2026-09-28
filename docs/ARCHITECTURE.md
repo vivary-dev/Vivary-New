@@ -160,7 +160,7 @@ owner action, so a chat archived while it was closed appears. Each row has two b
 button restores and opens the chat, and a visible Restore button brings it back without opening it. A restored chat
 keeps its old place in recency order, which can be below the rail's visible rows, so after a Restore the section keeps
 a status line with the chat's title and an Open button, which it hides if that chat is archived again. A later restore cancels the navigation of an earlier restore and
-open that is still in flight. Focus then moves to the next archived row's Restore button, or
+open that is still in flight, and only the latest restore sets the notice or moves focus. Focus then moves to the next archived row's Restore button, or
 to the section's summary when no row is left, unless the restore opened the chat or the owner moved focus while it
 ran. Restore errors show inside the section. A 404 that carries the action's own message shows it with no Retry,
 because a retry cannot succeed. Any other failure, including a proxy's 404 page, offers Retry. `server/native-archive.ts` pages Core's public `listThreads`

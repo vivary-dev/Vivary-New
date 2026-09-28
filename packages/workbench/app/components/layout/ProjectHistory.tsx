@@ -226,6 +226,8 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const [notice, setNotice] = useState<RestoreNotice>();
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
+  // Rows stay usable while a restore is in flight, so only the latest restore may set the notice or move focus.
+  const latestRestore = useRef(0);
   const enabled = open && ready;
   const archived = useQuery({
     queryKey: ["vivary-native-archive", storageKey],
@@ -244,13 +246,16 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const restored = notice?.kind === "restored" && !threads.some(thread => thread.id === notice.threadId)
     ? notice : undefined;
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
+    const request = ++latestRestore.current;
     setNotice(undefined);
     const origin = document.activeElement;
     let opened: boolean;
     try {
       opened = await onRestore(threadId, openChat);
+      if (request !== latestRestore.current) return;
       if (!opened) setNotice({ kind: "restored", threadId, title });
     } catch (failure) {
+      if (request !== latestRestore.current) return;
       // Only the action's own 404 message is a refusal. A proxy's 404 page is a transport fault a retry can clear.
       const refusal = failure instanceof Error && "status" in failure && failure.status === 404
         ? actionErrorMessage(failure) : undefined;
