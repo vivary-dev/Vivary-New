@@ -281,8 +281,9 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
     } finally {
       setRestoreInFlight(false);
     }
-    // The opened chat takes focus through navigation.
-    if (opened) return;
+    // Only a Restore-only action moves focus. An opened chat takes focus through navigation, and a restore and open
+    // that another navigation superseded must not pull focus back into the sidebar.
+    if (openChat) return;
     const section = details.current;
     const focused = document.activeElement;
     // A slow restore must not pull focus back from wherever the owner moved it, inside the section or out of it.
