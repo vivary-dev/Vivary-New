@@ -499,6 +499,7 @@ process.send({ type: "vivary:code-worker:ready" });
   // guard:allow-env-credential - Points the Windows system directory at the fake `taskkill` until `finally`.
   const systemRoot = process.env.SystemRoot;
   try {
+    // guard:allow-env-credential - Points the Windows system directory at the fake `taskkill`.
     process.env.SystemRoot = fixture;
     process.chdir(fixture);
     const controller = new AbortController();
@@ -515,8 +516,7 @@ process.send({ type: "vivary:code-worker:ready" });
   } finally {
     process.chdir(originalCwd);
     // guard:allow-env-credential - Restores the Windows system directory, or its absence.
-    if (systemRoot === undefined) delete process.env.SystemRoot;
-    else process.env.SystemRoot = systemRoot;
+    if (systemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = systemRoot;
     const pid = await readFile(received, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
     if (pid && await isAlive(pid)) {
       try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
