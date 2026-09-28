@@ -228,7 +228,10 @@ owner's word after one more check, unless that check finds a process the owner w
 the owner saw and what the check found. The refusal keeps each End them, with who chose it, when, and whether each
 process was ended, mismatched, gone, or failed, also when the check after it lists more or cannot run. Every lift
 copies that record into `metadata.cleanupLifted`, and its transcript status names what End them ended. The server log records the scan result and the number of leftovers, never their
-names. The host strip lists the leftovers with the server's wording and offers End them when a scan can find them.
+names. The host strip lists the leftovers with the server's wording and marks each one Vivary did not trace to the
+run as not confirmed from it. It offers End them only when a listed process is traced to the run. When none is, its
+heading says the processes may be left from an earlier run, and its instruction says Vivary will not end them and how
+the owner can, with the group's `kill` command on Linux or Task Manager by PID on Windows.
 The server offers Continue anyway once End them has run on the refusal, or when End them cannot act, and refuses it
 otherwise with `vivary_code_cleanup_not_offered`. Its buttons keep focus while a choice
 runs, and focus moves to the page when the refusal lifts. The Code composer stays disabled and points at the strip,

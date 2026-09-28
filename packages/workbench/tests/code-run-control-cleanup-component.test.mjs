@@ -60,7 +60,8 @@ const NAMED = {
   version: "4a1b2c3d4e5f6a7b",
   heading: "Coding processes from an earlier run are still running",
   instruction: "Choose End them to stop these processes. Vivary ends only the processes listed here and then checks again.",
-  remaining: [{ pid: 4120, name: "codex.exe" }, { pid: 5532, name: "mcp-server-windows-x64.exe" }],
+  remaining: [{ pid: 4120, name: "codex.exe", confirmed: true },
+    { pid: 5532, name: "mcp-server-windows-x64.exe", confirmed: true }],
   canEnd: true, canContinue: false, checking: false,
   run: { id: "run-leftover", title: "Refactor the parser", projectId: null },
 };
@@ -141,11 +142,13 @@ export async function endThemThatLeavesProcessesOffersContinue() {
     const ended = deferred();
     callProof.answer = ended.promise;
     await click(button(host, "End them"));
-    const left = { ...NAMED, remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe" }], canContinue: true };
+    const left = { ...NAMED, remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe", confirmed: true },
+      { pid: 6100, name: "unrelated.exe", confirmed: false }], canContinue: true };
     await settle(ended, left);
     assert.equal(alertText(host),
       "Some coding processes are still running after End them. Stop them yourself, or choose Continue anyway.");
-    assert.deepEqual([...host.querySelectorAll("li")].map(item => item.textContent), ["mcp-server-windows-x64.exe (PID 5532)"]);
+    assert.deepEqual([...host.querySelectorAll("li")].map(item => item.textContent),
+      ["mcp-server-windows-x64.exe (PID 5532)", "unrelated.exe (PID 6100, not confirmed from that run)"]);
     assert.deepEqual(buttons(host), ["End them", "Continue anyway", "Open conversation"]);
     const continued = deferred();
     callProof.answer = continued.promise;

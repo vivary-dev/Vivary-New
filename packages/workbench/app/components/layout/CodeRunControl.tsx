@@ -115,7 +115,9 @@ export function CodeRunControl() {
     </div> : cleanup ? <div className="flex flex-col gap-2" role="region" aria-label="Leftover coding processes">
       <h2 className="font-semibold">{cleanup.heading}</h2>
       {cleanup.remaining.length > 0 && <ul className="max-h-32 overflow-auto break-words">
-        {cleanup.remaining.map(leftover => <li key={leftover.pid}>{leftover.name} (PID {leftover.pid})</li>)}
+        {cleanup.remaining.map(leftover => <li key={leftover.pid}>
+          {leftover.name} (PID {leftover.pid}{leftover.confirmed ? "" : ", not confirmed from that run"})
+        </li>)}
       </ul>}
       <p className="break-words text-xs text-muted-foreground">{withCommands(cleanup.instruction)}</p>
       <div className="flex flex-wrap items-center gap-2">

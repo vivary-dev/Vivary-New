@@ -23,7 +23,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import {
-  BOOT_ID_PATTERN, checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
+  BOOT_ID_PATTERN, checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, isTraced, VivaryCodeWorkerCleanupError,
   type CleanupCheck, type CleanupFailure, type CleanupTarget, type EndAttempt, type LeftoverProcess,
 } from "./code-execution-host";
 import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
@@ -120,8 +120,9 @@ export type VivaryCodeCleanupView = {
   heading: string;
   /** Commands appear in backticks. */
   instruction: string;
-  remaining: { pid: number; name: string }[];
-  /** A scan can find the listed processes, so End them can act. */
+  /** `confirmed` means Vivary traced the process to the run, so End them may end it. */
+  remaining: { pid: number; name: string; confirmed: boolean }[];
+  /** A scan can find the listed processes, and at least one is confirmed, so End them can act. */
   canEnd: boolean;
   /** End them has run on this refusal, or cannot act, so the owner may continue past what is left. */
   canContinue: boolean;
@@ -364,8 +365,16 @@ export async function resolveVivaryCodeCleanup(input: {
  * refusal, or when End them cannot act, so the owner tries End them first whenever it can help.
  */
 function cleanupOffers(refusal: CleanupRefusal): { canEnd: boolean; canContinue: boolean } {
-  const canEnd = refusal.target !== null && refusal.scan === "done";
+  const canEnd = refusal.scan === "done" && refusal.remaining.some(leftover => confirmedFromRun(refusal, leftover));
   return { canEnd, canContinue: !canEnd || refusal.ends.length > 0 };
+}
+
+/**
+ * Whether Vivary traced a listed process to the run, so End them may end it. A process linked only through an exited
+ * parent or a reused group id could belong to another program.
+ */
+function confirmedFromRun(refusal: CleanupRefusal, leftover: LeftoverProcess): boolean {
+  return refusal.target !== null && leftover.pid !== process.pid && isTraced(refusal.target.traced, leftover);
 }
 
 /** Every process these End them runs ended. */
@@ -541,16 +550,20 @@ function cleanupPlatform(refusal: CleanupRefusal): "linux" | "win32" {
   return refusal.target?.platform ?? (process.platform === "win32" ? "win32" : "linux");
 }
 
-function processList(processes: readonly LeftoverProcess[]): string {
-  const named = processes.slice(0, MAX_CLEANUP_NAMED_IN_MESSAGES).map(({ name, pid }) => `${name} (PID ${pid})`);
+/** Names processes by name and PID. With a refusal, it marks each one Vivary could not trace to the run. */
+function processList(processes: readonly LeftoverProcess[], refusal?: CleanupRefusal): string {
+  const named = processes.slice(0, MAX_CLEANUP_NAMED_IN_MESSAGES).map(leftover => `${leftover.name} (PID ${leftover.pid}`
+    + `${!refusal || confirmedFromRun(refusal, leftover) ? "" : ", not confirmed from that run"})`);
   const more = processes.length - named.length;
   return more > 0 ? `${named.join(", ")}, and ${more} more` : named.join(", ");
 }
 
 function cleanupHeading(refusal: CleanupRefusal): string {
   if (refusal.scan !== "done") return "Vivary could not confirm that an earlier run's coding processes stopped";
-  return refusal.remaining.length ? "Coding processes from an earlier run are still running"
-    : "A coding process from an earlier run is still running";
+  if (!refusal.remaining.length) return "A coding process from an earlier run is still running";
+  return refusal.remaining.every(leftover => confirmedFromRun(refusal, leftover))
+    ? "Coding processes from an earlier run are still running"
+    : "Processes that may be left from an earlier run are still running";
 }
 
 /**
@@ -575,21 +588,33 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
   }
   if (!refusal.remaining.length && group !== null) {
     return `Vivary cannot read its name. Stop process group ${group} with \`kill -KILL -- -${group}\`, which may need `
-      + `sudo, then choose End them${at} so Vivary checks again.`;
+      + `sudo, then choose Continue anyway${at}. Vivary checks once more before it continues.`;
   }
-  return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from that `
-    + "run, then checks again.";
+  const yourself = group !== null ? `stop them with \`kill -KILL -- -${group}\``
+    : `end them ${windows ? "in Task Manager" : "in your process list"} by PID`;
+  const confirmed = refusal.remaining.filter(leftover => confirmedFromRun(refusal, leftover)).length;
+  if (!confirmed) {
+    return "Vivary cannot confirm that these came from that run, so it will not end them. "
+      + `If they did, ${yourself}, then choose Continue anyway${at}.`;
+  }
+  const orContinue = cleanupOffers(refusal).canContinue ? ` Or choose Continue anyway${at}.` : "";
+  if (confirmed === refusal.remaining.length) {
+    return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from `
+      + `that run, then checks again.${orContinue}`;
+  }
+  return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It will not end `
+    + `the others. If they came from that run, ${yourself}.${orContinue}`;
 }
 
 /** The refusal a send gets. */
 function cleanupRefusalMessage(refusal: CleanupRefusal): string {
-  const names = refusal.scan === "done" && refusal.remaining.length ? `: ${processList(refusal.remaining)}` : "";
+  const names = refusal.scan === "done" && refusal.remaining.length ? `: ${processList(refusal.remaining, refusal)}` : "";
   return `${cleanupHeading(refusal)}${names}. ${cleanupInstruction(refusal, "message")}`;
 }
 
 /** The transcript status when a stop fails. */
 function cleanupFailureMessage(refusal: CleanupRefusal): string {
-  const names = refusal.remaining.length ? `Still running: ${processList(refusal.remaining)}. ` : "";
+  const names = refusal.remaining.length ? `Still running: ${processList(refusal.remaining, refusal)}. ` : "";
   return `The coding process could not be stopped completely. ${names}${cleanupInstruction(refusal, "message")}`;
 }
 
@@ -618,7 +643,8 @@ function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[
     version: cleanupVersion(refusal),
     heading: cleanupHeading(refusal),
     instruction: cleanupInstruction(refusal, "strip"),
-    remaining: refusal.remaining.map(({ pid, name }) => ({ pid, name })),
+    remaining: refusal.remaining.map(leftover => ({ pid: leftover.pid, name: leftover.name,
+      confirmed: confirmedFromRun(refusal, leftover) })),
     ...cleanupOffers(refusal),
     checking: hostState.cleanupCheck !== null,
     run: run ? { id: run.id, title: run.title, projectId: metadataString(run, "projectId") } : null,

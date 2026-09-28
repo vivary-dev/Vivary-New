@@ -290,11 +290,13 @@ test("a live process group keeps refusing by name, and a send after it stops lif
   const groupId = sleeper.pid!;
   const exited = once(sleeper, "exit");
   try {
-    const seeded = seedRefusal("live-group", { platform: "linux", groupId, bootId: await bootId() });
+    // Traced as the check right after a failed stop traces what it finds.
+    const seeded = seedRefusal("live-group", { platform: "linux", groupId, bootId: await bootId(),
+      traced: [await traced(groupId)] });
     await agent.recheckVivaryCodeCleanup();
     const host = await agent.getVivaryCodeHostState(OWNER);
     assert.equal(host.cleanup?.heading, "Coding processes from an earlier run are still running");
-    assert.deepEqual(host.cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
+    assert.deepEqual(host.cleanup?.remaining, [{ pid: groupId, name: "sleep", confirmed: true }]);
     assert.equal(host.cleanup?.canEnd, true);
     const refusal = metadataOf("live-group").cleanupRefusal as { remaining: { pid: number; name: string; start: number }[] };
     assert.deepEqual(refusal.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: groupId, name: "sleep" }]);
@@ -325,7 +327,7 @@ test("a Windows target refuses by name, lifts once the scan misses it, and falls
   seedRefusal("windows-leftover", tracked(4120));
   await agent.recheckVivaryCodeCleanup();
   const host = await agent.getVivaryCodeHostState(OWNER);
-  assert.deepEqual(host.cleanup?.remaining, [{ pid: 4120, name: "codex.exe" }]);
+  assert.deepEqual(host.cleanup?.remaining, [{ pid: 4120, name: "codex.exe", confirmed: true }]);
   assert.equal(host.cleanup?.canEnd, true);
   await assert.rejects(send("Start beside the leftover"), /still running: codex\.exe \(PID 4120\)\. /);
   await writeFile(scanRows, SYSTEM_ROW);
@@ -391,7 +393,8 @@ test("a Windows run whose worker exits after its run records a refusal that name
     assert.equal(lastStatus(runId), "The coding process could not be stopped completely. Still running: codex.exe "
       + "(PID 4242). Choose End them at the top of Vivary to stop these processes. Vivary ends only listed processes "
       + "it can confirm came from that run, then checks again.");
-    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: 4242, name: "codex.exe" }]);
+    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining,
+      [{ pid: 4242, name: "codex.exe", confirmed: true }]);
     await rm(leaveChild);
     await agent.recheckVivaryCodeCleanup();
     assert.equal((metadataOf(runId).cleanupLifted as { how?: string }).how, "rechecked");
@@ -453,7 +456,8 @@ test("End them ends the listed process that a fresh scan still shows, then lifts
   try {
     seedRefusal("end-linux", { platform: "linux", groupId, bootId: await bootId(), traced: [await traced(groupId)] });
     await agent.recheckVivaryCodeCleanup();
-    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
+    assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining,
+      [{ pid: groupId, name: "sleep", confirmed: true }]);
     assert.equal((await decide("end")).cleanup, null);
     assert.deepEqual(await exited, [null, "SIGKILL"]);
     const lift = metadataOf("end-linux").cleanupLifted as { how: string; by: string };

@@ -611,7 +611,7 @@ export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: re
     traced: traceable(traced, remaining, traceLiveDescendants(parents, new Set(seeds.map(({ pid }) => pid)))) };
 }
 
-function isTraced(traced: readonly TracedProcess[], candidate: TracedProcess): boolean {
+export function isTraced(traced: readonly TracedProcess[], candidate: TracedProcess): boolean {
   return traced.some(({ pid, start }) => pid === candidate.pid && start === candidate.start);
 }
 
