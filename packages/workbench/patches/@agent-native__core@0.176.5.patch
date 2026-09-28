@@ -826,7 +826,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0ae4bb5ee 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..c39885f48eb2dc387b495f0ed8561506815c8ac9 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -970,7 +970,67 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0
  }
  function normalizeMessageEntry(entry, parentId) {
      const message = getStoredMessage(entry);
-@@ -1117,6 +1160,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -775,6 +818,16 @@ function replayedToolPayloadCost(message) {
+     }
+     return cost;
+ }
++/**
++ * Issue #107. Some providers keep only the first nine characters of a tool-call
++ * id. Stored ids such as `${runId}:tc_1` share far more than that, so a replay
++ * gives each call a new id, a one-letter prefix and eight base-36 digits, as
++ * `replayToolCallId` in `client/agent-chat-adapter.js` does for the browser's
++ * replays. Server replays use the prefix `r`. Stored thread data keeps its ids.
++ */
++function replayToolCallId(prefix, n) {
++    return `${prefix}${n.toString(36).padStart(8, "0")}`;
++}
+ /**
+  * One persisted assistant turn spans many tool rounds. Replay it as the
+  * provider protocol wants it — one assistant message carrying every `tool-call`,
+@@ -782,7 +835,7 @@ function replayedToolPayloadCost(message) {
+  * round-by-round interleaving is not recoverable from thread_data and does not
+  * matter; what matters is that the calls and their outputs survive at all.
+  */
+-function assistantReplayContent(message, text) {
++function assistantReplayContent(message, text, nextReplayId) {
+     const assistant = [];
+     const results = [];
+     if (text.trim())
+@@ -798,11 +851,12 @@ function assistantReplayContent(message, text) {
+         const input = part.args && typeof part.args === "object" && !Array.isArray(part.args)
+             ? part.args
+             : {};
+-        assistant.push({ type: "tool-call", id, name, input });
++        const replayId = nextReplayId();
++        assistant.push({ type: "tool-call", id: replayId, name, input });
+         const result = part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+         results.push({
+             type: "tool-result",
+-            toolCallId: id,
++            toolCallId: replayId,
+             toolName: name,
+             toolInput: stringifyToolUseInputForGateway(input),
+             content: replayedToolResultContent(result),
+@@ -836,6 +890,9 @@ export function threadDataToEngineMessages(threadData, options = {}) {
+     if (!Array.isArray(data?.messages))
+         return messages;
+     const entries = data.messages;
++    // One counter for the whole replay, so no two replayed calls share an id.
++    let replayedCalls = 0;
++    const nextReplayId = () => replayToolCallId("r", ++replayedCalls);
+     const replaysTools = (m) => options.includeToolCalls === true &&
+         m?.role === "assistant" &&
+         !hasIntegrationReplayPolicy(m);
+@@ -865,7 +922,7 @@ export function threadDataToEngineMessages(threadData, options = {}) {
+         const text = threadMessageTextForEngine(m);
+         if (replaysTools(m)) {
+             if (toolPayloadAllowed.has(index)) {
+-                const { assistant, results } = assistantReplayContent(m, text);
++                const { assistant, results } = assistantReplayContent(m, text, nextReplayId);
+                 if (assistant.length === 0)
+                     continue;
+                 messages.push({ role: "assistant", content: assistant });
+@@ -1117,6 +1174,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -992,7 +1052,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1162,8 +1220,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1162,8 +1234,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
      for (let existingIndex = 0; existingIndex < existingMessages.length; existingIndex++) {
          const existingEntry = existingMessages[existingIndex];
          const existingMessage = getStoredMessage(existingEntry);
@@ -1002,7 +1062,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0
              continue;
          }
          const existingKeys = messageIdentityKeySet(existingMessage);
-@@ -1186,14 +1243,13 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1186,14 +1257,13 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
          if (usedIncoming.has(index))
              continue;
          const incomingMessage = getStoredMessage(incomingMessages[index]);
@@ -1019,7 +1079,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1409,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1423,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -1029,7 +1089,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text } : null;
      }
-@@ -1677,6 +1736,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
+@@ -1677,6 +1750,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
      // Only the freshest chunk decides whether the turn is still continuing.
      if (incomingCustom.continued !== true)
          delete mergedCustom.continued;

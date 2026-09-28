@@ -157,6 +157,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #107. The maintained Core patch renumbers tool-call ids when a server path replays a saved conversation with
+its tool calls, which the chained background continuation and a sub-agent's continue mode do. Each replayed call gets
+`r` and eight base-36 digits from one counter per replay, and its result carries the same id, so no two replayed
+calls share their first nine characters. Saved thread data keeps its ids, which the browser's reconnect matching
+needs. The browser's own replays already used `h` and `c` ids. This page describes Native conversation storage and
+replay at the component level and not the id format, so the description holds. The patch README section
+"Server-replayed tool-call ids" has the detail, and `replay-tool-call-ids.test.mjs` replays a turn folded from two
+chunks.
+
 Issue #121, part A. One failed cleanup of a coding worker no longer refuses every later run in the process.
 `code-execution-host.ts` drops its module flag `cleanupBlocked`. Its only product caller, `local-code-agent.ts`,
 already refuses later runs through the shared `hostState.closing` and the persisted `cleanupUnverified` marker, and

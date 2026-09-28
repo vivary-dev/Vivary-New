@@ -123,6 +123,29 @@ history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
 exported so the test can replay a turn. Run
 `node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
 
+## Server-replayed tool-call ids
+
+Issue #107 changes `dist/agent/thread-data-builder.js`. Two server paths resume
+a run from saved thread data with its tool calls: the chained background
+continuation in `agent/production-agent.js` and a sub-agent's continue mode in
+`server/agent-teams.js`. Both call `threadDataToEngineMessages` with
+`includeToolCalls`, which copied each saved tool-call id into the replayed call
+and its result. A call saved without a provider id is stored as
+`<runId>:tc_<n>`, and run ids from the same day share their first nine
+characters, so these replays met the collision in the previous section.
+
+The replay now gives each call a new id, the prefix `r` and eight base-36
+digits from one counter for the whole replay, and the call's result carries the
+same id. Two turns that saved the same id replay with two ids.
+
+No code on either path matches a replayed id back to a saved one. The seeding helpers pair
+a call with its result inside the replayed messages and match earlier work by
+tool name and input. Saved thread data keeps its ids, because the browser
+matches a reconnecting stream's `tc_<n>` against the saved `<runId>:tc_<n>`.
+`thread-data-builder.js` keeps its own copy of the one-line
+`replayToolCallId`, because importing the client adapter into server code would
+load its browser dependencies. The same test file covers this replay.
+
 ## Native stream errors
 
 Issue #101. OpenRouter reports a provider failure inside the stream as an error
