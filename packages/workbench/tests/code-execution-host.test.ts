@@ -881,3 +881,55 @@ process.send({ type: "vivary:code-worker:ready" });
     await rm(fixture, { recursive: true, force: true });
   }
 });
+
+// Issue #121. The worker records its PID and the time just before it exits after it received its run. The fake scan
+// then shows a child created 10 ms before that exit, a process that took the worker's PID 2.5 seconds later with a
+// child of its own, and a child of that PID created 0.9 seconds after the exit. A dead worker starts nothing, and only
+// the first one can be the run's.
+test("a Windows check after the worker exits counts only children created before its exit, never a PID reuser", {
+  timeout: WORKER_TEST_TIMEOUT_MS, skip: process.platform === "win32",
+}, async () => {
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-window-"));
+  const server = path.join(fixture, ".output", "server");
+  const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
+  const worker = path.join(fixture, "worker.txt");
+  await mkdir(server, { recursive: true });
+  await mkdir(scanner, { recursive: true });
+  await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
+pid=$(cut -f1 ${JSON.stringify(worker)})
+at=$(cut -f2 ${JSON.stringify(worker)})
+printf '4\t0\t\tSystem\r\n'
+printf '4243\t%s\t%s\tchild.exe\r\n' "$pid" "$((at - 100000))"
+printf '%s\t77\t%s\treuser.exe\r\n' "$pid" "$((at + 25000000))"
+printf '4244\t%s\t%s\treuser-child.exe\r\n' "$pid" "$((at + 26000000))"
+printf '4245\t%s\t%s\tlate.exe\r\n' "$pid" "$((at + 9000000))"
+printf 'END\t5\r\n'
+`, { mode: 0o755 });
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type !== "vivary:code-worker:start") return;
+  writeFileSync(${JSON.stringify(worker)}, process.pid + "\t" + (BigInt(Date.now()) * 10000n + 116444736000000000n));
+  process.exit(0);
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  // guard:allow-env-credential - Points the Windows system directory at the fake `powershell.exe` until `finally`.
+  const systemRoot = process.env.SystemRoot;
+  try {
+    // guard:allow-env-credential - Points the Windows system directory at the fake `powershell.exe`.
+    process.env.SystemRoot = fixture;
+    process.chdir(fixture);
+    const failure = await asWindows(() => executeVivaryCodeWorker({ runId: request.runId, prompt: "exit after its run",
+      ownerEmail: request.ownerEmail, signal: new AbortController().signal }).then(() => null, (error: unknown) => error));
+    assert.ok(failure instanceof VivaryCodeWorkerCleanupError);
+    const check = failure.leftovers?.check;
+    assert.ok(check?.result === "remaining");
+    assert.deepEqual(check.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: 4243, name: "child.exe" }]);
+  } finally {
+    process.chdir(originalCwd);
+    // guard:allow-env-credential - Restores the Windows system directory, or its absence.
+    if (systemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = systemRoot;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
