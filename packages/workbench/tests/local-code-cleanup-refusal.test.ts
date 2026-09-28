@@ -212,10 +212,11 @@ async function sendAndSettle(message: string): Promise<string> {
   return runId;
 }
 
-/** The owner's choice on the refusal the host strip shows, through the action's own input schema. */
+/** The owner's choice on the list the host strip shows now, through the action's own input schema. */
 async function decide(decision: string) {
   const { default: cleanupAction } = await import("../actions/vivary-code-cleanup.ts");
-  return cleanupAction.run(cleanupAction.schema.parse({ decision }), OWNER_CONTEXT);
+  const version = (await agent.getVivaryCodeHostState(OWNER)).cleanup?.version;
+  return cleanupAction.run(cleanupAction.schema.parse({ decision, version }), OWNER_CONTEXT);
 }
 
 function continueAnyway() {
@@ -232,7 +233,9 @@ test("host start lifts a refusal whose group already emptied without a send, and
   assert.equal(lastStatus("emptied-at-start"), "The leftover coding processes are gone. Vivary accepts new messages again.");
 
   const host = await agent.getVivaryCodeHostState(OWNER);
-  assert.deepEqual(host.cleanup, {
+  assert.match(host.cleanup?.version ?? "", /^[0-9a-f]{16}$/);
+  assert.deepEqual({ ...host.cleanup, version: "" }, {
+    version: "",
     heading: "Vivary could not confirm that an earlier run's coding processes stopped",
     instruction: "This run ended before Vivary recorded which processes it started. End any codex, claude, or node "
       + "processes left from it in your process list, then choose Continue anyway.",
@@ -476,8 +479,8 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
 test("End them and Continue anyway act only on the list the owner saw", { ...linuxOnly, timeout: 20_000 }, async () => {
   const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
   const shownVersion = async () => (await agent.getVivaryCodeHostState(OWNER)).cleanup?.version;
-  const resolve = (decision: "end" | "continue", version: string | undefined) => agent.resolveVivaryCodeCleanup(
-    { ownerEmail: OWNER, decision, version } as Parameters<typeof agent.resolveVivaryCodeCleanup>[0]);
+  const resolve = (decision: "end" | "continue", version: string | undefined) =>
+    agent.resolveVivaryCodeCleanup({ ownerEmail: OWNER, decision, version: version! });
   const changed = (error: Error & { errorCode?: string; statusCode?: number }) => {
     assert.equal(error.errorCode, "vivary_code_cleanup_changed");
     assert.equal(error.statusCode, 409);

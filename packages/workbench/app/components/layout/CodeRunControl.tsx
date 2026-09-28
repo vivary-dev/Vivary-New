@@ -66,11 +66,12 @@ export function CodeRunControl() {
 
   // Issue #121. The buttons keep focus while a choice or a check runs, so they ignore clicks instead of disabling.
   async function resolveCleanup(decision: "end" | "continue") {
-    if (!ready || resolving || cleanup?.checking) return;
+    if (!ready || resolving || !cleanup || cleanup.checking) return;
     setResolving(decision);
     setError(undefined);
     try {
-      const next = await call<VivaryCodeHostState>("vivary-code-cleanup", { decision });
+      // The version names the list on screen, so the server refuses a choice about a list that changed since.
+      const next = await call<VivaryCodeHostState>("vivary-code-cleanup", { decision, version: cleanup.version });
       if (!next.cleanup) {
         // The strip closes, so focus moves to the page instead of being lost.
         document.getElementById("workbench-content")?.focus();

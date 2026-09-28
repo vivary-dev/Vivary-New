@@ -57,12 +57,14 @@ import { callProof } from "../../lib/native-actions";
 
 const HOST = { activeRun: null, pendingApproval: null, recentRun: null, busy: false };
 const NAMED = {
+  version: "4a1b2c3d4e5f6a7b",
   heading: "Coding processes from an earlier run are still running",
   instruction: "Choose End them to stop these processes. Vivary ends only the processes listed here and then checks again.",
   remaining: [{ pid: 4120, name: "codex.exe" }, { pid: 5532, name: "mcp-server-windows-x64.exe" }],
   canEnd: true, checking: false, run: { id: "run-leftover", title: "Refactor the parser", projectId: null },
 };
 const UNSCANNED = {
+  version: "0f1e2d3c4b5a6978",
   heading: "Vivary could not confirm that an earlier run's coding processes stopped",
   instruction: "Vivary could not list the processes. Check them with \u0060pgrep -l -g 4120\u0060, stop them with "
     + "\u0060kill -KILL -- -4120\u0060, then choose Continue anyway.",
@@ -124,7 +126,8 @@ export async function endThemLiftsTheRefusal() {
     assert.equal(ending.getAttribute("aria-disabled"), "true");
     assert.equal(ending.hasAttribute("disabled"), false, "focus stays on the control");
     await click(ending);
-    assert.deepEqual(callProof.calls, [{ name: "vivary-code-cleanup", params: { decision: "end" } }]);
+    assert.deepEqual(callProof.calls, [{ name: "vivary-code-cleanup",
+      params: { decision: "end", version: NAMED.version } }], "the choice names the list on screen");
     await settle(pending, null);
     assert.equal(region(host), null, "the strip closes once nothing is left");
     assert.equal(document.activeElement, main, "focus moves to the page");
@@ -147,7 +150,8 @@ export async function endThemThatLeavesProcessesOffersContinue() {
     callProof.answer = continued.promise;
     await click(button(host, "Continue anyway"));
     assert.ok(button(host, "Continuing…"));
-    assert.deepEqual(callProof.calls.map(call => call.params), [{ decision: "end" }, { decision: "continue" }]);
+    assert.deepEqual(callProof.calls.map(call => call.params),
+      [{ decision: "end", version: NAMED.version }, { decision: "continue", version: NAMED.version }]);
     await settle(continued, null);
     assert.equal(region(host), null);
   } finally { await dispose(); }

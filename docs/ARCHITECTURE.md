@@ -215,8 +215,10 @@ failed stop found, and their later children found through a parent alive in the 
 only through an exited parent or a reused Linux group id, so the refusal holds, but End them leaves it alone, because
 it could belong to another program after PID reuse. End them also leaves alone a PID whose start time changed, a
 process the owner was not shown, and the host itself. A boot id that is not a UUID fails to parse and keeps refusing.
-Continue anyway lifts the refusal on the owner's word after one more check. The run records who chose, when, and
-what was ended or still listed. The server log records the scan result and the number of leftovers, never their
+Each choice carries a version of the list the strip showed, and a choice about a list that changed since is refused
+with `vivary_code_cleanup_changed`, so the strip shows the new list first. Continue anyway lifts the refusal on the
+owner's word after one more check, unless that check finds a process the owner was not shown, and records the list
+the owner saw and what the check found. The run records who chose, when, and what was ended or still listed. The server log records the scan result and the number of leftovers, never their
 names. The host strip lists the leftovers with the server's wording, offers End them when a scan can find them, and
 adds Continue anyway when End them left something or no scan is possible. Its buttons keep focus while a choice
 runs, and focus moves to the page when the refusal lifts. The Code composer stays disabled and points at the strip,

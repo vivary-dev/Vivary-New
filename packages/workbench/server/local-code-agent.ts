@@ -1,6 +1,7 @@
 import { getCodePermissionMode, type CodePermissionMode } from "./code-permissions";
 import { codexApprovalResponse, supportsCodexRequest, type CodexApprovalDecision } from "./codex-approval";
 import type { CodexActionRequest } from "./code-execution-protocol";
+import { createHash } from "node:crypto";
 import { lstat, realpath, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -113,6 +114,8 @@ export type VivaryCodeRecentRun = Pick<CodeAgentRunRecord, "id" | "status" | "ti
 
 /** Issue #121. The refusal's state for the host strip and the Code panel. The server owns the wording. */
 export type VivaryCodeCleanupView = {
+  /** Names the list shown here. A decision carries it back, so it acts only on what the owner saw. */
+  version: string;
   heading: string;
   /** Commands appear in backticks. */
   instruction: string;
@@ -182,12 +185,15 @@ export type CleanupRefusal = {
   checkedAt: string;
 };
 
-/** How a refusal ended, kept as `metadata.cleanupLifted` on the run. */
+/**
+ * How a refusal ended, kept as `metadata.cleanupLifted` on the run. Continue anyway records the list the owner was
+ * shown, and what the check right before it found: `scan` says whether that check ran, and `remaining` is its list.
+ */
 type CleanupLift =
   | { how: "rechecked"; checkedAt: string }
   | { how: "ended"; endedAt: string; by: string; ended: LeftoverProcess[] }
-  | { how: "owner-confirmed"; confirmedAt: string; by: string; remaining: LeftoverProcess[]; hidden: boolean;
-    scan: CleanupScan };
+  | { how: "owner-confirmed"; confirmedAt: string; by: string; shown: LeftoverProcess[]; hidden: boolean;
+    scan: CleanupScan; remaining: LeftoverProcess[] };
 
 const tracedSchema = z.object({ pid: z.number().int().positive(), start: z.number().int().nonnegative() });
 // A Linux `comm` can be empty, so an empty name must not discard the whole refusal.
@@ -294,19 +300,21 @@ export function recheckVivaryCodeCleanup(): Promise<void> {
 }
 
 /**
- * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one. End them ends each listed
- * process that a fresh scan still finds, and lifts the refusal when the scan after that is empty. Continue lifts it on
- * the owner's word after one more check, which lifts it on its own when nothing is left.
+ * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one, and only on the version of its
+ * list the owner saw. End them ends each listed process it can, and lifts the refusal when the check after that is
+ * empty. Continue anyway lifts it on the owner's word after one more check, which lifts it on its own when nothing is
+ * left, and which must find nothing the owner was not shown.
  */
 export async function resolveVivaryCodeCleanup(input: {
-  ownerEmail: string; orgId?: string; decision: "end" | "continue";
+  ownerEmail: string; orgId?: string; decision: "end" | "continue"; version: string;
 }): Promise<VivaryCodeHostState> {
   await ensureVivaryCodeHostInitialized();
-  await exclusiveCleanupWork(async () => {
+  const outcome = await exclusiveCleanupWork(async (): Promise<"done" | "changed"> => {
     const refusal = persistedCleanupRefusals()[0];
-    if (!refusal) return;
-    if (input.decision === "end") {
-      if (!refusal.target) return;
+    if (!refusal) return "done";
+    if (cleanupVersion(refusal) !== input.version) return "changed";
+    if (input.decision === "continue") return continueAnyway(refusal, input.ownerEmail);
+    if (refusal.target) {
       const { attempts, check } = await endWorkerLeftovers(refusal.target, refusal.remaining);
       const ended = (attempts ?? []).filter(attempt => attempt.outcome === "ended")
         .map(({ pid, name, start }) => ({ pid, name, start }));
@@ -318,29 +326,60 @@ export async function resolveVivaryCodeCleanup(input: {
       } else {
         recordCleanupCheck(refusal, check);
       }
-      return;
     }
-    const check = refusal.target ? await checkWorkerCleanup(refusal.target) : null;
-    if (check?.result === "clean") {
-      recordCleanupCheck(refusal, check);
-      return;
-    }
-    const seen = check?.result === "remaining" ? check : refusal;
-    liftCleanupRefusal(refusal, {
-      how: "owner-confirmed", confirmedAt: new Date().toISOString(), by: input.ownerEmail,
-      remaining: seen.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: seen.hidden,
-      scan: !check ? refusal.scan : check.result === "remaining" ? "done" : "unavailable",
-    });
+    return "done";
   });
+  if (outcome === "changed") {
+    fail("The list of leftover coding processes changed. Review it again before you choose.", {
+      errorCode: "vivary_code_cleanup_changed", statusCode: 409,
+    });
+  }
   return getVivaryCodeHostState(input.ownerEmail, input.orgId);
 }
 
+/**
+ * Continue anyway, after one more check. A clean check lifts the refusal as rechecked. A check that finds a process the
+ * owner was not shown records it and lifts nothing, so the strip lists it and offers End them when it can.
+ */
+async function continueAnyway(refusal: CleanupRefusal, by: string): Promise<"done" | "changed"> {
+  const check = refusal.target ? await checkWorkerCleanup(refusal.target) : null;
+  if (check?.result === "clean") {
+    recordCleanupCheck(refusal, check);
+    return "done";
+  }
+  if (check?.result === "remaining" && !shownBefore(check, refusal)) {
+    recordCleanupCheck(refusal, check);
+    return "changed";
+  }
+  liftCleanupRefusal(refusal, {
+    how: "owner-confirmed", confirmedAt: new Date().toISOString(), by, shown: refusal.remaining,
+    hidden: refusal.hidden, scan: !check ? refusal.scan : check.result === "remaining" ? "done" : "unavailable",
+    remaining: check?.result === "remaining" ? check.remaining.slice(0, MAX_CLEANUP_LISTED) : [],
+  });
+  return "done";
+}
+
+/** Whether the refusal already showed every process the check found, within the listed cap. */
+function shownBefore(check: Extract<CleanupCheck, { result: "remaining" }>, refusal: CleanupRefusal): boolean {
+  return (!check.hidden || refusal.hidden) && check.remaining.slice(0, MAX_CLEANUP_LISTED).every(found =>
+    refusal.remaining.some(seen => seen.pid === found.pid && seen.start === found.start));
+}
+
+/**
+ * Names the list the strip shows: the run, when it was refused, and what the last check could do and found. A later
+ * check that finds the same processes keeps it.
+ */
+function cleanupVersion(refusal: CleanupRefusal): string {
+  return createHash("sha256").update(JSON.stringify([refusal.runId, refusal.refusedAt, refusal.scan, refusal.hidden,
+    refusal.remaining.map(({ pid, start, name }) => [pid, start, name])])).digest("hex").slice(0, 16);
+}
+
 /** Runs one piece of cleanup work after any other, then reloads the refusal in force from the run records. */
-function exclusiveCleanupWork(work: () => Promise<void>): Promise<void> {
+function exclusiveCleanupWork<T>(work: () => Promise<T>): Promise<T> {
   const run = (hostState.cleanupCheck ?? Promise.resolve()).then(work).finally(() => {
     hostState.cleanup = persistedCleanupRefusals()[0] ?? null;
   });
-  const settled: Promise<void> = run.catch(error => {
+  const settled: Promise<void> = run.then(() => undefined, error => {
     console.error(`[vivary-code-host] cleanup-check-failed ${error instanceof Error ? error.name : "unknown"}`);
   }).finally(() => {
     if (hostState.cleanupCheck === settled) hostState.cleanupCheck = null;
@@ -489,6 +528,7 @@ function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[
   orgId?: string): VivaryCodeCleanupView {
   const run = runs.find(candidate => candidate.id === refusal.runId && isOwnedIdentity(candidate, ownerEmail, orgId));
   return {
+    version: cleanupVersion(refusal),
     heading: cleanupHeading(refusal),
     instruction: cleanupInstruction(refusal, "strip"),
     remaining: refusal.remaining.map(({ pid, name }) => ({ pid, name })),
