@@ -7314,6 +7314,10 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
+register records it and the `0697293f` packaged check. Documentation only, so the design description holds.
+
 Issue #103, Native usage cost. The maintained Core patch records the cost that a provider reports for a Native model
 call and never guesses one. The AI SDK engine reads OpenRouter's reported cost from the step's `finish-step` part and
 puts it on its usage event. `createTurnUsage` sums a turn's usage over its model calls and internal continuations. A
