@@ -61,14 +61,15 @@ const NAMED = {
   heading: "Coding processes from an earlier run are still running",
   instruction: "Choose End them to stop these processes. Vivary ends only the processes listed here and then checks again.",
   remaining: [{ pid: 4120, name: "codex.exe" }, { pid: 5532, name: "mcp-server-windows-x64.exe" }],
-  canEnd: true, checking: false, run: { id: "run-leftover", title: "Refactor the parser", projectId: null },
+  canEnd: true, canContinue: false, checking: false,
+  run: { id: "run-leftover", title: "Refactor the parser", projectId: null },
 };
 const UNSCANNED = {
   version: "0f1e2d3c4b5a6978",
   heading: "Vivary could not confirm that an earlier run's coding processes stopped",
   instruction: "Vivary could not list the processes. Check them with \u0060pgrep -l -g 4120\u0060, stop them with "
     + "\u0060kill -KILL -- -4120\u0060, then choose Continue anyway.",
-  remaining: [], canEnd: false, checking: false, run: null,
+  remaining: [], canEnd: false, canContinue: true, checking: false, run: null,
 };
 
 function deferred() {
@@ -140,7 +141,7 @@ export async function endThemThatLeavesProcessesOffersContinue() {
     const ended = deferred();
     callProof.answer = ended.promise;
     await click(button(host, "End them"));
-    const left = { ...NAMED, remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe" }] };
+    const left = { ...NAMED, remaining: [{ pid: 5532, name: "mcp-server-windows-x64.exe" }], canContinue: true };
     await settle(ended, left);
     assert.equal(alertText(host),
       "Some coding processes are still running after End them. Stop them yourself, or choose Continue anyway.");

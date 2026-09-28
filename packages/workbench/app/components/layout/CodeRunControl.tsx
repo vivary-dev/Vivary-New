@@ -20,10 +20,8 @@ export function CodeRunControl() {
   const pending = status.data?.pendingApproval;
   const recent = status.data?.recentRun;
   const cleanup = status.data?.cleanup;
-  // Issue #121. Which cleanup choice is running, and whether End them left processes running.
+  // Issue #121. Which cleanup choice is running.
   const [resolving, setResolving] = useState<"end" | "continue" | null>(null);
-  const [endLeftSome, setEndLeftSome] = useState(false);
-  useEffect(() => { if (!cleanup) setEndLeftSome(false); }, [cleanup]);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [content, setContent] = useState<Record<string, unknown>>({});
   useEffect(() => {
@@ -76,7 +74,6 @@ export function CodeRunControl() {
         // The strip closes, so focus moves to the page instead of being lost.
         document.getElementById("workbench-content")?.focus();
       } else if (decision === "end") {
-        setEndLeftSome(true);
         setError("Some coding processes are still running after End them. Stop them yourself, or choose Continue anyway.");
       }
       await status.refetch();
@@ -125,7 +122,7 @@ export function CodeRunControl() {
         {cleanup.canEnd && <Button size="sm" aria-disabled={cleanupHeld || undefined} onClick={() => void resolveCleanup("end")}>
           {resolving === "end" ? "Ending…" : cleanup.checking ? "Checking…" : "End them"}
         </Button>}
-        {(!cleanup.canEnd || endLeftSome) && <Button size="sm" variant="outline" aria-disabled={cleanupHeld || undefined}
+        {cleanup.canContinue && <Button size="sm" variant="outline" aria-disabled={cleanupHeld || undefined}
           onClick={() => void resolveCleanup("continue")}>{resolving === "continue" ? "Continuing…" : "Continue anyway"}</Button>}
         {cleanup.run && <Button variant="ghost" size="sm" onClick={() => void openConversation(cleanup.run)}>Open conversation</Button>}
       </div>

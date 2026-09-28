@@ -248,7 +248,7 @@ test("host start lifts a refusal whose group already emptied without a send, and
     heading: "Vivary could not confirm that an earlier run's coding processes stopped",
     instruction: "This run ended before Vivary recorded which processes it started. End any codex, claude, or node "
       + "processes left from it in your process list, then choose Continue anyway.",
-    remaining: [], canEnd: false, checking: false,
+    remaining: [], canEnd: false, canContinue: true, checking: false,
     run: { id: "legacy-marker", title: "Leftovers from legacy-marker", projectId: null },
   });
   assert.equal((await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup?.run, null,
@@ -409,10 +409,10 @@ test("End them ends the listed process that a fresh scan still shows, then lifts
     assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
     assert.equal((await decide("end")).cleanup, null);
     assert.deepEqual(await exited, [null, "SIGKILL"]);
-    const lift = metadataOf("end-linux").cleanupLifted as { how: string; by: string; ended: { pid: number; name: string }[] };
+    const lift = metadataOf("end-linux").cleanupLifted as { how: string; by: string };
     assert.equal(lift.how, "ended");
     assert.equal(lift.by, OWNER);
-    assert.deepEqual(lift.ended.map(({ pid, name }) => ({ pid, name })), [{ pid: groupId, name: "sleep" }]);
+    assert.deepEqual(endsOf(lift), [{ by: OWNER, at: "string", attempts: [[groupId, "ended"]] }]);
     assert.equal(lastStatus("end-linux"), `You chose End them. Vivary ended sleep (PID ${groupId}) and found no coding `
       + "processes left. Vivary accepts new messages again.");
   } finally {
