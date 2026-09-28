@@ -153,96 +153,34 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #103, review round 3. The maintained Core patch writes an integration run's usage row and settles its budget
-reservations from one usage record, through the new exported `recordAndSettleIntegrationUsage`, which the webhook
-handler calls at both points where it settles a run. The row takes the reported cost by the chat turn's rule, so a
-free model's integration run records $0 as reported instead of Unknown. Without a reported cost the row keeps the
-table price or Unknown. The row's tokens are the sum of the run's usage events, so a run whose agent loop failed after
-it used tokens now records a row, as a chat turn does. Core still owns integration runs, usage records, and budgets,
-so no component, flow, or boundary changes, and the design description holds. Six integration run cases in
-`test:native-chat` drive the agent loop, `createTurnUsage`, and the new function, and assert the settled amount and
-the row. They failed on the previous patch and pass on this one. The
-[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
+Issue #103, Native usage cost. The maintained Core patch records the cost that a provider reports for a Native model
+call and never guesses one. The AI SDK engine reads OpenRouter's reported cost from the step's `finish-step` part and
+puts it on its usage event. `createTurnUsage` sums a turn's usage over its model calls and internal continuations. A
+retry replaces the attempt it retries, and the turn passes the sum as a reported cost only when every counted call
+reported one. Otherwise the usage store prices the tokens from its table, which has a Sonnet entry and no catch-all
+price, or it records the cost as unknown. The table setup marks the old estimates for unpriced models unknown once.
+The Settings Usage tab, the usage metrics, and cost alerts show an unknown cost as Unknown, add only known costs, and
+count the calls of unknown cost. An integration run sums its usage the same way, and the webhook handler writes the
+run's usage row and settles its budget reservations from that one record. The budget settles at the reported cost, at
+the table cost, at 0 for a run with no tokens, or at its reservation for an unpriced model that used tokens. Native
+still owns engines, usage records, integration budgets, and the Usage tab, so no component, flow, or boundary changes,
+and the design description holds. `test:native-chat` drives Core's OpenRouter engine against a loopback fake through
+the agent loop into the usage table and the budget store, and it renders the Usage tab. The
+[patch notes](../packages/workbench/patches/README.md#native-usage-cost) list each change, its limits, and its tests.
 
-Issue #103, review round 2. The maintained Core patch counts a turn's model calls so that a retry replaces the attempt
-it retries, and it records a reported cost only when every counted call reported one. A turn whose call an in-stream
-provider error cuts off after text, or whose call's stream ends with no usage chunk, now falls back to the price table
-or Unknown instead of recording the other calls' sum as reported. An integration run sums its usage the same way, and
-its budget settles at the reported cost, at the table cost, at 0 when the run used no tokens, or at its reservation
-when an unpriced model used tokens and reported no cost. The one-time conversion of old estimated rows logs a failure
-and lets the usage table setup finish, so usage still records. Core still owns model calls, usage records, and
-integration budgets, so no component, flow, or boundary changes, and the design description holds. The new cases in
-`test:native-chat` failed on the previous patch and pass on this one. The
-[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
-
-Issue #106, review fixes. The maintained Core patch keeps a stopped reply labeled in the live chat after the owner
-sends the next message. The chat keeps a list of the runs the owner stopped, which the next message does not clear,
-and the message view reads it. A Stop flags only the stopped run's own reply, so a Stop while a reloaded chat follows
-a run no longer labels the previous finished reply. A stopped reply that holds a missing-response warning shows the
-stopped notice. A later run that finishes the same turn drops the flag, a client copy of a later run does not take
-it, and a run that a newer turn displaces in memory ends with `done` and no reason, so its reply is not labeled.
-Native still owns runs, saved threads, and the chat view, so no component, flow, or boundary changes, and the design
-description holds. The new cases in `test:native-chat` failed on the previous patch and pass on this one. The
-[patch notes](../packages/workbench/patches/README.md#stopped-replies) record the change and its limits.
-
-Issue #106, review fixes, failing tests. `tests/native-stop.test.ts` folds a later run that finishes the same turn
-onto a stopped reply, saves a client copy of that later run, and displaces a streaming run by starting a newer turn
-on its thread. `tests/native-chat-components.test.mjs` mounts Core's whole chat against a fake chat server. It stops
-a live reply that has text and sends the next message, and it stops a run that a reloaded chat follows. It also
-renders a stopped reply that holds a missing-response warning. Each test that waits for a run to end now fails after
-10 seconds, and `test:native-chat` runs with `--test-force-exit`, because a run that never ends keeps its timers and
-held the file open after the failure. On this commit the stopped live reply loses its notice after the next message,
-the previous finished reply gets the notice, the reply with the warning shows no notice, the later run keeps or takes
-the stop, and the displaced run ends with `done` and reason `user` and is saved as stopped. Test wiring only, so the
-design description holds.
-
-Issue #103, review fixes. The maintained Core patch records a turn's reported cost only when every model call that
-started reported its usage, and empty usage from a rate-limited attempt no longer erases it, so a free model's
-retried turn records $0 and a turn stopped during a model call falls back to the price table or Unknown. The usage
-table setup marks old estimated rows of unpriced models unknown once, so the #50 guess reads Unknown after the
-upgrade. An integration run of an unpriced model settles its budget at the reservation estimate, a cost alert row
-shows its calls of unknown cost, and the Usage tab's model rows keep a model whose cost is unknown. Engine models the
-table never priced, such as Cohere's `command-r-plus-08-2024` and `command-r`, Ollama's `llama3.1` and its other
-local ids, and Builder's `auto`, now record Unknown when the provider reports no cost. Native still owns engines,
-usage records, budgets, alerts, and the Usage tab, so no component, flow, or boundary changes, and the design
-description holds. The new cases in `test:native-chat` failed on the previous patch and pass on this one. The
-[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and the limits that remain.
-
-Issue #106. The maintained Core patch labels every reply the owner stopped. The saved turn records the stop from the
-run's terminal `done` event with reason `user`, a client save that keeps the client's heavier copy carries the flag
-over from the server's copy, and the chat shows "The agent stopped before finishing" under every stopped reply, with
-or without text and after later turns. Stop itself did not change. A Node test confirms that it ends the run and
-closes the model connection within 500 ms, 68 to 216 ms on Zo, and fires a tool's signal within 50 ms. Native still
-owns runs, saved threads, and the message view, so no component, flow, or boundary changes, and the design
-description holds. `test:native-chat` failed on the previous patch in the label cases and passes on this one. The
-[patch notes](../packages/workbench/patches/README.md#stopped-replies) record the change and its limits.
-
-Issue #106, failing tests. `tests/native-stop.test.ts` starts a Native turn through `startRun` and the agent loop
-against a loopback fake OpenRouter and presses Stop with the run route's own call, once while the model streams its
-reply and once during a tool step that honors its signal. It checks how fast the run ends, the model connection
-closes, and the tool's signal fires, then builds the saved turn from the run's entries as the chat plugin does and
-merges a heavier client copy without the stopped flag. `tests/native-chat-components.test.mjs` renders Core's
-assistant message for a reloaded thread with two stopped replies that have text. `test:native-chat` now runs the new
-file. On this commit Stop already ends the run and closes the model connection within the bounds. The saved turn
-does not record the stop, the turn after a client save has no stop either, and a stopped reply with text shows no
-label. Test wiring only, so the design description holds.
-
-Issue #103. The maintained Core patch records a Native turn's cost as OpenRouter reports it, including $0 for a free
-model, and records an unknown cost for a model with no price and no reported cost. The engine carries the cost from
-the AI SDK's `finish-step` part into its usage event, and the main chat sums it over the turn's model calls. The
-price table gives Sonnet its own entry and no longer prices unknown models at Sonnet's rates. The Settings Usage tab
-shows an unknown cost as "Unknown", adds only known costs to its figures, and counts the calls whose cost is
-unknown. Native still owns engines, usage records, and the Usage tab, so no component, flow, or boundary changes,
-and the design description holds. `test:native-chat` failed on the previous patch and passes on this one. The
-[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
-
-Issue #103, failing tests. `tests/native-usage-cost.test.ts` drives Core's OpenRouter engine against a loopback
-fake whose last chunk reports usage with a cost of 0, a positive cost, or no cost. It records each main chat turn
-through the agent loop into the usage table and reads the Usage tab's metrics for a reported $0 call, an unpriced
-call, and a Sonnet call. `tests/native-chat-components.test.mjs` renders the Settings Usage tab with an unknown cost.
-`test:native-chat` now runs the new file. On this commit the engine's usage event carries no cost, Core has no turn
-usage helper, an unpriced model is priced at Sonnet's rates, the metrics do not count unknown costs, and the Usage
-tab shows an unknown cost as 0.00¢. Test wiring only, so the design description holds.
+Issue #106, stopped replies. The maintained Core patch labels every reply the owner stopped, in the live chat and
+after a reload. Stop itself did not change. The run route aborts the run's signal. In the tests the run ends and the
+model connection closes within 500 ms of Stop, and a tool step that honors its signal gets it within 50 ms. The server
+saves a stopped turn with a `userStopped` flag, which it reads from the run's terminal `done` event with reason `user`.
+A client save keeps the flag between copies of the same run, so a later run that finishes the turn drops it and a copy
+of that later run does not take it. A run that a newer turn displaces in memory ends without that reason, so its reply
+is not labeled. In the live chat, assistant-ui writes a cancelled run back over the reply without the flag, so Core's
+chat keeps its own list of the runs the owner stopped. The message view shows "The agent stopped before finishing"
+under every stopped reply, with or without text and after later turns. Native still owns runs, saved threads, and the
+chat view, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` presses
+Stop on turns that run through `startRun` and the agent loop against a loopback fake OpenRouter, checks how fast each
+run ends, builds and merges the saved turns, and renders Core's chat and saved threads. The
+[patch notes](../packages/workbench/patches/README.md#stopped-replies) list each change, its limits, and its tests.
 
 Issues #101 and #102 are closed. PR #126 merged into `dev` as `4032e96` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
