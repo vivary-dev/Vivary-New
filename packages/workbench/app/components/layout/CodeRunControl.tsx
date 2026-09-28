@@ -70,12 +70,9 @@ export function CodeRunControl() {
     try {
       // The version names the list on screen, so the server refuses a choice about a list that changed since.
       const next = await call<VivaryCodeHostState>("vivary-code-cleanup", { decision, version: cleanup.version });
-      if (!next.cleanup) {
-        // The strip closes, so focus moves to the page instead of being lost.
-        document.getElementById("workbench-content")?.focus();
-      } else if (decision === "end") {
-        setError("Some coding processes are still running after End them. Stop them yourself, or choose Continue anyway.");
-      }
+      // The strip closes, so focus moves to the page instead of being lost. Otherwise the server's notice says what
+      // End them did.
+      if (!next.cleanup) document.getElementById("workbench-content")?.focus();
       await status.refetch();
     } catch (failure) {
       setError(actionErrorMessage(failure) ?? (failure instanceof Error ? failure.message : "The request could not finish. Try again."));
@@ -119,6 +116,7 @@ export function CodeRunControl() {
           {leftover.name} (PID {leftover.pid}{leftover.confirmed ? "" : ", not confirmed from that run"})
         </li>)}
       </ul>}
+      {cleanup.notice && <p className="break-words" role="status">{cleanup.notice}</p>}
       <p className="break-words text-xs text-muted-foreground">{withCommands(cleanup.instruction)}</p>
       <div className="flex flex-wrap items-center gap-2">
         {cleanup.canEnd && <Button size="sm" aria-disabled={cleanupHeld || undefined} onClick={() => void resolveCleanup("end")}>

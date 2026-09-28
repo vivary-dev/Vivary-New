@@ -251,8 +251,10 @@ test("host start lifts a refusal whose group already emptied without a send, and
     heading: "Vivary could not confirm that an earlier run's coding processes stopped",
     instruction: "This run ended before Vivary recorded which processes it started. End any codex, claude, or node "
       + "processes left from it in your process list, then choose Continue anyway.",
-    remaining: [], canEnd: false, canContinue: true, checking: false,
-    run: { id: "legacy-marker", title: "Leftovers from legacy-marker", projectId: null },
+    remaining: [], canEnd: false, canContinue: true, notice: null,
+    composer: "Vivary could not confirm that an earlier run's coding processes stopped. Choose Continue anyway above "
+      + "before sending another message.",
+    checking: false, run: { id: "legacy-marker", title: "Leftovers from legacy-marker", projectId: null },
   });
   assert.equal((await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup?.run, null,
     "another user sees the refusal but not the run");

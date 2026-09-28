@@ -126,6 +126,10 @@ export type VivaryCodeCleanupView = {
   canEnd: boolean;
   /** End them has run on this refusal, or cannot act, so the owner may continue past what is left. */
   canContinue: boolean;
+  /** What the last End them on this refusal did, or null before any. */
+  notice: string | null;
+  /** The Code composer's placeholder while the refusal holds. */
+  composer: string;
   /** A check or an End is running. */
   checking: boolean;
   /** Set only for the run's owner. */
@@ -618,6 +622,27 @@ function cleanupFailureMessage(refusal: CleanupRefusal): string {
   return `The coding process could not be stopped completely. ${names}${cleanupInstruction(refusal, "message")}`;
 }
 
+/** What the last End them did, in the strip's words. */
+function cleanupNotice(refusal: CleanupRefusal): string | null {
+  const last = refusal.ends.at(-1);
+  if (!last) return null;
+  if (!last.attempts) return "End them could not run, so Vivary ended nothing.";
+  const ended = last.attempts.filter(attempt => attempt.outcome === "ended");
+  const failed = last.attempts.filter(attempt => attempt.outcome === "failed");
+  if (!ended.length && !failed.length) {
+    return "End them ended nothing, because the listed processes had already exited or changed.";
+  }
+  return [ended.length ? `End them ended ${processList(ended)}.` : "",
+    failed.length ? `Vivary could not end ${processList(failed)}.` : ""].filter(Boolean).join(" ");
+}
+
+/** The Code composer's placeholder, which names the choices the strip offers. */
+function cleanupComposer(refusal: CleanupRefusal): string {
+  const { canEnd, canContinue } = cleanupOffers(refusal);
+  const choice = canEnd && canContinue ? "End them or Continue anyway" : canEnd ? "End them" : "Continue anyway";
+  return `${cleanupHeading(refusal)}. Choose ${choice} above before sending another message.`;
+}
+
 function cleanupLiftMessage(lift: CleanupLift): string {
   const ended = endedBy(lift.ends);
   const accepts = "Vivary accepts new messages again.";
@@ -646,6 +671,8 @@ function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[
     remaining: refusal.remaining.map(leftover => ({ pid: leftover.pid, name: leftover.name,
       confirmed: confirmedFromRun(refusal, leftover) })),
     ...cleanupOffers(refusal),
+    notice: cleanupNotice(refusal),
+    composer: cleanupComposer(refusal),
     checking: hostState.cleanupCheck !== null,
     run: run ? { id: run.id, title: run.title, projectId: metadataString(run, "projectId") } : null,
   };

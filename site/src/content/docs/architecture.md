@@ -234,7 +234,9 @@ heading says the processes may be left from an earlier run, and its instruction 
 the owner can, with the group's `kill` command on Linux or Task Manager by PID on Windows.
 The server offers Continue anyway once End them has run on the refusal, or when End them cannot act, and refuses it
 otherwise with `vivary_code_cleanup_not_offered`. Its buttons keep focus while a choice
-runs, and focus moves to the page when the refusal lifts. The Code composer stays disabled and points at the strip,
+runs, and focus moves to the page when the refusal lifts. After End them the strip shows the server's account of
+what it ended and could not end, and adds no words of its own. The Code composer stays disabled, and its placeholder,
+which the server words from the heading and the choices offered, points at the strip,
 and the chat adapter keeps a draft that the refusal returns. Runtime flow 3 now describes the refusal and the two
 choices. The new query reads process names, never command lines, so the trust boundaries hold. Tests on Zo, which
 runs gVisor, check a real process group, answer the Windows query and `taskkill` with fakes under `SystemRoot`, seed
