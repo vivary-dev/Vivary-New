@@ -355,7 +355,9 @@ process.stdout.write('{"loggedIn":true}');
 
   // Issue #121. No agent or tool may lift the refusal that its own run's leftover processes caused.
   it("keeps the cleanup decision to a signed-in person with a strict decision", () => {
-    assert.deepEqual(codeCleanupAction.schema.parse({ decision: "continue" }), { decision: "continue" });
+    for (const decision of ["end", "continue"]) {
+      assert.deepEqual(codeCleanupAction.schema.parse({ decision }), { decision });
+    }
     for (const input of [{}, { decision: "lift" }, { decision: "continue", runId: "run_alpha" }]) {
       assert.equal(codeCleanupAction.schema.safeParse(input).success, false, JSON.stringify(input));
     }

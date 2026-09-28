@@ -8,9 +8,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, executeVivaryCodeWorker, parseWindowsProcessRows, readLinuxProcStat,
-  scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError, waitForLinuxWorkerGroupExit,
-  windowsLeftovers, windowsWorkerStoppedCleanly,
+import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endMatchingLeftovers, executeVivaryCodeWorker, parseWindowsProcessRows,
+  readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
+  waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly,
 } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -230,6 +230,23 @@ test("Windows leftovers follow parent PIDs by creation time and never through a 
   assert.equal(capped.remaining.length, 250);
   assert.equal(capped.tracked.length, 200);
   assert.deepEqual(capped.tracked[0], live);
+});
+
+// Issue #121. The owner saw `shown`. `fresh` is the scan taken just before End them acts.
+test("End them ends only shown processes that the fresh scan finds with the same PID and start", async () => {
+  const codex = { pid: 10, name: "codex", start: 100 };
+  const denied = { pid: 14, name: "node", start: 140 };
+  const shown = [codex, { pid: 11, name: "node", start: 110 }, { pid: 12, name: "gone", start: 120 }, denied,
+    { pid: process.pid, name: "vivary", start: 1 }];
+  const fresh = [codex, { pid: 11, name: "other", start: 999 }, { pid: 13, name: "unseen", start: 130 }, denied,
+    { pid: process.pid, name: "vivary", start: 1 }];
+  const attempts: number[] = [];
+  const ended = await endMatchingLeftovers(shown, fresh, async pid => {
+    attempts.push(pid);
+    if (pid === denied.pid) throw Object.assign(new Error("ending PID 14 was denied"), { code: "EPERM" });
+  });
+  assert.deepEqual(attempts, [10, 14], "a reused PID, an unseen process, and this host are never ended");
+  assert.deepEqual(ended, [codex]);
 });
 
 

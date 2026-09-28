@@ -22,7 +22,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import {
-  checkWorkerCleanup, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
+  checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
   type CleanupCheck, type CleanupFailure, type CleanupTarget, type LeftoverProcess,
 } from "./code-execution-host";
 import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
@@ -185,6 +185,7 @@ export type CleanupRefusal = {
 /** How a refusal ended, kept as `metadata.cleanupLifted` on the run. */
 type CleanupLift =
   | { how: "rechecked"; checkedAt: string }
+  | { how: "ended"; endedAt: string; by: string; ended: LeftoverProcess[] }
   | { how: "owner-confirmed"; confirmedAt: string; by: string; remaining: LeftoverProcess[]; hidden: boolean;
     scan: CleanupScan };
 
@@ -291,16 +292,29 @@ export function recheckVivaryCodeCleanup(): Promise<void> {
 }
 
 /**
- * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one. Continue lifts it on the
- * owner's word after one more check, which lifts it on its own when nothing is left.
+ * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one. End them ends each listed
+ * process that a fresh scan still finds, and lifts the refusal when the scan after that is empty. Continue lifts it on
+ * the owner's word after one more check, which lifts it on its own when nothing is left.
  */
 export async function resolveVivaryCodeCleanup(input: {
-  ownerEmail: string; orgId?: string; decision: "continue";
+  ownerEmail: string; orgId?: string; decision: "end" | "continue";
 }): Promise<VivaryCodeHostState> {
   await ensureVivaryCodeHostInitialized();
   await exclusiveCleanupWork(async () => {
     const refusal = persistedCleanupRefusals()[0];
     if (!refusal) return;
+    if (input.decision === "end") {
+      if (!refusal.target) return;
+      const { ended, check } = await endWorkerLeftovers(refusal.target, refusal.remaining);
+      // The credential redaction plugin redacts server output. Process names stay out of the log.
+      console.error(`[vivary-code-host] cleanup-end run=${refusal.runId} ended=${ended.length} result=${check.result}`);
+      if (check.result === "clean" && ended.length) {
+        liftCleanupRefusal(refusal, { how: "ended", endedAt: new Date().toISOString(), by: input.ownerEmail, ended });
+      } else {
+        recordCleanupCheck(refusal, check);
+      }
+      return;
+    }
     const check = refusal.target ? await checkWorkerCleanup(refusal.target) : null;
     if (check?.result === "clean") {
       recordCleanupCheck(refusal, check);
@@ -455,6 +469,9 @@ function cleanupFailureMessage(refusal: CleanupRefusal): string {
 function cleanupLiftMessage(lift: CleanupLift): string {
   const accepts = "Vivary accepts new messages again.";
   if (lift.how === "rechecked") return `The leftover coding processes are gone. ${accepts}`;
+  if (lift.how === "ended") {
+    return `You chose End them. Vivary ended ${processList(lift.ended)} and found no coding processes left. ${accepts}`;
+  }
   if (lift.scan !== "done") {
     return `You chose to continue. Vivary could not check whether this run's coding processes stopped. ${accepts}`;
   }

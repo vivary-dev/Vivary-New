@@ -509,37 +509,104 @@ function readBootId(): Promise<string | null> {
   return readFile("/proc/sys/kernel/random/boot_id", "utf8").then(text => text.trim() || null, () => null);
 }
 
-/** What a check reads. Tests pass their own. */
+/** Ends one process, and only that process. */
+async function endProcess(platform: CleanupTarget["platform"], pid: number): Promise<void> {
+  if (platform === "win32") {
+    // Never `/T`: every process to end was matched on its own, and a tree could hold processes the owner never saw.
+    const taskkill = path.join(windowsSystem32(), "taskkill.exe");
+    await new Promise<void>((resolve, reject) => {
+      execFile(taskkill, ["/PID", String(pid), "/F"], {
+        windowsHide: true, shell: false, timeout: TASKKILL_TIMEOUT_MS, maxBuffer: 16 * 1024,
+      }, error => { if (error) reject(error); else resolve(); });
+    });
+    return;
+  }
+  try { process.kill(pid, "SIGKILL"); } catch (error) {
+    if (errorCode(error) !== "ESRCH") throw error;
+  }
+}
+
+/** What a check reads, and how End them ends a process. Tests pass their own. */
 type CleanupIo = {
   bootId: () => Promise<string | null>;
   proc: LinuxProcReader;
   windowsProcesses: () => Promise<WindowsProcessRow[]>;
+  end: (platform: CleanupTarget["platform"], pid: number) => Promise<void>;
 };
 
-const cleanupIo: CleanupIo = { bootId: readBootId, proc: linuxProc, windowsProcesses: scanWindowsProcesses };
+const cleanupIo: CleanupIo = {
+  bootId: readBootId, proc: linuxProc, windowsProcesses: scanWindowsProcesses, end: endProcess,
+};
+
+/** A reboot ended every process, and after one an unrelated group can hold the same small id. */
+async function rebootedSince(target: Extract<CleanupTarget, { platform: "linux" }>, io: CleanupIo): Promise<boolean> {
+  const bootId = await io.bootId();
+  return target.bootId !== null && bootId !== null && target.bootId !== bootId;
+}
+
+async function scanWindowsTarget(target: Extract<CleanupTarget, { platform: "win32" }>, io: CleanupIo,
+): Promise<CleanupCheck> {
+  let rows: WindowsProcessRow[];
+  try { rows = await io.windowsProcesses(); } catch { return { result: "unavailable" }; }
+  const { remaining, tracked } = windowsLeftovers(rows, target.tracked);
+  return remaining.length === 0 ? { result: "clean" }
+    : { result: "remaining", remaining, hidden: false, target: { platform: "win32", tracked } };
+}
+
+function linuxGroupCheck(observation: LinuxGroupObservation, target: CleanupTarget): CleanupCheck {
+  return observation.members.length || observation.hidden
+    ? { result: "remaining", remaining: observation.members, hidden: observation.hidden, target }
+    : { result: "clean" };
+}
 
 /**
  * Issue #121. Whether a stopped worker's processes are gone. A check only reads and never acts on a process. A Linux
  * group gets up to a second to empty. A read or scan that fails is `unavailable`, never `clean`.
  */
 export async function checkWorkerCleanup(target: CleanupTarget, io: CleanupIo = cleanupIo): Promise<CleanupCheck> {
-  if (target.platform === "win32") {
-    let rows: WindowsProcessRow[];
-    try { rows = await io.windowsProcesses(); } catch { return { result: "unavailable" }; }
-    const { remaining, tracked } = windowsLeftovers(rows, target.tracked);
-    return remaining.length === 0 ? { result: "clean" }
-      : { result: "remaining", remaining, hidden: false, target: { platform: "win32", tracked } };
-  }
-  // A reboot ended every process, and after one an unrelated group can hold the same small id.
-  const bootId = await io.bootId();
-  if (target.bootId && bootId && target.bootId !== bootId) return { result: "clean" };
+  if (target.platform === "win32") return scanWindowsTarget(target, io);
+  if (await rebootedSince(target, io)) return { result: "clean" };
   try {
     await waitForLinuxWorkerGroupExit(target.groupId, groupId => scanLinuxWorkerGroup(groupId, io.proc),
       CLEANUP_CHECK_MS);
     return { result: "clean" };
   } catch (error) {
     const observation = error instanceof VivaryCodeWorkerCleanupError ? error.observation : undefined;
-    return observation ? { result: "remaining", remaining: observation.members, hidden: observation.hidden, target }
-      : { result: "unavailable" };
+    return observation ? linuxGroupCheck(observation, target) : { result: "unavailable" };
   }
+}
+
+/**
+ * Issue #121. Ends each process the owner was shown that a fresh scan still finds with the same PID and start. A PID
+ * whose start changed belongs to another process now, and a process the owner never saw is left alone too. A process
+ * that cannot be ended is left for the next scan to list.
+ */
+export async function endMatchingLeftovers(shown: readonly LeftoverProcess[], fresh: readonly LeftoverProcess[],
+  end: (pid: number) => Promise<void>): Promise<LeftoverProcess[]> {
+  const ended: LeftoverProcess[] = [];
+  for (const leftover of fresh) {
+    if (leftover.pid === process.pid) continue;
+    if (!shown.some(seen => seen.pid === leftover.pid && seen.start === leftover.start)) continue;
+    try {
+      await end(leftover.pid);
+      ended.push(leftover);
+    } catch { /* The check after the ends lists it again. */ }
+  }
+  return ended;
+}
+
+/**
+ * Issue #121. The owner's End them: one fresh scan, one end for each shown process it still finds, then one check.
+ * A scan that cannot run ends nothing.
+ */
+export async function endWorkerLeftovers(target: CleanupTarget, shown: readonly LeftoverProcess[],
+  io: CleanupIo = cleanupIo): Promise<{ ended: LeftoverProcess[]; check: CleanupCheck }> {
+  let fresh: CleanupCheck;
+  if (target.platform === "win32") fresh = await scanWindowsTarget(target, io);
+  else if (await rebootedSince(target, io)) fresh = { result: "clean" };
+  else fresh = await scanLinuxWorkerGroup(target.groupId, io.proc).then(
+    observation => linuxGroupCheck(observation, target), (): CleanupCheck => ({ result: "unavailable" }));
+  if (fresh.result !== "remaining") return { ended: [], check: fresh };
+  const ended = await endMatchingLeftovers(shown, fresh.remaining, pid => io.end(target.platform, pid));
+  return { ended, check: await checkWorkerCleanup(fresh.target, io) };
 }

@@ -7362,9 +7362,13 @@ send with `vivary_code_cleanup_required`, and the host state shows it to every u
 to its owner. The host checks every refusal again at start, without waiting, and before a send, never from the
 one-second polls. A check that finds nothing lifts the refusal and adds a transcript status. A marker from before
 this change, `cleanupUnverified: true`, has no target and stays until a person continues. The `vivary-code-cleanup`
-action, which no agent or tool may call, lets a signed-in person continue anyway after one more check. The run then
-records who continued, when, and what was still listed. The server log records the scan result and the number of
-leftovers, never their names. This page describes the coding worker at the trust-boundary level and not its refusals,
+action, which no agent or tool may call, carries a signed-in person's choice. End them takes one fresh scan and ends
+each listed process that the scan still finds with the same PID and start time, with `taskkill /PID <pid> /F` on
+Windows, never `/T`, or `SIGKILL` to that one PID on Linux. It then checks again and lifts the refusal when nothing
+is left. A PID whose start time changed, a process the owner was not shown, and the host itself are left alone.
+Continue anyway lifts the refusal on the owner's word after one more check. The run records who chose, when, and
+what was ended or still listed. The server log records the scan result and the number of leftovers, never their
+names. This page describes the coding worker at the trust-boundary level and not its refusals,
 and the new query reads process names, never command lines, so the description holds. Tests on Zo, which runs
 gVisor, check a real process group, answer the Windows query with a fake `powershell.exe` under `SystemRoot`, and
 seed refusals before a fresh host starts.
