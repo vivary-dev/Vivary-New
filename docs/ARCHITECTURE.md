@@ -153,6 +153,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #107 is closed and part A of #121 is merged. PR #129 merged into `dev` as `a4032a0` after all eight checks
+passed, including Entire Gates, and #107 was closed with the owner's approval on 2026-09-28. #121 stays open for
+part B. The Native conversations and Coding worker startup rows in the acceptance register record it.
+Documentation only, so the design description holds.
+
 Issue #107. The maintained Core patch renumbers tool-call ids when a server path replays a saved conversation with
 its tool calls, which the chained background continuation and a sub-agent's continue mode do. Each replayed call gets
 `r` and eight base-36 digits from one counter per replay, and its result carries the same id, so no two replayed
