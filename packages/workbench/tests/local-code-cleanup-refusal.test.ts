@@ -13,7 +13,8 @@ import {
   listCodeAgentTranscriptEvents,
 } from "@agent-native/core/code-agents";
 
-import { CLEANUP_TIMEOUT_MS, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS } from "../server/code-execution-host.ts";
+import { CLEANUP_TIMEOUT_MS, readLinuxProcStat, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS,
+} from "../server/code-execution-host.ts";
 
 // Issue #121. The code host keeps process-global state and loads persisted refusals once, when it first initializes, so
 // this file runs in its own process like local-code-approval-restart.test.ts, and its tests run in order. Every record,
@@ -114,6 +115,11 @@ function seedRefusal(id: string, target: unknown, refusedAt = new Date().toISOSt
 
 async function bootId(): Promise<string> {
   return (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+}
+
+/** A process as the check right after a failed stop traces it: by PID and start time. */
+async function traced(pid: number): Promise<{ pid: number; start: number }> {
+  return { pid, start: readLinuxProcStat(await readFile(`/proc/${pid}/stat`, "utf8")).start };
 }
 
 /** A PID that no process uses as a group id now: a short process that already exited and was reaped. */
@@ -309,14 +315,15 @@ test("a Windows run whose worker exits after its run records a refusal that name
     assert.equal(record?.phase, "cleanup-unverified");
     assert.equal("cleanupUnverified" in (record?.metadata ?? {}), false);
     const refusal = record?.metadata?.cleanupRefusal as { remaining: { pid: number; name: string }[]; scan: string;
-      step: string; target: { platform: string } };
+      step: string; target: { platform: string; traced: { pid: number }[] } };
     assert.deepEqual(refusal.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: 4242, name: "codex.exe" }]);
     assert.equal(refusal.scan, "done");
     assert.equal(refusal.step, "worker-exited");
     assert.equal(refusal.target.platform, "win32");
+    assert.deepEqual(refusal.target.traced.map(({ pid }) => pid), [4242], "the check right after the stop traces it");
     assert.equal(lastStatus(runId), "The coding process could not be stopped completely. Still running: codex.exe "
-      + "(PID 4242). Choose End them at the top of Vivary to stop these processes. Vivary ends only the processes "
-      + "listed here and then checks again.");
+      + "(PID 4242). Choose End them at the top of Vivary to stop these processes. Vivary ends only listed processes "
+      + "it can confirm came from that run, then checks again.");
     assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: 4242, name: "codex.exe" }]);
     await rm(leaveChild);
     await agent.recheckVivaryCodeCleanup();
@@ -333,7 +340,7 @@ test("End them ends the listed process that a fresh scan still shows, then lifts
   const groupId = sleeper.pid!;
   const exited = once(sleeper, "exit");
   try {
-    seedRefusal("end-linux", { platform: "linux", groupId, bootId: await bootId() });
+    seedRefusal("end-linux", { platform: "linux", groupId, bootId: await bootId(), traced: [await traced(groupId)] });
     await agent.recheckVivaryCodeCleanup();
     assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
     assert.equal((await decide("end")).cleanup, null);
@@ -364,7 +371,8 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n4130\t4120\t3000\tnode.exe\r\n`
     + "4140\t4120\t9999\tpowershell.exe\r\n4150\t4120\t3600\tlate.exe\r\n");
   const state = await decide("end");
-  assert.deepEqual((await readFile(taskkillLog, "utf8")).trim().split("\n"), ["/PID 4120 /F", "/PID 4130 /F"]);
+  // Newest first, so the child 4130 is tried before its parent 4120.
+  assert.deepEqual((await readFile(taskkillLog, "utf8")).trim().split("\n"), ["/PID 4130 /F", "/PID 4120 /F"]);
   assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what End them could not end");
   assert.equal(state.cleanup?.canEnd, true);
   assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
@@ -405,6 +413,17 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
   await assert.rejects(readFile(taskkillLog), { code: "ENOENT" }, "taskkill never ran");
   assert.equal((await continueAnyway()).cleanup, null);
   await writeFile(scanRows, SYSTEM_ROW);
+});
+
+test("a refusal Vivary cannot read still refuses until the owner continues", linuxOnly, async () => {
+  seedRun("unreadable-refusal", { cleanupRefusal: { target: { platform: "linux", groupId: 0 }, scan: "done" } });
+  await agent.recheckVivaryCodeCleanup();
+  const host = await agent.getVivaryCodeHostState(OWNER);
+  assert.equal(host.cleanup?.heading, "Vivary could not confirm that an earlier run's coding processes stopped");
+  assert.equal(host.cleanup?.canEnd, false);
+  await assert.rejects(send("Start past an unreadable refusal"), { errorCode: "vivary_code_cleanup_required" });
+  assert.equal((await continueAnyway()).cleanup, null);
+  assert.equal((metadataOf("unreadable-refusal").cleanupLifted as { scan?: string }).scan, "not-recorded");
 });
 
 test("shutdown refuses new sends with its own reason, and a check does not lift it", linuxOnly, async () => {

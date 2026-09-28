@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -58,7 +58,7 @@ function statLine(pid: number, name: string, state: string, group: number, start
   return `${pid} (${name}) ${state} 1 ${group} ${group} 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 ${start} 1000 100 0`;
 }
 
-const liveGroup = { members: [{ pid: 7, name: "codex", start: 900 }], hidden: false };
+const liveGroup = { members: [{ pid: 7, name: "codex", start: 900, parentPid: 1 }], hidden: false };
 const emptyGroup = { members: [], hidden: false };
 
 test("Linux worker cleanup waits until every observed group member has stopped", async () => {
@@ -73,9 +73,9 @@ test("Linux worker cleanup waits until every observed group member has stopped",
 
 test("Linux stat lines give the name, state, group, and start time, and malformed lines refuse", async () => {
   assert.deepEqual(readLinuxProcStat(statLine(42, "kernel worker", "S", 0, 3)),
-    { name: "kernel worker", state: "S", processGroup: 0, start: 3 });
+    { name: "kernel worker", state: "S", parentPid: 1, processGroup: 0, start: 3 });
   assert.deepEqual(readLinuxProcStat(statLine(43, "a) b (c", "Z", 12345, 8417)),
-    { name: "a) b (c", state: "Z", processGroup: 12345, start: 8417 });
+    { name: "a) b (c", state: "Z", parentPid: 1, processGroup: 12345, start: 8417 });
   for (const malformed of ["malformed", "43 (child) S 2 12345 0 0", statLine(44, "child", "S", 12345, -1)]) {
     assert.throws(() => readLinuxProcStat(malformed), VivaryCodeWorkerCleanupError, malformed);
   }
@@ -93,7 +93,7 @@ test("Linux group scan names live members from comm and skips zombies and other 
   const observation = await scanLinuxWorkerGroup(12345, procReader(async pid => pid === "42"
     ? statLine(42, "my ) app", "S", 12345, 777) : pid === "43" ? statLine(43, "vivary-worker", "Z", 12345, 700)
       : statLine(44, "unrelated", "S", 999, 800)));
-  assert.deepEqual(observation, { members: [{ pid: 42, name: "my ) app", start: 777 }], hidden: false });
+  assert.deepEqual(observation, { members: [{ pid: 42, name: "my ) app", start: 777, parentPid: 1 }], hidden: false });
 });
 
 test("Linux group scan trusts the kernel when no process has the group id and never reads /proc", async () => {
@@ -169,16 +169,23 @@ test("a cleanup check finds a live group by name and reads an emptied one as cle
   const exited = once(sleeper, "exit");
   try {
     const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
-    const target = { platform: "linux" as const, groupId, bootId };
+    const target = { platform: "linux" as const, groupId, bootId, traced: [] };
     const live = await checkWorkerCleanup(target);
     assert.ok(live.result === "remaining");
     assert.deepEqual(live.remaining.map(({ pid, name }) => ({ pid, name })), [{ pid: groupId, name: "sleep" }]);
     assert.equal(live.hidden, false);
     assert.ok(Number.isSafeInteger(live.remaining[0]!.start));
+    assert.deepEqual(live.target.traced, [], "a later check traces nothing the stop did not");
+    // An unknown boot id, then or now, is no evidence of a reboot, so the group is still scanned.
+    const noCurrentBootId = { bootId: async () => null, windowsProcesses: async () => [], end: async () => {},
+      proc: { signalGroup: (id: number) => { process.kill(-id, 0); }, list: () => readdir("/proc"),
+        stat: (pid: string) => readFile(`/proc/${pid}/stat`, "utf8") } };
+    for (const check of [await checkWorkerCleanup({ ...target, bootId: null }),
+      await checkWorkerCleanup(target, noCurrentBootId)]) assert.equal(check.result, "remaining");
     process.kill(-groupId, "SIGKILL");
     await exited;
     assert.deepEqual(await checkWorkerCleanup(target), { result: "clean" });
-    const rebooted = { bootId: async () => "another-boot", windowsProcesses: async () => [],
+    const rebooted = { bootId: async () => "another-boot", windowsProcesses: async () => [], end: async () => {},
       proc: { signalGroup: () => assert.fail("a group from before a reboot was signaled"),
         list: async () => [], stat: async () => "" } };
     assert.deepEqual(await checkWorkerCleanup(target, rebooted), { result: "clean" });
@@ -196,40 +203,72 @@ test("Windows process rows parse with or without a creation time, and a malforme
     "4\t0\t\tSystem\r\nWARNING: something\r\n"]) assert.equal(parseWindowsProcessRows(malformed), null, JSON.stringify(malformed));
 });
 
-// Issue #121. The worker (PID 100) was forked between 1,000 and 7,000.
-test("Windows leftovers follow parent PIDs by creation time and never through a reused PID", () => {
+// Issue #121. The worker (PID 100) was forked between 1,000 and 7,000. A process is traced when End them may end it.
+test("Windows leftovers follow parent PIDs by creation time and trace only through live parents", () => {
   const live = { pid: 100, createdFrom: 1_000, createdTo: 7_000, childrenTo: null };
   const exited = { ...live, childrenTo: 9_000 };
+  const exact = (pid: number, created: number) => ({ pid, createdFrom: created, createdTo: created, childrenTo: null });
   const row = (pid: number, parentPid: number, created: number | null, name = `p${pid}.exe`) =>
     ({ pid, parentPid, created, name });
   const cases = [
-    { name: "a live worker with a child and a grandchild", tracked: [live],
+    { name: "a live worker with a child and a grandchild", tracked: [live], traced: [],
       rows: [row(4, 0, null), row(100, 50, 2_000), row(200, 100, 3_000), row(300, 200, 4_000), row(400, 50, 2_500)],
-      found: [100, 200, 300] },
-    { name: "an exited worker's child inside its window", tracked: [exited], rows: [row(200, 100, 8_000)], found: [200] },
-    { name: "a child created after the worker's exit window", tracked: [exited], rows: [row(201, 100, 9_500)], found: [] },
-    { name: "the child of a process that reused the worker's PID", tracked: [live],
-      rows: [row(100, 60, 20_000), row(202, 100, 21_000)], found: [] },
-    { name: "children created before the worker or before their parent", tracked: [live],
-      rows: [row(100, 50, 2_000), row(203, 100, 500), row(200, 100, 3_000), row(301, 200, 2_900)], found: [100, 200] },
-    { name: "a tracked grandchild whose parent exited", tracked: [exited, { pid: 300, createdFrom: 4_000, createdTo: 4_000,
-      childrenTo: null }], rows: [row(300, 200, 4_000), row(301, 300, 5_000)], found: [300, 301] },
+      found: [100, 200, 300], endable: [100, 200, 300] },
+    { name: "an exited worker's child inside its window", tracked: [exited], traced: [], rows: [row(200, 100, 8_000)],
+      found: [200], endable: [200] },
+    { name: "a child created after the worker's exit window", tracked: [exited], traced: [],
+      rows: [row(201, 100, 9_500)], found: [], endable: [] },
+    { name: "the child of a process that reused the worker's PID", tracked: [live], traced: [],
+      rows: [row(100, 60, 20_000), row(202, 100, 21_000)], found: [], endable: [] },
+    { name: "children created before the worker or before their parent", tracked: [live], traced: [],
+      rows: [row(100, 50, 2_000), row(203, 100, 500), row(200, 100, 3_000), row(301, 200, 2_900)],
+      found: [100, 200], endable: [100, 200] },
+    { name: "a traced grandchild whose parent exited, and its live child", tracked: [exited, exact(300, 4_000)],
+      traced: [{ pid: 300, start: 4_000 }], rows: [row(300, 200, 4_000), row(301, 300, 5_000)],
+      found: [300, 301], endable: [300, 301] },
+    { name: "the child of an exited process, whose PID another program may have reused",
+      tracked: [exited, exact(300, 4_000)], traced: [{ pid: 300, start: 4_000 }], rows: [row(500, 300, 20_000)],
+      found: [500], endable: [] },
+    { name: "the child of a worker whose exit was never observed", tracked: [live], traced: [],
+      rows: [row(204, 100, 8_000)], found: [204], endable: [] },
   ];
-  for (const { name, tracked, rows, found } of cases) {
-    const result = windowsLeftovers(rows, tracked);
-    assert.deepEqual(result.remaining.map(leftover => leftover.pid).sort((a, b) => a - b), found, name);
+  for (const { name, tracked, traced, rows, found, endable } of cases) {
+    const result = windowsLeftovers(rows, tracked, traced);
+    const pids = (processes: { pid: number }[]) => processes.map(({ pid }) => pid).sort((a, b) => a - b);
+    assert.deepEqual(pids(result.remaining), found, name);
+    assert.deepEqual(pids(result.remaining.filter(leftover => result.traced.some(({ pid, start }) =>
+      pid === leftover.pid && start === leftover.start))), endable, `${name}: traced`);
     for (const leftover of result.remaining) {
       assert.equal(leftover.start, rows.find(candidate => candidate.pid === leftover.pid)?.created, name);
       assert.ok(result.tracked.some(identity => identity.pid === leftover.pid && identity.createdFrom === leftover.start
         && identity.createdTo === leftover.start), `${name}: ${leftover.pid} is tracked exactly`);
     }
     assert.deepEqual(result.tracked.slice(0, tracked.length), tracked, `${name}: earlier identities stay first`);
+    assert.deepEqual(result.traced.slice(0, traced.length), traced, `${name}: earlier traced processes stay first`);
   }
-  const many = Array.from({ length: 250 }, (_, index) => row(1_000 + index, 100, 3_000));
-  const capped = windowsLeftovers(many, [live]);
-  assert.equal(capped.remaining.length, 250);
+  const many = [row(100, 50, 2_000), ...Array.from({ length: 250 }, (_, index) => row(1_000 + index, 100, 3_000))];
+  const capped = windowsLeftovers(many, [live], []);
+  assert.equal(capped.remaining.length, 251);
   assert.equal(capped.tracked.length, 200);
   assert.deepEqual(capped.tracked[0], live);
+  assert.equal(capped.traced.length, 200);
+});
+
+// Issue #121. A reader that shows group 12345: the traced 42, its child 43, a stranger 44 that another program started,
+// and 45, which names 42 as its parent but started before it.
+test("a Linux check traces only children of a traced member that started after it", async () => {
+  const withParent = (line: string, parentPid: number) => line.replace(" S 1 ", ` S ${parentPid} `);
+  const members: Record<string, string> = {
+    42: statLine(42, "codex", "S", 12345, 700), 43: withParent(statLine(43, "node", "S", 12345, 800), 42),
+    44: statLine(44, "stranger", "S", 12345, 900), 45: withParent(statLine(45, "early", "S", 12345, 600), 42),
+  };
+  const io = { bootId: async () => null, windowsProcesses: async () => [], end: async () => {},
+    proc: { signalGroup: () => undefined, list: async () => Object.keys(members), stat: async (pid: string) => members[pid]! } };
+  const check = await checkWorkerCleanup({ platform: "linux", groupId: 12345, bootId: null,
+    traced: [{ pid: 42, start: 700 }] }, io);
+  assert.ok(check.result === "remaining");
+  assert.deepEqual(check.remaining.map(({ pid }) => pid), [42, 43, 44, 45], "every member is listed");
+  assert.deepEqual(check.target.traced, [{ pid: 42, start: 700 }, { pid: 43, start: 800 }]);
 });
 
 // Issue #121. The owner saw `shown`. `fresh` is the scan taken just before End them acts.

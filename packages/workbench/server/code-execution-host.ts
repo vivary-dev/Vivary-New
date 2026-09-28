@@ -28,6 +28,7 @@ const WORKER_CREATED_AFTER_MS = 5_000;
 // A dead parent starts nothing, so a process created this long after the worker's observed exit is not its child.
 const WORKER_CHILDREN_AFTER_EXIT_MS = 1_000;
 const MAX_TRACKED_PROCESSES = 200;
+const MAX_TRACED_PROCESSES = 200;
 
 /**
  * The cleanup step that failed and what it threw. `worker-exited` means a Windows worker exited after it was sent its
@@ -49,10 +50,21 @@ export type LeftoverProcess = { pid: number; name: string; start: number };
  */
 export type WindowsProcessIdentity = { pid: number; createdFrom: number; createdTo: number; childrenTo: number | null };
 
-/** What a later check needs to find the same processes again, including after a Vivary restart. */
+/** A process End them may end, by PID and start stamp. */
+export type TracedProcess = Pick<LeftoverProcess, "pid" | "start">;
+
+/**
+ * What a later check needs to find the same processes again, including after a Vivary restart. A check lists every
+ * process it links to the run, so a refusal never lifts early. `traced` is the narrower set End them may end: what the
+ * check right after the failed stop found, and later children of a traced process that is alive in the same scan. A
+ * process linked only through an exited parent or a reused group id could belong to another program.
+ */
 export type CleanupTarget =
-  | { platform: "linux"; groupId: number; bootId: string | null }
-  | { platform: "win32"; tracked: WindowsProcessIdentity[] };
+  | { platform: "linux"; groupId: number; bootId: string | null; traced: TracedProcess[] }
+  | { platform: "win32"; tracked: WindowsProcessIdentity[]; traced: TracedProcess[] };
+
+/** A Linux boot id, which the kernel prints as a UUID. */
+export const BOOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * One observation of a target. `hidden` is Linux only: the kernel reports a group member that Vivary could not read,
@@ -66,8 +78,8 @@ export type CleanupCheck =
 /** A failed stop's target, null on a platform Vivary cannot check, and the one check taken right after the failure. */
 export type WorkerLeftovers = { target: CleanupTarget | null; check: Exclude<CleanupCheck, { result: "clean" }> };
 
-/** One scan of a Linux process group. */
-export type LinuxGroupObservation = { members: LeftoverProcess[]; hidden: boolean };
+/** One scan of a Linux process group. A member's parent PID lets a later check trace it. */
+export type LinuxGroupObservation = { members: (LeftoverProcess & { parentPid: number })[]; hidden: boolean };
 
 export class VivaryCodeWorkerCleanupError extends Error {
   declare cause?: CleanupFailure;
@@ -165,6 +177,10 @@ export async function executeVivaryCodeWorker(input: {
       try {
         target = await workerCleanupTarget(child.pid, startedAt, exitedAt);
         if (target) check = await checkWorkerCleanup(target);
+        // This host just stopped this group or tree, so everything the check finds belongs to the run.
+        if (check.result === "remaining") {
+          check = { ...check, target: { ...check.target, traced: traceable(check.target.traced, check.remaining) } };
+        }
       } catch { /* An unexpected failure leaves the check unavailable, which still refuses later runs. */ }
       return check.result === "clean" ? failure
         : new VivaryCodeWorkerCleanupError(cause, { leftovers: { target, check } });
@@ -337,7 +353,7 @@ export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc): P
   let entries: string[];
   try { entries = await proc.list(); }
   catch { throw new VivaryCodeWorkerCleanupError(); }
-  const members: LeftoverProcess[] = [];
+  const members: LinuxGroupObservation["members"] = [];
   let zombie = false;
   let unreadable = false;
   for (const entry of entries) {
@@ -356,26 +372,29 @@ export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc): P
     const stat = readLinuxProcStat(raw);
     if (stat.processGroup !== groupId) continue;
     if (stat.state === "Z" || stat.state === "X") zombie = true;
-    else members.push({ pid: Number(entry), name: stat.name, start: stat.start });
+    else members.push({ pid: Number(entry), name: stat.name, start: stat.start, parentPid: stat.parentPid });
   }
   // The group exists. A visible zombie explains that only when no entry was unreadable.
   return { members, hidden: members.length === 0 && (!zombie || unreadable) };
 }
 
 /** The fields of a `/proc/<pid>/stat` line that the group scan uses. The `comm` name may itself hold `)` and spaces. */
-export function readLinuxProcStat(raw: string): { name: string; state: string; processGroup: number; start: number } {
+export function readLinuxProcStat(raw: string): {
+  name: string; state: string; parentPid: number; processGroup: number; start: number;
+} {
   const open = raw.indexOf("(");
   const close = raw.lastIndexOf(")");
   const fields = open < 0 || close < open ? [] : raw.slice(close + 2).trim().split(/\s+/);
-  // The fields after `comm` start at field 3, so the group is field 5 and the start time is field 22.
+  // The fields after `comm` start at field 3, so the parent is field 4, the group field 5, and the start time field 22.
   const state = fields[0];
+  const parentPid = Number(fields[1]);
   const processGroup = Number(fields[2]);
   const start = Number(fields[19]);
   // Kernel threads can have process group zero. They cannot be in our positive group.
-  if (!state || !Number.isSafeInteger(processGroup) || processGroup < 0 || !Number.isSafeInteger(start) || start < 0) {
+  if (!state || [parentPid, processGroup, start].some(value => !Number.isSafeInteger(value) || value < 0)) {
     throw new VivaryCodeWorkerCleanupError();
   }
-  return { name: raw.slice(open + 1, close), state, processGroup, start };
+  return { name: raw.slice(open + 1, close), state, parentPid, processGroup, start };
 }
 
 export async function waitForLinuxWorkerGroupExit(
@@ -463,10 +482,12 @@ export function parseWindowsProcessRows(text: string): WindowsProcessRow[] | nul
  * Issue #121. The rows that are tracked processes or descend from one, by parent PID and creation time. A row created
  * before its parent, or whose parent PID now belongs to a process older than the row, is the child of a process that
  * reused the PID. The returned `tracked` adds each row found, so a grandchild stays traceable after its parent exits.
+ * The returned `traced` adds the rows End them may end: a traced process, the worker, a child inside the worker's
+ * closed window, and their children through a parent alive in this scan.
  */
-export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: readonly WindowsProcessIdentity[]): {
-  remaining: LeftoverProcess[]; tracked: WindowsProcessIdentity[];
-} {
+export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: readonly WindowsProcessIdentity[],
+  traced: readonly TracedProcess[]): { remaining: LeftoverProcess[]; tracked: WindowsProcessIdentity[];
+  traced: TracedProcess[] } {
   const timed = rows.filter((row): row is WindowsProcessRow & { created: number } => row.created !== null);
   const holds = (identity: WindowsProcessIdentity, row: { pid: number; created: number }) =>
     row.pid === identity.pid && row.created >= identity.createdFrom && row.created <= identity.createdTo;
@@ -489,7 +510,45 @@ export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: re
   const added = remaining.filter(({ pid, start }) => !tracked.some(identity =>
     identity.pid === pid && identity.createdFrom === start && identity.createdTo === start))
     .map(({ pid, start }) => ({ pid, createdFrom: start, createdTo: start, childrenTo: null }));
-  return { remaining, tracked: [...tracked, ...added].slice(0, MAX_TRACKED_PROCESSES) };
+  // The worker's window is a few seconds wide, and its children's window closes when its exit was observed.
+  const worker = tracked.filter(identity => identity.createdFrom < identity.createdTo);
+  const seeds = remaining.filter(leftover => isTraced(traced, leftover) || worker.some(identity =>
+    holds(identity, { pid: leftover.pid, created: leftover.start })
+    || (identity.childrenTo !== null && childOf(identity, found.get(leftover.pid)!))));
+  const parents = [...found.values()].map(({ pid, parentPid, created }) => ({ pid, parentPid, start: created }));
+  return { remaining, tracked: [...tracked, ...added].slice(0, MAX_TRACKED_PROCESSES),
+    traced: traceable(traced, remaining, traceLiveDescendants(parents, new Set(seeds.map(({ pid }) => pid)))) };
+}
+
+function isTraced(traced: readonly TracedProcess[], candidate: TracedProcess): boolean {
+  return traced.some(({ pid, start }) => pid === candidate.pid && start === candidate.start);
+}
+
+/**
+ * Issue #121. The seeds, then each process whose parent is traced and in the same scan, so still alive and holding its
+ * PID, and which started no earlier than that parent, until nothing changes.
+ */
+function traceLiveDescendants(processes: readonly { pid: number; parentPid: number; start: number }[],
+  seeds: ReadonlySet<number>): Set<number> {
+  const traced = new Set(seeds);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const child of processes) {
+      const parent = processes.find(candidate => candidate.pid === child.parentPid);
+      if (traced.has(child.pid) || !parent || !traced.has(parent.pid) || child.start < parent.start) continue;
+      traced.add(child.pid);
+      grew = true;
+    }
+  }
+  return traced;
+}
+
+/** `traced` plus the found processes whose PID is in `pids`, or every found process when `pids` is left out. */
+function traceable(traced: readonly TracedProcess[], found: readonly LeftoverProcess[],
+  pids?: ReadonlySet<number>): TracedProcess[] {
+  const added = found.filter(leftover => (!pids || pids.has(leftover.pid)) && !isTraced(traced, leftover))
+    .map(({ pid, start }) => ({ pid, start }));
+  return [...traced, ...added].slice(0, MAX_TRACED_PROCESSES);
 }
 
 /** The target that finds a stopped worker's processes again, or null on a platform Vivary cannot check. */
@@ -498,15 +557,18 @@ async function workerCleanupTarget(
 ): Promise<CleanupTarget | null> {
   if (!pid) return null;
   // The worker leads its own process group on Linux, so the group id is its PID.
-  if (process.platform === "linux") return { platform: "linux", groupId: pid, bootId: await readBootId() };
+  if (process.platform === "linux") {
+    return { platform: "linux", groupId: pid, bootId: await readBootId(), traced: [] };
+  }
   if (process.platform !== "win32") return null;
   return { platform: "win32", tracked: [{ pid, createdFrom: startedAt - WORKER_CREATED_BEFORE_MS,
     createdTo: startedAt + WORKER_CREATED_AFTER_MS,
-    childrenTo: exitedAt === null ? null : exitedAt + WORKER_CHILDREN_AFTER_EXIT_MS }] };
+    childrenTo: exitedAt === null ? null : exitedAt + WORKER_CHILDREN_AFTER_EXIT_MS }], traced: [] };
 }
 
 function readBootId(): Promise<string | null> {
-  return readFile("/proc/sys/kernel/random/boot_id", "utf8").then(text => text.trim() || null, () => null);
+  return readFile("/proc/sys/kernel/random/boot_id", "utf8")
+    .then(text => BOOT_ID_PATTERN.test(text.trim()) ? text.trim() : null, () => null);
 }
 
 /** Ends one process, and only that process. */
@@ -548,15 +610,18 @@ async function scanWindowsTarget(target: Extract<CleanupTarget, { platform: "win
 ): Promise<CleanupCheck> {
   let rows: WindowsProcessRow[];
   try { rows = await io.windowsProcesses(); } catch { return { result: "unavailable" }; }
-  const { remaining, tracked } = windowsLeftovers(rows, target.tracked);
+  const { remaining, tracked, traced } = windowsLeftovers(rows, target.tracked, target.traced);
   return remaining.length === 0 ? { result: "clean" }
-    : { result: "remaining", remaining, hidden: false, target: { platform: "win32", tracked } };
+    : { result: "remaining", remaining, hidden: false, target: { platform: "win32", tracked, traced } };
 }
 
-function linuxGroupCheck(observation: LinuxGroupObservation, target: CleanupTarget): CleanupCheck {
-  return observation.members.length || observation.hidden
-    ? { result: "remaining", remaining: observation.members, hidden: observation.hidden, target }
-    : { result: "clean" };
+function linuxGroupCheck(observation: LinuxGroupObservation,
+  target: Extract<CleanupTarget, { platform: "linux" }>): CleanupCheck {
+  if (!observation.members.length && !observation.hidden) return { result: "clean" };
+  const remaining = observation.members.map(({ pid, name, start }) => ({ pid, name, start }));
+  const seeds = new Set(remaining.filter(member => isTraced(target.traced, member)).map(({ pid }) => pid));
+  const traced = traceable(target.traced, remaining, traceLiveDescendants(observation.members, seeds));
+  return { result: "remaining", remaining, hidden: observation.hidden, target: { ...target, traced } };
 }
 
 /**
@@ -596,8 +661,8 @@ export async function endMatchingLeftovers(shown: readonly LeftoverProcess[], fr
 }
 
 /**
- * Issue #121. The owner's End them: one fresh scan, one end for each shown process it still finds, then one check.
- * A scan that cannot run ends nothing.
+ * Issue #121. The owner's End them: one fresh scan, one end for each shown process it still finds and traces to the
+ * run, then one check. A scan that cannot run ends nothing.
  */
 export async function endWorkerLeftovers(target: CleanupTarget, shown: readonly LeftoverProcess[],
   io: CleanupIo = cleanupIo): Promise<{ ended: LeftoverProcess[]; check: CleanupCheck }> {
@@ -607,6 +672,9 @@ export async function endWorkerLeftovers(target: CleanupTarget, shown: readonly 
   else fresh = await scanLinuxWorkerGroup(target.groupId, io.proc).then(
     observation => linuxGroupCheck(observation, target), (): CleanupCheck => ({ result: "unavailable" }));
   if (fresh.result !== "remaining") return { ended: [], check: fresh };
-  const ended = await endMatchingLeftovers(shown, fresh.remaining, pid => io.end(target.platform, pid));
+  // Newest first, so a child is ended before the parent whose exit could free the child's PID for another program.
+  const traced = fresh.remaining.filter(leftover => isTraced(fresh.target.traced, leftover))
+    .sort((left, right) => right.start - left.start);
+  const ended = await endMatchingLeftovers(shown, traced, pid => io.end(target.platform, pid));
   return { ended, check: await checkWorkerCleanup(fresh.target, io) };
 }

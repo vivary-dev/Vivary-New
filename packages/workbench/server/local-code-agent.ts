@@ -22,7 +22,7 @@ import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
 import {
-  checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
+  BOOT_ID_PATTERN, checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
   type CleanupCheck, type CleanupFailure, type CleanupTarget, type LeftoverProcess,
 } from "./code-execution-host";
 import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
@@ -189,15 +189,17 @@ type CleanupLift =
   | { how: "owner-confirmed"; confirmedAt: string; by: string; remaining: LeftoverProcess[]; hidden: boolean;
     scan: CleanupScan };
 
-const leftoverSchema = z.object({
-  pid: z.number().int().positive(), name: z.string().min(1).max(260), start: z.number().int().nonnegative(),
-});
+const tracedSchema = z.object({ pid: z.number().int().positive(), start: z.number().int().nonnegative() });
+// A Linux `comm` can be empty, so an empty name must not discard the whole refusal.
+const leftoverSchema = tracedSchema.extend({ name: z.string().max(260) });
 const storedCleanupRefusalSchema = z.object({
+  // A boot id that is not a UUID fails to parse, so a damaged one refuses rather than reading as a reboot.
   target: z.discriminatedUnion("platform", [
-    z.object({ platform: z.literal("linux"), groupId: z.number().int().positive(), bootId: z.string().nullable() }),
+    z.object({ platform: z.literal("linux"), groupId: z.number().int().positive(),
+      bootId: z.string().regex(BOOT_ID_PATTERN).nullable(), traced: z.array(tracedSchema).max(200).default([]) }),
     z.object({ platform: z.literal("win32"), tracked: z.array(z.object({
       pid: z.number().int().positive(), createdFrom: z.number(), createdTo: z.number(), childrenTo: z.number().nullable(),
-    })).min(1).max(200) }),
+    })).min(1).max(200), traced: z.array(tracedSchema).max(200).default([]) }),
   ]).nullable(),
   remaining: z.array(leftoverSchema).max(MAX_CLEANUP_LISTED),
   hidden: z.boolean(),
@@ -450,8 +452,8 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
     return `Vivary cannot read its name. Stop process group ${group} with \`kill -KILL -- -${group}\`, which may need `
       + `sudo, then choose End them${at} so Vivary checks again.`;
   }
-  return `Choose End them${at} to stop these processes. Vivary ends only the processes listed here and then checks `
-    + "again.";
+  return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from that `
+    + "run, then checks again.";
 }
 
 /** The refusal a send gets. */
@@ -872,11 +874,12 @@ async function executeVivaryCodeRun(input: {
       // The credential redaction plugin redacts server output. Process names stay out of the log.
       console.error(`[vivary-code-host] cleanup-unverified run=${input.runId} step=${refusal.step ?? "unknown"} `
         + `scan=${refusal.scan} remaining=${refusal.remaining.length}`);
+      // The record is the refusal's source of truth, so it is written before the transcript.
       const message = cleanupFailureMessage(refusal);
-      appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message,
-        metadata: { status: "errored", phase: "cleanup-unverified" } });
       updateCodeAgentRunRecord(input.runId, { status: "errored", phase: "cleanup-unverified",
         metadata: { cleanupRefusal: storedCleanupRefusal(refusal), executionError: message } });
+      appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message,
+        metadata: { status: "errored", phase: "cleanup-unverified" } });
       return;
     }
     if (input.activeRun.stopReason !== null) {
