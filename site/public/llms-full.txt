@@ -7314,6 +7314,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103, review fixes. The maintained Core patch records a turn's reported cost only when every model call that
+started reported its usage, and empty usage from a rate-limited attempt no longer erases it, so a free model's
+retried turn records $0 and a turn stopped during a model call falls back to the price table or Unknown. The usage
+table setup marks old estimated rows of unpriced models unknown once, so the #50 guess reads Unknown after the
+upgrade. An integration run of an unpriced model settles its budget at the reservation estimate, a cost alert row
+shows its calls of unknown cost, and the Usage tab's model rows keep a model whose cost is unknown. Engine models the
+table never priced, such as Cohere's `command-r-plus-08-2024` and `command-r`, Ollama's `llama3.1` and its other
+local ids, and Builder's `auto`, now record Unknown when the provider reports no cost. Native still owns engines,
+usage records, budgets, alerts, and the Usage tab, so no component, flow, or boundary changes, and the design
+description holds. The new cases in `test:native-chat` failed on the previous patch and pass on this one. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-usage-cost) record the change and the limits that remain.
+
 Issue #106. The maintained Core patch labels every reply the owner stopped. The saved turn records the stop from the
 run's terminal `done` event with reason `user`, a client save that keeps the client's heavier copy carries the flag
 over from the server's copy, and the chat shows "The agent stopped before finishing" under every stopped reply, with

@@ -284,52 +284,94 @@ The patch changes these files:
   negative, or non-numeric cost adds nothing. `agent/engine/types.d.ts`
   declares the field.
 - `agent/production-agent.js` passes `costUsd` from the agent loop to
-  `onUsage`. The new `createTurnUsage` sums a main chat turn's usage over its
-  model calls and internal continuations. When every call reported a cost, the
-  turn records the sum as a reported cost, in centicents rounded as
-  `calculateCost` rounds. Otherwise the turn passes no cost and the store
-  decides.
+  `onUsage`, and the loop calls the new `onModelCall` as each model call
+  starts, retries included. The new `createTurnUsage` sums a main chat turn's
+  usage over its model calls and internal continuations. It records the sum as
+  a reported cost, in centicents rounded as `calculateCost` rounds, only when
+  every call that started reported its usage and every usage that holds tokens
+  also holds a cost. Empty usage adds nothing. The engine reports it for an
+  attempt that failed before any usage, such as a rate-limited one. Otherwise
+  the turn passes no cost and the store decides.
 - `usage/store.js` gives Sonnet ids their own price entry and removes the
   catch-all. `recordUsage` records `cost_source = 'unavailable'` with a cost of
   0 when the caller passed no cost and the table has no price for the model.
   `calculateCost` returns 0 for such a model, because traces and integration
-  budgets also call it.
+  budgets also call it, and the new `hasTablePrice` says whether the table
+  prices a model. The table setup, which runs once per process, also converts
+  the old guesses. It sets every `estimated` row whose model the table does not
+  price to `unavailable` with a cost of 0, so the #50 turns read Unknown after
+  the upgrade. It changes no other row, and a second run changes nothing.
 - `usage/metrics-store.js` counts the calls whose cost is unknown, as
   `unknownCostCalls`, in the Usage tab's totals, today's figure, the daily
-  figures, and the workflow and model rows. Recent rows carry `costSource`.
+  figures, and the workflow and model rows. Recent rows carry `costSource`. A
+  workflow or model row with calls of unknown cost sorts before the others, so
+  the row limit does not drop it while the totals count its calls.
+- `usage/alerts-store.js` counts the calls of unknown cost in each alert
+  rule's window, as `unknownCostCalls`.
 - `client/settings/UsageSection.js` shows a figure whose calls all have an
   unknown cost as "Unknown". A figure with both shows the known amount and the
   count, for example "12.30¢ + 1 unknown". Every figure adds only known costs.
+  A cost alert shows its count the same way, for example "$0.00 + 1 unknown of
+  $5.00". A token alert does not, because every call's tokens are known.
+- `integrations/webhook-handler.js` settles an integration run of an unpriced
+  model at its budget reservation, `INTEGRATION_RUN_RESERVATION_MICROS` or $5
+  by default, instead of at 0, so a budget cap still fills. A priced model
+  settles at its table cost as before. The settlement function is exported so
+  the test can call it.
 
 These limits remain:
 
 - Only the main chat turn carries a reported cost. Custom agent calls,
   background automations, agent teams, and integration webhooks still record
   without one, so a free model on those paths shows Unknown rather than $0.
-- A turn in which only some calls reported a cost passes no cost. The table
-  prices it, or it shows as Unknown.
+- A turn passes no cost when a call with tokens reported no cost, or when a
+  call reported no usage. A Stop during a model call cuts the call off before
+  it reports usage, so that turn records no reported cost. The table prices
+  it, or it shows as Unknown.
+- A call cut off by a dropped connection reports empty usage, as a
+  rate-limited attempt does, so the turn counts its cost as 0. OpenRouter can
+  bill output that it streamed before the cut.
 - The engine reads `usage.cost` only. OpenRouter reports the upstream charge
   for a request made with the owner's own provider key separately, in
   `cost_details.upstream_inference_cost`, and that charge is not added.
+- Engine models that the table never priced lost the Sonnet estimate and
+  record Unknown when the provider reports no cost. They include Cohere's
+  default `command-r-plus-08-2024` and `command-r`, Ollama's default
+  `llama3.1` and its other local ids, and Builder's `auto`, whose credit figure
+  also reads Unknown.
 - Traces price spans with `calculateCost`, so an unpriced model's span shows 0
   rather than Unknown. The daily trend chart plots known costs only.
-- Usage alerts sum known costs, so an unknown cost never counts toward a spend
-  alert.
+- Usage alerts sum known costs, so an unknown cost never triggers a spend
+  alert. The alert row shows how many calls it left out.
+- The model list shows four rows. When more than four models have calls of
+  unknown cost, it still shows four.
+- The conversion reads the distinct models of `estimated` rows at every
+  process start, one extra query on a large hosted table.
 
 Run `pnpm --dir packages/workbench test:native-chat`.
 `tests/native-usage-cost.test.ts` runs Core's OpenRouter engine against a
 loopback fake whose last chunk reports usage with a cost of 0, a positive cost,
-or no cost, and the engine's usage event must carry that cost. Five turns run
+or no cost, and the engine's usage event must carry that cost. Seven turns run
 through the agent loop and `createTurnUsage` into the usage table. A reported 0
 records 0 as reported, a reported positive cost records it, a reported cost wins
 over the table's Sonnet price, an unpriced model with no reported cost records
-an unknown cost, and Sonnet with no reported cost keeps its $3 and $15 price.
-The Usage tab's metrics must count the unknown call in every figure and leave it
-out of the known cost. `tests/native-chat-components.test.mjs` renders the
-Settings Usage tab and must show "12.30¢ + 1 unknown" for the total and
-"Unknown" for the unpriced model. On the previous patch every case above failed except
-the engine case with no reported cost, and the turn cases failed because
-`createTurnUsage` did not exist yet.
+an unknown cost, and Sonnet with no reported cost keeps its $3 and $15 price. A
+rate-limited first attempt followed by a retry that reports 0 records 0 as
+reported, and a turn stopped during its second call records an unknown cost
+although its first call reported one. The Usage tab's metrics must count the
+unknown call in every figure and leave it out of the known cost, and an
+unpriced model must keep its row among six models. A second run of the table
+setup over old rows must mark only the unpriced model's estimate unknown. A
+daily cost alert must count the unknown call, and an integration budget must
+settle an unpriced run at its $5 reservation and a Sonnet run at 6,000
+currency micros. `tests/native-chat-components.test.mjs` renders the Settings
+Usage tab and must show "12.30¢ + 1 unknown" for the total, "Unknown" for the
+unpriced model, and "$0.00 + 1 unknown of $5.00" for a cost alert. On the
+first patch for #103 every case above failed except the engine case with no
+reported cost, and the turn cases failed because `createTurnUsage` did not
+exist yet. On the second, the retried and stopped turns, the model list, the
+old rows, both alert cases, and the budget case failed. The budget case failed
+because the settlement function was not exported.
 
 Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release records a provider's reported cost and an unknown cost
