@@ -7314,6 +7314,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #105, archived Native chats. The new `native-archive.test.mjs` states the restore contract before the code
+exists, and `test:chat-draft` runs it beside the Native draft tests. A project's archived chats are listed newest
+first. Restore clears the archive time only for a chat that the owner holds in the same organization and exact project
+scope, answers 404 otherwise, and leaves the transcript, title, and scope as they were. The test fails because
+`server/native-archive.ts` does not exist yet. Only the test and its package script changed, so the design
+description holds.
+
 Issue #107 is closed and part A of #121 is merged. PR #129 merged into `dev` as `a4032a0` after all eight checks
 passed, including Entire Gates, and #107 was closed with the owner's approval on 2026-09-28. #121 stays open for
 part B. The Native conversations and Coding worker startup rows in the acceptance register record it.
