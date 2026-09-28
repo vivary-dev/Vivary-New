@@ -3,6 +3,7 @@ import { codexApprovalResponse, supportsCodexRequest, type CodexApprovalDecision
 import type { CodexActionRequest } from "./code-execution-protocol";
 import { lstat, realpath, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
@@ -20,7 +21,10 @@ import {
 import { getCodexModels, type CodexModelCatalog } from "./codex-models";
 import { projectReconnectionPending } from "./project-reconnection-admission.mjs";
 
-import { executeVivaryCodeWorker, VivaryCodeWorkerCleanupError } from "./code-execution-host";
+import {
+  checkWorkerCleanup, executeVivaryCodeWorker, VivaryCodeWorkerCleanupError,
+  type CleanupCheck, type CleanupFailure, type CleanupTarget, type LeftoverProcess,
+} from "./code-execution-host";
 import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
 import type { ProjectContextBlock, ProjectContextLoad } from "./project-memory.ts";
 import { getVivaryRuntimeStatus, type VivaryCodeEngine, type VivaryRuntimeStatus } from "./local-runtime-setup.ts";
@@ -48,6 +52,8 @@ const MAX_SCANNED_ENTRIES = 2_000;
 const MAX_SCAN_DEPTH = 6;
 const SHUTDOWN_WAIT_MS = 10_000;
 const ALLOWED_FILE_EXTENSIONS = new Set([".json", ".md", ".txt"]);
+const MAX_CLEANUP_LISTED = 50;
+const MAX_CLEANUP_NAMED_IN_MESSAGES = 5;
 
 type ActiveRun = {
   controller: AbortController;
@@ -105,11 +111,26 @@ export type VivaryCodeRecentRun = Pick<CodeAgentRunRecord, "id" | "status" | "ti
   projectId: string | null;
 };
 
+/** Issue #121. The refusal's state for the host strip and the Code panel. The server owns the wording. */
+export type VivaryCodeCleanupView = {
+  heading: string;
+  /** Commands appear in backticks. */
+  instruction: string;
+  remaining: { pid: number; name: string }[];
+  /** A scan can find the listed processes, so End them can act. Otherwise Continue anyway is the only choice. */
+  canEnd: boolean;
+  /** A check or an End is running. */
+  checking: boolean;
+  /** Set only for the run's owner. */
+  run: { id: string; title: string; projectId: string | null } | null;
+};
+
 export type VivaryCodeHostState = {
   activeRun: { id: string; title: string; projectId: string | null } | null;
   pendingApproval: VivaryCodePendingApproval | null;
   recentRun: VivaryCodeRecentRun | null;
   busy: boolean;
+  cleanup: VivaryCodeCleanupView | null;
 };
 
 export type VivaryCodeState = VivaryCodeHostState & {
@@ -141,11 +162,60 @@ export type VivaryCodeFileState = {
   truncated: boolean;
 };
 
+type CleanupScan = "done" | "unavailable" | "not-recorded";
+
+/**
+ * Issue #121. Coding processes from a run outlived its stop, or Vivary could not confirm that they did not, so the host
+ * refuses new runs. The run record keeps it as `metadata.cleanupRefusal`, without `runId`.
+ */
+export type CleanupRefusal = {
+  runId: string;
+  /** Null when the run predates recorded targets, or on a platform Vivary cannot check. */
+  target: CleanupTarget | null;
+  /** The processes last observed. */
+  remaining: LeftoverProcess[];
+  hidden: boolean;
+  /** Whether the last check could scan. `not-recorded` is a marker that never had a target. */
+  scan: CleanupScan;
+  step: CleanupFailure["step"] | null;
+  refusedAt: string;
+  checkedAt: string;
+};
+
+/** How a refusal ended, kept as `metadata.cleanupLifted` on the run. */
+type CleanupLift =
+  | { how: "rechecked"; checkedAt: string }
+  | { how: "owner-confirmed"; confirmedAt: string; by: string; remaining: LeftoverProcess[]; hidden: boolean;
+    scan: CleanupScan };
+
+const leftoverSchema = z.object({
+  pid: z.number().int().positive(), name: z.string().min(1).max(260), start: z.number().int().nonnegative(),
+});
+const storedCleanupRefusalSchema = z.object({
+  target: z.discriminatedUnion("platform", [
+    z.object({ platform: z.literal("linux"), groupId: z.number().int().positive(), bootId: z.string().nullable() }),
+    z.object({ platform: z.literal("win32"), tracked: z.array(z.object({
+      pid: z.number().int().positive(), createdFrom: z.number(), createdTo: z.number(), childrenTo: z.number().nullable(),
+    })).min(1).max(200) }),
+  ]).nullable(),
+  remaining: z.array(leftoverSchema).max(MAX_CLEANUP_LISTED),
+  hidden: z.boolean(),
+  scan: z.enum(["done", "unavailable", "not-recorded"]),
+  step: z.enum(["taskkill", "exit", "group", "worker-exited"]).nullable(),
+  refusedAt: z.string(),
+  checkedAt: z.string(),
+});
+
 type CodeHostState = {
   activeRuns: Map<string, ActiveRun>;
   initialization: Promise<void> | null;
+  /** Shutdown only. */
   closing: boolean;
   shutdown: Promise<void> | null;
+  /** The oldest persisted refusal still in force. */
+  cleanup: CleanupRefusal | null;
+  /** One check or End at a time. Never rejects. */
+  cleanupCheck: Promise<void> | null;
 };
 
 // Nitro bundles plugins while Native loads action source modules. Both must own
@@ -159,6 +229,8 @@ const hostState = hostProcess[codeHostKey] ??= {
   initialization: null,
   closing: false,
   shutdown: null,
+  cleanup: null,
+  cleanupCheck: null,
 };
 const activeRuns = hostState.activeRuns;
 export async function initializeVivaryCodeAgent(): Promise<void> {
@@ -177,8 +249,6 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
   hostState.initialization ??= Promise.resolve().then(() => {
     for (const run of listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID)) {
       if (metadataString(run, "app") !== VIVARY_CODE_APP_MARKER) continue;
-      if (run.metadata?.cleanupUnverified === true) hostState.closing = true;
-
       if (!isActiveCodeAgentRun(run)) continue;
       appendCodeAgentTranscriptEvent({
         runId: run.id,
@@ -204,8 +274,206 @@ async function ensureVivaryCodeHostInitialized(): Promise<void> {
         },
       });
     }
+    // Issue #121. The oldest persisted refusal is in force before any send. The check that may lift it runs behind it.
+    hostState.cleanup = persistedCleanupRefusals()[0] ?? null;
+    if (hostState.cleanup) void recheckVivaryCodeCleanup().catch(() => undefined);
   });
   await hostState.initialization;
+}
+
+/** Issue #121. Checks every persisted refusal again, after any check or End already running. */
+export function recheckVivaryCodeCleanup(): Promise<void> {
+  return exclusiveCleanupWork(async () => {
+    for (const refusal of persistedCleanupRefusals()) {
+      if (refusal.target) recordCleanupCheck(refusal, await checkWorkerCleanup(refusal.target));
+    }
+  });
+}
+
+/**
+ * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one. Continue lifts it on the
+ * owner's word after one more check, which lifts it on its own when nothing is left.
+ */
+export async function resolveVivaryCodeCleanup(input: {
+  ownerEmail: string; orgId?: string; decision: "continue";
+}): Promise<VivaryCodeHostState> {
+  await ensureVivaryCodeHostInitialized();
+  await exclusiveCleanupWork(async () => {
+    const refusal = persistedCleanupRefusals()[0];
+    if (!refusal) return;
+    const check = refusal.target ? await checkWorkerCleanup(refusal.target) : null;
+    if (check?.result === "clean") {
+      recordCleanupCheck(refusal, check);
+      return;
+    }
+    const seen = check?.result === "remaining" ? check : refusal;
+    liftCleanupRefusal(refusal, {
+      how: "owner-confirmed", confirmedAt: new Date().toISOString(), by: input.ownerEmail,
+      remaining: seen.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: seen.hidden,
+      scan: !check ? refusal.scan : check.result === "remaining" ? "done" : "unavailable",
+    });
+  });
+  return getVivaryCodeHostState(input.ownerEmail, input.orgId);
+}
+
+/** Runs one piece of cleanup work after any other, then reloads the refusal in force from the run records. */
+function exclusiveCleanupWork(work: () => Promise<void>): Promise<void> {
+  const run = (hostState.cleanupCheck ?? Promise.resolve()).then(work).finally(() => {
+    hostState.cleanup = persistedCleanupRefusals()[0] ?? null;
+  });
+  const settled: Promise<void> = run.catch(error => {
+    console.error(`[vivary-code-host] cleanup-check-failed ${error instanceof Error ? error.name : "unknown"}`);
+  }).finally(() => {
+    if (hostState.cleanupCheck === settled) hostState.cleanupCheck = null;
+  });
+  hostState.cleanupCheck = settled;
+  return run;
+}
+
+/** Every persisted refusal of this app's runs, oldest first. */
+function persistedCleanupRefusals(): CleanupRefusal[] {
+  return listCodeAgentRunRecords(VIVARY_CODE_GOAL_ID)
+    .filter(run => metadataString(run, "app") === VIVARY_CODE_APP_MARKER)
+    .flatMap(run => {
+      const refusal = cleanupRefusalFromRun(run);
+      return refusal ? [refusal] : [];
+    })
+    .sort((left, right) => left.refusedAt.localeCompare(right.refusedAt));
+}
+
+/** Parses a run's refusal once, at the record boundary. A marker it cannot read still refuses. */
+function cleanupRefusalFromRun(run: CodeAgentRunRecord): CleanupRefusal | null {
+  const stored = run.metadata?.cleanupRefusal;
+  if (stored === undefined && run.metadata?.cleanupUnverified !== true) return null;
+  const parsed = storedCleanupRefusalSchema.safeParse(stored);
+  if (parsed.success) return { runId: run.id, ...parsed.data };
+  // A `cleanupUnverified: true` marker from before part B recorded no target.
+  return { runId: run.id, target: null, remaining: [], hidden: false, scan: "not-recorded", step: null,
+    refusedAt: run.updatedAt, checkedAt: run.updatedAt };
+}
+
+function storedCleanupRefusal(refusal: CleanupRefusal): Omit<CleanupRefusal, "runId"> {
+  const { target, remaining, hidden, scan, step, refusedAt, checkedAt } = refusal;
+  return { target, remaining, hidden, scan, step, refusedAt, checkedAt };
+}
+
+/** Records one check of a refusal. A check keeps the run's place in history, and only a lift adds to its transcript. */
+function recordCleanupCheck(refusal: CleanupRefusal, check: CleanupCheck): void {
+  const checkedAt = new Date().toISOString();
+  if (check.result === "clean") {
+    liftCleanupRefusal(refusal, { how: "rechecked", checkedAt });
+    return;
+  }
+  const next: CleanupRefusal = check.result === "remaining"
+    ? { ...refusal, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
+      scan: "done", checkedAt }
+    : { ...refusal, scan: "unavailable", checkedAt };
+  updateCodeAgentRunRecord(refusal.runId, record => ({
+    updatedAt: record.updatedAt, metadata: { cleanupRefusal: storedCleanupRefusal(next) },
+  }));
+}
+
+function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
+  const remaining = lift.how === "owner-confirmed" ? lift.remaining.length : 0;
+  const scan = lift.how === "owner-confirmed" ? lift.scan : "done";
+  // The credential redaction plugin redacts server output. Process names stay out of the log.
+  console.error(`[vivary-code-host] cleanup-lifted run=${refusal.runId} how=${lift.how} scan=${scan} remaining=${remaining}`);
+  appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift),
+    metadata: { phase: "cleanup-lifted", how: lift.how } });
+  updateCodeAgentRunRecord(refusal.runId, {
+    metadata: { cleanupRefusal: undefined, cleanupUnverified: undefined, cleanupLifted: lift },
+  });
+}
+
+/** The refusal a failed stop leaves, from the one check the host took right after it. */
+function cleanupRefusalFromFailedStop(runId: string, error: VivaryCodeWorkerCleanupError): CleanupRefusal {
+  const now = new Date().toISOString();
+  const check = error.leftovers?.check;
+  const common = { runId, step: error.cause?.step ?? null, refusedAt: now, checkedAt: now };
+  return check?.result === "remaining"
+    ? { ...common, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
+      scan: "done" }
+    : { ...common, target: error.leftovers?.target ?? null, remaining: [], hidden: false, scan: "unavailable" };
+}
+
+function cleanupPlatform(refusal: CleanupRefusal): "linux" | "win32" {
+  return refusal.target?.platform ?? (process.platform === "win32" ? "win32" : "linux");
+}
+
+function processList(processes: readonly LeftoverProcess[]): string {
+  const named = processes.slice(0, MAX_CLEANUP_NAMED_IN_MESSAGES).map(({ name, pid }) => `${name} (PID ${pid})`);
+  const more = processes.length - named.length;
+  return more > 0 ? `${named.join(", ")}, and ${more} more` : named.join(", ");
+}
+
+function cleanupHeading(refusal: CleanupRefusal): string {
+  if (refusal.scan !== "done") return "Vivary could not confirm that an earlier run's coding processes stopped";
+  return refusal.remaining.length ? "Coding processes from an earlier run are still running"
+    : "A coding process from an earlier run is still running";
+}
+
+/**
+ * What the owner does next. The strip sits beside the controls, and a transcript or refusal message adds where they
+ * are. Commands are in backticks.
+ */
+function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message"): string {
+  const at = where === "message" ? " at the top of Vivary" : "";
+  const windows = cleanupPlatform(refusal) === "win32";
+  const group = refusal.target?.platform === "linux" ? refusal.target.groupId : null;
+  if (refusal.scan === "not-recorded") {
+    return "This run ended before Vivary recorded which processes it started. End any codex, claude, or node processes "
+      + `left from it ${windows ? "in Task Manager" : "in your process list"}, then choose Continue anyway${at}.`;
+  }
+  if (refusal.scan === "unavailable") {
+    if (group !== null) {
+      return `Vivary could not list the processes. Check them with \`pgrep -l -g ${group}\`, stop them with `
+        + `\`kill -KILL -- -${group}\`, then choose Continue anyway${at}.`;
+    }
+    return `Vivary could not list the processes. Check ${windows ? "Task Manager" : "your process list"} for codex, `
+      + `claude, or node processes from that run and end them, then choose Continue anyway${at}.`;
+  }
+  if (!refusal.remaining.length && group !== null) {
+    return `Vivary cannot read its name. Stop process group ${group} with \`kill -KILL -- -${group}\`, which may need `
+      + `sudo, then choose End them${at} so Vivary checks again.`;
+  }
+  return `Choose End them${at} to stop these processes. Vivary ends only the processes listed here and then checks `
+    + "again.";
+}
+
+/** The refusal a send gets. */
+function cleanupRefusalMessage(refusal: CleanupRefusal): string {
+  const names = refusal.scan === "done" && refusal.remaining.length ? `: ${processList(refusal.remaining)}` : "";
+  return `${cleanupHeading(refusal)}${names}. ${cleanupInstruction(refusal, "message")}`;
+}
+
+/** The transcript status when a stop fails. */
+function cleanupFailureMessage(refusal: CleanupRefusal): string {
+  const names = refusal.remaining.length ? `Still running: ${processList(refusal.remaining)}. ` : "";
+  return `The coding process could not be stopped completely. ${names}${cleanupInstruction(refusal, "message")}`;
+}
+
+function cleanupLiftMessage(lift: CleanupLift): string {
+  const accepts = "Vivary accepts new messages again.";
+  if (lift.how === "rechecked") return `The leftover coding processes are gone. ${accepts}`;
+  if (lift.scan !== "done") {
+    return `You chose to continue. Vivary could not check whether this run's coding processes stopped. ${accepts}`;
+  }
+  return lift.remaining.length
+    ? `You chose to continue while these coding processes were still running: ${processList(lift.remaining)}. ${accepts}`
+    : `You chose to continue while a coding process from this run was still running. ${accepts}`;
+}
+
+function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[], ownerEmail: string,
+  orgId?: string): VivaryCodeCleanupView {
+  const run = runs.find(candidate => candidate.id === refusal.runId && isOwnedIdentity(candidate, ownerEmail, orgId));
+  return {
+    heading: cleanupHeading(refusal),
+    instruction: cleanupInstruction(refusal, "strip"),
+    remaining: refusal.remaining.map(({ pid, name }) => ({ pid, name })),
+    canEnd: refusal.target !== null && refusal.scan === "done",
+    checking: hostState.cleanupCheck !== null,
+    run: run ? { id: run.id, title: run.title, projectId: metadataString(run, "projectId") } : null,
+  };
 }
 
 async function stopActiveRunsForShutdown(): Promise<void> {
@@ -273,6 +541,8 @@ export async function getVivaryCodeHostState(
       projectId: metadataString(recent, "projectId"),
     } : null,
     busy: activeRuns.size > 0,
+    // Every user of the host sees the refusal, because it refuses them all.
+    cleanup: hostState.cleanup ? cleanupView(hostState.cleanup, runs, ownerEmail, orgId) : null,
   };
 }
 
@@ -381,6 +651,8 @@ export async function sendVivaryCodeMessage(input: {
 }): Promise<VivaryCodeState> {
   const workspace = input.workspace ?? await resolveWorkspace();
   await ensureVivaryCodeHostInitialized();
+  // Issue #121. A send is when a refusal matters, so it waits for a check. The host-state polls never start one.
+  if (hostState.cleanup) await (hostState.cleanupCheck ?? recheckVivaryCodeCleanup()).catch(() => undefined);
   assertCodeHostAvailable();
 
   const existing = input.runId ? requireOwnedRun(input.runId, input.ownerEmail, input.orgId, workspace) : null;
@@ -577,13 +849,17 @@ async function executeVivaryCodeRun(input: {
     }
   } catch (error) {
     if (error instanceof VivaryCodeWorkerCleanupError) {
-      // The credential redaction plugin redacts server output.
-      console.error(`[vivary-code-host] cleanup-unverified run=${input.runId} step=${error.cause?.step ?? "unknown"}`);
-      hostState.closing = true;
-      appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message: error.message,
+      const refusal = cleanupRefusalFromFailedStop(input.runId, error);
+      // Refuse before `finally` frees the host slot, so no send starts beside the leftovers.
+      hostState.cleanup ??= refusal;
+      // The credential redaction plugin redacts server output. Process names stay out of the log.
+      console.error(`[vivary-code-host] cleanup-unverified run=${input.runId} step=${refusal.step ?? "unknown"} `
+        + `scan=${refusal.scan} remaining=${refusal.remaining.length}`);
+      const message = cleanupFailureMessage(refusal);
+      appendCodeAgentTranscriptEvent({ runId: input.runId, kind: "status", message,
         metadata: { status: "errored", phase: "cleanup-unverified" } });
       updateCodeAgentRunRecord(input.runId, { status: "errored", phase: "cleanup-unverified",
-        metadata: { cleanupUnverified: true, executionError: error.message } });
+        metadata: { cleanupRefusal: storedCleanupRefusal(refusal), executionError: message } });
       return;
     }
     if (input.activeRun.stopReason !== null) {
@@ -770,10 +1046,10 @@ function assertCodeHostAvailable(): void {
     });
   }
   if (hostState.closing) {
-    fail("The coding host is stopping or requires process cleanup. Check the latest run before continuing.", {
-      errorCode: "vivary_code_host_closing",
-      statusCode: 503,
-    });
+    fail("The coding host is shutting down.", { errorCode: "vivary_code_host_closing", statusCode: 503 });
+  }
+  if (hostState.cleanup) {
+    fail(cleanupRefusalMessage(hostState.cleanup), { errorCode: "vivary_code_cleanup_required", statusCode: 409 });
   }
   if (activeRuns.size > 0) {
     fail("A Vivary coding request is active or waiting for approval. Open it, deny it, or stop it.", {

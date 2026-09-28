@@ -7355,10 +7355,19 @@ one `Get-CimInstance` query through PowerShell that selects only the process ID,
 time of each process. It follows parent IDs from the worker by creation time, so a process that reused a PID never
 matches. A check that finds nothing settles the stop as clean, so a Windows worker that exited on its own and left
 nothing behind no longer refuses later runs. A check that finds processes, or cannot run, travels on the cleanup
-error with what a later check needs to find them again. The refusal itself does not change yet. This page describes
-the coding worker at the trust-boundary level, and the new query reads process names, never command lines, so the
-description holds. Host tests on Zo, which runs gVisor, check a real process group and answer the Windows query with
-a fake `powershell.exe` under `SystemRoot`.
+error with what a later check needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the
+run, `metadata.cleanupRefusal`, with the target, the processes last seen, and whether the scan ran.
+`hostState.closing` now means shutdown only, with its own sentence. The oldest refusal in force refuses every Code
+send with `vivary_code_cleanup_required`, and the host state shows it to every user of the host, naming the run only
+to its owner. The host checks every refusal again at start, without waiting, and before a send, never from the
+one-second polls. A check that finds nothing lifts the refusal and adds a transcript status. A marker from before
+this change, `cleanupUnverified: true`, has no target and stays until a person continues. The `vivary-code-cleanup`
+action, which no agent or tool may call, lets a signed-in person continue anyway after one more check. The run then
+records who continued, when, and what was still listed. The server log records the scan result and the number of
+leftovers, never their names. This page describes the coding worker at the trust-boundary level and not its refusals,
+and the new query reads process names, never command lines, so the description holds. Tests on Zo, which runs
+gVisor, check a real process group, answer the Windows query with a fake `powershell.exe` under `SystemRoot`, and
+seed refusals before a fresh host starts.
 
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance

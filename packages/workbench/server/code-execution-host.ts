@@ -77,8 +77,7 @@ export class VivaryCodeWorkerCleanupError extends Error {
   readonly observation?: LinuxGroupObservation;
 
   constructor(cause?: CleanupFailure, details: { leftovers?: WorkerLeftovers; observation?: LinuxGroupObservation } = {}) {
-    super("The coding process could not be stopped completely. Stop the remaining coding processes before resuming Vivary.",
-      cause && { cause });
+    super("The coding process could not be stopped completely.", cause && { cause });
     this.name = "VivaryCodeWorkerCleanupError";
     this.leftovers = details.leftovers;
     this.observation = details.observation;
