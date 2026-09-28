@@ -177,6 +177,28 @@ Upstream could take these changes as they are. Remove this part of the patch
 only when an upstream release shows an in-stream provider error with its
 message and a Retry, and passes the same tests.
 
+## Send button name
+
+Issue #102. The Toolkit composer's Send button holds only an arrow icon. Its
+label lived only in the hover tooltip, so the accessibility tree showed an
+unnamed button, and screen readers and automation could not identify it. The
+Toolkit patch adds `aria-label: sendButtonTooltip` to the button in
+`dist/composer/TiptapComposer.js`. `sendButtonTooltip` already reads "Send
+message", or "Queue message" when `willQueue` is set, through the composer's
+translation adapter, so the name matches the tooltip in each state. The Stop
+button is Core's and already has a name.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-chat-components.test.mjs` renders the Toolkit composer, with the
+real Tiptap editor, inside the assistant runtime and tooltip providers. It
+reads the send button's accessible name, "Send message" and then "Queue
+message" with `willQueue`. linkedom has no text selection, computed style, or
+viewport size, so the test supplies an empty selection, an empty style, and a
+fixed size. The name was empty on the previous patch.
+
+Upstream could take this change as it is. Remove this part of the patch when
+an upstream Toolkit release names the button and passes the same test.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.

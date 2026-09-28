@@ -157,6 +157,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #102. The Toolkit patch gives the Native composer's Send button an `aria-label` from the same text as its
+tooltip, "Send message", or "Queue message" when the chat will queue the message, for example while a turn runs.
+Screen readers and automation can now identify the button in both states. The composer is Toolkit's and Native still
+owns it, so no component, flow, or boundary changes, and the design description holds. The component test read an
+empty name on the previous patch and reads both names on this one. The [patch
+notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#send-button-name) record the change.
+
 Issue #101. The maintained Core patch shows a provider's in-stream error, such as OpenRouter's error chunk with code
 502, as its message and code, for example "Provider returned error (code 502)", with the error code
 `provider_stream_error` and a Retry on the error card. The engine keeps the error stop that carries the provider's
