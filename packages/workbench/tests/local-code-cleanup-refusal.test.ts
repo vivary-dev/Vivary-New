@@ -25,9 +25,14 @@ const OWNER = "owner@example.test";
 const OWNER_CONTEXT = { caller: "frontend", userEmail: OWNER } as const;
 const SYSTEM_ROW = "4\t0\t\tSystem\r\n";
 
-/** One row of the Windows process scan, whose creation time is a FILETIME: 100-nanosecond intervals since 1601. */
+/** A Windows creation time as a FILETIME, 100-nanosecond intervals since 1601, from Unix milliseconds. */
+function filetime(unixMs: number): bigint {
+  return BigInt(unixMs) * 10_000n + 116_444_736_000_000_000n;
+}
+
+/** One row of the Windows process scan. */
 function row(pid: number, parentPid: number, createdMs: number, name: string): string {
-  return `${pid}\t${parentPid}\t${BigInt(createdMs) * 10_000n + 116_444_736_000_000_000n}\t${name}\r\n`;
+  return `${pid}\t${parentPid}\t${filetime(createdMs)}\t${name}\r\n`;
 }
 
 const fixture = await mkdtemp(path.join(os.tmpdir(), "vivary-code-cleanup-"));
@@ -38,7 +43,7 @@ const scanRows = path.join(fixture, "scan-rows.txt");
 const scanFails = path.join(fixture, "scan-fails");
 const leaveChild = path.join(fixture, "leave-child");
 const workerRecord = path.join(fixture, "worker.txt");
-const taskkillLog = path.join(fixture, "taskkill.log");
+const endLog = path.join(fixture, "end.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
 await mkdir(projectRoot);
 await mkdir(bin);
@@ -63,10 +68,34 @@ process.on("message", message => {
 process.send({ type: "vivary:code-worker:ready" });
 `);
 // Answers the Windows process scan from a file, names a child of the worker created while it ran, and counts the rows
-// on the last line as the real scan does.
+// on the last line as the real scan does. A call that ends processes gets each PID with the lowest FILETIME its
+// creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
+// PID 4130 refuses, like a process Windows denies access to. Every such call is logged.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 [ -f ${JSON.stringify(scanFails)} ] && exit 1
+case "$*" in *Stop-Process*)
+  targets=$(printf '%s' "$*" | grep -oE '[0-9]+:[0-9]{16,}')
+  printf '%s\\n' "$(printf '%s' "$targets" | tr '\\n' ' ')" >> ${JSON.stringify(endLog)}
+  count=0
+  for target in $targets; do
+    pid=\${target%%:*}
+    from=\${target#*:}
+    created=$(awk -F '\\t' -v pid="$pid" '$1 == pid { print $3 }' ${JSON.stringify(scanRows)})
+    if [ -z "$created" ]; then outcome=gone
+    elif [ "$created" -lt "$from" ] || [ "$created" -ge $((from + 10000)) ]; then outcome=mismatched
+    elif [ "$pid" = 4130 ]; then outcome=failed
+    else
+      outcome=ended
+      awk -F '\\t' -v pid="$pid" '$1 != pid' ${JSON.stringify(scanRows)} > ${JSON.stringify(scanRows)}.next
+      mv ${JSON.stringify(scanRows)}.next ${JSON.stringify(scanRows)}
+    fi
+    printf '%s\\t%s\\r\\n' "$pid" "$outcome"
+    count=$((count + 1))
+  done
+  printf 'END\\t%s\\r\\n' "$count"
+  exit 0 ;;
+esac
 {
   cat ${JSON.stringify(scanRows)}
   if [ -f ${JSON.stringify(leaveChild)} ]; then
@@ -77,13 +106,6 @@ cat ${JSON.stringify(scanOut)}
 printf 'END\\t%s\\r\\n' "$(grep -c . ${JSON.stringify(scanOut)})"
 `, { mode: 0o755 });
 await writeFile(scanRows, SYSTEM_ROW);
-// Ends one process by removing its row from the next scan. PID 4130 refuses, like a process Windows denies access to.
-await writeFile(path.join(fixture, "System32", "taskkill.exe"), `#!/bin/sh
-printf '%s\\n' "$*" >> ${JSON.stringify(taskkillLog)}
-[ "$2" = 4130 ] && exit 1
-grep -v "^$2$(printf '\\t')" ${JSON.stringify(scanRows)} > ${JSON.stringify(scanRows)}.next
-mv ${JSON.stringify(scanRows)}.next ${JSON.stringify(scanRows)}
-`, { mode: 0o755 });
 
 const saved = new Map<string, string | undefined>();
 function useSetting(name: string, value: string): void {
@@ -391,7 +413,7 @@ test("End them ends the listed process that a fresh scan still shows, then lifts
 test("End them on Windows ends each shown process by PID and creation time, never a tree, then offers Continue anyway", {
   ...linuxOnly, timeout: 20_000,
 }, async () => {
-  await rm(taskkillLog, { force: true });
+  await rm(endLog, { force: true });
   await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
     + row(4140, 4120, 3_500, "powershell.exe"));
   seedRefusal("end-windows", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
@@ -401,8 +423,10 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
     + row(4140, 4120, 9_999, "powershell.exe") + row(4150, 4120, 3_600, "late.exe"));
   const state = await decide("end");
-  // Newest first, so the child 4130 is tried before its parent 4120.
-  assert.deepEqual((await readFile(taskkillLog, "utf8")).trim().split("\n"), ["/PID 4130 /F", "/PID 4120 /F"]);
+  // One call, newest first, so the children go before their parent 4120. It gets 4140 as the owner saw it, and finds
+  // that PID now names a process created later.
+  assert.deepEqual((await readFile(endLog, "utf8")).trim().split("\n"),
+    [`4140:${filetime(3_500)} 4130:${filetime(3_000)} 4120:${filetime(2_000)}`]);
   assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what End them could not end");
   assert.equal(state.cleanup?.canEnd, true);
   assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
@@ -434,13 +458,13 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
   }
 
   // The worker's child 300 exited, another program took PID 300 and started 500, and that program exited too.
-  await rm(taskkillLog, { force: true });
+  await rm(endLog, { force: true });
   await writeFile(scanRows, SYSTEM_ROW + row(500, 300, 20_000, "unrelated.exe"));
   seedRefusal("untraced-parent", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
   await agent.recheckVivaryCodeCleanup();
   assert.deepEqual((await decide("end")).cleanup?.remaining, [{ pid: 500, name: "unrelated.exe" }]);
-  await assert.rejects(readFile(taskkillLog), { code: "ENOENT" }, "taskkill never ran");
+  await assert.rejects(readFile(endLog), { code: "ENOENT" }, "Vivary tried to end nothing");
   assert.equal((await continueAnyway()).cleanup, null);
   await writeFile(scanRows, SYSTEM_ROW);
 });

@@ -8,7 +8,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endMatchingLeftovers, executeVivaryCodeWorker, parseWindowsProcessRows,
+import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endMatchingLeftovers, endWorkerLeftovers, executeVivaryCodeWorker,
+  parseWindowsProcessRows,
   readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
   waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly,
 } from "../server/code-execution-host.ts";
@@ -305,6 +306,65 @@ test("End them ends only shown processes that the fresh scan finds with the same
   });
   assert.deepEqual(attempts, [10, 14], "a reused PID, an unseen process, and this host are never ended");
   assert.deepEqual(ended, [codex]);
+});
+
+const errno = (code: string) => Object.assign(new Error(`failed with ${code}`), { code });
+
+// Issue #121. Group 12345 holds the traced 42 and its child 43. Ending 43 lets 42 exit, and another process takes PID
+// 42 before End them reaches it. End them reads each `stat` again right before its kill, so it skips that process.
+test("End them on Linux reads each process again right before its kill and skips one whose start changed", async () => {
+  const table = new Map([[42, { name: "codex", start: 700 }], [43, { name: "node", start: 800 }]]);
+  const kills: number[] = [];
+  const kill = (pid: number) => {
+    kills.push(pid);
+    table.delete(pid);
+    if (pid === 43) table.set(42, { name: "stranger", start: 999 });
+  };
+  const proc = {
+    signalGroup: () => { if (!table.size) throw errno("ESRCH"); },
+    list: async () => [...table.keys()].map(String),
+    stat: async (pid: string) => {
+      const entry = table.get(Number(pid));
+      if (!entry) throw errno("ENOENT");
+      return statLine(Number(pid), entry.name, "S", 12345, entry.start);
+    },
+    kill,
+  };
+  const io = { bootId: async () => null, proc, windowsProcesses: async () => assert.fail("Windows was scanned"),
+    windowsEnd: async () => assert.fail("Windows End ran"), end: async (_platform: string, pid: number) => kill(pid) };
+  const shown = [{ pid: 42, name: "codex", start: 700 }, { pid: 43, name: "node", start: 800 }];
+  const result = await endWorkerLeftovers({ platform: "linux", groupId: 12345, bootId: null,
+    traced: shown.map(({ pid, start }) => ({ pid, start })) }, shown, io);
+  assert.deepEqual(kills, [43], "the process that took PID 42 is never ended");
+  assert.deepEqual((result as { attempts?: unknown }).attempts, [{ ...shown[1], outcome: "ended" },
+    { ...shown[0], outcome: "mismatched" }]);
+});
+
+// Issue #121. Windows ends every process in one PowerShell call that checks each creation time through the handle it
+// ends the process with. This host, a process the owner was not shown, and one never traced to the run are not passed.
+test("End them on Windows hands the shown traced processes to one identity-checked call, newest first", async () => {
+  const calls: unknown[] = [];
+  const codex = { pid: 4120, name: "codex.exe", start: 2_000 };
+  const node = { pid: 4130, name: "node.exe", start: 3_000 };
+  const stranger = { pid: 4140, name: "stranger.exe", start: 3_500 };
+  const host = { pid: process.pid, name: "Vivary.exe", start: 1_000 };
+  const rows = [codex, node, stranger, host].map(({ pid, name, start }) => ({ pid, parentPid: 1, created: start, name }));
+  const io = { bootId: async () => null, proc: { signalGroup: () => assert.fail("a group was signaled"),
+    list: async () => assert.fail("/proc was read"), stat: async () => assert.fail("/proc was read"),
+    kill: () => assert.fail("a Linux kill ran") },
+    windowsProcesses: async () => rows,
+    end: async (_platform: string, pid: number) => { calls.push(["taskkill", pid]); },
+    windowsEnd: async (processes: { pid: number; name: string; start: number }[]) => {
+      calls.push(["end", processes.map(({ pid, start }) => [pid, start])]);
+      return processes.map(leftover => ({ ...leftover, outcome: leftover.pid === node.pid ? "failed" : "ended" }));
+    } };
+  const traced = [codex, node, host].map(({ pid, start }) => ({ pid, start }));
+  const tracked = [codex, node, stranger, host].map(({ pid, start }) =>
+    ({ pid, createdFrom: start, createdTo: start, childrenTo: null }));
+  const result = await endWorkerLeftovers({ platform: "win32", tracked, traced }, [codex, node, stranger, host], io);
+  assert.deepEqual(calls, [["end", [[4130, 3_000], [4120, 2_000]]]], "one call, and never taskkill");
+  assert.deepEqual((result as { attempts?: unknown }).attempts, [{ ...node, outcome: "failed" },
+    { ...codex, outcome: "ended" }]);
 });
 
 
