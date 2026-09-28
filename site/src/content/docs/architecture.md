@@ -24,6 +24,8 @@ These are release criteria, not a claim that the full journey passes. The [accep
 
 ## System structure
 
+The [architecture and UX diagrams](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/diagrams/README.md) provide six editable tldraw pages and image exports. They are a dated view of this design and its interaction contracts.
+
 ```mermaid
 flowchart LR
   Person[Person] --> Desktop[Electron desktop]
@@ -156,6 +158,8 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+The diagram collection maps host and runtime ownership, engine dependencies, project setup, run control, file memory, and automation lifecycle from development snapshot `4032e969`. It labels unfinished capabilities and links the owning contracts. This documentation addition changes no runtime behavior or acceptance claim. The six exported pages passed tldraw lint checks, with all 100 arrows bound at both ends.
 
 Issue #101, documentation. The patch README now says that the stream error translation trusts a numeric
 `statusCode` and a boolean `isRetryable` on any provider object, not only a status that a provider SDK derived,
