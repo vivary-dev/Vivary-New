@@ -518,9 +518,9 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   assert.deepEqual(lift.shown?.map(({ pid }) => pid), [4130, 4140, 4150], "what the owner was shown");
   assert.deepEqual(lift.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what the check before the lift found");
   assert.deepEqual(endsOf(lift), ended, "the lift keeps what End them did");
-  assert.equal(lastStatus("end-windows"), "You chose to continue while these coding processes were still running: "
-    + "node.exe (PID 4130), powershell.exe (PID 4140), late.exe (PID 4150). End them ended codex.exe (PID 4120). "
-    + "Vivary accepts new messages again.");
+  assert.equal(lastStatus("end-windows"), "You chose to continue while these processes were still running: "
+    + "node.exe (PID 4130), powershell.exe (PID 4140, not confirmed from that run), late.exe (PID 4150, not confirmed "
+    + "from that run). End them ended codex.exe (PID 4120). Vivary accepts new messages again.");
   await writeFile(scanRows, SYSTEM_ROW);
 });
 
@@ -568,7 +568,7 @@ test("a list with no process traced to the run offers only Continue anyway and s
     const host = await agent.getVivaryCodeHostState(OWNER);
     assert.equal(host.cleanup?.heading, "Processes that may be left from an earlier run are still running");
     assert.deepEqual(host.cleanup?.remaining, [{ pid: groupId, name: "sleep", confirmed: false }]);
-    assert.equal(host.cleanup?.instruction, "Vivary cannot confirm that these came from that run, so it will not end "
+    assert.equal(host.cleanup?.instruction, "Vivary cannot confirm that these came from that run, so it does not end "
       + `them. If they did, stop them with \`kill -KILL -- -${groupId}\`, then choose Continue anyway.`);
     assert.equal(host.cleanup?.canEnd, false, "End them has nothing it may end");
     assert.equal(host.cleanup?.canContinue, true);
@@ -589,7 +589,7 @@ test("a list with no process traced to the run offers only Continue anyway and s
   const windows = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
   assert.deepEqual(windows?.remaining, [{ pid: 500, name: "unrelated.exe", confirmed: false }]);
   assert.equal(windows?.canEnd, false);
-  assert.equal(windows?.instruction, "Vivary cannot confirm that these came from that run, so it will not end them. "
+  assert.equal(windows?.instruction, "Vivary cannot confirm that these came from that run, so it does not end them. "
     + "If they did, end them in Task Manager by PID, then choose Continue anyway.");
   await assert.rejects(readFile(endLog), { code: "ENOENT" }, "Vivary tried to end nothing");
   assert.equal((await continueAnyway()).cleanup, null);

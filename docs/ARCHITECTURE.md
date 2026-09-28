@@ -225,22 +225,22 @@ strip shows the new list first. Continue anyway lifts the refusal on the owner's
 that check finds a process the owner was not shown, and records the list the owner saw and what the check found. The
 refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, or failed,
 also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,
-and its transcript status names what End them ended. The server log records the scan result and the number of
-leftovers, never their names. The host strip lists the leftovers with the server's wording and marks each one Vivary
-did not trace to the run as not confirmed from it. It offers End them only when a listed process is traced to the run.
-When none is, its heading says the processes may be left from an earlier run, and its instruction says Vivary does not
-end them and how the owner can, with the group's `kill` command on Linux or Task Manager by PID on Windows. The server
-offers Continue anyway once End them has run on the refusal, or when End them cannot act, and refuses it otherwise
-with `vivary_code_cleanup_not_offered`. Its buttons keep focus while a choice runs, and focus moves to the page when
-the refusal lifts. After End them the strip shows the server's account of what it ended and could not end, and adds no
-words of its own. The Code composer stays disabled, and its placeholder, which the server words from the heading and
-the choices offered, points at the strip, and the chat adapter keeps a draft that the refusal returns. Runtime flow 3
-now describes the refusal and the two choices. The new query reads process names, never command lines, so the trust
-boundaries hold. Tests on Zo, which runs gVisor, check a real process group, answer the Windows query, the Windows End
-call, and part A's `taskkill` with fakes under `SystemRoot`, seed refusals before a fresh host starts, and render the
-strip. On a Windows laptop on 2026-09-28, the scan and End scripts, as the host builds them, ran in Full and
-Constrained Language Mode against processes the probe started. The query and End them from inside the packaged app
-still need the packaged check.
+and its transcript status names what End them ended and marks any listed process that Vivary did not trace to the run.
+The server log records the scan result and the number of leftovers, never their names. The host strip lists the
+leftovers with the server's wording and marks each one Vivary did not trace to the run as not confirmed from it. It
+offers End them only when a listed process is traced to the run. When none is, its heading says the processes may be
+left from an earlier run, and its instruction says Vivary does not end them and how the owner can, with the group's
+`kill` command on Linux or Task Manager by PID on Windows. The server offers Continue anyway once End them has run on
+the refusal, or when End them cannot act, and refuses it otherwise with `vivary_code_cleanup_not_offered`. Its buttons
+keep focus while a choice runs, and focus moves to the page when the refusal lifts. After End them the strip shows the
+server's account of what it ended and could not end, and adds no words of its own. The Code composer stays disabled,
+and its placeholder, which the server words from the heading and the choices offered, points at the strip, and the
+chat adapter keeps a draft that the refusal returns. Runtime flow 3 now describes the refusal and the two choices. The
+new query reads process names, never command lines, so the trust boundaries hold. Tests on Zo, which runs gVisor,
+check a real process group, answer the Windows query, the Windows End call, and part A's `taskkill` with fakes under
+`SystemRoot`, seed refusals before a fresh host starts, and render the strip. On a Windows laptop on 2026-09-28, the
+scan and End scripts, as the host builds them, ran in Full and Constrained Language Mode against processes the probe
+started. The query and End them from inside the packaged app still need the packaged check.
 
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance

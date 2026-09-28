@@ -531,7 +531,7 @@ function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
   const scan = lift.how === "owner-confirmed" ? lift.scan : "done";
   // The credential redaction plugin redacts server output. Process names stay out of the log.
   console.error(`[vivary-code-host] cleanup-lifted run=${refusal.runId} how=${lift.how} scan=${scan} remaining=${remaining}`);
-  appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift),
+  appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift, refusal),
     metadata: { phase: "cleanup-lifted", how: lift.how } });
   updateCodeAgentRunRecord(refusal.runId, {
     metadata: { cleanupRefusal: undefined, cleanupUnverified: undefined, cleanupLifted: lift },
@@ -598,7 +598,7 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
     : `end them ${windows ? "in Task Manager" : "in your process list"} by PID`;
   const confirmed = refusal.remaining.filter(leftover => confirmedFromRun(refusal, leftover)).length;
   if (!confirmed) {
-    return "Vivary cannot confirm that these came from that run, so it will not end them. "
+    return "Vivary cannot confirm that these came from that run, so it does not end them. "
       + `If they did, ${yourself}, then choose Continue anyway${at}.`;
   }
   const orContinue = cleanupOffers(refusal).canContinue ? ` Or choose Continue anyway${at}.` : "";
@@ -606,7 +606,7 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
     return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from `
       + `that run, then checks again.${orContinue}`;
   }
-  return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It will not end `
+  return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It does not end `
     + `the others. If they came from that run, ${yourself}.${orContinue}`;
 }
 
@@ -643,7 +643,8 @@ function cleanupComposer(refusal: CleanupRefusal): string {
   return `${cleanupHeading(refusal)}. Choose ${choice} above before sending another message.`;
 }
 
-function cleanupLiftMessage(lift: CleanupLift): string {
+/** The transcript status when a refusal lifts. It marks any listed process Vivary did not trace to the run. */
+function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal): string {
   const ended = endedBy(lift.ends);
   const accepts = "Vivary accepts new messages again.";
   if (lift.how === "ended") {
@@ -655,8 +656,10 @@ function cleanupLiftMessage(lift: CleanupLift): string {
     return `You chose to continue. Vivary could not check whether this run's coding processes stopped.${endedNote} `
       + accepts;
   }
+  const which = lift.remaining.every(leftover => confirmedFromRun(refusal, leftover)) ? "these coding processes"
+    : "these processes";
   return lift.remaining.length
-    ? `You chose to continue while these coding processes were still running: ${processList(lift.remaining)}.`
+    ? `You chose to continue while ${which} were still running: ${processList(lift.remaining, refusal)}.`
       + `${endedNote} ${accepts}`
     : `You chose to continue while a coding process from this run was still running.${endedNote} ${accepts}`;
 }

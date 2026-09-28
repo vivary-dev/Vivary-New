@@ -25,7 +25,7 @@ const WINDOWS_SCAN_TIMEOUT_MS = 10_000;
 // The worker's Windows identity comes from the host clock, read just before and just after `fork`, which creates the
 // process before it returns, and at its observed exit, since a dead parent starts nothing. Windows stamps a creation
 // time from its system clock, which can advance in 15.6 ms ticks, and both clocks are compared in whole milliseconds,
-// so each bound gets this much room. On a Windows laptop 36 forks all fell inside the two readings with none of it.
+// so each bound gets this much room. On a Windows laptop, 36 forks all fell inside the two readings without it.
 const CLOCK_TOLERANCE_MS = 20;
 const MAX_TRACKED_PROCESSES = 200;
 const MAX_TRACED_PROCESSES = 200;
@@ -181,7 +181,8 @@ export async function executeVivaryCodeWorker(input: {
       // Reading the boot id cannot reject, so the target is known before the scan starts.
       const target = await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
       let check: CleanupCheck = { result: "unavailable" };
-      try { input.onStopFailed?.({ step: cause.step, target }); } catch { /* The error the run settles with records it. */ }
+      try { input.onStopFailed?.({ step: cause.step, target }); }
+      catch { /* The error the run settles with records the refusal. */ }
       try {
         if (target) check = await checkStoppedWorker(target);
       } catch { /* An unexpected failure leaves the check unavailable, which still refuses later runs. */ }
@@ -444,19 +445,20 @@ function scanBefore<T>(deadline: number, scan: () => Promise<T>): Promise<T | un
   });
 }
 
-/** One row of the Windows process scan. `created` is null only for the System Idle Process and System. */
+/** One row of the Windows process scan. `created` can be null only for PID 0, System Idle, and PID 4, System. */
 export type WindowsProcessRow = { pid: number; parentPid: number; created: number | null; name: string };
 
 // A Windows FILETIME counts 100-nanosecond intervals from 1601. This is 1970 in those units.
 const FILETIME_UNIX_EPOCH = 116_444_736_000_000_000n;
-// The System Idle Process (PID 0) and System (PID 4) have no creation time. Every other process has one.
+// The System Idle Process (PID 0) and System (PID 4) may have no creation time. Every other process has one.
 const WINDOWS_UNTIMED_PIDS: ReadonlySet<number> = new Set([0, 4]);
 
 // The query names four properties, so WMI never returns a command line, a path, or an owner to Vivary. Windows file
-// names cannot hold a tab. The script runs under Constrained Language Mode: it converts creation times with a method
-// of the core DateTime type, and only the encoding step, which that mode refuses, may fail without ending the script.
-// Names then arrive in the console code page, which is harmless because only PIDs and creation times are compared. Any
-// other error ends the script with a non-zero exit. The last line counts the rows, so cut output never reads as a scan.
+// names cannot hold a tab. The script also works under Constrained Language Mode. It converts creation times with a
+// method of the core DateTime type, and only the encoding step, which that mode refuses, may fail without ending the
+// script. Names then arrive in the console code page, which is harmless because only PIDs and creation times are
+// compared. Any other error ends the script with a non-zero exit. The last line counts the rows, so cut output never
+// reads as a scan.
 const WINDOWS_PROCESS_SCAN = [
   "$ErrorActionPreference = 'Stop'",
   "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }",
@@ -529,8 +531,8 @@ export type EndAttempt = LeftoverProcess & { outcome: EndOutcome };
  * Issue #121. Ends Windows processes in one PowerShell call. For each PID the script takes the process, opens its
  * handle, reads the creation time through that handle, and ends the process through the same object only when that
  * time falls in the recorded millisecond. Windows cannot hand a PID to another process while a handle to it is open, so
- * the check and the end act on the same process. Every step runs under Constrained Language Mode. Throws when the call
- * cannot run or prints anything else.
+ * the check and the end act on the same process. Every step also works under Constrained Language Mode. Throws when
+ * the call cannot run or prints anything else.
  */
 export async function endWindowsProcesses(processes: readonly LeftoverProcess[]): Promise<EndAttempt[]> {
   // The earliest FILETIME in each process's recorded millisecond. Each target is `<pid>:<FILETIME>`.
