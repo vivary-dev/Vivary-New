@@ -157,11 +157,31 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101, review round 1. Two reviews found that a provider's in-stream error was not final in every check and
+that its metadata still steered retries. The maintained Core patch now reads only a provider error's message, its
+code or else its type, a short plain upstream provider name, and a status that the provider SDK derived. The text
+names the upstream provider, for example "Provider returned error (code 502, from Google)". The classifier sees the
+message, the code, and that status, and never the rest of the metadata, so an upstream body that says "overloaded"
+or "timed out" no longer buys silent retries. A stream chunk that fails to parse shows a fixed sentence instead of
+the raw chunk, and it no longer ends a turn that went on to finish normally. The code is now final in every server
+and client check that reads a message: the engine retry, the in-process resume, the background continuation, the
+saved turn, and the client's automatic continuation. A turn that the server saves, for example after a reload, keeps
+the error and its Retry. Retry shows on the error card and on the inline notice under the last failed message, takes
+one click per error, and adds a visible "Retry the previous request..." instruction turn built from the last user
+text, which keeps history. Three limits were declined. An in-stream 401, 402, or 403 gets a Retry that repeats the
+failure, because OpenRouter sends those as HTTP statuses before the stream. An in-stream rate-limit phrase from
+another AI SDK provider no longer retries on its own, because those normally arrive as HTTP 429. A message queued
+during the failed run is sent first, and the failed turn then keeps no Retry. Native still owns engines, runs, saved
+turns, and the error card, so no component, flow, or boundary changes, and the design description holds.
+`test:native-chat` failed on the previous patch and passes on this one. The [patch
+notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the fields, the checks, and the limits.
+
 Issue #102. The Toolkit patch gives the Native composer's Send button an `aria-label` from the same text as its
 tooltip, "Send message", or "Queue message" when the chat will queue the message, for example while a turn runs.
-Screen readers and automation can now identify the button in both states. The composer is Toolkit's and Native still
-owns it, so no component, flow, or boundary changes, and the design description holds. The component test read an
-empty name on the previous patch and reads both names on this one. The [patch
+The button now exposes an accessible name in both states. The packaged Windows app's accessibility tree read "Send
+message" on build `32f02b54`, where build `d5c960ce` showed an unnamed button. The composer is Toolkit's and Native
+still owns it, so no component, flow, or boundary changes, and the design description holds. The component test read
+an empty name on the previous patch and reads both names on this one. The [patch
 notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#send-button-name) record the change.
 
 Issue #101. The maintained Core patch shows a provider's in-stream error, such as OpenRouter's error chunk with code

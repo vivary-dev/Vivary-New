@@ -57,7 +57,8 @@ const RAW_CHUNK_MARKER = "raw-chunk-marker";
 const UNREADABLE_CHUNK = "The model provider sent a response that could not be read";
 const userTurn = [{ role: "user" as const, content: [{ type: "text" as const, text: "Hello" }] }];
 
-type Chunk = Record<string, unknown>;
+// A string chunk is sent as written, so a stream can carry a chunk that is not JSON.
+type Chunk = Record<string, unknown> | string;
 const chunkOf = (choice: Record<string, unknown>) => ({ id: "gen-probe", object: "chat.completion.chunk", created: 0,
   model: "probe/model", choices: [{ index: 0, finish_reason: null, ...choice }] });
 const text = (content: string) => chunkOf({ delta: { role: "assistant", content } });
@@ -74,7 +75,7 @@ async function fakeOpenRouter(chunks: Chunk[]) {
     requests.push(`${request.method} ${request.url}`);
     request.resume();
     response.writeHead(200, { "content-type": "text/event-stream" });
-    for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    for (const chunk of chunks) response.write(`data: ${typeof chunk === "string" ? chunk : JSON.stringify(chunk)}\n\n`);
     response.end("data: [DONE]\n\n");
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -167,6 +168,9 @@ const streams: Array<{ name: string; chunks: Chunk[]; stop: Record<string, unkno
     stop: { reason: "end_turn", error: undefined, errorCode: undefined } },
   { name: "an unreadable last chunk ends with a fixed sentence, not the chunk",
     chunks: [text("Partial"), unknownAnnotation],
+    stop: { reason: "error", error: UNREADABLE_CHUNK, errorCode: undefined } },
+  { name: "a last chunk that is not JSON ends with the fixed sentence, not the chunk",
+    chunks: [text("Partial"), `{"choices":[{"delta":{"content":"${RAW_CHUNK_MARKER}"`],
     stop: { reason: "error", error: UNREADABLE_CHUNK, errorCode: undefined } },
 ];
 
