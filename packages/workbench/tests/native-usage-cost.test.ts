@@ -109,10 +109,15 @@ async function usageEvent(cost?: number) {
   }
 }
 
-// One main chat turn: the agent loop's usage events go into the turn's usage, which the chat
-// handler records when the turn ends, also after a Stop or a thrown loop. `stopOnText` presses Stop
-// at the turn's first streamed text. `throws` expects the loop to throw.
-async function recordTurn(model: string, respond: Respond, { stopOnText = false, throws = false } = {}) {
+const usageRows = async (runId: string) => (await getDbExec().execute({
+  sql: "SELECT input_tokens, output_tokens, cost_cents_x100, cost_source FROM token_usage WHERE run_id = ?", args: [runId] }))
+  .rows.map(row => ({ tokens: Number(row.input_tokens) + Number(row.output_tokens), centicents: Number(row.cost_cents_x100),
+    source: String(row.cost_source) }));
+
+// One turn: the agent loop's usage events go into the turn's usage, as the chat handler and the
+// integration handler wire it. `stopOnText` presses Stop at the turn's first streamed text. `throws`
+// expects the loop to throw.
+async function runTurn(model: string, respond: Respond, { stopOnText = false, throws = false } = {}) {
   const owner = `owner-${randomUUID()}@example.test`;
   const runId = `run-${randomUUID()}`;
   const turn = agent.createTurnUsage(model);
@@ -131,12 +136,14 @@ async function recordTurn(model: string, respond: Respond, { stopOnText = false,
   } finally {
     await provider.close();
   }
+  return { owner, runId, turn, requests: provider.requests(), threw };
+}
+
+// The chat handler records the turn's usage when the turn ends, also after a Stop or a thrown loop.
+async function recordTurn(model: string, respond: Respond, options: { stopOnText?: boolean; throws?: boolean } = {}) {
+  const { owner, runId, turn, requests, threw } = await runTurn(model, respond, options);
   await store.recordUsage({ ownerEmail: owner, ...turn.usageRecord(), label: "chat", runId });
-  const { rows } = await getDbExec().execute({
-    sql: "SELECT input_tokens, output_tokens, cost_cents_x100, cost_source FROM token_usage WHERE run_id = ?", args: [runId] });
-  return { requests: provider.requests(), threw, rows: rows.map(row => ({
-    tokens: Number(row.input_tokens) + Number(row.output_tokens), centicents: Number(row.cost_cents_x100),
-    source: String(row.cost_source) })) };
+  return { requests, threw, rows: await usageRows(runId) };
 }
 
 test("the engine's usage event carries the cost the provider reports", async t => {
@@ -330,38 +337,49 @@ test("a cost alert counts the calls whose cost is unknown", async () => {
     { centicents: SONNET_CENTICENTS, unknownCostCalls: 1 });
 });
 
-// An integration run reserves its estimate and settles at its cost. That is the provider's reported
-// cost, the table price, or 0 when the run used no tokens. An unknown cost settles at the reservation,
-// so a budget cap still fills. The usage has the shape `createTurnUsage` records for the run.
-test("an integration budget settles a run at its reported cost, its table price, 0, or its reservation", async () => {
-  const RESERVATION_MICROS = 5_000_000;
-  const settle = async (usage: { model: string; inputTokens?: number; outputTokens?: number; costCentsX100?: number }) => {
-    const access = { ownerEmail: `owner-${randomUUID()}@example.test`, orgId: null };
-    const budget = await budgets.saveIntegrationUsageBudget({ subject: { type: "user", userEmail: access.ownerEmail },
-      period: "day", limitMicros: 4 * RESERVATION_MICROS }, access);
-    const reservation = { budgetId: budget.id, reservationId: `run-${randomUUID()}`, estimatedCostMicros: RESERVATION_MICROS };
-    await budgets.reserveIntegrationUsageBudget(reservation, access);
-    await webhooks.settleApplicableIntegrationBudgets([{ ...reservation, access }], { inputTokens: INPUT_TOKENS,
-      outputTokens: OUTPUT_TOKENS, cacheReadTokens: 0, cacheWriteTokens: 0, ...usage });
-    const snapshot = await budgets.getIntegrationBudgetSnapshot(budget.id, access);
-    return { usedMicros: snapshot.usedMicros, reservedMicros: snapshot.reservedMicros };
-  };
-  const unpriced = "probe/unpriced-model";
-  const sonnet = "anthropic/claude-sonnet-5";
-  assert.deepEqual({
-    reported: await settle({ model: unpriced, costCentsX100: 123 }),
-    reportedFree: await settle({ model: unpriced, costCentsX100: 0 }),
-    noTokens: await settle({ model: unpriced, inputTokens: 0, outputTokens: 0 }),
-    unknown: await settle({ model: unpriced }),
-    sonnet: await settle({ model: sonnet }),
-    reportedSonnet: await settle({ model: sonnet, costCentsX100: 123 }),
-  }, {
-    // One centicent is 100 currency micros.
-    reported: { usedMicros: 12_300, reservedMicros: 0 },
-    reportedFree: { usedMicros: 0, reservedMicros: 0 },
-    noTokens: { usedMicros: 0, reservedMicros: 0 },
-    unknown: { usedMicros: RESERVATION_MICROS, reservedMicros: 0 },
-    sonnet: { usedMicros: SONNET_CENTICENTS * 100, reservedMicros: 0 },
-    reportedSonnet: { usedMicros: 12_300, reservedMicros: 0 },
-  });
+// An integration run sums its usage with `createTurnUsage`, as the webhook handler does. The handler
+// passes the run's usage record to `recordAndSettleIntegrationUsage`, which writes the usage row and
+// settles the budget reservations from that one record. A reported cost wins. Without one, a priced
+// model settles at its table price and a run with no tokens at 0. An unpriced model that used tokens
+// settles at its reservation, so a budget cap still fills, and its row reads Unknown.
+const RESERVATION_MICROS = 5_000_000;
+async function integrationRun(model: string, respond: Respond) {
+  const { owner, runId, turn } = await runTurn(model, respond);
+  const access = { ownerEmail: owner, orgId: null };
+  const budget = await budgets.saveIntegrationUsageBudget({ subject: { type: "user", userEmail: owner }, period: "day",
+    limitMicros: 4 * RESERVATION_MICROS }, access);
+  const reservation = { budgetId: budget.id, reservationId: runId, estimatedCostMicros: RESERVATION_MICROS };
+  await budgets.reserveIntegrationUsageBudget(reservation, access);
+  await webhooks.recordAndSettleIntegrationUsage([{ ...reservation, access }], { usage: turn.usageRecord(),
+    ownerEmail: owner, appId: "vivary", runId, threadId: `thread-${runId}`,
+    incoming: { platform: "slack", platformContext: {}, replyRef: `message-${runId}` } });
+  const snapshot = await budgets.getIntegrationBudgetSnapshot(budget.id, access);
+  return { usedMicros: snapshot.usedMicros, reservedMicros: snapshot.reservedMicros, rows: await usageRows(runId) };
+}
+
+const unpriced = "probe/unpriced-model";
+const sonnet = "anthropic/claude-sonnet-5";
+// One centicent is 100 currency micros. A run with no tokens records no row.
+const integrationRuns: Array<{ name: string; model: string; respond: Respond; usedMicros: number;
+  row?: { centicents: number; source: string } }> = [
+  { name: "a reported cost", model: unpriced, respond: answer(0.0123), usedMicros: 12_300,
+    row: { centicents: 123, source: "reported" } },
+  { name: "a reported cost of 0", model: unpriced, respond: answer(0), usedMicros: 0,
+    row: { centicents: 0, source: "reported" } },
+  { name: "a reported cost for a priced model", model: sonnet, respond: answer(0.0123), usedMicros: 12_300,
+    row: { centicents: 123, source: "reported" } },
+  { name: "a priced model with no reported cost", model: sonnet, respond: answer(), usedMicros: SONNET_CENTICENTS * 100,
+    row: { centicents: SONNET_CENTICENTS, source: "estimated" } },
+  { name: "an unpriced model with zero tokens", model: unpriced, respond: answerWithoutUsage, usedMicros: 0 },
+  { name: "an unpriced model with tokens and no reported cost", model: unpriced, respond: answer(),
+    usedMicros: RESERVATION_MICROS, row: { centicents: 0, source: "unavailable" } },
+];
+
+test("an integration run records its usage row and settles its budget from one usage record", async t => {
+  for (const run of integrationRuns) {
+    await t.test(run.name, async () => {
+      assert.deepEqual(await integrationRun(run.model, run.respond), { usedMicros: run.usedMicros, reservedMicros: 0,
+        rows: run.row ? [{ tokens: INPUT_TOKENS + OUTPUT_TOKENS, ...run.row }] : [] });
+    });
+  }
 });
