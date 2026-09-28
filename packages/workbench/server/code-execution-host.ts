@@ -183,11 +183,7 @@ export async function executeVivaryCodeWorker(input: {
       let check: CleanupCheck = { result: "unavailable" };
       try { input.onStopFailed?.({ step: cause.step, target }); } catch { /* The error the run settles with records it. */ }
       try {
-        if (target) check = await checkWorkerCleanup(target);
-        // This host just stopped this group or tree, so everything the check finds belongs to the run.
-        if (check.result === "remaining") {
-          check = { ...check, target: { ...check.target, traced: traceable(check.target.traced, check.remaining) } };
-        }
+        if (target) check = await checkStoppedWorker(target);
       } catch { /* An unexpected failure leaves the check unavailable, which still refuses later runs. */ }
       return check.result === "clean" ? failure
         : new VivaryCodeWorkerCleanupError(cause, { leftovers: { target, check } });
@@ -713,6 +709,16 @@ export async function checkWorkerCleanup(target: CleanupTarget, io: CleanupIo = 
     const observation = error instanceof VivaryCodeWorkerCleanupError ? error.observation : undefined;
     return observation ? linuxGroupCheck(observation, target) : { result: "unavailable" };
   }
+}
+
+/**
+ * Issue #121. The check right after a failed stop. This host just stopped that group or tree, so every process the
+ * check finds belongs to the run and is traced, so End them may end it.
+ */
+export async function checkStoppedWorker(target: CleanupTarget, io: CleanupIo = cleanupIo): Promise<CleanupCheck> {
+  const check = await checkWorkerCleanup(target, io);
+  return check.result === "remaining"
+    ? { ...check, target: { ...check.target, traced: traceable(check.target.traced, check.remaining) } } : check;
 }
 
 /**

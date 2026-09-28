@@ -13,7 +13,7 @@ import {
   listCodeAgentTranscriptEvents,
 } from "@agent-native/core/code-agents";
 
-import { CLEANUP_TIMEOUT_MS, readLinuxProcStat, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS,
+import { checkStoppedWorker, CLEANUP_TIMEOUT_MS, readLinuxProcStat, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS,
 } from "../server/code-execution-host.ts";
 
 // Issue #121. The code host keeps process-global state and loads persisted refusals once, when it first initializes, so
@@ -456,7 +456,11 @@ test("End them ends the listed process that a fresh scan still shows, then lifts
   const groupId = sleeper.pid!;
   const exited = once(sleeper, "exit");
   try {
-    seedRefusal("end-linux", { platform: "linux", groupId, bootId: await bootId(), traced: [await traced(groupId)] });
+    // Seeded from the check a failed stop takes, which traces the group's live member.
+    const stopped = await checkStoppedWorker({ platform: "linux", groupId, bootId: await bootId(), traced: [] });
+    assert.ok(stopped.result === "remaining");
+    assert.deepEqual(stopped.target.traced, [await traced(groupId)]);
+    seedRefusal("end-linux", stopped.target);
     await agent.recheckVivaryCodeCleanup();
     assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining,
       [{ pid: groupId, name: "sleep", confirmed: true }]);

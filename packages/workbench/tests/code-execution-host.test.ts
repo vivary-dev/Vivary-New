@@ -8,7 +8,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 
-import { checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endWorkerLeftovers, executeVivaryCodeWorker, parseWindowsEndResults,
+import { checkStoppedWorker, checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endWorkerLeftovers, executeVivaryCodeWorker, parseWindowsEndResults,
   parseWindowsProcessRows,
   readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
   waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly,
@@ -299,7 +299,6 @@ const errno = (code: string) => Object.assign(new Error(`failed with ${code}`), 
 // shows group 12345 with 42 and its child 43. On Windows the live worker 100's own row is gone, and its child 200 is
 // found through the worker's identity, which alone would not trace it.
 test("the check right after a failed stop traces every process it finds", async () => {
-  const { checkStoppedWorker } = await import("../server/code-execution-host.ts");
   const members: Record<string, string> = {
     42: statLine(42, "codex", "S", 12345, 700), 43: statLine(43, "node", "S", 12345, 800).replace(" S 1 ", " S 42 "),
   };

@@ -218,7 +218,7 @@ when the time matches, never with `/T`. Windows does not reuse a PID while a han
 the process's `stat` again right before `SIGKILL` to that one PID, and skips it when the start time or group changed.
 Each process is reported as ended, mismatched, gone, or failed, and an End call that cannot run ends nothing. It then
 checks again and lifts the refusal when nothing is left. The traced processes are those the check right after the
-failed stop found, and their later children found through a parent alive in the same scan. A check still lists a process linked
+failed stop found, `checkStoppedWorker`, and their later children found through a parent alive in the same scan. A check still lists a process linked
 only through an exited parent or a reused Linux group id, so the refusal holds, but End them leaves it alone, because
 it could belong to another program after PID reuse. End them also leaves alone a PID whose start time changed, a
 process the owner was not shown, and the host itself. A boot id that is not a UUID fails to parse and keeps refusing.
