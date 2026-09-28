@@ -32,7 +32,7 @@ import { createRoot } from "react-dom/client";
 import { getRunErrorMetadata, RunErrorRecoveryCard } from "@proof/run-recovery";
 import * as messages from "@proof/message-components";
 import { processEvent } from "@proof/sse-event-processor";
-import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
+import { AssistantRuntimeProvider, ThreadPrimitive, useLocalRuntime } from "@assistant-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TiptapComposer } from "@proof/tiptap-composer";
 import { TooltipProvider } from "@proof/tooltip";
@@ -142,6 +142,26 @@ export async function renderComposer(willQueue) {
   return snapshot;
 }
 
+// A thread loaded from its saved messages, with Core's own assistant message.
+function SavedThread({ messages: initialMessages }) {
+  const runtime = useLocalRuntime(idleModel, { initialMessages });
+  return <AssistantRuntimeProvider runtime={runtime}><TooltipProvider>
+    <ThreadPrimitive.Messages components={{ UserMessage: () => null, AssistantMessage: messages.AssistantMessage }} />
+  </TooltipProvider></AssistantRuntimeProvider>;
+}
+
+export async function renderSavedThread(initialMessages) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = await mount(<QueryClientProvider client={client}><SavedThread messages={initialMessages} /></QueryClientProvider>);
+  const snapshot = {
+    text: view.host.textContent,
+    notices: [...view.host.querySelectorAll('[data-testid="missing-final-response"]')].map(notice => notice.textContent.trim()),
+  };
+  await view.unmount();
+  client.clear();
+  return snapshot;
+}
+
 // The Settings Usage tab reads its metrics and alert rules through the action query cache. The
 // cache holds what the server returns, so the tab renders without a request.
 export async function renderUsage(metrics) {
@@ -169,6 +189,9 @@ async function buildProof() {
     jsx: "automatic",
     logLevel: "silent",
     define: { "process.env.NODE_ENV": '"development"' },
+    // Core's assistant message loads react-dom/server, whose CommonJS build requires Node built-ins.
+    banner: { js: `import { createRequire as createProofRequire } from "node:module";
+const require = createProofRequire(${JSON.stringify(join(WORKBENCH, "package.json"))});` },
     plugins: [{
       name: "native-chat-proof",
       setup(build) {
@@ -290,6 +313,26 @@ test("Native chat controls", async t => {
     assert.equal(idle.editor, true, "the Tiptap editor mounts");
     assert.equal(idle.sendName, "Send message");
     assert.equal((await proof.renderComposer(true)).sendName, "Queue message");
+  });
+
+  // Issue #106. A reloaded thread holds a stopped reply with text, a finished reply, and a stopped
+  // reply with text as the last message.
+  await t.test("a stopped reply with text is labeled as stopped, also after a later turn", async () => {
+    const user = (id, text) => ({ id, role: "user", content: [{ type: "text", text }] });
+    const reply = (id, text, custom = {}) => ({ id, role: "assistant", content: [{ type: "text", text }],
+      status: { type: "complete", reason: "stop" }, metadata: { custom } });
+    const thread = await proof.renderSavedThread([
+      user("user-1", "First question"), reply("reply-1", "Partial first answer", { userStopped: true }),
+      user("user-2", "Second question"), reply("reply-2", "Finished second answer"),
+      user("user-3", "Third question"), reply("reply-3", "Partial third answer", { userStopped: true }),
+    ]);
+    assert.deepEqual({
+      replies: ["Partial first answer", "Finished second answer", "Partial third answer"].filter(text => thread.text.includes(text)),
+      notices: thread.notices,
+    }, {
+      replies: ["Partial first answer", "Finished second answer", "Partial third answer"],
+      notices: ["The agent stopped before finishing", "The agent stopped before finishing"],
+    });
   });
 
   // Issue #103. Yesterday a paid model cost 12.30¢. Today a free model reported $0 and a model with no

@@ -157,6 +157,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #106, failing tests. `tests/native-stop.test.ts` starts a Native turn through `startRun` and the agent loop
+against a loopback fake OpenRouter and presses Stop with the run route's own call, once while the model streams its
+reply and once during a tool step that honors its signal. It checks how fast the run ends, the model connection
+closes, and the tool's signal fires, then builds the saved turn from the run's entries as the chat plugin does and
+merges a heavier client copy without the stopped flag. `tests/native-chat-components.test.mjs` renders Core's
+assistant message for a reloaded thread with two stopped replies that have text. `test:native-chat` now runs the new
+file. On this commit Stop already ends the run and closes the model connection within the bounds. The saved turn
+does not record the stop, the turn after a client save has no stop either, and a stopped reply with text shows no
+label. Test wiring only, so the design description holds.
+
 Issue #103. The maintained Core patch records a Native turn's cost as OpenRouter reports it, including $0 for a free
 model, and records an unknown cost for a model with no price and no reported cost. The engine carries the cost from
 the AI SDK's `finish-step` part into its usage event, and the main chat sums it over the turn's model calls. The
