@@ -436,15 +436,27 @@ function scanBefore<T>(deadline: number, scan: () => Promise<T>): Promise<T | un
   });
 }
 
-/** One row of the Windows process scan. `created` is null for the System and Idle processes. */
+/** One row of the Windows process scan. `created` is null only for the System Idle Process and System. */
 export type WindowsProcessRow = { pid: number; parentPid: number; created: number | null; name: string };
 
-// The query names four properties, so WMI never returns a command line, a path, or an owner to Vivary. Creation
-// times become Unix milliseconds, which compare exactly as numbers. Windows file names cannot hold a tab.
-const WINDOWS_PROCESS_SCAN = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
-  + "Get-CimInstance -Query 'SELECT ProcessId,ParentProcessId,Name,CreationDate FROM Win32_Process' | "
-  + "ForEach-Object { @($_.ProcessId, $_.ParentProcessId, "
-  + "$(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() }), $_.Name) -join [char]9 }";
+// A Windows FILETIME counts 100-nanosecond intervals from 1601. This is 1970 in those units.
+const FILETIME_UNIX_EPOCH = 116_444_736_000_000_000n;
+// The System Idle Process (PID 0) and System (PID 4) have no creation time. Every other process has one.
+const WINDOWS_UNTIMED_PIDS: ReadonlySet<number> = new Set([0, 4]);
+
+// The query names four properties, so WMI never returns a command line, a path, or an owner to Vivary. Windows file
+// names cannot hold a tab. The script runs under Constrained Language Mode: it converts creation times with a method
+// of the core DateTime type, and only the encoding step, which that mode refuses, may fail without ending the script.
+// Names then arrive in the console code page, which is harmless because only PIDs and creation times are compared. Any
+// other error ends the script with a non-zero exit. The last line counts the rows, so cut output never reads as a scan.
+const WINDOWS_PROCESS_SCAN = [
+  "$ErrorActionPreference = 'Stop'",
+  "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }",
+  "$rows = @(Get-CimInstance -Query 'SELECT ProcessId,ParentProcessId,Name,CreationDate FROM Win32_Process')",
+  "foreach ($row in $rows) { @($row.ProcessId, $row.ParentProcessId, "
+    + "$(if ($row.CreationDate) { $row.CreationDate.ToFileTimeUtc() }), $row.Name) -join [char]9 }",
+  "@('END', $rows.Count) -join [char]9",
+].join("; ");
 
 function windowsSystem32(): string {
   // guard:allow-env-credential - Windows system directory selects fixed system executables.
@@ -464,18 +476,29 @@ export async function scanWindowsProcesses(): Promise<WindowsProcessRow[]> {
   return rows;
 }
 
-/** Null when any line is not a row or no row was printed, so a broken scan never reads as an empty one. */
+/**
+ * Null unless the output is one whole scan: rows only, then a count of them, and a creation time on every row but PIDs 0
+ * and 4. So a cut output, or a scan that could not read creation times, never reads as an empty or partial one.
+ */
 export function parseWindowsProcessRows(text: string): WindowsProcessRow[] | null {
-  const rows: WindowsProcessRow[] = [];
   // PowerShell can start UTF-8 output with a byte order mark.
-  for (const line of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
-    if (!line) continue;
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(line => line !== "");
+  const count = /^END\t(\d+)$/.exec(lines.pop() ?? "");
+  if (!count || Number(count[1]) !== lines.length || lines.length === 0) return null;
+  const rows: WindowsProcessRow[] = [];
+  for (const line of lines) {
     const match = /^(\d+)\t(\d+)\t(\d*)\t(.+)$/.exec(line);
     if (!match) return null;
-    rows.push({ pid: Number(match[1]), parentPid: Number(match[2]), created: match[3] ? Number(match[3]) : null,
-      name: match[4] });
+    const pid = Number(match[1]);
+    const created = match[3] ? unixMsFromFiletime(match[3]) : null;
+    if (created === null && !WINDOWS_UNTIMED_PIDS.has(pid)) return null;
+    rows.push({ pid, parentPid: Number(match[2]), created, name: match[4] });
   }
-  return rows.length ? rows : null;
+  return rows;
+}
+
+function unixMsFromFiletime(digits: string): number {
+  return Number((BigInt(digits) - FILETIME_UNIX_EPOCH) / 10_000n);
 }
 
 /**

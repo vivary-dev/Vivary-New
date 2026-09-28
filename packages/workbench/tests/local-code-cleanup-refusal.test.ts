@@ -25,6 +25,11 @@ const OWNER = "owner@example.test";
 const OWNER_CONTEXT = { caller: "frontend", userEmail: OWNER } as const;
 const SYSTEM_ROW = "4\t0\t\tSystem\r\n";
 
+/** One row of the Windows process scan, whose creation time is a FILETIME: 100-nanosecond intervals since 1601. */
+function row(pid: number, parentPid: number, createdMs: number, name: string): string {
+  return `${pid}\t${parentPid}\t${BigInt(createdMs) * 10_000n + 116_444_736_000_000_000n}\t${name}\r\n`;
+}
+
 const fixture = await mkdtemp(path.join(os.tmpdir(), "vivary-code-cleanup-"));
 const projectRoot = path.join(fixture, "project");
 const bin = path.join(fixture, "bin");
@@ -50,20 +55,26 @@ import { writeFileSync } from "node:fs";
 process.on("message", message => {
   if (message.type !== "vivary:code-worker:start") return;
   if (message.prompt === "exit after its run") {
-    writeFileSync(${JSON.stringify(workerRecord)}, process.pid + "\\t" + Date.now());
+    writeFileSync(${JSON.stringify(workerRecord)}, process.pid + "\\t" + (BigInt(Date.now()) * 10000n + 116444736000000000n));
     process.exit(0);
   }
   process.send({ type: "vivary:code-worker:done", runId: message.runId });
 });
 process.send({ type: "vivary:code-worker:ready" });
 `);
-// Answers the Windows process scan from a file, and names a child of the worker created while it ran.
+// Answers the Windows process scan from a file, names a child of the worker created while it ran, and counts the rows
+// on the last line as the real scan does.
+const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 [ -f ${JSON.stringify(scanFails)} ] && exit 1
-cat ${JSON.stringify(scanRows)}
-if [ -f ${JSON.stringify(leaveChild)} ]; then
-  printf '4242\\t%s\\tcodex.exe\\r\\n' "$(cat ${JSON.stringify(workerRecord)})"
-fi
+{
+  cat ${JSON.stringify(scanRows)}
+  if [ -f ${JSON.stringify(leaveChild)} ]; then
+    printf '4242\\t%s\\tcodex.exe\\r\\n' "$(cat ${JSON.stringify(workerRecord)})"
+  fi
+} > ${JSON.stringify(scanOut)}
+cat ${JSON.stringify(scanOut)}
+printf 'END\\t%s\\r\\n' "$(grep -c . ${JSON.stringify(scanOut)})"
 `, { mode: 0o755 });
 await writeFile(scanRows, SYSTEM_ROW);
 // Ends one process by removing its row from the next scan. PID 4130 refuses, like a process Windows denies access to.
@@ -273,7 +284,7 @@ test("a Windows target refuses by name, lifts once the scan misses it, and falls
 }, async () => {
   const tracked = (pid: number) => ({ platform: "win32", tracked: [{ pid, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: 9_000 }] });
-  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n`);
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe"));
   seedRefusal("windows-leftover", tracked(4120));
   await agent.recheckVivaryCodeCleanup();
   const host = await agent.getVivaryCodeHostState(OWNER);
@@ -381,14 +392,14 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   ...linuxOnly, timeout: 20_000,
 }, async () => {
   await rm(taskkillLog, { force: true });
-  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n4130\t4120\t3000\tnode.exe\r\n`
-    + "4140\t4120\t3500\tpowershell.exe\r\n");
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
+    + row(4140, 4120, 3_500, "powershell.exe"));
   seedRefusal("end-windows", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: null }] });
   await agent.recheckVivaryCodeCleanup();
   assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining.map(({ pid }) => pid), [4120, 4130, 4140]);
-  await writeFile(scanRows, `${SYSTEM_ROW}4120\t880\t2000\tcodex.exe\r\n4130\t4120\t3000\tnode.exe\r\n`
-    + "4140\t4120\t9999\tpowershell.exe\r\n4150\t4120\t3600\tlate.exe\r\n");
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
+    + row(4140, 4120, 9_999, "powershell.exe") + row(4150, 4120, 3_600, "late.exe"));
   const state = await decide("end");
   // Newest first, so the child 4130 is tried before its parent 4120.
   assert.deepEqual((await readFile(taskkillLog, "utf8")).trim().split("\n"), ["/PID 4130 /F", "/PID 4120 /F"]);
@@ -424,7 +435,7 @@ test("End them never ends a listed process it cannot trace to the run", { ...lin
 
   // The worker's child 300 exited, another program took PID 300 and started 500, and that program exited too.
   await rm(taskkillLog, { force: true });
-  await writeFile(scanRows, `${SYSTEM_ROW}500\t300\t20000\tunrelated.exe\r\n`);
+  await writeFile(scanRows, SYSTEM_ROW + row(500, 300, 20_000, "unrelated.exe"));
   seedRefusal("untraced-parent", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
   await agent.recheckVivaryCodeCleanup();

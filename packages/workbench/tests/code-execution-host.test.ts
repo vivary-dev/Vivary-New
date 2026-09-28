@@ -733,19 +733,21 @@ test("a Windows worker that exits after its run is checked by one process scan",
   await mkdir(server, { recursive: true });
   await mkdir(scanner, { recursive: true });
   // The System row has no creation time, like the real one. The child row names the worker as its parent and was
-  // created while the worker ran.
+  // created while the worker ran. The last line counts the rows.
   await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 printf '4\\t0\\t\\tSystem\\r\\n'
 if [ -f ${JSON.stringify(leaveChild)} ]; then
-  printf '4242\\t%s\\tcodex.exe\\r\\n' "$(cat ${JSON.stringify(worker)})"
+  printf '4242\\t%s\\tcodex.exe\\r\\nEND\\t2\\r\\n' "$(cat ${JSON.stringify(worker)})"
+else
+  printf 'END\\t1\\r\\n'
 fi
 `, { mode: 0o755 });
   await writeFile(path.join(server, "vivary-code-worker.mjs"), `
 import { writeFileSync } from "node:fs";
 process.on("message", message => {
   if (message.type !== "vivary:code-worker:start") return;
-  writeFileSync(${JSON.stringify(worker)}, process.pid + "\\t" + Date.now());
+  writeFileSync(${JSON.stringify(worker)}, process.pid + "\\t" + (BigInt(Date.now()) * 10000n + 116444736000000000n));
   process.exit(0);
 });
 process.send({ type: "vivary:code-worker:ready" });

@@ -191,7 +191,9 @@ the kernel reports no such group, the check is clean without reading `/proc`. Ot
 group one more second to empty. A `stat` read that fails with `EACCES` or `EPERM`, as under `hidepid=1`, no longer
 fails the stop. It marks the group hidden, because the unreadable entry could be a member. On Windows the check runs
 one `Get-CimInstance` query through PowerShell that selects only the process ID, parent ID, image name, and creation
-time of each process. It follows parent IDs from the worker by creation time, so a process that reused a PID never
+time of each process. The script runs under Constrained Language Mode and ends with a count of its rows. Output that
+lacks the count, holds a different count, or has a row without a creation time other than PIDs 0 and 4 makes the
+scan unavailable, never clean. It follows parent IDs from the worker by creation time, so a process that reused a PID never
 matches. A check that finds nothing settles the stop as clean, so a Windows worker that exited on its own and left
 nothing behind no longer refuses later runs. A check that finds processes, or cannot run, travels on the cleanup
 error with what a later check needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the
