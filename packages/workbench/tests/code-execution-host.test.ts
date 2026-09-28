@@ -18,6 +18,9 @@ const request = {
   type: "vivary:code-worker:start", runId: "vivary-local-code-test",
   prompt: "Read the project note.", ownerEmail: "owner@local.vivary.test", redaction: credentialFingerprints(),
 };
+// Issue #121. node:test starts the next test without waiting for the body of one that timed out, and that body can
+// still hold its fixture as cwd. Every test restores this cwd rather than the one it started in.
+const originalCwd = process.cwd();
 
 test("worker protocol has bounded input and no path or credential fields", () => {
   assert.equal(isVivaryCodeWorkerRequest(request), true);
@@ -128,7 +131,6 @@ test("only a Windows worker that exited before its run was sent counts as stoppe
 test("native-complete and aborted workers stop descendants before settling", {
   timeout: TERMINATION_GRACE_MS + CLEANUP_TIMEOUT_MS + 10_000, skip: process.platform === "win32",
 }, async t => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-"));
   const server = path.join(fixture, ".output", "server");
   const pids = path.join(fixture, "pids.json");
@@ -180,7 +182,6 @@ process.send({type:"vivary:code-worker:ready"});
 });
 
 test("the coding worker starts without any credential-shaped name in its environment", { timeout: 12_000 }, async () => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-worker-environment-"));
   const server = path.join(fixture, ".output", "server");
   const names = path.join(fixture, "names.json");
@@ -228,7 +229,6 @@ process.send({ type: "vivary:code-worker:ready" });
 });
 
 test("a worker that reports ready after a stop request never receives its run", { timeout: 12_000 }, async t => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-late-ready-"));
   const server = path.join(fixture, ".output", "server");
   const loaded = path.join(fixture, "loaded.json");
@@ -292,7 +292,6 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
 });
 
 test("worker relays native approvals and remains active beyond the former turn deadline", { timeout: 12_000 }, async t => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-request-"));
   const server = path.join(fixture, ".output", "server");
   await mkdir(server, { recursive: true });
@@ -362,7 +361,6 @@ process.send({type:"vivary:code-worker:ready"});
 });
 
 test("a synchronous native-request handler failure stops the worker without escaping IPC", { timeout: 8_000 }, async () => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-request-error-"));
   const server = path.join(fixture, ".output", "server");
   await mkdir(server, { recursive: true });
@@ -394,7 +392,6 @@ async function asWindows<T>(run: () => Promise<T>): Promise<T> {
 }
 
 test("a Windows worker that exits before it receives its run stops cleanly", { timeout: 12_000 }, async () => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-early-exit-"));
   const server = path.join(fixture, ".output", "server");
   await mkdir(server, { recursive: true });
@@ -414,7 +411,6 @@ test("a Windows worker that exits before it receives its run stops cleanly", { t
 });
 
 test("a Windows worker that reports ready after an abort and then exits stops cleanly", { timeout: 12_000 }, async t => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-windows-late-ready-"));
   const server = path.join(fixture, ".output", "server");
   const loaded = path.join(fixture, "loaded.json");
@@ -452,7 +448,6 @@ writeFileSync(${JSON.stringify(loaded)}, JSON.stringify({ worker: process.pid })
 });
 
 test("a cleanup failure names its step and does not refuse the next run", { timeout: 12_000 }, async () => {
-  const originalCwd = process.cwd();
   const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-cleanup-failure-"));
   const server = path.join(fixture, ".output", "server");
   await mkdir(server, { recursive: true });
