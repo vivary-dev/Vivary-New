@@ -1,5 +1,5 @@
 import { isCodeAgentRunActive, useChatThreads } from "@agent-native/core/client/agent-chat";
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
 import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconArchiveOff, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
@@ -150,26 +150,27 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
       && route.get("thread") === threadId) navigate("/");
     return archived;
   }
+  function openNative(threadId: string) {
+    creationGeneration.current++;
+    native.switchThread(threadId);
+    navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
+  }
   async function restoreNative(threadId: string, open: boolean) {
     const generation = open ? ++creationGeneration.current : null;
     const locationKey = latestLocationKey.current;
     await call<{ restored: true }>("vivary-native-archive", { operation: "restore", projectId: identity.projectId, threadId });
     window.dispatchEvent(new CustomEvent("agent-chat:threads-updated"));
-    if (generation === creationGeneration.current && latestLocationKey.current === locationKey) {
-      native.switchThread(threadId);
-      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(threadId)}`);
-    }
+    if (generation !== creationGeneration.current || latestLocationKey.current !== locationKey) return false;
+    openNative(threadId);
     return true;
   }
   function selectSession(id: string) {
     if (!sessions.some(item => item.id === id)) return;
-    creationGeneration.current++;
     const [runtime, ...parts] = id.split(":");
     const recordId = parts.join(":");
-    if (runtime === "native") {
-      native.switchThread(recordId);
-      navigate(`/?runtime=native&history=project&thread=${encodeURIComponent(recordId)}`);
-    } else if (runtime === "code-draft") navigate(`/?run=new&draft=${encodeURIComponent(recordId)}`);
+    if (runtime === "native") return openNative(recordId);
+    creationGeneration.current++;
+    if (runtime === "code-draft") navigate(`/?run=new&draft=${encodeURIComponent(recordId)}`);
     else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
   const loading = checking || (state.isLoading && native.isLoading);
@@ -209,14 +210,21 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
         {history.canExpand && <Button variant="ghost" size="icon" aria-label={history.disclosureLabel} aria-expanded={history.expanded} onClick={history.toggleExpanded}><IconDots size={14} /></Button>}
       </div>
       <ArchivedConversations storageKey={identity.storageKey} projectId={identity.projectId}
-        onRestore={(threadId, open) => void updateNative(() => restoreNative(threadId, open), "The conversation could not be restored. Try again.")} />
+        onRestore={restoreNative} onOpen={openNative} />
   </section>;
 }
 
-function ArchivedConversations({ storageKey, projectId, onRestore }: { storageKey: string; projectId: string | null;
-  onRestore: (threadId: string, open: boolean) => void }) {
+type RestoreNotice =
+  | { kind: "restored"; threadId: string; title: string }
+  | { kind: "failed"; message: string; retry?: () => void };
+
+function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { storageKey: string; projectId: string | null;
+  onRestore: (threadId: string, open: boolean) => Promise<boolean>; onOpen: (threadId: string) => void }) {
   const { call, ready } = useNativeActionCaller();
   const [open, setOpen] = useState(false);
+  const [notice, setNotice] = useState<RestoreNotice>();
+  const details = useRef<HTMLDetailsElement>(null);
+  const summary = useRef<HTMLElement>(null);
   const enabled = open && ready;
   const archived = useQuery({
     queryKey: ["vivary-native-archive", storageKey],
@@ -230,20 +238,55 @@ function ArchivedConversations({ storageKey, projectId, onRestore }: { storageKe
     window.addEventListener("agent-chat:threads-updated", refresh);
     return () => window.removeEventListener("agent-chat:threads-updated", refresh);
   }, [enabled, refetch]);
-  return <details className="workspace-saved-conversations" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>Archived conversations</summary>
+  const threads = archived.data?.threads ?? [];
+  async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
+    setNotice(undefined);
+    try {
+      if (!await onRestore(threadId, openChat)) setNotice({ kind: "restored", threadId, title });
+    } catch (failure) {
+      setNotice(failure instanceof Error && "status" in failure && failure.status === 404
+        ? { kind: "failed", message: actionErrorMessage(failure) ?? "This conversation does not belong to the selected workspace." }
+        : { kind: "failed", message: "The conversation could not be restored. Try again.",
+          retry: () => void restore(threadId, title, openChat, focusId) });
+      return;
+    }
+    const section = details.current;
+    const focused = document.activeElement;
+    // A slow restore must not pull focus back from wherever the owner moved it.
+    if (!section?.isConnected || (focused && focused !== document.body && !section.contains(focused))) return;
+    const next = [...section.querySelectorAll<HTMLElement>("[data-restore]")].find(button => button.dataset.restore === focusId);
+    (next ?? summary.current)?.focus();
+  }
+  return <details ref={details} className="workspace-saved-conversations" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary ref={summary}>Archived conversations</summary>
+    <div role="status">{notice?.kind === "restored" && <>
+      <p>Restored: {notice.title}</p>
+      <Button variant="ghost" size="sm" aria-label={`Open ${notice.title}`} onClick={() => onOpen(notice.threadId)}>Open</Button>
+    </>}</div>
+    {notice?.kind === "failed" && <div role="alert">
+      <p>{notice.message}</p>
+      {notice.retry && <Button variant="ghost" size="sm" onClick={notice.retry}>Retry restore</Button>}
+    </div>}
     {archived.isError ? <div role="alert">
       <p>Archived conversations could not be loaded.</p>
       <Button variant="ghost" size="sm" onClick={() => void refetch()}>Retry history</Button>
-    </div> : <ChatHistoryList items={(archived.data?.threads ?? []).map(thread => ({ id: thread.id,
-      title: thread.title || "Untitled conversation", subtitle: "Native chat" }))}
-      onSelect={id => onRestore(id, true)} variant="rail" className="an-chat-history-rail"
-      loading={archived.isPending}
-      loadingLabel={<div className="vivary-history-skeleton" role="status"><span className="sr-only">Opening archived conversations</span><span /><span /><span /></div>}
-      emptyLabel="No archived conversations."
-      renderAdditionalRowActions={(item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item" onClick={() => {
-        closeMenu();
-        onRestore(item.id, false);
-      }}><IconArchiveOff size={13} aria-hidden /><span>Restore</span></button>} />}
+    </div> : archived.isPending ? <div className="vivary-history-skeleton" role="status">
+      <span className="sr-only">Opening archived conversations</span><span /><span /><span />
+    </div> : threads.length === 0 ? <p>No archived conversations.</p>
+      : <div className="an-chat-history an-chat-history--rail an-chat-history-rail"><div className="an-chat-history__list an-chat-history__section">
+        {threads.map((thread, index) => {
+          const title = thread.title || "Untitled conversation";
+          const focusId = (threads[index + 1] ?? threads[index - 1])?.id;
+          return <div key={thread.id} className="an-chat-history-row flex items-center">
+            <button type="button" className="an-chat-history-row__button min-w-0 flex-1" aria-label={`Restore and open ${title}`}
+              onClick={() => void restore(thread.id, title, true, focusId)}>
+              <div className="an-chat-history-row__topline"><span className="an-chat-history-row__title">{title}</span></div>
+              <div className="an-chat-history-row__subtitle">Native chat</div>
+            </button>
+            <Button variant="ghost" size="sm" data-restore={thread.id} aria-label={`Restore ${title}`}
+              onClick={() => void restore(thread.id, title, false, focusId)}><IconArchiveOff size={13} aria-hidden />Restore</Button>
+          </div>;
+        })}
+      </div></div>}
   </details>;
 }
