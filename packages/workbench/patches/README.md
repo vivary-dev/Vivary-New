@@ -266,6 +266,289 @@ not reached there, so the test covers it.
 Upstream could take this change as it is. Remove this part of the patch when
 an upstream Toolkit release names the button and passes the same test.
 
+## Native usage cost
+
+Issue #103. Core priced every Native turn from its own table. A model the table
+did not know matched a catch-all entry and was priced at Sonnet's $3 input and
+$15 output per million tokens. In the packaged run for #50,
+`stealth/space-bunny-alpha`, which OpenRouter lists at $0, recorded 48.31¢.
+OpenRouter reports each call's cost in its last stream chunk, and the AI SDK
+passes it on the step's `finish-step` part, but Core read usage only from the
+`finish` part and dropped the cost.
+
+The patch changes these files:
+
+- `agent/engine/ai-sdk-engine.js` reads OpenRouter's
+  `providerMetadata.openrouter.usage.cost` from the step's `finish-step` part
+  and adds it to the step's `usage` event as `costUsd`, including 0. A missing,
+  negative, or non-numeric cost adds nothing. `agent/engine/types.d.ts`
+  declares the field.
+- `agent/production-agent.js` passes `costUsd` from the agent loop to
+  `onUsage`, and the loop calls the new `onModelCall` as each model call
+  starts, with `retry` set when the call retries a failed attempt. The new
+  `createTurnUsage` sums a turn's usage over its model calls and internal
+  continuations. A retry replaces the attempt it retries, so a rate-limited
+  attempt adds no call. The turn records the sum as a reported cost, in
+  centicents rounded as `calculateCost` rounds, only when every call it counts
+  reported a cost. Otherwise the turn passes no cost and the store decides.
+- `usage/store.js` gives Sonnet ids their own price entry and removes the
+  catch-all. `recordUsage` records `cost_source = 'unavailable'` with a cost of
+  0 when the caller passed no cost and the table has no price for the model.
+  `calculateCost` returns 0 for such a model, because traces and integration
+  budgets also call it, and the new `hasTablePrice` says whether the table
+  prices a model. The table setup, which runs once per process, also converts
+  the old guesses. It sets every `estimated` row whose model the table does not
+  price to `unavailable` with a cost of 0, so the #50 turns read Unknown after
+  the upgrade. It changes no other row, and a second run changes nothing. A
+  failed conversion, such as one by a database role without UPDATE on the
+  table, logs a warning and lets setup finish, so usage still records. The
+  next process start tries again.
+- `usage/metrics-store.js` counts the calls whose cost is unknown, as
+  `unknownCostCalls`, in the Usage tab's totals, today's figure, the daily
+  figures, and the workflow and model rows. Recent rows carry `costSource`. A
+  workflow or model row with calls of unknown cost sorts before the others, so
+  the row limit does not drop it while the totals count its calls.
+- `usage/alerts-store.js` counts the calls of unknown cost in each alert
+  rule's window, as `unknownCostCalls`.
+- `client/settings/UsageSection.js` shows a figure whose calls all have an
+  unknown cost as "Unknown". A figure with both shows the known amount and the
+  count, for example "12.30¢ + 1 unknown". Every figure adds only known costs.
+  A cost alert shows its count the same way, for example "$0.00 + 1 unknown of
+  $5.00". A token alert does not, because every call's tokens are known.
+- `integrations/webhook-handler.js` sums an integration run's usage with
+  `createTurnUsage`. The handler settles a run after it delivers the reply, or
+  in its catch path when delivery fails, and both points call one step. Once
+  the run started a model call, whether its agent loop finished or threw, that
+  step passes the run's usage record to the new exported
+  `recordAndSettleIntegrationUsage`, which writes the usage row and settles the
+  run's budget reservations from that one record. A run that failed before its
+  first model call, such as one whose engine did not resolve, settles nothing,
+  and the handler releases its reservations. The settlement runs in a
+  `finally` block, so a row that fails to write is logged and the reservations
+  still settle. The row takes the reported
+  cost by the chat turn's rule, so a free model's integration run on
+  OpenRouter records $0 as reported. Without a reported cost the row keeps the
+  table price or Unknown. Its tokens are the sum of the run's usage events, as
+  a chat turn counts them, so a run whose agent loop failed after it used
+  tokens now records a row too. The budget settles by three rules. A run whose
+  calls all reported a cost settles at that cost, so a free model on
+  OpenRouter settles at 0. A run with no reported cost settles at its table
+  cost for a priced model, and at 0 when it used no tokens. A run that used
+  tokens of an unpriced model and has no reported cost settles at its budget
+  reservation, `INTEGRATION_RUN_RESERVATION_MICROS` or $5 by default, so a
+  budget cap still fills. The function is exported so the test can call it as
+  the handler does.
+
+These limits remain:
+
+- Only the main chat turn and an integration run record a reported cost in
+  the usage table. Custom agent calls, background automations, and agent teams
+  still record without one, so a free model on those paths shows Unknown
+  rather than $0.
+- A turn passes no cost when any call it counts reported no cost. A call cut
+  off by Stop, by a dropped connection, or by an in-stream provider error
+  after text reports none, and so does a call whose stream ends with no usage
+  chunk. The table prices that turn, or it shows as Unknown.
+- A retry replaces the attempt it retries. OpenRouter can bill output that an
+  attempt streamed before it failed, and a turn whose retry reports a cost
+  leaves that output out.
+- An integration run of an unpriced model whose provider reports no cost,
+  such as a model reached through a provider other than OpenRouter, fills a
+  budget cap at the $5 reservation per run, however little it cost.
+- The engine reads `usage.cost` only. OpenRouter reports the upstream charge
+  for a request made with the owner's own provider key separately, in
+  `cost_details.upstream_inference_cost`, and that charge is not added.
+- Engine models that the table never priced lost the Sonnet estimate and
+  record Unknown when the provider reports no cost. They include Cohere's
+  default `command-r-plus-08-2024` and `command-r`, Ollama's default
+  `llama3.1` and its other local ids, and Builder's `auto`, whose credit figure
+  also reads Unknown.
+- Traces price spans with `calculateCost`, so an unpriced model's span shows 0
+  rather than Unknown. The daily trend chart plots known costs only.
+- Usage alerts sum known costs, so an unknown cost never triggers a spend
+  alert. The alert row shows how many calls it left out.
+- The model list shows four rows. When more than four models have calls of
+  unknown cost, it still shows four.
+- The conversion reads the distinct models of `estimated` rows at every
+  process start, one extra query on a large hosted table.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-usage-cost.test.ts` runs Core's OpenRouter engine against a
+loopback fake whose last chunk reports usage with a cost of 0, a positive cost,
+or no cost, and the engine's usage event must carry that cost. Nine turns run
+through the agent loop and `createTurnUsage` into the usage table. A reported 0
+records 0 as reported, a reported positive cost records it, a reported cost wins
+over the table's Sonnet price, an unpriced model with no reported cost records
+an unknown cost, and Sonnet with no reported cost keeps its $3 and $15 price. A
+rate-limited first attempt followed by a retry that reports 0 records 0 as
+reported. Three turns whose first call reports a cost record an unknown cost,
+because the second call is stopped, cut off by an in-stream provider error
+after text, or ends with no usage chunk. The Usage tab's metrics must count the
+unknown call in every figure and leave it out of the known cost, and an
+unpriced model must keep its row among six models. A second run of the table
+setup over old rows must mark only the unpriced model's estimate unknown. When
+a database trigger refuses the conversion, setup must log it and usage must
+still record, and the next start must convert the row. A daily cost alert must
+count the unknown call. Six integration runs go through the agent loop and
+`createTurnUsage` into `recordAndSettleIntegrationUsage`, as the handler wires
+them, and each must settle its budget and write its usage row from the same
+record. A reported cost of 1.23¢ or 0 settles at that cost and records it as
+reported, whether or not the table prices the model. Sonnet with no reported
+cost settles at 6,000 currency micros and records its table price. An unpriced
+run with zero tokens settles at 0 and writes no row, and an unpriced run with
+tokens settles at its $5 reservation and records an unknown cost. When a
+database trigger refuses the usage row, the failure must be logged and the
+budget must still settle. Three claimed integration tasks run through
+`processIntegrationTask`. In two of them the agent loop's first call reports
+usage and an in-stream provider error cuts off its second call, so the loop
+throws. Whether the fallback reply is delivered or its delivery fails, the
+task must record Sonnet's table price in its row and settle at 6,000 currency
+micros. The third task's engine does not resolve, and it must complete with
+no row and no charge.
+`tests/native-chat-components.test.mjs` renders the Settings Usage tab and must
+show "12.30¢ + 1 unknown" for the total, "Unknown" for the unpriced model, and
+"$0.00 + 1 unknown of $5.00" for a cost alert.
+
+On the first patch for #103 every case of that round failed except the engine
+case with no reported cost, and the turn cases failed because
+`createTurnUsage` did not exist yet. On the second patch, the retried and
+stopped turns, the model list, the old rows, both alert cases, and the budget
+case failed. The budget case failed because the settlement function was not
+exported. On the third patch, the two cut turns recorded the first call's cost
+as reported, the refused conversion stopped usage from recording, and the
+budget settled every unpriced run at its reservation and ignored a reported
+cost. On the fourth patch, the six integration run cases failed because
+`recordAndSettleIntegrationUsage` did not exist yet. On the fifth patch, the
+handler's catch path wrote no row and settled nothing after a loop that threw,
+and the task whose engine did not resolve ended as delivery-pending, because
+the handler read the run's usage record, which the run never created. The refused
+row case already passed, because the row writer logged its own failure.
+
+Upstream could take these changes as they are. Remove this part of the patch
+when an upstream release records a provider's reported cost and an unknown cost
+for an unpriced model, and passes the same tests.
+
+## Stopped replies
+
+Issue #106. In the packaged run for #50, a Stop during a long turn looked late,
+and the stopped reply carried no stopped label. The investigation found that
+Stop already reaches the model request and Vivary's tools within milliseconds.
+The run route calls `abortRunDurably`, which aborts the run's signal, and the
+signal reaches `streamText` and each tool step's `ctx.signal`. The #50 click
+most likely landed late, because the test harness read the accessibility tree
+for seconds before each click. No record of the click time exists. The label
+was missing for two reasons. The server's saved turn ignored the run's
+terminal `{ type: "done", reason: "user" }` event, and the client showed the
+stopped notice only under the last reply and only when it had no text.
+
+The patch changes these files:
+
+- `agent/thread-data-builder.js` sets `custom.userStopped` in
+  `buildAssistantMessage` when the run ends with `done` and reason `user`, as
+  the live client's `processEvent` does. The run store emits that event when
+  the owner stops a run. That covers Stop in the chat, the stuck banner's
+  Cancel and Retry (`user_stuck_cancel` and `user_stuck_retry`), and the stop
+  of an agent team's background run. `foldAssistantTurn` already merges
+  `custom`, so the flag also reaches a turn the client saved first. A later
+  run that folds onto the same turn keeps the flag only when it was stopped
+  too.
+- The same file carries `userStopped` over in a client save, as it carries the
+  run duration. The merge keeps one copy of a turn whole, usually the client's
+  heavier copy. When assistant-ui cancels a stopped run, the client's copy can
+  lose the flag, and the #50 turn's saved copy had none. The flag carries over
+  only between copies of the same run, so a copy of a later run in the same
+  turn does not take it.
+- The same file saves a turn that the owner stopped before any text,
+  reasoning, or tool call, with no content and the flag. `buildAssistantMessage`
+  no longer drops it as empty, and a client save keeps an empty reply that
+  carries the flag while it still drops other empty replies. The next
+  request's history leaves the empty reply out, as the live chat's history
+  does.
+- `client/chat/repo-helpers.js` keeps such a reply when the chat loads a saved
+  thread. `dropEmptyAssistantMessages` dropped every empty reply.
+- `client/chat/message-components.js` shows "The agent stopped before
+  finishing" under every stopped reply, with or without text and after later
+  turns. It reuses the `agentChat.error.stopped` string, so no locale file
+  changes. A missing-response warning inside a stopped reply is hidden, and
+  the stopped notice shows under the reply in its place. Once its run has
+  ended, a stopped reply with no content shows the notice alone, where the
+  message view rendered nothing for a reply without content.
+- `client/AssistantChat.js` keeps a list of the runs the owner stopped in the
+  chat, by run id and turn id, and the message view reads it. Sending the next
+  message clears the older stop marker but not this list. assistant-ui writes
+  a cancelled run back over the live reply without the flag, so in the live
+  chat the notice rests on this list. When both the stop and a reply know a
+  run id, the run ids decide. Stop flags only the stopped run's own reply, and
+  nothing when that reply is not among the chat's messages yet.
+- `agent/run-manager.js` gives a run that a newer turn displaces in memory
+  the reason `displaced`, which ends it with `done` and no reason, so its
+  reply is not labeled.
+
+These limits remain:
+
+- A turn saved before this patch, such as the #50 turn, keeps no label. Its
+  client copy has the status `incomplete` with the reason `cancelled`, which
+  assistant-ui also sets for other cancels, so the patch does not read it as a
+  Stop.
+- A reply stopped before any content shows no footer, so it has no timestamp
+  or Regenerate button. The owner sends the question again instead.
+- A Stop sent before the client knows the run id goes to the turn route, which
+  only writes a turn marker. The running run finds it on its next check, which
+  can take about 3 seconds. The investigation measured 1,979 ms.
+- A tool that ignores its signal keeps running after Stop, although the loop
+  stops waiting for it at once.
+- While a reloaded chat follows a run, the run's reply is not among the
+  chat's messages, so a Stop labels nothing in the live chat. The saved turn
+  carries the flag, and the notice shows after a reload.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-stop.test.ts` starts a turn through `startRun` and the agent
+loop against a loopback fake OpenRouter and presses Stop with
+`abortRunDurably(runId, "user")`, the run route's own call. While the model
+streams its reply, the run must end and the model connection must close
+within 500 ms, with one provider request and one terminal event, `done` with
+reason `user`. In 13 runs on Zo the run ended 68 to 206 ms and the connection
+closed 85 to 216 ms after Stop, most of it while the engine's AI SDK stream
+settled, and the time grows with host load. During a tool step that honors
+its signal, the signal must fire within 50 ms and the run must end within
+500 ms. In the same runs they took 0 to 1 ms and 2 to 8 ms. The saved turn
+must keep its text or its tool call and set `userStopped`, and a client save
+of a heavier copy without the flag must keep the flag and the client's
+content. A later run that finishes the same turn must drop the flag, and a
+client copy of that run must not take it. A run that a newer turn displaces
+must end with `done` and no reason and save no flag. A Stop while OpenRouter
+sends only its keep-alive comments must end the run within 500 ms, and the
+saved turn must hold no content and set `userStopped`. A client save of the
+empty cancelled copy after the server's save, and of the flagged copy before
+it, must keep the question and the stopped reply, and the next request's
+history must leave the empty reply out. Each test that waits for
+a run to end fails after 10 seconds when the run never ends. The script's
+`--test-force-exit` then ends the file, which the run's own timers would keep
+open. `tests/native-chat-components.test.mjs` renders Core's assistant
+message for a reloaded thread with two stopped replies that have text and a
+finished reply between them, and the notice must show under both stopped
+replies only. A stopped reply that holds a missing-response warning must show
+the notice instead of the warning. The test also mounts Core's whole chat
+against a fake chat server. After a Stop on a live reply with text and the
+next message, the notice must stay under the stopped reply. After a Stop
+while the chat follows a run, the previous finished reply must stay
+unlabeled. The test builds a thread whose second turn the owner stopped before
+any content, with Core's builder and client-save merge, and reloads it in the
+whole chat. The earlier turn and the question must show, followed by the
+notice. On the first patch for #106 the timing cases passed and the label
+cases failed, and with only its first and third changes the client save case
+still failed. On the patch before these review fixes, the live reply, the
+reply with the warning, the finished reply before a followed run, the later
+run in the same turn, and the displaced run failed. On the patch before the
+Codex review fixes, the turn stopped before any content was not saved, both
+client saves kept only the question, and the reload showed no notice. A patch
+without the load change, or without the view change, still showed no notice
+after the reload.
+
+Upstream could take these changes as they are. Remove this part of the patch
+when an upstream release labels every stopped reply after a reload and passes
+the same tests.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.

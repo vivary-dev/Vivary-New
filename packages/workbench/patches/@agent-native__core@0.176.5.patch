@@ -1,5 +1,5 @@
 diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
-index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd24513c235823 100644
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..dc00d64ba9aacf78207709e3ff03643c9c2200c2 100644
 --- a/dist/agent/engine/ai-sdk-engine.js
 +++ b/dist/agent/engine/ai-sdk-engine.js
 @@ -14,7 +14,7 @@
@@ -20,7 +20,33 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd2451
                  errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
              };
              return;
-@@ -424,7 +424,18 @@ class AISDKEngine {
+@@ -397,9 +397,15 @@ class AISDKEngine {
+             // Buffer the terminal stop so assistant-content can be emitted just
+             // before it, regardless of where `finish` arrives in the stream.
+             let bufferedStop;
++            // The step's `finish-step` part carries the provider's reported cost
++            // and arrives before the `finish` part that yields the usage event.
++            let reportedCostUsd;
+             let sawFirstEvent = false;
+             let credentialFailureRecorded = false;
+             for await (const part of result.fullStream) {
++                if (part?.type === "finish-step") {
++                    reportedCostUsd = reportedCallCostUsd(part.providerMetadata);
++                }
+                 // "start" is a synthetic lifecycle marker the AI SDK enqueues
+                 // synchronously when the stream begins — before any provider bytes
+                 // arrive — so it does not count as real progress. Every other part
+@@ -411,6 +417,9 @@ class AISDKEngine {
+                 }
+                 for (const event of aiSdkPartToEngineEvents(part, toolNameMap)) {
+                     observeStreamedToolInput(toolInputs, event);
++                    if (event.type === "usage" && reportedCostUsd !== undefined) {
++                        event.costUsd = reportedCostUsd;
++                    }
+                     if (event.type === "stop" &&
+                         event.reason === "error" &&
+                         event.statusCode === 401) {
+@@ -424,7 +433,18 @@ class AISDKEngine {
                          credentialFailureRecorded = true;
                      }
                      if (event.type === "stop") {
@@ -40,6 +66,23 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd2451
                      }
                      else {
                          yield event;
+@@ -611,6 +631,16 @@ function isLocalBaseUrl(baseUrl) {
+         return true;
+     return false;
+ }
++/**
++ * What one model call cost in US dollars as OpenRouter reported it, including 0
++ * for a free model, or undefined when the provider reported no cost.
++ */
++function reportedCallCostUsd(providerMetadata) {
++    const cost = providerMetadata?.openrouter?.usage?.cost;
++    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0
++        ? cost
++        : undefined;
++}
+ function capitalize(s) {
+     return s.charAt(0).toUpperCase() + s.slice(1);
+ }
 diff --git a/dist/agent/engine/anthropic-engine.js b/dist/agent/engine/anthropic-engine.js
 index f66ece32d03e3a4e719ad745449a0d31c7dbf16f..4221dfff002a55f511add203f47e9f025b2b1d47 100644
 --- a/dist/agent/engine/anthropic-engine.js
@@ -239,8 +282,91 @@ index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..a137c7a53445fd78f1efefae0a359950
  function finishReasonToStopReason(reason) {
      switch (reason) {
          case "tool-calls":
+diff --git a/dist/agent/engine/types.d.ts b/dist/agent/engine/types.d.ts
+index 422572c276296bee64fb3f57785a9922ff576d39..3257162e14d3627c8b100f9d402038d14fb21d47 100644
+--- a/dist/agent/engine/types.d.ts
++++ b/dist/agent/engine/types.d.ts
+@@ -196,6 +196,11 @@ export type EngineEvent = {
+     cacheWriteTokens?: number;
+     totalTokens?: number;
+     reasoningTokens?: number;
++    /**
++     * What the call cost in US dollars as the provider reported it, including
++     * 0 for a free model. Absent when the provider reported no cost.
++     */
++    costUsd?: number;
+ } | {
+     /** Final assistant content for the turn. Engines MUST emit this
+      *  exactly once, immediately before the terminal `stop` event. */
+diff --git a/dist/agent/production-agent.d.ts b/dist/agent/production-agent.d.ts
+index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f356c8ce33 100644
+--- a/dist/agent/production-agent.d.ts
++++ b/dist/agent/production-agent.d.ts
+@@ -534,6 +534,12 @@ export interface AgentLoopUsage {
+     cacheReadTokens: number;
+     cacheWriteTokens: number;
+     model: string;
++    /**
++     * On the usage that `onUsage` receives for one model call, what the call
++     * cost in US dollars as the provider reported it. Absent when the provider
++     * reported no cost.
++     */
++    costUsd?: number;
+     /** Number of provider model-stream attempts, including retries. */
+     llmCalls?: number;
+     /**
+@@ -834,6 +840,35 @@ export declare function shouldGuardRepeatedSourceSweep(opts: {
+     priorCalls: number;
+     message: string;
+ } | null;
++/**
++ * Usage for one agent turn. Pass `startCall` as the agent loop's
++ * `onModelCall` and `add` as its `onUsage`. `usageRecord` returns the fields
++ * `recordUsage` stores.
++ */
++export interface TurnUsage {
++    inputTokens: number;
++    outputTokens: number;
++    cacheReadTokens: number;
++    cacheWriteTokens: number;
++    model: string;
++    startedCalls: number;
++    reportedCalls: number;
++    reportedCostUsd: number;
++    startCall(call?: {
++        retry: boolean;
++    }): void;
++    add(usage: AgentLoopUsage): void;
++    usageRecord(): {
++        inputTokens: number;
++        outputTokens: number;
++        cacheReadTokens: number;
++        cacheWriteTokens: number;
++        model: string;
++        costCentsX100?: number;
++        costSource?: "reported";
++    };
++}
++export declare function createTurnUsage(model: string): TurnUsage;
+ /**
+  * The core agent loop — calls the engine iteratively until no more tool calls.
+  * Decoupled from HTTP transport so it can run in the background.
+@@ -852,6 +887,13 @@ export declare function runAgentLoop(opts: {
+     signal: AbortSignal;
+     /** Observe usage as each model response reports it, including aborted loops. */
+     onUsage?: (usage: AgentLoopUsage) => void;
++    /**
++     * Observe each model call as it starts. `retry` is true when the call
++     * retries a failed attempt, which it replaces.
++     */
++    onModelCall?: (call: {
++        retry: boolean;
++    }) => void;
+     /** Observe the attempt's typed terminal state separately from chat events. */
+     onOutcome?: (outcome: AgentLoopOutcome) => void;
+     ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae23674a97 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f173ae9e6 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -297,7 +423,89 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
      if (code === "builder_gateway_timeout" ||
          code === "builder_gateway_network_error" ||
          // A gateway stream that stopped mid-turn. It reached here as
-@@ -4363,7 +4377,8 @@ export async function runAgentLoop(opts) {
+@@ -3334,6 +3348,65 @@ function validateRawToolInput(entry, input) {
+         dataVar: "input",
+     });
+ }
++/**
++ * Usage for one agent turn, summed over its model calls and internal
++ * continuations. `startCall` counts each model call the agent loop starts. A
++ * retry replaces the failed attempt it retries, so it adds no call. `add` sums
++ * the usage each call reports and counts the calls whose usage holds a cost.
++ * The provider's reported cost is the turn's cost only when every counted call
++ * reported one. A call cut off by Stop, a dropped connection, or an in-stream
++ * error reports no cost, and so does a stream that ends with no usage chunk.
++ * `usageRecord` then passes no cost, and the usage store prices the tokens
++ * from its table or records the cost as unknown.
++ */
++export function createTurnUsage(model) {
++    const turn = {
++        inputTokens: 0,
++        outputTokens: 0,
++        cacheReadTokens: 0,
++        cacheWriteTokens: 0,
++        model,
++        startedCalls: 0,
++        reportedCalls: 0,
++        reportedCostUsd: 0,
++        startCall(call) {
++            if (!call?.retry)
++                turn.startedCalls += 1;
++        },
++        add(usage) {
++            turn.inputTokens += usage.inputTokens;
++            turn.outputTokens += usage.outputTokens;
++            turn.cacheReadTokens += usage.cacheReadTokens;
++            turn.cacheWriteTokens += usage.cacheWriteTokens;
++            turn.model = usage.model;
++            if (usage.costUsd === undefined)
++                return;
++            turn.reportedCalls += 1;
++            turn.reportedCostUsd += usage.costUsd;
++        },
++        usageRecord() {
++            const record = {
++                inputTokens: turn.inputTokens,
++                outputTokens: turn.outputTokens,
++                cacheReadTokens: turn.cacheReadTokens,
++                cacheWriteTokens: turn.cacheWriteTokens,
++                model: turn.model,
++            };
++            if (turn.startedCalls === 0 ||
++                turn.reportedCalls !== turn.startedCalls)
++                return record;
++            // Centicents, rounded as calculateCost rounds, so a small reported
++            // cost never reads as free.
++            const centicents = turn.reportedCostUsd * 10_000;
++            return {
++                ...record,
++                costCentsX100: centicents > 0 ? Math.max(1, Math.round(centicents)) : 0,
++                costSource: "reported",
++            };
++        },
++    };
++    return turn;
++}
+ /**
+  * The core agent loop — calls the engine iteratively until no more tool calls.
+  * Decoupled from HTTP transport so it can run in the background.
+@@ -3625,6 +3698,7 @@ export async function runAgentLoop(opts) {
+                     providerOptions: opts.providerOptions,
+                 };
+                 usage.llmCalls = (usage.llmCalls ?? 0) + 1;
++                opts.onModelCall?.({ retry: retry > 0 });
+                 const eventStream = engine.stream(streamOpts);
+                 let thinkingBuffer = "";
+                 const toolInputNames = new Map();
+@@ -3941,6 +4015,7 @@ export async function runAgentLoop(opts) {
+                                 cacheReadTokens: event.cacheReadTokens ?? 0,
+                                 cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                                 model,
++                                costUsd: event.costUsd,
+                             };
+                             usage.inputTokens += eventUsage.inputTokens;
+                             usage.outputTokens += eventUsage.outputTokens;
+@@ -4363,7 +4438,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -307,7 +515,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5100,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5161,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -318,7 +526,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5155,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5216,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -327,7 +535,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5469,6 +5488,11 @@ export function isRecoverableContinuationError(event) {
+@@ -5469,6 +5549,11 @@ export function isRecoverableContinuationError(event) {
      const message = event.error.toLowerCase();
      if (code === "builder_gateway_error")
          return false;
@@ -339,7 +547,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
      // An explicit flag outranks the message sniff below, which exists for events
      // that carry no flag at all. Every guard stop sets `recoverable: false`, and
      // sniffing its prose is how a stop that merely NAMES a connection or a
-@@ -5890,7 +5914,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5890,7 +5975,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -348,7 +556,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
          }
      }
      return updated;
-@@ -7389,12 +7413,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7474,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -363,8 +571,52 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
+@@ -8299,13 +8384,7 @@ export function createProductionAgentHandler(options) {
+                 : typeof message === "string" && message.trim().length > 0
+                     ? message
+                     : undefined;
+-            const turnUsage = {
+-                inputTokens: 0,
+-                outputTokens: 0,
+-                cacheReadTokens: 0,
+-                cacheWriteTokens: 0,
+-                model: effectiveModel,
+-            };
++            const turnUsage = createTurnUsage(effectiveModel);
+             const agentLoopOpts = {
+                 engine,
+                 model: effectiveModel,
+@@ -8318,13 +8397,8 @@ export function createProductionAgentHandler(options) {
+                 actions: requestActions,
+                 send,
+                 signal,
+-                onUsage: (usage) => {
+-                    turnUsage.inputTokens += usage.inputTokens;
+-                    turnUsage.outputTokens += usage.outputTokens;
+-                    turnUsage.cacheReadTokens += usage.cacheReadTokens;
+-                    turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+-                    turnUsage.model = usage.model;
+-                },
++                onUsage: turnUsage.add,
++                onModelCall: turnUsage.startCall,
+                 ownerEmail,
+                 orgId: getRequestOrgId() ?? null,
+                 attachments: requestAttachments,
+@@ -8493,11 +8567,7 @@ export function createProductionAgentHandler(options) {
+                         const { recordUsage } = await import("../usage/store.js");
+                         await recordUsage({
+                             ownerEmail: resolvedOwnerEmail,
+-                            inputTokens: turnUsage.inputTokens,
+-                            outputTokens: turnUsage.outputTokens,
+-                            cacheReadTokens: turnUsage.cacheReadTokens,
+-                            cacheWriteTokens: turnUsage.cacheWriteTokens,
+-                            model: turnUsage.model,
++                            ...turnUsage.usageRecord(),
+                             label: turnUsageLabel || "chat",
+                             // token_usage has had run_id/thread_id/task_id since it was
+                             // created and every row was NULL on all three, so no spend could
 diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
-index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b1a64f4fe 100644
+index d633a29f3ebe57ff878a909a583f3a02cde20946..6e3c2a78242c3db96737026d0c21ef36f4357feb 100644
 --- a/dist/agent/run-manager.js
 +++ b/dist/agent/run-manager.js
 @@ -1,7 +1,8 @@
@@ -411,6 +663,19 @@ index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b
  function isTerminalRunEvent(event) {
      return (event.type === "done" ||
          event.type === "error" ||
+@@ -675,10 +703,10 @@ function abortInMemoryRun(run, reason = "user") {
+  * Events are persisted to SQL for cross-isolate access (Cloudflare Workers).
+  */
+ export function startRun(runId, threadId, runFn, onComplete, options) {
+-    // If there's already a run for this thread, abort it
++    // A newer turn displaces the thread's older run. The owner did not stop it.
+     const existingRunId = threadToRun.get(threadId);
+     if (existingRunId) {
+-        abortRun(existingRunId);
++        abortRun(existingRunId, "displaced");
+     }
+     const abort = new AbortController();
+     // Chunk-scoped controller, only for a runFn that recovers boundaries in this
 @@ -1397,6 +1425,9 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
          });
      };
@@ -561,7 +826,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b541217b0 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..df10cb688a834a1e9df714cc1966ddd0ae4bb5ee 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -576,7 +841,136 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
      // An explicit `recoverable: false` outranks the code and message inference
      // below, matching `isRecoverableContinuationError`. The background
      // no-progress breaker stops a turn while PRESERVING the underlying transient
-@@ -1117,6 +1122,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -60,6 +65,7 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     let toolCallCounter = 0;
+     let runError = null;
+     let endedAtInternalContinuationBoundary = false;
++    let userStopped = false;
+     const appendText = (text) => {
+         const last = content[content.length - 1];
+         if (last && last.type === "text") {
+@@ -237,6 +243,13 @@ export function buildAssistantMessage(events, runId, options = {}) {
+             appendText(`${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`);
+             continue;
+         }
++        // Stop ends a run with this event, and the live client marks the reply
++        // as stopped when it reads it (sse-event-processor.js), so the saved
++        // turn does too.
++        if (event.type === "done" && event.reason === "user") {
++            userStopped = true;
++            continue;
++        }
+         // done, missing_api_key — terminal signals, not content
+     }
+     // Only a truly empty turn produces nothing to persist. A turn that ended at
+@@ -244,7 +257,9 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     // recoverable gateway error, suppressed loop_limit) DID stream real content
+     // — persist it as a partial so the continuation run can fold the next chunk
+     // onto it (foldAssistantTurn) instead of the earlier text being dropped.
+-    if (content.length === 0)
++    // A turn the owner stopped before any content is saved too, with the stop,
++    // so the conversation shows the stopped reply after a reload.
++    if (content.length === 0 && !userStopped)
+         return null;
+     const continued = endedAtInternalContinuationBoundary;
+     if (!continued) {
+@@ -268,6 +283,8 @@ export function buildAssistantMessage(events, runId, options = {}) {
+     }
+     if (continued)
+         custom.continued = true;
++    if (userStopped)
++        custom.userStopped = true;
+     if (runError) {
+         custom.runError = {
+             ...runError,
+@@ -352,6 +369,15 @@ function getMessageRunId(message) {
+         return errorRun;
+     return undefined;
+ }
++/**
++ * An assistant message that holds nothing a client save should keep. A reply
++ * the owner stopped before any content holds the stop, so it is kept.
++ */
++function isEmptyAssistantMessage(message) {
++    return (message?.role === "assistant" &&
++        messageContentIsEmpty(message.content) &&
++        message.metadata?.custom?.userStopped !== true);
++}
+ function messageContentIsEmpty(content) {
+     if (typeof content === "string")
+         return content.trim().length === 0;
+@@ -545,7 +571,13 @@ function findRankedIdentityMatch(existingKeys, incomingKeySets, usedIncoming, ex
+         ? index
+         : closest);
+ }
+-function preserveAssistantRunDuration(chosenEntry, otherEntry) {
++/**
++ * The merge keeps one copy of an assistant turn whole. Carry over what only
++ * the other copy may know: the run's duration, and that the owner stopped the
++ * run. When assistant-ui cancels a stopped run, the client's copy can lose the
++ * stop, and the server's copy records it from the run's terminal event.
++ */
++function preserveAssistantRunMetadata(chosenEntry, otherEntry) {
+     const chosen = getStoredMessage(chosenEntry);
+     const other = getStoredMessage(otherEntry);
+     if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+@@ -554,13 +586,24 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+     const chosenCustom = chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+         ? chosen.metadata.custom
+         : {};
+-    if (assistantRunDurationMs(chosenCustom) != null)
+-        return chosenEntry;
+     const otherCustom = other.metadata?.custom && typeof other.metadata.custom === "object"
+         ? other.metadata.custom
+         : {};
++    const carried = {};
+     const durationMs = assistantRunDurationMs(otherCustom);
+-    if (durationMs == null)
++    if (assistantRunDurationMs(chosenCustom) == null && durationMs != null) {
++        carried[ASSISTANT_RUN_DURATION_METADATA_KEY] = durationMs;
++    }
++    // The stop belongs to one run. A copy of a later run in the same turn does
++    // not take it.
++    const chosenRunId = getMessageRunId(chosen);
++    const otherRunId = getMessageRunId(other);
++    if (otherCustom.userStopped === true &&
++        chosenCustom.userStopped !== true &&
++        !(chosenRunId && otherRunId && chosenRunId !== otherRunId)) {
++        carried.userStopped = true;
++    }
++    if (Object.keys(carried).length === 0)
+         return chosenEntry;
+     const nextMessage = {
+         ...chosen,
+@@ -568,7 +611,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+             ...chosen.metadata,
+             custom: {
+                 ...chosenCustom,
+-                [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
++                ...carried,
+             },
+         },
+     };
+@@ -599,15 +642,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
+                     !isTerminalAssistantStatus(incoming?.status)
+                     ? existingEntry
+                     : incomingEntry;
+-        return preserveAssistantRunDuration(chosen, chosen === existingEntry ? incomingEntry : existingEntry);
++        return preserveAssistantRunMetadata(chosen, chosen === existingEntry ? incomingEntry : existingEntry);
+     }
+     if (existing?.role === "assistant" &&
+         incoming?.role === "assistant" &&
+         isTerminalAssistantStatus(existing?.status) &&
+         !isTerminalAssistantStatus(incoming?.status)) {
+-        return preserveAssistantRunDuration(existingEntry, incomingEntry);
++        return preserveAssistantRunMetadata(existingEntry, incomingEntry);
+     }
+-    return preserveAssistantRunDuration(incomingEntry, existingEntry);
++    return preserveAssistantRunMetadata(incomingEntry, existingEntry);
+ }
+ function normalizeMessageEntry(entry, parentId) {
+     const message = getStoredMessage(entry);
+@@ -1117,6 +1160,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -598,7 +992,25 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1193,7 +1213,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1162,8 +1220,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+     for (let existingIndex = 0; existingIndex < existingMessages.length; existingIndex++) {
+         const existingEntry = existingMessages[existingIndex];
+         const existingMessage = getStoredMessage(existingEntry);
+-        if (existingMessage?.role === "assistant" &&
+-            messageContentIsEmpty(existingMessage.content)) {
++        if (isEmptyAssistantMessage(existingMessage)) {
+             continue;
+         }
+         const existingKeys = messageIdentityKeySet(existingMessage);
+@@ -1186,14 +1243,13 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+         if (usedIncoming.has(index))
+             continue;
+         const incomingMessage = getStoredMessage(incomingMessages[index]);
+-        if (incomingMessage?.role === "assistant" &&
+-            messageContentIsEmpty(incomingMessage.content)) {
++        if (isEmptyAssistantMessage(incomingMessage)) {
+             continue;
+         }
          nextMessages.push(incomingMessages[index]);
      }
      merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
@@ -607,7 +1019,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1373,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1409,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -617,6 +1029,17 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text } : null;
      }
+@@ -1677,6 +1736,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
+     // Only the freshest chunk decides whether the turn is still continuing.
+     if (incomingCustom.continued !== true)
+         delete mergedCustom.continued;
++    // A new run folded onto the turn decides whether the reply was stopped. A
++    // run already folded keeps the stop from either copy.
++    if (!runAlreadyFolded && incomingCustom.userStopped !== true)
++        delete mergedCustom.userStopped;
+     const mergedMessage = {
+         ...lastMsg,
+         content: normalizeAssistantToolCallIds({
 diff --git a/dist/audit/index.d.ts b/dist/audit/index.d.ts
 index ddce9821b28bb8e4ec70a082939de4f0c38410f5..79200cbf47e6a3810b543309ede821d781689a61 100644
 --- a/dist/audit/index.d.ts
@@ -1666,7 +2089,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1
      composerAreaClassName?: string;
      /** Placeholder for the shared composer in its normal idle state. */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82e9846ffb 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..44465ba04a12b014e3e2259e45595eabb36ee7cb 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -1677,7 +2100,33 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  import { clearPendingTurnIfMatches, clearActiveRunIfMatches, getPendingTurn, getActiveRunActivityTool, getActiveRun, hasRecentActiveRunProgress, resolveReconnectAfterSeq, setActiveRun, updateActiveRunActivity, updateActiveRunSeq, } from "./active-run-state.js";
  import { activeRunLooksAlive, createAgentChatAdapter, hasInFlightToolCall, } from "./agent-chat-adapter.js";
  import { appendAgentChatContextToMessage, filterAgentChatContextItems, formatAgentChatContextItemsForPrompt, getAgentChatContextState, isAgentChatSubmitCancelled, normalizeAgentChatContextItem, publishAgentChatContextItems, refreshAgentChatContext, reportAgentChatSubmitResult, subscribeAgentChatContext, } from "./agent-chat.js";
-@@ -1424,7 +1425,7 @@ function approvalResolutionIdentity(approvalKey, toolCallId,
+@@ -20,7 +21,7 @@ import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition
+ import { DownscalingImageAttachmentAdapter, BinaryDocumentAttachmentAdapter, MAX_ESTIMATED_BODY_BYTES, AGGRESSIVE_MAX_IMAGE_DIMENSION, AGGRESSIVE_JPEG_QUALITY, transcodeImageToDataURL, createAgentImageAttachments, serializeQueuedAttachments, estimateAttachmentBodyBytes, } from "./chat/attachment-adapters.js";
+ import { readAssistantChatComposerDraft, writeAssistantChatComposerDraft, } from "./chat/composer-draft.js";
+ import { ExternalTextStreamingContext, TextStreamingContext, } from "./chat/markdown-renderer.js";
+-import { AssistantChatHistoryContext, assistantMessageHasCompletedSideEffect, findMatchingAssistantChatHistoryVersion, isAssistantChatHistoryVersion, CheckpointContext, MessageActionsContext, assistantMessageRunId, UserMessage, AssistantMessage, ExternalUserStoppedRunContext, SelectionAttachedPill, RunningActivityStatus, displayableUserMessageText, isHiddenUserMessage, ServerRunActiveContext, UserStoppedRunContext, } from "./chat/message-components.js";
++import { AssistantChatHistoryContext, assistantMessageHasCompletedSideEffect, findMatchingAssistantChatHistoryVersion, isAssistantChatHistoryVersion, CheckpointContext, MessageActionsContext, assistantMessageRunId, assistantMessageTurnId, UserMessage, AssistantMessage, ExternalUserStoppedRunContext, SelectionAttachedPill, RunningActivityStatus, displayableUserMessageText, isHiddenUserMessage, ServerRunActiveContext, UserStoppedRunContext, } from "./chat/message-components.js";
+ import { repoHasAssistantMessage, getRepoMessages, getRepoMessage, shouldImportServerThreadData, dedupeRepoMessagesById, dropEmptyAssistantMessages, withLastAssistantRunDuration, } from "./chat/repo-helpers.js";
+ import { BuilderSetupCard, LoopLimitContinueCard, RunErrorRecoveryCard, PlanModeCallout, getLoopLimitMetadata, getRunErrorMetadata, getRequestModeMetadata, isBuilderReconnectRunError, runErrorKey, } from "./chat/run-recovery.js";
+ import { createAgentChatRuntimeAdapter, } from "./chat/runtime.js";
+@@ -209,6 +210,16 @@ export function matchesUserStoppedRun(stopped, threadId, runId, turnId) {
+     return Boolean((stopped.runId && runId && stopped.runId === runId) ||
+         (stopped.turnId && turnId && stopped.turnId === turnId));
+ }
++/**
++ * Whether a reply belongs to one of the runs the owner stopped. When both the
++ * stop and the reply know a run id, the run ids decide, so a later run in the
++ * same turn is not labeled. Otherwise the turn ids decide.
++ */
++function isStoppedRunReply(stoppedRuns, runId, turnId) {
++    return stoppedRuns.some((stopped) => stopped.runId && runId
++        ? stopped.runId === runId
++        : Boolean(stopped.turnId && turnId && stopped.turnId === turnId));
++}
+ function activeRunMatchesThread(state, threadId) {
+     return Boolean(threadId && state?.threadId === threadId && state.runId);
+ }
+@@ -1424,7 +1435,7 @@ function approvalResolutionIdentity(approvalKey, toolCallId,
  askId) {
      return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
  }
@@ -1686,7 +2135,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const t = useT();
      const thread = useThread();
      const threadRuntime = useThreadRuntime();
-@@ -1476,18 +1477,57 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1476,18 +1487,57 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      // Cleared on the next message send.
      const [composerError, setComposerError] = useState(null);
      const composerDraftScope = tabId || threadId;
@@ -1748,7 +2197,19 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          onComposerTextChange?.(text);
      }, [composerDraftScope, onComposerTextChange]);
      const dropDepthRef = useRef(0);
-@@ -2052,6 +2092,15 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1710,6 +1760,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+     // Keep an intentional stop until the next explicit submission. The server
+     // may replay the terminal snapshot well after the client cancellation.
+     const userStoppedRunRef = useRef(null);
++    // Every run the owner stopped in this chat. The next submission clears the
++    // marker above but not this list, so a stopped reply keeps its notice after
++    // later turns, although assistant-ui writes the cancelled run back without
++    // the flag.
++    const userStoppedRunsRef = useRef([]);
+     const [isReconnecting, setIsReconnecting] = useState(false);
+     const [optimisticRunning, setOptimisticRunning] = useState(false);
+     const [runningActivityLabel, setRunningActivityLabel] = useState(null);
+@@ -2052,6 +2107,15 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          retryThreadRestore,
          threadId,
      ]);
@@ -1764,7 +2225,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      useEffect(() => {
          if (threadRestoreError !== "not-found") {
              desktopIdentityRestoreRetryPendingRef.current = false;
-@@ -2081,6 +2130,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2081,6 +2145,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const onGenerateTitleRef = useRef(onGenerateTitle);
      onGenerateTitleRef.current = onGenerateTitle;
      const titleGeneratedRef = useRef(false);
@@ -1776,7 +2237,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const importThreadData = useCallback((threadData, options) => {
          // Cheap-signal short-circuit: if the raw payload is identical to the
          // last one we imported, there is nothing new to parse, normalize, or
-@@ -2156,6 +2210,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2156,6 +2225,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  queueDirtyRef.current = false;
              }
          }
@@ -1788,7 +2249,15 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          if (settled && signature !== null) {
              lastImportedSignatureRef.current = signature;
              lastImportedRepoRef.current = settledRepo;
-@@ -3099,6 +3158,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2307,6 +2381,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         };
+     }, [cacheCurrentThreadSnapshot]);
+     const wasUserStoppedRun = useCallback((runId, turnId) => matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId), [threadId]);
++    const wasStoppedRunReply = useCallback((runId, turnId) => isStoppedRunReply(userStoppedRunsRef.current, runId, turnId), []);
+     const startReconnectToRun = useCallback((runInfo) => {
+         if (!reconnectOwnerMountedRef.current ||
+             !threadId ||
+@@ -3099,6 +3174,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              onGenerateTitleRef.current?.(threadId, text.trim());
          }
      }, [messages, threadId]);
@@ -1803,7 +2272,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      // Periodically save thread data while the agent is running so refreshes
      // don't lose messages. Saves every 5 seconds while running.
      const savedTitleRef = useRef("");
-@@ -3128,8 +3195,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3128,8 +3211,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          lastSaveTimeRef.current = now;
          savedTitleRef.current = title;
          writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -1814,7 +2283,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      // Persist full thread data after each completed response
      useEffect(() => {
          if (!hasRestoredRef.current)
-@@ -3151,7 +3218,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3151,7 +3234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              };
              savedTitleRef.current = title;
              writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -1823,7 +2292,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          }
          else {
              // Legacy: save to sessionStorage
-@@ -3167,6 +3234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3167,6 +3250,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          messages,
          isRunning,
          threadId,
@@ -1831,7 +2300,52 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          tabId,
      ]);
      useEffect(() => {
-@@ -3932,7 +4000,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3737,14 +3821,18 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             });
+         }
+     }, [tabId, threadId, threadRuntime]);
+-    const markVisibleRunStopped = useCallback(() => {
++    // Flags the stopped run's own reply. While the chat follows a run through
++    // reconnect, that reply is not in the repository yet, and the last assistant
++    // message there is an earlier, finished reply.
++    const markVisibleRunStopped = useCallback((stopped) => {
+         try {
+             const repo = normalizeThreadRepository(threadRuntime.export());
+             const messages = getRepoMessages(repo);
+             for (let index = messages.length - 1; index >= 0; index -= 1) {
+                 const entry = messages[index];
+                 const message = getRepoMessage(entry);
+-                if (message?.role !== "assistant")
++                if (message?.role !== "assistant" ||
++                    !isStoppedRunReply([stopped], assistantMessageRunId(message), assistantMessageTurnId(message)))
+                     continue;
+                 const metadata = message.metadata ?? {};
+                 const custom = metadata.custom && typeof metadata.custom === "object"
+@@ -3812,11 +3900,13 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         const turnIdToAbort = pendingTurn?.turnId ??
+             reconnectTurnIdRef.current ??
+             (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
+-        userStoppedRunRef.current = {
++        const stoppedRun = {
+             ...(threadId ? { threadId } : {}),
+             ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+             ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
+         };
++        userStoppedRunRef.current = stoppedRun;
++        userStoppedRunsRef.current.push(stoppedRun);
+         trackStoppedRun(runIdToAbort);
+         setRunErrorInfo(null);
+         setDismissedRunErrorKey(null);
+@@ -3860,7 +3950,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             reconnectTailOnlyRef.current = false;
+         }
+         settleVisibleInterruptedTools();
+-        markVisibleRunStopped();
++        markVisibleRunStopped(stoppedRun);
+         threadRuntime.cancelRun();
+     }, [
+         apiUrl,
+@@ -3932,7 +4022,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const visibleQueuedMessages = useMemo(() => queuedMessages.filter((message) => !message.hideUserMessage && !message.promoted), [queuedMessages]);
      const addToQueue = useCallback(async (text, images, references, attachments, requestMode, intent = "queued", recoveryAction, includeComposerContext = false, trackInRunsTray = false, preserveReconnectAutoRecoveryBudget = false, hideUserMessage = false, submitMessageId, approvedToolCalls, continuationTurnId, usageLabel) => {
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -1840,7 +2354,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          const stoppedRunAtSubmitStart = userStoppedRunRef.current;
          if (!preserveReconnectAutoRecoveryBudget) {
              reconnectAutoRecoveryCountRef.current = 0;
-@@ -3961,10 +4029,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3961,10 +4051,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  : t("agentChat.composer.attachmentError");
              setComposerError(msg);
              reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
@@ -1853,7 +2367,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          const imageAttachments = createAgentImageAttachments(images);
          const allAttachments = [
              ...(queuedAttachments ?? []),
-@@ -4034,7 +4102,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4034,7 +4124,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                          const rejected = recompressed[largestIdx];
                          setComposerError(`"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`);
                          reportAgentChatSubmitResult(submitMessageId, false, "attachment-too-large");
@@ -1862,7 +2376,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      }
                  }
                  messageAttachments = recompressed;
-@@ -4042,7 +4110,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4042,7 +4132,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          }
          // ── End body-size guard ──────────────────────────────────────────
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -1871,7 +2385,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          // Snapshot the exec mode at enqueue time when the caller didn't
          // pass an explicit override. Without this, a plan-mode message that
          // sits in the queue runs as 'act' if the user flips the global toggle
-@@ -4066,9 +4134,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4066,9 +4156,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -1883,7 +2397,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4089,9 +4157,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4089,9 +4179,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -1895,7 +2409,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4116,7 +4184,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4116,7 +4206,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                      ...(messageAttachments.length > 0
                          ? { attachments: messageAttachments }
                          : {}),
@@ -1904,7 +2418,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                  });
              }
              catch (error) {
-@@ -4144,6 +4212,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4144,6 +4234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          if (submitted.includesContext) {
              updateComposerContextItems(() => []);
          }
@@ -1912,7 +2426,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      }, [
          applyLocalQueuedMessages,
          buildComposerContextSubmission,
-@@ -4159,6 +4228,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4159,6 +4250,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          t,
          updateComposerContextItems,
      ]);
@@ -1941,7 +2455,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const mcpResumeTimerRef = useRef(null);
      const scheduleMcpConnectionResume = useCallback((request) => {
          if (mcpResumeTimerRef.current !== null) {
-@@ -4542,7 +4633,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4542,7 +4655,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          recordApprovalResolution,
          showActionTypeApprovalPolicy,
      ]);
@@ -1950,7 +2464,16 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                      // Keep the current message in a non-complete state while
                                      // the terminal error card is visible, even if the server
                                      // still reports the prior run for a short time while its
-@@ -4659,9 +4750,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4591,7 +4704,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+                                                                                                 return;
+                                                                                             }
+                                                                                             void addToQueue(suggestion);
+-                                                                                        }, className: "w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", children: suggestion }, suggestion))) })) : null, showInlineEmptyThreadFooterSlot ? (_jsx("div", { className: "agent-thread-footer-slot agent-thread-footer-slot--empty", children: resolvedThreadFooterSlot })) : null, emptyStateFooter ? (_jsx("div", { className: "agent-empty-state-footer", children: emptyStateFooter })) : null] })) : (_jsxs(MessageScrollerContent, { className: "agent-thread-content gap-4 px-4 py-4", children: [threadRestoreErrorSurface ? (_jsx(MessageScrollerItem, { children: threadRestoreErrorSurface })) : null, _jsx(AssistantMessageListErrorBoundary, { resetKey: messageListResetKey, children: _jsx(UserStoppedRunContext.Provider, { value: wasUserStoppedRun, children: _jsx(ExternalUserStoppedRunContext.Provider, { value: externalUserStopped, children: _jsx(ExternalTextStreamingContext.Provider, { value: externalStreaming, children: _jsx(AssistantChatHistoryContext.Provider, { value: chatHistoryContext, children: _jsx(ThreadPrimitive.Messages
++                                                                                        }, className: "w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", children: suggestion }, suggestion))) })) : null, showInlineEmptyThreadFooterSlot ? (_jsx("div", { className: "agent-thread-footer-slot agent-thread-footer-slot--empty", children: resolvedThreadFooterSlot })) : null, emptyStateFooter ? (_jsx("div", { className: "agent-empty-state-footer", children: emptyStateFooter })) : null] })) : (_jsxs(MessageScrollerContent, { className: "agent-thread-content gap-4 px-4 py-4", children: [threadRestoreErrorSurface ? (_jsx(MessageScrollerItem, { children: threadRestoreErrorSurface })) : null, _jsx(AssistantMessageListErrorBoundary, { resetKey: messageListResetKey, children: _jsx(UserStoppedRunContext.Provider, { value: wasStoppedRunReply, children: _jsx(ExternalUserStoppedRunContext.Provider, { value: externalUserStopped, children: _jsx(ExternalTextStreamingContext.Provider, { value: externalStreaming, children: _jsx(AssistantChatHistoryContext.Provider, { value: chatHistoryContext, children: _jsx(ThreadPrimitive.Messages
+                                                                                                     // Deliberately NOT keyed on part structure. Doing that
+                                                                                                     // remounted the whole transcript every time a tool call
+                                                                                                     // started or a placeholder id was rewritten — a flash and a
+@@ -4659,9 +4772,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                      !showMissingKeySetup &&
                                                                      "opacity-70"), onClick: showMissingKeySetup
                                                                      ? bounceMissingKeySetup
@@ -1962,7 +2485,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                                                                  ? t("agentChat.setup.connectPlaceholder")
                                                                                  : engineSetupRequired
                                                                                      ? t("agentChat.setup.connectPlaceholder")
-@@ -4674,7 +4765,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4674,7 +4787,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                                      count: queuedMessages.length,
                                                                                                  })
                                                                                                  : t("agentChat.queue.followUp")
@@ -1973,7 +2496,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                                                                  visibleComposerContextItems.length > 0
                                                                                  ? (text, references, attachments, options) => void addToQueue(text, undefined, references.length > 0
                                                                                      ? references
-@@ -4684,7 +4777,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4684,7 +4799,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                  }), undefined, true)
                                                                                  : undefined, willQueue: engineSetupRequired || isRunning, onSlashCommand: onSlashCommand, execMode: execMode, onExecModeChange: onExecModeChange, planModeDisabled: planModeDisabled, planModeDisabledReason: planModeDisabledReason, selectedModel: selectedModel ?? defaultModel, selectedEffort: selectedEffort, availableModels: availableModels, availableAgents: availableAgents, selectedAgent: selectedAgent, hostedHarness: hostedHarness, modelListLoading: modelListLoading, onModelChange: shouldShowAssistantChatModelSelector(showModelSelector)
                                                                                  ? onModelChange
@@ -2430,7 +2953,7 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964e96c70ad 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..c8d321d12b2dbc72d8acb9641efef96d8c9983b0 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
 @@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
@@ -2561,7 +3084,30 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1079,7 +1183,9 @@ export function AssistantMessage() {
+@@ -1042,15 +1146,14 @@ export function AssistantMessage() {
+             userStoppedRun: isUserStoppedRun,
+         });
+     const showMissingFinalResponse = useSettledFlag(missingFinalResponseCandidate, isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0);
+-    const shouldShowUserStoppedNotice = isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
+-    const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
++    // Every reply the owner stopped says so, with or without text and after
++    // later turns, so a stopped reply never reads as a finished one.
++    const missingFinalResponseNoticeText = isUserStoppedRun
+         ? t("agentChat.error.stopped")
+-        : isUserStoppedRun
+-            ? null
+-            : (missingWarningText ??
+-                (showMissingFinalResponse
+-                    ? t("agentChat.message.missingFinal")
+-                    : null));
++        : (missingWarningText ??
++            (showMissingFinalResponse
++                ? t("agentChat.message.missingFinal")
++                : null));
+     const animateMissingFinalResponse = Boolean(!isUserStoppedRun &&
+         isLast &&
+         missingFinalResponseNoticeText &&
+@@ -1079,7 +1182,9 @@ export function AssistantMessage() {
      const responseConnectionContext = React.useMemo(() => {
          let parentId = msg.parentId;
          while (parentId) {
@@ -2572,7 +3118,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  return displayableUserMessageText(messageTextFromContent(parentMessage.content));
-@@ -1087,12 +1193,14 @@ export function AssistantMessage() {
+@@ -1087,12 +1192,14 @@ export function AssistantMessage() {
              parentId = parentMessage.parentId;
          }
          return "";
@@ -2589,7 +3135,31 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  turnStartedAt = parentMessage.createdAt;
-@@ -1298,6 +1406,8 @@ export function AssistantMessage() {
+@@ -1269,7 +1376,10 @@ export function AssistantMessage() {
+         chatRunning,
+         isLast,
+     });
+-    if (!hasRenderableContent || isMissingCredential)
++    // A reply the owner stopped before any content still shows the stopped
++    // notice. It has nothing else to render.
++    if ((!hasRenderableContent && !(isUserStoppedRun && statusIsTerminal)) ||
++        isMissingCredential)
+         return null;
+     return (_jsxs("div", { className: "group relative", style: { contentVisibility: isComplete ? "auto" : "visible" }, children: [_jsxs("div", { className: "w-full max-w-[95%] text-sm leading-relaxed text-foreground", children: [isComplete && (_jsx(McpConnectionSuggestion, { text: responseConnectionText, contextText: responseConnectionContext, variant: "response" })), _jsx(ToolCallStackMotion, { children: _jsx(MessagePrimitive.GroupedParts, { groupBy: groupWorkParts, children: ({ part, children }) => {
+                                 switch (part.type) {
+@@ -1289,15 +1399,19 @@ export function AssistantMessage() {
+                                     case "group-ran-tools":
+                                         return (_jsx(RanToolsSummary, { toolCount: assistantToolSummary.hiddenToolCount, motionKey: `assistant-${msg.id}`, children: children }));
+                                     case "text":
++                                        // The stopped notice under the reply stands in
++                                        // for a missing-response warning.
+                                         if (isUserStoppedRun &&
+                                             isMissingFinalResponseWarningText(part.text)) {
+-                                            return shouldShowUserStoppedNotice ? (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: "Stopped", animate: false })) : null;
++                                            return null;
+                                         }
+                                         if (missingWarningText != null &&
+                                             part.text === missingWarningText) {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
@@ -2598,7 +3168,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
-@@ -1307,7 +1417,10 @@ export function AssistantMessage() {
+@@ -1307,9 +1421,12 @@ export function AssistantMessage() {
                                      default:
                                          return null;
                                  }
@@ -2608,8 +3178,28 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964
 +                                isLast,
 +                            })
                              ? messageActions?.onRetryRunError
-                             : undefined })), missingWarningText == null &&
+-                            : undefined })), missingWarningText == null &&
++                            : undefined })), (missingWarningText == null || isUserStoppedRun) &&
                          missingFinalResponseNoticeText != null &&
+                         !showInlineRunError && (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: missingFinalResponseNoticeText, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal })), isComplete && hasCodeAgentTools && msgContent && (_jsx(FilesChangedSummary, { parts: msgContent }))] }), isComplete && (_jsxs("div", { className: "mt-1 flex items-center justify-between", children: [_jsxs("div", { className: "flex min-w-0 items-center gap-1", children: [showHistoryRevert && (_jsx(AssistantChatHistoryRevertButton, { onRestore: handleHistoryRestore, onRestored: () => setHistoryReverted(true) })), _jsx(MessageActionsMenu, { showRevert: showRestore && restoreState === "idle", onRevert: handleRestore, threadId: cpCtx?.threadId ?? "" }), isLast && (_jsx(TooltipProvider, { delayDuration: 400, children: _jsxs(Tooltip, { children: [_jsx(TooltipTrigger, { asChild: true, children: _jsx(ActionBarPrimitive.Reload, { asChild: true, children: _jsx("button", { type: "button", "aria-label": t("agentChat.message.regenerate"), className: `flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`, children: _jsx(IconRefresh, { className: "h-3.5 w-3.5" }) }) }) }), _jsx(TooltipContent, { side: "top", className: "text-xs", children: t("agentChat.message.regenerate") })] }) })), _jsx(MessageBranchPicker, {}), timestamp && (_jsx(MessageTimestamp, { timestamp: timestamp, className: messageFooterFadeClassName }))] }), showRestore && restoreState === "confirming" ? (_jsxs("div", { className: "flex items-center gap-1 text-xs", children: [_jsx("button", { onClick: handleRestore, className: "rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90", children: t("agentChat.message.restoreQuestion") }), _jsx("button", { onClick: cancelRestore, className: "rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.cancel") })] })) : showRestore && restoreState === "restoring" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-muted-foreground", children: [_jsx(IconLoader2, { className: "h-3 w-3 animate-spin" }), t("agentChat.message.restoring")] })) : restoreState === "error" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-destructive", children: [_jsx(IconAlertTriangle, { className: "h-3 w-3 shrink-0" }), _jsx("span", { className: "truncate", children: restoreError }), _jsx("button", { onClick: cancelRestore, className: "cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.dismiss") })] })) : (_jsx(ThumbsFeedback, { threadId: cpCtx?.threadId ?? "", runId: messageRunId ?? "", messageSeq: msg.index }))] }))] }));
+ }
+diff --git a/dist/client/chat/repo-helpers.js b/dist/client/chat/repo-helpers.js
+index 3e57b09962ac92ebabe291c1e7af977ea1f468a3..afaffcd888fafbec6520463593a647684a23f0f5 100644
+--- a/dist/client/chat/repo-helpers.js
++++ b/dist/client/chat/repo-helpers.js
+@@ -155,8 +155,11 @@ export function dropEmptyAssistantMessages(repo) {
+     let changed = false;
+     const messages = repo.messages.filter((entry) => {
+         const message = getRepoMessage(entry);
++        // A reply the owner stopped before any content holds the stop, so the
++        // thread keeps it and shows the stopped notice.
+         const drop = message?.role === "assistant" &&
+-            repoMessageContentIsEmpty(message.content);
++            repoMessageContentIsEmpty(message.content) &&
++            message.metadata?.custom?.userStopped !== true;
+         if (drop)
+             changed = true;
+         return !drop;
 diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
 index 851a9d9763239e262cc940db36d9d6669f5688ab..2fcff826eb2cf488cd58dfd87ffee80004e06d3c 100644
 --- a/dist/client/chat/run-recovery.js
@@ -3052,6 +3642,73 @@ index 2aa4e0db60ff7621021d016ecf0c3b4304065139..8ada4c8277605197c042390208050954
      const openSettingsSection = useCallback((section, scroll = false) => openControllerSection(section, { scroll }), [openControllerSection]);
      const isPage = surface === "page";
      const isWorkspacePage = isPage && sections.includes("hosting");
+diff --git a/dist/client/settings/UsageSection.js b/dist/client/settings/UsageSection.js
+index ff63d97087cfee804b7d8471d64be5ef904b1ee3..b1d44a62b23896659bd53c3869a7d4b08aa93a4c 100644
+--- a/dist/client/settings/UsageSection.js
++++ b/dist/client/settings/UsageSection.js
+@@ -47,6 +47,18 @@ function formatCost(cents, billing) {
+         maximumFractionDigits: 2,
+     })}`;
+ }
++/**
++ * A cost figure whose `costCents` adds only known costs. When every call's
++ * cost is unknown it reads "Unknown". When some are, it reads the known amount
++ * plus the number of calls whose cost is unknown.
++ */
++function formatCostFigure(figure, billing) {
++    if (!figure.unknownCostCalls)
++        return formatCost(figure.costCents, billing);
++    if (figure.unknownCostCalls >= figure.calls)
++        return "Unknown";
++    return `${formatCost(figure.costCents, billing)} + ${figure.unknownCostCalls} unknown`;
++}
+ function formatAlertValue(rule, value) {
+     if (rule.unit === "usd") {
+         return value.toLocaleString(undefined, {
+@@ -59,6 +71,16 @@ function formatAlertValue(rule, value) {
+         maximumFractionDigits: rule.unit === "tokens" ? 0 : 2,
+     })} ${rule.unit === "builder-credits" ? "credits" : "tokens"}`;
+ }
++/**
++ * A rule's current value. A cost rule adds the number of calls whose cost is
++ * unknown, as the spend card does.
++ */
++function formatAlertCurrent(rule) {
++    const value = formatAlertValue(rule, rule.current);
++    return rule.unit !== "tokens" && rule.unknownCostCalls
++        ? `${value} + ${rule.unknownCostCalls} unknown`
++        : value;
++}
+ function appLabel(value) {
+     if (!value)
+         return "All apps";
+@@ -91,7 +113,7 @@ function MetricCard({ label, value, detail, accent = false, }) {
+ }
+ function DriverList({ title, rows, billing, }) {
+     const max = Math.max(...rows.map((row) => row.costCents), 1);
+-    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-3 flex items-center justify-between gap-3", children: [_jsx("h3", { className: "text-sm font-semibold text-foreground", children: title }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.08em] text-muted-foreground", children: "Spend" })] }), rows.length === 0 ? (_jsx("p", { className: "text-sm text-muted-foreground", children: "No usage recorded yet." })) : (_jsx("div", { className: "space-y-3", children: rows.slice(0, 5).map((row) => (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between gap-3 text-sm", children: [_jsx("span", { className: "min-w-0 truncate text-foreground", title: row.label, children: row.label }), _jsx("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: formatCost(row.costCents, billing) })] }), _jsx("div", { className: "mt-1.5 h-1 overflow-hidden rounded-full bg-muted", children: _jsx("div", { className: "h-full rounded-full bg-primary/70", style: {
++    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-3 flex items-center justify-between gap-3", children: [_jsx("h3", { className: "text-sm font-semibold text-foreground", children: title }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.08em] text-muted-foreground", children: "Spend" })] }), rows.length === 0 ? (_jsx("p", { className: "text-sm text-muted-foreground", children: "No usage recorded yet." })) : (_jsx("div", { className: "space-y-3", children: rows.slice(0, 5).map((row) => (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between gap-3 text-sm", children: [_jsx("span", { className: "min-w-0 truncate text-foreground", title: row.label, children: row.label }), _jsx("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: formatCostFigure(row, billing) })] }), _jsx("div", { className: "mt-1.5 h-1 overflow-hidden rounded-full bg-muted", children: _jsx("div", { className: "h-full rounded-full bg-primary/70", style: {
+                                     width: `${Math.max(4, (row.costCents / max) * 100)}%`,
+                                 } }) })] }, row.key))) }))] }));
+ }
+@@ -163,7 +185,7 @@ function UsageAlertsSection({ appId }) {
+                                                                 ? "destructive"
+                                                                 : rule.status === "dismissed"
+                                                                     ? "secondary"
+-                                                                    : "outline", children: statusLabel })] }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatAlertValue(rule, rule.current), " of", " ", formatAlertValue(rule, rule.limit), " \u00B7 per ", rule.period, rule.percent > 0 ? ` · ${rule.percent}%` : ""] }), _jsxs("div", { className: "mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground", children: [rule.channels.includes("in-app") ? (_jsxs("span", { className: "inline-flex items-center gap-1", children: [_jsx(IconBell, { className: "size-3.5" }), " In app"] })) : null, rule.channels.includes("email") ? (_jsxs("span", { className: "inline-flex items-center gap-1", children: [_jsx(IconMail, { className: "size-3.5" }), " Email"] })) : null] })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Checkbox, { checked: rule.enabled, onCheckedChange: (checked) => mutation.mutate({
++                                                                    : "outline", children: statusLabel })] }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatAlertCurrent(rule), " of", " ", formatAlertValue(rule, rule.limit), " \u00B7 per ", rule.period, rule.percent > 0 ? ` · ${rule.percent}%` : ""] }), _jsxs("div", { className: "mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground", children: [rule.channels.includes("in-app") ? (_jsxs("span", { className: "inline-flex items-center gap-1", children: [_jsx(IconBell, { className: "size-3.5" }), " In app"] })) : null, rule.channels.includes("email") ? (_jsxs("span", { className: "inline-flex items-center gap-1", children: [_jsx(IconMail, { className: "size-3.5" }), " Email"] })) : null] })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Checkbox, { checked: rule.enabled, onCheckedChange: (checked) => mutation.mutate({
+                                                         operation: "set-enabled",
+                                                         scope: "user",
+                                                         ruleId: rule.id,
+@@ -199,7 +221,7 @@ export function UsageSection({ appId = null, viewAllHref, }) {
+     return (_jsxs("div", { className: "mx-auto w-full max-w-5xl space-y-6", children: [_jsxs("header", { className: "flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between", children: [_jsxs("div", { children: [_jsxs("div", { className: "flex items-center gap-2 text-xs font-medium uppercase tracking-[0.1em] text-primary", children: [_jsx(IconChartLine, { className: "size-4" }), " Usage"] }), _jsxs("h1", { className: "mt-2 text-xl font-semibold tracking-[-0.02em] text-foreground", children: [appLabel(appId), " usage"] }), _jsx("p", { className: "mt-1 max-w-xl text-sm leading-6 text-muted-foreground", children: "A focused view of spend, capacity, and the prompts driving this app." })] }), _jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [data?.access.canViewWorkspace ? (_jsxs(Select, { value: scope, onValueChange: (value) => {
+                                     setScope(value);
+                                     setSelectedUserEmail(null);
+-                                }, children: [_jsx(SelectTrigger, { className: "h-9 w-32 text-xs", children: _jsx(SelectValue, {}) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "me", children: "My usage" }), _jsx(SelectItem, { value: "workspace", children: "Workspace" })] })] })) : null, scope === "workspace" && data ? (_jsxs(Select, { value: selectedUserEmail ?? "all", onValueChange: (value) => setSelectedUserEmail(value === "all" ? null : value), children: [_jsx(SelectTrigger, { className: "h-9 w-44 text-xs", children: _jsx(SelectValue, { placeholder: "All users" }) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "all", children: "All users" }), data.availableUsers.map((user) => (_jsx(SelectItem, { value: user.email, children: user.email }, user.email)))] })] })) : null, _jsx("div", { className: "flex items-center rounded-md border border-border/70 p-0.5", children: LOOKBACKS.map((range) => (_jsx(Button, { type: "button", variant: sinceDays === range.value ? "secondary" : "ghost", size: "sm", className: "h-8 px-2.5 text-xs", onClick: () => setSinceDays(range.value), children: range.label }, range.value))) }), _jsx(Button, { type: "button", variant: "outline", size: "icon", onClick: () => void query.refetch(), disabled: query.isFetching, "aria-label": "Refresh usage", title: "Refresh usage", children: query.isFetching ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconRefresh, {})) })] })] }), query.isError && !data ? (_jsxs("div", { className: "rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm", role: "alert", children: [_jsx("div", { className: "font-medium text-destructive", children: "Usage data couldn\u2019t be loaded." }), _jsx(Button, { type: "button", variant: "link", size: "sm", className: "mt-1 h-auto p-0", onClick: () => void query.refetch(), children: "Try again" })] })) : null, !data && query.isLoading ? _jsx(UsageLoadingState, {}) : null, data ? (_jsxs(_Fragment, { children: [_jsxs("div", { className: "grid gap-3 sm:grid-cols-3", children: [_jsx(MetricCard, { label: billing.label, value: formatCost(data.totals.costCents, billing), detail: `${sinceDays} day lookback`, accent: true }), _jsx(MetricCard, { label: "Calls", value: data.totals.calls.toLocaleString(), detail: `${data.currentDay.calls.toLocaleString()} today` }), _jsx(MetricCard, { label: "Tokens", value: compactNumber(totalTokens), detail: `${compactNumber(data.currentDay.tokens)} today` })] }), _jsxs("section", { className: "rounded-lg border border-border/70 bg-card p-4", children: [_jsxs("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: "Daily trend" }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatCost(data.currentDay.costCents, billing), " used today \u00B7", " ", data.currentDay.calls.toLocaleString(), " calls"] })] }), _jsxs("div", { className: "flex items-center gap-1.5 text-xs text-muted-foreground", children: [scope === "workspace" ? (_jsx(IconUsers, { className: "size-3.5" })) : null, scope === "workspace"
++                                }, children: [_jsx(SelectTrigger, { className: "h-9 w-32 text-xs", children: _jsx(SelectValue, {}) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "me", children: "My usage" }), _jsx(SelectItem, { value: "workspace", children: "Workspace" })] })] })) : null, scope === "workspace" && data ? (_jsxs(Select, { value: selectedUserEmail ?? "all", onValueChange: (value) => setSelectedUserEmail(value === "all" ? null : value), children: [_jsx(SelectTrigger, { className: "h-9 w-44 text-xs", children: _jsx(SelectValue, { placeholder: "All users" }) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "all", children: "All users" }), data.availableUsers.map((user) => (_jsx(SelectItem, { value: user.email, children: user.email }, user.email)))] })] })) : null, _jsx("div", { className: "flex items-center rounded-md border border-border/70 p-0.5", children: LOOKBACKS.map((range) => (_jsx(Button, { type: "button", variant: sinceDays === range.value ? "secondary" : "ghost", size: "sm", className: "h-8 px-2.5 text-xs", onClick: () => setSinceDays(range.value), children: range.label }, range.value))) }), _jsx(Button, { type: "button", variant: "outline", size: "icon", onClick: () => void query.refetch(), disabled: query.isFetching, "aria-label": "Refresh usage", title: "Refresh usage", children: query.isFetching ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconRefresh, {})) })] })] }), query.isError && !data ? (_jsxs("div", { className: "rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm", role: "alert", children: [_jsx("div", { className: "font-medium text-destructive", children: "Usage data couldn\u2019t be loaded." }), _jsx(Button, { type: "button", variant: "link", size: "sm", className: "mt-1 h-auto p-0", onClick: () => void query.refetch(), children: "Try again" })] })) : null, !data && query.isLoading ? _jsx(UsageLoadingState, {}) : null, data ? (_jsxs(_Fragment, { children: [_jsxs("div", { className: "grid gap-3 sm:grid-cols-3", children: [_jsx(MetricCard, { label: billing.label, value: formatCostFigure(data.totals, billing), detail: `${sinceDays} day lookback`, accent: true }), _jsx(MetricCard, { label: "Calls", value: data.totals.calls.toLocaleString(), detail: `${data.currentDay.calls.toLocaleString()} today` }), _jsx(MetricCard, { label: "Tokens", value: compactNumber(totalTokens), detail: `${compactNumber(data.currentDay.tokens)} today` })] }), _jsxs("section", { className: "rounded-lg border border-border/70 bg-card p-4", children: [_jsxs("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: "Daily trend" }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatCostFigure(data.currentDay, billing), " used today \u00B7", " ", data.currentDay.calls.toLocaleString(), " calls"] })] }), _jsxs("div", { className: "flex items-center gap-1.5 text-xs text-muted-foreground", children: [scope === "workspace" ? (_jsx(IconUsers, { className: "size-3.5" })) : null, scope === "workspace"
+                                                 ? (selectedUserEmail ?? "All users")
+                                                 : "Your usage"] })] }), _jsx("div", { className: "mt-4", children: _jsx(Trend, { daily: data.daily, billing: billing }) })] }), _jsxs("details", { className: "group rounded-lg border border-border/70 bg-card", children: [_jsxs("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden", children: [_jsxs("span", { children: [_jsx("span", { className: "block text-sm font-semibold text-foreground", children: "Top usage drivers" }), _jsx("span", { className: "mt-1 block text-xs text-muted-foreground", children: "Breakdowns stay collapsed until you need them." })] }), _jsx(IconChevronDown, { className: "size-4 text-muted-foreground transition-transform group-open:rotate-180" })] }), _jsxs("div", { className: "grid gap-6 border-t border-border/70 px-4 py-4 md:grid-cols-2", children: [_jsx(DriverList, { title: "By workflow", rows: data.byLabel, billing: billing }), _jsx(DriverList, { title: "By model", rows: data.byModel, billing: billing })] })] }), _jsxs("details", { className: "group rounded-lg border border-border/70 bg-card", children: [_jsxs("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden", children: [_jsxs("span", { children: [_jsx("span", { className: "block text-sm font-semibold text-foreground", children: "Recent prompts" }), _jsx("span", { className: "mt-1 block text-xs text-muted-foreground", children: "Latest recorded prompts for the selected app and user scope." })] }), _jsxs("span", { className: "flex items-center gap-2 text-xs text-muted-foreground", children: [data.recent.length, _jsx(IconChevronDown, { className: "size-4 transition-transform group-open:rotate-180" })] })] }), _jsx("div", { className: "border-t border-border/70", children: data.recent.length === 0 ? (_jsx("p", { className: "px-4 py-5 text-sm text-muted-foreground", children: "No recent prompts recorded." })) : (_jsx("div", { className: "divide-y divide-border/60", children: data.recent.map((entry) => (_jsxs("div", { className: "px-4 py-3", children: [_jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground", children: [_jsxs("span", { children: [entry.label, " \u00B7 ", entry.model] }), _jsx("span", { children: entry.ownerEmail })] }), _jsx("p", { className: "mt-1 line-clamp-2 text-sm text-foreground", children: entry.prompt ??
+                                                     "Prompt text was not captured for this call." })] }, entry.id))) })) })] }), _jsx(UsageAlertsSection, { appId: appId }), viewAllHref ? (_jsx("div", { className: "flex justify-end", children: _jsx(Button, { asChild: true, variant: "link", size: "sm", className: "gap-1.5", children: _jsxs(Link, { to: viewAllHref, children: ["View all usage", _jsx(IconArrowUpRight, {})] }) }) })) : null] })) : null] }));
 diff --git a/dist/client/settings/VoiceTranscriptionSection.js b/dist/client/settings/VoiceTranscriptionSection.js
 index 6d2d0289d79f520ed465c7e6fbc99f9f37c092b1..7927141df9ecd69b0240c47caa21476927d9a53d 100644
 --- a/dist/client/settings/VoiceTranscriptionSection.js
@@ -4095,6 +4752,211 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
                      }
                      setResponseStatus(event, 200);
                      return { ok: true, taskId };
+diff --git a/dist/integrations/webhook-handler.d.ts b/dist/integrations/webhook-handler.d.ts
+index d86ba8c8975aa27234f661b9906259e40d0998b7..59da4cffbbed15f4557d894f6f6af72bc699b281 100644
+--- a/dist/integrations/webhook-handler.d.ts
++++ b/dist/integrations/webhook-handler.d.ts
+@@ -129,4 +129,31 @@ export declare function processIntegrationTask(task: PendingTask, options: Webho
+     enabled?: boolean;
+     continuationInvocation?: boolean;
+ }): Promise<ProcessIntegrationTaskResult>;
++/**
++ * Record an integration run's usage row and settle its budget reservations
++ * from the same usage record. Both use the provider's reported cost when every
++ * call reported one. Otherwise the row records the table price or an unknown
++ * cost, and each reservation settles at the table price, at 0 when the run
++ * used no tokens, or at its estimate when a model Core has no price for used
++ * tokens. A row that fails to write is logged, and the reservations still
++ * settle.
++ */
++export declare function recordAndSettleIntegrationUsage(reservations: Array<{
++    budgetId: string;
++    reservationId: string;
++    estimatedCostMicros: number;
++    access: {
++        ownerEmail: string;
++        orgId?: string | null;
++    };
++}>, options: {
++    usage: ReturnType<import("../agent/production-agent.js").TurnUsage["usageRecord"]>;
++    ownerEmail: string;
++    appId?: string;
++    runId: string;
++    threadId: string;
++    taskId?: string;
++    orgId?: string;
++    incoming: IncomingMessage;
++}): Promise<void>;
+ export declare function recordIntegrationResponseDelivery(payload: IntegrationResponseDeliveryTaskPayload, receipt: PlatformDeliveryReceipt): Promise<void>;
+diff --git a/dist/integrations/webhook-handler.js b/dist/integrations/webhook-handler.js
+index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..efd06506f7e39f9afdc4b3227d9d26b808400b42 100644
+--- a/dist/integrations/webhook-handler.js
++++ b/dist/integrations/webhook-handler.js
+@@ -4,7 +4,7 @@ import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
+ import { formatLlmCredentialErrorMessage, isLlmCredentialError, } from "../agent/engine/credential-errors.js";
+ import { getConfiguredEngineNameForRequest, getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from "../agent/engine/index.js";
+ import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
+-import { actionsToEngineTools, filterInitialEngineTools, resolveOwnerEngineApiKey, } from "../agent/production-agent.js";
++import { actionsToEngineTools, createTurnUsage, filterInitialEngineTools, resolveOwnerEngineApiKey, } from "../agent/production-agent.js";
+ import { appendDurableContinuationContext, runAgentLoopDirectWithSoftTimeout, } from "../agent/run-loop-with-resume.js";
+ import { startRun, } from "../agent/run-manager.js";
+ import { buildCurrentTimeUserContext, buildRuntimeContextPrompt, } from "../agent/runtime-context.js";
+@@ -840,7 +840,29 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+         })).catch(() => { });
+     }
+     let usage = null;
++    // The run's usage with the provider's reported cost, which the usage row
++    // and budget settlement read.
++    let turnUsage;
+     let budgetsSettled = false;
++    // Both settlement points below call this. A run that started a model call
++    // records its usage row and settles its budget, also when its agent loop
++    // threw. A run that failed before its first call settles nothing, and the
++    // completion's finally block releases its reservations.
++    const settleRunUsage = async () => {
++        if (!(turnUsage?.startedCalls > 0))
++            return;
++        await recordAndSettleIntegrationUsage(budgetReservations.reservations, {
++            usage: turnUsage.usageRecord(),
++            ownerEmail,
++            appId: options.appId,
++            runId,
++            threadId,
++            taskId: opts.taskId,
++            orgId: orgId ?? undefined,
++            incoming,
++        });
++        budgetsSettled = true;
++    };
+     // Populated once `resolvedModel`/`engine` are known inside the run
+     // callback below (stored-model + platform-default resolution can't happen
+     // until then) and read back by run-manager's terminal tracking event via
+@@ -925,6 +947,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                     let emittedAgentEvent = false;
+                     runOptions.model = target.model;
+                     runOptions.engineName = target.engine.name;
++                    turnUsage = createTurnUsage(target.model);
+                     try {
+                         // Wrapper, not raw `runAgentLoop`: an integration turn has no
+                         // browser to re-POST a continuation, so a transport-level cut
+@@ -960,6 +983,8 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                             // retry can step its effort down rather than
+                             // repeatedly letting the engine choose Medium.
+                             reasoningEffort: normalizeReasoningEffortForRequest(target.model, undefined),
++                            onUsage: turnUsage.add,
++                            onModelCall: turnUsage.startCall,
+                         }, undefined, {
+                             useHostedDefault: true,
+                             backgroundFunction: isInBackgroundFunctionRuntime(),
+@@ -1230,18 +1255,7 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                         await stageTaskDeliveryPayload(opts.taskId, JSON.stringify(stagedDeliveryPayload));
+                     }
+                 }
+-                await recordIntegrationUsage({
+-                    usage,
+-                    ownerEmail,
+-                    appId: options.appId,
+-                    runId,
+-                    threadId,
+-                    taskId: opts.taskId,
+-                    orgId: orgId ?? undefined,
+-                    incoming,
+-                });
+-                await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
+-                budgetsSettled = true;
++                await settleRunUsage();
+                 if (campaign && queuedA2AContinuation) {
+                     const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
+                         runId: campaign.runId,
+@@ -1311,23 +1325,10 @@ async function processIncomingMessage(incoming, options, opts = {}) {
+                                 ? buildDeliveryHistoryMessageIds(incoming)
+                                 : undefined), artifactSecrets, Boolean(campaign));
+                     }
+-                    if (usage) {
+-                        await recordIntegrationUsage({
+-                            usage,
+-                            ownerEmail,
+-                            appId: options.appId,
+-                            runId,
+-                            threadId,
+-                            taskId: opts.taskId,
+-                            orgId: orgId ?? undefined,
+-                            incoming,
+-                        }).catch(() => { });
+-                        try {
+-                            await settleApplicableIntegrationBudgets(budgetReservations.reservations, usage);
+-                            budgetsSettled = true;
+-                        }
+-                        catch { }
++                    try {
++                        await settleRunUsage();
+                     }
++                    catch { }
+                     outcome = {
+                         status: "delivery-pending",
+                         payload: {
+@@ -1454,6 +1455,8 @@ async function recordIntegrationUsage(options) {
+             cacheReadTokens: usage.cacheReadTokens,
+             cacheWriteTokens: usage.cacheWriteTokens,
+             model: usage.model,
++            costCentsX100: usage.costCentsX100,
++            costSource: usage.costSource,
+             label: `integration:${options.incoming.platform}`,
+             app: options.appId,
+             refId: options.taskId ?? options.runId,
+@@ -1541,20 +1544,49 @@ async function reserveApplicableIntegrationBudgets(options) {
+     }
+     return { allowed: true, reservations };
+ }
++/**
++ * Records an integration run's usage row and settles its budget reservations
++ * from the same usage record, so the row and the budget agree on the cost.
++ * The two do not depend on each other. A row that fails to write is logged,
++ * and the reservations still settle.
++ */
++export async function recordAndSettleIntegrationUsage(reservations, options) {
++    try {
++        await recordIntegrationUsage(options);
++    }
++    finally {
++        await settleApplicableIntegrationBudgets(reservations, options.usage);
++    }
++}
+ async function settleApplicableIntegrationBudgets(reservations, usage) {
+     if (!reservations.length)
+         return;
+     let actualCostMicros = 0;
+-    if (usage) {
+-        const { calculateCost } = await import("../usage/store.js");
++    let unknownCost = false;
++    if (usage?.costCentsX100 != null) {
++        // The provider's reported cost wins, as it does in recordUsage.
++        actualCostMicros = usage.costCentsX100 * 100;
++    }
++    else if (usage) {
++        const { calculateCost, hasTablePrice } = await import("../usage/store.js");
+         // token_usage uses centicents; one centicent is 100 currency micros.
+         actualCostMicros =
+             calculateCost(usage.inputTokens, usage.outputTokens, usage.model, usage.cacheReadTokens, usage.cacheWriteTokens) * 100;
++        // A run that used tokens of a model Core has no price for has an
++        // unknown cost. It keeps its reservation estimate, and a budget cap
++        // still fills. A run that used no tokens costs 0.
++        const tokens = usage.inputTokens +
++            usage.outputTokens +
++            usage.cacheReadTokens +
++            usage.cacheWriteTokens;
++        unknownCost = tokens > 0 && !hasTablePrice(usage.model);
+     }
+     await Promise.all(reservations.map((reservation) => settleIntegrationUsageBudget({
+         budgetId: reservation.budgetId,
+         reservationId: reservation.reservationId,
+-        actualCostMicros,
++        actualCostMicros: unknownCost
++            ? reservation.estimatedCostMicros
++            : actualCostMicros,
+     }, reservation.access).catch((err) => {
+         console.warn("[integrations] Could not settle usage budget:", err instanceof Error ? err.message : err);
+     })));
 diff --git a/dist/jobs/background-automation-runner.js b/dist/jobs/background-automation-runner.js
 index 069adb196878a306f92883587c9153e506e23910..6ea3aca77953268d4fb426fd83331327a8e78dfd 100644
 --- a/dist/jobs/background-automation-runner.js
@@ -6203,8 +7065,102 @@ index e7562dd40f03bee7f4a50164eda22b4b5f4ca9b5..b11d7004218b727a0d825da7bf5297d9
  const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
  export function createAutomationWebhookToken() {
      return randomBytes(32).toString("base64url");
+diff --git a/dist/usage/alerts-store.d.ts b/dist/usage/alerts-store.d.ts
+index da1795b4840ebbcab3d2af38c8b0a473de7d8376..09a86d2d02ec27b1a871c4e5eae2582b2a2a2e28 100644
+--- a/dist/usage/alerts-store.d.ts
++++ b/dist/usage/alerts-store.d.ts
+@@ -25,6 +25,8 @@ export interface UsageAlertRule {
+     isDefault: boolean;
+     status: UsageAlertStatus;
+     current: number;
++    /** Calls in the window whose cost is unknown. A cost figure leaves them out. */
++    unknownCostCalls: number;
+     percent: number;
+     windowStart: number;
+     windowEnd: number;
+diff --git a/dist/usage/alerts-store.js b/dist/usage/alerts-store.js
+index ee7932c46cd65be09d23a73e223853bd5f70888d..a910387fc3243305204e918ce251d6ae88fa2256 100644
+--- a/dist/usage/alerts-store.js
++++ b/dist/usage/alerts-store.js
+@@ -180,6 +180,7 @@ async function usageTotals(appId, partition, period) {
+         : "";
+     const result = await getDbExec().execute({
+         sql: `SELECT COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
++        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unknown_cost_calls,
+         COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) +
+         COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0) AS tokens
+       FROM token_usage
+@@ -196,6 +197,7 @@ async function usageTotals(appId, partition, period) {
+     const row = (result.rows[0] ?? {});
+     return {
+         costCents: numberField(row, "cost_x100") / 100,
++        unknownCostCalls: numberField(row, "unknown_cost_calls"),
+         tokens: numberField(row, "tokens"),
+     };
+ }
+@@ -306,6 +308,7 @@ async function rowToRule(row, partition) {
+         isDefault: booleanField(row, "is_default"),
+         status: usageStatus(current, limit, booleanField(row, "enabled"), dismissedWindowStart, window.start),
+         current,
++        unknownCostCalls: totals.unknownCostCalls,
+         percent: limit > 0 ? Math.round((current / limit) * 100) : 0,
+         windowStart: window.start,
+         windowEnd: window.end,
+diff --git a/dist/usage/metrics-store.d.ts b/dist/usage/metrics-store.d.ts
+index 2c5f27fce6db78d8e47a41590ba0b6c714c71598..d4a6768576cdc85b76718cb43e1ae00e81bc72b3 100644
+--- a/dist/usage/metrics-store.d.ts
++++ b/dist/usage/metrics-store.d.ts
+@@ -1,10 +1,12 @@
+-import { type UsageBillingMode } from "./store.js";
++import { type UsageBillingMode, type UsageCostSource } from "./store.js";
+ export type UsageMetricsScope = "me" | "workspace";
+ export interface UsageMetricBucket {
+     key: string;
+     label: string;
+     costCents: number;
+     calls: number;
++    /** Calls whose cost is unknown. `costCents` adds only known costs. */
++    unknownCostCalls: number;
+     inputTokens: number;
+     outputTokens: number;
+     cacheReadTokens: number;
+@@ -16,6 +18,8 @@ export interface UsageDailyMetric {
+     date: string;
+     costCents: number;
+     calls: number;
++    /** Calls whose cost is unknown. `costCents` adds only known costs. */
++    unknownCostCalls: number;
+     tokens: number;
+ }
+ export interface UsageRecentMetric {
+@@ -30,6 +34,7 @@ export interface UsageRecentMetric {
+     cacheReadTokens: number;
+     cacheWriteTokens: number;
+     costCents: number;
++    costSource: UsageCostSource;
+     prompt: string | null;
+     promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
+     threadId: string | null;
+@@ -59,6 +64,8 @@ export interface AppUsageMetrics {
+     totals: {
+         costCents: number;
+         calls: number;
++        /** Calls whose cost is unknown. `costCents` adds only known costs. */
++        unknownCostCalls: number;
+         inputTokens: number;
+         outputTokens: number;
+         cacheReadTokens: number;
+@@ -69,6 +76,8 @@ export interface AppUsageMetrics {
+         costCents: number;
+         credits: number;
+         calls: number;
++        /** Calls whose cost is unknown. `costCents` adds only known costs. */
++        unknownCostCalls: number;
+         tokens: number;
+     };
+     byLabel: UsageMetricBucket[];
 diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
-index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
+index 9a3a72d8f08edc0e902814934d749c432b4228bb..8ff65b608d1e83807046ca4f7affeab27d49c2e6 100644
 --- a/dist/usage/metrics-store.js
 +++ b/dist/usage/metrics-store.js
 @@ -1,7 +1,7 @@
@@ -6216,7 +7172,47 @@ index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee
  const DAY_MS = 86_400_000;
  function numberField(row, key) {
      return Number(row[key] ?? 0) || 0;
-@@ -275,6 +275,7 @@ async function detectUsageEngineName() {
+@@ -124,6 +124,7 @@ function bucketFromRow(row) {
+         key,
+         label: key || "Unattributed",
+         costCents: buildUsageCost(row),
++        unknownCostCalls: numberField(row, "unknown_cost_calls"),
+         calls: numberField(row, "calls"),
+         inputTokens: numberField(row, "input_tokens"),
+         outputTokens: numberField(row, "output_tokens"),
+@@ -133,10 +134,14 @@ function bucketFromRow(row) {
+         lastActiveAt: row.last_active_at == null ? null : numberField(row, "last_active_at"),
+     };
+ }
++// A bucket with calls of unknown cost sorts first. Its known cost can read 0,
++// so ordering by cost alone would cut it from the short list while the totals
++// still count its calls as unknown.
+ async function usageBuckets(columnExpression, scope, appScope, sinceMs, limit) {
+     const result = await getDbExec().execute({
+         sql: `SELECT ${columnExpression} AS k,
+         COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
++        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unknown_cost_calls,
+         COUNT(*) AS calls,
+         COALESCE(SUM(input_tokens), 0) AS input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+@@ -147,7 +152,7 @@ async function usageBuckets(columnExpression, scope, appScope, sinceMs, limit) {
+       FROM token_usage
+       WHERE ${appScope.where} AND ${scope.where} AND created_at >= ?
+       GROUP BY ${columnExpression}
+-      ORDER BY cost_x100 DESC
++      ORDER BY MAX(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END) DESC, cost_x100 DESC
+       LIMIT ?`,
+         args: [...appScope.args, ...scope.args, sinceMs, limit],
+     });
+@@ -247,6 +252,7 @@ async function hydrateRecentPrompts(rows) {
+             cacheReadTokens: numberField(row, "cache_read_tokens"),
+             cacheWriteTokens: numberField(row, "cache_write_tokens"),
+             costCents: numberField(row, "cost_cents_x100") / 100,
++            costSource: stringField(row, "cost_source") || "estimated",
+             prompt: prompt ?? (preview ? preview.slice(0, 359).trimEnd() : null),
+             promptSource: prompt
+                 ? "thread"
+@@ -275,6 +281,7 @@ async function detectUsageEngineName() {
      return getAppConfig().agent.engine ?? null;
  }
  export async function listAppUsageMetrics(input, accessInput) {
@@ -6224,3 +7220,196 @@ index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee
      const scope = input.scope === "workspace" ? "workspace" : "me";
      const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
      const now = Date.now();
+@@ -288,6 +295,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         getDbExec().execute({
+             sql: `SELECT
+             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
++            COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unknown_cost_calls,
+             COUNT(*) AS calls,
+             COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+@@ -301,7 +309,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         usageBuckets("COALESCE(NULLIF(label, ''), 'chat')", resolved.ownerScope, appScope, sinceMs, 6),
+         usageBuckets("COALESCE(NULLIF(model, ''), 'unknown')", resolved.ownerScope, appScope, sinceMs, 4),
+         getDbExec().execute({
+-            sql: `SELECT created_at, cost_cents_x100, input_tokens, output_tokens,
++            sql: `SELECT created_at, cost_cents_x100, cost_source, input_tokens, output_tokens,
+             cache_read_tokens, cache_write_tokens FROM token_usage
+           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+           ORDER BY created_at ASC`,
+@@ -310,7 +318,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         getDbExec().execute({
+             sql: `SELECT id, created_at, owner_email, app, label, model,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+-            cost_cents_x100, thread_id
++            cost_cents_x100, cost_source, thread_id
+           FROM token_usage
+           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+           ORDER BY created_at DESC
+@@ -324,9 +332,11 @@ export async function listAppUsageMetrics(input, accessInput) {
+         const date = new Date(numberField(row, "created_at"))
+             .toISOString()
+             .slice(0, 10);
+-        const current = dayMap.get(date) ?? { costX100: 0, calls: 0, tokens: 0 };
++        const current = dayMap.get(date) ?? { costX100: 0, calls: 0, unknownCostCalls: 0, tokens: 0 };
+         current.costX100 += numberField(row, "cost_cents_x100");
+         current.calls += 1;
++        if (row.cost_source === "unavailable")
++            current.unknownCostCalls += 1;
+         current.tokens +=
+             numberField(row, "input_tokens") +
+                 numberField(row, "output_tokens") +
+@@ -339,6 +349,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         date,
+         costCents: value.costX100 / 100,
+         calls: value.calls,
++        unknownCostCalls: value.unknownCostCalls,
+         tokens: value.tokens,
+     }))
+         .sort((a, b) => a.date.localeCompare(b.date));
+@@ -347,6 +358,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         date: today,
+         costCents: 0,
+         calls: 0,
++        unknownCostCalls: 0,
+         tokens: 0,
+     };
+     const billing = usageBillingForEngine(await detectUsageEngineName());
+@@ -366,6 +378,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         access: resolved.access,
+         totals: {
+             costCents: buildUsageCost(totals),
++            unknownCostCalls: numberField(totals, "unknown_cost_calls"),
+             calls: numberField(totals, "calls"),
+             inputTokens: numberField(totals, "input_tokens"),
+             outputTokens: numberField(totals, "output_tokens"),
+@@ -377,6 +390,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+             costCents: currentDay.costCents,
+             credits: builderCreditsFromCostCents(currentDay.costCents),
+             calls: currentDay.calls,
++            unknownCostCalls: currentDay.unknownCostCalls,
+             tokens: currentDay.tokens,
+         },
+         byLabel,
+diff --git a/dist/usage/store.d.ts b/dist/usage/store.d.ts
+index c9cd99152199d4c5a2cb8d8eb9c1723790e820a0..5d7e9e71da0db59d810a1ac302583c55aa51c342 100644
+--- a/dist/usage/store.d.ts
++++ b/dist/usage/store.d.ts
+@@ -67,6 +67,8 @@ export declare function ensureUsageTable(): Promise<void>;
+  * everything, which is correct for a provider with no prompt caching.
+  */
+ export declare function calculateCost(inputTokens: number, outputTokens: number, model: string, cacheReadTokens?: number, cacheWriteTokens?: number): number;
++/** Whether the price table prices a model, so `calculateCost` is its cost. */
++export declare function hasTablePrice(model: string): boolean;
+ /**
+  * Record token usage from an LLM call.
+  *
+diff --git a/dist/usage/store.js b/dist/usage/store.js
+index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..dffbb95997f9b10b56e8edfcbe1e4dbbaf1a0c20 100644
+--- a/dist/usage/store.js
++++ b/dist/usage/store.js
+@@ -63,6 +63,11 @@ const PRICING = [
+         match: /haiku/i,
+         pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
+     },
++    // Sonnet: $3/$15 per MTok. The catch-all used to price Sonnet ids.
++    {
++        match: /sonnet/i,
++        pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
++    },
+     // ── OpenAI / Codex ──────────────────────────────────────────────────────────
+     // Short-context rates from OpenAI's published table (read 2026-08-25):
+     // https://developers.openai.com/api/docs/pricing#text-tokens
+@@ -138,18 +143,40 @@ const PRICING = [
+         match: /mistral-small|mistral-medium/i,
+         pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
+     },
+-    // default → sonnet pricing ($3/$15 per MTok)
+-    {
+-        match: /.*/,
+-        pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
+-    },
+ ];
++/** The table's price for a model id, or undefined when Core has no price for it. */
+ function pricingFor(model) {
+-    for (const entry of PRICING) {
+-        if (entry.match.test(model))
+-            return entry.pricing;
++    return PRICING.find((entry) => entry.match.test(model))?.pricing;
++}
++/** Whether the price table prices a model, so `calculateCost` is its cost. */
++export function hasTablePrice(model) {
++    return pricingFor(model) !== undefined;
++}
++/**
++ * Rows recorded before Core stopped guessing hold the old catch-all Sonnet
++ * price for models the table does not price. Setup marks those rows unknown.
++ * It changes only estimated rows of unpriced models, so a second run changes
++ * nothing. A failure, such as a role without UPDATE on the table, only logs,
++ * so setup still finishes and usage still records. The next process start
++ * tries again.
++ */
++async function markUnpricedEstimatesUnknown(client) {
++    try {
++        const { rows } = await client.execute(`SELECT DISTINCT model FROM token_usage WHERE cost_source = 'estimated'`);
++        for (const row of rows) {
++            const model = String(row.model ?? "");
++            if (hasTablePrice(model))
++                continue;
++            await client.execute({
++                sql: `UPDATE token_usage SET cost_source = 'unavailable', cost_cents_x100 = 0
++        WHERE cost_source = 'estimated' AND model = ?`,
++                args: [model],
++            });
++        }
++    }
++    catch (err) {
++        console.warn("[usage] Could not mark old estimated costs unknown:", err instanceof Error ? err.message : err);
+     }
+-    return PRICING[PRICING.length - 1].pricing;
+ }
+ let _initPromise;
+ export async function ensureUsageTable() {
+@@ -232,6 +259,7 @@ export async function ensureUsageTable() {
+                 // the whole release. The SHARE lock is the cost of a build that lands.
+                 await ensureIndexExists("idx_token_usage_lower_owner_created", `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`);
+                 await ensureIndexExists("idx_token_usage_org_app_created", `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`);
++                await markUnpricedEstimatesUnknown(client);
+                 return;
+             }
+             // SQLite (local dev): no lock problem — keep the original behaviour.
+@@ -265,6 +293,7 @@ export async function ensureUsageTable() {
+                     // through the Postgres branch above, which probes before creating.
+                 }
+             }
++            await markUnpricedEstimatesUnknown(client);
+         })().catch((err) => {
+             // Retry init on the next call after a failed startup.
+             _initPromise = undefined;
+@@ -292,6 +321,10 @@ export async function ensureUsageTable() {
+  */
+ export function calculateCost(inputTokens, outputTokens, model, cacheReadTokens = 0, cacheWriteTokens = 0) {
+     const p = pricingFor(model);
++    // An unpriced model costs an unknown amount. Callers that need a number get
++    // 0, and recordUsage records the cost as unavailable.
++    if (!p)
++        return 0;
+     // An engine that still emits the exclusive convention would drive this
+     // negative and credit the bill. Clamping keeps the partition non-negative;
+     // the fix for a caller that trips it is that engine, not a wider clamp here.
+@@ -334,7 +367,14 @@ export async function recordUsage(recordOrOwner, inputTokens, outputTokens, mode
+     }
+     // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
+     // otherwise derive it from tokens via the pricing table.
+-    const resolvedCostSource = costSource ?? (costCentsX100 == null ? "estimated" : "reported");
++    // With no reported cost, a model the table cannot price records an unknown
++    // cost instead of a guess.
++    const resolvedCostSource = costSource ??
++        (costCentsX100 != null
++            ? "reported"
++            : pricingFor(modelName)
++                ? "estimated"
++                : "unavailable");
+     const costX100 = resolvedCostSource === "unavailable"
+         ? 0
+         : (costCentsX100 ??

@@ -153,6 +153,46 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103, Native usage cost. The maintained Core patch records the cost that a provider reports for a Native model
+call and never guesses one. The AI SDK engine reads OpenRouter's reported cost from the step's `finish-step` part and
+puts it on its usage event. `createTurnUsage` sums a turn's usage over its model calls and internal continuations. A
+retry replaces the attempt it retries, and the turn passes the sum as a reported cost only when every counted call
+reported one. Otherwise the usage store prices the tokens from its table, which has a Sonnet entry and no catch-all
+price, or it records the cost as unknown. The table setup marks the old estimates for unpriced models unknown once.
+The Settings Usage tab, the usage metrics, and cost alerts show an unknown cost as Unknown, add only known costs, and
+count the calls of unknown cost. An integration run sums its usage the same way, and the webhook handler writes the
+run's usage row and settles its budget reservations from that one record. It does so for every run that started a
+model call, whether its agent loop finished or threw and whether its reply was delivered. A row that fails to write is
+logged, and the budget still settles. A run that failed before its first model call settles nothing and releases its
+reservations. The budget settles at the reported cost, at the table cost, at 0 for a run with no tokens, or at its
+reservation for an unpriced model that used tokens. Native still owns engines, usage records, integration budgets,
+and the Usage tab, so no component, flow, or boundary changes, and the design description holds. `test:native-chat`
+drives Core's OpenRouter engine against a loopback fake through the agent loop into the usage table and the budget
+store, runs claimed integration tasks through the webhook handler, and renders the Usage tab. The
+[patch notes](../packages/workbench/patches/README.md#native-usage-cost) list each change, its limits, and its tests.
+
+Issue #106, stopped replies. The maintained Core patch labels every reply the owner stopped, in the live chat
+and after a reload. Stop itself did not change. The run route aborts the run's signal. In the tests the run ends
+and the model connection closes within 500 ms of Stop, and a tool step that honors its signal gets it within
+50 ms. The server saves a stopped turn with a `userStopped` flag, which it reads from the run's terminal `done`
+event with reason `user`. A turn stopped before the model sent any text, reasoning, or tool call is saved too,
+with no content and the flag. The client-save merge and the chat's thread load keep that reply, the message view
+shows the notice alone for it, and the next request's history leaves it out. A client save keeps the flag between
+copies of the same run, so a later run that finishes the turn drops it and a copy of that later run does not take
+it. A run that a newer turn displaces in memory ends without that reason, so its reply is not labeled. In the
+live chat, assistant-ui writes a cancelled run back over the reply without the flag, so Core's chat keeps its
+own list of the runs the owner stopped. The message view shows "The agent stopped before finishing" under every
+stopped reply, with or without text and after later turns. Native still owns runs, saved threads, and the chat
+view, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` presses
+Stop on turns that run through `startRun` and the agent loop against a loopback fake OpenRouter, checks how fast
+each run ends, builds and merges the saved turns, and renders Core's chat and saved threads, including a reload
+of a reply stopped before any content. The [patch notes](../packages/workbench/patches/README.md#stopped-replies)
+list each change, its limits, and its tests.
+
+Issues #101 and #102 are closed. PR #126 merged into `dev` as `4032e96` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
+register records it. Documentation only, so the design description holds.
+
 Issue #101, documentation. The patch README now says that the stream error translation trusts a numeric
 `statusCode` and a boolean `isRetryable` on any provider object, not only a status that a provider SDK derived,
 as the round 2 re-review found. Documentation only, so the design description holds.
