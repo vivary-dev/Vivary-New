@@ -123,6 +123,149 @@ history and continuation ids apart. `assistantUiMessagesToStructuredHistory` is
 exported so the test can replay a turn. Run
 `node --test packages/workbench/tests/replay-tool-call-ids.test.mjs`.
 
+## Native stream errors
+
+Issue #101. OpenRouter reports a provider failure inside the stream as an error
+chunk, `{"error":{"code":502,"message":"...","metadata":{...}}}`. The AI SDK
+turns it into an `error` part followed by a `finish` part with no text. Core's
+engine kept the last stop it saw, so the provider's text was dropped and the
+chat showed only "Engine stream error", with Dismiss and Copy and no Retry.
+
+The patch changes these files:
+
+- `agent/engine/ai-sdk-engine.js` keeps the first error stop that carries a
+  code. An error stop with no code stays when the later stop is also an error
+  with no code. A chunk that fails the provider's schema has no code, so a
+  stream that goes on to a normal finish still ends the turn normally, and a
+  provider error after it still shows its message and code.
+- `agent/engine/translate-ai-sdk.js` turns a provider's plain-object error into
+  its message, its code, and the upstream provider's name, for example
+  "Provider returned error (code 502, from Google)", with the error code
+  `provider_stream_error`. An error chunk that fails the provider's schema,
+  such as one with no message, still holds the object and is read the same
+  way. Any other chunk that fails to parse reads "The model provider sent a
+  response that could not be read", never shows the chunk, and offers no
+  Retry, because the turn may have finished normally after it.
+- `agent/production-agent.js`, `agent/thread-data-builder.js`, and
+  `client/sse-event-processor.js` treat `provider_stream_error` as final.
+- `client/chat/run-recovery.js` and `client/chat/message-components.js` offer
+  Retry for `provider_stream_error`.
+
+The translation reads only these fields of the provider's object: `message`,
+`code`, `type` when there is no code, `metadata.provider_name` when it starts
+with a letter and holds at most 64 letters, spaces, periods, and hyphens, and
+a numeric `statusCode` and a boolean `isRetryable` on the object, which
+OpenAI's Responses stream sets. The translation cannot tell a status an SDK
+derived from one the provider sent, so a numeric `statusCode` on any provider
+object classifies as that status. The name holds no digits, because the client reads the
+shown text for statuses, and a name such as "401 unauthorized" would swap the
+error card for the provider setup card. A name with a digit is left out, and
+the text keeps the message and code. The rest of `metadata` can hold the
+upstream provider's raw response, so it is never shown and never classified.
+`classifyProviderError` sees the message, the code, and that status. A
+classification it finds, such as `http_429` for an in-stream `"code":429` or
+`http_<status>` for a derived status, still replaces the code. An upstream
+body that says "overloaded" or "timed out" no longer does.
+
+The code is final in every check that reads an error's message: the engine
+retry (`isRetryableError`), the in-process resume of a main chat turn
+(`isResumableEngineError`), the background continuation
+(`isRecoverableContinuationError`), the turn the server saves
+(`isInternalContinuationError`), and the client's automatic continuation
+(`isAutoRecoverableError`). Each returns on the code before any text match,
+because a provider's message can name 502, a timeout, a closed stream, or an
+unavailable service. Before this, the server retried the turn three more times
+over about 15 seconds, the client then continued it on its own, and a turn that
+the server saved, for example after a reload, kept no error, or no reply when
+no text had streamed.
+
+Retry shows on the error card and on the inline notice under the last failed
+message, which is what remains after Dismiss. Each Retry takes one click per
+error. A second click on the card or the notice before the chat re-renders
+does nothing, and a different error gets a fresh Retry. Retry calls
+`retryAfterRunError` in
+`AssistantChat.js`, the same retry the credential card uses. It adds a visible
+user turn, "Retry the previous request from a clean approach...", followed by
+the last user message's text, and keeps the failed turn and the rest of
+history. It is not a verbatim resend.
+
+The in-stream code is not read as an HTTP status, because `http_502` would buy
+the same silent retries and automatic continuation. Whether a transient
+in-stream 502 should retry on its own is a separate decision.
+
+These limits were declined in review:
+
+- An in-stream 401, 402, or 403 gets a Retry that repeats the failure, and a
+  rejected key is not recorded, because the object carries no HTTP status.
+  OpenRouter sends those as HTTP statuses before the stream, which take the
+  classified path.
+- An in-stream rate-limit phrase from another AI SDK provider, such as
+  "Rate limit reached" with no status and no 429, no longer retries on its own.
+  Those normally arrive as HTTP 429 before the stream.
+- A message queued during the failed run is sent first when the run ends. The
+  failed turn is then no longer the last message and keeps no Retry. This is
+  upstream behavior.
+
+The run manager already sends the engine's `errorCode` on the run's `error`
+event, and the redaction hook already covers that event, so the provider's text
+reaches the screen with held credentials replaced.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-stream-errors.test.ts` runs Core's OpenRouter engine against a
+loopback fake. One table checks the engine's final stop for an OpenRouter
+error chunk, one with no message, OpenRouter's documented mid-stream shape, an
+error with a type and no code, provider names that are not plain or are too
+long, an unknown chunk followed by a normal finish, an unknown chunk and the
+provider's error chunk in both orders, and a last chunk that fails its schema
+or is not JSON. No metadata or raw chunk may reach the stream. The
+error chunk then runs through `startRun` with Vivary's redactor and a held
+synthetic value in the provider message. A second table runs six turns through
+`startRun`, with and without streamed text, with messages that name a closed
+stream or an unavailable service, and with metadata that names an overload or
+a timeout. Each must keep `provider_stream_error` after one provider request,
+save a turn that keeps the error, and neither continue nor resume. A last case
+checks that an error with its own HTTP status keeps `http_<status>`.
+`tests/native-chat-components.test.mjs` passes an error event through
+`processEvent` into `RunErrorRecoveryCard`. The turn must end instead of
+continuing, the card must show the message and a Retry that reaches the retry
+handler once for a double click, and an unclassified code must still get no
+Retry. The inline notice must offer Retry for this code on the last message
+only, and reach the handler once for a double click. A provider name of "401
+unauthorized" must be left out of the text, and the card must stay the error
+card with its Retry. Before the first review round, every case that round
+added failed except the documented shape, the provider name cases, and the
+status case, which already held. Before the second, the unknown chunk ahead of
+the provider's error, the status-like name, and the inline double click failed.
+
+Upstream could take these changes as they are. Remove this part of the patch
+only when an upstream release shows an in-stream provider error with its
+message and a Retry, and passes the same tests.
+
+## Send button name
+
+Issue #102. The Toolkit composer's Send button holds only an arrow icon. Its
+label lived only in the hover tooltip, so the accessibility tree showed an
+unnamed button, and screen readers and automation could not identify it. The
+Toolkit patch adds `aria-label: sendButtonTooltip` to the button in
+`dist/composer/TiptapComposer.js`. `sendButtonTooltip` already reads "Send
+message", or "Queue message" when `willQueue` is set, through the composer's
+translation adapter, so the name matches the tooltip in each state. The Stop
+button is Core's and already has a name.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-chat-components.test.mjs` renders the Toolkit composer, with the
+real Tiptap editor, inside the assistant runtime and tooltip providers. It
+reads the send button's accessible name, "Send message" and then "Queue
+message" with `willQueue`. linkedom has no text selection, computed style, or
+viewport size, so the test supplies an empty selection, an empty style, and a
+fixed size. The name was empty on the previous patch. In the packaged Windows
+app, the accessibility tree showed an unnamed button after "Use microphone" on
+build `d5c960ce` and "Send message" on build `32f02b54`. The queue state was
+not reached there, so the test covers it.
+
+Upstream could take this change as it is. Remove this part of the patch when
+an upstream Toolkit release names the button and passes the same test.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.

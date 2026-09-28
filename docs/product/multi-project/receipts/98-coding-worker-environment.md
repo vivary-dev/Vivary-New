@@ -6,7 +6,8 @@ starts Codex and Claude Code, to start without the server's credentials. Issue
 after its startup deadline to be stopped without starting its run. This receipt records the change on
 `fix/coding-worker-without-credentials` and its verification.
 
-Delivery status: the branch is not merged into `dev`, and issues #98 and #117 are open.
+Delivery status: PR #125 merged into `dev` as `9cf1ed7` after all eight checks passed, including
+Entire Gates, and the owner closed issues #98 and #117 on 2026-09-27.
 
 ## Source and artifacts
 

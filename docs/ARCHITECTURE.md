@@ -153,6 +153,70 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101, documentation. The patch README now says that the stream error translation trusts a numeric
+`statusCode` and a boolean `isRetryable` on any provider object, not only a status that a provider SDK derived,
+as the round 2 re-review found. Documentation only, so the design description holds.
+
+Issue #101, review round 2. A re-review found three narrow gaps in round 1. The maintained Core patch now keeps the
+first error stop that carries a code, so an unreadable chunk before a provider's error chunk no longer hides the
+provider's message, code, and Retry. The upstream provider name in the text must start with a letter and hold only
+letters, spaces, periods, and hyphens, so a name such as "401 unauthorized" can no longer read as a rejected key and
+swap the error card for the provider setup card. The inline notice's Retry now takes one click per error, as the
+card's does, so the round 1 entry's "one click per error" holds for both. Native still owns engines, runs, and the
+error card, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` failed
+on the round 1 patch in those three cases and passes on this one. The [patch
+notes](../packages/workbench/patches/README.md#native-stream-errors) record the rules.
+
+Issue #101, review round 1. Two reviews found that a provider's in-stream error was not final in every check and
+that its metadata still steered retries. The maintained Core patch now reads only a provider error's message, its
+code or else its type, a short plain upstream provider name, and a status that the provider SDK derived. The text
+names the upstream provider, for example "Provider returned error (code 502, from Google)". The classifier sees the
+message, the code, and that status, and never the rest of the metadata, so an upstream body that says "overloaded"
+or "timed out" no longer buys silent retries. A stream chunk that fails to parse shows a fixed sentence instead of
+the raw chunk, and it no longer ends a turn that went on to finish normally. The code is now final in every server
+and client check that reads a message: the engine retry, the in-process resume, the background continuation, the
+saved turn, and the client's automatic continuation. A turn that the server saves, for example after a reload, keeps
+the error and its Retry. Retry shows on the error card and on the inline notice under the last failed message, takes
+one click per error, and adds a visible "Retry the previous request..." instruction turn built from the last user
+text, which keeps history. Three limits were declined. An in-stream 401, 402, or 403 gets a Retry that repeats the
+failure, because OpenRouter sends those as HTTP statuses before the stream. An in-stream rate-limit phrase from
+another AI SDK provider no longer retries on its own, because those normally arrive as HTTP 429. A message queued
+during the failed run is sent first, and the failed turn then keeps no Retry. Native still owns engines, runs, saved
+turns, and the error card, so no component, flow, or boundary changes, and the design description holds.
+`test:native-chat` failed on the previous patch and passes on this one. The [patch
+notes](../packages/workbench/patches/README.md#native-stream-errors) record the fields, the checks, and the limits.
+
+Issue #102. The Toolkit patch gives the Native composer's Send button an `aria-label` from the same text as its
+tooltip, "Send message", or "Queue message" when the chat will queue the message, for example while a turn runs.
+The button now exposes an accessible name in both states. The packaged Windows app's accessibility tree read "Send
+message" on build `32f02b54`, where build `d5c960ce` showed an unnamed button. The composer is Toolkit's and Native
+still owns it, so no component, flow, or boundary changes, and the design description holds. The component test read
+an empty name on the previous patch and reads both names on this one. The [patch
+notes](../packages/workbench/patches/README.md#send-button-name) record the change.
+
+Issue #101. The maintained Core patch shows a provider's in-stream error, such as OpenRouter's error chunk with code
+502, as its message and code, for example "Provider returned error (code 502)", with the error code
+`provider_stream_error` and a Retry on the error card. The engine keeps the error stop that carries the provider's
+text, and the translation leaves out the provider's metadata. The server and the client treat the code as final, so a
+message that names 502 no longer buys three silent retries and an automatic continuation. Retry is the chat's existing
+retry, which queues a new turn and keeps history, and the run's error event still passes through the redaction hook.
+Native still owns engines, runs, and the error card, so no component, flow, or boundary changes, and the design
+description holds. `test:native-chat` failed on the previous patch and passes on this one. The
+[patch notes](../packages/workbench/patches/README.md#native-stream-errors) record the change and its limits.
+
+Issue #101, failing tests. `tests/native-stream-errors.test.ts` drives Core's OpenRouter engine against a loopback
+fake that streams a text chunk and then an in-stream error chunk with code 502, once directly and once through
+`startRun` with Vivary's redactor and a held synthetic value in the provider message.
+`tests/native-chat-components.test.mjs` passes the resulting error event through the client's event handling into
+`RunErrorRecoveryCard`. The new `test:native-chat` script runs both files and joins `test:maintained`. On this commit
+the engine's final stop has no text, the run's error event reads "Engine stream error" with no code, and the client
+continues an error event whose message names 502 on its own. Test wiring only, so the design description holds.
+
+Issues #98 and #117 are closed. PR #125 merged into `dev` as `9cf1ed7` after all eight checks passed, including
+Entire Gates, and the owner closed both issues on 2026-09-27. The receipt and the Coding worker environment and
+Coding worker startup rows in the acceptance register record the merge. Documentation only, so the design
+description holds.
+
 Issues #98 and #117, closure documentation. The [#98 and #117
 receipt](product/multi-project/receipts/98-coding-worker-environment.md) records the Zo tests and CI, the packaged
 Windows check before and after the fix, Codex's own MCP server with a secret header, and the packaged worker's

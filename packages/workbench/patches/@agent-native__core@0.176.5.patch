@@ -1,5 +1,5 @@
 diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
-index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..16b66b169adb6cd145d5bd650e149b54a67b5e76 100644
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd24513c235823 100644
 --- a/dist/agent/engine/ai-sdk-engine.js
 +++ b/dist/agent/engine/ai-sdk-engine.js
 @@ -14,7 +14,7 @@
@@ -20,6 +20,26 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..16b66b169adb6cd145d5bd650e149b54
                  errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
              };
              return;
+@@ -424,7 +424,18 @@ class AISDKEngine {
+                         credentialFailureRecorded = true;
+                     }
+                     if (event.type === "stop") {
+-                        bufferedStop = event;
++                        // The AI SDK follows a provider's in-stream `error` part with a
++                        // `finish` part that has no text. Keep the first error stop that
++                        // carries a code. A chunk that failed the provider's schema has
++                        // no code, so a later normal finish still ends the turn, and a
++                        // later error that carries a code replaces it.
++                        const keepError = bufferedStop?.reason === "error" &&
++                            bufferedStop.error &&
++                            (bufferedStop.errorCode ||
++                                (event.reason === "error" && !event.errorCode));
++                        if (!keepError) {
++                            bufferedStop = event;
++                        }
+                     }
+                     else {
+                         yield event;
 diff --git a/dist/agent/engine/anthropic-engine.js b/dist/agent/engine/anthropic-engine.js
 index f66ece32d03e3a4e719ad745449a0d31c7dbf16f..4221dfff002a55f511add203f47e9f025b2b1d47 100644
 --- a/dist/agent/engine/anthropic-engine.js
@@ -116,8 +136,111 @@ index 19033d1506f417150185e287bb2d0d0f3dfb14d0..2f9d0c4380a588c24a9162980582d631
  }
  export function userFacingLlmCredentialError(error, options) {
      return isLlmCredentialError(error)
+diff --git a/dist/agent/engine/translate-ai-sdk.js b/dist/agent/engine/translate-ai-sdk.js
+index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..a137c7a53445fd78f1efefae0a359950628b919e 100644
+--- a/dist/agent/engine/translate-ai-sdk.js
++++ b/dist/agent/engine/translate-ai-sdk.js
+@@ -236,11 +236,17 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
+             // dispatches tools on the outside, so these don't appear in our flow.
+             break;
+         case "error": {
+-            const errMsg = part.error instanceof Error
+-                ? describeErrorWithCauses(part.error)
+-                : typeof part.error === "string"
+-                    ? part.error
+-                    : JSON.stringify(part.error);
++            const providerError = providerStreamError(part.error);
++            const unreadableChunk = !providerError && isChunkParseError(part.error);
++            const errMsg = providerError
++                ? providerStreamErrorText(providerError)
++                : unreadableChunk
++                    ? UNREADABLE_CHUNK_MESSAGE
++                    : part.error instanceof Error
++                        ? describeErrorWithCauses(part.error)
++                        : typeof part.error === "string"
++                            ? part.error
++                            : JSON.stringify(part.error);
+             // `streamText` reports a failed provider request as a stream part rather
+             // than a throw, so this is the arrival path for most provider HTTP
+             // failures. It used to emit the message alone, discarding the
+@@ -251,7 +257,23 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
+                 type: "stop",
+                 reason: "error",
+                 error: errMsg,
+-                ...classifyProviderError(part.error),
++                // A provider's own in-stream error gets a code of its own, so the
++                // chat shows it with a Retry. A classification of its message and
++                // code still wins. Its metadata never reaches the classifier, so an
++                // upstream body cannot turn it into silent retries.
++                ...(providerError
++                    ? {
++                        errorCode: "provider_stream_error",
++                        ...classifyProviderError({
++                            message: providerError.message,
++                            code: providerError.code,
++                            statusCode: providerError.statusCode,
++                            isRetryable: providerError.isRetryable,
++                        }),
++                    }
++                    : unreadableChunk
++                        ? {}
++                        : classifyProviderError(part.error)),
+             });
+             break;
+         }
+@@ -282,6 +304,50 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
+     }
+     return events;
+ }
++const UNREADABLE_CHUNK_MESSAGE = "The model provider sent a response that could not be read";
++/**
++ * A provider's own in-stream error, read from the plain object it sent, such as
++ * OpenRouter's `{ code, message, metadata }`. An error chunk that fails the
++ * provider's schema, such as one with no message, arrives as a
++ * TypeValidationError that still holds the chunk. Only the message, the code or
++ * else the type, a short plain upstream provider name, and a status the
++ * provider SDK derived are read. The rest of `metadata` can hold the upstream
++ * provider's raw response. The name holds no digits, because the client reads
++ * the shown text for statuses such as 401.
++ */
++function providerStreamError(error) {
++    const value = error instanceof Error
++        ? error.name === "AI_TypeValidationError"
++            ? error.value?.error
++            : undefined
++        : error;
++    if (typeof value !== "object" || value === null || value instanceof Error)
++        return undefined;
++    const text = (field) => typeof field === "string" && field.trim() ? field.trim() : undefined;
++    const provider = text(value.metadata?.provider_name);
++    return {
++        message: text(value.message),
++        code: typeof value.code === "number"
++            ? String(value.code)
++            : (text(value.code) ?? text(value.type)),
++        provider: provider && /^[A-Za-z][A-Za-z .-]{0,63}$/.test(provider)
++            ? provider
++            : undefined,
++        statusCode: value.statusCode,
++        isRetryable: value.isRetryable,
++    };
++}
++/** A stream chunk that failed to parse. Its message quotes the raw chunk. */
++function isChunkParseError(error) {
++    return (error instanceof Error &&
++        (error.name === "AI_TypeValidationError" ||
++            error.name === "AI_JSONParseError"));
++}
++/** For example "Provider returned error (code 502, from Google)". */
++function providerStreamErrorText({ message, code, provider }) {
++    const details = [code && `code ${code}`, provider && `from ${provider}`].filter(Boolean);
++    return `${message ?? "The model provider returned an error"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
++}
+ function finishReasonToStopReason(reason) {
+     switch (reason) {
+         case "tool-calls":
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e783c88e8ba 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae23674a97 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -137,7 +260,19 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
  import { describeToolResultImages, extractAgentImagesFromActionResult, } from "./tool-result-images.js";
  import { createToolSearchEntry, searchToolRegistry, TOOL_SEARCH_ACTION_NAME, } from "./tool-search.js";
  // Register built-in engines on first import
-@@ -1395,8 +1396,11 @@ export function structuredHistoryToEngineMessages(history) {
+@@ -968,6 +969,11 @@ export function isRetryableError(err) {
+     // Hard non-retryable codes — check these first.
+     if (code === "builder_gateway_timeout")
+         return false;
++    // A provider's own in-stream error is shown with a Retry, not retried here.
++    // Its message can name a status such as 502, which the message checks
++    // below read as transient.
++    if (code === "provider_stream_error")
++        return false;
+     if (code === "rate_limit_exceeded" ||
+         msg.includes("daily gateway request cap"))
+         return false;
+@@ -1395,8 +1401,11 @@ export function structuredHistoryToEngineMessages(history) {
              messages.push({ role: message.role, content });
          }
      }
@@ -150,7 +285,19 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
          : null;
  }
  /** Build enriched message with file/skill/mention references */
-@@ -4363,7 +4367,8 @@ export async function runAgentLoop(opts) {
+@@ -1708,6 +1717,11 @@ export function isResumableEngineError(err) {
+     if (!(err instanceof Error))
+         return false;
+     const code = err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
++    // A provider's in-stream error ends the turn with its message and a Retry.
++    // Its message can name 502, a closed stream, or an unavailable service,
++    // which the checks below read as transient.
++    if (code === "provider_stream_error")
++        return false;
+     if (code === "builder_gateway_timeout" ||
+         code === "builder_gateway_network_error" ||
+         // A gateway stream that stopped mid-turn. It reached here as
+@@ -4363,7 +4377,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -160,7 +307,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5090,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5100,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -171,7 +318,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5145,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5155,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -180,7 +327,19 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5890,7 +5899,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5469,6 +5488,11 @@ export function isRecoverableContinuationError(event) {
+     const message = event.error.toLowerCase();
+     if (code === "builder_gateway_error")
+         return false;
++    // A provider's in-stream error ends the turn with its message and a Retry.
++    // Its message can name 502, a closed stream, or an unavailable service,
++    // which the checks below read as transient.
++    if (code === "provider_stream_error")
++        return false;
+     // An explicit flag outranks the message sniff below, which exists for events
+     // that carry no flag at all. Every guard stop sets `recoverable: false`, and
+     // sniffing its prose is how a stop that merely NAMES a connection or a
+@@ -5890,7 +5914,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -189,7 +348,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..bad9ed38a8c17e3f9a9d4838dfd93e78
          }
      }
      return updated;
-@@ -7389,12 +7398,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7413,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -402,10 +561,22 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..b13cd995724d8c240923328c18732ac09c865092 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5d6e2314ec59b234e448fbbb9ce0938b541217b0 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
-@@ -1117,6 +1117,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
+     const msg = event.error.toLowerCase();
+     if (code === "builder_gateway_error")
+         return false;
++    // A provider's in-stream error ends the turn with its message and a Retry.
++    // Its message can name 502, a closed stream, or an unavailable service,
++    // which the checks below read as transient.
++    if (code === "provider_stream_error")
++        return false;
+     // An explicit `recoverable: false` outranks the code and message inference
+     // below, matching `isRecoverableContinuationError`. The background
+     // no-progress breaker stops a turn while PRESERVING the underlying transient
+@@ -1117,6 +1122,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -427,7 +598,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..b13cd995724d8c240923328c18732ac0
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1193,7 +1208,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1193,7 +1213,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
          nextMessages.push(incomingMessages[index]);
      }
      merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
@@ -436,7 +607,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..b13cd995724d8c240923328c18732ac0
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1368,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1373,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -2235,10 +2406,21 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..1403e8ee3e1a50221b1e2d3d1aad9bd3
                                      }) })) : runs.length === 0 ? (_jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: t("jobs.noRuns", {
                                          defaultValue: "This automation has not executed yet. Only real executions are recorded here.",
 diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
-index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a3454d087 100644
+index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c96f0dfcc 100644
 --- a/dist/client/chat/message-components.d.ts
 +++ b/dist/client/chat/message-components.d.ts
-@@ -246,3 +246,8 @@ export declare function RunningActivityStatus({ label }: {
+@@ -234,6 +234,10 @@ export declare function shouldShowInlineRunError({ runError, bannerRunErrorKey,
+     runError: RunErrorInfo | null;
+     bannerRunErrorKey: string | null | undefined;
+ }): boolean;
++export declare function shouldOfferInlineRunErrorRetry({ runError, isLast, }: {
++    runError: RunErrorInfo;
++    isLast: boolean;
++}): boolean;
+ export declare function InlineRunErrorNotice({ info, durationMs, onRetry, }: {
+     info: RunErrorInfo;
+     durationMs?: number | null;
+@@ -246,3 +250,8 @@ export declare function RunningActivityStatus({ label }: {
  export declare function ThinkingIndicator({ label }?: {
      label?: string;
  }): React.JSX.Element;
@@ -2248,10 +2430,53 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..a16aee187848499e27702f7ab271e56a
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d8154f923bb 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964e96c70ad 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
-@@ -985,6 +985,84 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+@@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
+         return false;
+     return runErrorKey(runError) !== bannerRunErrorKey;
+ }
++/**
++ * Retry on the inline notice under a failed message. The last message offers it
++ * for a recoverable run and for a provider's in-stream error, which ends the
++ * turn without an automatic retry, as the error card does.
++ */
++export function shouldOfferInlineRunErrorRetry({ runError, isLast, }) {
++    return Boolean(isLast &&
++        (runError.recoverable || runError.errorCode === "provider_stream_error"));
++}
+ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+     const t = useT();
+     const formatDuration = useLocalizedWorkedDuration();
+     const [open, setOpen] = useState(false);
++    // One click queues one retry turn, as on the error card. The notice stays
++    // mounted until the chat re-renders, so the guard resets only for a
++    // different error.
++    const retryRequestedRef = useRef(false);
++    const [retryRequested, setRetryRequested] = useState(false);
++    const errorKey = runErrorKey(info);
++    useEffect(() => {
++        retryRequestedRef.current = false;
++        setRetryRequested(false);
++    }, [errorKey]);
++    const handleRetry = useCallback(() => {
++        if (retryRequestedRef.current)
++            return;
++        retryRequestedRef.current = true;
++        setRetryRequested(true);
++        onRetry();
++    }, [onRetry]);
+     const headline = runErrorHeadline(info, {
+         recoverable: t("agentChat.error.stopped"),
+         terminal: t("agentChat.error.failed"),
+@@ -980,11 +1006,89 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+             duration: formatDuration(durationMs),
+         })
+         : headline;
+-    return (_jsxs("div", { className: "my-1 w-full", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), "aria-expanded": open, className: "flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground", children: [_jsx(IconAlertTriangle, { className: "size-3.5 shrink-0 text-amber-500" }), _jsx("span", { className: "truncate", children: label }), _jsx(IconChevronRight, { className: cn("size-3.5 shrink-0 transition-transform", open && "rotate-90") })] }), open && (_jsxs("div", { className: "mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground", children: [_jsx("p", { className: "whitespace-pre-wrap break-words", children: localizeKnownChatErrorText(info.message, t) }), info.errorCode && (_jsxs("div", { className: "mt-1 font-mono", children: ["code: ", info.errorCode] })), info.runId && _jsxs("div", { className: "font-mono", children: ["run: ", info.runId] }), info.details && (_jsx("pre", { className: "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono", children: info.details })), onRetry && (_jsxs("button", { type: "button", onClick: onRetry, className: "mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent", children: [_jsx(IconRefresh, { className: "size-3" }), t("agentChat.common.retry")] }))] }))] }));
++    return (_jsxs("div", { className: "my-1 w-full", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), "aria-expanded": open, className: "flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground", children: [_jsx(IconAlertTriangle, { className: "size-3.5 shrink-0 text-amber-500" }), _jsx("span", { className: "truncate", children: label }), _jsx(IconChevronRight, { className: cn("size-3.5 shrink-0 transition-transform", open && "rotate-90") })] }), open && (_jsxs("div", { className: "mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground", children: [_jsx("p", { className: "whitespace-pre-wrap break-words", children: localizeKnownChatErrorText(info.message, t) }), info.errorCode && (_jsxs("div", { className: "mt-1 font-mono", children: ["code: ", info.errorCode] })), info.runId && _jsxs("div", { className: "font-mono", children: ["run: ", info.runId] }), info.details && (_jsx("pre", { className: "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono", children: info.details })), onRetry && (_jsxs("button", { type: "button", onClick: handleRetry, disabled: retryRequested, className: "mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent", children: [_jsx(IconRefresh, { className: "size-3" }), t("agentChat.common.retry")] }))] }))] }));
+ }
  function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
      return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
  }
@@ -2336,7 +2561,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1079,7 +1157,9 @@ export function AssistantMessage() {
+@@ -1079,7 +1183,9 @@ export function AssistantMessage() {
      const responseConnectionContext = React.useMemo(() => {
          let parentId = msg.parentId;
          while (parentId) {
@@ -2347,7 +2572,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  return displayableUserMessageText(messageTextFromContent(parentMessage.content));
-@@ -1087,12 +1167,14 @@ export function AssistantMessage() {
+@@ -1087,12 +1193,14 @@ export function AssistantMessage() {
              parentId = parentMessage.parentId;
          }
          return "";
@@ -2364,7 +2589,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  turnStartedAt = parentMessage.createdAt;
-@@ -1298,6 +1380,8 @@ export function AssistantMessage() {
+@@ -1298,6 +1406,8 @@ export function AssistantMessage() {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
@@ -2373,8 +2598,20 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..b9ad2b9d8d9fe5a97e07afdc6ca19d81
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
+@@ -1307,7 +1417,10 @@ export function AssistantMessage() {
+                                     default:
+                                         return null;
+                                 }
+-                            } }) }), showInlineRunError && messageRunError && (_jsx(InlineRunErrorNotice, { info: messageRunError, durationMs: capturedDurationMs ?? persistedDurationMs, onRetry: isLast && messageRunError.recoverable
++                            } }) }), showInlineRunError && messageRunError && (_jsx(InlineRunErrorNotice, { info: messageRunError, durationMs: capturedDurationMs ?? persistedDurationMs, onRetry: shouldOfferInlineRunErrorRetry({
++                                runError: messageRunError,
++                                isLast,
++                            })
+                             ? messageActions?.onRetryRunError
+                             : undefined })), missingWarningText == null &&
+                         missingFinalResponseNoticeText != null &&
 diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
-index 851a9d9763239e262cc940db36d9d6669f5688ab..cc89dc6b18df95d6ba01cc90b69d2b4204561bd0 100644
+index 851a9d9763239e262cc940db36d9d6669f5688ab..2fcff826eb2cf488cd58dfd87ffee80004e06d3c 100644
 --- a/dist/client/chat/run-recovery.js
 +++ b/dist/client/chat/run-recovery.js
 @@ -1,4 +1,5 @@
@@ -2405,6 +2642,54 @@ index 851a9d9763239e262cc940db36d9d6669f5688ab..cc89dc6b18df95d6ba01cc90b69d2b42
      const isProviderAuthError = isProviderAuthenticationError([info.message, info.details].filter(Boolean).join("\n"), info.errorCode);
      const shouldShowProviderSetup = isMissingLlmProviderRunError(info) ||
          isDesktopChatRelayRunError(info) ||
+@@ -245,7 +252,12 @@ export function RunErrorRecoveryCard({ info, onContinue, onRetry, onFork, onDism
+     // credentials. Without this the common case — a rejected workspace or
+     // deployment credential the reader cannot see, let alone edit — rendered a
+     // "Connected ✓" panel with no action at all.
+-    const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
++    // A provider's in-stream error ends the turn without an automatic retry, so
++    // the reader retries it here. Retry appends a new turn and keeps history.
++    const canRetry = canRecover ||
++        isUnblockableExternally ||
++        isProviderAuthError ||
++        info.errorCode === "provider_stream_error";
+     const builderReconnectResolved = shouldShowBuilderReconnect &&
+         builderReconnect.hasFetchedStatus &&
+         builderReconnect.configured;
+@@ -285,7 +297,15 @@ export function RunErrorRecoveryCard({ info, onContinue, onRetry, onFork, onDism
+     const handleMissingProviderConnected = useCallback(() => {
+         onProviderConnected?.();
+     }, [onProviderConnected]);
+-    const handleMissingProviderRetry = useCallback(() => {
++    // One click queues one retry turn. The card stays mounted until the chat
++    // re-renders, and the chat then shows the same error read back from the
++    // message, so the guard resets only for a different error.
++    const errorKey = runErrorKey(info);
++    useEffect(() => {
++        retryRequestedRef.current = false;
++        setRetryRequested(false);
++    }, [errorKey]);
++    const handleRetry = useCallback(() => {
+         if (retryRequestedRef.current)
+             return;
+         retryRequestedRef.current = true;
+@@ -318,14 +338,14 @@ export function RunErrorRecoveryCard({ info, onContinue, onRetry, onFork, onDism
+     if (shouldShowProviderSetup) {
+         return (_jsxs("div", { className: "w-full", children: [_jsx(BuilderSetupCard, { fullWidth: true, layout: "sidebar", onConnected: isProviderAuthError
+                         ? handleProviderConnected
+-                        : handleMissingProviderConnected }), _jsx("div", { className: "flex justify-center px-3 pt-1", children: _jsxs("button", { type: "button", onClick: handleMissingProviderRetry, disabled: retryRequested, className: "inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60", children: [_jsx(IconRefresh, { size: 13 }), t("agentChat.common.retry")] }) })] }));
++                        : handleMissingProviderConnected }), _jsx("div", { className: "flex justify-center px-3 pt-1", children: _jsxs("button", { type: "button", onClick: handleRetry, disabled: retryRequested, className: "inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60", children: [_jsx(IconRefresh, { size: 13 }), t("agentChat.common.retry")] }) })] }));
+     }
+     return (_jsxs("div", { className: "rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm", children: [_jsxs("div", { className: "flex items-start gap-2", children: [_jsx("span", { className: "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300", children: _jsx(IconAlertTriangle, { size: 14 }) }), _jsxs("div", { className: "min-w-0 flex-1", children: [_jsx("div", { className: "font-medium text-foreground", children: runErrorHeadline(info, {
+                                     recoverable: t("agentChat.error.stopped"),
+                                     terminal: t("agentChat.error.failed"),
+                                 }) }), _jsx("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: localizeKnownChatErrorText(info.message, t) }), shouldShowBuilderReconnect && !builderReconnectResolved && (_jsx("p", { className: "mt-2 text-xs leading-relaxed text-muted-foreground", children: t("agentChat.recovery.credentialRejected") })), isConnectionRecoveryError && (_jsx("p", { className: "mt-2 text-xs leading-relaxed text-muted-foreground", children: t("agentChat.recovery.newChatHint") })), (info.runId || info.errorCode || info.details) && (_jsxs("button", { type: "button", onClick: () => setDetailsOpen((v) => !v), className: "mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground", children: [_jsx(IconChevronDown, { size: 12, className: cn("transition-transform", detailsOpen && "rotate-180") }), t("agentChat.common.details")] })), detailsOpen && (_jsxs("div", { className: "mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground", children: [info.runId && _jsxs("div", { children: ["run: ", info.runId] }), info.errorCode && _jsxs("div", { children: ["code: ", info.errorCode] }), info.details && (_jsx("pre", { className: "mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono", children: info.details }))] }))] }), _jsx("button", { type: "button", onClick: onDismiss, "aria-label": t("agentChat.common.dismiss"), className: "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground", children: _jsx(IconX, { size: 14 }) })] }), _jsxs("div", { className: "mt-3 flex min-w-0 items-center gap-2", children: [shouldShowBuilderReconnect && !builderReconnectResolved && (_jsx(BuilderConnectPopover, { flow: builderReconnect, children: _jsxs("button", { type: "button", disabled: builderReconnect.connecting, className: "inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70", children: [builderReconnect.connecting ? (_jsx(IconLoader2, { size: 13, className: "animate-spin" })) : null, builderReconnect.connecting
+                                     ? t("agentChat.recovery.connectingBuilder")
+-                                    : t("agentChat.recovery.reconnectBuilder")] }) })), canRecover && (_jsxs("button", { type: "button", onClick: onContinue, className: "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90", children: [_jsx(IconPlayerPlay, { size: 13 }), _jsx("span", { className: "truncate", children: t("agentChat.common.continue") })] })), _jsxs("div", { className: "flex shrink-0 items-center gap-0.5", children: [canRetry && (_jsx("button", { type: "button", onClick: onRetry, title: isQueryError
++                                    : t("agentChat.recovery.reconnectBuilder")] }) })), canRecover && (_jsxs("button", { type: "button", onClick: onContinue, className: "inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90", children: [_jsx(IconPlayerPlay, { size: 13 }), _jsx("span", { className: "truncate", children: t("agentChat.common.continue") })] })), _jsxs("div", { className: "flex shrink-0 items-center gap-0.5", children: [canRetry && (_jsx("button", { type: "button", onClick: handleRetry, disabled: retryRequested, title: isQueryError
+                                     ? t("agentChat.recovery.diagnoseRetry")
+                                     : t("agentChat.common.retry"), "aria-label": isQueryError
+                                     ? t("agentChat.recovery.diagnoseRetry")
 diff --git a/dist/client/chat-model-groups.d.ts b/dist/client/chat-model-groups.d.ts
 index ab985c5f9156c2418ea7a228dafcbd18ea4cfae4..915356fb989d2cd63a8bd9bf7075c644ac2cd637 100644
 --- a/dist/client/chat-model-groups.d.ts
@@ -2840,7 +3125,7 @@ index 93b006b54a79d6e49e25843396d865f0516d9b8d..9e5c9bac22694fc8f89a1cb1cf096c89
      text: string;
  } | {
 diff --git a/dist/client/sse-event-processor.js b/dist/client/sse-event-processor.js
-index 8372920704dd4163171edc9078281e38d76869cb..5d918796d8def5fdd90658db3f190bf4a98f8e05 100644
+index 8372920704dd4163171edc9078281e38d76869cb..4343274096b856b7c5de9fd081748a57747ba565 100644
 --- a/dist/client/sse-event-processor.js
 +++ b/dist/client/sse-event-processor.js
 @@ -1,4 +1,4 @@
@@ -2849,7 +3134,18 @@ index 8372920704dd4163171edc9078281e38d76869cb..5d918796d8def5fdd90658db3f190bf4
  import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
  import { emitChatFirstOpenApp } from "./chat-first.js";
  import { formatChatErrorText, normalizeChatError } from "./error-format.js";
-@@ -1412,7 +1412,7 @@ export function processEvent(ev, content, toolCallCounter, tabId, state) {
+@@ -513,6 +513,10 @@ function isAutoRecoverableError(ev, errMsg) {
+         code === "not_found_error" ||
+         code === "model_not_found" ||
+         code === "provider_rate_limited" ||
++        // A provider's own in-stream error. Its message can name a status such
++        // as 502, which the message checks below read as transient. The error
++        // card offers Retry instead.
++        code === "provider_stream_error" ||
+         // `builder_gateway_error` is the no-detail fallback the Builder engine
+         // emits when the gateway returns `{type:"stop",reason:"error"}` with no
+         // explanation — almost always the upstream provider giving up (model
+@@ -1412,7 +1416,7 @@ export function processEvent(ev, content, toolCallCounter, tabId, state) {
          return { action: "continue" };
      }
      if (ev.type === "missing_api_key") {
