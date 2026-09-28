@@ -7314,6 +7314,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #106, review fixes. The maintained Core patch keeps a stopped reply labeled in the live chat after the owner
+sends the next message. The chat keeps a list of the runs the owner stopped, which the next message does not clear,
+and the message view reads it. A Stop flags only the stopped run's own reply, so a Stop while a reloaded chat follows
+a run no longer labels the previous finished reply. A stopped reply that holds a missing-response warning shows the
+stopped notice. A later run that finishes the same turn drops the flag, a client copy of a later run does not take
+it, and a run that a newer turn displaces in memory ends with `done` and no reason, so its reply is not labeled.
+Native still owns runs, saved threads, and the chat view, so no component, flow, or boundary changes, and the design
+description holds. The new cases in `test:native-chat` failed on the previous patch and pass on this one. The
+[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#stopped-replies) record the change and its limits.
+
 Issue #106, review fixes, failing tests. `tests/native-stop.test.ts` folds a later run that finishes the same turn
 onto a stopped reply, saves a client copy of that later run, and displaces a streaming run by starting a newer turn
 on its thread. `tests/native-chat-components.test.mjs` mounts Core's whole chat against a fake chat server. It stops
@@ -7341,7 +7351,7 @@ Issue #106. The maintained Core patch labels every reply the owner stopped. The 
 run's terminal `done` event with reason `user`, a client save that keeps the client's heavier copy carries the flag
 over from the server's copy, and the chat shows "The agent stopped before finishing" under every stopped reply, with
 or without text and after later turns. Stop itself did not change. A Node test confirms that it ends the run and
-closes the model connection within 500 ms, 80 to 160 ms on Zo, and fires a tool's signal within 1 ms. Native still
+closes the model connection within 500 ms, 68 to 216 ms on Zo, and fires a tool's signal within 50 ms. Native still
 owns runs, saved threads, and the message view, so no component, flow, or boundary changes, and the design
 description holds. `test:native-chat` failed on the previous patch in the label cases and passes on this one. The
 [patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#stopped-replies) record the change and its limits.

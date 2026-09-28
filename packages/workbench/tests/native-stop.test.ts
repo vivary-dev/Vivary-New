@@ -36,9 +36,9 @@ const { createAISDKEngine } = await import("@agent-native/core/agent/engine");
 const { actionsToEngineTools, loadActionsFromStaticRegistry, runAgentLoop, runWithRequestContext } =
   await import("@agent-native/core/server");
 
-// Upper bounds from Stop to each outcome. On Zo the run ended and the model connection closed 80 to
-// 160 ms after Stop, most of it while the engine's AI SDK stream settled, and a tool's signal fired
-// within 1 ms.
+// Upper bounds from Stop to each outcome. In 13 runs on Zo the run ended 68 to 206 ms and the model
+// connection closed 85 to 216 ms after Stop, most of it while the engine's AI SDK stream settled, and a
+// tool's signal fired 0 to 1 ms after Stop.
 const RUN_END_MS = 500;
 const CONNECTION_CLOSE_MS = 500;
 const TOOL_SIGNAL_MS = 50;

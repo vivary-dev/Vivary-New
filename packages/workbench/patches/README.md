@@ -394,19 +394,34 @@ The patch changes these files:
 
 - `agent/thread-data-builder.js` sets `custom.userStopped` in
   `buildAssistantMessage` when the run ends with `done` and reason `user`, as
-  the live client's `processEvent` does. The run store emits that event only
-  for a Stop, with the reason `user`, `abort`, or `user_*`. `foldAssistantTurn`
-  already merges `custom`, so the flag also reaches a turn the client saved
-  first.
+  the live client's `processEvent` does. The run store emits that event when
+  the owner stops a run. That covers Stop in the chat, the stuck banner's
+  Cancel and Retry (`user_stuck_cancel` and `user_stuck_retry`), and the stop
+  of an agent team's background run. `foldAssistantTurn` already merges
+  `custom`, so the flag also reaches a turn the client saved first. A later
+  run that folds onto the same turn keeps the flag only when it was stopped
+  too.
 - The same file carries `userStopped` over in a client save, as it carries the
   run duration. The merge keeps one copy of a turn whole, usually the client's
   heavier copy. When assistant-ui cancels a stopped run, the client's copy can
-  lose the flag, and the #50 turn's saved copy had none.
+  lose the flag, and the #50 turn's saved copy had none. The flag carries over
+  only between copies of the same run, so a copy of a later run in the same
+  turn does not take it.
 - `client/chat/message-components.js` shows "The agent stopped before
   finishing" under every stopped reply, with or without text and after later
   turns. It reuses the `agentChat.error.stopped` string, so no locale file
-  changes. A missing-response warning inside a stopped reply is hidden instead
-  of showing a second notice.
+  changes. A missing-response warning inside a stopped reply is hidden, and
+  the stopped notice shows under the reply in its place.
+- `client/AssistantChat.js` keeps a list of the runs the owner stopped in the
+  chat, by run id and turn id, and the message view reads it. Sending the next
+  message clears the older stop marker but not this list. assistant-ui writes
+  a cancelled run back over the live reply without the flag, so in the live
+  chat the notice rests on this list. When both the stop and a reply know a
+  run id, the run ids decide. Stop flags only the stopped run's own reply, and
+  nothing when that reply is not among the chat's messages yet.
+- `agent/run-manager.js` gives a run that a newer turn displaces in memory
+  the reason `displaced`, which ends it with `done` and no reason, so its
+  reply is not labeled.
 
 These limits remain:
 
@@ -421,6 +436,9 @@ These limits remain:
   can take about 3 seconds. The investigation measured 1,979 ms.
 - A tool that ignores its signal keeps running after Stop, although the loop
   stops waiting for it at once.
+- While a reloaded chat follows a run, the run's reply is not among the
+  chat's messages, so a Stop labels nothing in the live chat. The saved turn
+  carries the flag, and the notice shows after a reload.
 
 Run `pnpm --dir packages/workbench test:native-chat`.
 `tests/native-stop.test.ts` starts a turn through `startRun` and the agent
@@ -428,17 +446,31 @@ loop against a loopback fake OpenRouter and presses Stop with
 `abortRunDurably(runId, "user")`, the run route's own call. While the model
 streams its reply, the run must end and the model connection must close
 within 500 ms, with one provider request and one terminal event, `done` with
-reason `user`. On Zo both took 80 to 160 ms, most of it while the engine's AI
-SDK stream settled. During a tool step that honors its signal, the signal must
-fire within 50 ms and the run must end within 500 ms. On Zo they took at most
-1 ms and 3 to 8 ms. The saved turn must keep its text or its tool call and set
-`userStopped`, and a client save of a heavier copy without the flag must keep
-the flag and the client's content. `tests/native-chat-components.test.mjs`
-renders Core's assistant message for a reloaded thread with two stopped
-replies that have text and a finished reply between them, and the notice must
-show under both stopped replies only. On the previous patch the timing cases
-passed and the label cases failed. With only the first and third changes, the
-client save case still failed.
+reason `user`. In 13 runs on Zo the run ended 68 to 206 ms and the connection
+closed 85 to 216 ms after Stop, most of it while the engine's AI SDK stream
+settled, and the time grows with host load. During a tool step that honors
+its signal, the signal must fire within 50 ms and the run must end within
+500 ms. In the same runs they took 0 to 1 ms and 2 to 8 ms. The saved turn
+must keep its text or its tool call and set `userStopped`, and a client save
+of a heavier copy without the flag must keep the flag and the client's
+content. A later run that finishes the same turn must drop the flag, and a
+client copy of that run must not take it. A run that a newer turn displaces
+must end with `done` and no reason and save no flag. Each test that waits for
+a run to end fails after 10 seconds when the run never ends. The script's
+`--test-force-exit` then ends the file, which the run's own timers would keep
+open. `tests/native-chat-components.test.mjs` renders Core's assistant
+message for a reloaded thread with two stopped replies that have text and a
+finished reply between them, and the notice must show under both stopped
+replies only. A stopped reply that holds a missing-response warning must show
+the notice instead of the warning. The test also mounts Core's whole chat
+against a fake chat server. After a Stop on a live reply with text and the
+next message, the notice must stay under the stopped reply. After a Stop
+while the chat follows a run, the previous finished reply must stay
+unlabeled. On the first patch for #106 the timing cases passed and the label
+cases failed, and with only its first and third changes the client save case
+still failed. On the patch before these review fixes, the live reply, the
+reply with the warning, the finished reply before a followed run, the later
+run in the same turn, and the displaced run failed.
 
 Upstream could take these changes as they are. Remove this part of the patch
 when an upstream release labels every stopped reply after a reload and passes

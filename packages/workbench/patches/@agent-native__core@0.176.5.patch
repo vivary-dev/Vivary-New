@@ -617,7 +617,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..7b2b47b6c1e3b6f4655db53095316084
                              // token_usage has had run_id/thread_id/task_id since it was
                              // created and every row was NULL on all three, so no spend could
 diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
-index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b1a64f4fe 100644
+index d633a29f3ebe57ff878a909a583f3a02cde20946..6e3c2a78242c3db96737026d0c21ef36f4357feb 100644
 --- a/dist/agent/run-manager.js
 +++ b/dist/agent/run-manager.js
 @@ -1,7 +1,8 @@
@@ -664,6 +664,19 @@ index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b
  function isTerminalRunEvent(event) {
      return (event.type === "done" ||
          event.type === "error" ||
+@@ -675,10 +703,10 @@ function abortInMemoryRun(run, reason = "user") {
+  * Events are persisted to SQL for cross-isolate access (Cloudflare Workers).
+  */
+ export function startRun(runId, threadId, runFn, onComplete, options) {
+-    // If there's already a run for this thread, abort it
++    // A newer turn displaces the thread's older run. The owner did not stop it.
+     const existingRunId = threadToRun.get(threadId);
+     if (existingRunId) {
+-        abortRun(existingRunId);
++        abortRun(existingRunId, "displaced");
+     }
+     const abort = new AbortController();
+     // Chunk-scoped controller, only for a runFn that recovers boundaries in this
 @@ -1397,6 +1425,9 @@ export function startRun(runId, threadId, runFn, onComplete, options) {
          });
      };
@@ -814,7 +827,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa23c49032 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..5bf647f29146b5f81261975afa9a5cbaea828d4f 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -875,7 +888,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
      const chosen = getStoredMessage(chosenEntry);
      const other = getStoredMessage(otherEntry);
      if (chosen?.role !== "assistant" || other?.role !== "assistant") {
-@@ -554,13 +575,18 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+@@ -554,13 +575,24 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
      const chosenCustom = chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
          ? chosen.metadata.custom
          : {};
@@ -890,14 +903,20 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
 +    if (assistantRunDurationMs(chosenCustom) == null && durationMs != null) {
 +        carried[ASSISTANT_RUN_DURATION_METADATA_KEY] = durationMs;
 +    }
-+    if (otherCustom.userStopped === true && chosenCustom.userStopped !== true) {
++    // The stop belongs to one run. A copy of a later run in the same turn does
++    // not take it.
++    const chosenRunId = getMessageRunId(chosen);
++    const otherRunId = getMessageRunId(other);
++    if (otherCustom.userStopped === true &&
++        chosenCustom.userStopped !== true &&
++        !(chosenRunId && otherRunId && chosenRunId !== otherRunId)) {
 +        carried.userStopped = true;
 +    }
 +    if (Object.keys(carried).length === 0)
          return chosenEntry;
      const nextMessage = {
          ...chosen,
-@@ -568,7 +594,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
+@@ -568,7 +600,7 @@ function preserveAssistantRunDuration(chosenEntry, otherEntry) {
              ...chosen.metadata,
              custom: {
                  ...chosenCustom,
@@ -906,7 +925,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
              },
          },
      };
-@@ -599,15 +625,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
+@@ -599,15 +631,15 @@ function chooseMergedMessageEntry(existingEntry, incomingEntry) {
                      !isTerminalAssistantStatus(incoming?.status)
                      ? existingEntry
                      : incomingEntry;
@@ -925,7 +944,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
  }
  function normalizeMessageEntry(entry, parentId) {
      const message = getStoredMessage(entry);
-@@ -1117,6 +1143,21 @@ function pruneClaimedQueuedMessages(repo) {
+@@ -1117,6 +1149,21 @@ function pruneClaimedQueuedMessages(repo) {
          queuedMessages: repo.queuedMessages.filter((message) => typeof message?.id !== "string" || !claimed.has(message.id)),
      };
  }
@@ -947,7 +966,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
  export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options = {}) {
      const preserveExistingQueuedMessages = options.preserveExistingQueuedMessages ?? true;
      const preserveExistingTopLevelKeys = options.preserveExistingTopLevelKeys ?? true;
-@@ -1193,7 +1234,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
+@@ -1193,7 +1240,7 @@ export function mergeThreadDataForClientSave(existingRepo, incomingRepo, options
          nextMessages.push(incomingMessages[index]);
      }
      merged.messages = nextMessages.map((entry) => rewriteEntryParentId(entry, idRewrites));
@@ -956,7 +975,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
  }
  function escapeAttachmentAttribute(value) {
      return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-@@ -1353,6 +1394,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
+@@ -1353,6 +1400,9 @@ function toCoreCodeAgentTranscriptEvent(event) {
      };
  }
  function contentPartForCodeAgentTranscriptItem(item, options) {
@@ -966,6 +985,17 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..0287f46cc305a5b98246ad00882137fa
      if (item.type === "assistant") {
          return item.text.trim() ? { type: "text", text: item.text } : null;
      }
+@@ -1677,6 +1727,10 @@ export function foldAssistantTurn(repo, assistantMsg, options) {
+     // Only the freshest chunk decides whether the turn is still continuing.
+     if (incomingCustom.continued !== true)
+         delete mergedCustom.continued;
++    // A new run folded onto the turn decides whether the reply was stopped. A
++    // run already folded keeps the stop from either copy.
++    if (!runAlreadyFolded && incomingCustom.userStopped !== true)
++        delete mergedCustom.userStopped;
+     const mergedMessage = {
+         ...lastMsg,
+         content: normalizeAssistantToolCallIds({
 diff --git a/dist/audit/index.d.ts b/dist/audit/index.d.ts
 index ddce9821b28bb8e4ec70a082939de4f0c38410f5..79200cbf47e6a3810b543309ede821d781689a61 100644
 --- a/dist/audit/index.d.ts
@@ -2015,7 +2045,7 @@ index d4f7ab0883e3fdf1751ccf034ea16e777420dafb..244c69e9261adacbf0896724e62f59c1
      composerAreaClassName?: string;
      /** Placeholder for the shared composer in its normal idle state. */
 diff --git a/dist/client/AssistantChat.js b/dist/client/AssistantChat.js
-index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82e9846ffb 100644
+index 9b1c13327c65974853aaa22d15e8b5984cc62993..44465ba04a12b014e3e2259e45595eabb36ee7cb 100644
 --- a/dist/client/AssistantChat.js
 +++ b/dist/client/AssistantChat.js
 @@ -8,6 +8,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
@@ -2026,7 +2056,33 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
  import { clearPendingTurnIfMatches, clearActiveRunIfMatches, getPendingTurn, getActiveRunActivityTool, getActiveRun, hasRecentActiveRunProgress, resolveReconnectAfterSeq, setActiveRun, updateActiveRunActivity, updateActiveRunSeq, } from "./active-run-state.js";
  import { activeRunLooksAlive, createAgentChatAdapter, hasInFlightToolCall, } from "./agent-chat-adapter.js";
  import { appendAgentChatContextToMessage, filterAgentChatContextItems, formatAgentChatContextItemsForPrompt, getAgentChatContextState, isAgentChatSubmitCancelled, normalizeAgentChatContextItem, publishAgentChatContextItems, refreshAgentChatContext, reportAgentChatSubmitResult, subscribeAgentChatContext, } from "./agent-chat.js";
-@@ -1424,7 +1425,7 @@ function approvalResolutionIdentity(approvalKey, toolCallId,
+@@ -20,7 +21,7 @@ import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition
+ import { DownscalingImageAttachmentAdapter, BinaryDocumentAttachmentAdapter, MAX_ESTIMATED_BODY_BYTES, AGGRESSIVE_MAX_IMAGE_DIMENSION, AGGRESSIVE_JPEG_QUALITY, transcodeImageToDataURL, createAgentImageAttachments, serializeQueuedAttachments, estimateAttachmentBodyBytes, } from "./chat/attachment-adapters.js";
+ import { readAssistantChatComposerDraft, writeAssistantChatComposerDraft, } from "./chat/composer-draft.js";
+ import { ExternalTextStreamingContext, TextStreamingContext, } from "./chat/markdown-renderer.js";
+-import { AssistantChatHistoryContext, assistantMessageHasCompletedSideEffect, findMatchingAssistantChatHistoryVersion, isAssistantChatHistoryVersion, CheckpointContext, MessageActionsContext, assistantMessageRunId, UserMessage, AssistantMessage, ExternalUserStoppedRunContext, SelectionAttachedPill, RunningActivityStatus, displayableUserMessageText, isHiddenUserMessage, ServerRunActiveContext, UserStoppedRunContext, } from "./chat/message-components.js";
++import { AssistantChatHistoryContext, assistantMessageHasCompletedSideEffect, findMatchingAssistantChatHistoryVersion, isAssistantChatHistoryVersion, CheckpointContext, MessageActionsContext, assistantMessageRunId, assistantMessageTurnId, UserMessage, AssistantMessage, ExternalUserStoppedRunContext, SelectionAttachedPill, RunningActivityStatus, displayableUserMessageText, isHiddenUserMessage, ServerRunActiveContext, UserStoppedRunContext, } from "./chat/message-components.js";
+ import { repoHasAssistantMessage, getRepoMessages, getRepoMessage, shouldImportServerThreadData, dedupeRepoMessagesById, dropEmptyAssistantMessages, withLastAssistantRunDuration, } from "./chat/repo-helpers.js";
+ import { BuilderSetupCard, LoopLimitContinueCard, RunErrorRecoveryCard, PlanModeCallout, getLoopLimitMetadata, getRunErrorMetadata, getRequestModeMetadata, isBuilderReconnectRunError, runErrorKey, } from "./chat/run-recovery.js";
+ import { createAgentChatRuntimeAdapter, } from "./chat/runtime.js";
+@@ -209,6 +210,16 @@ export function matchesUserStoppedRun(stopped, threadId, runId, turnId) {
+     return Boolean((stopped.runId && runId && stopped.runId === runId) ||
+         (stopped.turnId && turnId && stopped.turnId === turnId));
+ }
++/**
++ * Whether a reply belongs to one of the runs the owner stopped. When both the
++ * stop and the reply know a run id, the run ids decide, so a later run in the
++ * same turn is not labeled. Otherwise the turn ids decide.
++ */
++function isStoppedRunReply(stoppedRuns, runId, turnId) {
++    return stoppedRuns.some((stopped) => stopped.runId && runId
++        ? stopped.runId === runId
++        : Boolean(stopped.turnId && turnId && stopped.turnId === turnId));
++}
+ function activeRunMatchesThread(state, threadId) {
+     return Boolean(threadId && state?.threadId === threadId && state.runId);
+ }
+@@ -1424,7 +1435,7 @@ function approvalResolutionIdentity(approvalKey, toolCallId,
  askId) {
      return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
  }
@@ -2035,7 +2091,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const t = useT();
      const thread = useThread();
      const threadRuntime = useThreadRuntime();
-@@ -1476,18 +1477,57 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1476,18 +1487,57 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      // Cleared on the next message send.
      const [composerError, setComposerError] = useState(null);
      const composerDraftScope = tabId || threadId;
@@ -2097,7 +2153,19 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          onComposerTextChange?.(text);
      }, [composerDraftScope, onComposerTextChange]);
      const dropDepthRef = useRef(0);
-@@ -2052,6 +2092,15 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -1710,6 +1760,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+     // Keep an intentional stop until the next explicit submission. The server
+     // may replay the terminal snapshot well after the client cancellation.
+     const userStoppedRunRef = useRef(null);
++    // Every run the owner stopped in this chat. The next submission clears the
++    // marker above but not this list, so a stopped reply keeps its notice after
++    // later turns, although assistant-ui writes the cancelled run back without
++    // the flag.
++    const userStoppedRunsRef = useRef([]);
+     const [isReconnecting, setIsReconnecting] = useState(false);
+     const [optimisticRunning, setOptimisticRunning] = useState(false);
+     const [runningActivityLabel, setRunningActivityLabel] = useState(null);
+@@ -2052,6 +2107,15 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          retryThreadRestore,
          threadId,
      ]);
@@ -2113,7 +2181,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      useEffect(() => {
          if (threadRestoreError !== "not-found") {
              desktopIdentityRestoreRetryPendingRef.current = false;
-@@ -2081,6 +2130,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2081,6 +2145,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const onGenerateTitleRef = useRef(onGenerateTitle);
      onGenerateTitleRef.current = onGenerateTitle;
      const titleGeneratedRef = useRef(false);
@@ -2125,7 +2193,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const importThreadData = useCallback((threadData, options) => {
          // Cheap-signal short-circuit: if the raw payload is identical to the
          // last one we imported, there is nothing new to parse, normalize, or
-@@ -2156,6 +2210,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2156,6 +2225,11 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  queueDirtyRef.current = false;
              }
          }
@@ -2137,7 +2205,15 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          if (settled && signature !== null) {
              lastImportedSignatureRef.current = signature;
              lastImportedRepoRef.current = settledRepo;
-@@ -3099,6 +3158,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -2307,6 +2381,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         };
+     }, [cacheCurrentThreadSnapshot]);
+     const wasUserStoppedRun = useCallback((runId, turnId) => matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId), [threadId]);
++    const wasStoppedRunReply = useCallback((runId, turnId) => isStoppedRunReply(userStoppedRunsRef.current, runId, turnId), []);
+     const startReconnectToRun = useCallback((runInfo) => {
+         if (!reconnectOwnerMountedRef.current ||
+             !threadId ||
+@@ -3099,6 +3174,14 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              onGenerateTitleRef.current?.(threadId, text.trim());
          }
      }, [messages, threadId]);
@@ -2152,7 +2228,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      // Periodically save thread data while the agent is running so refreshes
      // don't lose messages. Saves every 5 seconds while running.
      const savedTitleRef = useRef("");
-@@ -3128,8 +3195,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3128,8 +3211,8 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          lastSaveTimeRef.current = now;
          savedTitleRef.current = title;
          writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -2163,7 +2239,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      // Persist full thread data after each completed response
      useEffect(() => {
          if (!hasRestoredRef.current)
-@@ -3151,7 +3218,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3151,7 +3234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              };
              savedTitleRef.current = title;
              writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
@@ -2172,7 +2248,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          }
          else {
              // Legacy: save to sessionStorage
-@@ -3167,6 +3234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3167,6 +3250,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          messages,
          isRunning,
          threadId,
@@ -2180,7 +2256,52 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          tabId,
      ]);
      useEffect(() => {
-@@ -3932,7 +4000,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3737,14 +3821,18 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             });
+         }
+     }, [tabId, threadId, threadRuntime]);
+-    const markVisibleRunStopped = useCallback(() => {
++    // Flags the stopped run's own reply. While the chat follows a run through
++    // reconnect, that reply is not in the repository yet, and the last assistant
++    // message there is an earlier, finished reply.
++    const markVisibleRunStopped = useCallback((stopped) => {
+         try {
+             const repo = normalizeThreadRepository(threadRuntime.export());
+             const messages = getRepoMessages(repo);
+             for (let index = messages.length - 1; index >= 0; index -= 1) {
+                 const entry = messages[index];
+                 const message = getRepoMessage(entry);
+-                if (message?.role !== "assistant")
++                if (message?.role !== "assistant" ||
++                    !isStoppedRunReply([stopped], assistantMessageRunId(message), assistantMessageTurnId(message)))
+                     continue;
+                 const metadata = message.metadata ?? {};
+                 const custom = metadata.custom && typeof metadata.custom === "object"
+@@ -3812,11 +3900,13 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+         const turnIdToAbort = pendingTurn?.turnId ??
+             reconnectTurnIdRef.current ??
+             (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
+-        userStoppedRunRef.current = {
++        const stoppedRun = {
+             ...(threadId ? { threadId } : {}),
+             ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+             ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
+         };
++        userStoppedRunRef.current = stoppedRun;
++        userStoppedRunsRef.current.push(stoppedRun);
+         trackStoppedRun(runIdToAbort);
+         setRunErrorInfo(null);
+         setDismissedRunErrorKey(null);
+@@ -3860,7 +3950,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+             reconnectTailOnlyRef.current = false;
+         }
+         settleVisibleInterruptedTools();
+-        markVisibleRunStopped();
++        markVisibleRunStopped(stoppedRun);
+         threadRuntime.cancelRun();
+     }, [
+         apiUrl,
+@@ -3932,7 +4022,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
      const visibleQueuedMessages = useMemo(() => queuedMessages.filter((message) => !message.hideUserMessage && !message.promoted), [queuedMessages]);
      const addToQueue = useCallback(async (text, images, references, attachments, requestMode, intent = "queued", recoveryAction, includeComposerContext = false, trackInRunsTray = false, preserveReconnectAutoRecoveryBudget = false, hideUserMessage = false, submitMessageId, approvedToolCalls, continuationTurnId, usageLabel) => {
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -2189,7 +2310,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          const stoppedRunAtSubmitStart = userStoppedRunRef.current;
          if (!preserveReconnectAutoRecoveryBudget) {
              reconnectAutoRecoveryCountRef.current = 0;
-@@ -3961,10 +4029,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -3961,10 +4051,10 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                  : t("agentChat.composer.attachmentError");
              setComposerError(msg);
              reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
@@ -2202,7 +2323,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          const imageAttachments = createAgentImageAttachments(images);
          const allAttachments = [
              ...(queuedAttachments ?? []),
-@@ -4034,7 +4102,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4034,7 +4124,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                          const rejected = recompressed[largestIdx];
                          setComposerError(`"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`);
                          reportAgentChatSubmitResult(submitMessageId, false, "attachment-too-large");
@@ -2211,7 +2332,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      }
                  }
                  messageAttachments = recompressed;
-@@ -4042,7 +4110,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4042,7 +4132,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          }
          // ── End body-size guard ──────────────────────────────────────────
          if (isAgentChatSubmitCancelled(submitMessageId))
@@ -2220,7 +2341,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
          // Snapshot the exec mode at enqueue time when the caller didn't
          // pass an explicit override. Without this, a plan-mode message that
          // sits in the queue runs as 'act' if the user flips the global toggle
-@@ -4066,9 +4134,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4066,9 +4156,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -2232,7 +2353,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4089,9 +4157,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4089,9 +4179,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
              applyLocalQueuedMessages((prev) => [
                  ...prev,
                  {
@@ -2244,7 +2365,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                      text: submittedText,
                      images,
                      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
-@@ -4116,7 +4184,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4116,7 +4206,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                      ...(messageAttachments.length > 0
                          ? { attachments: messageAttachments }
                          : {}),
@@ -2253,7 +2374,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                  });
              }
              catch (error) {
-@@ -4144,6 +4212,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4144,6 +4234,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          if (submitted.includesContext) {
              updateComposerContextItems(() => []);
          }
@@ -2261,7 +2382,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      }, [
          applyLocalQueuedMessages,
          buildComposerContextSubmission,
-@@ -4159,6 +4228,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4159,6 +4250,28 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          t,
          updateComposerContextItems,
      ]);
@@ -2290,7 +2411,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
      const mcpResumeTimerRef = useRef(null);
      const scheduleMcpConnectionResume = useCallback((request) => {
          if (mcpResumeTimerRef.current !== null) {
-@@ -4542,7 +4633,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4542,7 +4655,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
          recordApprovalResolution,
          showActionTypeApprovalPolicy,
      ]);
@@ -2299,7 +2420,16 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                      // Keep the current message in a non-complete state while
                                      // the terminal error card is visible, even if the server
                                      // still reports the prior run for a short time while its
-@@ -4659,9 +4750,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4591,7 +4704,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+                                                                                                 return;
+                                                                                             }
+                                                                                             void addToQueue(suggestion);
+-                                                                                        }, className: "w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", children: suggestion }, suggestion))) })) : null, showInlineEmptyThreadFooterSlot ? (_jsx("div", { className: "agent-thread-footer-slot agent-thread-footer-slot--empty", children: resolvedThreadFooterSlot })) : null, emptyStateFooter ? (_jsx("div", { className: "agent-empty-state-footer", children: emptyStateFooter })) : null] })) : (_jsxs(MessageScrollerContent, { className: "agent-thread-content gap-4 px-4 py-4", children: [threadRestoreErrorSurface ? (_jsx(MessageScrollerItem, { children: threadRestoreErrorSurface })) : null, _jsx(AssistantMessageListErrorBoundary, { resetKey: messageListResetKey, children: _jsx(UserStoppedRunContext.Provider, { value: wasUserStoppedRun, children: _jsx(ExternalUserStoppedRunContext.Provider, { value: externalUserStopped, children: _jsx(ExternalTextStreamingContext.Provider, { value: externalStreaming, children: _jsx(AssistantChatHistoryContext.Provider, { value: chatHistoryContext, children: _jsx(ThreadPrimitive.Messages
++                                                                                        }, className: "w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", children: suggestion }, suggestion))) })) : null, showInlineEmptyThreadFooterSlot ? (_jsx("div", { className: "agent-thread-footer-slot agent-thread-footer-slot--empty", children: resolvedThreadFooterSlot })) : null, emptyStateFooter ? (_jsx("div", { className: "agent-empty-state-footer", children: emptyStateFooter })) : null] })) : (_jsxs(MessageScrollerContent, { className: "agent-thread-content gap-4 px-4 py-4", children: [threadRestoreErrorSurface ? (_jsx(MessageScrollerItem, { children: threadRestoreErrorSurface })) : null, _jsx(AssistantMessageListErrorBoundary, { resetKey: messageListResetKey, children: _jsx(UserStoppedRunContext.Provider, { value: wasStoppedRunReply, children: _jsx(ExternalUserStoppedRunContext.Provider, { value: externalUserStopped, children: _jsx(ExternalTextStreamingContext.Provider, { value: externalStreaming, children: _jsx(AssistantChatHistoryContext.Provider, { value: chatHistoryContext, children: _jsx(ThreadPrimitive.Messages
+                                                                                                     // Deliberately NOT keyed on part structure. Doing that
+                                                                                                     // remounted the whole transcript every time a tool call
+                                                                                                     // started or a placeholder id was rewritten — a flash and a
+@@ -4659,9 +4772,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                      !showMissingKeySetup &&
                                                                      "opacity-70"), onClick: showMissingKeySetup
                                                                      ? bounceMissingKeySetup
@@ -2311,7 +2441,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                                                                  ? t("agentChat.setup.connectPlaceholder")
                                                                                  : engineSetupRequired
                                                                                      ? t("agentChat.setup.connectPlaceholder")
-@@ -4674,7 +4765,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4674,7 +4787,9 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                                      count: queuedMessages.length,
                                                                                                  })
                                                                                                  : t("agentChat.queue.followUp")
@@ -2322,7 +2452,7 @@ index 9b1c13327c65974853aaa22d15e8b5984cc62993..d38da71c0c51f7c9db179e12162a5f82
                                                                                  visibleComposerContextItems.length > 0
                                                                                  ? (text, references, attachments, options) => void addToQueue(text, undefined, references.length > 0
                                                                                      ? references
-@@ -4684,7 +4777,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
+@@ -4684,7 +4799,7 @@ const AssistantChatInner = forwardRef(function AssistantChatInner({ emptyStateTe
                                                                                  }), undefined, true)
                                                                                  : undefined, willQueue: engineSetupRequired || isRunning, onSlashCommand: onSlashCommand, execMode: execMode, onExecModeChange: onExecModeChange, planModeDisabled: planModeDisabled, planModeDisabledReason: planModeDisabledReason, selectedModel: selectedModel ?? defaultModel, selectedEffort: selectedEffort, availableModels: availableModels, availableAgents: availableAgents, selectedAgent: selectedAgent, hostedHarness: hostedHarness, modelListLoading: modelListLoading, onModelChange: shouldShowAssistantChatModelSelector(showModelSelector)
                                                                                  ? onModelChange
@@ -2779,7 +2909,7 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..1b1da790d7c98294810521043bdfc89bb4392e40 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..c3f5085c1679584c68f1ff34225cbbc201066e7b 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
 @@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
@@ -2982,7 +3112,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..1b1da790d7c98294810521043bdfc89b
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
-@@ -1307,7 +1418,10 @@ export function AssistantMessage() {
+@@ -1307,9 +1418,12 @@ export function AssistantMessage() {
                                      default:
                                          return null;
                                  }
@@ -2992,8 +3122,11 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..1b1da790d7c98294810521043bdfc89b
 +                                isLast,
 +                            })
                              ? messageActions?.onRetryRunError
-                             : undefined })), missingWarningText == null &&
+-                            : undefined })), missingWarningText == null &&
++                            : undefined })), (missingWarningText == null || isUserStoppedRun) &&
                          missingFinalResponseNoticeText != null &&
+                         !showInlineRunError && (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: missingFinalResponseNoticeText, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal })), isComplete && hasCodeAgentTools && msgContent && (_jsx(FilesChangedSummary, { parts: msgContent }))] }), isComplete && (_jsxs("div", { className: "mt-1 flex items-center justify-between", children: [_jsxs("div", { className: "flex min-w-0 items-center gap-1", children: [showHistoryRevert && (_jsx(AssistantChatHistoryRevertButton, { onRestore: handleHistoryRestore, onRestored: () => setHistoryReverted(true) })), _jsx(MessageActionsMenu, { showRevert: showRestore && restoreState === "idle", onRevert: handleRestore, threadId: cpCtx?.threadId ?? "" }), isLast && (_jsx(TooltipProvider, { delayDuration: 400, children: _jsxs(Tooltip, { children: [_jsx(TooltipTrigger, { asChild: true, children: _jsx(ActionBarPrimitive.Reload, { asChild: true, children: _jsx("button", { type: "button", "aria-label": t("agentChat.message.regenerate"), className: `flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`, children: _jsx(IconRefresh, { className: "h-3.5 w-3.5" }) }) }) }), _jsx(TooltipContent, { side: "top", className: "text-xs", children: t("agentChat.message.regenerate") })] }) })), _jsx(MessageBranchPicker, {}), timestamp && (_jsx(MessageTimestamp, { timestamp: timestamp, className: messageFooterFadeClassName }))] }), showRestore && restoreState === "confirming" ? (_jsxs("div", { className: "flex items-center gap-1 text-xs", children: [_jsx("button", { onClick: handleRestore, className: "rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90", children: t("agentChat.message.restoreQuestion") }), _jsx("button", { onClick: cancelRestore, className: "rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.cancel") })] })) : showRestore && restoreState === "restoring" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-muted-foreground", children: [_jsx(IconLoader2, { className: "h-3 w-3 animate-spin" }), t("agentChat.message.restoring")] })) : restoreState === "error" ? (_jsxs("span", { className: "flex items-center gap-1 text-xs text-destructive", children: [_jsx(IconAlertTriangle, { className: "h-3 w-3 shrink-0" }), _jsx("span", { className: "truncate", children: restoreError }), _jsx("button", { onClick: cancelRestore, className: "cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent", children: t("agentChat.common.dismiss") })] })) : (_jsx(ThumbsFeedback, { threadId: cpCtx?.threadId ?? "", runId: messageRunId ?? "", messageSeq: msg.index }))] }))] }));
+ }
 diff --git a/dist/client/chat/run-recovery.js b/dist/client/chat/run-recovery.js
 index 851a9d9763239e262cc940db36d9d6669f5688ab..2fcff826eb2cf488cd58dfd87ffee80004e06d3c 100644
 --- a/dist/client/chat/run-recovery.js
