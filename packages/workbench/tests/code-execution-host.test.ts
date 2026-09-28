@@ -188,7 +188,7 @@ test("a cleanup check finds a live group by name and reads an emptied one as cle
 });
 
 test("Windows process rows parse with or without a creation time, and a malformed scan is unreadable", () => {
-  assert.deepEqual(parseWindowsProcessRows("﻿4\t0\t\tSystem\r\n4120\t880\t1790553600123\tcodex.exe\r\n\r\n"), [
+  assert.deepEqual(parseWindowsProcessRows("\uFEFF4\t0\t\tSystem\r\n4120\t880\t1790553600123\tcodex.exe\r\n\r\n"), [
     { pid: 4, parentPid: 0, created: null, name: "System" },
     { pid: 4120, parentPid: 880, created: 1790553600123, name: "codex.exe" },
   ]);
