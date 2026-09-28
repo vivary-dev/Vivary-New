@@ -27,8 +27,9 @@ const stubs = new Map([
 ]);
 
 const proofSource = String.raw`
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
+import { AssistantChat } from "@proof/assistant-chat";
 import { getRunErrorMetadata, RunErrorRecoveryCard } from "@proof/run-recovery";
 import * as messages from "@proof/message-components";
 import { processEvent } from "@proof/sse-event-processor";
@@ -162,6 +163,64 @@ export async function renderSavedThread(initialMessages) {
   return snapshot;
 }
 
+// Core's whole chat against the fake chat server in the test. Replies and notices are read in page order.
+const CHAT_API = "http://chat.test/_agent-native/agent-chat";
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(check, label) {
+  const deadline = Date.now() + 5000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("timed out waiting for " + label);
+    await act(async () => { await sleep(20); });
+  }
+}
+
+async function mountChat(threadId, isNewThread) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const chat = createRef();
+  const view = await mount(<QueryClientProvider client={client}><AssistantChat ref={chat} apiUrl={CHAT_API} threadId={threadId}
+    tabId={"tab-" + threadId} isNewThread={isNewThread} showHeader={false} showModelSelector={false} providerStatusChecksEnabled={false} />
+  </QueryClientProvider>);
+  const reading = texts => {
+    const notices = [...view.host.querySelectorAll('[data-testid="missing-final-response"]')].map(notice => notice.textContent.trim());
+    return { notices, order: [...texts, ...new Set(notices)].map(text => [text, view.host.textContent.indexOf(text)])
+      .filter(([, index]) => index >= 0).sort((a, b) => a[1] - b[1]).map(([text]) => text) };
+  };
+  const stop = async () => {
+    const button = view.host.querySelector('[data-agent-composer-slot="stop-button"]');
+    if (!button) throw new Error("no Stop button");
+    await act(async () => { button.dispatchEvent(new window.Event("click", { bubbles: true })); });
+    await act(async () => { await sleep(300); });
+  };
+  const send = async text => { await act(async () => { chat.current.sendMessage(text); }); };
+  const waitForText = text => until(() => view.host.textContent.includes(text), JSON.stringify(text));
+  return { reading, stop, send, waitForText, async unmount() { await view.unmount(); client.clear(); } };
+}
+
+// The owner stops a reply that has text, then sends another message.
+export async function stopThenSendAnother() {
+  const chat = await mountChat("thread-live", true);
+  await chat.send("First question");
+  await chat.waitForText("Partial first answer");
+  await chat.stop();
+  const afterStop = chat.reading(["Partial first answer"]);
+  await chat.send("Second question");
+  await chat.waitForText("Finished second answer");
+  await act(async () => { await sleep(300); });
+  const afterNextTurn = chat.reading(["Partial first answer", "Finished second answer"]);
+  await chat.unmount();
+  return { afterStop, afterNextTurn };
+}
+
+// A reloaded chat follows a live run whose reply is not saved yet, and the owner stops it.
+export async function stopWhileFollowingRun() {
+  const chat = await mountChat("thread-follow", false);
+  await chat.waitForText("Live partial answer");
+  await chat.stop();
+  const snapshot = chat.reading(["Finished old answer", "Live partial answer"]);
+  await chat.unmount();
+  return snapshot;
+}
+
 // The Settings Usage tab reads its metrics and alert rules through the action query cache. The
 // cache holds what the server returns, so the tab renders without a request.
 export async function renderUsage(metrics, alertRules = []) {
@@ -197,6 +256,7 @@ const require = createProofRequire(${JSON.stringify(join(WORKBENCH, "package.jso
       name: "native-chat-proof",
       setup(build) {
         build.onResolve({ filter: /.*/ }, args => {
+          if (args.path === "@proof/assistant-chat") return { path: join(CLIENT, "AssistantChat.js") };
           if (args.path === "@proof/run-recovery") return { path: join(CLIENT, "chat", "run-recovery.js") };
           if (args.path === "@proof/message-components") return { path: join(CLIENT, "chat", "message-components.js") };
           if (args.path === "@proof/sse-event-processor") return { path: join(CLIENT, "sse-event-processor.js") };
@@ -234,6 +294,7 @@ function installDom() {
     constructor() { super(); channels.push(this); }
   }
   class ResizeObserver { observe() {} unobserve() {} disconnect() {} }
+  class IntersectionObserver { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
   // linkedom has no text selection. An unfocused editor only needs an empty one.
   const selection = { rangeCount: 0, anchorNode: null, anchorOffset: 0, focusNode: null, focusOffset: 0, isCollapsed: true,
     removeAllRanges() {}, addRange() {}, collapse() {}, extend() {} };
@@ -242,15 +303,91 @@ function installDom() {
   const getComputedStyle = () => new Proxy({ getPropertyValue: () => "" }, { get: (style, name) => style[name] ?? "" });
   // linkedom has no location. Core's action paths read the page's path when they load.
   view.location = new URL("http://127.0.0.1/settings");
+  // The whole chat also keeps state in storage, watches media queries, and scrolls its messages.
+  const memoryStorage = () => {
+    const items = new Map();
+    return { getItem: key => items.get(key) ?? null, setItem: (key, value) => items.set(key, String(value)),
+      removeItem: key => items.delete(key), clear: () => items.clear(), key: index => [...items.keys()][index] ?? null,
+      get length() { return items.size; } };
+  };
+  view.sessionStorage = memoryStorage();
+  view.localStorage = memoryStorage();
+  view.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+  view.requestAnimationFrame = callback => setTimeout(() => callback(Date.now()), 0);
+  view.cancelAnimationFrame = id => clearTimeout(id);
+  view.HTMLElement.prototype.scrollTo = function scrollTo() {};
+  view.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
   const values = { window: view, self: view, document: view.document, navigator: view.navigator,
     HTMLElement: view.HTMLElement, Element: view.Element, Node: view.Node, Event: view.Event,
     CustomEvent: view.CustomEvent, EventTarget: view.EventTarget, MessageChannel: TrackedMessageChannel,
-    ResizeObserver, getComputedStyle, innerHeight: 800, innerWidth: 1200,
+    ResizeObserver, IntersectionObserver, getComputedStyle, innerHeight: 800, innerWidth: 1200,
+    sessionStorage: view.sessionStorage, localStorage: view.localStorage, matchMedia: view.matchMedia,
+    requestAnimationFrame: view.requestAnimationFrame, cancelAnimationFrame: view.cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true };
   for (const [name, value] of Object.entries(values)) {
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
   }
   return () => { for (const channel of channels) { channel.port1.close(); channel.port2.close(); } };
+}
+
+// The chat server for the whole-chat cases. A run's stream stays open until Stop, which ends it as the run
+// route does, with `done` and reason `user`. Every other route answers 404.
+const CHAT_API = "http://chat.test/_agent-native/agent-chat";
+function installChatServer() {
+  const encoder = new TextEncoder();
+  const frame = event => encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+  const openStreams = new Map();
+  const stream = (runId, events, hold) => new ReadableStream({ start(controller) {
+    for (const event of events) controller.enqueue(frame(event));
+    if (hold) openStreams.set(runId, controller);
+    else controller.close();
+  } });
+  const replies = [
+    { runId: "run-first", events: [{ type: "text", text: "Partial first answer", seq: 0 }], hold: true },
+    { runId: "run-second", events: [{ type: "text", text: "Finished second answer", seq: 0 }, { type: "done", seq: 1 }], hold: false },
+  ];
+  const createdAt = new Date("2026-09-28T00:00:00Z").toISOString();
+  const message = (id, role, text, extra = {}) => ({ id, role, content: [{ type: "text", text }], createdAt, ...extra });
+  const followThread = { headId: "user-live", messages: [
+    { parentId: null, message: message("user-old", "user", "Old question") },
+    { parentId: "user-old", message: message("reply-old", "assistant", "Finished old answer", { status: { type: "complete", reason: "stop" },
+      metadata: { runId: "run-old", custom: { runId: "run-old", turnId: "turn-old" } } }) },
+    { parentId: "reply-old", message: message("user-live", "user", "Live question") },
+  ] };
+  let followed = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = (init.method ?? "GET").toUpperCase();
+    if (method === "POST" && url === CHAT_API) {
+      const reply = replies.shift();
+      return new Response(stream(reply.runId, reply.events, reply.hold),
+        { headers: { "content-type": "text/event-stream", "X-Run-Id": reply.runId } });
+    }
+    const abort = url.match(/\/runs\/([^/]+)\/abort$/);
+    if (method === "POST" && abort) {
+      const runId = decodeURIComponent(abort[1]);
+      openStreams.get(runId)?.enqueue(frame({ type: "done", reason: "user", seq: 1 }));
+      openStreams.get(runId)?.close();
+      openStreams.delete(runId);
+      return Response.json({ ok: true });
+    }
+    if (method === "GET" && url.startsWith(`${CHAT_API}/threads/thread-follow`)) {
+      return Response.json({ id: "thread-follow", title: "Follow", threadData: JSON.stringify(followThread) });
+    }
+    if (method === "GET" && url.startsWith(`${CHAT_API}/runs/active?threadId=thread-follow`)) {
+      const now = Date.now();
+      return Response.json(openStreams.has("run-live") || !followed ? { active: true, runId: "run-live", threadId: "thread-follow",
+        turnId: "turn-live", status: "running", lastProgressAt: now, heartbeatAt: now, serverNow: now } : { active: false });
+    }
+    if (method === "GET" && url.startsWith(`${CHAT_API}/runs/run-live/events`)) {
+      followed = true;
+      return new Response(stream("run-live", [{ type: "text", text: "Live partial answer", seq: 0 }], true),
+        { headers: { "content-type": "text/event-stream" } });
+    }
+    return Response.json({ error: "not found" }, { status: 404 });
+  };
+  return () => { globalThis.fetch = originalFetch; };
 }
 
 test("Native chat controls", async t => {
@@ -334,6 +471,42 @@ test("Native chat controls", async t => {
       replies: ["Partial first answer", "Finished second answer", "Partial third answer"],
       notices: ["The agent stopped before finishing", "The agent stopped before finishing"],
     });
+  });
+
+  await t.test("a stopped reply that holds a missing-response warning shows the stopped notice instead", async () => {
+    const thread = await proof.renderSavedThread([
+      { id: "user-1", role: "user", content: [{ type: "text", text: "First question" }] },
+      { id: "reply-1", role: "assistant", status: { type: "incomplete", reason: "cancelled" }, metadata: { custom: { userStopped: true } },
+        content: [{ type: "text", text: "Partial first answer" },
+          { type: "text", text: "The agent stopped without sending a final message. Ask the agent to continue or retry." }] },
+    ]);
+    assert.deepEqual({ warning: thread.text.includes("without sending a final message"), notices: thread.notices },
+      { warning: false, notices: ["The agent stopped before finishing"] });
+  });
+
+  // The live chat keeps its own copy of a stopped reply. assistant-ui writes the cancelled run back over it
+  // without the flag, so the notice rests on the chat's record of the runs the owner stopped.
+  const notice = "The agent stopped before finishing";
+  await t.test("a stopped live reply keeps its notice after the owner sends the next message", async () => {
+    const restoreFetch = installChatServer();
+    try {
+      assert.deepEqual(await proof.stopThenSendAnother(), {
+        afterStop: { notices: [notice], order: ["Partial first answer", notice] },
+        afterNextTurn: { notices: [notice], order: ["Partial first answer", notice, "Finished second answer"] },
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  // A reloaded chat renders a run it follows outside the saved messages until the run is saved.
+  await t.test("a Stop while following a run leaves the previous finished reply unlabeled", async () => {
+    const restoreFetch = installChatServer();
+    try {
+      assert.deepEqual(await proof.stopWhileFollowingRun(), { notices: [], order: ["Finished old answer", "Live partial answer"] });
+    } finally {
+      restoreFetch();
+    }
   });
 
   // Issue #103. Yesterday a paid model cost 12.30¢. Today a free model reported $0 and a model with no

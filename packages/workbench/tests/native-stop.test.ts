@@ -82,40 +82,52 @@ async function waitFor(condition: () => boolean, label: () => string) {
   }
 }
 
-// Starts a turn as the chat does, presses Stop once `ready` holds, and waits for the run to settle.
-async function stopTurn(provider: Awaited<ReturnType<typeof fakeOpenRouter>>,
-  actions: ReturnType<typeof loadActionsFromStaticRegistry>, ready: (events: Array<Record<string, unknown>>) => boolean) {
-  const runId = `run-${randomUUID()}`;
-  const turnId = `turn-${randomUUID()}`;
-  let loopEndedAt = Number.NaN;
-  let finished: Promise<unknown> | undefined;
-  runs.startRun(runId, `thread-${randomUUID()}`, async (sendEvent: (event: Record<string, unknown>) => void, signal: AbortSignal) => {
+type Provider = Awaited<ReturnType<typeof fakeOpenRouter>>;
+type Actions = ReturnType<typeof loadActionsFromStaticRegistry>;
+const entriesOf = (runId: string) => runs.getRun(runId).events as Array<{ event: Record<string, unknown> }>;
+const eventsOf = (runId: string) => entriesOf(runId).map(entry => entry.event);
+// The server saves a finished run's turn from its stored entries, as the chat plugin's onRunComplete does.
+const savedTurnOf = (runId: string, turnId: string) =>
+  threads.buildAssistantMessage(entriesOf(runId), runId, { suppressInternalContinuation: true, turnId });
+
+// Starts a turn as the chat does. `finished` settles when the run's work ends.
+function startTurn(provider: Provider, actions: Actions, threadId = `thread-${randomUUID()}`) {
+  const turn = { runId: `run-${randomUUID()}`, turnId: `turn-${randomUUID()}`, loopEndedAt: Number.NaN,
+    finished: undefined as Promise<unknown> | undefined };
+  runs.startRun(turn.runId, threadId, async (sendEvent: (event: Record<string, unknown>) => void, signal: AbortSignal) => {
     try {
       await runWithRequestContext({ userEmail: "owner@example.test", orgId: "org-a", run: {} }, () => runAgentLoop({
         engine: provider.engine, model: "probe/model", systemPrompt: "", tools: actionsToEngineTools(actions), actions,
         messages: userTurn, signal, send: sendEvent }));
     } finally {
-      loopEndedAt = performance.now();
+      turn.loopEndedAt = performance.now();
     }
-  }, async () => undefined, { waitUntil: (promise: Promise<unknown>) => { finished = promise; } });
-  const events = () => (runs.getRun(runId).events as Array<{ event: Record<string, unknown> }>).map(entry => entry.event);
+  }, async () => undefined, { waitUntil: (promise: Promise<unknown>) => { turn.finished = promise; } });
+  return turn;
+}
+
+// Presses Stop once `ready` holds and waits for the run to settle.
+async function stopTurn(provider: Provider, actions: Actions, ready: (events: Array<Record<string, unknown>>) => boolean) {
+  const turn = startTurn(provider, actions);
+  const events = () => eventsOf(turn.runId);
   let stoppedAt = Number.NaN;
   try {
     await waitFor(() => ready(events()), () => `the moment to press Stop, after ${events().map(event => event.type).join(", ")}`);
   } finally {
     stoppedAt = performance.now();
-    await runs.abortRunDurably(runId, "user");
-    await finished?.catch(() => undefined);
+    await runs.abortRunDurably(turn.runId, "user");
+    await turn.finished?.catch(() => undefined);
   }
-  const entries = runs.getRun(runId).events as Array<{ event: Record<string, unknown> }>;
-  // The server saves a finished run's turn from its stored entries, as the chat plugin's onRunComplete does.
-  const saved = threads.buildAssistantMessage(entries, runId, { suppressInternalContinuation: true, turnId });
-  return { runId, turnId, stoppedAt, loopEndedAt, events: events(), saved };
+  return { runId: turn.runId, turnId: turn.turnId, stoppedAt, loopEndedAt: turn.loopEndedAt, events: events(),
+    saved: savedTurnOf(turn.runId, turn.turnId) };
 }
 
 const since = (start: number, end: number) => Math.round(end - start);
+// A run that never ends fails its test at this deadline. The script's --test-force-exit then ends the file, which the
+// run's own timers would otherwise keep open.
+const RUN_TEST = { timeout: 10_000 };
 
-test("Stop while the model streams its reply", async t => {
+test("Stop while the model streams its reply", RUN_TEST, async t => {
   const provider = await fakeOpenRouter((_index, response) => {
     send(response, chunkOf({ role: "assistant", content: PARTIAL_REPLY }));
   });
@@ -139,27 +151,50 @@ test("Stop while the model streams its reply", async t => {
         { content: [{ type: "text", text: PARTIAL_REPLY }], userStopped: true });
     });
 
-    // The client saves its own copy of the turn. When assistant-ui cancels the run, that copy can be
-    // heavier than the server's and carry no stopped flag, as the #50 turn's saved copy did.
-    await t.test("a client save of a heavier copy without the flag keeps the stop and the history", () => {
-      const question = { id: "user-1", role: "user", content: userTurn[0].content };
-      const serverRepo = threads.foldAssistantTurn({ messages: [{ message: question, parentId: null }], headId: "user-1" },
-        turn.saved, { runId: turn.runId, turnId: turn.turnId, parentId: "user-1" });
-      const clientCopy = { id: "client-reply", role: "assistant", status: { type: "incomplete", reason: "cancelled" },
-        content: [{ type: "reasoning", text: "Reading the project." }, { type: "text", text: `${PARTIAL_REPLY}And more.` }],
-        metadata: { runId: turn.runId, custom: { runId: turn.runId, turnId: turn.turnId, agentNativeRunDurationMs: 1_000 } } };
+    const question = { id: "user-1", role: "user", content: userTurn[0].content };
+    const serverRepo = threads.foldAssistantTurn({ messages: [{ message: question, parentId: null }], headId: "user-1" },
+      turn.saved, { runId: turn.runId, turnId: turn.turnId, parentId: "user-1" });
+    const clientSave = (clientCopy: Record<string, unknown>) => {
       const merged = threads.mergeThreadDataForClientSave(serverRepo, { messages: [{ message: question, parentId: null },
         { message: clientCopy, parentId: "user-1" }], headId: "client-reply" });
       const reply = merged.messages.at(-1)?.message;
-      assert.deepEqual({ messages: merged.messages.length, content: reply?.content, userStopped: reply?.metadata?.custom?.userStopped },
-        { messages: 2, content: clientCopy.content, userStopped: true });
+      return { messages: merged.messages.length, content: reply?.content, userStopped: reply?.metadata?.custom?.userStopped };
+    };
+
+    // The client saves its own copy of the turn. When assistant-ui cancels the run, that copy can be
+    // heavier than the server's and carry no stopped flag, as the #50 turn's saved copy did.
+    await t.test("a client save of a heavier copy without the flag keeps the stop and the history", () => {
+      const clientCopy = { id: "client-reply", role: "assistant", status: { type: "incomplete", reason: "cancelled" },
+        content: [{ type: "reasoning", text: "Reading the project." }, { type: "text", text: `${PARTIAL_REPLY}And more.` }],
+        metadata: { runId: turn.runId, custom: { runId: turn.runId, turnId: turn.turnId, agentNativeRunDurationMs: 1_000 } } };
+      assert.deepEqual(clientSave(clientCopy), { messages: 2, content: clientCopy.content, userStopped: true });
+    });
+
+    // A later run can continue the same turn, as a reconnect recovery does. It finishes, so its reply is not the
+    // stopped one.
+    const laterRunId = `run-${randomUUID()}`;
+    const later = threads.buildAssistantMessage([{ seq: 0, event: { type: "text", text: "Finished answer." } },
+      { seq: 1, event: { type: "done" } }], laterRunId, { suppressInternalContinuation: true, turnId: turn.turnId });
+
+    await t.test("a later run that finishes the same turn does not keep the stop", () => {
+      const folded = threads.foldAssistantTurn(serverRepo, later, { runId: laterRunId, turnId: turn.turnId, parentId: "user-1" });
+      const reply = folded.messages.at(-1)?.message;
+      assert.deepEqual({ messages: folded.messages.length, foldedRunIds: reply?.metadata?.custom?.foldedRunIds,
+        userStopped: reply?.metadata?.custom?.userStopped }, { messages: 2, foldedRunIds: [turn.runId, laterRunId], userStopped: undefined });
+    });
+
+    await t.test("a client save of a later run in the same turn does not take the stop", () => {
+      const clientCopy = { id: "client-reply", role: "assistant", status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: `${PARTIAL_REPLY}Finished answer.` }],
+        metadata: { runId: laterRunId, custom: { runId: laterRunId, turnId: turn.turnId } } };
+      assert.deepEqual(clientSave(clientCopy), { messages: 2, content: clientCopy.content, userStopped: undefined });
     });
   } finally {
     await provider.close();
   }
 });
 
-test("Stop during a tool step that honors its signal", async t => {
+test("Stop during a tool step that honors its signal", RUN_TEST, async t => {
   const tool = { startedAt: Number.NaN, signalAt: Number.NaN };
   const actions = loadActionsFromStaticRegistry({ "probe-read": { default: defineAction({ description: "Read the project slowly.",
     schema: z.object({}), agentTool: true, http: false, readOnly: true, dedupe: false,
@@ -204,6 +239,28 @@ test("Stop during a tool step that honors its signal", async t => {
       assert.deepEqual({ parts: turn.saved?.content?.map((part: { type: string; toolName?: string }) => [part.type, part.toolName]),
         userStopped: turn.saved?.metadata?.custom?.userStopped }, { parts: [["tool-call", "probe-read"]], userStopped: true });
     });
+  } finally {
+    await provider.close();
+  }
+});
+
+// A new turn that arrives while the thread's older run is still in memory displaces that run. The owner did not stop it.
+test("a run that a newer turn displaces is not labeled as stopped", RUN_TEST, async () => {
+  const provider = await fakeOpenRouter((_index, response) => {
+    send(response, chunkOf({ role: "assistant", content: PARTIAL_REPLY }));
+  });
+  try {
+    const threadId = `thread-${randomUUID()}`;
+    const older = startTurn(provider, loadActionsFromStaticRegistry({}), threadId);
+    await waitFor(() => eventsOf(older.runId).some(event => event.type === "text"), () => "the older run to stream its reply");
+    runs.startRun(`run-${randomUUID()}`, threadId, async () => undefined, async () => undefined, { waitUntil: () => undefined });
+    await older.finished?.catch(() => undefined);
+    const saved = savedTurnOf(older.runId, older.turnId);
+    assert.deepEqual({
+      terminal: eventsOf(older.runId).filter(event => TERMINAL_TYPES.has(String(event.type))),
+      content: saved?.content,
+      userStopped: saved?.metadata?.custom?.userStopped,
+    }, { terminal: [{ type: "done" }], content: [{ type: "text", text: PARTIAL_REPLY }], userStopped: undefined });
   } finally {
     await provider.close();
   }

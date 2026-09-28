@@ -7314,6 +7314,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #106, review fixes, failing tests. `tests/native-stop.test.ts` folds a later run that finishes the same turn
+onto a stopped reply, saves a client copy of that later run, and displaces a streaming run by starting a newer turn
+on its thread. `tests/native-chat-components.test.mjs` mounts Core's whole chat against a fake chat server. It stops
+a live reply that has text and sends the next message, and it stops a run that a reloaded chat follows. It also
+renders a stopped reply that holds a missing-response warning. Each test that waits for a run to end now fails after
+10 seconds, and `test:native-chat` runs with `--test-force-exit`, because a run that never ends keeps its timers and
+held the file open after the failure. On this commit the stopped live reply loses its notice after the next message,
+the previous finished reply gets the notice, the reply with the warning shows no notice, the later run keeps or takes
+the stop, and the displaced run ends with `done` and reason `user` and is saved as stopped. Test wiring only, so the
+design description holds.
+
 Issue #103, review fixes. The maintained Core patch records a turn's reported cost only when every model call that
 started reported its usage, and empty usage from a rate-limited attempt no longer erases it, so a free model's
 retried turn records $0 and a turn stopped during a model call falls back to the price table or Unknown. The usage
