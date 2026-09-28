@@ -164,13 +164,14 @@ export async function renderSavedThread(initialMessages) {
 
 // The Settings Usage tab reads its metrics and alert rules through the action query cache. The
 // cache holds what the server returns, so the tab renders without a request.
-export async function renderUsage(metrics) {
+export async function renderUsage(metrics, alertRules = []) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(["action", "get-usage-metrics", { sinceDays: 30, scope: "me", appId: "vivary" }], metrics);
-  client.setQueryData(["action", "get-usage-alerts", { scope: "user", appId: "vivary" }], { rules: [] });
+  client.setQueryData(["action", "get-usage-alerts", { scope: "user", appId: "vivary" }], { rules: alertRules });
   const view = await mount(<QueryClientProvider client={client}><UsageSection appId="vivary" /></QueryClientProvider>);
   const driverCost = label => view.host.querySelector('span[title="' + label + '"]')?.nextElementSibling?.textContent ?? null;
-  const snapshot = { text: view.host.textContent, models: Object.fromEntries(metrics.byModel.map(row => [row.label, driverCost(row.label)])) };
+  const snapshot = { text: view.host.textContent, models: Object.fromEntries(metrics.byModel.map(row => [row.label, driverCost(row.label)])),
+    alerts: [...view.host.querySelectorAll("p")].map(line => line.textContent).filter(text => text.includes(" · per ")) };
   await view.unmount();
   client.clear();
   return snapshot;
@@ -337,22 +338,24 @@ test("Native chat controls", async t => {
 
   // Issue #103. Yesterday a paid model cost 12.30¢. Today a free model reported $0 and a model with no
   // price reported no cost.
+  const figure = (costCents, calls, unknownCostCalls) => ({ costCents, calls, unknownCostCalls });
+  const tokens = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const bucket = (key, ...cost) => ({ key, label: key, ...figure(...cost), ...tokens, activeUsers: 1, lastActiveAt: 0 });
+  const usageMetrics = {
+    billing: { unit: "usd", label: "Estimated spend", source: "estimated-provider-cost" },
+    app: "vivary", appKey: "vivary", viewScope: "me", selectedUserEmail: null, availableUsers: [],
+    sinceMs: 0, sinceDays: 30, generatedAt: 0,
+    access: { viewerEmail: "owner@example.test", orgId: null, role: null, canViewWorkspace: false, totalUsers: 1 },
+    totals: { ...figure(12.3, 3, 1), ...tokens, activeUsers: 1 },
+    currentDay: { ...figure(0, 2, 1), credits: 0, tokens: 2400 },
+    byLabel: [bucket("chat", 12.3, 3, 1)],
+    byModel: [bucket("probe/paid-model", 12.3, 1, 0), bucket("probe/free-model", 0, 1, 0), bucket("probe/unpriced-model", 0, 1, 1)],
+    daily: [{ date: "2026-09-26", ...figure(12.3, 1, 0), tokens: 1200 }, { date: "2026-09-27", ...figure(0, 2, 1), tokens: 2400 }],
+    recent: [],
+  };
+
   await t.test("the Usage tab shows an unknown cost as Unknown and adds only known costs", async () => {
-    const figure = (costCents, calls, unknownCostCalls) => ({ costCents, calls, unknownCostCalls });
-    const tokens = { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0 };
-    const bucket = (key, ...cost) => ({ key, label: key, ...figure(...cost), ...tokens, activeUsers: 1, lastActiveAt: 0 });
-    const usage = await proof.renderUsage({
-      billing: { unit: "usd", label: "Estimated spend", source: "estimated-provider-cost" },
-      app: "vivary", appKey: "vivary", viewScope: "me", selectedUserEmail: null, availableUsers: [],
-      sinceMs: 0, sinceDays: 30, generatedAt: 0,
-      access: { viewerEmail: "owner@example.test", orgId: null, role: null, canViewWorkspace: false, totalUsers: 1 },
-      totals: { ...figure(12.3, 3, 1), ...tokens, activeUsers: 1 },
-      currentDay: { ...figure(0, 2, 1), credits: 0, tokens: 2400 },
-      byLabel: [bucket("chat", 12.3, 3, 1)],
-      byModel: [bucket("probe/paid-model", 12.3, 1, 0), bucket("probe/free-model", 0, 1, 0), bucket("probe/unpriced-model", 0, 1, 1)],
-      daily: [{ date: "2026-09-26", ...figure(12.3, 1, 0), tokens: 1200 }, { date: "2026-09-27", ...figure(0, 2, 1), tokens: 2400 }],
-      recent: [],
-    });
+    const usage = await proof.renderUsage(usageMetrics);
     assert.deepEqual({
       total: usage.text.match(/Estimated spend(.*?)30 day lookback/)?.[1],
       today: usage.text.match(/Daily trend(.*?) used today/)?.[1],
@@ -362,6 +365,15 @@ test("Native chat controls", async t => {
       today: "0.00¢ + 1 unknown",
       models: { "probe/paid-model": "12.30¢", "probe/free-model": "0.00¢", "probe/unpriced-model": "Unknown" },
     });
+  });
+
+  // Today's only priced call was free. A token alert counts tokens, which are known for every call.
+  await t.test("a cost alert shows the calls whose cost is unknown beside its figure", async () => {
+    const rule = (id, unit, limit, current) => ({ id, appId: null, scope: "user", unit, period: "day", limit, channels: ["in-app"],
+      enabled: true, isDefault: false, status: "ok", current, unknownCostCalls: 1, percent: 0, windowStart: 0, windowEnd: 0,
+      dismissedAt: null, updatedAt: 0 });
+    const usage = await proof.renderUsage(usageMetrics, [rule("probe-usd", "usd", 5, 0), rule("probe-tokens", "tokens", 1_000_000, 2400)]);
+    assert.deepEqual(usage.alerts, ["$0.00 + 1 unknown of $5.00 · per day", "2,400 tokens of 1,000,000 tokens · per day"]);
   });
 });
 
