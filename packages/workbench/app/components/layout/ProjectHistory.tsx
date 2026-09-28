@@ -241,19 +241,26 @@ function ArchivedConversations({ storageKey, projectId, onRestore, onOpen }: { s
   const threads = archived.data?.threads ?? [];
   async function restore(threadId: string, title: string, openChat: boolean, focusId: string | undefined) {
     setNotice(undefined);
+    const origin = document.activeElement;
+    let opened: boolean;
     try {
-      if (!await onRestore(threadId, openChat)) setNotice({ kind: "restored", threadId, title });
+      opened = await onRestore(threadId, openChat);
+      if (!opened) setNotice({ kind: "restored", threadId, title });
     } catch (failure) {
-      setNotice(failure instanceof Error && "status" in failure && failure.status === 404
-        ? { kind: "failed", message: actionErrorMessage(failure) ?? "This conversation does not belong to the selected workspace." }
+      // Only the action's own 404 message is a refusal. A proxy's 404 page is a transport fault a retry can clear.
+      const refusal = failure instanceof Error && "status" in failure && failure.status === 404
+        ? actionErrorMessage(failure) : undefined;
+      setNotice(refusal ? { kind: "failed", message: refusal }
         : { kind: "failed", message: "The conversation could not be restored. Try again.",
           retry: () => void restore(threadId, title, openChat, focusId) });
       return;
     }
+    // The opened chat takes focus through navigation.
+    if (opened) return;
     const section = details.current;
     const focused = document.activeElement;
-    // A slow restore must not pull focus back from wherever the owner moved it.
-    if (!section?.isConnected || (focused && focused !== document.body && !section.contains(focused))) return;
+    // A slow restore must not pull focus back from wherever the owner moved it, inside the section or out of it.
+    if (!section?.isConnected || (focused && focused !== document.body && focused !== origin)) return;
     const next = [...section.querySelectorAll<HTMLElement>("[data-restore]")].find(button => button.dataset.restore === focusId);
     (next ?? summary.current)?.focus();
   }
