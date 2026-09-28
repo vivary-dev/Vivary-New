@@ -473,3 +473,54 @@ process.send({ type: "vivary:code-worker:ready" });
     await rm(fixture, { recursive: true, force: true });
   }
 });
+
+// Issue #121. A fake `taskkill.exe` under `SystemRoot` runs the whole Windows stop on this host, `taskkill` and then
+// the exit wait. The fake is a shell script, so this case cannot run on Windows. The timeout leaves room for a stop
+// that spends the whole budget to report its own error.
+test("a Windows abort of a live worker runs taskkill and then observes the exit", {
+  timeout: TERMINATION_GRACE_MS + CLEANUP_TIMEOUT_MS + 10_000, skip: process.platform === "win32",
+}, async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-taskkill-"));
+  const server = path.join(fixture, ".output", "server");
+  const received = path.join(fixture, "received.json");
+  const log = path.join(fixture, "taskkill.log");
+  await mkdir(server, { recursive: true });
+  await mkdir(path.join(fixture, "System32"));
+  await writeFile(path.join(fixture, "System32", "taskkill.exe"),
+    `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nkill -9 "$2"\n`, { mode: 0o755 });
+  // This worker ignores the abort, so it stays alive until `taskkill` stops it.
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type === "vivary:code-worker:start") writeFileSync(${JSON.stringify(received)}, JSON.stringify({ worker: process.pid }));
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  // guard:allow-env-credential - Points the Windows system directory at the fake `taskkill` until `finally`.
+  const systemRoot = process.env.SystemRoot;
+  try {
+    process.env.SystemRoot = fixture;
+    process.chdir(fixture);
+    const controller = new AbortController();
+    const { error, worker } = await asWindows(async () => {
+      const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "stay alive", ownerEmail: request.ownerEmail,
+        signal: controller.signal }).then(() => null, (failure: unknown) => failure);
+      const { worker } = await waitForPids(received, t.signal);
+      controller.abort();
+      return { error: await outcome, worker };
+    });
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, "AbortError", "the stop observed the worker's exit after taskkill");
+    assert.equal(await readFile(log, "utf8"), `/PID ${worker} /T /F\n`);
+  } finally {
+    process.chdir(originalCwd);
+    // guard:allow-env-credential - Restores the Windows system directory, or its absence.
+    if (systemRoot === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = systemRoot;
+    const pid = await readFile(received, "utf8").then(text => Number(JSON.parse(text).worker), () => 0);
+    if (pid && await isAlive(pid)) {
+      try { process.kill(pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
