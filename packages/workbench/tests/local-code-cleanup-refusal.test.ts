@@ -70,10 +70,10 @@ process.send({ type: "vivary:code-worker:ready" });
 // Answers the Windows process scan from a file, names a child of the worker created while it ran, and counts the rows
 // on the last line as the real scan does. A call that ends processes gets each PID with the lowest FILETIME its
 // creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
-// PID 4130 refuses, like a process Windows denies access to. Every such call is logged.
+// PID 4130 refuses, like a process Windows denies access to. Every such call is logged. The scan-fails marker fails
+// scans only.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
-[ -f ${JSON.stringify(scanFails)} ] && exit 1
 case "$*" in *Stop-Process*)
   targets=$(printf '%s' "$*" | grep -oE '[0-9]+:[0-9]{16,}')
   printf '%s\\n' "$(printf '%s' "$targets" | tr '\\n' ' ')" >> ${JSON.stringify(endLog)}
@@ -96,6 +96,7 @@ case "$*" in *Stop-Process*)
   printf 'END\\t%s\\r\\n' "$count"
   exit 0 ;;
 esac
+[ -f ${JSON.stringify(scanFails)} ] && exit 1
 {
   cat ${JSON.stringify(scanRows)}
   if [ -f ${JSON.stringify(leaveChild)} ]; then
@@ -164,6 +165,14 @@ async function emptiedGroup(): Promise<number> {
 
 function metadataOf(id: string): Record<string, unknown> {
   return getCodeAgentRunRecord(id)?.metadata ?? {};
+}
+
+/** Each End them a refusal or a lift records: who chose it, that it has a time, and each process's outcome. */
+function endsOf(record: unknown) {
+  const ends = (record as { ends?: { by: string; at: unknown; attempts: { pid: number; outcome: string }[] | null }[] })
+    ?.ends;
+  return ends?.map(({ by, at, attempts }) => ({ by, at: typeof at,
+    attempts: attempts?.map(({ pid, outcome }) => [pid, outcome]) ?? null }));
 }
 
 function lastStatus(id: string): string | undefined {
@@ -263,7 +272,7 @@ test("Continue anyway lifts a refusal Vivary cannot check, records who chose it,
   const lift = metadata.cleanupLifted as Record<string, unknown>;
   assert.equal(typeof lift.confirmedAt, "string");
   assert.deepEqual({ ...lift, confirmedAt: "" }, { how: "owner-confirmed", confirmedAt: "", by: OWNER, shown: [],
-    hidden: false, scan: "not-recorded", remaining: [] });
+    hidden: false, scan: "not-recorded", remaining: [], ends: [] });
   assert.equal(lastStatus("legacy-marker"),
     "You chose to continue. Vivary could not check whether this run's coding processes stopped. "
     + "Vivary accepts new messages again.");
@@ -422,7 +431,9 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   seedRefusal("end-windows", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
     childrenTo: null }] });
   await agent.recheckVivaryCodeCleanup();
-  assert.deepEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup?.remaining.map(({ pid }) => pid), [4120, 4130, 4140]);
+  const before = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+  assert.deepEqual(before?.remaining.map(({ pid }) => pid), [4120, 4130, 4140]);
+  assert.equal(before?.canContinue, false, "Continue anyway waits until End them has run");
   await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe")
     + row(4140, 4120, 9_999, "powershell.exe") + row(4150, 4120, 3_600, "late.exe"));
   const state = await decide("end");
@@ -432,7 +443,10 @@ test("End them on Windows ends each shown process by PID and creation time, neve
     [`4140:${filetime(3_500)} 4130:${filetime(3_000)} 4120:${filetime(2_000)}`]);
   assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what End them could not end");
   assert.equal(state.cleanup?.canEnd, true);
+  assert.equal(state.cleanup?.canContinue, true);
   assert.equal("cleanupLifted" in metadataOf("end-windows"), false);
+  const ended = [{ by: OWNER, at: "string", attempts: [[4140, "mismatched"], [4130, "failed"], [4120, "ended"]] }];
+  assert.deepEqual(endsOf(metadataOf("end-windows").cleanupRefusal), ended, "the refusal records what End them did");
 
   assert.equal((await continueAnyway()).cleanup, null);
   const lift = metadataOf("end-windows").cleanupLifted as { how: string; shown?: { pid: number }[];
@@ -440,9 +454,38 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   assert.equal(lift.how, "owner-confirmed");
   assert.deepEqual(lift.shown?.map(({ pid }) => pid), [4130, 4140, 4150], "what the owner was shown");
   assert.deepEqual(lift.remaining.map(({ pid }) => pid), [4130, 4140, 4150], "what the check before the lift found");
+  assert.deepEqual(endsOf(lift), ended, "the lift keeps what End them did");
   assert.equal(lastStatus("end-windows"), "You chose to continue while these coding processes were still running: "
-    + "node.exe (PID 4130), powershell.exe (PID 4140), late.exe (PID 4150). Vivary accepts new messages again.");
+    + "node.exe (PID 4130), powershell.exe (PID 4140), late.exe (PID 4150). End them ended codex.exe (PID 4120). "
+    + "Vivary accepts new messages again.");
   await writeFile(scanRows, SYSTEM_ROW);
+});
+
+test("End them records what it ended even when the check after it cannot run", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe"));
+  seedRefusal("end-unchecked", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: null }] });
+  await agent.recheckVivaryCodeCleanup();
+  await writeFile(scanFails, "");
+  try {
+    const state = await decide("end");
+    assert.equal(state.cleanup?.heading, "Vivary could not confirm that an earlier run's coding processes stopped");
+    assert.equal(state.cleanup?.canEnd, false);
+    assert.equal(state.cleanup?.canContinue, true);
+    const refusal = metadataOf("end-unchecked").cleanupRefusal as { scan?: string };
+    assert.equal(refusal.scan, "unavailable");
+    assert.deepEqual(endsOf(refusal), [{ by: OWNER, at: "string", attempts: [[4120, "ended"]] }]);
+  } finally {
+    await rm(scanFails, { force: true });
+  }
+  assert.equal((await continueAnyway()).cleanup, null);
+  const lift = metadataOf("end-unchecked").cleanupLifted as { how?: string };
+  assert.equal(lift.how, "rechecked", "the check before Continue anyway found nothing left");
+  assert.deepEqual(endsOf(lift), [{ by: OWNER, at: "string", attempts: [[4120, "ended"]] }]);
+  assert.equal(lastStatus("end-unchecked"), "The leftover coding processes are gone. End them ended codex.exe "
+    + "(PID 4120). Vivary accepts new messages again.");
 });
 
 // A group or a parent PID that Vivary did not trace to the run can belong to another program after PID reuse, so End
@@ -515,6 +558,14 @@ test("End them and Continue anyway act only on the list the owner saw", { ...lin
   const host = await agent.getVivaryCodeHostState(OWNER);
   assert.deepEqual(host.cleanup?.remaining.map(({ pid }) => pid), [4120], "the strip now lists it");
   assert.equal(host.cleanup?.canEnd, true);
+  assert.equal(host.cleanup?.canContinue, false);
+  // End them can act on this list, so Continue anyway waits until it has run, even for a current version.
+  await assert.rejects(resolve("continue", host.cleanup?.version), (error: Error & { errorCode?: string }) => {
+    assert.equal(error.errorCode, "vivary_code_cleanup_not_offered");
+    assert.equal(error.message, "Choose End them first. Continue anyway is offered when End them cannot end everything.");
+    return true;
+  });
+  assert.equal("cleanupLifted" in metadataOf("unscanned-choice"), false);
   await writeFile(scanRows, SYSTEM_ROW);
   await agent.recheckVivaryCodeCleanup();
   assert.equal((metadataOf("unscanned-choice").cleanupLifted as { how?: string }).how, "rechecked");
