@@ -133,27 +133,32 @@ chat showed only "Engine stream error", with Dismiss and Copy and no Retry.
 
 The patch changes these files:
 
-- `agent/engine/ai-sdk-engine.js` keeps a buffered error stop that carries text
-  when the later stop is also an error or the error carries a code. A chunk
-  that fails the provider's schema has no code, so a stream that goes on to a
-  normal finish still ends the turn normally.
+- `agent/engine/ai-sdk-engine.js` keeps the first error stop that carries a
+  code. An error stop with no code stays when the later stop is also an error
+  with no code. A chunk that fails the provider's schema has no code, so a
+  stream that goes on to a normal finish still ends the turn normally, and a
+  provider error after it still shows its message and code.
 - `agent/engine/translate-ai-sdk.js` turns a provider's plain-object error into
   its message, its code, and the upstream provider's name, for example
   "Provider returned error (code 502, from Google)", with the error code
   `provider_stream_error`. An error chunk that fails the provider's schema,
   such as one with no message, still holds the object and is read the same
   way. Any other chunk that fails to parse reads "The model provider sent a
-  response that could not be read" and never shows the chunk.
+  response that could not be read", never shows the chunk, and offers no
+  Retry, because the turn may have finished normally after it.
 - `agent/production-agent.js`, `agent/thread-data-builder.js`, and
   `client/sse-event-processor.js` treat `provider_stream_error` as final.
 - `client/chat/run-recovery.js` and `client/chat/message-components.js` offer
   Retry for `provider_stream_error`.
 
 The translation reads only these fields of the provider's object: `message`,
-`code`, `type` when there is no code, `metadata.provider_name` when it is a
-plain name of at most 64 letters, digits, spaces, periods, underscores, or
-hyphens, and the `statusCode` and `isRetryable` that a provider SDK derives,
-as OpenAI's Responses stream does. The rest of `metadata` can hold the
+`code`, `type` when there is no code, `metadata.provider_name` when it starts
+with a letter and holds at most 64 letters, spaces, periods, and hyphens, and
+the `statusCode` and `isRetryable` that a provider SDK derives, as OpenAI's
+Responses stream does. The name holds no digits, because the client reads the
+shown text for statuses, and a name such as "401 unauthorized" would swap the
+error card for the provider setup card. A name with a digit is left out, and
+the text keeps the message and code. The rest of `metadata` can hold the
 upstream provider's raw response, so it is never shown and never classified.
 `classifyProviderError` sees the message, the code, and that status. A
 classification it finds, such as `http_429` for an in-stream `"code":429` or
@@ -173,9 +178,10 @@ the server saved, for example after a reload, kept no error, or no reply when
 no text had streamed.
 
 Retry shows on the error card and on the inline notice under the last failed
-message, which is what remains after Dismiss. The card's Retry takes one click
-per error. A second click before the card leaves does nothing, and a different
-error gets a fresh Retry. Retry calls `retryAfterRunError` in
+message, which is what remains after Dismiss. Each Retry takes one click per
+error. A second click on the card or the notice before the chat re-renders
+does nothing, and a different error gets a fresh Retry. Retry calls
+`retryAfterRunError` in
 `AssistantChat.js`, the same retry the credential card uses. It adds a visible
 user turn, "Retry the previous request from a clean approach...", followed by
 the last user message's text, and keeps the failed turn and the rest of
@@ -207,8 +213,9 @@ Run `pnpm --dir packages/workbench test:native-chat`.
 loopback fake. One table checks the engine's final stop for an OpenRouter
 error chunk, one with no message, OpenRouter's documented mid-stream shape, an
 error with a type and no code, provider names that are not plain or are too
-long, an unknown chunk followed by a normal finish, and a last chunk that fails
-its schema or is not JSON. No metadata or raw chunk may reach the stream. The
+long, an unknown chunk followed by a normal finish, an unknown chunk and the
+provider's error chunk in both orders, and a last chunk that fails its schema
+or is not JSON. No metadata or raw chunk may reach the stream. The
 error chunk then runs through `startRun` with Vivary's redactor and a held
 synthetic value in the provider message. A second table runs six turns through
 `startRun`, with and without streamed text, with messages that name a closed
@@ -221,8 +228,12 @@ checks that an error with its own HTTP status keeps `http_<status>`.
 continuing, the card must show the message and a Retry that reaches the retry
 handler once for a double click, and an unclassified code must still get no
 Retry. The inline notice must offer Retry for this code on the last message
-only. On the previous patch every new case failed except the documented shape,
-the provider name cases, and the status case, which already held.
+only, and reach the handler once for a double click. A provider name of "401
+unauthorized" must be left out of the text, and the card must stay the error
+card with its Retry. Before the first review round, every case that round
+added failed except the documented shape, the provider name cases, and the
+status case, which already held. Before the second, the unknown chunk ahead of
+the provider's error, the status-like name, and the inline double click failed.
 
 Upstream could take these changes as they are. Remove this part of the patch
 only when an upstream release shows an in-stream provider error with its

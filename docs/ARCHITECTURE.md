@@ -153,6 +153,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #101, review round 2. A re-review found three narrow gaps in round 1. The maintained Core patch now keeps the
+first error stop that carries a code, so an unreadable chunk before a provider's error chunk no longer hides the
+provider's message, code, and Retry. The upstream provider name in the text must start with a letter and hold only
+letters, spaces, periods, and hyphens, so a name such as "401 unauthorized" can no longer read as a rejected key and
+swap the error card for the provider setup card. The inline notice's Retry now takes one click per error, as the
+card's does, so the round 1 entry's "one click per error" holds for both. Native still owns engines, runs, and the
+error card, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` failed
+on the round 1 patch in those three cases and passes on this one. The [patch
+notes](../packages/workbench/patches/README.md#native-stream-errors) record the rules.
+
 Issue #101, review round 1. Two reviews found that a provider's in-stream error was not final in every check and
 that its metadata still steered retries. The maintained Core patch now reads only a provider error's message, its
 code or else its type, a short plain upstream provider name, and a status that the provider SDK derived. The text

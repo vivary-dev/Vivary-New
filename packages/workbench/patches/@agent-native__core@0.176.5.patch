@@ -1,5 +1,5 @@
 diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
-index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..9c6e63f1eb388bd72a0a80dfb9f5366fdbbbbdf7 100644
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd24513c235823 100644
 --- a/dist/agent/engine/ai-sdk-engine.js
 +++ b/dist/agent/engine/ai-sdk-engine.js
 @@ -14,7 +14,7 @@
@@ -20,19 +20,20 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..9c6e63f1eb388bd72a0a80dfb9f5366f
                  errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
              };
              return;
-@@ -424,7 +424,17 @@ class AISDKEngine {
+@@ -424,7 +424,18 @@ class AISDKEngine {
                          credentialFailureRecorded = true;
                      }
                      if (event.type === "stop") {
 -                        bufferedStop = event;
 +                        // The AI SDK follows a provider's in-stream `error` part with a
-+                        // `finish` part that has no text. Keep the error stop when the
-+                        // finish also reports an error or the error carries a code. A
-+                        // chunk that failed the provider's schema has no code, so a later
-+                        // normal finish still ends the turn.
++                        // `finish` part that has no text. Keep the first error stop that
++                        // carries a code. A chunk that failed the provider's schema has
++                        // no code, so a later normal finish still ends the turn, and a
++                        // later error that carries a code replaces it.
 +                        const keepError = bufferedStop?.reason === "error" &&
 +                            bufferedStop.error &&
-+                            (event.reason === "error" || bufferedStop.errorCode);
++                            (bufferedStop.errorCode ||
++                                (event.reason === "error" && !event.errorCode));
 +                        if (!keepError) {
 +                            bufferedStop = event;
 +                        }
@@ -136,7 +137,7 @@ index 19033d1506f417150185e287bb2d0d0f3dfb14d0..2f9d0c4380a588c24a9162980582d631
  export function userFacingLlmCredentialError(error, options) {
      return isLlmCredentialError(error)
 diff --git a/dist/agent/engine/translate-ai-sdk.js b/dist/agent/engine/translate-ai-sdk.js
-index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..9972caacd24222f64a4f9eb77d3ff53940c00a9a 100644
+index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..a137c7a53445fd78f1efefae0a359950628b919e 100644
 --- a/dist/agent/engine/translate-ai-sdk.js
 +++ b/dist/agent/engine/translate-ai-sdk.js
 @@ -236,11 +236,17 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
@@ -187,7 +188,7 @@ index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..9972caacd24222f64a4f9eb77d3ff539
              });
              break;
          }
-@@ -282,6 +304,49 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
+@@ -282,6 +304,50 @@ export function aiSdkPartToEngineEvents(part, toolNameMap) {
      }
      return events;
  }
@@ -199,7 +200,8 @@ index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..9972caacd24222f64a4f9eb77d3ff539
 + * TypeValidationError that still holds the chunk. Only the message, the code or
 + * else the type, a short plain upstream provider name, and a status the
 + * provider SDK derived are read. The rest of `metadata` can hold the upstream
-+ * provider's raw response.
++ * provider's raw response. The name holds no digits, because the client reads
++ * the shown text for statuses such as 401.
 + */
 +function providerStreamError(error) {
 +    const value = error instanceof Error
@@ -216,7 +218,7 @@ index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..9972caacd24222f64a4f9eb77d3ff539
 +        code: typeof value.code === "number"
 +            ? String(value.code)
 +            : (text(value.code) ?? text(value.type)),
-+        provider: provider && /^[A-Za-z0-9 ._-]{1,64}$/.test(provider)
++        provider: provider && /^[A-Za-z][A-Za-z .-]{0,63}$/.test(provider)
 +            ? provider
 +            : undefined,
 +        statusCode: value.statusCode,
@@ -2428,10 +2430,10 @@ index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c
 +    scopeKey?: string;
 +}): React.JSX.Element | null;
 diff --git a/dist/client/chat/message-components.js b/dist/client/chat/message-components.js
-index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6ceda3ccd0 100644
+index 440c93db05d0b21745e8c74db76af0ec2de27761..169cb0dc0ef1854047d3ff801e121964e96c70ad 100644
 --- a/dist/client/chat/message-components.js
 +++ b/dist/client/chat/message-components.js
-@@ -966,6 +966,15 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
+@@ -966,10 +966,36 @@ export function shouldShowInlineRunError({ runError, bannerRunErrorKey, }) {
          return false;
      return runErrorKey(runError) !== bannerRunErrorKey;
  }
@@ -2447,7 +2449,34 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6c
  export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
      const t = useT();
      const formatDuration = useLocalizedWorkedDuration();
-@@ -985,6 +994,84 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+     const [open, setOpen] = useState(false);
++    // One click queues one retry turn, as on the error card. The notice stays
++    // mounted until the chat re-renders, so the guard resets only for a
++    // different error.
++    const retryRequestedRef = useRef(false);
++    const [retryRequested, setRetryRequested] = useState(false);
++    const errorKey = runErrorKey(info);
++    useEffect(() => {
++        retryRequestedRef.current = false;
++        setRetryRequested(false);
++    }, [errorKey]);
++    const handleRetry = useCallback(() => {
++        if (retryRequestedRef.current)
++            return;
++        retryRequestedRef.current = true;
++        setRetryRequested(true);
++        onRetry();
++    }, [onRetry]);
+     const headline = runErrorHeadline(info, {
+         recoverable: t("agentChat.error.stopped"),
+         terminal: t("agentChat.error.failed"),
+@@ -980,11 +1006,89 @@ export function InlineRunErrorNotice({ info, durationMs, onRetry, }) {
+             duration: formatDuration(durationMs),
+         })
+         : headline;
+-    return (_jsxs("div", { className: "my-1 w-full", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), "aria-expanded": open, className: "flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground", children: [_jsx(IconAlertTriangle, { className: "size-3.5 shrink-0 text-amber-500" }), _jsx("span", { className: "truncate", children: label }), _jsx(IconChevronRight, { className: cn("size-3.5 shrink-0 transition-transform", open && "rotate-90") })] }), open && (_jsxs("div", { className: "mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground", children: [_jsx("p", { className: "whitespace-pre-wrap break-words", children: localizeKnownChatErrorText(info.message, t) }), info.errorCode && (_jsxs("div", { className: "mt-1 font-mono", children: ["code: ", info.errorCode] })), info.runId && _jsxs("div", { className: "font-mono", children: ["run: ", info.runId] }), info.details && (_jsx("pre", { className: "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono", children: info.details })), onRetry && (_jsxs("button", { type: "button", onClick: onRetry, className: "mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent", children: [_jsx(IconRefresh, { className: "size-3" }), t("agentChat.common.retry")] }))] }))] }));
++    return (_jsxs("div", { className: "my-1 w-full", children: [_jsxs("button", { type: "button", onClick: () => setOpen((v) => !v), "aria-expanded": open, className: "flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground", children: [_jsx(IconAlertTriangle, { className: "size-3.5 shrink-0 text-amber-500" }), _jsx("span", { className: "truncate", children: label }), _jsx(IconChevronRight, { className: cn("size-3.5 shrink-0 transition-transform", open && "rotate-90") })] }), open && (_jsxs("div", { className: "mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground", children: [_jsx("p", { className: "whitespace-pre-wrap break-words", children: localizeKnownChatErrorText(info.message, t) }), info.errorCode && (_jsxs("div", { className: "mt-1 font-mono", children: ["code: ", info.errorCode] })), info.runId && _jsxs("div", { className: "font-mono", children: ["run: ", info.runId] }), info.details && (_jsx("pre", { className: "mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono", children: info.details })), onRetry && (_jsxs("button", { type: "button", onClick: handleRetry, disabled: retryRequested, className: "mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent", children: [_jsx(IconRefresh, { className: "size-3" }), t("agentChat.common.retry")] }))] }))] }));
+ }
  function MissingFinalResponseNotice({ messageId, text, animate, onRevealComplete, }) {
      return (_jsx("div", { className: "my-1 w-full text-muted-foreground", role: "status", "aria-live": "polite", "data-testid": "missing-final-response", children: _jsx(SmoothMarkdownText, { text: text, streaming: animate, resetKey: `missing-final-response:${messageId}`, statusType: animate ? "running" : "complete", onRevealComplete: animate ? onRevealComplete : undefined }) }));
  }
@@ -2532,7 +2561,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6c
  export function AssistantMessage() {
      const t = useT();
      const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
-@@ -1079,7 +1166,9 @@ export function AssistantMessage() {
+@@ -1079,7 +1183,9 @@ export function AssistantMessage() {
      const responseConnectionContext = React.useMemo(() => {
          let parentId = msg.parentId;
          while (parentId) {
@@ -2543,7 +2572,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6c
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  return displayableUserMessageText(messageTextFromContent(parentMessage.content));
-@@ -1087,12 +1176,14 @@ export function AssistantMessage() {
+@@ -1087,12 +1193,14 @@ export function AssistantMessage() {
              parentId = parentMessage.parentId;
          }
          return "";
@@ -2560,7 +2589,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6c
              if (parentMessage.role === "user" &&
                  !isHiddenUserMessage(parentMessage)) {
                  turnStartedAt = parentMessage.createdAt;
-@@ -1298,6 +1389,8 @@ export function AssistantMessage() {
+@@ -1298,6 +1406,8 @@ export function AssistantMessage() {
                                              return (_jsx(MissingFinalResponseNotice, { messageId: msg.id, text: part.text, animate: animateMissingFinalResponse, onRevealComplete: handleMissingFinalResponseReveal }));
                                          }
                                          return _jsx(MarkdownText, {});
@@ -2569,7 +2598,7 @@ index 440c93db05d0b21745e8c74db76af0ec2de27761..2902aa468a449136c3eb537ecd72eb6c
                                      case "reasoning":
                                          return _jsx(ReasoningMessagePart, {});
                                      case "tool-call":
-@@ -1307,7 +1400,10 @@ export function AssistantMessage() {
+@@ -1307,7 +1417,10 @@ export function AssistantMessage() {
                                      default:
                                          return null;
                                  }
