@@ -22,11 +22,11 @@ const TASKKILL_TIMEOUT_MS = 3_000;
 const CLEANUP_CHECK_MS = 1_000;
 // Bounds a stuck PowerShell. One start plus one CIM query took under a second on a Windows laptop.
 const WINDOWS_SCAN_TIMEOUT_MS = 10_000;
-// The worker's Windows identity comes from the host clock around `fork`, which creates the process before it returns.
-const WORKER_CREATED_BEFORE_MS = 1_000;
-const WORKER_CREATED_AFTER_MS = 5_000;
-// A dead parent starts nothing, so a process created this long after the worker's observed exit is not its child.
-const WORKER_CHILDREN_AFTER_EXIT_MS = 1_000;
+// The worker's Windows identity comes from the host clock, read just before and just after `fork`, which creates the
+// process before it returns, and at its observed exit, since a dead parent starts nothing. Windows stamps a creation
+// time from its system clock, which can advance in 15.6 ms ticks, and both clocks are compared in whole milliseconds,
+// so each bound gets this much room. On a Windows laptop 36 forks all fell inside the two readings with none of it.
+const CLOCK_TOLERANCE_MS = 20;
 const MAX_TRACKED_PROCESSES = 200;
 const MAX_TRACED_PROCESSES = 200;
 
@@ -137,8 +137,9 @@ export async function executeVivaryCodeWorker(input: {
       env: environment, detached: process.platform !== "win32",
       stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true,
     };
-    const startedAt = Date.now();
+    const forkedFrom = Date.now();
     const child = fork(entry, [], forkOptions);
+    const forkedTo = Date.now();
     let exitedAt: number | null = null;
     let failure: Error | null = null;
     let reported = false;
@@ -175,7 +176,7 @@ export async function executeVivaryCodeWorker(input: {
       let target: CleanupTarget | null = null;
       let check: CleanupCheck = { result: "unavailable" };
       try {
-        target = await workerCleanupTarget(child.pid, startedAt, exitedAt);
+        target = await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
         if (target) check = await checkWorkerCleanup(target);
         // This host just stopped this group or tree, so everything the check finds belongs to the run.
         if (check.result === "remaining") {
@@ -637,7 +638,7 @@ function traceable(traced: readonly TracedProcess[], found: readonly LeftoverPro
 
 /** The target that finds a stopped worker's processes again, or null on a platform Vivary cannot check. */
 async function workerCleanupTarget(
-  pid: number | undefined, startedAt: number, exitedAt: number | null,
+  pid: number | undefined, forkedFrom: number, forkedTo: number, exitedAt: number | null,
 ): Promise<CleanupTarget | null> {
   if (!pid) return null;
   // The worker leads its own process group on Linux, so the group id is its PID.
@@ -645,9 +646,9 @@ async function workerCleanupTarget(
     return { platform: "linux", groupId: pid, bootId: await readBootId(), traced: [] };
   }
   if (process.platform !== "win32") return null;
-  return { platform: "win32", tracked: [{ pid, createdFrom: startedAt - WORKER_CREATED_BEFORE_MS,
-    createdTo: startedAt + WORKER_CREATED_AFTER_MS,
-    childrenTo: exitedAt === null ? null : exitedAt + WORKER_CHILDREN_AFTER_EXIT_MS }], traced: [] };
+  return { platform: "win32", tracked: [{ pid, createdFrom: forkedFrom - CLOCK_TOLERANCE_MS,
+    createdTo: forkedTo + CLOCK_TOLERANCE_MS,
+    childrenTo: exitedAt === null ? null : exitedAt + CLOCK_TOLERANCE_MS }], traced: [] };
 }
 
 function readBootId(): Promise<string | null> {
