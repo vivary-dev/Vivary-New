@@ -1,5 +1,5 @@
 diff --git a/dist/agent/engine/ai-sdk-engine.js b/dist/agent/engine/ai-sdk-engine.js
-index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd24513c235823 100644
+index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..dc00d64ba9aacf78207709e3ff03643c9c2200c2 100644
 --- a/dist/agent/engine/ai-sdk-engine.js
 +++ b/dist/agent/engine/ai-sdk-engine.js
 @@ -14,7 +14,7 @@
@@ -20,7 +20,33 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd2451
                  errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
              };
              return;
-@@ -424,7 +424,18 @@ class AISDKEngine {
+@@ -397,9 +397,15 @@ class AISDKEngine {
+             // Buffer the terminal stop so assistant-content can be emitted just
+             // before it, regardless of where `finish` arrives in the stream.
+             let bufferedStop;
++            // The step's `finish-step` part carries the provider's reported cost
++            // and arrives before the `finish` part that yields the usage event.
++            let reportedCostUsd;
+             let sawFirstEvent = false;
+             let credentialFailureRecorded = false;
+             for await (const part of result.fullStream) {
++                if (part?.type === "finish-step") {
++                    reportedCostUsd = reportedCallCostUsd(part.providerMetadata);
++                }
+                 // "start" is a synthetic lifecycle marker the AI SDK enqueues
+                 // synchronously when the stream begins — before any provider bytes
+                 // arrive — so it does not count as real progress. Every other part
+@@ -411,6 +417,9 @@ class AISDKEngine {
+                 }
+                 for (const event of aiSdkPartToEngineEvents(part, toolNameMap)) {
+                     observeStreamedToolInput(toolInputs, event);
++                    if (event.type === "usage" && reportedCostUsd !== undefined) {
++                        event.costUsd = reportedCostUsd;
++                    }
+                     if (event.type === "stop" &&
+                         event.reason === "error" &&
+                         event.statusCode === 401) {
+@@ -424,7 +433,18 @@ class AISDKEngine {
                          credentialFailureRecorded = true;
                      }
                      if (event.type === "stop") {
@@ -40,6 +66,23 @@ index 3e95a40707e4c2fcc95c0a54085a25f3e21aaffa..c5959243d6b2cec749f9fa4f7cfd2451
                      }
                      else {
                          yield event;
+@@ -611,6 +631,16 @@ function isLocalBaseUrl(baseUrl) {
+         return true;
+     return false;
+ }
++/**
++ * What one model call cost in US dollars as OpenRouter reported it, including 0
++ * for a free model, or undefined when the provider reported no cost.
++ */
++function reportedCallCostUsd(providerMetadata) {
++    const cost = providerMetadata?.openrouter?.usage?.cost;
++    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0
++        ? cost
++        : undefined;
++}
+ function capitalize(s) {
+     return s.charAt(0).toUpperCase() + s.slice(1);
+ }
 diff --git a/dist/agent/engine/anthropic-engine.js b/dist/agent/engine/anthropic-engine.js
 index f66ece32d03e3a4e719ad745449a0d31c7dbf16f..4221dfff002a55f511add203f47e9f025b2b1d47 100644
 --- a/dist/agent/engine/anthropic-engine.js
@@ -239,8 +282,69 @@ index 4e80d7dd9e363aaa7356b55e676a0435c0a3a142..a137c7a53445fd78f1efefae0a359950
  function finishReasonToStopReason(reason) {
      switch (reason) {
          case "tool-calls":
+diff --git a/dist/agent/engine/types.d.ts b/dist/agent/engine/types.d.ts
+index 422572c276296bee64fb3f57785a9922ff576d39..3257162e14d3627c8b100f9d402038d14fb21d47 100644
+--- a/dist/agent/engine/types.d.ts
++++ b/dist/agent/engine/types.d.ts
+@@ -196,6 +196,11 @@ export type EngineEvent = {
+     cacheWriteTokens?: number;
+     totalTokens?: number;
+     reasoningTokens?: number;
++    /**
++     * What the call cost in US dollars as the provider reported it, including
++     * 0 for a free model. Absent when the provider reported no cost.
++     */
++    costUsd?: number;
+ } | {
+     /** Final assistant content for the turn. Engines MUST emit this
+      *  exactly once, immediately before the terminal `stop` event. */
+diff --git a/dist/agent/production-agent.d.ts b/dist/agent/production-agent.d.ts
+index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..df4360eb602d4c492387407971b838e8cc49386e 100644
+--- a/dist/agent/production-agent.d.ts
++++ b/dist/agent/production-agent.d.ts
+@@ -534,6 +534,12 @@ export interface AgentLoopUsage {
+     cacheReadTokens: number;
+     cacheWriteTokens: number;
+     model: string;
++    /**
++     * On the usage that `onUsage` receives for one model call, what the call
++     * cost in US dollars as the provider reported it. Absent when the provider
++     * reported no cost.
++     */
++    costUsd?: number;
+     /** Number of provider model-stream attempts, including retries. */
+     llmCalls?: number;
+     /**
+@@ -839,6 +845,27 @@ export declare function shouldGuardRepeatedSourceSweep(opts: {
+  * Decoupled from HTTP transport so it can run in the background.
+  * Returns accumulated token usage for cost tracking.
+  */
++/** Usage for one main chat turn. `usageRecord` returns the fields `recordUsage` stores. */
++export interface TurnUsage {
++    inputTokens: number;
++    outputTokens: number;
++    cacheReadTokens: number;
++    cacheWriteTokens: number;
++    model: string;
++    calls: number;
++    reportedCostUsd: number | undefined;
++    add(usage: AgentLoopUsage): void;
++    usageRecord(): {
++        inputTokens: number;
++        outputTokens: number;
++        cacheReadTokens: number;
++        cacheWriteTokens: number;
++        model: string;
++        costCentsX100?: number;
++        costSource?: "reported";
++    };
++}
++export declare function createTurnUsage(model: string): TurnUsage;
+ export declare function runAgentLoop(opts: {
+     engine: AgentEngine;
+     model: string;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae23674a97 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..6f82e4a937e96dbf063f7f0add796db6b39016ad 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -297,7 +401,72 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
      if (code === "builder_gateway_timeout" ||
          code === "builder_gateway_network_error" ||
          // A gateway stream that stopped mid-turn. It reached here as
-@@ -4363,7 +4377,8 @@ export async function runAgentLoop(opts) {
+@@ -3339,6 +3353,56 @@ function validateRawToolInput(entry, input) {
+  * Decoupled from HTTP transport so it can run in the background.
+  * Returns accumulated token usage for cost tracking.
+  */
++/**
++ * Usage for one main chat turn, summed over its model calls and internal
++ * continuations. The provider's reported cost counts only while every call
++ * reports one, and `usageRecord` then passes it to `recordUsage` as reported.
++ * Otherwise it passes no cost, and the usage store prices the tokens from its
++ * table or records the cost as unknown.
++ */
++export function createTurnUsage(model) {
++    const turn = {
++        inputTokens: 0,
++        outputTokens: 0,
++        cacheReadTokens: 0,
++        cacheWriteTokens: 0,
++        model,
++        calls: 0,
++        reportedCostUsd: 0,
++        add(usage) {
++            turn.inputTokens += usage.inputTokens;
++            turn.outputTokens += usage.outputTokens;
++            turn.cacheReadTokens += usage.cacheReadTokens;
++            turn.cacheWriteTokens += usage.cacheWriteTokens;
++            turn.model = usage.model;
++            turn.calls += 1;
++            turn.reportedCostUsd =
++                turn.reportedCostUsd === undefined || usage.costUsd === undefined
++                    ? undefined
++                    : turn.reportedCostUsd + usage.costUsd;
++        },
++        usageRecord() {
++            const record = {
++                inputTokens: turn.inputTokens,
++                outputTokens: turn.outputTokens,
++                cacheReadTokens: turn.cacheReadTokens,
++                cacheWriteTokens: turn.cacheWriteTokens,
++                model: turn.model,
++            };
++            if (turn.calls === 0 || turn.reportedCostUsd === undefined)
++                return record;
++            // Centicents, rounded as calculateCost rounds, so a small reported
++            // cost never reads as free.
++            const centicents = turn.reportedCostUsd * 10_000;
++            return {
++                ...record,
++                costCentsX100: centicents > 0 ? Math.max(1, Math.round(centicents)) : 0,
++                costSource: "reported",
++            };
++        },
++    };
++    return turn;
++}
+ export async function runAgentLoop(opts) {
+     const { engine, model, systemPrompt, tools, availableTools, messages, actions, send, signal, } = opts;
+     let outcomeReported = false;
+@@ -3941,6 +4005,7 @@ export async function runAgentLoop(opts) {
+                                 cacheReadTokens: event.cacheReadTokens ?? 0,
+                                 cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                                 model,
++                                costUsd: event.costUsd,
+                             };
+                             usage.inputTokens += eventUsage.inputTokens;
+                             usage.outputTokens += eventUsage.outputTokens;
+@@ -4363,7 +4428,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -307,7 +476,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5100,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5151,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -318,7 +487,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5155,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5206,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -327,7 +496,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5469,6 +5488,11 @@ export function isRecoverableContinuationError(event) {
+@@ -5469,6 +5539,11 @@ export function isRecoverableContinuationError(event) {
      const message = event.error.toLowerCase();
      if (code === "builder_gateway_error")
          return false;
@@ -339,7 +508,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
      // An explicit flag outranks the message sniff below, which exists for events
      // that carry no flag at all. Every guard stop sets `recoverable: false`, and
      // sniffing its prose is how a stop that merely NAMES a connection or a
-@@ -5890,7 +5914,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5890,7 +5965,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -348,7 +517,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
          }
      }
      return updated;
-@@ -7389,12 +7413,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7464,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -363,6 +532,49 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..852ef635a6fab5b5e8adc24d030f5fae
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
+@@ -8299,13 +8374,7 @@ export function createProductionAgentHandler(options) {
+                 : typeof message === "string" && message.trim().length > 0
+                     ? message
+                     : undefined;
+-            const turnUsage = {
+-                inputTokens: 0,
+-                outputTokens: 0,
+-                cacheReadTokens: 0,
+-                cacheWriteTokens: 0,
+-                model: effectiveModel,
+-            };
++            const turnUsage = createTurnUsage(effectiveModel);
+             const agentLoopOpts = {
+                 engine,
+                 model: effectiveModel,
+@@ -8318,13 +8387,7 @@ export function createProductionAgentHandler(options) {
+                 actions: requestActions,
+                 send,
+                 signal,
+-                onUsage: (usage) => {
+-                    turnUsage.inputTokens += usage.inputTokens;
+-                    turnUsage.outputTokens += usage.outputTokens;
+-                    turnUsage.cacheReadTokens += usage.cacheReadTokens;
+-                    turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+-                    turnUsage.model = usage.model;
+-                },
++                onUsage: turnUsage.add,
+                 ownerEmail,
+                 orgId: getRequestOrgId() ?? null,
+                 attachments: requestAttachments,
+@@ -8493,11 +8556,7 @@ export function createProductionAgentHandler(options) {
+                         const { recordUsage } = await import("../usage/store.js");
+                         await recordUsage({
+                             ownerEmail: resolvedOwnerEmail,
+-                            inputTokens: turnUsage.inputTokens,
+-                            outputTokens: turnUsage.outputTokens,
+-                            cacheReadTokens: turnUsage.cacheReadTokens,
+-                            cacheWriteTokens: turnUsage.cacheWriteTokens,
+-                            model: turnUsage.model,
++                            ...turnUsage.usageRecord(),
+                             label: turnUsageLabel || "chat",
+                             // token_usage has had run_id/thread_id/task_id since it was
+                             // created and every row was NULL on all three, so no spend could
 diff --git a/dist/agent/run-manager.js b/dist/agent/run-manager.js
 index d633a29f3ebe57ff878a909a583f3a02cde20946..dd16f64290b21306275332cdd4b29f8b1a64f4fe 100644
 --- a/dist/agent/run-manager.js
@@ -3052,6 +3264,47 @@ index 2aa4e0db60ff7621021d016ecf0c3b4304065139..8ada4c8277605197c042390208050954
      const openSettingsSection = useCallback((section, scroll = false) => openControllerSection(section, { scroll }), [openControllerSection]);
      const isPage = surface === "page";
      const isWorkspacePage = isPage && sections.includes("hosting");
+diff --git a/dist/client/settings/UsageSection.js b/dist/client/settings/UsageSection.js
+index ff63d97087cfee804b7d8471d64be5ef904b1ee3..21cd6bc75822c5223cf46efbe977e59b3d66c560 100644
+--- a/dist/client/settings/UsageSection.js
++++ b/dist/client/settings/UsageSection.js
+@@ -47,6 +47,18 @@ function formatCost(cents, billing) {
+         maximumFractionDigits: 2,
+     })}`;
+ }
++/**
++ * A cost figure whose `costCents` adds only known costs. When every call's
++ * cost is unknown it reads "Unknown". When some are, it reads the known amount
++ * plus the number of calls whose cost is unknown.
++ */
++function formatCostFigure(figure, billing) {
++    if (!figure.unknownCostCalls)
++        return formatCost(figure.costCents, billing);
++    if (figure.unknownCostCalls >= figure.calls)
++        return "Unknown";
++    return `${formatCost(figure.costCents, billing)} + ${figure.unknownCostCalls} unknown`;
++}
+ function formatAlertValue(rule, value) {
+     if (rule.unit === "usd") {
+         return value.toLocaleString(undefined, {
+@@ -91,7 +103,7 @@ function MetricCard({ label, value, detail, accent = false, }) {
+ }
+ function DriverList({ title, rows, billing, }) {
+     const max = Math.max(...rows.map((row) => row.costCents), 1);
+-    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-3 flex items-center justify-between gap-3", children: [_jsx("h3", { className: "text-sm font-semibold text-foreground", children: title }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.08em] text-muted-foreground", children: "Spend" })] }), rows.length === 0 ? (_jsx("p", { className: "text-sm text-muted-foreground", children: "No usage recorded yet." })) : (_jsx("div", { className: "space-y-3", children: rows.slice(0, 5).map((row) => (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between gap-3 text-sm", children: [_jsx("span", { className: "min-w-0 truncate text-foreground", title: row.label, children: row.label }), _jsx("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: formatCost(row.costCents, billing) })] }), _jsx("div", { className: "mt-1.5 h-1 overflow-hidden rounded-full bg-muted", children: _jsx("div", { className: "h-full rounded-full bg-primary/70", style: {
++    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-3 flex items-center justify-between gap-3", children: [_jsx("h3", { className: "text-sm font-semibold text-foreground", children: title }), _jsx("span", { className: "text-[11px] uppercase tracking-[0.08em] text-muted-foreground", children: "Spend" })] }), rows.length === 0 ? (_jsx("p", { className: "text-sm text-muted-foreground", children: "No usage recorded yet." })) : (_jsx("div", { className: "space-y-3", children: rows.slice(0, 5).map((row) => (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between gap-3 text-sm", children: [_jsx("span", { className: "min-w-0 truncate text-foreground", title: row.label, children: row.label }), _jsx("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: formatCostFigure(row, billing) })] }), _jsx("div", { className: "mt-1.5 h-1 overflow-hidden rounded-full bg-muted", children: _jsx("div", { className: "h-full rounded-full bg-primary/70", style: {
+                                     width: `${Math.max(4, (row.costCents / max) * 100)}%`,
+                                 } }) })] }, row.key))) }))] }));
+ }
+@@ -199,7 +211,7 @@ export function UsageSection({ appId = null, viewAllHref, }) {
+     return (_jsxs("div", { className: "mx-auto w-full max-w-5xl space-y-6", children: [_jsxs("header", { className: "flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between", children: [_jsxs("div", { children: [_jsxs("div", { className: "flex items-center gap-2 text-xs font-medium uppercase tracking-[0.1em] text-primary", children: [_jsx(IconChartLine, { className: "size-4" }), " Usage"] }), _jsxs("h1", { className: "mt-2 text-xl font-semibold tracking-[-0.02em] text-foreground", children: [appLabel(appId), " usage"] }), _jsx("p", { className: "mt-1 max-w-xl text-sm leading-6 text-muted-foreground", children: "A focused view of spend, capacity, and the prompts driving this app." })] }), _jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [data?.access.canViewWorkspace ? (_jsxs(Select, { value: scope, onValueChange: (value) => {
+                                     setScope(value);
+                                     setSelectedUserEmail(null);
+-                                }, children: [_jsx(SelectTrigger, { className: "h-9 w-32 text-xs", children: _jsx(SelectValue, {}) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "me", children: "My usage" }), _jsx(SelectItem, { value: "workspace", children: "Workspace" })] })] })) : null, scope === "workspace" && data ? (_jsxs(Select, { value: selectedUserEmail ?? "all", onValueChange: (value) => setSelectedUserEmail(value === "all" ? null : value), children: [_jsx(SelectTrigger, { className: "h-9 w-44 text-xs", children: _jsx(SelectValue, { placeholder: "All users" }) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "all", children: "All users" }), data.availableUsers.map((user) => (_jsx(SelectItem, { value: user.email, children: user.email }, user.email)))] })] })) : null, _jsx("div", { className: "flex items-center rounded-md border border-border/70 p-0.5", children: LOOKBACKS.map((range) => (_jsx(Button, { type: "button", variant: sinceDays === range.value ? "secondary" : "ghost", size: "sm", className: "h-8 px-2.5 text-xs", onClick: () => setSinceDays(range.value), children: range.label }, range.value))) }), _jsx(Button, { type: "button", variant: "outline", size: "icon", onClick: () => void query.refetch(), disabled: query.isFetching, "aria-label": "Refresh usage", title: "Refresh usage", children: query.isFetching ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconRefresh, {})) })] })] }), query.isError && !data ? (_jsxs("div", { className: "rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm", role: "alert", children: [_jsx("div", { className: "font-medium text-destructive", children: "Usage data couldn\u2019t be loaded." }), _jsx(Button, { type: "button", variant: "link", size: "sm", className: "mt-1 h-auto p-0", onClick: () => void query.refetch(), children: "Try again" })] })) : null, !data && query.isLoading ? _jsx(UsageLoadingState, {}) : null, data ? (_jsxs(_Fragment, { children: [_jsxs("div", { className: "grid gap-3 sm:grid-cols-3", children: [_jsx(MetricCard, { label: billing.label, value: formatCost(data.totals.costCents, billing), detail: `${sinceDays} day lookback`, accent: true }), _jsx(MetricCard, { label: "Calls", value: data.totals.calls.toLocaleString(), detail: `${data.currentDay.calls.toLocaleString()} today` }), _jsx(MetricCard, { label: "Tokens", value: compactNumber(totalTokens), detail: `${compactNumber(data.currentDay.tokens)} today` })] }), _jsxs("section", { className: "rounded-lg border border-border/70 bg-card p-4", children: [_jsxs("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: "Daily trend" }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatCost(data.currentDay.costCents, billing), " used today \u00B7", " ", data.currentDay.calls.toLocaleString(), " calls"] })] }), _jsxs("div", { className: "flex items-center gap-1.5 text-xs text-muted-foreground", children: [scope === "workspace" ? (_jsx(IconUsers, { className: "size-3.5" })) : null, scope === "workspace"
++                                }, children: [_jsx(SelectTrigger, { className: "h-9 w-32 text-xs", children: _jsx(SelectValue, {}) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "me", children: "My usage" }), _jsx(SelectItem, { value: "workspace", children: "Workspace" })] })] })) : null, scope === "workspace" && data ? (_jsxs(Select, { value: selectedUserEmail ?? "all", onValueChange: (value) => setSelectedUserEmail(value === "all" ? null : value), children: [_jsx(SelectTrigger, { className: "h-9 w-44 text-xs", children: _jsx(SelectValue, { placeholder: "All users" }) }), _jsxs(SelectContent, { children: [_jsx(SelectItem, { value: "all", children: "All users" }), data.availableUsers.map((user) => (_jsx(SelectItem, { value: user.email, children: user.email }, user.email)))] })] })) : null, _jsx("div", { className: "flex items-center rounded-md border border-border/70 p-0.5", children: LOOKBACKS.map((range) => (_jsx(Button, { type: "button", variant: sinceDays === range.value ? "secondary" : "ghost", size: "sm", className: "h-8 px-2.5 text-xs", onClick: () => setSinceDays(range.value), children: range.label }, range.value))) }), _jsx(Button, { type: "button", variant: "outline", size: "icon", onClick: () => void query.refetch(), disabled: query.isFetching, "aria-label": "Refresh usage", title: "Refresh usage", children: query.isFetching ? (_jsx(IconLoader2, { className: "animate-spin" })) : (_jsx(IconRefresh, {})) })] })] }), query.isError && !data ? (_jsxs("div", { className: "rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-sm", role: "alert", children: [_jsx("div", { className: "font-medium text-destructive", children: "Usage data couldn\u2019t be loaded." }), _jsx(Button, { type: "button", variant: "link", size: "sm", className: "mt-1 h-auto p-0", onClick: () => void query.refetch(), children: "Try again" })] })) : null, !data && query.isLoading ? _jsx(UsageLoadingState, {}) : null, data ? (_jsxs(_Fragment, { children: [_jsxs("div", { className: "grid gap-3 sm:grid-cols-3", children: [_jsx(MetricCard, { label: billing.label, value: formatCostFigure(data.totals, billing), detail: `${sinceDays} day lookback`, accent: true }), _jsx(MetricCard, { label: "Calls", value: data.totals.calls.toLocaleString(), detail: `${data.currentDay.calls.toLocaleString()} today` }), _jsx(MetricCard, { label: "Tokens", value: compactNumber(totalTokens), detail: `${compactNumber(data.currentDay.tokens)} today` })] }), _jsxs("section", { className: "rounded-lg border border-border/70 bg-card p-4", children: [_jsxs("div", { className: "flex flex-wrap items-start justify-between gap-3", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-sm font-semibold text-foreground", children: "Daily trend" }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [formatCostFigure(data.currentDay, billing), " used today \u00B7", " ", data.currentDay.calls.toLocaleString(), " calls"] })] }), _jsxs("div", { className: "flex items-center gap-1.5 text-xs text-muted-foreground", children: [scope === "workspace" ? (_jsx(IconUsers, { className: "size-3.5" })) : null, scope === "workspace"
+                                                 ? (selectedUserEmail ?? "All users")
+                                                 : "Your usage"] })] }), _jsx("div", { className: "mt-4", children: _jsx(Trend, { daily: data.daily, billing: billing }) })] }), _jsxs("details", { className: "group rounded-lg border border-border/70 bg-card", children: [_jsxs("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden", children: [_jsxs("span", { children: [_jsx("span", { className: "block text-sm font-semibold text-foreground", children: "Top usage drivers" }), _jsx("span", { className: "mt-1 block text-xs text-muted-foreground", children: "Breakdowns stay collapsed until you need them." })] }), _jsx(IconChevronDown, { className: "size-4 text-muted-foreground transition-transform group-open:rotate-180" })] }), _jsxs("div", { className: "grid gap-6 border-t border-border/70 px-4 py-4 md:grid-cols-2", children: [_jsx(DriverList, { title: "By workflow", rows: data.byLabel, billing: billing }), _jsx(DriverList, { title: "By model", rows: data.byModel, billing: billing })] })] }), _jsxs("details", { className: "group rounded-lg border border-border/70 bg-card", children: [_jsxs("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden", children: [_jsxs("span", { children: [_jsx("span", { className: "block text-sm font-semibold text-foreground", children: "Recent prompts" }), _jsx("span", { className: "mt-1 block text-xs text-muted-foreground", children: "Latest recorded prompts for the selected app and user scope." })] }), _jsxs("span", { className: "flex items-center gap-2 text-xs text-muted-foreground", children: [data.recent.length, _jsx(IconChevronDown, { className: "size-4 transition-transform group-open:rotate-180" })] })] }), _jsx("div", { className: "border-t border-border/70", children: data.recent.length === 0 ? (_jsx("p", { className: "px-4 py-5 text-sm text-muted-foreground", children: "No recent prompts recorded." })) : (_jsx("div", { className: "divide-y divide-border/60", children: data.recent.map((entry) => (_jsxs("div", { className: "px-4 py-3", children: [_jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground", children: [_jsxs("span", { children: [entry.label, " \u00B7 ", entry.model] }), _jsx("span", { children: entry.ownerEmail })] }), _jsx("p", { className: "mt-1 line-clamp-2 text-sm text-foreground", children: entry.prompt ??
+                                                     "Prompt text was not captured for this call." })] }, entry.id))) })) })] }), _jsx(UsageAlertsSection, { appId: appId }), viewAllHref ? (_jsx("div", { className: "flex justify-end", children: _jsx(Button, { asChild: true, variant: "link", size: "sm", className: "gap-1.5", children: _jsxs(Link, { to: viewAllHref, children: ["View all usage", _jsx(IconArrowUpRight, {})] }) }) })) : null] })) : null] }));
 diff --git a/dist/client/settings/VoiceTranscriptionSection.js b/dist/client/settings/VoiceTranscriptionSection.js
 index 6d2d0289d79f520ed465c7e6fbc99f9f37c092b1..7927141df9ecd69b0240c47caa21476927d9a53d 100644
 --- a/dist/client/settings/VoiceTranscriptionSection.js
@@ -6203,8 +6456,61 @@ index e7562dd40f03bee7f4a50164eda22b4b5f4ca9b5..b11d7004218b727a0d825da7bf5297d9
  const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
  export function createAutomationWebhookToken() {
      return randomBytes(32).toString("base64url");
+diff --git a/dist/usage/metrics-store.d.ts b/dist/usage/metrics-store.d.ts
+index 2c5f27fce6db78d8e47a41590ba0b6c714c71598..d4a6768576cdc85b76718cb43e1ae00e81bc72b3 100644
+--- a/dist/usage/metrics-store.d.ts
++++ b/dist/usage/metrics-store.d.ts
+@@ -1,10 +1,12 @@
+-import { type UsageBillingMode } from "./store.js";
++import { type UsageBillingMode, type UsageCostSource } from "./store.js";
+ export type UsageMetricsScope = "me" | "workspace";
+ export interface UsageMetricBucket {
+     key: string;
+     label: string;
+     costCents: number;
+     calls: number;
++    /** Calls whose cost is unknown. `costCents` adds only known costs. */
++    unknownCostCalls: number;
+     inputTokens: number;
+     outputTokens: number;
+     cacheReadTokens: number;
+@@ -16,6 +18,8 @@ export interface UsageDailyMetric {
+     date: string;
+     costCents: number;
+     calls: number;
++    /** Calls whose cost is unknown. `costCents` adds only known costs. */
++    unknownCostCalls: number;
+     tokens: number;
+ }
+ export interface UsageRecentMetric {
+@@ -30,6 +34,7 @@ export interface UsageRecentMetric {
+     cacheReadTokens: number;
+     cacheWriteTokens: number;
+     costCents: number;
++    costSource: UsageCostSource;
+     prompt: string | null;
+     promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
+     threadId: string | null;
+@@ -59,6 +64,8 @@ export interface AppUsageMetrics {
+     totals: {
+         costCents: number;
+         calls: number;
++        /** Calls whose cost is unknown. `costCents` adds only known costs. */
++        unknownCostCalls: number;
+         inputTokens: number;
+         outputTokens: number;
+         cacheReadTokens: number;
+@@ -69,6 +76,8 @@ export interface AppUsageMetrics {
+         costCents: number;
+         credits: number;
+         calls: number;
++        /** Calls whose cost is unknown. `costCents` adds only known costs. */
++        unknownCostCalls: number;
+         tokens: number;
+     };
+     byLabel: UsageMetricBucket[];
 diff --git a/dist/usage/metrics-store.js b/dist/usage/metrics-store.js
-index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee78ebce10 100644
+index 9a3a72d8f08edc0e902814934d749c432b4228bb..45213dbe26de7bde26a86247f67a8ffb7a1999b3 100644
 --- a/dist/usage/metrics-store.js
 +++ b/dist/usage/metrics-store.js
 @@ -1,7 +1,7 @@
@@ -6216,7 +6522,31 @@ index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee
  const DAY_MS = 86_400_000;
  function numberField(row, key) {
      return Number(row[key] ?? 0) || 0;
-@@ -275,6 +275,7 @@ async function detectUsageEngineName() {
+@@ -124,6 +124,7 @@ function bucketFromRow(row) {
+         key,
+         label: key || "Unattributed",
+         costCents: buildUsageCost(row),
++        unknownCostCalls: numberField(row, "unknown_cost_calls"),
+         calls: numberField(row, "calls"),
+         inputTokens: numberField(row, "input_tokens"),
+         outputTokens: numberField(row, "output_tokens"),
+@@ -137,6 +138,7 @@ async function usageBuckets(columnExpression, scope, appScope, sinceMs, limit) {
+     const result = await getDbExec().execute({
+         sql: `SELECT ${columnExpression} AS k,
+         COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
++        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unknown_cost_calls,
+         COUNT(*) AS calls,
+         COALESCE(SUM(input_tokens), 0) AS input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+@@ -247,6 +249,7 @@ async function hydrateRecentPrompts(rows) {
+             cacheReadTokens: numberField(row, "cache_read_tokens"),
+             cacheWriteTokens: numberField(row, "cache_write_tokens"),
+             costCents: numberField(row, "cost_cents_x100") / 100,
++            costSource: stringField(row, "cost_source") || "estimated",
+             prompt: prompt ?? (preview ? preview.slice(0, 359).trimEnd() : null),
+             promptSource: prompt
+                 ? "thread"
+@@ -275,6 +278,7 @@ async function detectUsageEngineName() {
      return getAppConfig().agent.engine ?? null;
  }
  export async function listAppUsageMetrics(input, accessInput) {
@@ -6224,3 +6554,138 @@ index 9a3a72d8f08edc0e902814934d749c432b4228bb..c2ff01bf3df175eaea1b4a1c7795fcee
      const scope = input.scope === "workspace" ? "workspace" : "me";
      const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
      const now = Date.now();
+@@ -288,6 +292,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         getDbExec().execute({
+             sql: `SELECT
+             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
++            COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unknown_cost_calls,
+             COUNT(*) AS calls,
+             COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+@@ -301,7 +306,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         usageBuckets("COALESCE(NULLIF(label, ''), 'chat')", resolved.ownerScope, appScope, sinceMs, 6),
+         usageBuckets("COALESCE(NULLIF(model, ''), 'unknown')", resolved.ownerScope, appScope, sinceMs, 4),
+         getDbExec().execute({
+-            sql: `SELECT created_at, cost_cents_x100, input_tokens, output_tokens,
++            sql: `SELECT created_at, cost_cents_x100, cost_source, input_tokens, output_tokens,
+             cache_read_tokens, cache_write_tokens FROM token_usage
+           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+           ORDER BY created_at ASC`,
+@@ -310,7 +315,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         getDbExec().execute({
+             sql: `SELECT id, created_at, owner_email, app, label, model,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+-            cost_cents_x100, thread_id
++            cost_cents_x100, cost_source, thread_id
+           FROM token_usage
+           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+           ORDER BY created_at DESC
+@@ -324,9 +329,11 @@ export async function listAppUsageMetrics(input, accessInput) {
+         const date = new Date(numberField(row, "created_at"))
+             .toISOString()
+             .slice(0, 10);
+-        const current = dayMap.get(date) ?? { costX100: 0, calls: 0, tokens: 0 };
++        const current = dayMap.get(date) ?? { costX100: 0, calls: 0, unknownCostCalls: 0, tokens: 0 };
+         current.costX100 += numberField(row, "cost_cents_x100");
+         current.calls += 1;
++        if (row.cost_source === "unavailable")
++            current.unknownCostCalls += 1;
+         current.tokens +=
+             numberField(row, "input_tokens") +
+                 numberField(row, "output_tokens") +
+@@ -339,6 +346,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         date,
+         costCents: value.costX100 / 100,
+         calls: value.calls,
++        unknownCostCalls: value.unknownCostCalls,
+         tokens: value.tokens,
+     }))
+         .sort((a, b) => a.date.localeCompare(b.date));
+@@ -347,6 +355,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         date: today,
+         costCents: 0,
+         calls: 0,
++        unknownCostCalls: 0,
+         tokens: 0,
+     };
+     const billing = usageBillingForEngine(await detectUsageEngineName());
+@@ -366,6 +375,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+         access: resolved.access,
+         totals: {
+             costCents: buildUsageCost(totals),
++            unknownCostCalls: numberField(totals, "unknown_cost_calls"),
+             calls: numberField(totals, "calls"),
+             inputTokens: numberField(totals, "input_tokens"),
+             outputTokens: numberField(totals, "output_tokens"),
+@@ -377,6 +387,7 @@ export async function listAppUsageMetrics(input, accessInput) {
+             costCents: currentDay.costCents,
+             credits: builderCreditsFromCostCents(currentDay.costCents),
+             calls: currentDay.calls,
++            unknownCostCalls: currentDay.unknownCostCalls,
+             tokens: currentDay.tokens,
+         },
+         byLabel,
+diff --git a/dist/usage/store.js b/dist/usage/store.js
+index 926f66ebaf33d87c3f3e26fa330f1ecf8b7183f6..bae619b3ea2073eecf83d5777a87443f37124924 100644
+--- a/dist/usage/store.js
++++ b/dist/usage/store.js
+@@ -63,6 +63,11 @@ const PRICING = [
+         match: /haiku/i,
+         pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
+     },
++    // Sonnet: $3/$15 per MTok. The catch-all used to price Sonnet ids.
++    {
++        match: /sonnet/i,
++        pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
++    },
+     // ── OpenAI / Codex ──────────────────────────────────────────────────────────
+     // Short-context rates from OpenAI's published table (read 2026-08-25):
+     // https://developers.openai.com/api/docs/pricing#text-tokens
+@@ -138,18 +143,10 @@ const PRICING = [
+         match: /mistral-small|mistral-medium/i,
+         pricing: { input: 20, output: 60, cacheRead: 0, cacheWrite: 0 },
+     },
+-    // default → sonnet pricing ($3/$15 per MTok)
+-    {
+-        match: /.*/,
+-        pricing: { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
+-    },
+ ];
++/** The table's price for a model id, or undefined when Core has no price for it. */
+ function pricingFor(model) {
+-    for (const entry of PRICING) {
+-        if (entry.match.test(model))
+-            return entry.pricing;
+-    }
+-    return PRICING[PRICING.length - 1].pricing;
++    return PRICING.find((entry) => entry.match.test(model))?.pricing;
+ }
+ let _initPromise;
+ export async function ensureUsageTable() {
+@@ -292,6 +289,10 @@ export async function ensureUsageTable() {
+  */
+ export function calculateCost(inputTokens, outputTokens, model, cacheReadTokens = 0, cacheWriteTokens = 0) {
+     const p = pricingFor(model);
++    // An unpriced model costs an unknown amount. Callers that need a number get
++    // 0, and recordUsage records the cost as unavailable.
++    if (!p)
++        return 0;
+     // An engine that still emits the exclusive convention would drive this
+     // negative and credit the bill. Clamping keeps the partition non-negative;
+     // the fix for a caller that trips it is that engine, not a wider clamp here.
+@@ -334,7 +335,14 @@ export async function recordUsage(recordOrOwner, inputTokens, outputTokens, mode
+     }
+     // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
+     // otherwise derive it from tokens via the pricing table.
+-    const resolvedCostSource = costSource ?? (costCentsX100 == null ? "estimated" : "reported");
++    // With no reported cost, a model the table cannot price records an unknown
++    // cost instead of a guess.
++    const resolvedCostSource = costSource ??
++        (costCentsX100 != null
++            ? "reported"
++            : pricingFor(modelName)
++                ? "estimated"
++                : "unavailable");
+     const costX100 = resolvedCostSource === "unavailable"
+         ? 0
+         : (costCentsX100 ??

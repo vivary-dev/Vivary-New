@@ -153,6 +153,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #103. The maintained Core patch records a Native turn's cost as OpenRouter reports it, including $0 for a free
+model, and records an unknown cost for a model with no price and no reported cost. The engine carries the cost from
+the AI SDK's `finish-step` part into its usage event, and the main chat sums it over the turn's model calls. The
+price table gives Sonnet its own entry and no longer prices unknown models at Sonnet's rates. The Settings Usage tab
+shows an unknown cost as "Unknown", adds only known costs to its figures, and counts the calls whose cost is
+unknown. Native still owns engines, usage records, and the Usage tab, so no component, flow, or boundary changes,
+and the design description holds. `test:native-chat` failed on the previous patch and passes on this one. The
+[patch notes](../packages/workbench/patches/README.md#native-usage-cost) record the change and its limits.
+
 Issue #103, failing tests. `tests/native-usage-cost.test.ts` drives Core's OpenRouter engine against a loopback
 fake whose last chunk reports usage with a cost of 0, a positive cost, or no cost. It records each main chat turn
 through the agent loop into the usage table and reads the Usage tab's metrics for a reported $0 call, an unpriced

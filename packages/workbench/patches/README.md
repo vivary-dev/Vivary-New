@@ -266,6 +266,75 @@ not reached there, so the test covers it.
 Upstream could take this change as it is. Remove this part of the patch when
 an upstream Toolkit release names the button and passes the same test.
 
+## Native usage cost
+
+Issue #103. Core priced every Native turn from its own table. A model the table
+did not know matched a catch-all entry and was priced at Sonnet's $3 input and
+$15 output per million tokens. In the packaged run for #50,
+`stealth/space-bunny-alpha`, which OpenRouter lists at $0, recorded 48.31¢.
+OpenRouter reports each call's cost in its last stream chunk, and the AI SDK
+passes it on the step's `finish-step` part, but Core read usage only from the
+`finish` part and dropped the cost.
+
+The patch changes these files:
+
+- `agent/engine/ai-sdk-engine.js` reads OpenRouter's
+  `providerMetadata.openrouter.usage.cost` from the step's `finish-step` part
+  and adds it to the step's `usage` event as `costUsd`, including 0. A missing,
+  negative, or non-numeric cost adds nothing. `agent/engine/types.d.ts`
+  declares the field.
+- `agent/production-agent.js` passes `costUsd` from the agent loop to
+  `onUsage`. The new `createTurnUsage` sums a main chat turn's usage over its
+  model calls and internal continuations. When every call reported a cost, the
+  turn records the sum as a reported cost, in centicents rounded as
+  `calculateCost` rounds. Otherwise the turn passes no cost and the store
+  decides.
+- `usage/store.js` gives Sonnet ids their own price entry and removes the
+  catch-all. `recordUsage` records `cost_source = 'unavailable'` with a cost of
+  0 when the caller passed no cost and the table has no price for the model.
+  `calculateCost` returns 0 for such a model, because traces and integration
+  budgets also call it.
+- `usage/metrics-store.js` counts the calls whose cost is unknown, as
+  `unknownCostCalls`, in the Usage tab's totals, today's figure, the daily
+  figures, and the workflow and model rows. Recent rows carry `costSource`.
+- `client/settings/UsageSection.js` shows a figure whose calls all have an
+  unknown cost as "Unknown". A figure with both shows the known amount and the
+  count, for example "12.30¢ + 1 unknown". Every figure adds only known costs.
+
+These limits remain:
+
+- Only the main chat turn carries a reported cost. Custom agent calls,
+  background automations, agent teams, and integration webhooks still record
+  without one, so a free model on those paths shows Unknown rather than $0.
+- A turn in which only some calls reported a cost passes no cost. The table
+  prices it, or it shows as Unknown.
+- The engine reads `usage.cost` only. OpenRouter reports the upstream charge
+  for a request made with the owner's own provider key separately, in
+  `cost_details.upstream_inference_cost`, and that charge is not added.
+- Traces price spans with `calculateCost`, so an unpriced model's span shows 0
+  rather than Unknown. The daily trend chart plots known costs only.
+- Usage alerts sum known costs, so an unknown cost never counts toward a spend
+  alert.
+
+Run `pnpm --dir packages/workbench test:native-chat`.
+`tests/native-usage-cost.test.ts` runs Core's OpenRouter engine against a
+loopback fake whose last chunk reports usage with a cost of 0, a positive cost,
+or no cost, and the engine's usage event must carry that cost. Five turns run
+through the agent loop and `createTurnUsage` into the usage table. A reported 0
+records 0 as reported, a reported positive cost records it, a reported cost wins
+over the table's Sonnet price, an unpriced model with no reported cost records
+an unknown cost, and Sonnet with no reported cost keeps its $3 and $15 price.
+The Usage tab's metrics must count the unknown call in every figure and leave it
+out of the known cost. `tests/native-chat-components.test.mjs` renders the
+Settings Usage tab and must show "12.30¢ + 1 unknown" for the total and
+"Unknown" for the unpriced model. On the previous patch every case above failed except
+the engine case with no reported cost, and the turn cases failed because
+`createTurnUsage` did not exist yet.
+
+Upstream could take these changes as they are. Remove this part of the patch
+when an upstream release records a provider's reported cost and an unknown cost
+for an unpriced model, and passes the same tests.
+
 ## In-process Run now
 
 Issue #51 changes how Core starts Automations > Manage > Run now.
