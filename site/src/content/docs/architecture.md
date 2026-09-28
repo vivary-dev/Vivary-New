@@ -111,7 +111,7 @@ Coordinated releases publish Core before its dependent role packages.
 1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
 2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
    Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the full block before the engine prompt on every turn, for new runs, Claude follow-ups (each a fresh CLI session), and resumed Codex threads. A resumed Codex thread therefore accumulates one block per turn, up to 8,000 characters each. That cost is accepted so a thread never depends on an earlier block that Codex may have compacted away. Only Full chat blocks name Native's owner-wide tools. The transcript keeps only the typed message, and one note per turn, which the Code view shows, names the loaded revision and whether it changed. The panel's last load is recorded only after the send passes its refusals and claims the host slot. Full chat returns the block from Native's `extraContext` on every send. Its three Vivary hooks, the send guard (`prepareRequest`), `extraContext`, and `resolveActionSurface`, each classify the pinned chat scope again rather than sharing one match. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
-3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. When a stop cannot confirm that a run's coding processes ended, Code refuses new sends and the host strip names what is left, by process name and PID. End them ends only listed processes that Vivary traced to the run and that a fresh scan still finds with the same PID and start time, and Continue anyway lifts the refusal on the owner's word. A later check lifts it on its own when nothing is left. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
+3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. When a stop cannot confirm that a run's coding processes ended, Code refuses new sends and the host strip names what is left, by process name and PID. End them ends only listed processes that Vivary traced to the run, each after it checks the process's PID and start time at the moment it acts. Continue anyway lifts the refusal on the owner's word once End them has run or cannot act, and only for processes the owner was shown. A later check lifts it on its own when nothing is left. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
 4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. Project memory is the only caller of the file service's exclusive Create and version-checked Remove, which reuse the same link refusal, per-project mutation queue, and conflicts. The Memory section in Project details calls two owner actions, `vivary-project-memory` and `vivary-project-memory-write`. It shows the memory folder and why it applies, the role assignments, when changes apply, each fact with its source and file, the exact block the next message receives, and the last load in this app session. Remember, correct, and forget write the owning file, and forget states what it cannot erase. Neither action is an agent tool. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
 5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The seven project read reports, Doctor, Check, Find, Capabilities, Receipts, Review, and Impact, share one server module for the Details panel and the Native tool. Review findings carry a rule code that the app renders from a closed sentence table, so an unknown rule makes the report unreadable instead of passing text through. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. For issue #20, the CLI's public Review and Impact build their graph only from the documents in Tropo's privacy-filtered snapshot, before any rule runs. A link to a private note therefore reads exactly like a link to a missing id, findings carry no free-text message, and a private, missing, or unknown Impact target gets one `target_unavailable` refusal. Only the Structure and Editorial packs have a public form, because Context budget reads routing files from disk. Ozone loads one Tropo engine per process on first use, so the plain and public paths share its facade errors, and public note ids longer than 256 characters are left out and counted. Decide and control run through a separate server module, shown to the owner in the Evaluate section of Project details, where the owner picks whether to evaluate as themself or as the project's agent and every result states it was not saved and shows a refusal from Strato, Exo, or Vivary as an alert, including a refusal Core reports inside an ordinary result, [`project-evaluate.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-evaluate.ts), behind the `vivary-project-evaluate` agent tool and an owner action. The runner, not the caller, binds the actor: a tool call is always this project's agent, an opaque id hashed from the owner's actor id and the project id, and the owner chooses to evaluate as themself or as that agent. [`governed-request.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/governed-request.ts) is the only writer of the actor, contributor authority, project scope, and clocks, and the clocks are taken after the project lock is held. Input that names a server-owned field is refused by name, never overwritten. The agent may run decide, claim, release, expire_leases, and dependencies only, and may not submit a receipt, a verdict, or an execution log, because Native cannot verify them. Results carry `persisted: false` and are never saved. Host paths cross that boundary only as `.` and `./` project paths, and only at the absolute-path positions Core, Strato, and Exo declare. Each position names Core's capsule or claim spelling, so decoding restores claim ids and capsule fingerprints, and any other string is text that is redacted on the way out and never rewritten on the way in. An agent's scope and capsule paths are checked by their text alone, never on disk, so a claim cannot reveal whether a private file exists. A Windows device-namespace root is refused. Native has no capsule producer, so an agent decide without an owner-supplied capsule ends in Strato's own refusal. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
 6. **Preview a project.** A reviewed local command starts a project process. The app presents its page in an isolated frame and supports Stop. The selected coding runtime can inspect and repair the project through its supported browser tools. The [preview receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/11e-live-project-preview.md) states what passed on Zo and what still needs packaged or platform proof.
@@ -188,60 +188,63 @@ tests drive the Windows branch with the platform name set to `win32`. They show 
 starts and that a worker whose ready arrived after an abort needs no cleanup. A unit test gives the scan a `/proc`
 reader whose read fails with `ESRCH`.
 
-Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue. `code-execution-host.ts` takes one
-fresh check after the failure, and a check only reads. On Linux it sends signal 0 to the worker's process group. When
-the kernel reports no such group, the check is clean without reading `/proc`. Otherwise it reads each
-`/proc/<pid>/stat` for a member's `comm` name and start time, never its command line or environment, and gives the
-group one more second to empty. A `stat` read that fails with `EACCES` or `EPERM`, as under `hidepid=1`, no longer
-fails the stop. It marks the group hidden, because the unreadable entry could be a member. On Windows the check runs
-one `Get-CimInstance` query through PowerShell that selects only the process ID, parent ID, image name, and creation
-time of each process. The script runs under Constrained Language Mode and ends with a count of its rows. Output that
-lacks the count, holds a different count, or has a row without a creation time other than PIDs 0 and 4 makes the
-scan unavailable, never clean. It follows parent IDs from the worker by creation time, so a process that reused a PID never
-matches. The worker's own window is the host clock read just before and just after the fork, and a child counts only
-when it was created before the worker's observed exit, each bound with 20 ms for the clock's resolution. A check that finds nothing settles the stop as clean, so a Windows worker that exited on its own and left
-nothing behind no longer refuses later runs. A check that finds processes, or cannot run, travels on the cleanup
-error with what a later check needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the
-run, `metadata.cleanupRefusal`, with the target, the processes last seen, and whether the scan ran. The host reports a
-failed stop before that check starts, so the refusal is on the record at once and gains the names after the check. A
-quit during the check still leaves it. When a write of a refusal fails, it stays in force from memory, the redacted
-log records `cleanup-record-failed`, and the next write retries it.
-`hostState.closing` now means shutdown only, with its own sentence. The oldest refusal in force refuses every Code
-send with `vivary_code_cleanup_required`, and the host state shows it to every user of the host, naming the run only
-to its owner. The host checks every refusal again at start, without waiting, and before a send, never from the
-one-second polls. A check that finds nothing lifts the refusal and adds a transcript status. A marker from before
-this change, `cleanupUnverified: true`, has no target and stays until a person continues. The `vivary-code-cleanup`
-action, which no agent or tool may call, carries a signed-in person's choice. End them tries each listed process
-traced to the run, newest first, and checks its identity at the moment it acts. On Windows one PowerShell call takes
-each process by PID, reads its creation time through the handle it opens, and ends it through that same object only
-when the time matches, never with `/T`. Windows does not reuse a PID while a handle to it is open. On Linux it reads
-the process's `stat` again right before `SIGKILL` to that one PID, and skips it when the start time or group changed.
-Each process is reported as ended, mismatched, gone, or failed, and an End call that cannot run ends nothing. It then
-checks again and lifts the refusal when nothing is left. The traced processes are those the check right after the
-failed stop found, `checkStoppedWorker`, and their later children found through a parent alive in the same scan. A check still lists a process linked
-only through an exited parent or a reused Linux group id, so the refusal holds, but End them leaves it alone, because
-it could belong to another program after PID reuse. End them also leaves alone a PID whose start time changed, a
-process the owner was not shown, and the host itself. A boot id that is not a UUID fails to parse and keeps refusing.
-Each choice carries a version of the list the strip showed, and a choice about a list that changed since is refused
-with `vivary_code_cleanup_changed`, so the strip shows the new list first. Continue anyway lifts the refusal on the
-owner's word after one more check, unless that check finds a process the owner was not shown, and records the list
-the owner saw and what the check found. The refusal keeps each End them, with who chose it, when, and whether each
-process was ended, mismatched, gone, or failed, also when the check after it lists more or cannot run. Every lift
-copies that record into `metadata.cleanupLifted`, and its transcript status names what End them ended. The server log records the scan result and the number of leftovers, never their
-names. The host strip lists the leftovers with the server's wording and marks each one Vivary did not trace to the
-run as not confirmed from it. It offers End them only when a listed process is traced to the run. When none is, its
-heading says the processes may be left from an earlier run, and its instruction says Vivary will not end them and how
-the owner can, with the group's `kill` command on Linux or Task Manager by PID on Windows.
-The server offers Continue anyway once End them has run on the refusal, or when End them cannot act, and refuses it
-otherwise with `vivary_code_cleanup_not_offered`. Its buttons keep focus while a choice
-runs, and focus moves to the page when the refusal lifts. After End them the strip shows the server's account of
-what it ended and could not end, and adds no words of its own. The Code composer stays disabled, and its placeholder,
-which the server words from the heading and the choices offered, points at the strip,
-and the chat adapter keeps a draft that the refusal returns. Runtime flow 3 now describes the refusal and the two
-choices. The new query reads process names, never command lines, so the trust boundaries hold. Tests on Zo, which
-runs gVisor, check a real process group, answer the Windows query and `taskkill` with fakes under `SystemRoot`, seed
-refusals before a fresh host starts, and render the strip. The real PowerShell query and End them on Windows still
-need the packaged check.
+Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue.
+`code-execution-host.ts` takes one fresh check after the failure, and a check only reads. On Linux it sends signal 0
+to the worker's process group. When the kernel reports no such group, the check is clean without reading `/proc`.
+Otherwise it reads each `/proc/<pid>/stat` for a member's `comm` name and start time, never its command line or
+environment, and gives the group one more second to empty. A `stat` read that fails with `EACCES` or `EPERM`, as under
+`hidepid=1`, no longer fails the stop. When no readable member is left, it marks the group hidden, because the
+unreadable entry could be a member. On Windows the check runs one `Get-CimInstance` query through PowerShell that
+selects only the process ID, parent ID, image name, and creation time of each process. The script also works under
+Constrained Language Mode, and it ends with a count of its rows. Output that lacks the count, holds a different count,
+or has a row without a creation time other than PIDs 0 and 4 makes the scan unavailable, never clean. It follows
+parent IDs from the worker by creation time, so a process that reused the worker's PID is not taken for the worker or
+its child. The worker's own window is the host clock read just before and just after the fork, and a child counts only
+when it was created before the worker's observed exit, each bound with 20 ms for the clock's resolution. A check that
+finds nothing settles the stop as clean, so a Windows worker that exited on its own and left nothing behind no longer
+refuses later runs. A check that finds processes, or cannot run, travels on the cleanup error with what a later check
+needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the run, `metadata.cleanupRefusal`,
+with the target, the processes last seen, and whether the scan ran. The host reports a failed stop before that check
+starts, so the refusal is on the record at once and gains the names after the check. A quit during the check still
+leaves it. When a write of a refusal fails, it stays in force from memory, the redacted log records
+`cleanup-record-failed`, and the next write retries it. `hostState.closing` now means shutdown only, with its own
+sentence. The oldest refusal in force refuses every Code send with `vivary_code_cleanup_required`, and the host state
+shows it to every user of the host, naming the run only to its owner. The host checks every refusal again at start,
+without waiting, and before a send, never from the one-second polls. A check that finds nothing lifts the refusal and
+adds a transcript status. A marker from before this change, `cleanupUnverified: true`, has no target and stays until a
+person continues. The `vivary-code-cleanup` action, which no agent or tool may call, carries a signed-in person's
+choice. End them tries each listed process traced to the run, newest first, and checks its identity at the moment it
+acts. On Windows one PowerShell call takes each process by PID, reads its creation time through the handle it opens,
+and ends it through that same object only when the time matches, never with `/T`. Windows does not reuse a PID while a
+handle to it is open. On Linux it reads the process's `stat` again right before `SIGKILL` to that one PID, and skips
+it when the start time or group changed. Each process is reported as ended, mismatched, gone, or failed, and an End
+call that cannot run ends nothing. It then checks again and lifts the refusal when nothing is left. The traced
+processes are those the check right after the failed stop found, `checkStoppedWorker`, and their later children found
+through a parent alive in the same scan. A check still lists a process linked only through an exited parent or a
+reused Linux group id, so the refusal holds, but End them leaves it alone, because it could belong to another program
+after PID reuse. End them also leaves alone a PID whose start time changed, a process the owner was not shown, and the
+host itself. A boot id that is not a UUID fails to parse and keeps refusing. Each choice carries a version of the list
+the strip showed, and a choice about a list that changed since is refused with `vivary_code_cleanup_changed`, so the
+strip shows the new list first. Continue anyway lifts the refusal on the owner's word after one more check, unless
+that check finds a process the owner was not shown, and records the list the owner saw and what the check found. The
+refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, or failed,
+also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,
+and its transcript status names what End them ended. The server log records the scan result and the number of
+leftovers, never their names. The host strip lists the leftovers with the server's wording and marks each one Vivary
+did not trace to the run as not confirmed from it. It offers End them only when a listed process is traced to the run.
+When none is, its heading says the processes may be left from an earlier run, and its instruction says Vivary does not
+end them and how the owner can, with the group's `kill` command on Linux or Task Manager by PID on Windows. The server
+offers Continue anyway once End them has run on the refusal, or when End them cannot act, and refuses it otherwise
+with `vivary_code_cleanup_not_offered`. Its buttons keep focus while a choice runs, and focus moves to the page when
+the refusal lifts. After End them the strip shows the server's account of what it ended and could not end, and adds no
+words of its own. The Code composer stays disabled, and its placeholder, which the server words from the heading and
+the choices offered, points at the strip, and the chat adapter keeps a draft that the refusal returns. Runtime flow 3
+now describes the refusal and the two choices. The new query reads process names, never command lines, so the trust
+boundaries hold. Tests on Zo, which runs gVisor, check a real process group, answer the Windows query, the Windows End
+call, and part A's `taskkill` with fakes under `SystemRoot`, seed refusals before a fresh host starts, and render the
+strip. On a Windows laptop on 2026-09-28, the scan and End scripts, as the host builds them, ran in Full and
+Constrained Language Mode against processes the probe started. The query and End them from inside the packaged app
+still need the packaged check.
 
 Issues #103 and #106 are closed. PR #128 merged into `dev` as `080eecf` after all eight checks passed, including
 Entire Gates, and the owner closed both issues on 2026-09-28. The Native conversations row in the acceptance
