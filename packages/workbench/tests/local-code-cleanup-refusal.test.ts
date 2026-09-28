@@ -378,6 +378,35 @@ test("End them on Windows ends each shown process by PID and creation time, neve
   await writeFile(scanRows, SYSTEM_ROW);
 });
 
+// A group or a parent PID that Vivary did not trace to the run can belong to another program after PID reuse, so End
+// them lists such processes but never ends them.
+test("End them never ends a listed process it cannot trace to the run", { ...linuxOnly, timeout: 20_000 }, async () => {
+  const stranger = spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+  const groupId = stranger.pid!;
+  const exited = once(stranger, "exit");
+  try {
+    seedRefusal("untraced-group", { platform: "linux", groupId, bootId: await bootId() });
+    await agent.recheckVivaryCodeCleanup();
+    assert.deepEqual((await decide("end")).cleanup?.remaining, [{ pid: groupId, name: "sleep" }]);
+    assert.equal(stranger.exitCode === null && stranger.signalCode === null, true, "the untraced process still runs");
+    assert.equal((await continueAnyway()).cleanup, null);
+  } finally {
+    if (stranger.exitCode === null && stranger.signalCode === null) process.kill(-groupId, "SIGKILL");
+    await exited;
+  }
+
+  // The worker's child 300 exited, another program took PID 300 and started 500, and that program exited too.
+  await rm(taskkillLog, { force: true });
+  await writeFile(scanRows, `${SYSTEM_ROW}500\t300\t20000\tunrelated.exe\r\n`);
+  seedRefusal("untraced-parent", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
+  await agent.recheckVivaryCodeCleanup();
+  assert.deepEqual((await decide("end")).cleanup?.remaining, [{ pid: 500, name: "unrelated.exe" }]);
+  await assert.rejects(readFile(taskkillLog), { code: "ENOENT" }, "taskkill never ran");
+  assert.equal((await continueAnyway()).cleanup, null);
+  await writeFile(scanRows, SYSTEM_ROW);
+});
+
 test("shutdown refuses new sends with its own reason, and a check does not lift it", linuxOnly, async () => {
   await agent.shutdownVivaryCodeAgent();
   for (let attempt = 0; attempt < 2; attempt++) {
