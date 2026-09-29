@@ -245,3 +245,39 @@ test("a Linux group sweep whose helper outlasts the budget keeps later checks re
     refusesWhileHelperRuns(t, async (child, workerExited) => {
       if (!workerExited) child.kill("SIGKILL");
     }, "group", "VivaryCodeWorkerCleanupError", 1_500));
+
+test("model checks that start together share one look at an unconfirmed stop", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-shared-look-"));
+  const file = path.join(dir, "lingering.mjs");
+  await writeFile(file, lingeringCodex);
+  const launch = { executable: process.execPath, prefix: [file], env: {} };
+  let lingering: ChildProcess | undefined;
+  const refusedTreeStop = async (child: ChildProcess, workerExited: boolean) => {
+    if (workerExited) return;
+    lingering = child;
+    throw refused("Access denied.");
+  };
+  let looks = 0;
+  // Stands in a check that still finds Codex and, like the real one, returns a new target each time.
+  const stillRunning = async (target: CleanupTarget): Promise<CleanupCheck> => {
+    looks += 1;
+    return { result: "remaining", remaining: [{ pid: 1, name: "codex", start: 1 }], hidden: false, target: { ...target } };
+  };
+  t.mock.method(console, "error", () => undefined);
+  try {
+    await probeCodexModels(launch, dir, 12_000, { stopTree: refusedTreeStop, checkCleanup: stillRunning, stopBudgetMs: 200 });
+    looks = 0;
+    const together = await Promise.all([1, 2].map(() => probeCodexModels(launch, dir, 12_000, { checkCleanup: stillRunning })));
+    assert.deepEqual(together.map(result => result.status), ["unavailable", "unavailable"]);
+    assert.equal(looks, 1);
+    looks = 0;
+    await probeCodexModels(launch, dir, 12_000, { checkCleanup: stillRunning });
+    assert.equal(looks, 1, "a later model check finds one kept stop, not a copy per model check");
+    lingering?.kill("SIGKILL");
+    if (lingering) await once(lingering, "close");
+    assert.equal((await probeCodexModels(launch, dir)).status, "ready");
+  } finally {
+    lingering?.kill("SIGKILL");
+    await rm(dir, { recursive: true, force: true });
+  }
+});

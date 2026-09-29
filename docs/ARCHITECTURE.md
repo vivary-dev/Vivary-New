@@ -168,7 +168,8 @@ Otherwise the model check reports that Vivary could not confirm that Codex stopp
 writes `cleanup-unverified` to the redacted server log with the step, an error code, `timeout`, or the error's name,
 the scan result, and the number of processes found, never their names, an error message, or a command line. Every later model check first
 checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
-Codex processes and a stop that finishes late needs no restart. The module flag that refused every later check until a
+Codex processes and a stop that finishes late needs no restart. Model checks that start during that look share it, so
+each kept target is checked once and is never copied. The module flag that refused every later check until a
 restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. Unit
 tests stand in tree stops that fail or time out while Codex ends, that never end it, and that end Codex but leave a
 helper that holds none of its pipes, including a sweep that reports success while the helper outlasts the budget. On

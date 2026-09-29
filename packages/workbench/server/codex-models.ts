@@ -76,16 +76,24 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
   return request;
 }
 
-/** Whether an unconfirmed Codex stop still leaves processes. A clean check drops its target. */
-async function unconfirmedStopRemains(checkCleanup: typeof checkWorkerCleanup): Promise<boolean> {
-  await Promise.all([...unconfirmedStops].map(async target => {
-    const check = await checkCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }));
-    if (check.result === "unavailable") return;
-    unconfirmedStops.delete(target);
-    // A Windows check also tracks the processes it found, so their children stay linked after their parent exits.
-    if (check.result === "remaining") unconfirmedStops.add(check.target);
-  }));
-  return unconfirmedStops.size > 0;
+let unconfirmedStopLook: Promise<boolean> | undefined;
+
+/**
+ * Whether an unconfirmed Codex stop still leaves processes. A clean check drops its target. Model checks that start
+ * during a look share it, so each target is checked once and replaced by one updated target, never a copy per caller.
+ */
+function unconfirmedStopRemains(checkCleanup: typeof checkWorkerCleanup): Promise<boolean> {
+  unconfirmedStopLook ??= (async () => {
+    await Promise.all([...unconfirmedStops].map(async target => {
+      const check = await checkCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }));
+      if (check.result === "unavailable") return;
+      unconfirmedStops.delete(target);
+      // A Windows check also tracks the processes it found, so their children stay linked after their parent exits.
+      if (check.result === "remaining") unconfirmedStops.add(check.target);
+    }));
+    return unconfirmedStops.size > 0;
+  })().finally(() => { unconfirmedStopLook = undefined; });
+  return unconfirmedStopLook;
 }
 
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
