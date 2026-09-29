@@ -1,6 +1,7 @@
 // One Vivary server process for automation-quit.test.mjs. The stop is process state, so each quit, hard kill, and
 // second process in that test is a separate child. This file loads the installed, patched Core by path against the
 // parent's disposable database, plays one role, and reports over IPC. Usage: node <file> <role> <appId>.
+import { randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,7 +12,7 @@ if (role === "soft-cut") process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "1000"; // guar
 const owner = "owner@example.test";
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
-const [scheduler, { claimAutomationRun, startAutomationRun }, { getDbExec }, { getRun }, { withThreadDataLock },
+const [scheduler, { claimAutomationRun, startAutomationRun }, { getDbExec }, { abortRun, getRun }, { withThreadDataLock },
   { initTriggerDispatcher }, { runAutomationWebhookTaskInProcess, webhookTaskBelongsToApp },
   { setInProcessIntegrationTaskRunner }, { emit }] = await Promise.all([
   load("jobs/scheduler.js"),
@@ -87,6 +88,53 @@ const deps = (mode, extra = {}) => ({ appId, engine: engine(mode), model: "fake-
 const triggerDeps = mode => deps(mode, { apiKey: "synthetic-condition-key" });
 const registerWebhookRunner = () => setInProcessIntegrationTaskRunner(runAutomationWebhookTaskInProcess,
   { platforms: ["automation-webhook"], appId, acceptsTask: webhookTaskBelongsToApp });
+// Core's process-task route, as a host without the in-process runner reaches a webhook task. The route needs a
+// signing secret in production, so this child gets a random one. The marker keeps the plugin's retry jobs from
+// starting here. Call it after any Run now row is queued, so the secret cannot change how that row is dispatched.
+const mountProcessTaskRoute = async () => {
+  process.env.A2A_SECRET = randomBytes(32).toString("hex"); // guard:allow-env-mutation - A random signing secret in a disposable child.
+  globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true;
+  const [{ createIntegrationsPlugin }, { signInternalToken }, { H3 }] = await Promise.all([
+    load("integrations/plugin.js"), load("integrations/internal-token.js"), import("h3")]);
+  const nitro = { h3: new H3() };
+  await createIntegrationsPlugin({ adapters: [] })(nitro);
+  return async taskId => {
+    const response = await nitro.h3.fetch(new Request("http://127.0.0.1/_agent-native/integrations/process-task", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${signInternalToken(taskId)}` },
+      body: JSON.stringify({ taskId }),
+    }));
+    return { status: response.status, body: await response.json() };
+  };
+};
+// The bus does not hand back its handlers' promises. Call each handler of the event as `emit` does and wait for it,
+// so a case reads the database only after the dispatcher finished with the event, however slow the host.
+const emitAndSettle = async (event, eventId) => {
+  const handlers = globalThis[Symbol.for("@agent-native/core/event-bus.bus")]?.emitter.listeners(event) ?? [];
+  const meta = { owner, eventId, emittedAt: new Date().toISOString() };
+  await Promise.all(handlers.map(handler => handler({ data: { id: eventId } }, meta)));
+  return handlers.length;
+};
+// The condition classifier calls Anthropic directly. Answer it here, never over the network. The gate condition
+// holds its check until the case opens it, then matches. Any other condition does not match.
+const classifierCalls = [];
+const classifierCalled = gate();
+const classifierGate = gate();
+const stubClassifier = () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (!url.startsWith("https://api.anthropic.com/")) return realFetch(input, init);
+    const gated = String(init?.body ?? "").includes("gate marker");
+    classifierCalls.push(gated ? "gate" : "other");
+    if (gated) {
+      classifierCalled.open();
+      await classifierGate.promise;
+    }
+    return new Response(JSON.stringify({ content: [{ type: "text", text: gated ? "yes" : "no" }] }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  };
+};
 
 const within = (promise, ms, what) => Promise.race([promise, new Promise((_, reject) => {
   setTimeout(() => reject(new Error(`${what} did not happen within ${ms} ms`)), ms).unref();
@@ -172,25 +220,53 @@ if (role === "quit") {
   process.exit(0);
 } else if (role === "late") {
   // Work that arrives while the process stops: a sweep scanning when the stop begins, then an event, a direct Run
-  // now, a Run now whose row was claimed before the stop, and a queued webhook call.
+  // now, a Run now whose row was claimed before the stop, a queued webhook call through the in-process runner and
+  // through Core's process-task route, and an event whose condition would be checked. An event whose condition check
+  // began before the stop gets its answer after the stop begins.
+  stubClassifier();
   await initTriggerDispatcher(triggerDeps("cooperative"));
   registerWebhookRunner();
   const cooperative = deps("cooperative");
   const claimedId = await queueRunNow("late-claimed");
   const claimed = await claimAutomationRun(claimedId);
+  const postProcessTask = await mountProcessTaskRoute();
+  const gated = emitAndSettle("test.gate.fired", "evt-gate");
+  await within(classifierCalled.promise, 30_000, "the condition check starting");
   const sweep = scheduler.processRecurringJobs(cooperative);
   const first = scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
   const second = scheduler.stopRecurringJobs({ timeoutMs: 1 });
+  classifierGate.open();
   await first;
   await sweep;
-  emit("test.event.fired", { data: { id: "evt-late" } }, { owner, eventId: "evt-late" });
+  const handlers = { gate: await gated, event: await emitAndSettle("test.event.fired", "evt-late") };
   const runNow = await scheduler.runJobNow(owner, "late-job", cooperative);
   const claimedRun = await scheduler.runJobNow(owner, "late-claimed", cooperative, { historyId: claimedId });
   const webhook = await runAutomationWebhookTaskInProcess("task-late", { appId });
-  // An event handler is not awaited by its emitter. Give a dispatch time to write before reading.
-  await new Promise(resolve => setTimeout(resolve, 1_000));
-  await report({ sameStop: first === second, claimed, claimedId, runNow, claimedRun, webhook,
-    starts: [...starts.keys()], lease: await leaseRow() });
+  const route = await postProcessTask("task-route-late");
+  handlers.filter = await emitAndSettle("test.filter.fired", "evt-filter");
+  await report({ sameStop: first === second, claimed, claimedId, runNow, claimedRun, webhook, route, handlers,
+    classifierCalls, starts: [...starts.keys()], lease: await leaseRow() });
+  process.exit(0);
+} else if (role === "route-quit") {
+  // A webhook call's run is in flight through Core's process-task route when the owner quits. The process then exits
+  // as soon as the stop returns, as the CLI host does, so only writes the stop waited for are kept.
+  await initTriggerDispatcher(triggerDeps("cooperative"));
+  const postProcessTask = await mountProcessTaskRoute();
+  void postProcessTask("task-route").catch(() => {});
+  await within(started("route-hook:evt-route").promise, 30_000, "the routed webhook call starting");
+  await report({ ready: true });
+  await scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
+  process.exit(0);
+} else if (role === "user-stop") {
+  // The owner stops a run just before the quit, so the run is still in the runner's list, aborted for its own reason.
+  const sweep = scheduler.processRecurringJobs(deps("cooperative"));
+  await within(started("halted").promise, 30_000, "the run starting");
+  const { run_id: runId } = await historyOf("halted");
+  abortRun(runId, "user");
+  const statusAtQuit = getRun(runId)?.status;
+  await scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
+  await sweep.catch(() => {});
+  await report({ runId, statusAtQuit });
   process.exit(0);
 } else if (role === "setup") {
   // The stop begins while a scheduled run is still preparing, before it reaches the run manager.

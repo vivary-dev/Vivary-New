@@ -16,8 +16,8 @@ const CHILD = path.join(HERE, "automation-quit-process.mjs");
 const caseRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-automation-quit-"));
 const database = `file:${path.join(caseRoot, "automations.sqlite")}`;
 for (const name of ["DEPLOY_PRIME_URL", "DEPLOY_URL", "URL", "APP_URL", "BETTER_AUTH_URL", "A2A_SECRET",
-  "AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"]) {
-  delete process.env[name]; // guard:allow-env-credential - Removes app URL, signing, and timeout names. No value is read.
+  "ANTHROPIC_API_KEY", "AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"]) {
+  delete process.env[name]; // guard:allow-env-credential - Removes app URL, signing, provider key, and timeout names. No value is read.
 }
 // A webhook automation's token is stored as an encrypted app secret, which needs a key in production. The children
 // inherit this random, disposable value.
@@ -350,6 +350,22 @@ test("a quit returns an interrupted webhook call and the call behind it to the q
   assert.equal(calls.length, 2);
 });
 
+test("a quit waits for Core's process-task route to queue its interrupted webhook call again", async () => {
+  // A host without the in-process runner runs a webhook call through the route. The child exits as soon as the stop
+  // returns.
+  await defineTrigger("route-app", "route-hook", { triggerType: "webhook" });
+  await queueWebhookCall("route-hook", "evt-route", "task-route");
+  const { report, exited } = spawnChild("route-quit", "route-app");
+  await report;
+  await exited;
+  const task = await taskRow("task-route");
+  assert.equal(task.status, "pending", "the stop waited for the route's task write");
+  assert.equal(Number(task.attempts), 0, "the quit did not spend an attempt");
+  assert.equal(webhookPayload(task).eventId, "evt-route", "its payload is kept");
+  assert.equal(task.error_message, INTERRUPTED_RUN_MESSAGE);
+  assert.deepEqual((await runsOf("route-app", "route-hook")).map(run => run.status), ["interrupted"]);
+});
+
 // Work that arrives while the process stops starts no run and writes nothing.
 let lateStopping;
 const lateStop = () => {
@@ -358,10 +374,17 @@ const lateStop = () => {
     await defineScheduled("late-app", "late-claimed", "0 0 1 1 *");
     await defineTrigger("late-app", "late-watcher", { triggerType: "event", event: "test.event.fired" });
     await defineTrigger("late-app", "late-hook", { triggerType: "webhook" });
+    await defineTrigger("late-app", "late-route-hook", { triggerType: "webhook" });
+    // Two event automations with a condition, each on its own event, so each handler sees one trigger.
+    await defineTrigger("late-app", "late-gated", { triggerType: "event", event: "test.gate.fired",
+      condition: "The event carries the gate marker." });
+    await defineTrigger("late-app", "late-filter", { triggerType: "event", event: "test.filter.fired",
+      condition: "The event carries the filter marker." });
     await queueWebhookCall("late-hook", "evt-late", "task-late");
+    await queueWebhookCall("late-route-hook", "evt-route-late", "task-route-late");
     await makeDue("late-job");
     const before = { job: await stored("late-job"), claimed: await stored("late-claimed"),
-      task: await taskRow("task-late") };
+      task: await taskRow("task-late"), routeTask: await taskRow("task-route-late"), filter: await stored("late-filter") };
     const { report, exited } = spawnChild("late", "late-app");
     const result = await report;
     await exited;
@@ -383,6 +406,7 @@ test("a sweep scanning when the stop begins starts nothing, and a second stop re
 test("after the stop, an event, a Run now, and a webhook call start no run", async () => {
   const { before, result } = await lateStop();
   assert.deepEqual(result.starts, [], "no run reached the model");
+  assert.equal(result.handlers.event, 1, "the dispatcher's handler finished with the event before the report");
   assert.deepEqual(await runsOf("late-app", "late-watcher"), [], "the event wrote no run");
   assert.equal((await stored("late-watcher")).lastStatus, undefined, "the event automation was not marked running");
   assert.equal(result.runNow.status, "skipped");
@@ -394,6 +418,35 @@ test("after the stop, an event, a Run now, and a webhook call start no run", asy
   assert.equal(Number(task.attempts), 0, "it was not claimed");
   assert.equal(task.updated_at, before.task.updated_at);
   assert.deepEqual(await runsOf("late-app", "late-hook"), []);
+});
+
+test("after the stop, Core's process-task route leaves a webhook call queued, unclaimed", async () => {
+  const { before, result } = await lateStop();
+  assert.deepEqual(await runsOf("late-app", "late-route-hook"), [], "the route wrote no run");
+  assert.equal((await stored("late-route-hook")).lastStatus, undefined, "the automation was not marked running");
+  const task = await taskRow("task-route-late");
+  assert.equal(task.status, "pending", "the webhook call stays queued");
+  assert.equal(Number(task.attempts), 0, "it was not claimed");
+  assert.equal(task.updated_at, before.routeTask.updated_at);
+  assert.equal(result.route.status, 200);
+  assert.equal(result.route.body.skipped, "app-quitting");
+});
+
+test("after the stop, an event with a condition writes nothing and is not classified", async () => {
+  const { before, result } = await lateStop();
+  assert.equal(result.handlers.filter, 1, "the dispatcher's handler finished with the event before the report");
+  assert.deepEqual(result.classifierCalls, ["gate"], "only the check that began before the stop was classified");
+  const meta = await stored("late-filter");
+  assert.equal(meta.lastStatus, undefined, "the handler recorded no skip");
+  assert.equal(meta.lastCheck, before.filter.lastCheck, "the handler wrote no check time");
+});
+
+test("an event whose condition check was in flight when the stop began starts no run", async () => {
+  const { result } = await lateStop();
+  assert.equal(result.handlers.gate, 1, "the dispatcher's handler finished with the event before the report");
+  assert.ok(result.classifierCalls.includes("gate"), "its condition check began before the stop and matched");
+  assert.deepEqual(await runsOf("late-app", "late-gated"), [], "the event wrote no run");
+  assert.equal((await stored("late-gated")).lastStatus, undefined, "the automation was not marked running");
 });
 
 test("a Run now claimed before the stop reads interrupted without starting", async () => {
@@ -454,6 +507,21 @@ test("a quit after a soft-timeout boundary reads interrupted, not cut off", asyn
   const meta = await stored("soft");
   assert.equal(meta.lastStatus, "error");
   assert.equal(meta.lastError, INTERRUPTED_RUN_MESSAGE);
+});
+
+test("a quit leaves a run the owner stopped just before it with its own reason", async () => {
+  await defineScheduled("halt-app", "halted");
+  await makeDue("halted");
+  const { report, exited } = spawnChild("user-stop", "halt-app");
+  const { runId, statusAtQuit } = await report;
+  await exited;
+  assert.equal(statusAtQuit, "aborted", "the quit landed while the stopped run was still in the runner's list");
+  const [row] = await runsOf("halt-app", "halted");
+  assert.equal(row.status, "error", "the quit did not relabel the stopped run");
+  assert.notEqual(row.errorCode, INTERRUPTED_RUN_ERROR_CODE);
+  const { rows } = await getDbExec().execute({ sql: "SELECT status, abort_reason FROM agent_runs WHERE id = ?",
+    args: [runId] });
+  assert.equal(rows[0].abort_reason, "user", "the stop did not abort the run again");
 });
 
 test("Vivary's shutdown owner stops automations within the Code host's wait", async () => {
