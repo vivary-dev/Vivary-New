@@ -7362,10 +7362,11 @@ Delete. Vivary's Archive in `ProjectHistory.tsx` uses it too. Radix's arrow keys
 only registered items, and the plain `role="menuitem"` buttons before this were unreachable. Archive removes its row
 and the trigger focus would return to. After a confirmed archive, once the row is gone, the sidebar moves focus to the
 row that took its place, else the one before it, else New conversation, chosen by `focusAfterRemoval` in
-`app/lib/row-focus.ts`. A failed archive asks for no move, and focus in a text field stays. The patch README section
-"Sidebar row menus from the keyboard" owns the detail. A component test opens a row menu from the keyboard, a unit test
-covers the focus choice, and a browser run of the built app walked, renamed, and archived by keyboard at 1280 and
-390 px, with focus landing on the next row, the previous row, and New conversation.
+`app/lib/row-focus.ts`. Archiving the open chat opens a new one, whose composer keeps focus. A failed archive asks for
+no move, and a key or pointer press after Archive was chosen leaves focus where the owner put it. The patch README
+section "Sidebar row menus from the keyboard" owns the detail. A component test opens a row menu from the keyboard, a
+unit test covers the focus choice, and a browser run of the built app walked, renamed, and archived by keyboard at 1280
+and 390 px, with focus landing on the next row, the previous row, and the new chat's composer.
 
 Issue #142. An error that a framework route throws after it has read the request body now reaches the client. Core
 mounts framework routes, the Native chat POST among them, through `getH3App(...).use`, and its wrapper treated any

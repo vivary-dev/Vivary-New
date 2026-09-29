@@ -1582,10 +1582,12 @@ Vivary's Archive entry in `ProjectHistory.tsx` is a `ChatHistoryMenuItem`.
 Archive removes its row and the menu trigger that focus would return to. After
 a confirmed archive, once the row is gone, focus moves to the row that took its
 place, else the row before it, else New conversation (`app/lib/row-focus.ts`).
-A failed archive asks for no move, and focus in a text field stays.
+Archiving the open chat opens a new one, whose composer keeps focus. A failed
+archive asks for no move, and a key or pointer press after Archive was chosen
+leaves focus where the owner put it.
 
 `native-chat-components.test.mjs` opens a row menu from the keyboard and checks
 that every entry is a Radix item, and `row-focus.test.mjs` covers the focus
 choice. A browser run of the built app walked the menu with the arrow keys and
 typeahead, renamed with Enter, and archived, with focus landing on the next
-row, the previous row, and New conversation, at 1280 and 390 px.
+row, the previous row, and the new chat's composer, at 1280 and 390 px.
