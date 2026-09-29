@@ -476,6 +476,38 @@ test("a failed stop whose check finds nothing left takes its early refusal off t
   }
 });
 
+// The same failed stop, and the owner asks to stop the run while its check is held. That check is already ending the
+// run, so the Stop records nothing, and the run keeps the worker's own failure when the check reads clean.
+test("a Stop during a failed stop's own check leaves the run failed, not stopped by its owner", {
+  ...linuxOnly, timeout: WORKER_TEST_TIMEOUT_MS,
+}, async t => {
+  await writeFile(scanHold, "");
+  try {
+    const runId = await asWindows(async () => {
+      const id = (await send("exit after its run")).run!.id;
+      await waitFor(() => metadataOf(id).cleanupRefusal, AbortSignal.any([t.signal, AbortSignal.timeout(5_000)]));
+      const owners = await agent.getVivaryCodeHostState(OWNER);
+      assert.deepEqual({ active: owners.activeRun?.id, checking: owners.cleanup?.checking, run: owners.cleanup?.run?.id },
+        { active: id, checking: true, run: id }, "the owner's strip can tell that the check belongs to its run");
+      await agent.stopVivaryCodeRun({ ownerEmail: OWNER, runId: id });
+      await rm(scanHold);
+      await hostSlots().activeRuns.get(id)?.execution;
+      return id;
+    });
+    const statuses = listCodeAgentTranscriptEvents(runId).filter(event => event.kind === "status")
+      .map(event => event.message);
+    const record = getCodeAgentRunRecord(runId);
+    assert.deepEqual({ stopRecorded: statuses.includes("Stop requested from the Vivary workbench."),
+      status: record?.status, phase: record?.phase }, { stopRecorded: false, status: "errored", phase: "error" },
+    "the Stop records nothing and the run keeps the worker's failure");
+    // The worker's exit and its closed connection race, so either one can be the failure the run keeps.
+    assert.match(statuses.at(-1) ?? "",
+      /^The local code run failed: The coding worker (ended before completing its run|connection closed)\.$/);
+  } finally {
+    await rm(scanHold, { force: true });
+  }
+});
+
 // The worker exits after its run and leaves a child, and the scan after the failed stop is held. That check decides what
 // is left, so until it ends the strip offers no choice and says that Vivary is checking, and a send is told the same.
 test("a failed stop's own check offers no choice until it ends and says that Vivary is checking", {

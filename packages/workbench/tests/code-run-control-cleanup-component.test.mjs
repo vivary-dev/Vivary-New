@@ -79,8 +79,8 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function mount(cleanup) {
-  hostProof.set({ ...HOST, cleanup });
+async function mount(cleanup, state = {}) {
+  hostProof.set({ ...HOST, ...state, cleanup });
   callProof.calls = [];
   const main = document.createElement("main");
   main.id = "workbench-content";
@@ -214,6 +214,18 @@ export async function aFailedStopsOwnCheckOffersNoChoice() {
     assert.deepEqual(buttons(host), [], "nothing to choose until the check ends");
   } finally { await dispose(); }
 }
+
+export async function theOwnerSeesItsFailedStopsCheckInPlaceOfStop() {
+  const run = { id: "run-crashed", title: "Refactor the parser", projectId: null };
+  const checking = { ...UNSCANNED, heading: "Vivary is checking what a failed stop left running",
+    instruction: "The choices appear here when the check ends.", canContinue: false, checking: true, run };
+  const { host, dispose } = await mount(checking, { activeRun: run, busy: true });
+  try {
+    assert.equal(host.querySelector("h2")?.textContent, checking.heading, "the strip shows the check, not the run working");
+    assert.equal(region(host).querySelector("p")?.textContent, checking.instruction);
+    assert.deepEqual(buttons(host), ["Open conversation"], "no Stop and no choice until the check ends");
+  } finally { await dispose(); }
+}
 `;
 
 async function buildProof() {
@@ -281,6 +293,7 @@ test("the host strip lists leftover coding processes and offers End them, then C
     ["a scan Vivary cannot run offers only Continue anyway and shows its commands", proof.aScanVivaryCannotRunOffersOnlyContinue],
     ["a check already running holds End them", proof.aRunningCheckHoldsEndThem],
     ["a failed stop's own check offers no choice and says why", proof.aFailedStopsOwnCheckOffersNoChoice],
+    ["the run's owner sees its failed stop's check in place of Stop", proof.theOwnerSeesItsFailedStopsCheckInPlaceOfStop],
   ]) await t.test(name, () => run());
 });
 
