@@ -449,6 +449,30 @@ test("a failed stop is recorded before its scan, and a refusal whose record cann
   }
 });
 
+// The worker exits after its run and leaves nothing, so its stop fails and the scan after it, held until the early
+// refusal is on the record, reads clean. The stop did finish, as a slow but successful stop does, so nothing refuses.
+test("a failed stop whose check finds nothing left takes its early refusal off the run", {
+  ...linuxOnly, timeout: WORKER_TEST_TIMEOUT_MS,
+}, async t => {
+  await writeFile(scanHold, "");
+  try {
+    const runId = await asWindows(async () => {
+      const id = (await send("exit after its run")).run!.id;
+      await waitFor(() => metadataOf(id).cleanupRefusal, AbortSignal.any([t.signal, AbortSignal.timeout(5_000)]));
+      await rm(scanHold);
+      await hostSlots().activeRuns.get(id)?.execution;
+      return id;
+    });
+    const record = getCodeAgentRunRecord(runId);
+    assert.equal(record?.phase, "error", "the run failed because its worker exited, not because of its cleanup");
+    assert.equal("cleanupRefusal" in (record?.metadata ?? {}), false, "the clean check takes the early refusal off");
+    assert.equal("cleanupLifted" in (record?.metadata ?? {}), false, "nothing was refused, so nothing was lifted");
+    assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup, null);
+  } finally {
+    await rm(scanHold, { force: true });
+  }
+});
+
 test("End them ends the listed process that a fresh scan still shows, then lifts the refusal", {
   ...linuxOnly, timeout: 20_000,
 }, async () => {
