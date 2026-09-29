@@ -789,6 +789,44 @@ test("End them and Continue anyway act only on the list the owner saw", { ...lin
   assert.equal((metadataOf("unscanned-choice").cleanupLifted as { how?: string }).how, "rechecked");
 });
 
+// The run's child 300 exited, so Vivary traces none of its children and offers Continue anyway at once. A refusal
+// lists at most 50 processes.
+test("Continue anyway refuses a list cut at 50 until Vivary can list every process", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  const children = (count: number) => Array.from({ length: count },
+    (_, index) => row(5_000 + index, 300, 20_000 + index, `child${index}.exe`)).join("");
+  const instruction = "Vivary cannot confirm that these came from that run, so it does not end them. If they did, end "
+    + "them in Task Manager by PID, then choose Continue anyway.";
+  const shown = async () => {
+    const cleanup = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+    return { listed: cleanup?.remaining.length, canContinue: cleanup?.canContinue, instruction: cleanup?.instruction };
+  };
+  const changed = { errorCode: "vivary_code_cleanup_changed" };
+  await writeFile(scanRows, SYSTEM_ROW + children(50));
+  seedRefusal("capped-list", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
+  await agent.recheckVivaryCodeCleanup();
+  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction });
+
+  // Five more start after the owner looked, and the check before Continue anyway finds 55.
+  await writeFile(scanRows, SYSTEM_ROW + children(55));
+  await assert.rejects(continueAnyway(), changed, "the owner never saw the last five");
+  assert.equal("cleanupLifted" in metadataOf("capped-list"), false);
+  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction: `${instruction} Vivary lists 50 of `
+    + "the processes it found, and Continue anyway needs a list of all of them." });
+
+  // The five exit, so the check finds only the 50 listed, but the list the owner saw was cut.
+  await writeFile(scanRows, SYSTEM_ROW + children(50));
+  await assert.rejects(continueAnyway(), changed, "a cut list never showed every process");
+  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction });
+  assert.equal((await continueAnyway()).cleanup, null);
+  const lift = metadataOf("capped-list").cleanupLifted as { how?: string; shown?: unknown[]; remaining?: unknown[] };
+  assert.deepEqual({ how: lift.how, shown: lift.shown?.length, remaining: lift.remaining?.length },
+    { how: "owner-confirmed", shown: 50, remaining: 50 });
+  await writeFile(scanRows, SYSTEM_ROW);
+});
+
 test("a refusal Vivary cannot read still refuses until the owner continues", linuxOnly, async () => {
   seedRun("unreadable-refusal", { cleanupRefusal: { target: { platform: "linux", groupId: 0 }, scan: "done" } });
   await agent.recheckVivaryCodeCleanup();
