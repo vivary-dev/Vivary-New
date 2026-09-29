@@ -366,7 +366,7 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f3
      onOutcome?: (outcome: AgentLoopOutcome) => void;
      ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd50182d2d8d76 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a9f53c073 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -577,7 +577,24 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd5018
          }
      }
      return updated;
-@@ -7389,12 +7477,12 @@ export function createProductionAgentHandler(options) {
+@@ -7186,13 +7274,14 @@ export function createProductionAgentHandler(options) {
+             }
+             if (history.length === 0) {
+                 try {
+-                    const { resourceListAccessible, SHARED_OWNER, WORKSPACE_OWNER, resourceGet, } = await import("../resources/store.js");
++                    const { isPendingRunReview, resourceListAccessible, SHARED_OWNER, WORKSPACE_OWNER, resourceGet, } = await import("../resources/store.js");
+                     const { getResourceKind, parseCustomAgentProfile, parseRemoteAgentManifest, parseSkillMetadata, } = await import("../resources/metadata.js");
+                     const ownerEmail = getRequestUserEmail();
+                     const orgId = getRequestOrgId();
+                     if (!ownerEmail)
+                         throw new Error("no authenticated user");
+-                    const allResources = await resourceListAccessible(ownerEmail, undefined, { userEmail: ownerEmail, orgId });
++                    // Vivary #109: a file an automation run wrote waits for the owner's review.
++                    const allResources = (await resourceListAccessible(ownerEmail, undefined, { userEmail: ownerEmail, orgId })).filter((resource) => !isPendingRunReview(resource));
+                     if (allResources.length > 0) {
+                         const fileLines = [];
+                         const skillLines = [];
+@@ -7389,12 +7478,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -592,7 +609,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd5018
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
-@@ -8299,13 +8387,7 @@ export function createProductionAgentHandler(options) {
+@@ -8299,13 +8388,7 @@ export function createProductionAgentHandler(options) {
                  : typeof message === "string" && message.trim().length > 0
                      ? message
                      : undefined;
@@ -607,7 +624,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd5018
              const agentLoopOpts = {
                  engine,
                  model: effectiveModel,
-@@ -8318,13 +8400,8 @@ export function createProductionAgentHandler(options) {
+@@ -8318,13 +8401,8 @@ export function createProductionAgentHandler(options) {
                  actions: requestActions,
                  send,
                  signal,
@@ -623,7 +640,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd5018
                  ownerEmail,
                  orgId: getRequestOrgId() ?? null,
                  attachments: requestAttachments,
-@@ -8493,11 +8570,7 @@ export function createProductionAgentHandler(options) {
+@@ -8493,11 +8571,7 @@ export function createProductionAgentHandler(options) {
                          const { recordUsage } = await import("../usage/store.js");
                          await recordUsage({
                              ownerEmail: resolvedOwnerEmail,
@@ -6250,7 +6267,7 @@ index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c
  export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
  export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
 diff --git a/dist/resources/store.js b/dist/resources/store.js
-index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611b85bdea7 100644
+index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a55c556ee2 100644
 --- a/dist/resources/store.js
 +++ b/dist/resources/store.js
 @@ -1,9 +1,10 @@
@@ -6329,17 +6346,42 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
          const written = await writeLocalWorkspaceResource({ path, content });
-@@ -1146,18 +1197,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1135,29 +1186,49 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+         await assertWritableWorkspaceResourcePath(path);
+     }
+     const client = getDbExec();
+-    const now = Date.now();
++    let now = Date.now();
+     const size = Buffer.byteLength(content, "utf8");
+     const mime = mimeType || "text/markdown";
+     // Check for existing resource to preserve ID on upsert
+     const { rows: existing } = await client.execute({
+-        sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
++        sql: `SELECT id, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
+         args: [owner, path],
+     });
      const existingRow = existing[0];
++    // Vivary #109: Settings names the version the owner reviews by its update
++    // time, so a write moves it forward even in the same millisecond or after
++    // the clock stepped back.
++    if (existingRow)
++        now = Math.max(now, Number(existingRow.updated_at) + 1);
      const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
      const createdAt = existingRow ? Number(existingRow.created_at) : now;
 -    const createdBy = normalizeCreatedBy(hasOption(options, "createdBy")
 -        ? options?.createdBy
 -        : existingRow?.created_by);
 +    // Vivary #109: a run's write records the run, whatever the caller passed
-+    // or the row held.
-+    const createdBy = run
-+        ? "agent"
++    // or the row held, and any other write keeps the run's origin while the
++    // file waits for review.
++    const keptRunReview = metadataObject(existingRow?.metadata).runReview;
++    const origin = run
++        ? { created_by: "agent", thread_id: run.threadId, run_id: run.runId }
++        : keptRunReview?.state === "pending"
++            ? existingRow
++            : null;
++    const createdBy = origin
++        ? normalizeCreatedBy(origin.created_by)
 +        : normalizeCreatedBy(hasOption(options, "createdBy")
 +            ? options?.createdBy
 +            : existingRow?.created_by);
@@ -6352,20 +6394,20 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611
 -    const runId = hasOption(options, "runId")
 -        ? (options?.runId ?? null)
 -        : nullableString(existingRow?.run_id);
-+    const threadId = run
-+        ? (run.threadId ?? null)
++    const threadId = origin
++        ? nullableString(origin.thread_id)
 +        : hasOption(options, "threadId")
 +            ? (options?.threadId ?? null)
 +            : nullableString(existingRow?.thread_id);
-+    const runId = run
-+        ? (run.runId ?? null)
++    const runId = origin
++        ? nullableString(origin.run_id)
 +        : hasOption(options, "runId")
 +            ? (options?.runId ?? null)
 +            : nullableString(existingRow?.run_id);
      let expiresAt = hasOption(options, "expiresAt")
          ? (options?.expiresAt ?? null)
          : nullableNumber(existingRow?.expires_at);
-@@ -1168,9 +1227,24 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1168,9 +1239,23 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          expiresAt = null;
      }
      const serializedMetadata = serializeMetadata(options?.metadata);
@@ -6376,7 +6418,6 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611
 +    // Vivary #109: a run's write to an instruction path waits for review. Any
 +    // other write keeps the row's review record, so only the owner's accept
 +    // or delete in Settings settles it, never a later chat or edit.
-+    const keptRunReview = metadataObject(existingRow?.metadata).runReview;
 +    if (runReviewed) {
 +        metadata = withRunReview(metadata, {
 +            state: "pending",
@@ -6391,7 +6432,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611
      await client.execute({
          sql: isPostgres()
              ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-@@ -1367,6 +1441,47 @@ export async function resourceDeleteIfCurrent(resource) {
+@@ -1367,6 +1452,47 @@ export async function resourceDeleteIfCurrent(resource) {
      }
      return deleted;
  }

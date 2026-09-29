@@ -162,15 +162,17 @@ writes waits for the owner's review in Settings > Automation files, and that cha
 owner accepts it. The maintained Core patch's run wrapper puts the run in the request context of each tool call, and
 `resourcePut` reads it there: every write a run makes records its run and thread, and a write to `AGENTS.md`,
 `LEARNINGS.md`, `instructions/`, `skills/`, or `memory/` gets a pending review mark in the row's metadata that only an
-accept or a delete clears. A chat's write and an owner's edit keep it. In hosted mode a personal automation runs with no
+accept or a delete clears. A chat's write and an owner's edit keep it and the run's origin. In hosted mode a personal automation runs with no
 organization, so its run could write the app default `AGENTS.md` that every user loads, and a shared note whose
 title the resource index prints in every prompt. The store now refuses every run write outside the run owner's personal
 files, and every run write whose path is not plain, because the loaders match the stored path as written and
 `skills/../x/SKILL.md` would list as a skill while the mark saw `x/SKILL.md`. The prompt loaders a personal file reaches, the
-applied skill, the slash-skill menu, and `resources read` skip a waiting file, and the prompt gets a one-line count.
+applied skill, the slash-skill menu, the files inventory that Vivary leaves off, and `resources read` skip a waiting
+file, and the prompt gets a one-line count.
 The Settings tab is a plain list of the owner's waiting files with their text, Accept, and Delete, served by the
 `vivary-automation-files` owner action, which no chat, MCP client, or run can call. Accept and Delete act only on the
-version the list showed. The owner asked on 2026-09-29 for the smallest version, so the review has no organization or
+version the list showed, named by its update time, and every write now moves that time forward, even within one
+millisecond. The owner asked on 2026-09-29 for the smallest version, so the review has no organization or
 app default tiers, the resource index is unchanged because it lists no personal file, and the tab has no extra states. The Unattended automation runs row
 says so and names #144 for a run's delete and an overwrite that hides the owner's earlier text. The patch README section
 "Automation-written instruction files" and the desktop guide's Automations section have the detail.

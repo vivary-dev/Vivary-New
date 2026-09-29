@@ -1351,7 +1351,12 @@ argument can set or clear it.
   metadata. A chat's write, `save-memory`, `delete-memory`, and an owner's
   edit in the Resources panel leave the file waiting. `save-memory` carries the
   index lines a run wrote into its rewrite, so clearing the mark there would
-  launder them.
+  launder them. While the file waits, such a write also keeps the run's
+  `created_by`, `run_id`, and `thread_id`, whatever its caller passed.
+- Every write moves the row's `updated_at` at least one millisecond past the
+  value it replaces. Settings names the version the owner reviewed by that
+  time, and a second write in the same millisecond, or after the clock stepped
+  back, used to keep it.
 - A run writes only its own user's personal files, whatever the path. In
   hosted mode several owners share one database. A personal automation runs
   with no organization, because `resolveAutomationExecutionIdentity` returns
@@ -1393,6 +1398,9 @@ Every loader that a run's personal file reaches skips a waiting file:
 - `resolveSkillReferenceContent` in `dist/agent/production-agent.js` does not
   inline a waiting skill, and the `/skills` route in
   `dist/server/agent-chat-plugin.js` does not list one.
+- The first-message files inventory in `dist/agent/production-agent.js`
+  leaves out a waiting file. Vivary turns that inventory off, because
+  `lazyContext` is on.
 - `resources read` in `dist/scripts/resources/read.js` prints "This file was
   written by an automation run and is waiting for the owner's review in
   Settings > Automation files. Its content is not available to chats or
@@ -1437,9 +1445,10 @@ mark, the refusal of every app default and organization write and promote by
 a run, notes included, and of a path that is not plain, the note in
 compact and full prompts with its count and no path, a run's prompt, the
 applied skill, `resources read`, that a chat write, a memory save, and an owner
-edit keep the mark, and the Settings action's list, accept, delete, and owner
-check. Source pins cover the wrapper, the `/skills` route, and the action's
-flags. `tests/automation-file-review-component.test.mjs` renders the tab. Every
+edit keep the mark and the run's origin, the Settings action's list, accept,
+delete, and owner check, and a stale review after a second write in the same
+millisecond. Source pins cover the wrapper, the `/skills` route, the files
+inventory, and the action's flags. `tests/automation-file-review-component.test.mjs` renders the tab. Every
 case failed on `dev` at `4c19c2e`.
 
 Upstream could take the origin and the review mark as they are, with the host
