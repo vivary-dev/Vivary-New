@@ -7380,23 +7380,24 @@ prompt. `resourcePut` and the store's three delete functions refuse any other ow
 for deletes on 2026-09-29. A run also writes only a plain path, because the loaders match the stored path as written,
 and `skills/../x/SKILL.md` would list as a skill while the mark saw `x/SKILL.md`. The prompt loaders a personal file
 reaches, the applied skill, the slash-skill menu, the files inventory that Vivary leaves off, and `resources read` skip
-a waiting file, and the prompt gets a one-line count. Core's raw database tools, `db-query`, `db-exec`, and `db-patch`,
-refuse the `resources` table, because in the packaged check a chat's `db-query` read a waiting file's text from it, and
-a probe showed that a `db-exec` could clear the mark. The Settings tab is a plain list of the owner's waiting files with
-their text, Accept, and Delete, served by the `vivary-automation-files` owner action, which no chat, MCP client, or run
-can call. Accept and Delete act only on the version the list showed, named by its update time, and every write moves
-that time forward, even within one millisecond. Two writes that both read the row before either lands can still store
-the same time, which the README names as a limit. A review refused because the file changed, which the action answers
-with 409, leaves one notice on the file to read it again. Another refusal, such as an expired session, leaves none. A
-failed list says so. The owner asked on 2026-09-29 for the smallest version, so the review has no organization or app
-default tiers, the resource index is unchanged because it lists no personal file, and the tab has no loading or empty
-state. The Unattended automation runs row says so. It names #144 for a run's delete of the owner's own files and an
-overwrite that hides the owner's earlier text. The patch README section "Automation-written instruction files" has the
-detail and the limits, including a waiting file that hides a shared file at the same path, and the desktop guide's
-Automations section has the owner's view. The branch merged `dev` at `3ec2f02`, so the Core patch's #142 hunk comes from
-`dev` and the branch adds only the #109 hunks. `tests/automation-file-review.test.mjs` and
-`tests/automation-file-review-component.test.mjs` pass, and each case failed before its fix, on `dev` at `4c19c2e` or on
-this branch before a review round's or the packaged check's fixes. The Settings tab has not run in a package.
+a waiting file, and the prompt gets a one-line count of every file the Settings tab lists, memory files included. Core's
+raw database tools, `db-query`, `db-exec`, and `db-patch`, refuse the `resources` table, because in the packaged check a
+chat's `db-query` read a waiting file's text from it, and a probe showed that a `db-exec` could clear the mark. The
+Settings tab is a plain list of the owner's waiting files with their text, Accept, and Delete, served by the
+`vivary-automation-files` owner action, which no chat, MCP client, or run can call. Accept and Delete act only on the
+version the list showed, named by its update time, and every write moves that time forward, even within one millisecond.
+Two writes that both read the row before either lands can still store the same time, which the README names as a limit.
+A review refused because the file changed, which the action answers with 409, leaves one notice on the file to read it
+again. Another refusal, such as an expired session, leaves none. A failed list says so. The owner asked on 2026-09-29
+for the smallest version, so the review has no organization or app default tiers, the resource index is unchanged
+because it lists no personal file, and the tab has no loading or empty state. The Unattended automation runs row says
+so. It names #144 for a run's delete of the owner's own files and an overwrite that hides the owner's earlier text. The
+patch README section "Automation-written instruction files" has the detail and the limits, including a waiting file that
+hides a shared file at the same path, and the desktop guide's Automations section has the owner's view. The branch
+merged `dev` at `3ec2f02`, so the Core patch's #142 hunk comes from `dev` and the branch adds only the #109 hunks.
+`tests/automation-file-review.test.mjs` and `tests/automation-file-review-component.test.mjs` pass, and each case failed
+before its fix, on `dev` at `4c19c2e` or on this branch before a review round's or the packaged check's fixes. The
+Settings tab has not run in a package.
 
 Issues #114 and #115 are closed. PR #137 merged `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
 #114 and #115 were closed on 2026-09-29. The Automations row in the acceptance register no longer lists the merge
