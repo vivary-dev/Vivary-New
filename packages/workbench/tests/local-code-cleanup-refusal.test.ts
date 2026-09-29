@@ -866,6 +866,32 @@ test("a refusal in force only from memory keeps refusing until its run records t
   assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup, null);
 });
 
+// The worker 4120 left 250 children and a grandchild, more processes than a target tracks. The children exit and the
+// grandchild runs on, and no tracked parent links it to the run any longer.
+test("a Windows refusal whose target outgrew its cap stays in force until the owner continues", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  const children = Array.from({ length: 250 }, (_, index) => row(6_000 + index, 4120, 3_000, `child${index}.exe`));
+  const grandchild = row(9_000, 6_249, 4_000, "node.exe");
+  await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + children.join("") + grandchild);
+  seedRefusal("outgrown", { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000,
+    childrenTo: null }] });
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal((metadataOf("outgrown").cleanupRefusal as { scan?: string }).scan, "done");
+  await writeFile(scanRows, SYSTEM_ROW + grandchild);
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal("cleanupLifted" in metadataOf("outgrown"), false, "the grandchild still runs");
+  const host = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+  assert.deepEqual({ heading: host?.heading, canEnd: host?.canEnd, canContinue: host?.canContinue }, {
+    heading: "Vivary could not confirm that an earlier run's coding processes stopped", canEnd: false, canContinue: true });
+  await writeFile(scanRows, SYSTEM_ROW);
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal("cleanupLifted" in metadataOf("outgrown"), false, "no later check reads clean");
+  assert.equal((await continueAnyway()).cleanup, null);
+  const lift = metadataOf("outgrown").cleanupLifted as { how?: string; scan?: string };
+  assert.deepEqual({ how: lift.how, scan: lift.scan }, { how: "owner-confirmed", scan: "unavailable" });
+});
+
 test("a refusal Vivary cannot read still refuses until the owner continues", linuxOnly, async () => {
   seedRun("unreadable-refusal", { cleanupRefusal: { target: { platform: "linux", groupId: 0 }, scan: "done" } });
   await agent.recheckVivaryCodeCleanup();

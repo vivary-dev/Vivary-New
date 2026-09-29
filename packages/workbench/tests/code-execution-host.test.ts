@@ -12,6 +12,7 @@ import { checkStoppedWorker, checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endWorkerLe
   parseWindowsProcessRows,
   readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
   waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly, workerCleanupTarget,
+  type CleanupCheck, type CleanupTarget, type WindowsProcessIdentity, type WindowsProcessRow,
 } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -272,6 +273,47 @@ test("Windows leftovers follow parent PIDs by creation time and trace only throu
   assert.equal(capped.tracked.length, 200);
   assert.deepEqual(capped.tracked[0], live);
   assert.equal(capped.traced.length, 200);
+});
+
+// Issue #121. A target keeps at most 200 identities. In these cases the first scan finds the live worker 100 and
+// processes it started. In the second a grandchild still runs whose parent has exited, so only its own identity links
+// it to the run.
+const liveWorker = { pid: 100, createdFrom: 1_000, createdTo: 7_000, childrenTo: null };
+const scanRow = (pid: number, parentPid: number, created: number) => ({ pid, parentPid, created, name: `p${pid}.exe` });
+
+/** Checks a Windows target once for each scan, carrying the target each check returns into the next. */
+async function checksOf(tracked: WindowsProcessIdentity[], scans: WindowsProcessRow[][]): Promise<CleanupCheck[]> {
+  let rows: WindowsProcessRow[] = [];
+  const io = { bootId: async () => null, windowsProcesses: async () => rows,
+    windowsEnd: async () => assert.fail("a check ended a process"),
+    proc: { signalGroup: () => undefined, list: async () => [], stat: async () => "", kill: () => undefined } };
+  const results: CleanupCheck[] = [];
+  let target: CleanupTarget = { platform: "win32", tracked, traced: [] };
+  for (const scan of scans) {
+    rows = scan;
+    const check = await checkWorkerCleanup(target, io);
+    results.push(check);
+    if (check.result === "remaining") target = check.target;
+  }
+  return results;
+}
+
+test("a Windows target past its cap drops identities the scan found gone to keep the new ones", async () => {
+  const gone = Array.from({ length: 199 }, (_, index) => ({ pid: 10_000 + index, createdFrom: 2_000, createdTo: 2_000,
+    childrenTo: null }));
+  const [, later] = await checksOf([liveWorker, ...gone], [
+    [scanRow(100, 50, 2_000), scanRow(300, 100, 3_000), scanRow(400, 300, 4_000)], [scanRow(400, 300, 4_000)]]);
+  assert.deepEqual(later?.result === "remaining" && later.remaining.map(({ pid }) => pid), [400],
+    "the grandchild is found after its parent exits");
+});
+
+test("a Windows target with more live processes than its cap reads unavailable, never clean", async () => {
+  const children = Array.from({ length: 250 }, (_, index) => scanRow(1_000 + index, 100, 3_000));
+  const [first, ...later] = await checksOf([liveWorker], [
+    [scanRow(100, 50, 2_000), ...children, scanRow(9_000, 1_249, 4_000)], [scanRow(9_000, 1_249, 4_000)], []]);
+  assert.equal(first?.result === "remaining" && first.remaining.length, 252);
+  assert.deepEqual(later, [{ result: "unavailable" }, { result: "unavailable" }],
+    "a target that could not keep every identity never reads clean");
 });
 
 // Issue #121. A reader that shows group 12345: the traced 42, its child 43, a stranger 44 that another program started,
