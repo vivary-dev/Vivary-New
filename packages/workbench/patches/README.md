@@ -685,12 +685,14 @@ run can last 10. An `in-process` task now gets the Run now claim lease as its
 cutoff: 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, 15 minutes by
 default, and never less than the 5-minute default. A live run is not reset,
 and a task whose process was killed mid-run is reset and delivered again
-after the lease. A pending task, accepted before a quit and never started, runs about 90
-seconds after the next start, when the sweep finds it. Either way the call runs
-once to completion, except after a normal quit, which ends the run as
-interrupted and completes the task (see "Automation runs at quit"). A run cut
-off by a kill leaves its history row reading that the run stopped before it
-recorded a result. The rerun starts from the
+after the lease, about 15 minutes after its claim. A pending task, accepted
+before a quit and never started, runs at the sweep's first pass at least 90
+seconds after the quit, about 70 to 130 seconds after the next start. A normal
+quit returns a task whose run it interrupted to pending (see "Automation runs
+at quit"), so that task runs the same way. Either way the call runs once to
+completion. A run cut off by a quit or a kill leaves its history row reading
+that the run stopped before it recorded a result, so one call can show two
+history rows. The rerun starts from the
 beginning, so it can repeat a local step the cut-off run already took, such as
 a memory write. Until the rerun, later calls for the same automation wait
 behind it, because tasks of one automation run in order. A prompt reset at
@@ -1099,8 +1101,12 @@ stop works in this order:
 4. The sweep that holds the lease releases it in its existing `finally`, with
    its own owner id.
 
-The stop waits for the sweeps, the queued runs, and the runs it interrupted to
-settle, or for `timeoutMs`, whichever comes first. Vivary passes 10 seconds,
+The stop waits for the sweeps, the queued runs, the runs it interrupted, and
+the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
+comes first. The runner exports `trackBackgroundAutomationWork`, and the
+dispatcher's `dispatchAgentic` and the in-process webhook runner
+`runAutomationWebhookTaskInProcess` put their work in it, so the stop also
+waits for the automation's last status and the webhook task's row. Vivary passes 10 seconds,
 the Code host's shutdown wait, so `stopLocalWork` still ends 5 seconds before
 the desktop ends the server's process tree. A later call returns the first
 stop.
@@ -1115,14 +1121,27 @@ startup recovery was added, because clearing a lease or ending rows at launch
 is unsafe when two processes share a database. The lease length, the renewal,
 the liveness ceiling, and the claim lease are unchanged.
 
-One behavior changes for trigger runs. The dispatcher catches a failed event or
-webhook run and records the automation's last error from the error's message,
-which here lacks its final sentence. A webhook task whose run a normal quit
-interrupted is therefore marked completed and is not delivered again. Before,
-the quitting process was ended with the task still `processing`, and the retry
-sweep delivered it again after the claim lease. A hard kill still does that. An
-event, or a webhook task the retry sweep picks up, during the quit starts a run
-that is interrupted at once.
+Trigger runs record their outcome through the dispatcher, which catches the
+run's error and writes the automation's last error from its message, without
+the final sentence. An event has no queue, so an event whose run a quit
+interrupted does not run again, as after a crash. A webhook call goes back to
+the queue, as the owner decided on 2026-09-29. `dispatchAgentic` reports the
+interruption without rethrowing, so the event handler keeps going through its
+matching triggers, and `dispatchAutomationWebhookTask` returns `interrupted`.
+`runClaimedAutomationWebhookTask` then calls `markTaskRetryable` with the
+interrupted message and `resetAttempts`, because the host stopped the run, and
+it does not start the next queued call. The task reads `pending` with its
+payload kept. This write happens only in the run's settle path, after the run
+recorded itself interrupted, never from the stop and never by task id, so a
+second process on the same database cannot run the call while the first run
+still works. The next launch's retry sweep runs it at its first pass at least
+90 seconds after the quit, and the calls queued behind it follow in order. The
+owner sees the interrupted history row and later a second row for the same
+call. The rerun starts from the beginning, as after a crash. A run that
+outlasts the bound, or a kill between the history row and the task write,
+leaves the task `processing`, and the sweep delivers it again about 15 minutes
+after its claim. An event, or a webhook task the retry sweep picks up, during
+the quit starts a run that is interrupted at once.
 
 Run `node --test packages/workbench/tests/automation-quit.test.mjs`. Each
 quitting or killed process is a child that runs
@@ -1141,6 +1160,15 @@ the bound and stays `running`. A source pin checks that `stopLocalWork` calls
 the stop with 10 seconds, the Code host's wait, and that the package entry
 exports the scheduler's own function. Eight of the nine cases failed on the
 previous patch. The hard-kill case passed on both.
+
+A review round added trigger cases. A child quits with an event run and
+webhook call A in flight and call B queued, and exits as soon as the stop
+returns, as the CLI host does. The event's automation reads its error, both
+tasks read `pending` with their payloads and no spent attempt, only A has a
+history row, and the next launch's retry sweep runs A and then B once each.
+Both cases failed on the previous patch: the event's automation still read
+running and call A was left `processing`, because the stop returned before the
+dispatcher's writes.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
