@@ -117,6 +117,7 @@ export function CodeRunControl() {
         {cleanup.remaining.map(leftover => <li key={leftover.pid}>
           {leftover.name} (PID {leftover.pid}{leftover.confirmed ? "" : ", not confirmed from that run"})
         </li>)}
+        {cleanup.unlisted > 0 && <li>and {cleanup.unlisted} more not listed</li>}
       </ul>}
       {cleanup.notice && <p className="break-words" role="status">{cleanup.notice}</p>}
       <p className="break-words text-xs text-muted-foreground">{withCommands(cleanup.instruction)}</p>

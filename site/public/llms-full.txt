@@ -7358,11 +7358,13 @@ reused Linux group id, so the refusal holds, but End them leaves it alone, becau
 after PID reuse. End them also leaves alone a PID whose start time changed, a process the owner was not shown, and the
 host itself. A boot id that is not a UUID fails to parse and keeps refusing. Each choice carries a version of the list
 the strip showed, and a choice about a list that changed since is refused with `vivary_code_cleanup_changed`, so the
-strip shows the new list first. Continue anyway lifts the refusal on the owner's word after one more check, unless
-that check finds a process the owner was not shown, and records the list the owner saw and what the check found. A
-refusal lists at most 50 processes. When its last check found more, the owner never saw every process, so Continue
-anyway is refused as changed whenever the check before it finds processes, and the instruction says that Vivary lists
-50 of the processes it found. The
+strip shows the new list first. A refusal lists at most 50 processes, and the strip says how many more the check found.
+The refusal also records how many processes the check found and a SHA-256 fingerprint of all of them, by PID and start
+time, and of whether one was hidden, and the choice's version covers that fingerprint. Continue anyway lifts the
+refusal on the owner's word after one more check, unless that check's fingerprint differs from the recorded one. So a
+process that starts, exits, or changes its start time refuses the choice as changed, listed or not, and the strip
+shows the new list. The lift records the list the owner saw and what the check found, with its count. A list that
+stays the same lifts even when it holds more than 50 processes and End them could end none of them. The
 refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, failed, or
 unknown,
 also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,

@@ -122,6 +122,8 @@ export type VivaryCodeCleanupView = {
   instruction: string;
   /** `confirmed` means Vivary traced the process to the run, so End them may end it. */
   remaining: { pid: number; name: string; confirmed: boolean }[];
+  /** How many more processes the last check found than `remaining` lists. */
+  unlisted: number;
   /** A scan can find the listed processes, and at least one is confirmed, so End them can act. */
   canEnd: boolean;
   /** End them has run on this refusal, or cannot act, so the owner may continue past what is left. */
@@ -185,8 +187,13 @@ export type CleanupRefusal = {
   target: CleanupTarget | null;
   /** The processes last observed, at most `MAX_CLEANUP_LISTED`. */
   remaining: LeftoverProcess[];
-  /** Whether that observation found more processes than `remaining` lists. */
-  capped: boolean;
+  /** How many processes that observation found, listed or not. */
+  total: number;
+  /**
+   * Names every process that observation found and whether one was hidden, from `leftoverFingerprint`. Null until a
+   * check lists processes for the refusal.
+   */
+  fingerprint: string | null;
   hidden: boolean;
   /** Whether the last check could scan. `not-recorded` is a marker that never had a target. */
   scan: CleanupScan;
@@ -202,13 +209,14 @@ type CleanupEnd = { at: string; by: string; attempts: EndAttempt[] };
 
 /**
  * How a refusal ended, kept as `metadata.cleanupLifted` on the run. Continue anyway records the list the owner was
- * shown, and what the check right before it found: `scan` says whether that check ran, and `remaining` is its list.
+ * shown, and what the check right before it found: `scan` says whether that check ran, and `remaining` lists at most
+ * `MAX_CLEANUP_LISTED` of the `total` processes it found.
  */
 type CleanupLift = { ends: CleanupEnd[] } & (
   | { how: "rechecked"; checkedAt: string }
   | { how: "ended"; endedAt: string; by: string }
   | { how: "owner-confirmed"; confirmedAt: string; by: string; shown: LeftoverProcess[]; hidden: boolean;
-    scan: CleanupScan; remaining: LeftoverProcess[] });
+    scan: CleanupScan; remaining: LeftoverProcess[]; total: number });
 
 const tracedSchema = z.object({ pid: z.number().int().positive(), start: z.number().int().nonnegative() });
 // A Linux `comm` can be empty, so an empty name must not discard the whole refusal.
@@ -224,7 +232,8 @@ const storedCleanupRefusalSchema = z.object({
       overflow: z.literal(true).optional() }),
   ]).nullable(),
   remaining: z.array(leftoverSchema).max(MAX_CLEANUP_LISTED),
-  capped: z.boolean().default(false),
+  total: z.number().int().nonnegative().optional(),
+  fingerprint: z.string().regex(/^[0-9a-f]{64}$/).nullable().default(null),
   hidden: z.boolean(),
   scan: z.enum(["done", "unavailable", "not-recorded"]),
   step: z.enum(["taskkill", "exit", "group", "worker-exited"]).nullable(),
@@ -233,7 +242,8 @@ const storedCleanupRefusalSchema = z.object({
   ends: z.array(z.object({ at: z.string(), by: z.string(), attempts: z.array(leftoverSchema.extend({
     outcome: z.enum(["ended", "mismatched", "gone", "failed", "unknown"]),
   })).max(MAX_CLEANUP_LISTED) })).max(MAX_CLEANUP_ENDS).default([]),
-});
+  // A refusal written without a count counts what it lists.
+}).transform(stored => ({ ...stored, total: stored.total ?? stored.remaining.length }));
 
 type CodeHostState = {
   activeRuns: Map<string, ActiveRun>;
@@ -326,7 +336,7 @@ export function recheckVivaryCodeCleanup(): Promise<void> {
  * Issue #121. The owner's decision on the refusal the host strip shows, the oldest one, and only on the version of its
  * list the owner saw. End them ends each listed process it can, and lifts the refusal when the check after that is
  * empty. Continue anyway lifts it on the owner's word after one more check, which lifts it on its own when nothing is
- * left, and which must find nothing the owner was not shown.
+ * left, and which must find exactly the processes the owner was told of.
  */
 export async function resolveVivaryCodeCleanup(input: {
   ownerEmail: string; orgId?: string; decision: "end" | "continue"; version: string;
@@ -398,8 +408,9 @@ function unreadNote(ends: readonly CleanupEnd[]): string {
 }
 
 /**
- * Continue anyway, after one more check. A clean check lifts the refusal as rechecked. A check that finds a process the
- * owner was not shown records it and lifts nothing, so the strip lists it and offers End them when it can.
+ * Continue anyway, after one more check. A clean check lifts the refusal as rechecked. A check whose processes differ
+ * from those the owner was told of, listed or not, records them and lifts nothing, so the strip shows them and offers
+ * End them when it can.
  */
 async function continueAnyway(refusal: CleanupRefusal, by: string): Promise<"done" | "changed"> {
   const check = refusal.target ? await checkWorkerCleanup(refusal.target) : null;
@@ -407,31 +418,35 @@ async function continueAnyway(refusal: CleanupRefusal, by: string): Promise<"don
     recordCleanupCheck(refusal, check);
     return "done";
   }
-  if (check?.result === "remaining" && !shownBefore(check, refusal)) {
+  if (check?.result === "remaining" && leftoverFingerprint(check.remaining, check.hidden) !== refusal.fingerprint) {
     recordCleanupCheck(refusal, check);
     return "changed";
   }
+  const found = check?.result === "remaining" ? check.remaining : [];
   liftCleanupRefusal(refusal, {
     how: "owner-confirmed", confirmedAt: new Date().toISOString(), by, shown: refusal.remaining,
     hidden: refusal.hidden, scan: !check ? refusal.scan : check.result === "remaining" ? "done" : "unavailable",
-    remaining: check?.result === "remaining" ? check.remaining.slice(0, MAX_CLEANUP_LISTED) : [], ends: refusal.ends,
+    remaining: found.slice(0, MAX_CLEANUP_LISTED), total: found.length, ends: refusal.ends,
   });
   return "done";
 }
 
-/** Whether the refusal showed the owner every process the check found. A list cut at the cap never showed them all. */
-function shownBefore(check: Extract<CleanupCheck, { result: "remaining" }>, refusal: CleanupRefusal): boolean {
-  return !refusal.capped && (!check.hidden || refusal.hidden) && check.remaining.every(found =>
-    refusal.remaining.some(seen => seen.pid === found.pid && seen.start === found.start));
+/**
+ * Names every process a check found, however many a refusal lists, by PID and start time, and whether the check found
+ * a hidden one. The same processes give the same fingerprint in any order.
+ */
+function leftoverFingerprint(found: readonly LeftoverProcess[], hidden: boolean): string {
+  const processes = found.map(({ pid, start }) => `${pid}:${start}`).sort();
+  return createHash("sha256").update(JSON.stringify([hidden, processes])).digest("hex");
 }
 
 /**
- * Names what the strip shows: the run, when it was refused, what the last check could do and found, and how many End
- * them ran. A later check that finds the same processes keeps it.
+ * Names what the strip shows: the run, when it was refused, what the last check could do and found, listed or not, and
+ * how many End them ran. A later check that finds the same processes keeps it.
  */
 function cleanupVersion(refusal: CleanupRefusal): string {
   return createHash("sha256").update(JSON.stringify([refusal.runId, refusal.refusedAt, refusal.scan, refusal.hidden,
-    refusal.remaining.map(({ pid, start, name }) => [pid, start, name]), refusal.ends.length]))
+    refusal.remaining.map(({ pid, start, name }) => [pid, start, name]), refusal.fingerprint, refusal.ends.length]))
     .digest("hex").slice(0, 16);
 }
 
@@ -483,19 +498,19 @@ function cleanupRefusalFromRun(run: CodeAgentRunRecord): CleanupRefusal | null {
   const parsed = storedCleanupRefusalSchema.safeParse(stored);
   if (parsed.success) return { runId: run.id, ...parsed.data };
   // A `cleanupUnverified: true` marker from before part B recorded no target.
-  return { runId: run.id, target: null, remaining: [], capped: false, hidden: false, scan: "not-recorded", step: null,
-    refusedAt: run.updatedAt, checkedAt: run.updatedAt, ends: [] };
+  return { runId: run.id, target: null, remaining: [], total: 0, fingerprint: null, hidden: false, scan: "not-recorded",
+    step: null, refusedAt: run.updatedAt, checkedAt: run.updatedAt, ends: [] };
 }
 
 function storedCleanupRefusal(refusal: CleanupRefusal): Omit<CleanupRefusal, "runId"> {
-  const { target, remaining, capped, hidden, scan, step, refusedAt, checkedAt, ends } = refusal;
-  return { target, remaining, capped, hidden, scan, step, refusedAt, checkedAt, ends };
+  const { target, remaining, total, fingerprint, hidden, scan, step, refusedAt, checkedAt, ends } = refusal;
+  return { target, remaining, total, fingerprint, hidden, scan, step, refusedAt, checkedAt, ends };
 }
 
-/** What a refusal records from a check that found processes. */
+/** What a refusal records from a check that found processes. It lists at most `MAX_CLEANUP_LISTED` and counts them all. */
 function listedFromCheck(check: Extract<CleanupCheck, { result: "remaining" }>) {
-  return { target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED),
-    capped: check.remaining.length > MAX_CLEANUP_LISTED, hidden: check.hidden, scan: "done" as const };
+  return { target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), total: check.remaining.length,
+    fingerprint: leftoverFingerprint(check.remaining, check.hidden), hidden: check.hidden, scan: "done" as const };
 }
 
 /** Records one check of a refusal. A check keeps the run's place in history, and only a lift adds to its transcript. */
@@ -565,7 +580,7 @@ function cleanupRefusalFromFailedStop(runId: string, error: VivaryCodeWorkerClea
   const check = error.leftovers?.check;
   const common = { runId, step: error.cause?.step ?? null, refusedAt: refusedAt ?? now, checkedAt: now, ends: [] };
   return check?.result === "remaining" ? { ...common, ...listedFromCheck(check) }
-    : { ...common, target: error.leftovers?.target ?? null, remaining: [], capped: false, hidden: false,
+    : { ...common, target: error.leftovers?.target ?? null, remaining: [], total: 0, fingerprint: null, hidden: false,
       scan: "unavailable" };
 }
 
@@ -573,11 +588,14 @@ function cleanupPlatform(refusal: CleanupRefusal): "linux" | "win32" {
   return refusal.target?.platform ?? (process.platform === "win32" ? "win32" : "linux");
 }
 
-/** Names processes by name and PID. With a refusal, it marks each one Vivary could not trace to the run. */
-function processList(processes: readonly LeftoverProcess[], refusal?: CleanupRefusal): string {
+/**
+ * Names processes by name and PID, and counts the rest of `total`, which exceeds the processes given when their list was
+ * cut. With a refusal, it marks each one Vivary could not trace to the run.
+ */
+function processList(processes: readonly LeftoverProcess[], refusal?: CleanupRefusal, total = processes.length): string {
   const named = processes.slice(0, MAX_CLEANUP_NAMED_IN_MESSAGES).map(leftover => `${leftover.name} (PID ${leftover.pid}`
     + `${!refusal || confirmedFromRun(refusal, leftover) ? "" : ", not confirmed from that run"})`);
-  const more = processes.length - named.length;
+  const more = total - named.length;
   return more > 0 ? `${named.join(", ")}, and ${more} more` : named.join(", ");
 }
 
@@ -618,20 +636,18 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
   }
   const yourself = group !== null ? `stop them with \`kill -KILL -- -${group}\``
     : `end them ${windows ? "in Task Manager" : "in your process list"} by PID`;
-  const cut = refusal.capped ? ` Vivary lists ${MAX_CLEANUP_LISTED} of the processes it found, and Continue anyway `
-    + "needs a list of all of them." : "";
   const confirmed = refusal.remaining.filter(leftover => confirmedFromRun(refusal, leftover)).length;
   if (!confirmed) {
     return "Vivary cannot confirm that these came from that run, so it does not end them. "
-      + `If they did, ${yourself}, then choose Continue anyway${at}.${cut}`;
+      + `If they did, ${yourself}, then choose Continue anyway${at}.`;
   }
   const orContinue = cleanupOffers(refusal).canContinue ? ` Or choose Continue anyway${at}.` : "";
   if (confirmed === refusal.remaining.length) {
     return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from `
-      + `that run, then checks again.${orContinue}${cut}`;
+      + `that run, then checks again.${orContinue}`;
   }
   return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It does not end `
-    + `the others. If they came from that run, ${yourself}.${orContinue}${cut}`;
+    + `the others. If they came from that run, ${yourself}.${orContinue}`;
 }
 
 /** The refusal a send gets. */
@@ -639,13 +655,15 @@ function cleanupRefusalMessage(refusal: CleanupRefusal): string {
   if (stopStillChecking(refusal)) {
     return `${STOP_CHECK_HEADING}. The choices appear at the top of Vivary when the check ends.`;
   }
-  const names = refusal.scan === "done" && refusal.remaining.length ? `: ${processList(refusal.remaining, refusal)}` : "";
+  const names = refusal.scan === "done" && refusal.remaining.length
+    ? `: ${processList(refusal.remaining, refusal, refusal.total)}` : "";
   return `${cleanupHeading(refusal)}${names}. ${cleanupInstruction(refusal, "message")}`;
 }
 
 /** The transcript status when a stop fails. */
 function cleanupFailureMessage(refusal: CleanupRefusal): string {
-  const names = refusal.remaining.length ? `Still running: ${processList(refusal.remaining, refusal)}. ` : "";
+  const names = refusal.remaining.length
+    ? `Still running: ${processList(refusal.remaining, refusal, refusal.total)}. ` : "";
   return `The coding process could not be stopped completely. ${names}${cleanupInstruction(refusal, "message")}`;
 }
 
@@ -687,7 +705,7 @@ function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal): string 
   const which = lift.remaining.every(leftover => confirmedFromRun(refusal, leftover)) ? "these coding processes"
     : "these processes";
   return lift.remaining.length
-    ? `You chose to continue while ${which} were still running: ${processList(lift.remaining, refusal)}.`
+    ? `You chose to continue while ${which} were still running: ${processList(lift.remaining, refusal, lift.total)}.`
       + `${endedNote} ${accepts}`
     : `You chose to continue while a coding process from this run was still running.${endedNote} ${accepts}`;
 }
@@ -699,6 +717,7 @@ function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[
     version: cleanupVersion(refusal),
     remaining: refusal.remaining.map(leftover => ({ pid: leftover.pid, name: leftover.name,
       confirmed: confirmedFromRun(refusal, leftover) })),
+    unlisted: refusal.total - refusal.remaining.length,
     notice: cleanupNotice(refusal),
     run: run ? { id: run.id, title: run.title, projectId: metadataString(run, "projectId") } : null,
   };
@@ -1080,7 +1099,7 @@ async function executeVivaryCodeRun(input: {
       },
       onStopFailed: ({ step, target }) => {
         stopRefusedAt = new Date().toISOString();
-        writeCleanupRefusal({ runId: input.runId, target, remaining: [], capped: false, hidden: false,
+        writeCleanupRefusal({ runId: input.runId, target, remaining: [], total: 0, fingerprint: null, hidden: false,
           scan: "unavailable", step, refusedAt: stopRefusedAt, checkedAt: stopRefusedAt, ends: [] });
       },
     });

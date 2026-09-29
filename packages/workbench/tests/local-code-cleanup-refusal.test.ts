@@ -256,7 +256,7 @@ test("host start lifts a refusal whose group already emptied without a send, and
     heading: "Vivary could not confirm that an earlier run's coding processes stopped",
     instruction: "This run ended before Vivary recorded which processes it started. End any codex, claude, or node "
       + "processes left from it in your process list, then choose Continue anyway.",
-    remaining: [], canEnd: false, canContinue: true, notice: null,
+    remaining: [], unlisted: 0, canEnd: false, canContinue: true, notice: null,
     composer: "Vivary could not confirm that an earlier run's coding processes stopped. Choose Continue anyway above "
       + "before sending another message.",
     checking: false, run: { id: "legacy-marker", title: "Leftovers from legacy-marker", projectId: null },
@@ -282,7 +282,7 @@ test("Continue anyway lifts a refusal Vivary cannot check, records who chose it,
   const lift = metadata.cleanupLifted as Record<string, unknown>;
   assert.equal(typeof lift.confirmedAt, "string");
   assert.deepEqual({ ...lift, confirmedAt: "" }, { how: "owner-confirmed", confirmedAt: "", by: OWNER, shown: [],
-    hidden: false, scan: "not-recorded", remaining: [], ends: [] });
+    hidden: false, scan: "not-recorded", remaining: [], total: 0, ends: [] });
   assert.equal(lastStatus("legacy-marker"),
     "You chose to continue. Vivary could not check whether this run's coding processes stopped. "
     + "Vivary accepts new messages again.");
@@ -524,8 +524,8 @@ test("a failed stop's own check offers no choice until it ends and says that Viv
       // Another user of the host sees the check without the run. The owner's view is in the Stop case above.
       const checking = (await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup;
       assert.deepEqual({ ...checking, version: "" }, {
-        version: "", heading: "Vivary is checking what a failed stop left running",
-        instruction: "The choices appear here when the check ends.", remaining: [], canEnd: false, canContinue: false,
+        version: "", heading: "Vivary is checking what a failed stop left running", remaining: [], unlisted: 0,
+        instruction: "The choices appear here when the check ends.", canEnd: false, canContinue: false,
         notice: null, composer: "Vivary is checking what a failed stop left running. Wait for the check to end before "
           + "sending another message.", checking: true, run: null,
       });
