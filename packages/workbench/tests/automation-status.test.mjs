@@ -30,7 +30,7 @@ Object.assign(process.env, {
 const load = relative => import(pathToFileURL(path.join(CORE, "dist", relative)).href);
 const [{ defineAutomation, updateAutomation }, { recordAutomationSchedulerHealth }, { resourceGetByPath, resourcePut },
   { buildJobResourceContent, patchJobFrontmatterFields }, { INTERRUPTED_RUN_MESSAGE }, listAutomations,
-  listRecurringJobs] = await Promise.all([
+  listRecurringJobs, { getDbExec }] = await Promise.all([
   load("automations/service.js"),
   load("jobs/scheduler-health.js"),
   load("resources/store.js"),
@@ -38,6 +38,7 @@ const [{ defineAutomation, updateAutomation }, { recordAutomationSchedulerHealth
   load("jobs/run-history.js"),
   load("triggers/actions/list-automations.js"),
   load("jobs/actions/list-recurring-jobs.js"),
+  load("db/client.js"),
 ]);
 
 const owner = "owner@example.test";
@@ -75,9 +76,16 @@ await resourcePut(owner, "jobs/legacy.md", buildJobResourceContent(
 await resourcePut(owner, "jobs/legacy-paused.md", buildJobResourceContent(
   { schedule: "*/5 * * * *", enabled: false, appId }, "Check the build."));
 
-await recordAutomationSchedulerHealth({ appId, checkedAt, runtime: "recurring-jobs" });
-// Another app's scheduler on the same database is not this app's last check.
-await recordAutomationSchedulerHealth({ appId: "other-app", checkedAt: checkedAt + 120_000, runtime: "recurring-jobs" });
+// The first case lists on a fresh database, before any heartbeat. The others record the heartbeats first.
+let recorded;
+const heartbeats = () => {
+  recorded ??= (async () => {
+    await recordAutomationSchedulerHealth({ appId, checkedAt, runtime: "recurring-jobs" });
+    // Another app's scheduler on the same database is not this app's last check.
+    await recordAutomationSchedulerHealth({ appId: "other-app", checkedAt: checkedAt + 120_000, runtime: "recurring-jobs" });
+  })();
+  return recorded;
+};
 
 after(async () => {
   await esbuild.stop();
@@ -85,8 +93,20 @@ after(async () => {
 });
 
 const byName = rows => Object.fromEntries(rows.map(row => [row.name, row]));
+const listBoth = async () => ({
+  automations: byName(await listAutomations.default.run({ scope: "personal" }, ctx)),
+  jobs: byName(await listRecurringJobs.default.run({ scope: "personal" }, ctx)),
+});
+
+test("on a fresh database, a list before any heartbeat keeps each stored value", async () => {
+  const { automations, jobs } = await listBoth();
+  assert.equal(automations.hourly.lastCheck, null, "no check is recorded yet");
+  assert.equal(automations["skipped-later"].lastCheck, iso(checkedAt + 60_000), "a recorded skip is kept");
+  assert.equal(jobs.legacy.lastCheck, null);
+});
 
 test("LAST CHECKED shows the scheduler's last check for an enabled scheduled automation", async () => {
+  await heartbeats();
   const rows = byName(await listAutomations.default.run({ scope: "personal" }, ctx));
   assert.equal(rows.hourly.lastCheck, iso(checkedAt), "the heartbeat of this app's scheduler");
   assert.equal(rows["skipped-later"].lastCheck, iso(checkedAt + 60_000), "a later recorded skip wins");
@@ -95,9 +115,45 @@ test("LAST CHECKED shows the scheduler's last check for an enabled scheduled aut
 });
 
 test("LAST CHECKED shows the scheduler's last check for an enabled legacy recurring job", async () => {
+  await heartbeats();
   const rows = byName(await listRecurringJobs.default.run({ scope: "personal" }, ctx));
   assert.equal(rows.legacy.lastCheck, iso(checkedAt));
   assert.equal(rows["legacy-paused"].lastCheck, null);
+});
+
+test("a failed scheduler health read is logged, and each list falls back to the stored value", async () => {
+  await heartbeats();
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.map(String).join(" ")); };
+  // The health table was created by the heartbeats, so moving it away makes the read itself fail.
+  await getDbExec().execute({ sql: "ALTER TABLE automation_scheduler_health RENAME TO automation_scheduler_health_moved", args: [] });
+  let lists;
+  try {
+    lists = await listBoth();
+  } finally {
+    await getDbExec().execute({ sql: "ALTER TABLE automation_scheduler_health_moved RENAME TO automation_scheduler_health", args: [] });
+    console.warn = originalWarn;
+  }
+  assert.equal(lists.automations.hourly.lastCheck, null, "the stored value, not an error");
+  assert.equal(lists.automations["skipped-later"].lastCheck, iso(checkedAt + 60_000));
+  assert.equal(lists.jobs.legacy.lastCheck, null);
+  assert.equal(warnings.filter(line => /scheduler's last check/.test(line)).length, 2, "each list logged the failure");
+});
+
+test("LAST CHECKED ignores a heartbeat whose check failed", async () => {
+  await heartbeats();
+  await recordAutomationSchedulerHealth({ appId, checkedAt: checkedAt + 30_000, runtime: "recurring-jobs",
+    error: "The scheduler could not reach the database." });
+  let lists;
+  try {
+    lists = await listBoth();
+  } finally {
+    await recordAutomationSchedulerHealth({ appId, checkedAt, runtime: "recurring-jobs" });
+  }
+  assert.equal(lists.automations.hourly.lastCheck, null, "a failed check is not a check");
+  assert.equal(lists.jobs.legacy.lastCheck, null);
+  assert.equal((await listBoth()).automations.hourly.lastCheck, iso(checkedAt), "the next good check counts again");
 });
 
 test("a paused automation lists no next run, although its stored next run is in the past", async () => {
