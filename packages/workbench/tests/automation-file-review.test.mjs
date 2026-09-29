@@ -296,6 +296,9 @@ test("accept loads the file from then on, and a stale accept changes nothing", a
   assert.match(await reviewAs(viewer, { operation: "delete", id: acceptedRow.id, updatedAt: acceptedRow.updatedAt, runId: RUN.runId }),
     /This file is no longer waiting for review/);
   assert.ok(await store.resourceGetByPath(owner, "AGENTS.md"), "the accepted file stays");
+  // The store's accept also refuses a file that no longer waits, whoever calls it.
+  assert.equal(await store.resourceAcceptRunReviewIfCurrent({ id: acceptedRow.id, owner, path: "AGENTS.md",
+    updatedAt: acceptedRow.updatedAt, runId: RUN.runId, acceptedBy: owner }), null);
 
   // A later run write waits again.
   await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-SECOND." },
@@ -351,6 +354,9 @@ test("only the people Core lets edit a file can review it", async () => {
     /Only organization owners and admins can review organization files\./);
   assert.equal(runReviewOf(await store.resourceGetByPath(ORG_OWNER, "LEARNINGS.md"))?.state, "pending", "a member changed nothing");
   assert.ok(!(await listFor({ userEmail: ownerB, orgId: null })).some(file => file.id === orgFile.id), "a non-member does not see it");
+  assert.match(await reviewAs({ userEmail: ownerB, orgId: null },
+    { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }),
+  /This file is no longer waiting for review/, "a non-member cannot reach it by id");
 
   const adminView = { userEmail: admin, orgId: ORG_ID };
   const adminFile = (await listFor(adminView)).find(file => file.id === orgFile.id);
