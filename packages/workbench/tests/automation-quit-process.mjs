@@ -262,6 +262,60 @@ if (role === "quit") {
   await report({ ready: true });
   await scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
   process.exit(0);
+} else if (role === "route-claim") {
+  // The owner quits while Core's process-task route is saving its claim of a webhook call. The claim is held until
+  // the parent has the report, so the stop has begun before it saves. The process exits as soon as the stop returned
+  // and the claim saved, as the CLI host does, so only writes the stop waited for are kept.
+  await initTriggerDispatcher(triggerDeps("cooperative"));
+  const postProcessTask = await mountProcessTaskRoute();
+  await getDbExec().execute("SELECT 1");
+  const db = getDbExec();
+  const execute = db.execute.bind(db);
+  const claimSaving = gate();
+  const saveClaim = gate();
+  const claimSaved = gate();
+  let stop;
+  db.execute = async query => {
+    if (stop || !/UPDATE integration_pending_tasks\s+SET status = \?, attempts = attempts \+ 1/.test(query?.sql ?? "")) {
+      return execute(query);
+    }
+    stop = scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
+    claimSaving.open();
+    await saveClaim.promise;
+    const result = await execute(query);
+    claimSaved.open();
+    return result;
+  };
+  void postProcessTask("task-route-claim").catch(() => {});
+  await within(claimSaving.promise, 30_000, "the route's claim starting");
+  await report({ ready: true });
+  saveClaim.open();
+  await stop;
+  await claimSaved.promise;
+  process.exit(0);
+} else if (role === "endless") {
+  // Work keeps arriving while the process stops: each tracked piece of work tracks the next one as it settles. The
+  // stop waits for each until its bound. Each pass of its wait calls Promise.allSettled, so the count shows whether a
+  // pass started after the stop returned.
+  const { trackBackgroundAutomationWork } = await load("jobs/background-automation-runner.js");
+  const allSettled = Promise.allSettled;
+  let passes = 0;
+  Promise.allSettled = function (values) {
+    passes += 1;
+    return allSettled.call(this, values);
+  };
+  let links = 0;
+  const link = () => trackBackgroundAutomationWork(new Promise(resolve => setTimeout(resolve, 20)))
+    .then(() => { links += 1; link(); });
+  link();
+  const quitAt = Date.now();
+  await scheduler.stopRecurringJobs({ timeoutMs: 500 });
+  const elapsedMs = Date.now() - quitAt;
+  const passesAtStop = passes;
+  const linksAtStop = links;
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await report({ elapsedMs, linksAtStop, passesAtStop, passesAfter: passes });
+  process.exit(0);
 } else if (role === "user-stop") {
   // The owner stops a run just before the quit, so the run is still in the runner's list, aborted for its own reason.
   const sweep = scheduler.processRecurringJobs(deps("cooperative"));

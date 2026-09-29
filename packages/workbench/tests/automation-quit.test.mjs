@@ -366,6 +366,33 @@ test("a quit waits for Core's process-task route to queue its interrupted webhoo
   assert.deepEqual((await runsOf("route-app", "route-hook")).map(run => run.status), ["interrupted"]);
 });
 
+test("a quit that begins while Core's process-task route claims a webhook call waits for that call", async () => {
+  // The stop begins while the route's claim is saving. The child exits as soon as the stop returned and the claim
+  // saved.
+  await defineTrigger("claim-app", "claim-hook", { triggerType: "webhook" });
+  await queueWebhookCall("claim-hook", "evt-claim", "task-route-claim");
+  const { report, exited } = spawnChild("route-claim", "claim-app");
+  await report;
+  await exited;
+  const task = await taskRow("task-route-claim");
+  assert.equal(task.status, "pending", "the stop waited for the call whose claim was saving");
+  assert.equal(Number(task.attempts), 0, "the quit did not spend an attempt");
+  assert.equal(webhookPayload(task).eventId, "evt-claim", "its payload is kept");
+  assert.equal(task.error_message, INTERRUPTED_RUN_MESSAGE);
+  assert.deepEqual((await runsOf("claim-app", "claim-hook")).map(run => run.status), ["interrupted"],
+    "its run was stopped and recorded before the stop returned");
+});
+
+test("the stop waits for work tracked after it began, and ends at its bound", async () => {
+  const { report, exited } = spawnChild("endless", "endless-app");
+  const result = await report;
+  await exited;
+  assert.ok(result.elapsedMs >= 450 && result.elapsedMs < 3_000,
+    `the stop waited for work tracked after it began, until its 500 ms bound (${result.elapsedMs} ms)`);
+  assert.ok(result.linksAtStop > 3, `the stop waited for each new piece of work (${result.linksAtStop} settled)`);
+  assert.equal(result.passesAfter, result.passesAtStop, "no pass of the wait started after the stop returned");
+});
+
 // Work that arrives while the process stops starts no run and writes nothing.
 let lateStopping;
 const lateStop = () => {
