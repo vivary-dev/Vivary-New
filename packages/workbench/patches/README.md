@@ -1422,7 +1422,8 @@ Vivary code, not a Core hunk: the `vivary-automation-files` action lists,
 accepts, and deletes, and no chat, MCP client, or run can call it. Only the
 file's owner may review it. Accept and Delete act only on the version the list
 showed, so a write since then refuses them, and the list reloads with the file
-as it is now. Delete removes the whole file.
+as it is now and one notice on it to read it again. A list that fails to load
+says so. Delete removes the whole file.
 
 Limits. A run can still delete an owner's instruction file or memory entry
 with `resources delete` or `delete-memory`, and a run that overwrites an

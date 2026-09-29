@@ -169,7 +169,8 @@ The Settings tab is a plain list of the owner's waiting files with their text, A
 `vivary-automation-files` owner action, which no chat, MCP client, or run can call. Accept and Delete act only on the
 version the list showed, named by its update time, and every write now moves that time forward, even within one
 millisecond. The owner asked on 2026-09-29 for the smallest version, so the review has no organization or
-app default tiers, the resource index is unchanged because it lists no personal file, and the tab has no extra states. The Unattended automation runs row
+app default tiers, the resource index is unchanged because it lists no personal file, and the tab has no loading or empty state, only a notice on a file whose review was refused and a line when the list
+fails to load. The Unattended automation runs row
 says so and names #144 for a run's delete and an overwrite that hides the owner's earlier text. The patch README section
 "Automation-written instruction files" and the desktop guide's Automations section have the detail.
 `tests/automation-file-review.test.mjs` and `tests/automation-file-review-component.test.mjs` failed on `dev` in every

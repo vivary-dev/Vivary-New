@@ -186,8 +186,9 @@ An instruction, skill, or memory file a run writes waits for you: `AGENTS.md`,
 later runs do not load it, and a chat sees only how many files wait. Settings >
 **Automation files** lists each waiting file with its text. Read it, then choose
 **Accept** to let chats and runs load it, or **Delete** to remove the whole file,
-including anything that was in it before the run. A file you or a chat edit after the
-run keeps waiting. A run can still delete one of your instruction files, and a run that
+including anything that was in it before the run. If the file changed after the list
+showed it, Accept and Delete do nothing, and the file shows its new text with a notice.
+Read it again before you choose. A file you or a chat edit after the run keeps waiting. A run can still delete one of your instruction files, and a run that
 rewrites one hides your earlier text too until you review it. [Issue
 #144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
