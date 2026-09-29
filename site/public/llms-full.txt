@@ -7356,6 +7356,31 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #142. An error that a framework route throws after it has read the request body now reaches the client. Core
+mounts framework routes, the Native chat POST among them, through `getH3App(...).use`, and its wrapper treated any
+destroyed request stream as a client that left. Node destroys a request stream once its body has been read to the end,
+so the error was dropped, h3 answered 404 "Cannot find any route", and Core's chat client posted the turn nine times.
+The maintained Core patch now counts a destroyed request as an abort only when its body did not complete, and a
+destroyed response as before, so a client that really leaves is still not logged as a server error. The wrapper's JSON
+error response also keeps the fields of an h3 error's `body`, as h3's own response does, so the send guard's
+`errorCode` and `retryable: false` from #91 reach the chat client. A `stack` in that body is left out, so a stack
+still reaches a client only with `AGENT_NATIVE_DEBUG_ERRORS=1`. The patch README section "Errors thrown after a
+request body is read" owns the detail. A test serves a route mounted through Core's wrapper over a Node HTTP server.
+Other framework routes change the same way: an unauthenticated POST to a Native action, which read its body before the
+owner check threw, now answers 401 instead of that 404, and `registry-http.test.mjs` now expects 401. Who may call is
+unchanged.
+
+Issue #91. A Native chat send that the project send guard refuses now shows the refusal's own sentence once.
+`native-chat-project.ts` passed project services' 403 through as a 403 and answered anything else with a 409. Core's
+chat client reads a 401 or 403 on a send as a lost session: it checks the session, can send the turn again, and asks
+the owner to sign in, which a local owner cannot do and a refusal does not need. It reads a 409 as a run still
+finishing, so the folder refusal showed as "Server error: 409". The guard now answers a refusal, and its fallback,
+with a 422 whose body carries `error`, `errorCode` `vivary_project_conversation_refused`, and `retryable: false`.
+Core's client shows that as a final error in the refusal's sentence and does not send the turn again. A lost session
+keeps its 401, so the sign-in recovery still runs, and folders that are not ready keep their 503, which the client
+already shows in its sentence. Who may send is unchanged. Tests run Core's chat client, loaded from the installed
+package, against the guard in an h3 app, and check what the chat shows and how many times it sends.
+
 Issue #114. A normal quit now ends in-flight automation runs and releases the scheduler lease. The maintained Core
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
