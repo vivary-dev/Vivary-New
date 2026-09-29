@@ -171,7 +171,8 @@ that does not close within the budget after a successful tree stop logs the `exi
 checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
 Codex processes after a stop Vivary saw fail, and a stop that finishes late needs no restart. The kept targets live
 in memory, so a restart clears the refusal but not the processes. The message therefore asks the owner, if it stays,
-to end any Codex processes still running before restarting Vivary. Model checks that start during that look share it, so
+to end any Codex processes still running on the computer that runs Vivary, which for a self-hosted instance is not
+the browser's, before restarting Vivary. Model checks that start during that look share it, so
 each kept target is checked once and is never copied. The module flag that refused every later check until a
 restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. On
 Windows a Codex that exits on its own within its first second gets no tree stop and no check, so a process it started
