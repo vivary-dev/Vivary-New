@@ -157,6 +157,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issues #114 and #115 are closed. PR #137 merged `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
+#114 and #115 were closed on 2026-09-29. The Automations row in the acceptance register no longer lists the merge
+as remaining. It names the follow-ups #138 through #141 and says that PR #137's commits from `0c150ae` on, the
+fourth review round, have not run in a package. The #114 and #115 receipt reads merged. Documentation only, so the
+design description holds.
+
 Issue #114. A normal quit now ends in-flight automation runs and releases the scheduler lease. The maintained Core
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
