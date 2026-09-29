@@ -473,6 +473,47 @@ test("a failed stop whose check finds nothing left takes its early refusal off t
   }
 });
 
+// The worker exits after its run and leaves a child, and the scan after the failed stop is held. That check decides what
+// is left, so until it ends the strip offers no choice and says that Vivary is checking, and a send is told the same.
+test("a failed stop's own check offers no choice until it ends and says that Vivary is checking", {
+  ...linuxOnly, timeout: WORKER_TEST_TIMEOUT_MS,
+}, async t => {
+  await writeFile(leaveChild, "");
+  await writeFile(scanHold, "");
+  try {
+    const runId = await asWindows(async () => {
+      const id = (await send("exit after its run")).run!.id;
+      await waitFor(() => metadataOf(id).cleanupRefusal, AbortSignal.any([t.signal, AbortSignal.timeout(5_000)]));
+      // The run's owner sees it as still working. Another user of the host sees the refusal.
+      const checking = (await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup;
+      assert.deepEqual({ ...checking, version: "" }, {
+        version: "", heading: "Vivary is checking what a failed stop left running",
+        instruction: "The choices appear here when the check ends.", remaining: [], canEnd: false, canContinue: false,
+        notice: null, composer: "Vivary is checking what a failed stop left running. Wait for the check to end before "
+          + "sending another message.", checking: true, run: null,
+      });
+      await assert.rejects(send("Start during the check"), (error: Error & { errorCode?: string }) => {
+        assert.equal(error.errorCode, "vivary_code_cleanup_required");
+        assert.equal(error.message, "Vivary is checking what a failed stop left running. The choices appear at the top "
+          + "of Vivary when the check ends.");
+        return true;
+      });
+      await rm(scanHold);
+      await hostSlots().activeRuns.get(id)?.execution;
+      return id;
+    });
+    const settled = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+    assert.deepEqual({ canEnd: settled?.canEnd, checking: settled?.checking }, { canEnd: true, checking: false },
+      "the choices appear when the check ends");
+    await rm(leaveChild);
+    await agent.recheckVivaryCodeCleanup();
+    assert.equal((metadataOf(runId).cleanupLifted as { how?: string }).how, "rechecked");
+  } finally {
+    await rm(scanHold, { force: true });
+    await rm(leaveChild, { force: true });
+  }
+});
+
 test("End them ends the listed process that a fresh scan still shows, then lifts the refusal", {
   ...linuxOnly, timeout: 20_000,
 }, async () => {
