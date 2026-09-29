@@ -166,15 +166,20 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 
 The published `9884670` prerelease predates the issue #51 automation changes. This section
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
-records their test on an unpublished package.
+records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records a later package's test of quitting during a run and of LAST CHECKED.
 
-An automation is a saved instruction that the agent runs on a schedule, when another
-program calls its webhook URL, or when you choose **Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
+An automation is a saved instruction that the agent runs on a schedule, when an event
+happens in Vivary, when another program calls its webhook URL, or when you choose
+**Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
 start a **Native chat**, and ask the agent for it. Say what it does, when it runs, and your
 time zone. **New automation** in Settings > Agent > Automations opens the same kind of chat
 with your prompt. If the prompt cannot reach a chat, Vivary shows it with **Copy prompt**.
 
-Each run writes one chat thread named `Job: <name>`. A run can read and change your
+Each run writes one chat thread, named `Job: <name>` for a scheduled run and
+`Automation: <name>` for **Run now**. Vivary keeps these threads but does not show them
+yet. Chat history does not list them, and **Details** cannot open one. A run can read
+and change your
 resources, memory, chat history, and progress, and it can notify you in the in-app inbox.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
@@ -183,12 +188,19 @@ running.
 Settings > Agent > Automations holds the controls:
 
 - The switch on an automation pauses or resumes it.
-- **Manage** > **Details** shows its settings and past runs.
+- **Manage** > **Details** shows its settings and past runs. For a scheduled automation,
+  LAST CHECKED is the last time the scheduler checked your automations, about once a
+  minute, and not while a scheduled run is in progress. A check that failed does not
+  count, and a new automation shows none until the first check after you create it.
+  For an event, webhook, or paused automation, it is the last time a check
+  skipped it, and it stays empty until one does. **Details** shows the values from when
+  the Automations tab loaded. To refresh them, open another Settings tab, come back, and
+  open **Details** again.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.
-- **Manage** > **Delete** removes the automation and its run history. Run threads stay in
-  chat history. A run already in progress finishes and writes its reply.
+- **Manage** > **Delete** removes the automation and its run history. Vivary keeps its
+  run threads. A run already in progress finishes and writes its reply.
 
 To change what an automation does, ask the agent in a Personal workspace Native chat.
 
@@ -208,9 +220,17 @@ URL with 404. A call that repeats an event id, sent as the `X-Webhook-Event-Id` 
 as an `id` field of a JSON body, runs once. A call without an id always runs. When 20 calls
 for one automation are already waiting, Vivary answers new calls with 429. A call that
 Vivary accepted before it quit runs once after you reopen Vivary, unless it waited more
-than 24 hours. Then it is not run, and **Details** shows it as an error. A call whose run
-was cut off by the quit runs again from the start, so a step it already took, such as a
-memory write, can happen twice. The request body reaches the run as untrusted data, and
+than 24 hours. Then it is not run, and **Details** shows it as an error. When you quit
+Vivary during a webhook run, the run ends as interrupted and the call goes back to the
+queue. After you reopen Vivary, it runs again from the start the first time Vivary looks
+for waiting calls at least 90 seconds after the quit. Vivary looks 10 seconds after it
+opens and then once a minute, so the call runs about 10 seconds after you reopen Vivary
+when the quit was more than about 80 seconds earlier, and 70 to 130 seconds after you
+reopen it otherwise. Later calls for that automation wait behind it. If Vivary was ended
+without quitting, for example from Task Manager, the call runs again from the start about
+15 minutes after its first run began, once Vivary is open. Either way a step the first run already took, such as a
+memory write, can happen twice, and **Details** shows two runs for the call: the
+interrupted one and the rerun. The request body reaches the run as untrusted data, and
 the run has the same limits as any other. Each webhook run writes a chat thread whose name
 starts with `Trigger: <name>`.
 
@@ -220,10 +240,31 @@ body to Anthropic for the check. It needs an Anthropic API key. Without one, a c
 automation does not run, and **Details** shows the reason. Remove the condition, or add an
 Anthropic key.
 
+An event automation runs when something happens inside Vivary. Vivary emits six events:
+`agent.turn.completed` when a Native chat reply finishes, `notification.sent` when a
+notification reaches your inbox, `run.progress.started` and `run.progress.updated` when
+a run reports progress, `automation.run.finished` when an automation run ends, and
+`test.event.fired` when you ask the agent in a chat to fire a test event. The agent
+accepts other event names, but nothing in Vivary emits them, so such an automation never
+runs. An event run needs an API key for the provider chosen in Settings, saved in Vivary
+or present in its environment at launch. Without one, the event is skipped and
+**Details** shows the reason. A condition on an event automation is checked with
+Anthropic's API using that same key, whatever the provider. A key from another provider
+is rejected, and the event is skipped with no reason shown. [Issue
+#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this. Each event run
+writes a chat thread whose name starts with `Trigger: <name>`.
+
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
 once, then follows its schedule. When Vivary serves browser access, runs continue with no
 browser tab open.
+
+Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
+Vivary takes about 15 seconds to close. The next launch checks schedules about 70
+seconds after it starts. If Vivary was ended without quitting, for example from Task
+Manager, the run shows as running, and scheduled automations wait up to 10 minutes
+after the next launch. During that wait, **Details** can show a next run about a minute
+away, but nothing runs until the wait ends.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute
@@ -243,13 +284,14 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations stop after you quit during a run | Wait. The earlier session holds the scheduler lease for up to ten minutes after the quit. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. [Issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) tracks the fix. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
 | A webhook call cannot connect | Vivary must be open, and the caller must run on this computer. Compare the port in the caller's URL with **Manage** > **Details**. After Vivary reports a port change, update the caller. |
 | A webhook call gets 404 | The URL is wrong or the automation was deleted. Copy the URL again from **Manage** > **Details**. |
-| A webhook call runs late after a restart | A call accepted before a quit runs about 90 seconds after the next start. A call whose run was cut off by the quit runs again after the claim lease, 15 minutes by default, and later calls for that automation wait behind it. |
+| A webhook call runs late after a restart | A call accepted before a quit, or one whose run the quit interrupted, runs the first time Vivary looks for waiting calls at least 90 seconds after the quit. Vivary looks 10 seconds after it starts and then once a minute, so the call runs about 10 seconds after the next start when the quit was more than about 80 seconds earlier, and 70 to 130 seconds after it otherwise. A call whose run was cut off because Vivary was ended without quitting runs again about 15 minutes after that run began. Later calls for that automation wait behind it. |
 | A webhook call gets 429 | The automation has 20 calls waiting. Wait for them to run, then send the call again. |
 | A webhook automation with a condition never runs | Conditions need an Anthropic API key. Open **Manage** > **Details** for the reason, then add an Anthropic key or remove the condition. |
 
@@ -289,8 +331,8 @@ registration, conflict cases, clean-profile onboarding, upgrade/removal acceptan
 Native-provider turns, full adoption, search/memory coverage,
 self-hosted phone access, and integrated debugging remain outside this bounded review.
 Automations were not part of this package's review either. In later builds they run only
-while Vivary is open, runs cannot use MCP tools or wait for an approval, a quit during a
-run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
+while Vivary is open, runs cannot use MCP tools or wait for an approval, ending Vivary
+without quitting during a run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
 [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
 
 See the [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)

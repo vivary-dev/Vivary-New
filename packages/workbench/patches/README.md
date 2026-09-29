@@ -684,11 +684,17 @@ The retry sweep reset a `processing` task after 5 minutes, while a background
 run can last 10. An `in-process` task now gets the Run now claim lease as its
 cutoff: 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, 15 minutes by
 default, and never less than the 5-minute default. A live run is not reset,
-and a task whose process quit mid-run is reset and delivered again after the
-lease. A pending task, accepted before a quit and never started, runs about 90
-seconds after the next start, when the sweep finds it. Either way the call runs
-once to completion. A run cut off by a quit leaves its history row reading that
-the run stopped before it recorded a result. The rerun starts from the
+and a task whose process was killed mid-run is reset and delivered again
+after the lease, about 15 minutes after its claim. A pending task, accepted
+before a quit and never started, runs at the sweep's first pass at least 90
+seconds after the quit. The first pass comes 10 seconds after startup and later
+passes every 60 seconds, so for a start more than about 80 seconds after the
+quit that is about 10 seconds after the start, and for a sooner start 70 to 130
+seconds after it. A normal quit returns a task whose run it interrupted to
+pending (see "Automation runs at quit"), so that task runs the same way. Either
+way the call runs once to completion. A run cut off by a quit or a kill leaves its history row reading
+that the run stopped before it recorded a result, so one call can show two
+history rows. The rerun starts from the
 beginning, so it can repeat a local step the cut-off run already took, such as
 a memory write. Until the rerun, later calls for the same automation wait
 behind it, because tasks of one automation run in order. A prompt reset at
@@ -1005,6 +1011,312 @@ templates rely on email, web, and MCP tools in automations. It would also need
 a way to approve an MCP step before a run starts. Remove this part of the patch
 only when an upstream release offers a local-only mode that passes the same
 test.
+
+## Settings automation status
+
+Issue #115. Settings > Agent > Automations is Core's page. Its Details dialog
+showed LAST CHECKED as a dash while the scheduler checked every minute, and it
+offered Open thread on some past runs, which did nothing in Vivary.
+
+LAST CHECKED read the automation's `lastCheck` front matter field. The
+scheduler writes that field only when an identity check skips the automation,
+and the event and webhook dispatcher writes it only when it declines a call or
+an event, so a healthy automation kept it empty. The scheduler records its own
+check in `automation_scheduler_health`: every tick that holds the scheduler
+lease writes the app's `<appId>:global` row before it scans.
+`list-automations.js` and `list-recurring-jobs.js` now read that row once per
+call through `getAutomationSchedulerHealth`. For an enabled entry with a valid
+schedule, they report the later of its stored `lastCheck` and the row's
+`last_checked_at`. Event, webhook, and paused entries keep their stored value,
+because the scheduler does not check them. A heartbeat from before the
+entry's resource was created, its `created_at`, does not count, so a new
+entry keeps its stored value, usually empty, until the next check. Pausing
+and resuming keep the created time, so a resumed automation shows the last
+check at once, although that check read it while it was paused and skipped
+it. Checks run about once a minute, so that value is at most about a minute
+older than the resume, or older while a scheduled run holds the lease. The
+field keeps its name and ISO
+format, so the client is unchanged. A heartbeat whose row records an error in
+`last_error` is not a check, so the lists ignore it: a sweep writes that error
+in its `finally` when its scan failed. The value is informative only, so a
+failed read of the row is logged and each entry keeps its stored value instead
+of failing the list. Only the lease holder writes the heartbeat, so LAST
+CHECKED stops advancing while a process that has gone still holds the lease.
+It also stands still while a scheduled run is in progress, up to the run's
+10-minute limit, because the sweep that started the run holds the lease until
+the run ends and every other tick fails to take it. That is honest, because no
+check runs then. The sweep writes the heartbeat again when it ends. The Details
+dialog shows the list entry captured when it opened (`AgentJobsTab.js`), and the
+list query has no refresh interval, so LAST CHECKED in Details can lag behind
+the heartbeat until the Automations tab reloads. The packaged check on the
+unpublished `9e921ca0` package saw this right after a tick. This patch does not
+change that.
+
+The Details dialog showed Open thread on a run with an error and a thread. The
+control sent Core's `agent-chat:open-thread` window event, which only Core's
+`MultiTabAssistantChat` handles, and Vivary does not mount it on Settings. The
+run's thread also has no chat scope, and every Vivary history list shows only
+threads of its own scope, so no page could open it. The owner decided on
+2026-09-29 that run threads are not openable from Settings.
+`AutomationDetailsDialog.js` no longer renders the control, and the desktop
+guide says so.
+
+Settings lists no next run for a paused automation, because both list actions
+return none for a disabled entry. The stored value can be in the past, and the
+agent's `manage-automations list` still returns it. The page offers schedule,
+event, and webhook triggers, and both the packaged app and the hosted server
+run all three in process, so that part of #115 needed no patch change.
+
+Run `node --test packages/workbench/tests/automation-status.test.mjs`. It uses
+a disposable SQLite database with `NODE_ENV=production`. It records a
+heartbeat, then lists a scheduled automation, one whose recorded skip is later
+than the heartbeat, an event automation, a paused automation, and two legacy
+recurring jobs, and checks each LAST CHECKED value. Another app's heartbeat on
+the same database does not count. It pins that a paused automation lists no
+next run. It bundles the Details dialog with esbuild, renders it with a
+successful, an interrupted, and an errored run, and checks that none offers
+Open thread. The LAST CHECKED and Open thread cases failed on the previous
+patch. A review round added three cases. A list on a fresh database, before
+any heartbeat, keeps each stored value. A read that fails, because the health
+table was moved away, is logged once per list, and both lists keep the stored
+values. A heartbeat recorded with an error does not count, and the next good
+check counts again. The last two failed on the patch before the fallback.
+A fourth review round added a case: an automation and a legacy job created
+after the heartbeat keep their stored value, and a resumed automation shows
+the heartbeat. The first two failed on the patch before this round's fix. The
+other fixtures are backdated an hour, so they predate the heartbeat.
+
+Upstream could take the LAST CHECKED change as it is, because it changes only
+a read-only field. Removing Open thread is Vivary's choice: a host that mounts
+Core's chat beside the page can open an unscoped thread. Remove the LAST
+CHECKED part when an upstream release reports the scheduler's check and passes
+the same test. Remove the Open thread part only when Vivary can open a run
+thread, by giving it a scope or a route that loads it, and the test expects
+the control.
+
+## Automation runs at quit
+
+Issue #114. A normal quit during an automation run left the run's history row
+`running` and the scheduler lease held by the old process. The next launch
+could not take the lease until it expired, up to 10 minutes after the last
+renewal, and the row became an error only then. Vivary's shutdown did nothing
+for automations, and Core had no way to stop them.
+
+`scheduler.js` now exports `stopRecurringJobs({ timeoutMs })`, and
+`@agent-native/core/jobs` exports it too. Vivary's one shutdown owner,
+`stopLocalWork` in `server/plugins/02-local-code-lifecycle.ts`, calls it beside
+the Code host, original command, and preview stops. It calls the automation
+stop first and starts every stop even when another throws as it is called. It
+reports a failed stop only after all of them settle, so it always waits for
+the automation stop, and a failed stop cannot end the CLI host while
+automations are still stopping. That owner runs on the
+desktop's IPC shutdown and on a signal or Nitro `close` in the CLI host. The
+stop works in this order:
+
+1. It closes the scheduler and the runner, synchronously. A timer tick returns
+   before it takes the lease, a sweep that was still scanning starts no job,
+   and `runQueuedAutomation` leaves a queued Run now row unclaimed for the next
+   start. The runner exports `isBackgroundAutomationsClosed`, and four more
+   places check it. `executeJob` returns `skipped` before it marks the
+   automation running, so a due job stays due, a direct `runJobNow` starts
+   nothing, and a Run now row it had already claimed reads interrupted. For
+   an automation on a paired execution host, `executeJob` checks again after
+   the mark, right before it queues the run on that host, because the stop
+   cannot abort a run there. If a quit began during the mark, it writes back
+   the fields the mark replaced without moving the next run, so a scheduled
+   job stays due and a claimed Run now row reads interrupted. A quit that
+   begins while `dispatchRemoteAutomation` looks up the host and writes its
+   bookkeeping still queues the run. The event handler checks it for each
+   matching trigger before the identity
+   check, any write, and the condition classifier, so the event is lost as
+   after a crash. It checks again right before the dispatch, for a handler
+   that passed the first check before the quit began. The in-process webhook
+   runner returns `skipped` before its claim, and Core's process-task route
+   answers a webhook task with `skipped: "app-quitting"` before its claim, so
+   the call stays queued, unclaimed, with its attempts unchanged. A run whose
+   setup was already past those checks is aborted as soon as it starts, before
+   the model.
+2. It aborts every in-process background run that is still running with the
+   reason `shutdown`. Scheduled runs, Run now, and event and webhook runs all
+   go through `runBackgroundAutomation`, which keeps the ids of the runs it
+   started. A run that already completed and is saving its thread is not
+   aborted, so it records its own success.
+3. Each run records its own outcome. The runner's completion callback turns a
+   `shutdown` abort into the interrupted error. It checks the abort reason
+   alone, because a run that reached a soft-timeout boundary reads completed
+   after the quit's abort. The runner writes the
+   history row as `interrupted` with the message "The run stopped before it
+   recorded a result, for example because the app quit or its worker
+   restarted. No delivery was confirmed." and the code
+   `background_automation_interrupted`, the values Core already derived for a
+   stale row. It does not report the interruption as a fault. For a scheduled
+   run or Run now, `executeJob` then writes `lastStatus: error` and the same
+   message on the automation. A scheduled run's next run moves to the next
+   occurrence after the quit, and a Run now keeps its next run.
+4. The sweep that holds the lease releases it in its existing `finally`, with
+   its own owner id.
+
+The stop waits for the sweeps, the queued runs, the runs it interrupted, and
+the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
+comes first. The runner exports `trackBackgroundAutomationWork`, and the
+dispatcher's `dispatchAgentic`, the in-process webhook runner
+`runAutomationWebhookTaskInProcess`, and the process-task route put their work
+in it, so the stop also waits for the automation's last status and the webhook
+task's row on either path. The route tracks its claim, which follows a passed
+closed check with no await between them, and then its call to
+`runClaimedAutomationWebhookTask`. The desktop and the CLI host register the
+in-process runner, so a webhook task reaches the route only on a host without
+it, such as a deployment without the in-process timer. The runner's wait
+drains the tracked work rather than reading it once: after each pass it waits
+again for work tracked during that pass, until none is left. So a route call
+whose claim was saving when the stop began is waited for through its run and
+its requeue. That call still dispatches, as a run whose setup was past the
+closed checks does (step 1): its run is aborted before the model, records an
+interrupted history row and a thread, and the task goes back to the queue.
+The stop passes its own promise to the wait, so no pass starts after the stop
+returns and a pass still waiting then ends. Work that keeps arriving cannot
+hold the stop past `timeoutMs`. The event handler's reads, identity check, and
+classifier call are not tracked, and its second check covers a handler that is
+past its first check when the quit begins. The declarations of the three
+runner exports are in its `.d.ts`.
+Vivary passes 10 seconds, the Code host's shutdown wait, so `stopLocalWork`
+still ends 5 seconds before the desktop ends the server's process tree. A later
+call returns the first stop. On the desktop the server calls no exit after
+`stopLocalWork` settles, so the desktop's kill still ends it 15 seconds after
+the shutdown message. The packaged check timed each normal quit at 15.5 to 15.9
+seconds, with the automation rows written within 40 ms.
+
+The hard-kill fallback does not change. The stop writes nothing itself and
+never clears a lease by row id, so it cannot free another process's lease. Its
+flag and run list are process state that only the stop sets, so a killed
+process leaves the database as before: the row reads `running` until the
+liveness ceiling, 15 minutes after the run started, or the stale-run reset, the
+automation reads running, and the lease holds until 10 minutes after its last
+renewal. When the bound expires, the stop returns and writes nothing more. A
+run that settles later still records itself, as any run end does, while the
+process lives, and one that never settles is left as after a kill. No
+startup recovery was added, because clearing a lease or ending rows at launch
+is unsafe when two processes share a database. The lease length, the renewal,
+the liveness ceiling, and the claim lease are unchanged. While a dead process's
+lease holds, Settings shows the automation's next run about a minute out,
+because the list actions report the next occurrence from now once the stored
+one has passed. Nothing runs until the lease expires.
+
+Trigger runs record their outcome through the dispatcher, which catches the
+run's error and writes the automation's last error from its message, without
+the final sentence. An event has no queue, so an event whose run a quit
+interrupted does not run again, as after a crash. A webhook call goes back to
+the queue, as the owner decided on 2026-09-29. `dispatchAgentic` reports the
+interruption without rethrowing, so the event handler keeps going through its
+matching triggers, and `dispatchAutomationWebhookTask` returns `interrupted`.
+`runClaimedAutomationWebhookTask` then calls `markTaskRetryable` with the
+interrupted message and `resetAttempts`, because the host stopped the run, and
+it does not start the next queued call. The task reads `pending` with its
+payload kept. This write happens only in the run's settle path, after the run
+recorded itself interrupted, never from the stop and never by task id, so a
+second process on the same database cannot run the call while the first run
+still works. The next launch's retry sweep runs it at its first pass at least
+90 seconds after the quit, and the calls queued behind it follow in order. The
+owner sees the interrupted history row and later a second row for the same
+call. The rerun starts from the beginning, as after a crash. A run that
+outlasts the bound, or a kill between the history row and the task write,
+leaves the task `processing`, and the sweep delivers it again about 15 minutes
+after its claim. A task the process-task route claimed records another
+dispatch outcome, so the sweep delivers it again 5 minutes after its claim, or
+16 minutes for a background-function claim. The route answers an interrupted
+call with `retrying: "app-quitting"` instead of `"automation-active"`. An event
+or a webhook call that arrives during the quit starts no run (step 1).
+
+Run `node --test packages/workbench/tests/automation-quit.test.mjs`. Each
+quitting or killed process is a child that runs
+`tests/automation-quit-process.mjs` against the test's disposable SQLite
+database, with `NODE_ENV=production` and a fake engine. The test process plays
+the next launch. It checks that a quit during a scheduled run and a Run now
+marks both rows interrupted with the message once and the code, writes each
+automation's last status and next run, releases the lease, and returns only
+after both runs settled. After the stop, a tick takes no lease and writes no
+heartbeat, and a queued Run now stays unclaimed. The next launch runs both due
+automations at its first tick. A killed child keeps the lease, which expires
+about 10 minutes out and blocks the next scan, and its run reads interrupted
+only past the liveness ceiling. A stop in a second process leaves the first
+process's lease alone. A run that ignores its abort holds the stop only until
+the bound and stays `running`. A source pin checks that `stopLocalWork` calls
+the stop with 10 seconds, the Code host's wait, and that the package entry
+exports the scheduler's own function. Eight of the nine cases failed on the
+previous patch. The hard-kill case passed on both.
+
+A review round added trigger cases. A child quits with an event run and
+webhook call A in flight and call B queued, and exits as soon as the stop
+returns, as the CLI host does. The event's automation reads its error, both
+tasks read `pending` with their payloads and no spent attempt, only A has a
+history row, and the next launch's retry sweep runs A and then B once each.
+Both cases failed on the previous patch: the event's automation still read
+running and call A was left `processing`, because the stop returned before the
+dispatcher's writes. A second child quits with only an event run in flight, so
+no other work holds the stop open for the dispatcher's write. After the stop, an event, a direct Run now, and a queued
+webhook call start no run and write nothing, and a Run now claimed just before
+the stop reads interrupted with no thread. Those three cases failed on the
+patch before the closed checks. Three more pin a sweep that is scanning when
+the stop begins, which dispatches nothing, leaves its job due, and releases the
+lease, a second stop call, which returns the first, and a run still preparing
+when the stop begins, which is interrupted before the model. A quit that lands
+after a run completed, while its thread save is pending, leaves the history
+row a success and the agent run completed. A quit that lands after a
+one-second soft timeout ended a run's turn reads interrupted, not cut off.
+Both failed on the patch before the running filter and the reason check.
+
+A second review round added route and event cases. A child quits with a
+webhook call's run in flight through Core's process-task route and exits as
+soon as the stop returns. The task reads `pending` with its payload, no spent
+attempt, and the interrupted message, and its one history row reads
+interrupted. After the stop, the route answers a queued webhook call with
+`skipped` and leaves it unclaimed with no history row, and an event whose
+trigger has a condition reaches neither the classifier nor a write. Those three
+failed on the patch before this round's fix: the task stayed `processing`, the
+route wrote an interrupted run and a thread, and the handler called the
+classifier and recorded a skip. The child answers the classifier itself, never
+over the network. An event whose condition check began before the stop and
+matched after it starts no run, which pins the second check. The after-stop
+event cases wait for the dispatcher's handler to finish, not for a fixed delay.
+A run the owner stopped just before the quit keeps its `user` abort reason and
+reads as an error, not interrupted, which a status filter weaker than `running`
+would break.
+
+A third review round added two cases. A child starts the stop while the
+route's claim of a webhook call is saving and exits as soon as the stop
+returned and the claim saved. The task reads `pending` with its payload, no
+spent attempt, and the interrupted message, and its one history row reads
+interrupted. A second child tracks work that keeps arriving during the stop.
+The stop waits for it until its bound, and no pass of its wait starts after
+the stop returns. Both failed on the patch before this round's fix: the task
+stayed `processing`, and the stop returned after the first piece of work.
+
+A fourth review round added three cases. Two load the lifecycle plugin with
+stand-ins for its four stops. One stop throws as it is called, and another
+rejects. Through the Nitro `close` hook and through the signal handler, every
+stop still starts, the automation stop first, and the failure is reported
+only after the automation stop settled. Both failed on the previous
+`stopLocalWork`, which used `Promise.all`: the preview stop never started, the
+hook rejected first, and the throw left the signal handler. In the third, a
+child holds the running mark of a scheduled run and a Run now for
+automations on a paired execution host until both are saving, then starts
+the stop. Nothing is queued on the host, the scheduled run stays due with no
+history row, the Run now row reads interrupted with no thread, and the next
+launch queues the due run. It failed on the patch before this round's fix,
+which queued both runs on the host.
+
+The plugin's import and Core's timer must share one copy of `scheduler.js` in
+the server bundle, or the stop would close a scheduler that never runs. Both
+resolve to the same Core file. The unpublished `9e921ca0` package holds one
+copy: the scheduler's lease warning and the stop's message check are in one
+Core chunk, `index.mjs` imports that chunk once, and a quit during a run left
+the row interrupted 18 ms after the quit. The
+[#114 and #115 receipt](../../../docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records the check.
+
+Upstream could take the stop as it is, because nothing changes until a host
+calls it. Remove this part of the patch when an upstream release offers a stop
+with the same order and fallback that passes the same test.
 
 ## Credential redaction
 

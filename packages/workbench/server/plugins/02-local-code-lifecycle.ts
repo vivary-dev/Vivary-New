@@ -1,3 +1,4 @@
+import { stopRecurringJobs } from "@agent-native/core/jobs";
 import { defineNitroPlugin } from "@agent-native/core/server";
 import {
   initializeVivaryCodeAgent,
@@ -7,9 +8,20 @@ import {
 import { shutdownOriginalCommands } from "../original-runtime.ts";
 import { shutdownProjectPreviews } from "../project-preview.ts";
 
-const stopLocalWork = () => Promise.all([
-  shutdownVivaryCodeAgent(), shutdownOriginalCommands(), shutdownProjectPreviews(),
-]);
+// Automations get the Code host's 10-second shutdown wait, so a normal quit still
+// settles before the desktop ends the server 15 seconds after asking it to stop.
+// Every stop starts, even when another throws as it is called, and a failed stop
+// is reported only after all of them settle, so the automation stop is always
+// waited for. It is called first, so automations close before the other hosts stop.
+const stopLocalWork = async () => {
+  const results = await Promise.allSettled([
+    () => stopRecurringJobs({ timeoutMs: 10_000 }),
+    shutdownVivaryCodeAgent, shutdownOriginalCommands, shutdownProjectPreviews,
+  ].map(async stop => stop()));
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+};
 
 export default defineNitroPlugin(async (nitroApp) => {
   // guard:allow-env-credential - The direct CLI launcher owns this process's exit.
