@@ -1,6 +1,6 @@
 import { isCodeAgentRunActive, useChatThreads } from "@agent-native/core/client/agent-chat";
 import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
-import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
+import { ChatHistoryList, ChatHistoryMenuItem, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconArchiveOff, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import { codeDraftSelectionKey } from "../../../shared/code-draft";
 import { useChatDraftList } from "@/lib/chat-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
 import { useNativeActionCaller } from "@/lib/native-actions";
+import { focusAfterRemoval } from "@/lib/row-focus";
 import { useProjects } from "../projects/ProjectContext";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 import { CodeHistory } from "./CodeHistory";
@@ -138,6 +139,32 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     labels: { newChat: "New conversation", showMore: "More conversations", showLess: "Fewer conversations" },
   });
   const codeFailed = state.isError || code?.error || (state.data && !code);
+  // Issue #131. Archive removes its row, and the menu trigger that focus would return to. After a confirmed archive,
+  // once the row is gone, focus moves to the row that took its place, else the row before it, else New conversation.
+  // Archiving the open chat opens a new one, whose composer takes focus instead. A key or pointer press after Archive
+  // was chosen means the owner has moved on, and then focus stays where it is.
+  const historySection = useRef<HTMLElement>(null);
+  const [archivedRow, setArchivedRow] = useState<{ id: string; index: number; claim: ArchiveFocusClaim }>();
+  const archiveFocusClaim = useRef<ArchiveFocusClaim | null>(null);
+  useEffect(() => {
+    // Capture runs before the menu item's own handlers, so the press that chooses Archive is not counted.
+    const ownerActed = () => { if (archiveFocusClaim.current) archiveFocusClaim.current.moveFocus = false; };
+    document.addEventListener("keydown", ownerActed, true);
+    document.addEventListener("pointerdown", ownerActed, true);
+    return () => {
+      document.removeEventListener("keydown", ownerActed, true);
+      document.removeEventListener("pointerdown", ownerActed, true);
+    };
+  }, []);
+  useEffect(() => {
+    if (!archivedRow || history.visibleItems.some(item => item.id === archivedRow.id)) return;
+    setArchivedRow(undefined);
+    if (archiveFocusClaim.current === archivedRow.claim) archiveFocusClaim.current = null;
+    if (!archivedRow.claim.moveFocus) return;
+    const section = historySection.current;
+    focusAfterRemoval([...(section?.querySelectorAll<HTMLElement>(".an-chat-history-row__button") ?? [])], archivedRow.index,
+      section?.querySelector<HTMLElement>(".an-chat-history-rail__new-chat") ?? null)?.focus();
+  }, [archivedRow, history.visibleItems]);
   async function updateNative(action: () => Promise<boolean>, message: string) {
     setFailedAction(undefined);
     try {
@@ -147,11 +174,13 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     }
     setFailedAction({ message, retry: action });
   }
+  function isOpenNativeChat(threadId: string) {
+    const route = new URLSearchParams(window.location.search);
+    return route.get("runtime") === "native" && route.get("history") !== "unassigned" && route.get("thread") === threadId;
+  }
   async function archiveNative(threadId: string) {
     const archived = await native.archiveThread(threadId);
-    const route = new URLSearchParams(window.location.search);
-    if (archived && route.get("runtime") === "native" && route.get("history") !== "unassigned"
-      && route.get("thread") === threadId) navigate("/");
+    if (archived && isOpenNativeChat(threadId)) navigate("/");
     return archived;
   }
   function openNative(threadId: string) {
@@ -179,7 +208,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
   const loading = checking || (state.isLoading && native.isLoading);
-  return <section className="vivary-chat-history" aria-label="Project conversations">
+  return <section ref={historySection} className="vivary-chat-history" aria-label="Project conversations">
     {failedAction && <div role="alert">
       <p>{failedAction.message}</p>
       <Button variant="ghost" size="sm" onClick={() => void updateNative(failedAction.retry, failedAction.message)}>Retry change</Button>
@@ -198,10 +227,18 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
           renameMaxLength={160}
           onRename={thread ? (_id, title) => void updateNative(() => native.renameThread(thread.id, title), "The conversation could not be renamed. Try again.") : undefined}
           onTogglePin={thread ? () => void updateNative(() => native.pinThread(thread.id, !thread.pinnedAt), "The conversation pin could not be changed. Try again.") : undefined}
-          renderAdditionalRowActions={thread ? (_item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item" onClick={() => {
+          renderAdditionalRowActions={thread ? (row, closeMenu) => <ChatHistoryMenuItem onSelect={() => {
             closeMenu();
-            void updateNative(() => archiveNative(thread.id), "The conversation could not be archived. Try again.");
-          }}><IconArchive size={13} aria-hidden /><span>Archive</span></button> : undefined} />;
+            const index = history.visibleItems.findIndex(visible => visible.id === row.id);
+            const claim = { moveFocus: !isOpenNativeChat(thread.id) };
+            archiveFocusClaim.current = claim;
+            void updateNative(async () => {
+              const archived = await archiveNative(thread.id);
+              // Only a confirmed archive asks to move focus, so a failed one leaves no request behind.
+              if (archived) setArchivedRow({ id: row.id, index, claim });
+              return archived;
+            }, "The conversation could not be archived. Try again.");
+          }}><IconArchive size={13} aria-hidden /><span>Archive</span></ChatHistoryMenuItem> : undefined} />;
       })}
       <div className="an-chat-history-rail__footer">
         <Button variant="ghost" size="sm" className="an-chat-history-rail__new-chat" disabled={!workspaceAvailable} onClick={history.onNewChat}>
@@ -218,6 +255,12 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
         onRestore={restoreNative} onOpen={openNative} />
   </section>;
 }
+
+/**
+ * Set when Archive is chosen. `moveFocus` starts false for the open chat, whose replacement takes focus, and turns false
+ * on the owner's next key or pointer press.
+ */
+type ArchiveFocusClaim = { moveFocus: boolean };
 
 type RestoreNotice =
   | { kind: "restored"; threadId: string; title: string }
