@@ -1242,3 +1242,9 @@ pnpm --dir packages/workbench exec tsx --test tests/native-chat-route-errors.tes
 `native-chat-route-errors.test.ts` serves a route mounted through Core's
 wrapper over a Node HTTP server and reads the body before the handler throws,
 as Core's chat handler does. It is part of `test:native-chat`.
+
+Every framework route mounted this way changes the same way. An
+unauthenticated POST to a Native action throws its owner error after reading
+the body, so it used to answer 404 and now answers 401.
+`registry-http.test.mjs` pinned the old 404 with a comment naming this defect,
+and now expects 401. The request is refused either way.

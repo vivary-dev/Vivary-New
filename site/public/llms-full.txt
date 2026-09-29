@@ -7324,6 +7324,9 @@ error response also keeps the fields of an h3 error's `body`, as h3's own respon
 `errorCode` and `retryable: false` from #91 reach the chat client. A `stack` in that body is left out, so a stack
 still reaches a client only with `AGENT_NATIVE_DEBUG_ERRORS=1`. The patch README section "Errors thrown after a
 request body is read" owns the detail. A test serves a route mounted through Core's wrapper over a Node HTTP server.
+Other framework routes change the same way: an unauthenticated POST to a Native action, which read its body before the
+owner check threw, now answers 401 instead of that 404, and `registry-http.test.mjs` now expects 401. Who may call is
+unchanged.
 
 Issue #91. A Native chat send that the project send guard refuses now shows the refusal's own sentence once.
 `native-chat-project.ts` passed project services' 403 through as a 403 and answered anything else with a 409. Core's
