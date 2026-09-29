@@ -15,6 +15,7 @@ import {
 import codeStateAction from "../actions/vivary-code-state.ts";
 import codeApproveAction from "../actions/vivary-code-approve.ts";
 import codeDenyAction from "../actions/vivary-code-deny.ts";
+import codeCleanupAction from "../actions/vivary-code-cleanup.ts";
 
 import {
   approveVivaryCodeMessage,
@@ -352,6 +353,22 @@ process.stdout.write('{"loggedIn":true}');
     assert.equal(codeDenyAction.agentTool, false);
   });
 
+  // Issue #121. No agent or tool may lift the refusal that its own run's leftover processes caused.
+  it("keeps the cleanup decision to a signed-in person with a strict decision on a named list", () => {
+    const version = "0123456789abcdef";
+    for (const decision of ["end", "continue"]) {
+      assert.deepEqual(codeCleanupAction.schema.parse({ decision, version }), { decision, version });
+    }
+    for (const input of [{}, { decision: "end" }, { decision: "lift", version }, { decision: "end", version: "stale" },
+      { decision: "continue", version, runId: "run_alpha" }]) {
+      assert.equal(codeCleanupAction.schema.safeParse(input).success, false, JSON.stringify(input));
+    }
+    assert.equal(codeCleanupAction.agentTool, false);
+    assert.equal(codeCleanupAction.mcpTool, false);
+    assert.equal(codeCleanupAction.toolCallable, false);
+    assert.equal(codeCleanupAction.requiresAuth, true);
+  });
+
   it("retains owner-only Stop metadata when a project and Personal workspace are unavailable", async () => {
     const store = await mkdtemp(path.join(os.tmpdir(), "vivary-code-host-test-"));
     temporaryRoots.push(store);
@@ -368,7 +385,7 @@ process.stdout.write('{"loggedIn":true}');
     const runId = "host-state-test";
     try {
       assert.deepEqual(await getVivaryCodeHostState("owner@example.com"), {
-        activeRun: null, pendingApproval: null, recentRun: null, busy: false,
+        activeRun: null, pendingApproval: null, recentRun: null, busy: false, cleanup: null,
       });
       createCodeAgentRunRecord({
         id: runId, goalId: "vivary-local-code", title: "Disconnected project", status: "running",
@@ -378,10 +395,10 @@ process.stdout.write('{"loggedIn":true}');
       host.activeRuns.set(runId, { controller, ownerEmail: "owner@example.com", execution: null, stopReason: null, requests: new Map() });
       assert.deepEqual(await codeStateAction.run({ scope: "host" }, { caller: "frontend", userEmail: "owner@example.com" }), {
         activeRun: { id: runId, title: "Disconnected project", projectId: "project_alpha" },
-        pendingApproval: null, recentRun: null, busy: true,
+        pendingApproval: null, recentRun: null, busy: true, cleanup: null,
       });
       assert.deepEqual(await getVivaryCodeHostState("other@example.com"), {
-        activeRun: null, pendingApproval: null, recentRun: null, busy: true,
+        activeRun: null, pendingApproval: null, recentRun: null, busy: true, cleanup: null,
       });
     } finally {
       host.activeRuns.delete(runId);

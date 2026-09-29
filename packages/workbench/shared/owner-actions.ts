@@ -2,6 +2,7 @@
 export const VIVARY_OWNER_ACTIONS = [
   "vivary-chat-draft", "vivary-native-archive",
   "vivary-code-send", "vivary-code-stop", "vivary-code-approve", "vivary-code-deny",
+  "vivary-code-cleanup",
   "vivary-register-project", "vivary-connect-project-folder",
   "vivary-project-file-save", "vivary-project-file-rename",
   "vivary-preview-new-project", "vivary-create-new-project", "vivary-workspace-pattern-catalog",

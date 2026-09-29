@@ -63,17 +63,19 @@ test("an uncertain Code owner failure keeps its pending submission for reconcili
 
 
 test("an explicit pre-append owner rejection restores the same Code draft", async () => {
-  const rejections = [], actions = [];
-  const error = Object.assign(new Error("Runtime unavailable"),
-    { status: 503, errorCode: "vivary_code_runtime_unavailable" });
-  const adapter = adapterForTest(rejections, actions, "codex-cli", error);
-  await assert.rejects(async () => {
-    for await (const _ of adapter.run({
-      messages: [{ role: "user", content: [{ type: "text", text: "try runtime" }] }],
-      runConfig: { custom: { agentNativeQueuedMessageId: "submit-rejected" } },
-      abortSignal: new AbortController().signal,
-    })) {}
-  }, /Runtime unavailable/);
-  assert.deepEqual(rejections, ["submit-rejected"]);
-  assert.equal(actions.length, 1);
+  // Issue #121. Leftover coding processes refuse a send before it is appended, so the draft comes back too.
+  for (const [status, errorCode] of [[503, "vivary_code_runtime_unavailable"], [409, "vivary_code_cleanup_required"]]) {
+    const rejections = [], actions = [];
+    const error = Object.assign(new Error(`Refused with ${errorCode}`), { status, errorCode });
+    const adapter = adapterForTest(rejections, actions, "codex-cli", error);
+    await assert.rejects(async () => {
+      for await (const _ of adapter.run({
+        messages: [{ role: "user", content: [{ type: "text", text: "try runtime" }] }],
+        runConfig: { custom: { agentNativeQueuedMessageId: "submit-rejected" } },
+        abortSignal: new AbortController().signal,
+      })) {}
+    }, new RegExp(`Refused with ${errorCode}`));
+    assert.deepEqual(rejections, ["submit-rejected"], errorCode);
+    assert.equal(actions.length, 1);
+  }
 });
