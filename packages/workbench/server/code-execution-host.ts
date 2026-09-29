@@ -57,11 +57,12 @@ export type TracedProcess = Pick<LeftoverProcess, "pid" | "start">;
  * What a later check needs to find the same processes again, including after a Vivary restart. A check lists every
  * process it links to the run, so a refusal never lifts early. `traced` is the narrower set End them may end: what the
  * check right after the failed stop found, and later children of a traced process that is alive in the same scan. A
- * process linked only through an exited parent or a reused group id could belong to another program.
+ * process linked only through an exited parent or a reused group id could belong to another program. `overflow` marks a
+ * Windows target that linked more live processes to the run than it can track, so no later check of it is clean.
  */
 export type CleanupTarget =
   | { platform: "linux"; groupId: number; bootId: string | null; traced: TracedProcess[] }
-  | { platform: "win32"; tracked: WindowsProcessIdentity[]; traced: TracedProcess[] };
+  | { platform: "win32"; tracked: WindowsProcessIdentity[]; traced: TracedProcess[]; overflow?: true };
 
 /** A Linux boot id, which the kernel prints as a UUID. */
 export const BOOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -573,11 +574,12 @@ export function parseWindowsEndResults(text: string, processes: readonly Leftove
  * before its parent, or whose parent PID now belongs to a process older than the row, is the child of a process that
  * reused the PID. The returned `tracked` adds each row found, so a grandchild stays traceable after its parent exits.
  * The returned `traced` adds the rows End them may end: a traced process, the worker, a child inside the worker's
- * closed window, and their children through a parent alive in this scan.
+ * closed window, and their children through a parent alive in this scan. Past the cap, the returned `tracked` drops the
+ * identities this scan did not find, and `overflow` says whether it still holds too many.
  */
 export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: readonly WindowsProcessIdentity[],
   traced: readonly TracedProcess[]): { remaining: LeftoverProcess[]; tracked: WindowsProcessIdentity[];
-  traced: TracedProcess[] } {
+  traced: TracedProcess[]; overflow: boolean } {
   const timed = rows.filter((row): row is WindowsProcessRow & { created: number } => row.created !== null);
   const holds = (identity: WindowsProcessIdentity, row: { pid: number; created: number }) =>
     row.pid === identity.pid && row.created >= identity.createdFrom && row.created <= identity.createdTo;
@@ -606,7 +608,12 @@ export function windowsLeftovers(rows: readonly WindowsProcessRow[], tracked: re
     holds(identity, { pid: leftover.pid, created: leftover.start })
     || (identity.childrenTo !== null && childOf(identity, found.get(leftover.pid)!))));
   const parents = [...found.values()].map(({ pid, parentPid, created }) => ({ pid, parentPid, start: created }));
-  return { remaining, tracked: [...tracked, ...added].slice(0, MAX_TRACKED_PROCESSES),
+  // A process this scan did not find starts nothing more, and each child of it that runs is in this scan, so it is
+  // tracked by its own identity.
+  const all = [...tracked, ...added];
+  const kept = all.length <= MAX_TRACKED_PROCESSES ? all
+    : all.filter(identity => timed.some(row => holds(identity, row)));
+  return { remaining, tracked: kept.slice(0, MAX_TRACKED_PROCESSES), overflow: kept.length > MAX_TRACKED_PROCESSES,
     traced: traceable(traced, remaining, traceLiveDescendants(parents, new Set(seeds.map(({ pid }) => pid)))) };
 }
 
@@ -681,11 +688,12 @@ async function rebootedSince(target: Extract<CleanupTarget, { platform: "linux" 
 
 async function scanWindowsTarget(target: Extract<CleanupTarget, { platform: "win32" }>, io: CleanupIo,
 ): Promise<CleanupCheck> {
+  if (target.overflow) return { result: "unavailable" };
   let rows: WindowsProcessRow[];
   try { rows = await io.windowsProcesses(); } catch { return { result: "unavailable" }; }
-  const { remaining, tracked, traced } = windowsLeftovers(rows, target.tracked, target.traced);
-  return remaining.length === 0 ? { result: "clean" }
-    : { result: "remaining", remaining, hidden: false, target: { platform: "win32", tracked, traced } };
+  const { remaining, tracked, traced, overflow } = windowsLeftovers(rows, target.tracked, target.traced);
+  return remaining.length === 0 ? { result: "clean" } : { result: "remaining", remaining, hidden: false,
+    target: { platform: "win32", tracked, traced, ...(overflow ? { overflow: true as const } : {}) } };
 }
 
 function linuxGroupCheck(observation: LinuxGroupObservation,

@@ -7327,7 +7327,10 @@ or has a row without a creation time other than PIDs 0 and 4 makes the scan unav
 parent IDs from the worker by creation time, so a process that reused the worker's PID is not taken for the worker or
 its child. The worker's own window is the host clock read just before and just after the fork, and a child counts only
 when it was created before the worker's observed exit, each bound with 20 ms for the clock's resolution. A unit test
-of `workerCleanupTarget` pins both windows and their tolerance. A check that
+of `workerCleanupTarget` pins both windows and their tolerance. A Windows target tracks at most 200 process
+identities. Past that, it drops the identities of processes the scan did not find, and when it still holds too many it
+records an overflow, after which every check of it is unavailable, never clean, so the owner decides with Continue
+anyway. A check that
 finds nothing settles the stop as clean, so a Windows worker that exited on its own and left nothing behind no longer
 refuses later runs. A check that finds processes, or cannot run, travels on the cleanup error with what a later check
 needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on the run, `metadata.cleanupRefusal`,

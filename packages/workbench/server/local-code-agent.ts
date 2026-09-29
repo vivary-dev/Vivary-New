@@ -220,7 +220,8 @@ const storedCleanupRefusalSchema = z.object({
       bootId: z.string().regex(BOOT_ID_PATTERN).nullable(), traced: z.array(tracedSchema).max(200).default([]) }),
     z.object({ platform: z.literal("win32"), tracked: z.array(z.object({
       pid: z.number().int().positive(), createdFrom: z.number(), createdTo: z.number(), childrenTo: z.number().nullable(),
-    })).min(1).max(200), traced: z.array(tracedSchema).max(200).default([]) }),
+    })).min(1).max(200), traced: z.array(tracedSchema).max(200).default([]),
+      overflow: z.literal(true).optional() }),
   ]).nullable(),
   remaining: z.array(leftoverSchema).max(MAX_CLEANUP_LISTED),
   capped: z.boolean().default(false),
