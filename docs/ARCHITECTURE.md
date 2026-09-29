@@ -153,6 +153,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #145. A saved Native thread's fallback title and preview no longer show the context Vivary's composer appends.
+Core's `extractThreadMeta` takes the title from the first user message with text and the preview from the last, both
+from the raw text, including the `<context>` block with the project's scope id. So the preview, and the title whenever
+no generated title replaced it, showed it in the chat list. The maintained Core patch removes only the trailing
+envelope shape that `appendAgentChatContextToMessage` adds, cut from its first opening so context holding its own block
+stays hidden, and a `<context>` the owner typed inline stays. The patch README section "Native thread titles and
+previews without context" owns the detail and its limit. A test builds messages with
+Core's own `appendAgentChatContextToMessage`, and a loopback run saved a clean preview where `dev` saved the context
+block.
+
 Issue #147. The composer no longer pulls focus out of a field the owner is typing in. When a refused send's run ended,
 Vivary's draft owner handed the text back through the Toolkit composer's `initialText`, and the composer focused itself
 unconditionally, so a chat rename under way in the sidebar blurred, saved half typed, and sent the rest of the typing to

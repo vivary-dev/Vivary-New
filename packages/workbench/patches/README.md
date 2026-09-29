@@ -1621,3 +1621,32 @@ the other field after the composer asked for focus and before its frame, and
 checks where focus lands. A browser run of the built app sent a message and renamed
 the chat by mouse while the run ended: the title kept the whole name and
 nothing was sent, in eight of eight runs.
+
+## Native thread titles and previews without context
+
+Issue #145. Vivary's composer appends the project's context to each message in
+a `<context>` block, which the owner never typed. Core's `extractThreadMeta` in
+`dist/agent/thread-data-builder.js` takes a saved thread's fallback title from
+the first user message with text and its preview from the last, both from the
+raw text. So the preview, and the title whenever no generated title replaced
+it, showed that block, including the project's scope id.
+
+The patch removes only the envelope that `appendAgentChatContextToMessage` in
+`dist/shared/agent-chat-context.js` adds: from the first `\n\n<context>\n` to
+the end, when the text ends with `\n</context>`. The cut starts at the first
+opening because the context can hold its own block, and a later cut would show
+the rest of it. A `<context>` the owner typed inline stays in the title. A
+message that holds only context gives no title.
+
+The limit. Core does not record where the appended context begins, and an app
+may put any text in the context, including a block of the same shape. So in a
+message that ends with a `</context>` line, the text is kept only up to the
+first `<context>` line that follows a blank line. If the owner typed such a
+line, the title and preview stop there, even when no context was appended. The
+patch prefers a shorter title to one that shows context. Recording the boundary
+would change how Core saves messages.
+
+`native-thread-meta.test.mjs` builds messages with Core's own
+`appendAgentChatContextToMessage` and checks the title and preview. It is part
+of `test:native-chat`. On a loopback build the saved thread list showed a clean
+preview; on `dev` the same send saved a preview holding the context block.
