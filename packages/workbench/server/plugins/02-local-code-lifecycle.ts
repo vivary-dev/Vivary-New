@@ -1,3 +1,4 @@
+import { stopRecurringJobs } from "@agent-native/core/jobs";
 import { defineNitroPlugin } from "@agent-native/core/server";
 import {
   initializeVivaryCodeAgent,
@@ -7,8 +8,11 @@ import {
 import { shutdownOriginalCommands } from "../original-runtime.ts";
 import { shutdownProjectPreviews } from "../project-preview.ts";
 
+// Automations get the Code host's 10-second shutdown wait, so a normal quit still
+// settles before the desktop ends the server 15 seconds after asking it to stop.
 const stopLocalWork = () => Promise.all([
   shutdownVivaryCodeAgent(), shutdownOriginalCommands(), shutdownProjectPreviews(),
+  stopRecurringJobs({ timeoutMs: 10_000 }),
 ]);
 
 export default defineNitroPlugin(async (nitroApp) => {

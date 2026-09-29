@@ -211,9 +211,11 @@ URL with 404. A call that repeats an event id, sent as the `X-Webhook-Event-Id` 
 as an `id` field of a JSON body, runs once. A call without an id always runs. When 20 calls
 for one automation are already waiting, Vivary answers new calls with 429. A call that
 Vivary accepted before it quit runs once after you reopen Vivary, unless it waited more
-than 24 hours. Then it is not run, and **Details** shows it as an error. A call whose run
-was cut off by the quit runs again from the start, so a step it already took, such as a
-memory write, can happen twice. The request body reaches the run as untrusted data, and
+than 24 hours. Then it is not run, and **Details** shows it as an error. When you quit
+Vivary during a webhook run, the run ends as interrupted and the call does not run again.
+If Vivary was ended without quitting, for example from Task Manager, the call runs again
+from the start after you reopen Vivary, so a step it already took, such as a memory
+write, can happen twice. The request body reaches the run as untrusted data, and
 the run has the same limits as any other. Each webhook run writes a chat thread whose name
 starts with `Trigger: <name>`.
 
@@ -240,6 +242,11 @@ Automations run only while Vivary is open. Closing the Vivary window quits the a
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
 once, then follows its schedule. When Vivary serves browser access, runs continue with no
 browser tab open.
+
+Quitting Vivary during a run ends the run, and **Details** shows it as interrupted. The
+next launch checks schedules about 70 seconds after it starts. If Vivary was ended
+without quitting, for example from Task Manager, the run shows as running, and
+scheduled automations wait up to 10 minutes after the next launch.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute

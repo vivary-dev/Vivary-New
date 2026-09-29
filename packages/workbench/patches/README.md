@@ -684,11 +684,13 @@ The retry sweep reset a `processing` task after 5 minutes, while a background
 run can last 10. An `in-process` task now gets the Run now claim lease as its
 cutoff: 1.5 times `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, 15 minutes by
 default, and never less than the 5-minute default. A live run is not reset,
-and a task whose process quit mid-run is reset and delivered again after the
-lease. A pending task, accepted before a quit and never started, runs about 90
+and a task whose process was killed mid-run is reset and delivered again
+after the lease. A pending task, accepted before a quit and never started, runs about 90
 seconds after the next start, when the sweep finds it. Either way the call runs
-once to completion. A run cut off by a quit leaves its history row reading that
-the run stopped before it recorded a result. The rerun starts from the
+once to completion, except after a normal quit, which ends the run as
+interrupted and completes the task (see "Automation runs at quit"). A run cut
+off by a kill leaves its history row reading that the run stopped before it
+recorded a result. The rerun starts from the
 beginning, so it can repeat a local step the cut-off run already took, such as
 a memory write. Until the rerun, later calls for the same automation wait
 behind it, because tasks of one automation run in order. A prompt reset at
@@ -1060,6 +1062,95 @@ CHECKED part when an upstream release reports the scheduler's check and passes
 the same test. Remove the Open thread part only when Vivary can open a run
 thread, by giving it a scope or a route that loads it, and the test expects
 the control.
+
+## Automation runs at quit
+
+Issue #114. A normal quit during an automation run left the run's history row
+`running` and the scheduler lease held by the old process. The next launch
+could not take the lease until it expired, up to 10 minutes after the last
+renewal, and the row became an error only then. Vivary's shutdown did nothing
+for automations, and Core had no way to stop them.
+
+`scheduler.js` now exports `stopRecurringJobs({ timeoutMs })`, and
+`@agent-native/core/jobs` exports it too. Vivary's one shutdown owner,
+`stopLocalWork` in `server/plugins/02-local-code-lifecycle.ts`, calls it beside
+the Code host, original command, and preview stops. That owner runs on the
+desktop's IPC shutdown and on a signal or Nitro `close` in the CLI host. The
+stop works in this order:
+
+1. It closes the scheduler, synchronously. A timer tick returns before it
+   takes the lease, a sweep that was still scanning starts no job, and
+   `runQueuedAutomation` leaves a queued Run now row unclaimed for the next
+   start. A run that starts after this, through a path that passed its check
+   a moment earlier, is aborted as soon as it starts.
+2. It aborts every in-process background run with the reason `shutdown`.
+   Scheduled runs, Run now, and event and webhook runs all go through
+   `runBackgroundAutomation`, which keeps the ids of the runs it started.
+3. Each run records its own outcome. The runner's completion callback turns a
+   `shutdown` abort into the interrupted error, and the runner writes the
+   history row as `interrupted` with the message "The run stopped before it
+   recorded a result, for example because the app quit or its worker
+   restarted. No delivery was confirmed." and the code
+   `background_automation_interrupted`, the values Core already derived for a
+   stale row. It does not report the interruption as a fault. For a scheduled
+   run or Run now, `executeJob` then writes `lastStatus: error` and the same
+   message on the automation. A scheduled run's next run moves to the next
+   occurrence after the quit, and a Run now keeps its next run.
+4. The sweep that holds the lease releases it in its existing `finally`, with
+   its own owner id.
+
+The stop waits for the sweeps, the queued runs, and the runs it interrupted to
+settle, or for `timeoutMs`, whichever comes first. Vivary passes 10 seconds,
+the Code host's shutdown wait, so `stopLocalWork` still ends 5 seconds before
+the desktop ends the server's process tree. A later call returns the first
+stop.
+
+The hard-kill fallback does not change. The stop writes nothing itself and
+never clears a lease by row id, so it cannot free another process's lease. Its
+flag and run list are process state that only the stop sets, so a killed
+process leaves the database as before: the row reads `running`, the automation
+reads running, and the lease holds until 10 minutes after its last renewal. A
+run that has not settled when the bound expires is left the same way. No
+startup recovery was added, because clearing a lease or ending rows at launch
+is unsafe when two processes share a database. The lease length, the renewal,
+the liveness ceiling, and the claim lease are unchanged.
+
+One behavior changes for trigger runs. The dispatcher catches a failed event or
+webhook run and records the automation's last error from the error's message,
+which here lacks its final sentence. A webhook task whose run a normal quit
+interrupted is therefore marked completed and is not delivered again. Before,
+the quitting process was ended with the task still `processing`, and the retry
+sweep delivered it again after the claim lease. A hard kill still does that. An
+event, or a webhook task the retry sweep picks up, during the quit starts a run
+that is interrupted at once.
+
+Run `node --test packages/workbench/tests/automation-quit.test.mjs`. Each
+quitting or killed process is a child that runs
+`tests/automation-quit-process.mjs` against the test's disposable SQLite
+database, with `NODE_ENV=production` and a fake engine. The test process plays
+the next launch. It checks that a quit during a scheduled run and a Run now
+marks both rows interrupted with the message once and the code, writes each
+automation's last status and next run, releases the lease, and returns only
+after both runs settled. After the stop, a tick takes no lease and writes no
+heartbeat, and a queued Run now stays unclaimed. The next launch runs both due
+automations at its first tick. A killed child keeps the lease, which expires
+about 10 minutes out and blocks the next scan, and its run reads interrupted
+only past the liveness ceiling. A stop in a second process leaves the first
+process's lease alone. A run that ignores its abort holds the stop only until
+the bound and stays `running`. A source pin checks that `stopLocalWork` calls
+the stop with 10 seconds, the Code host's wait, and that the package entry
+exports the scheduler's own function. Eight of the nine cases failed on the
+previous patch. The hard-kill case passed on both.
+
+The plugin's import and Core's timer must share one copy of `scheduler.js` in
+the server bundle, or the stop would close a scheduler that never runs. Both
+resolve to the same Core file, but no build has checked the bundle yet. The
+packaged check confirms it when a quit during a run leaves the row
+interrupted.
+
+Upstream could take the stop as it is, because nothing changes until a host
+calls it. Remove this part of the patch when an upstream release offers a stop
+with the same order and fallback that passes the same test.
 
 ## Credential redaction
 

@@ -211,7 +211,9 @@ review. Its tests, Zo CI, a live browser check, and the packaged retest cover it
   decides how webhooks work. Tracked in [#113](https://github.com/vivary-dev/Vivary-New/issues/113).
 - A normal quit during a run leaves the run `running` and the lease held. The next launch schedules
   nothing for up to ten minutes after the last renewal, about four minutes in this run. Tracked in
-  [#114](https://github.com/vivary-dev/Vivary-New/issues/114).
+  [#114](https://github.com/vivary-dev/Vivary-New/issues/114). Since fixed in source: a normal quit
+  records in-flight runs as interrupted with the interruption message and releases the lease, and a
+  hard kill keeps the lease expiry as the fallback. No package has run this change yet.
 - Details shows no LAST CHECKED value while the scheduler checks every minute, and a past run has no
   way to open its thread. A paused automation keeps a next run time that has passed. Tracked in
   [#115](https://github.com/vivary-dev/Vivary-New/issues/115). Since fixed in source: the maintained
