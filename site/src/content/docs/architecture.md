@@ -172,8 +172,9 @@ The prompt loaders a personal file reaches, the applied skill, the slash-skill m
 leaves off, and `resources read` skip a waiting file, and the prompt gets a one-line count. The Settings tab is a
 plain list of the owner's waiting files with their text, Accept, and Delete, served by the `vivary-automation-files`
 owner action, which no chat, MCP client, or run can call. Accept and Delete act only on the version the list showed,
-named by its update time, and every write moves that time forward, even within one millisecond. A refused review
-leaves one notice on the file to read it again, and a failed list says so. The owner asked on 2026-09-29 for the
+named by its update time, and every write moves that time forward, even within one millisecond. A review refused
+because the file changed, which the action answers with 409, leaves one notice on the file to read it again. Another
+refusal, such as an expired session, leaves none. A failed list says so. The owner asked on 2026-09-29 for the
 smallest version, so the review has no organization or app default tiers, the resource index is unchanged because it
 lists no personal file, and the tab has no loading or empty state. The Unattended automation runs row says so. It
 names #144 for a run's delete of the owner's own files and an overwrite that hides the owner's earlier text. The patch

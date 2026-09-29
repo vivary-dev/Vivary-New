@@ -1436,8 +1436,10 @@ Vivary code, not a Core hunk: the `vivary-automation-files` action lists,
 accepts, and deletes, and no chat, MCP client, or run can call it. Only the
 file's owner may review it. Accept and Delete act only on the version the list
 showed, so a write since then refuses them, and the list reloads with the file
-as it is now and one notice on it to read it again. A list that fails to load
-says so. Delete removes the whole file.
+as it is now and one notice on it to read it again. The action answers only
+that refusal with 409, and the tab shows the notice only for 409, so an expired
+session or a lost connection does not say the file changed. A list that fails
+to load says so. Delete removes the whole file.
 
 Limits. A run can still delete its owner's own instruction file or memory entry
 with `resources delete` or `delete-memory`, and a run that overwrites an
@@ -1476,9 +1478,9 @@ delete, and owner check, and a stale review after a second write in the same
 millisecond. Source pins cover the wrapper, the `/skills` route, the files
 inventory, and the action's flags.
 `tests/automation-file-review-component.test.mjs` renders the tab, its notice
-on a refused review, and its line for a failed list. Each case failed before
-its fix, on `dev` at `4c19c2e` or on this branch before the first or second
-review round's fixes.
+on a review refused because the file changed and on no other refusal, and its
+line for a failed list. Each case failed before its fix, on `dev` at `4c19c2e`
+or on this branch before the first or second review round's fixes.
 
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an

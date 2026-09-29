@@ -10,7 +10,8 @@ export function AutomationFileReview() {
   const { call, ready } = useNativeActionCaller();
   const [files, setFiles] = useState<AutomationFile[]>([]);
   const [listFailed, setListFailed] = useState(false);
-  // The file whose Accept or Delete was refused, because it changed since the list showed it.
+  // The file whose Accept or Delete was refused because it changed since the list showed it. The action answers that
+  // refusal, and only that one, with 409.
   const [changedId, setChangedId] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
@@ -24,11 +25,11 @@ export function AutomationFileReview() {
     if (ready) void load();
   }, [ready, load]);
   async function review(file: AutomationFile, operation: "accept" | "delete") {
-    // A refused review changes nothing. The reloaded list shows the file as it is now, and the notice asks the owner
-    // to read it again, so a second click cannot approve text the owner did not see.
-    const refused = await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt })
-      .then(() => false, () => true);
-    setChangedId(refused ? file.id : null);
+    // A refused review changes nothing. The reloaded list shows the file as it is now, and when it changed, the notice
+    // asks the owner to read it again, so a second click cannot approve text the owner did not see.
+    const changed = await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt })
+      .then(() => false, (error: unknown) => (error as { status?: unknown })?.status === 409);
+    setChangedId(changed ? file.id : null);
     await load();
   }
   return (
