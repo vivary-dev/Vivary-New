@@ -640,12 +640,17 @@ function traceLiveDescendants(processes: readonly { pid: number; parentPid: numb
   return traced;
 }
 
-/** `traced` plus the found processes whose PID is in `pids`, or every found process when `pids` is left out. */
+/**
+ * `traced` plus the found processes whose PID is in `pids`, or every found process when `pids` is left out. Past the
+ * cap, it drops the traced processes this scan did not find, so an ended one makes room for one that runs.
+ */
 function traceable(traced: readonly TracedProcess[], found: readonly LeftoverProcess[],
   pids?: ReadonlySet<number>): TracedProcess[] {
   const added = found.filter(leftover => (!pids || pids.has(leftover.pid)) && !isTraced(traced, leftover))
     .map(({ pid, start }) => ({ pid, start }));
-  return [...traced, ...added].slice(0, MAX_TRACED_PROCESSES);
+  const all = [...traced, ...added];
+  const kept = all.length <= MAX_TRACED_PROCESSES ? all : all.filter(identity => isTraced(found, identity));
+  return kept.slice(0, MAX_TRACED_PROCESSES);
 }
 
 /** The target that finds a stopped worker's processes again, or null on a platform Vivary cannot check. */
