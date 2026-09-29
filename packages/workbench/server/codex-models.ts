@@ -24,8 +24,9 @@ export type CodexModelCatalog =
 const unavailable = (): CodexModelCatalog => ({ status: "unavailable",
   message: "Codex could not report its subscription models. Check Codex in your terminal, then refresh Runtime settings." });
 const cleanupUnavailable = (): CodexModelCatalog => ({ status: "unavailable",
+  // A restart clears the refusal but not the processes, so the owner ends them first.
   message: "Vivary could not confirm that Codex stopped after checking models. Refresh Runtime settings in a moment. "
-    + "If this message stays, restart Vivary.",
+    + "If this message stays, end any Codex processes still running on this computer, then restart Vivary.",
 });
 // Issue #130. What finds again the processes of each Codex whose stop a model check could not confirm. While a check
 // still finds any, a model check starts no other Codex, so repeated refreshes cannot pile them up. Every model check

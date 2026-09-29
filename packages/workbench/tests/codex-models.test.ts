@@ -180,6 +180,9 @@ test("a failed stop refuses later checks only until that Codex exits, and logs t
   try {
     const failed = await probeCodexModels(launch, dir, 12_000, { stopTree: refusedTreeStop, stopBudgetMs: 200 });
     assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
+    // A restart clears the refusal but not the processes, so the owner ends them first.
+    assert.match(failed.status === "unavailable" ? failed.message : "",
+      /If this message stays, end any Codex processes still running on this computer, then restart Vivary\.$/);
     const step = process.platform === "win32" ? "taskkill" : "group";
     assert.deepEqual(logged.mock.calls.map(call => call.arguments),
       [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM scan=remaining remaining=1`]]);

@@ -169,7 +169,9 @@ writes `cleanup-unverified` to the redacted server log with the step, an error c
 the scan result, and the number of processes found, never their names, an error message, or a command line. A Codex
 that does not close within the budget after a successful tree stop logs the `exit` step with `timeout`. Every later model check first
 checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
-Codex processes after a stop Vivary saw fail, and a stop that finishes late needs no restart. Model checks that start during that look share it, so
+Codex processes after a stop Vivary saw fail, and a stop that finishes late needs no restart. The kept targets live
+in memory, so a restart clears the refusal but not the processes. The message therefore asks the owner, if it stays,
+to end any Codex processes still running before restarting Vivary. Model checks that start during that look share it, so
 each kept target is checked once and is never copied. The module flag that refused every later check until a
 restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. On
 Windows a Codex that exits on its own within its first second gets no tree stop and no check, so a process it started
