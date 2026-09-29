@@ -157,12 +157,14 @@ Issue #114. A normal quit now ends in-flight automation runs and releases the sc
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
 wait, so it settles before the desktop's 15-second kill and a sibling stop that throws cannot skip it. The stop closes
-the scheduler to new sweeps and Run now claims, and the runner, the event handler, and the in-process webhook runner
-to new runs, so work that arrives during the quit writes nothing and a due job stays due. It aborts every in-process
-run that is still running with the reason `shutdown`, so a run that already completed keeps its success. It waits
-while each run records itself interrupted with Core's existing message and code, the trigger dispatcher and the
-webhook runner record their outcome, and the sweep that holds the lease releases it with its own owner. It writes
-nothing itself. A webhook call whose run a normal quit interrupted goes back to the queue with its payload and an
+the scheduler to new sweeps and Run now claims, and the runner, the event handler, the in-process webhook runner, and
+Core's process-task route to new runs, so work that arrives during the quit starts no run and a due job stays due. The
+event handler checks before its first write and again right before its dispatch, and the route leaves a webhook call
+unclaimed. It aborts every in-process run that is still running with the reason `shutdown`, so a run that already
+completed, or one the owner stopped, keeps its own outcome. It waits while each run records itself interrupted with
+Core's existing message and code, the trigger dispatcher and the webhook task worker record their outcome, whether
+the in-process runner or the process-task route ran the call, and the sweep that holds the lease releases it with its
+own owner. It writes nothing itself. A webhook call whose run a normal quit interrupted goes back to the queue with its payload and an
 unspent attempt, as the owner decided on 2026-09-29. The run's own settle path writes that, never the stop, and the
 next launch's retry sweep runs the call at its first pass at least 90 seconds after the quit, with later calls behind
 it. A hard kill, or a run that outlasts the bound, keeps the fallback: the row reads running until the liveness
@@ -171,7 +173,10 @@ claim. The Unattended automation runs row states the quit behavior. The patch RE
 quit" has the detail, and the desktop guide, the #51 receipt, and the acceptance register state the webhook requeue
 and its resend timing. `tests/automation-quit.test.mjs` failed on the first patch in eight of nine cases, with the
 hard-kill case passing on both. A review round added trigger, late-work, finished-run, and soft-timeout cases, each of
-which failed on the patch before its fix, and pins for a scanning sweep, a second stop, and a run still preparing.
+which failed on the patch before its fix, and pins for a scanning sweep, a second stop, and a run still preparing. A
+second round added process-task route cases at and after the quit and an event with a condition after the quit, each
+of which failed on the patch before its fix, and pins for an event whose condition check spans the quit and a run the
+owner stopped just before it.
 
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a

@@ -214,11 +214,13 @@ for one automation are already waiting, Vivary answers new calls with 429. A cal
 Vivary accepted before it quit runs once after you reopen Vivary, unless it waited more
 than 24 hours. Then it is not run, and **Details** shows it as an error. When you quit
 Vivary during a webhook run, the run ends as interrupted and the call goes back to the
-queue. After you reopen Vivary, it runs again from the start at the first check at least
-90 seconds after the quit, about 70 to 130 seconds after the launch, and later calls for
-that automation wait behind it. If Vivary was ended without quitting, for example from
-Task Manager, the call runs again from the start about 15 minutes after its first run
-began, once Vivary is open. Either way a step the first run already took, such as a
+queue. After you reopen Vivary, it runs again from the start the first time Vivary looks
+for waiting calls at least 90 seconds after the quit. Vivary looks 10 seconds after it
+opens and then once a minute, so the call runs about 10 seconds after you reopen Vivary
+when the quit was more than about 80 seconds earlier, and 70 to 130 seconds after you
+reopen it otherwise. Later calls for that automation wait behind it. If Vivary was ended
+without quitting, for example from Task Manager, the call runs again from the start about
+15 minutes after its first run began, once Vivary is open. Either way a step the first run already took, such as a
 memory write, can happen twice, and **Details** shows two runs for the call: the
 interrupted one and the rerun. The request body reaches the run as untrusted data, and
 the run has the same limits as any other. Each webhook run writes a chat thread whose name
@@ -277,7 +279,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
 | A webhook call cannot connect | Vivary must be open, and the caller must run on this computer. Compare the port in the caller's URL with **Manage** > **Details**. After Vivary reports a port change, update the caller. |
 | A webhook call gets 404 | The URL is wrong or the automation was deleted. Copy the URL again from **Manage** > **Details**. |
-| A webhook call runs late after a restart | A call accepted before a quit, or one whose run the quit interrupted, runs at the first check at least 90 seconds after the quit, about 70 to 130 seconds after the next start. A call whose run was cut off because Vivary was ended without quitting runs again about 15 minutes after that run began. Later calls for that automation wait behind it. |
+| A webhook call runs late after a restart | A call accepted before a quit, or one whose run the quit interrupted, runs the first time Vivary looks for waiting calls at least 90 seconds after the quit. Vivary looks 10 seconds after it starts and then once a minute, so the call runs about 10 seconds after the next start when the quit was more than about 80 seconds earlier, and 70 to 130 seconds after it otherwise. A call whose run was cut off because Vivary was ended without quitting runs again about 15 minutes after that run began. Later calls for that automation wait behind it. |
 | A webhook call gets 429 | The automation has 20 calls waiting. Wait for them to run, then send the call again. |
 | A webhook automation with a condition never runs | Conditions need an Anthropic API key. Open **Manage** > **Details** for the reason, then add an Anthropic key or remove the condition. |
 

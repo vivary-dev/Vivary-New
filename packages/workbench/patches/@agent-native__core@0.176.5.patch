@@ -4797,10 +4797,18 @@ index 72b4cb62e23ed8f5c109d44e3211675c51b19f5c..7af7e7f80bd6f6e608bafaac2ac5fe36
  export async function markTaskFailed(id, errorMessage) {
      await ensureTable();
 diff --git a/dist/integrations/plugin.js b/dist/integrations/plugin.js
-index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f4ab7bf79 100644
+index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..5d61835d68cb5412065ec48fa0383b47a6626b8c 100644
 --- a/dist/integrations/plugin.js
 +++ b/dist/integrations/plugin.js
-@@ -15,7 +15,7 @@ import { decodeOAuthState, encodeOAuthState, logOAuthStateDecodeFailure, oauthCa
+@@ -4,6 +4,7 @@ import { AGENT_BACKGROUND_PROCESSOR_FIELD, AGENT_BACKGROUND_PROCESSOR_INTEGRATIO
+ import { abortRun } from "../agent/run-manager.js";
+ import { AppConfigurationError, getAppConfig } from "../app-config/index.js";
+ import { isServerlessRuntime } from "../db/client.js";
++import { isBackgroundAutomationsClosed, trackBackgroundAutomationWork, } from "../jobs/background-automation-runner.js";
+ import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
+ import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
+ import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+@@ -15,7 +16,7 @@ import { decodeOAuthState, encodeOAuthState, logOAuthStateDecodeFailure, oauthCa
  import { readBody } from "../server/h3-helpers.js";
  import { startIntervalJob, } from "../server/interval-job.js";
  import { runWithRequestContext } from "../server/request-context.js";
@@ -4809,7 +4817,22 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
  import { AUTOMATION_WEBHOOK_PLATFORM, } from "../triggers/webhook.js";
  import { processA2AContinuationById, processDueA2AContinuations, reconcileTerminalA2AParentIfDisabled, recoverA2AContinuationAfterProcessorFailure, recoverDueA2AContinuations, } from "./a2a-continuation-processor.js";
  import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
-@@ -1601,34 +1601,28 @@ export function createIntegrationsPlugin(options) {
+@@ -1534,6 +1535,14 @@ export function createIntegrationsPlugin(options) {
+                     return { error: "Invalid or expired internal token" };
+                 }
+             }
++            // Vivary #114: once a quit begins, a webhook call stays queued,
++            // unclaimed and with its attempts unchanged, for the next launch,
++            // as in the in-process runner.
++            if (isBackgroundAutomationsClosed() &&
++                (await getPendingTask(taskId))?.platform === AUTOMATION_WEBHOOK_PLATFORM) {
++                setResponseStatus(event, 200);
++                return { ok: true, skipped: "app-quitting" };
++            }
+             // Atomic claim: only one invocation gets to process this task
+             const dispatchOutcome = body[AGENT_BACKGROUND_PROCESSOR_FIELD] ===
+                 AGENT_BACKGROUND_PROCESSOR_INTEGRATION
+@@ -1601,34 +1610,29 @@ export function createIntegrationsPlugin(options) {
              let campaignDeliveryLease;
              try {
                  if (task.platform === AUTOMATION_WEBHOOK_PLATFORM) {
@@ -4828,18 +4851,20 @@ index 7d0524f2aa91299037bfbb8e657a45e848a3bd86..fe459ef4ff8bd45dde6c194c93690a7f
 -                    if (webhookResult === "retry") {
 -                        await markTaskRetryable(taskId, "Automation is already running.", { resetAttempts: true });
 +                    // The in-process runner uses the same worker, which records
-+                    // the outcome on the row and logs a failure.
-+                    const webhookOutcome = await runClaimedAutomationWebhookTask(task, {
++                    // the outcome on the row and logs a failure. Vivary #114:
++                    // tracked, so a quit waits until the row records the outcome.
++                    const webhookOutcome = await trackBackgroundAutomationWork(runClaimedAutomationWebhookTask(task, {
 +                        event,
 +                        baseUrl: getBaseUrl(event),
-+                    });
++                    }));
 +                    if (webhookOutcome === "invalid") {
 +                        setResponseStatus(event, 400);
 +                        return { error: "Invalid automation webhook task" };
 +                    }
 +                    if (webhookOutcome === "retry") {
                          setResponseStatus(event, 202);
-                         return { ok: true, taskId, retrying: "automation-active" };
+-                        return { ok: true, taskId, retrying: "automation-active" };
++                        return { ok: true, taskId, retrying: isBackgroundAutomationsClosed() ? "app-quitting" : "automation-active" };
                      }
 -                    await markTaskCompleted(taskId);
 -                    const nextTask = await getNextPendingTaskForThread(task.platform, task.externalThreadId);
@@ -5131,8 +5156,35 @@ index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e
                  lastStatus: meta.lastStatus ?? null,
                  lastError: meta.lastError ?? null,
                  nextRun: nextRun(meta),
+diff --git a/dist/jobs/background-automation-runner.d.ts b/dist/jobs/background-automation-runner.d.ts
+index 4dfe9233dfd9db3068aee0c262344a7b1d2b8881..ea9c45dca904d195145bfcf82d3aa37a05fd3c8c 100644
+--- a/dist/jobs/background-automation-runner.d.ts
++++ b/dist/jobs/background-automation-runner.d.ts
+@@ -100,4 +100,22 @@ export declare function backgroundRunCutOffReason(run: {
+         };
+     }[];
+ }): string | null;
++/**
++ * Vivary #114. Abort every in-process run that is still running with the
++ * shutdown reason, and any run that starts later as soon as it starts.
++ * Resolves when every run and every tracked piece of work that was in flight
++ * has recorded its outcome.
++ */
++export declare function interruptBackgroundAutomations(): Promise<PromiseSettledResult<unknown>[]>;
++/**
++ * Vivary #114. Whether a quit has begun in this process. The scheduler, the
++ * event handler, the in-process webhook runner, and the process-task route
++ * check it before they claim work or mark an automation running.
++ */
++export declare function isBackgroundAutomationsClosed(): boolean;
++/**
++ * Vivary #114. Track work that records a run's outcome after the run settles,
++ * such as the trigger dispatcher's writes, so a quit waits for it too.
++ */
++export declare function trackBackgroundAutomationWork<T>(work: Promise<T>): Promise<T>;
+ export declare function runBackgroundAutomation(options: BackgroundAutomationRunOptions, deps: BackgroundAutomationDeps): Promise<BackgroundAutomationRunResult>;
 diff --git a/dist/jobs/background-automation-runner.js b/dist/jobs/background-automation-runner.js
-index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e62b87d37 100644
+index 069adb196878a306f92883587c9153e506e23910..83db090cc46621587ce714087c6ca77cad2b2220 100644
 --- a/dist/jobs/background-automation-runner.js
 +++ b/dist/jobs/background-automation-runner.js
 @@ -3,7 +3,7 @@ import { getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from
@@ -5154,7 +5206,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
  /**
   * Default hard abort for one in-process automation run. Read through
   * `resolveBackgroundRunHardTimeoutMs()` at the use site — this is the host's
-@@ -36,6 +37,42 @@ export class BackgroundAutomationRunError extends Error {
+@@ -36,6 +37,43 @@ export class BackgroundAutomationRunError extends Error {
          this.errorCode = errorCode;
      }
  }
@@ -5188,8 +5240,9 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
 +}
 +/**
 + * Vivary #114. Whether a quit has begun in this process. The scheduler, the
-+ * event handler, and the in-process webhook runner check it before they write
-+ * anything, so work that arrives during a quit starts no run.
++ * event handler, the in-process webhook runner, and the process-task route
++ * check it before they claim work or mark an automation running, so work that
++ * arrives during a quit starts no run.
 + */
 +export function isBackgroundAutomationsClosed() {
 +    return _backgroundAutomationsClosed;
@@ -5197,7 +5250,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
  /**
   * A persisted background run must not outlive its execution identity.
   * Organization runs fail closed when membership state cannot be read. A
-@@ -163,18 +200,26 @@ export function backgroundRunCutOffReason(run) {
+@@ -163,18 +201,26 @@ export function backgroundRunCutOffReason(run) {
  function uniqueToolNames(names) {
      return [...new Set(names)];
  }
@@ -5232,7 +5285,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
      const { automation } = options;
      // Bookkeeping, so it must not gate the work it describes: a history table
      // that cannot be written should cost us the record, not the automation.
-@@ -212,15 +257,19 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -212,15 +258,19 @@ export async function runBackgroundAutomation(options, deps) {
      }
      catch (err) {
          const message = err instanceof Error ? err.message : String(err);
@@ -5254,7 +5307,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
              tags: {
                  area: "background-automation",
                  automation: automation.name,
-@@ -233,7 +282,7 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -233,7 +283,7 @@ export async function runBackgroundAutomation(options, deps) {
              },
              ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
          });
@@ -5263,7 +5316,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
          throw err;
      }
      // Outside the try: history is bookkeeping about the run, so a failure to
-@@ -349,7 +398,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -349,7 +399,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
          orgId,
      }, async () => {
          const baseActions = await deps.getActions(automation);
@@ -5271,7 +5324,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
          const configuredInitialTools = deps.getInitialToolNames?.(automation);
          const initialToolNames = configuredInitialTools
              ? uniqueToolNames([
-@@ -539,6 +587,12 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -539,6 +588,12 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  // waits for this persist via `activeRun.finalized`.
                  if (hardTimedOut)
                      return;
@@ -5284,7 +5337,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
                  if (persistFailure) {
                      reject(new BackgroundAutomationRunError(persistFailure.message, persistFailure.errorCode));
                      return;
-@@ -566,6 +620,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -566,6 +621,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  engineName: engine.name,
                  userId: ownerEmail,
              });
@@ -5294,7 +5347,7 @@ index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e
              hardAbortTimer = setTimeout(() => {
                  hardAbortTimer = null;
                  if (activeRun.status !== "running")
-@@ -584,6 +641,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -584,6 +642,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  });
              }, hardTimeoutMs);
          }).finally(() => {
@@ -7392,7 +7445,7 @@ index 489b36d86f416c8f40c44727bd62e190048f43c4..a2c488f61e8f7fc01b1002d6f99fd223
   * Assemble the prompt for an agentic trigger run.
   *
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad6ae404f1 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d4186c947 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
 @@ -5,12 +5,13 @@
@@ -7412,18 +7465,30 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
  import { evaluateCondition } from "./condition-evaluator.js";
  export function parseTriggerFrontmatter(content) {
      const { meta, body } = parseJobResource(content);
-@@ -268,6 +269,10 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -218,6 +219,10 @@ async function handleEvent(eventName, payload, eventMeta) {
+             const { meta, body } = parseTriggerFrontmatter(resource.content);
+             if (!body.trim())
+                 continue;
++            // Vivary #114: a quit has begun, so the event is lost, as after a
++            // crash. Checked before any write and before the condition check.
++            if (isBackgroundAutomationsClosed())
++                return;
+             let identity;
+             if (resource.owner === "__shared__") {
+                 // Compatibility for old workspace-wide event resources. New personal
+@@ -268,6 +273,11 @@ async function handleEvent(eventName, payload, eventMeta) {
              const dispatchKey = `${resource.owner}:${resource.path}`;
              if (_dispatchingTriggers.has(dispatchKey))
                  continue;
-+            // Vivary #114: a quit has begun, so no run starts. The event is
-+            // lost, as after a crash.
++            // Vivary #114: checked again, with no await between this check
++            // and the dispatch's tracked work, for a handler that passed the
++            // first check before the quit began.
 +            if (isBackgroundAutomationsClosed())
 +                return;
              if (meta.mode === "agentic") {
                  _dispatchingTriggers.add(dispatchKey);
                  try {
-@@ -286,6 +291,62 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -286,6 +296,62 @@ async function handleEvent(eventName, payload, eventMeta) {
          console.error(`[triggers] Error handling event "${eventName}":`, err);
      }
  }
@@ -7486,7 +7551,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
  /**
   * Process a webhook task after the public route has persisted it. The queue
   * worker supplies the target resource identity; the request body never gets
-@@ -297,11 +358,11 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -297,11 +363,11 @@ export async function dispatchAutomationWebhookTask(task) {
          throw new Error("Automation trigger dispatcher is not initialized.");
      const resource = await resourceGetByPath(task.owner, task.path);
      if (!resource || resource.id !== task.automationId) {
@@ -7500,7 +7565,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
      }
      if (!meta.enabled)
          return "completed";
-@@ -314,13 +375,35 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -314,13 +380,35 @@ export async function dispatchAutomationWebhookTask(task) {
      if (!resolved.ok)
          throw new Error(resolved.reason);
      const identity = resolved.identity;
@@ -7540,7 +7605,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
      if (!matches) {
          await recordTriggerSkip(resource, "skipped", undefined);
          return "completed";
-@@ -333,8 +416,9 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -333,8 +421,9 @@ export async function dispatchAutomationWebhookTask(task) {
      if (_dispatchingTriggers.has(dispatchKey))
          return "retry";
      _dispatchingTriggers.add(dispatchKey);
@@ -7551,7 +7616,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
              eventId: task.eventId,
              emittedAt: new Date().toISOString(),
              owner: identity.eventOwner,
-@@ -343,9 +427,19 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -343,9 +432,19 @@ export async function dispatchAutomationWebhookTask(task) {
      finally {
          _dispatchingTriggers.delete(dispatchKey);
      }
@@ -7573,7 +7638,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..06def2cd812f0e2ee3cd4d712169acad
      if (!_deps)
          return;
      const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -450,5 +544,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
+@@ -450,5 +549,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
              lastError,
          });
          console.error(`[triggers] "${triggerName}" failed:`, lastError);

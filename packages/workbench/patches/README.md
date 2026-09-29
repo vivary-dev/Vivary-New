@@ -687,10 +687,12 @@ default, and never less than the 5-minute default. A live run is not reset,
 and a task whose process was killed mid-run is reset and delivered again
 after the lease, about 15 minutes after its claim. A pending task, accepted
 before a quit and never started, runs at the sweep's first pass at least 90
-seconds after the quit, about 70 to 130 seconds after the next start. A normal
-quit returns a task whose run it interrupted to pending (see "Automation runs
-at quit"), so that task runs the same way. Either way the call runs once to
-completion. A run cut off by a quit or a kill leaves its history row reading
+seconds after the quit. The first pass comes 10 seconds after startup and later
+passes every 60 seconds, so for a start more than about 80 seconds after the
+quit that is about 10 seconds after the start, and for a sooner start 70 to 130
+seconds after it. A normal quit returns a task whose run it interrupted to
+pending (see "Automation runs at quit"), so that task runs the same way. Either
+way the call runs once to completion. A run cut off by a quit or a kill leaves its history row reading
 that the run stopped before it recorded a result, so one call can show two
 history rows. The rerun starts from the
 beginning, so it can repeat a local step the cut-off run already took, such as
@@ -1097,14 +1099,19 @@ stop works in this order:
 1. It closes the scheduler and the runner, synchronously. A timer tick returns
    before it takes the lease, a sweep that was still scanning starts no job,
    and `runQueuedAutomation` leaves a queued Run now row unclaimed for the next
-   start. The runner exports `isBackgroundAutomationsClosed`, and three more
-   places check it before they write anything. `executeJob` returns `skipped`
-   before it marks the automation running, so a due job stays due, a direct
-   `runJobNow` starts nothing, and a Run now row it had already claimed reads
-   interrupted. The event handler dispatches nothing, so the event is lost as
-   after a crash. The in-process webhook runner returns `skipped` before its
-   claim, so the call stays queued. A run whose setup was already past those
-   checks is aborted as soon as it starts, before the model.
+   start. The runner exports `isBackgroundAutomationsClosed`, and four more
+   places check it. `executeJob` returns `skipped` before it marks the
+   automation running, so a due job stays due, a direct `runJobNow` starts
+   nothing, and a Run now row it had already claimed reads interrupted. The
+   event handler checks it for each matching trigger before the identity
+   check, any write, and the condition classifier, so the event is lost as
+   after a crash. It checks again right before the dispatch, for a handler
+   that passed the first check before the quit began. The in-process webhook
+   runner returns `skipped` before its claim, and Core's process-task route
+   answers a webhook task with `skipped: "app-quitting"` before its claim, so
+   the call stays queued, unclaimed, with its attempts unchanged. A run whose
+   setup was already past those checks is aborted as soon as it starts, before
+   the model.
 2. It aborts every in-process background run that is still running with the
    reason `shutdown`. Scheduled runs, Run now, and event and webhook runs all
    go through `runBackgroundAutomation`, which keeps the ids of the runs it
@@ -1128,12 +1135,19 @@ stop works in this order:
 The stop waits for the sweeps, the queued runs, the runs it interrupted, and
 the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
 comes first. The runner exports `trackBackgroundAutomationWork`, and the
-dispatcher's `dispatchAgentic` and the in-process webhook runner
-`runAutomationWebhookTaskInProcess` put their work in it, so the stop also
-waits for the automation's last status and the webhook task's row. Vivary passes 10 seconds,
-the Code host's shutdown wait, so `stopLocalWork` still ends 5 seconds before
-the desktop ends the server's process tree. A later call returns the first
-stop.
+dispatcher's `dispatchAgentic`, the in-process webhook runner
+`runAutomationWebhookTaskInProcess`, and the process-task route's call to
+`runClaimedAutomationWebhookTask` put their work in it, so the stop also waits
+for the automation's last status and the webhook task's row on either path.
+The desktop and the CLI host register the in-process runner, so a webhook task
+reaches the route only on a host without it, such as a deployment without the
+in-process timer. The stop waits only for work that began before it. The event
+handler's reads, identity check, and classifier call are not tracked, and its
+second check covers a handler that is past its first check when the quit
+begins. The declarations of the three runner exports are in its `.d.ts`.
+Vivary passes 10 seconds, the Code host's shutdown wait, so `stopLocalWork`
+still ends 5 seconds before the desktop ends the server's process tree. A later
+call returns the first stop.
 
 The hard-kill fallback does not change. The stop writes nothing itself and
 never clears a lease by row id, so it cannot free another process's lease. Its
@@ -1167,8 +1181,11 @@ owner sees the interrupted history row and later a second row for the same
 call. The rerun starts from the beginning, as after a crash. A run that
 outlasts the bound, or a kill between the history row and the task write,
 leaves the task `processing`, and the sweep delivers it again about 15 minutes
-after its claim. An event or a webhook call that arrives during the quit starts
-no run (step 1).
+after its claim. A task the process-task route claimed records another
+dispatch outcome, so the sweep delivers it again 5 minutes after its claim, or
+16 minutes for a background-function claim. The route answers an interrupted
+call with `retrying: "app-quitting"` instead of `"automation-active"`. An event
+or a webhook call that arrives during the quit starts no run (step 1).
 
 Run `node --test packages/workbench/tests/automation-quit.test.mjs`. Each
 quitting or killed process is a child that runs
@@ -1195,7 +1212,8 @@ tasks read `pending` with their payloads and no spent attempt, only A has a
 history row, and the next launch's retry sweep runs A and then B once each.
 Both cases failed on the previous patch: the event's automation still read
 running and call A was left `processing`, because the stop returned before the
-dispatcher's writes. After the stop, an event, a direct Run now, and a queued
+dispatcher's writes. A second child quits with only an event run in flight, so
+no other work holds the stop open for the dispatcher's write. After the stop, an event, a direct Run now, and a queued
 webhook call start no run and write nothing, and a Run now claimed just before
 the stop reads interrupted with no thread. Those three cases failed on the
 patch before the closed checks. Three more pin a sweep that is scanning when
@@ -1206,6 +1224,23 @@ after a run completed, while its thread save is pending, leaves the history
 row a success and the agent run completed. A quit that lands after a
 one-second soft timeout ended a run's turn reads interrupted, not cut off.
 Both failed on the patch before the running filter and the reason check.
+
+A second review round added route and event cases. A child quits with a
+webhook call's run in flight through Core's process-task route and exits as
+soon as the stop returns. The task reads `pending` with its payload, no spent
+attempt, and the interrupted message, and its one history row reads
+interrupted. After the stop, the route answers a queued webhook call with
+`skipped` and leaves it unclaimed with no history row, and an event whose
+trigger has a condition reaches neither the classifier nor a write. Those three
+failed on the patch before this round's fix: the task stayed `processing`, the
+route wrote an interrupted run and a thread, and the handler called the
+classifier and recorded a skip. The child answers the classifier itself, never
+over the network. An event whose condition check began before the stop and
+matched after it starts no run, which pins the second check. The after-stop
+event cases wait for the dispatcher's handler to finish, not for a fixed delay.
+A run the owner stopped just before the quit keeps its `user` abort reason and
+reads as an error, not interrupted, which a status filter weaker than `running`
+would break.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
