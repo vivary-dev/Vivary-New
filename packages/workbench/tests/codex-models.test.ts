@@ -199,7 +199,7 @@ test("a failed stop refuses later checks only until that Codex exits, and logs t
  * unconfirmed stop, and later checks start no Codex until the helper ends.
  */
 async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildProcess, workerExited: boolean) => Promise<void>,
-  step: string, error = "EPERM", stopBudgetMs?: number) {
+  error = "EPERM", stopBudgetMs?: number) {
   const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-helper-"));
   const pidFile = path.join(dir, "helper.pid");
   await writeFile(path.join(dir, "with-helper.mjs"), codexWithHelper(pidFile));
@@ -212,7 +212,7 @@ async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildPro
     helper = Number(await readFile(pidFile, "utf8"));
     assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
     assert.deepEqual(logged.mock.calls.map(call => call.arguments),
-      [[`[vivary-codex-models] cleanup-unverified step=${step} error=${error} scan=remaining remaining=1`]]);
+      [[`[vivary-codex-models] cleanup-unverified step=group error=${error} scan=remaining remaining=1`]]);
     const refused = await probeCodexModels(launch("lingering.mjs"), dir);
     assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmedStop);
     process.kill(helper, "SIGKILL");
@@ -224,27 +224,28 @@ async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildPro
 }
 
 const refused = (message: string) => Object.assign(new Error(message), { code: "EPERM" });
+// The helper outlives Codex, so no test owns it. The Linux check waits for a group to empty, so ending the helper lifts
+// the refusal at the next look. A Windows scan looks once and could still list a helper Windows is ending.
+const linuxHelper = { skip: process.platform !== "linux" && "The orphaned helper tests use the Linux group check." };
 
-test("a failed tree stop that ends only Codex keeps later checks refused while its helper runs", t =>
+test("a failed tree stop that ends only Codex keeps later checks refused while its helper runs", linuxHelper, t =>
   refusesWhileHelperRuns(t, async (child, workerExited) => {
     if (workerExited) return;
     child.kill("SIGKILL");
-    throw refused("taskkill could not end every process.");
-  }, process.platform === "win32" ? "taskkill" : "group"));
+    throw refused("Operation not permitted.");
+  }));
 
-test("a failed Linux group sweep after Codex closed keeps later checks refused while its helper runs",
-  { skip: process.platform === "win32" && "Windows stops the tree once and sweeps no group." }, t =>
-    refusesWhileHelperRuns(t, async (child, workerExited) => {
-      if (workerExited) throw refused("Operation not permitted.");
-      child.kill("SIGKILL");
-    }, "group"));
+test("a failed Linux group sweep after Codex closed keeps later checks refused while its helper runs", linuxHelper, t =>
+  refusesWhileHelperRuns(t, async (child, workerExited) => {
+    if (workerExited) throw refused("Operation not permitted.");
+    child.kill("SIGKILL");
+  }));
 
-test("a Linux group sweep whose helper outlasts the budget keeps later checks refused while it runs",
-  { skip: process.platform === "win32" && "Windows stops the tree once and sweeps no group." }, t =>
-    // The sweep reports success, as a delivered SIGKILL does, but the helper has not ended when the budget runs out.
-    refusesWhileHelperRuns(t, async (child, workerExited) => {
-      if (!workerExited) child.kill("SIGKILL");
-    }, "group", "VivaryCodeWorkerCleanupError", 1_500));
+test("a Linux group sweep whose helper outlasts the budget keeps later checks refused while it runs", linuxHelper, t =>
+  // The sweep reports success, as a delivered SIGKILL does, but the helper has not ended when the budget runs out.
+  refusesWhileHelperRuns(t, async (child, workerExited) => {
+    if (!workerExited) child.kill("SIGKILL");
+  }, "VivaryCodeWorkerCleanupError", 1_500));
 
 test("model checks that start together share one look at an unconfirmed stop", async t => {
   const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-shared-look-"));
