@@ -1370,6 +1370,20 @@ argument can set or clear it.
   refuses every run write, `promote` included, whose owner is not the run's
   user, with "Automation runs cannot write `<path>` outside the owner's
   personal files".
+- A run deletes only its own user's personal files too, which the owner decided
+  on 2026-09-29. A personal run's `resources delete` with scope `shared`
+  reached the app default owner the same way, and
+  `assertCanDeleteSharedResource` skips its role check with no organization, so
+  the run deleted the app default `AGENTS.md`. An organization run whose
+  creator is an admin could delete the organization's files.
+  `resourceDeleteByPath`, `resourceDeleteIfCurrent`, and `resourceDelete` now
+  refuse a run's delete whose owner is not the run's user, with "Automation
+  runs cannot delete `<path>` outside the owner's personal files". The first
+  two are the ones `resources delete` and `delete-memory` call. No run tool
+  reaches `resourceDelete` today, because a run only lists jobs and
+  automations, and it has the same check so the store holds the rule for every
+  delete. `delete-memory` names the run's user as the owner, so its deletes
+  were already personal.
 - A run writes only a plain path, with no `.` or `..` segment, no leading,
   repeated, or back slash, and no surrounding space. The loaders match the
   stored path as written, so `skills/../x/SKILL.md` is listed as a skill,
@@ -1425,17 +1439,15 @@ showed, so a write since then refuses them, and the list reloads with the file
 as it is now and one notice on it to read it again. A list that fails to load
 says so. Delete removes the whole file.
 
-Limits. A run can still delete an owner's instruction file or memory entry with
-`resources delete` or `delete-memory`, and a run that overwrites an owner's
-file hides the owner's earlier text too until review, because the table keeps
-one row per path and no earlier version. Issue #144 tracks both. The refusal
-covers writes only, so a personal run's `resources delete` with scope `shared`
-still deletes an app default file, such as `AGENTS.md`, without a role check,
-as its write did. A waiting personal file also hides a shared or organization
-file at the same path until the owner reviews it: chats list no skill for it,
-the `/skills` menu leaves it out, and `resources read` gives the note, not the
-shared text. Falling through to the shared file would change three places that
-each put a personal file before a shared one: the merge in
+Limits. A run can still delete its owner's own instruction file or memory entry
+with `resources delete` or `delete-memory`, and a run that overwrites an
+owner's file hides the owner's earlier text too until review, because the table
+keeps one row per path and no earlier version. Issue #144 tracks both, for the
+owner's own files only. A waiting personal file also hides a shared or
+organization file at the same path until the owner reviews it: chats list no
+skill for it, the `/skills` menu leaves it out, and `resources read` gives the
+note, not the shared text. Falling through to the shared file would change
+three places that each put a personal file before a shared one: the merge in
 `resourceListAccessible`, which seven callers share, the Resources panel among
 them, `resourceEffectiveContext`, and the personal-first order of `read.js`. It
 hides a file and loads nothing, so it stays a limit beside #144. A chat can
@@ -1454,16 +1466,19 @@ uses a disposable SQLite database and drives writes through
 `restrictActionsForUnattendedRun` with a run's tool context. It checks the
 origin and the mark on each instruction path, a note that gets origin and no
 mark, the refusal of every app default and organization write and promote by a
-run, notes included, and of a path that is not plain, the note in compact and
-full prompts with its count and no path, a run's prompt, the applied skill,
-`resources read`, that a chat write, a memory save, and an owner edit keep the
-mark and the run's origin, the Settings action's list, accept, delete, and
-owner check, and a stale review after a second write in the same millisecond.
-Source pins cover the wrapper, the `/skills` route, the files inventory, and
-the action's flags. `tests/automation-file-review-component.test.mjs` renders
-the tab, its notice on a refused review, and its line for a failed list. Each
-case failed before its fix, on `dev` at `4c19c2e` or on this branch before the
-first review round's fixes.
+run, notes included, and of a path that is not plain, the refusal of a run's
+app default and organization delete and of each store delete of another user's
+file inside a run, a run's delete of its owner's note and memory, the note in
+compact and full prompts with its count and no path, a run's prompt, the
+applied skill, `resources read`, that a chat write, a memory save, and an owner
+edit keep the mark and the run's origin, the Settings action's list, accept,
+delete, and owner check, and a stale review after a second write in the same
+millisecond. Source pins cover the wrapper, the `/skills` route, the files
+inventory, and the action's flags.
+`tests/automation-file-review-component.test.mjs` renders the tab, its notice
+on a refused review, and its line for a failed list. Each case failed before
+its fix, on `dev` at `4c19c2e` or on this branch before the first or second
+review round's fixes.
 
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an

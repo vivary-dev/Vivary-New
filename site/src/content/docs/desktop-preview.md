@@ -180,7 +180,7 @@ Each run writes one chat thread, named `Job: <name>` for a scheduled run and
 `Automation: <name>` for **Run now**. Vivary keeps these threads but does not show them
 yet. Chat history does not list them, and **Details** cannot open one. A run can read
 your resources, change your personal resources, memory, chat history, and progress, and
-notify you in the in-app inbox. It cannot write shared files.
+notify you in the in-app inbox. It cannot write or delete shared files.
 An instruction, skill, or memory file a run writes waits for you: `AGENTS.md`,
 `LEARNINGS.md`, or a file under `instructions/`, `skills/`, or `memory/`. Chats and
 later runs do not load it, and a chat's prompt says only how many files wait. Settings >

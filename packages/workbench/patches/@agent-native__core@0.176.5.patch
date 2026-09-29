@@ -6267,7 +6267,7 @@ index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c
  export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
  export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
 diff --git a/dist/resources/store.js b/dist/resources/store.js
-index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a55c556ee2 100644
+index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9ed8adabf 100644
 --- a/dist/resources/store.js
 +++ b/dist/resources/store.js
 @@ -1,9 +1,10 @@
@@ -6312,21 +6312,31 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a5
  function scratchFilterSql(options) {
      return options?.includeAgentScratch === true
          ? ""
-@@ -1121,6 +1145,33 @@ export async function resourceGetByPath(owner, path, options) {
+@@ -1119,8 +1143,43 @@ export async function resourceGetByPath(owner, path, options) {
+         ? resource
+         : null;
  }
++/**
++ * Vivary #109. An automation run writes and deletes only its owner's
++ * personal files, because shared, organization, and workspace files load for
++ * other people. restrictActionsForUnattendedRun sets the run around each
++ * tool call.
++ */
++function refuseRunOutsideOwner(owner, path, verb) {
++    if (getRequestContext()?.automationRun && owner !== getRequestUserEmail()) {
++        throw new Error(`Automation runs cannot ${verb} ${path} outside the owner's personal files, because shared, organization, and workspace files load for other people.`);
++    }
++}
  export async function resourcePut(owner, path, content, mimeType, options) {
      await ensureTable();
 +    // Vivary #109: restrictActionsForUnattendedRun sets the run around each
 +    // tool call of an automation run.
 +    const run = getRequestContext()?.automationRun;
 +    if (run) {
-+        // Shared, organization, and workspace files load for other people. A
-+        // personal automation runs with no organization, so its shared writes
-+        // would reach the app default without a role check, and the resource
-+        // index prints each shared note's title in every prompt.
-+        if (owner !== getRequestUserEmail()) {
-+            throw new Error(`Automation runs cannot write ${path} outside the owner's personal files, because shared, organization, and workspace files load for other people.`);
-+        }
++        // A personal automation runs with no organization, so its shared
++        // writes would reach the app default without a role check, and the
++        // resource index prints each shared note's title in every prompt.
++        refuseRunOutsideOwner(owner, path, "write");
 +        // The loaders match the stored path as written, so a run writes only
 +        // a path that is already plain. The store would read
 +        // skills/../x/SKILL.md as x/SKILL.md, and a loader lists it as a skill.
@@ -6346,7 +6356,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a5
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
          const written = await writeLocalWorkspaceResource({ path, content });
-@@ -1135,29 +1186,49 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1135,29 +1194,49 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          await assertWritableWorkspaceResourcePath(path);
      }
      const client = getDbExec();
@@ -6407,7 +6417,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a5
      let expiresAt = hasOption(options, "expiresAt")
          ? (options?.expiresAt ?? null)
          : nullableNumber(existingRow?.expires_at);
-@@ -1168,9 +1239,23 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1168,9 +1247,23 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          expiresAt = null;
      }
      const serializedMetadata = serializeMetadata(options?.metadata);
@@ -6432,7 +6442,15 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a5
      await client.execute({
          sql: isPostgres()
              ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-@@ -1367,6 +1452,47 @@ export async function resourceDeleteIfCurrent(resource) {
+@@ -1331,6 +1424,7 @@ export async function resourcePutIfCurrent(input) {
+     return resource;
+ }
+ export async function resourceDeleteIfCurrent(resource) {
++    refuseRunOutsideOwner(resource.owner, resource.path, "delete");
+     await ensureTable();
+     if (isLocalWorkspaceResourceId(resource.id))
+         return false;
+@@ -1367,12 +1461,54 @@ export async function resourceDeleteIfCurrent(resource) {
      }
      return deleted;
  }
@@ -6480,6 +6498,29 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..7d1bf58644f916bbb87b64b32f8554a5
  export async function resourceDelete(id) {
      await ensureTable();
      if (isLocalWorkspaceResourceId(id)) {
+         const resourcePath = localWorkspaceResourcePathFromId(id);
+         if (!resourcePath)
+             return false;
++        refuseRunOutsideOwner(WORKSPACE_OWNER, resourcePath, "delete");
+         const deleted = await deleteLocalWorkspaceResource({ path: resourcePath });
+         if (deleted) {
+             emitResourceDelete(id, resourcePath, WORKSPACE_OWNER);
+@@ -1387,6 +1523,7 @@ export async function resourceDelete(id) {
+     });
+     if (rows.length === 0)
+         return false;
++    refuseRunOutsideOwner(rows[0].owner, rows[0].path, "delete");
+     const result = await client.execute({
+         sql: `DELETE FROM resources WHERE id = ?`,
+         args: [id],
+@@ -1398,6 +1535,7 @@ export async function resourceDelete(id) {
+     return deleted;
+ }
+ export async function resourceDeleteByPath(owner, path) {
++    refuseRunOutsideOwner(owner, path, "delete");
+     await ensureTable();
+     if (owner === WORKSPACE_OWNER &&
+         (await shouldHandleWorkspaceResourceAsLocal(path))) {
 diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
 index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b12d0f633 100644
 --- a/dist/scripts/agent-engines/list-agent-engines.js
