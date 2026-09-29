@@ -1591,3 +1591,22 @@ that every entry is a Radix item, and `row-focus.test.mjs` covers the focus
 choice. A browser run of the built app walked the menu with the arrow keys and
 typeahead, renamed with Enter, and archived, with focus landing on the next
 row, the previous row, and the new chat's composer, at 1280 and 390 px.
+
+## Native thread titles and previews without context
+
+Issue #145. Vivary's composer appends the project's context to each message in
+a `<context>` block, which the owner never typed. Core's `extractThreadMeta` in
+`dist/agent/thread-data-builder.js` took a saved thread's fallback title and its
+preview from the first user message's raw text, so the preview, and the title
+whenever no generated title replaced it, showed that block, including the
+project's scope id.
+
+The patch reads the message through `splitAgentChatContextFromMessage` from
+`dist/shared/agent-chat-context.js`, the same split the chat uses to display
+the message, before it takes the title and preview. A message that holds only
+context gives no title.
+
+`native-thread-meta.test.mjs` builds messages with Core's own
+`appendAgentChatContextToMessage` and checks the title and preview. It is part
+of `test:native-chat`. On a loopback build the saved thread list showed a clean
+preview; on `dev` the same send saved a preview holding the context block.
