@@ -163,7 +163,8 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 The published `9884670` prerelease predates the issue #51 automation changes. This section
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
 records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
-records a later package's test of quitting during a run and of LAST CHECKED.
+records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
+records a package's test of **Automation files**.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
 happens in Vivary, when another program calls its webhook URL, or when you choose
@@ -175,8 +176,19 @@ with your prompt. If the prompt cannot reach a chat, Vivary shows it with **Copy
 Each run writes one chat thread, named `Job: <name>` for a scheduled run and
 `Automation: <name>` for **Run now**. Vivary keeps these threads but does not show them
 yet. Chat history does not list them, and **Details** cannot open one. A run can read
-and change your
-resources, memory, chat history, and progress, and it can notify you in the in-app inbox.
+your resources, change your personal resources, memory, chat history, and progress, and
+notify you in the in-app inbox. It cannot write or delete shared files.
+An instruction, skill, or memory file a run writes waits for you: `AGENTS.md` or a file
+under `instructions/`, `skills/`, or `memory/`. A run cannot write the shared
+`LEARNINGS.md`. Chats and later runs do not load a waiting file, and a chat's prompt
+says only how many files wait. Settings > **Automation files** lists each waiting file
+with its text. Read it, then choose **Accept** to let chats and runs load it, or
+**Delete** to remove the whole file, including anything that was in it before the run.
+If the file changed after the list showed it, Accept and Delete do nothing, and the file
+shows its new text with a notice. Read it again before you choose. A file you or a chat
+edit after the run keeps waiting. A run can still delete one of your instruction files,
+and a run that rewrites one hides your earlier text too until you review it. [Issue
+#144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
 running.

@@ -187,12 +187,11 @@ export async function loadNativeProjectContext(context: ActionRunContext, projec
 
 /**
  * Native actions that reach owner-wide data: memory and resources, chat
- * history, and the SQL database tools, which can read the owner-scoped
- * resources table and other threads. None of these stores has a project
- * column, so a project chat has no grant for them. Tests pin the names
- * against Native's registry and against the database entries Native builds,
- * so a rename or a new database tool fails instead of silently exposing
- * owner-wide data again.
+ * history, and the SQL database tools, which can read other threads. None
+ * of these stores has a project column, so a project chat has no grant for
+ * them. Tests pin the names against Native's registry and against the
+ * database entries Native builds, so a rename or a new database tool fails
+ * instead of silently exposing owner-wide data again.
  */
 export const OWNER_WIDE_ACTIONS = [
   "resources", "save-memory", "delete-memory", "chat-history",

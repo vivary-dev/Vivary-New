@@ -10,5 +10,6 @@ export const VIVARY_OWNER_ACTIONS = [
   "vivary-original-command", "vivary-project-adoption", "vivary-project-preview", "vivary-project-read-owner",
   "vivary-project-evaluate-owner",
   "vivary-project-memory", "vivary-project-memory-write",
+  "vivary-automation-files",
 ] as const;
 export type VivaryOwnerAction = typeof VIVARY_OWNER_ACTIONS[number];

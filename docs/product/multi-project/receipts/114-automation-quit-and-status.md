@@ -8,8 +8,9 @@ Open thread on past runs, which did nothing. The owner decided on 2026-09-29 to 
 threads are not openable from Settings, and that a webhook call whose run a normal quit interrupted goes back to
 the queue. This receipt records the packaged Windows check of that branch.
 
-Delivery status: not merged. The branch `fix/automation-quit-and-status` goes to `dev` in one pull request that
-closes both issues.
+Delivery status: merged. PR #137 merged the branch `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
+#114 and #115 were closed on 2026-09-29. The branch's commits from `0c150ae` on came after this check and have not
+run in a package.
 
 ## Source and artifacts
 
