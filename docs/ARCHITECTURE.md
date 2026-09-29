@@ -153,6 +153,16 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #109, tests only so far. Automation runs can write instruction and memory files that later chats and runs
+load. In hosted mode a personal automation's run can also write the app default `AGENTS.md` that every user's chat
+loads, because a personal automation runs with no organization, so a shared write skips the role check. The owner
+decided on 2026-09-28 and 2026-09-29 that a file a run wrote waits for review in Settings > Automation files, and
+that runs skip it too. `tests/automation-file-review.test.mjs` and `tests/automation-file-review-component.test.mjs`
+now run in CI beside the other automation tests. Each case fails on `dev` at `4c19c2e`: a run's write records no run
+id, a chat and the next run load a run-written `AGENTS.md`, skill, and memory index, a later edit has no mark to keep,
+Settings lists nothing to accept or delete, and a run writes the app default and the organization `AGENTS.md`. No
+source changed, so the design description holds.
+
 Issues #114 and #115 are closed. PR #137 merged `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
 #114 and #115 were closed on 2026-09-29. The Automations row in the acceptance register no longer lists the merge
 as remaining. It names the follow-ups #138 through #141 and says that PR #137's commits from `0c150ae` on, the

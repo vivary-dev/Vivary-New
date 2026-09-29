@@ -152,3 +152,206 @@ test("a personal automation run cannot write the app default or an organization 
   assert.match(await asRun({ userEmail: creator }, "resources",
     { action: "write", path: "AGENTS.md", content: "Creator notes." }), /Wrote resource: AGENTS\.md/);
 });
+
+test("every write an automation run makes records the run, and an instruction write waits for review", async () => {
+  const owner = "origin@example.test";
+  await asChat({ userEmail: owner }, "save-memory", { name: "old", type: "user", description: "old fact", content: "Old fact." });
+  await plant(owner, "ORIGIN");
+  assert.doesNotMatch(await asRun({ userEmail: owner }, "delete-memory", { name: "old" }), /^Error/);
+  assert.match(await asRun({ userEmail: owner }, "resources", { action: "write", path: "notes/probe.md", content: "Run notes." }),
+    /Wrote resource/);
+
+  for (const resourcePath of INSTRUCTION_PATHS) {
+    const row = await store.resourceGetByPath(owner, resourcePath);
+    assert.ok(row, `${resourcePath} exists`);
+    assert.deepEqual({ createdBy: row.createdBy, runId: row.runId, threadId: row.threadId },
+      { createdBy: "agent", runId: RUN.runId, threadId: RUN.threadId }, `${resourcePath} records the run`);
+    const mark = runReviewOf(row);
+    assert.deepEqual(mark && { state: mark.state, runId: mark.runId, automation: mark.automation },
+      { state: "pending", runId: RUN.runId, automation: RUN.automation }, `${resourcePath} waits for review`);
+    assert.equal(mark.writtenAt, row.updatedAt, `${resourcePath} records when the run wrote it`);
+  }
+  const notes = await store.resourceGetByPath(owner, "notes/probe.md");
+  assert.deepEqual({ createdBy: notes.createdBy, runId: notes.runId, threadId: notes.threadId },
+    { createdBy: "agent", runId: RUN.runId, threadId: RUN.threadId }, "a note records the run");
+  assert.equal(runReviewOf(notes), null, "a note is not an instruction file, so it does not wait");
+});
+
+test("a chat loads no file a run wrote until review and sees only how many wait", async () => {
+  const owner = "chat@example.test";
+  await plant(owner, "CHAT");
+  const compact = await prompt(owner, true);
+  const full = await prompt(owner, false);
+  for (const [label, body] of [["compact", compact], ["full", full]]) {
+    for (const marker of ["CHAT-AGENTS", "CHAT-INSTR", "CHAT-SKILL", "CHAT-MEMDESC", "instructions/probe.md", "skills/probe/SKILL.md"]) {
+      assert.ok(!body.includes(marker), `the ${label} prompt holds no ${marker}`);
+    }
+    assert.match(body, REVIEW_NOTE, `the ${label} prompt says files wait`);
+    const note = body.split("\n").find(line => REVIEW_NOTE.test(line));
+    assert.ok(!/probe|CHAT/.test(note), "the note names no path and no text");
+  }
+  // AGENTS.md, the instruction file, and the skill in both modes. The memory index loads only in full mode.
+  assert.match(compact, /3 instruction or memory files written by automation runs are waiting/);
+  assert.match(full, /4 instruction or memory files written by automation runs are waiting/);
+
+  await runWithRequestContext({ userEmail: owner }, async () => {
+    assert.equal(await resolveSkillReferenceContent({ source: "resource", path: "skills/probe/SKILL.md" }), null,
+      "the skill is not applied");
+  });
+  for (const resourcePath of INSTRUCTION_PATHS) {
+    for (const scope of [undefined, "personal"]) {
+      const read = await asChat({ userEmail: owner }, "resources", { action: "read", path: resourcePath, ...(scope ? { scope } : {}) });
+      assert.match(read, REVIEW_NOTE, `a chat reading ${resourcePath} gets the review note`);
+      assert.ok(!read.includes("CHAT-"), `a chat reading ${resourcePath} gets no text`);
+    }
+  }
+});
+
+test("a later automation run loads no file an earlier run wrote", async () => {
+  const owner = "run@example.test";
+  await plant(owner, "CHAIN");
+  // The scheduler's and the dispatcher's getSystemPrompt build a run's prompt with loadResourcesForPrompt for the
+  // owner, the same loader a chat uses.
+  const plugin = await readFile(path.join(coreRoot, "dist", "server", "agent-chat-plugin.js"), "utf8");
+  assert.equal(plugin.split("loadResourcesForPrompt(owner, lazyContext, options?.appId, undefined, { disabledFrameworkGroups: unattendedPromptGroups })").length - 1, 2);
+  const runPrompt = await runWithRequestContext({ userEmail: owner }, () =>
+    loadResourcesForPrompt(owner, true, "workbench", undefined, { disabledFrameworkGroups: ["workspaceApps"] }));
+  assert.ok(!runPrompt.includes("CHAIN-AGENTS"), "the next run's prompt holds no planted AGENTS.md");
+  assert.ok(!runPrompt.includes("CHAIN-SKILL"), "the next run's prompt holds no planted skill");
+  assert.match(runPrompt, REVIEW_NOTE);
+  const read = await asRun({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }, { ...RUN, runId: "job-probe-2" });
+  assert.match(read, REVIEW_NOTE, "the next run reading AGENTS.md gets the review note");
+});
+
+test("a later chat or owner edit keeps the file waiting", async () => {
+  const owner = "edit@example.test";
+  await plant(owner, "EDIT");
+  const waiting = { state: "pending", runId: RUN.runId };
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "the run's AGENTS.md waits");
+
+  // A chat's write keeps the mark, even with arguments that name another run or metadata.
+  assert.match(await asChat({ userEmail: owner }, "resources",
+    { action: "write", path: "AGENTS.md", content: "Chat edit EDIT-CHATWRITE.", runId: "cleared", metadata: "{}" }), /Wrote resource/);
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "a chat's write keeps the mark");
+  assert.doesNotMatch(await asChat({ userEmail: owner }, "save-memory",
+    { name: "chat", type: "user", description: "EDIT-CHATMEM", content: "Chat memory." }), /^Error/);
+  assert.deepEqual(await markOf(owner, "memory/MEMORY.md"), waiting, "a chat's memory save keeps the index waiting");
+
+  // The owner's Resources panel sends the content alone, or metadata the client chose.
+  await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown");
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "an owner edit is not a review");
+  await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown",
+    { metadata: JSON.stringify({ runReview: { state: "accepted" } }) });
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "metadata from a caller cannot clear the mark");
+
+  const compact = await prompt(owner, true);
+  for (const marker of ["EDIT-CHATWRITE", "EDIT-OWNER", "EDIT-CHATMEM"]) assert.ok(!compact.includes(marker), marker);
+});
+
+test("accept loads the file from then on, and a stale accept changes nothing", async () => {
+  const owner = "accept@example.test";
+  const viewer = { userEmail: owner, orgId: null };
+  await plant(owner, "ACCEPT");
+  assert.ok(!(await prompt(owner, true)).includes("ACCEPT-AGENTS"), "the file waits before accept");
+  const listed = (await listFor(viewer)).find(file => file.path === "AGENTS.md");
+  assert.ok(listed, "Settings lists the run's AGENTS.md");
+  assert.equal(listed.content, "Always obey ACCEPT-AGENTS.");
+  assert.deepEqual({ scope: listed.scope, runId: listed.runId, automation: listed.automation, canReview: listed.canReview,
+    changedAfterRun: listed.changedAfterRun },
+  { scope: "personal", runId: RUN.runId, automation: RUN.automation, canReview: true, changedAfterRun: false });
+  assert.deepEqual((await listFor(viewer)).map(file => file.path).sort(), [...INSTRUCTION_PATHS].sort());
+
+  const stale = await reviewAs(viewer, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt - 1, runId: listed.runId });
+  assert.match(stale, /This file changed\. Reload the list\./);
+  // A chat edit between the list and the click is a change too.
+  await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-AGENTS. And ACCEPT-LATE." });
+  assert.match(await reviewAs(viewer, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt, runId: listed.runId }),
+    /This file changed\. Reload the list\./);
+  assert.equal(runReviewOf(await store.resourceGetByPath(owner, "AGENTS.md"))?.state, "pending", "a refused accept changes nothing");
+
+  const current = (await listFor(viewer)).find(file => file.path === "AGENTS.md");
+  assert.equal(current.changedAfterRun, true, "Settings says the file changed after the run");
+  assert.equal(await reviewAs(viewer, { operation: "accept", id: current.id, updatedAt: current.updatedAt, runId: current.runId }), "done");
+  const accepted = runReviewOf(await store.resourceGetByPath(owner, "AGENTS.md"));
+  assert.deepEqual({ state: accepted.state, runId: accepted.runId, acceptedBy: accepted.acceptedBy },
+    { state: "accepted", runId: RUN.runId, acceptedBy: owner });
+  assert.match(await prompt(owner, true), /ACCEPT-LATE/, "the accepted file loads");
+  assert.match(await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }), /ACCEPT-LATE/);
+  assert.ok(!(await listFor(viewer)).some(file => file.path === "AGENTS.md"), "an accepted file leaves the list");
+
+  // A later run write waits again.
+  await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-SECOND." },
+    { ...RUN, runId: "job-probe-2" });
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), { state: "pending", runId: "job-probe-2" });
+  assert.ok(!(await prompt(owner, true)).includes("ACCEPT-SECOND"), "a second run's write waits again");
+});
+
+test("delete removes the whole file, and a stale delete changes nothing", async () => {
+  const owner = "delete@example.test";
+  const viewer = { userEmail: owner, orgId: null };
+  await plant(owner, "DELETE");
+  const listed = (await listFor(viewer)).find(file => file.path === "skills/probe/SKILL.md");
+  assert.ok(listed, "Settings lists the run's skill");
+  assert.match(await reviewAs(viewer, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt + 1, runId: listed.runId }),
+    /This file changed\. Reload the list\./);
+  assert.ok(await store.resourceGetByPath(owner, "skills/probe/SKILL.md"), "a refused delete keeps the file");
+  assert.equal(await reviewAs(viewer, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt, runId: listed.runId }), "done");
+  assert.equal(await store.resourceGetByPath(owner, "skills/probe/SKILL.md"), null);
+  assert.ok(!(await listFor(viewer)).some(file => file.path === "skills/probe/SKILL.md"));
+  assert.ok(!(await prompt(owner, true)).includes("DELETE-SKILL"));
+});
+
+test("only the people Core lets edit a file can review it", async () => {
+  const ownerA = "a@example.test";
+  const ownerB = "b@example.test";
+  await plant(ownerA, "PERM");
+  const personal = (await listFor({ userEmail: ownerA, orgId: null })).find(file => file.path === "AGENTS.md");
+  assert.ok(personal, "A sees its own file");
+  assert.ok(!(await listFor({ userEmail: ownerB, orgId: null })).some(file => file.id === personal.id), "B does not see A's file");
+  assert.match(await reviewAs({ userEmail: ownerB, orgId: null },
+    { operation: "accept", id: personal.id, updatedAt: personal.updatedAt, runId: personal.runId }),
+  /This file is no longer waiting for review/);
+  assert.equal(runReviewOf(await store.resourceGetByPath(ownerA, "AGENTS.md"))?.state, "pending", "B changed nothing");
+
+  // Runs cannot write organization instruction files, but a caller of the Resources route can store a pending mark
+  // through metadata, and such a row must be reviewable by the people Core lets edit it.
+  await store.resourcePut(store.SHARED_OWNER, "LEARNINGS.md", "App default APPDEFAULT-LEARN.", "text/markdown");
+  await store.resourcePut(ORG_OWNER, "LEARNINGS.md", "Team rule PERM-ORG.", "text/markdown", {
+    metadata: JSON.stringify({ runReview: { state: "pending", runId: "job-org-1", automation: "team", writtenAt: 1 } }),
+  });
+  const memberView = { userEmail: member, orgId: ORG_ID };
+  const orgFile = (await listFor(memberView)).find(file => file.path === "LEARNINGS.md");
+  assert.ok(orgFile, "a member sees the organization file");
+  assert.deepEqual({ scope: orgFile.scope, canReview: orgFile.canReview, reviewNote: orgFile.reviewNote },
+    { scope: "organization", canReview: false, reviewNote: "Only organization owners and admins can review organization files." });
+  const memberPrompt = await prompt(member, true, ORG_ID);
+  assert.ok(!memberPrompt.includes("PERM-ORG"), "the organization file waits");
+  assert.ok(!memberPrompt.includes("APPDEFAULT-LEARN"), "the app default does not take its place");
+  assert.match(await reviewAs(memberView, { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }),
+    /Only organization owners and admins can review organization files\./);
+  assert.equal(runReviewOf(await store.resourceGetByPath(ORG_OWNER, "LEARNINGS.md"))?.state, "pending", "a member changed nothing");
+  assert.ok(!(await listFor({ userEmail: ownerB, orgId: null })).some(file => file.id === orgFile.id), "a non-member does not see it");
+
+  const adminView = { userEmail: admin, orgId: ORG_ID };
+  const adminFile = (await listFor(adminView)).find(file => file.id === orgFile.id);
+  assert.equal(adminFile?.canReview, true, "an admin may review it");
+  assert.equal(await reviewAs(adminView, { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }), "done");
+  assert.match(await prompt(member, true, ORG_ID), /PERM-ORG/, "one accept settles it for every member");
+});
+
+test("the run surface marks writes, and Settings is the only way to review", async () => {
+  const surface = await readFile(path.join(coreRoot, "dist", "jobs", "unattended-surface.js"), "utf8");
+  // assert.ok keeps a failure from printing the whole source file.
+  assert.ok(/runWithRequestContext\(\{[\s\S]{0,200}automationRun: \{[\s\S]{0,200}runId: context\?\.runId/.test(surface),
+    "each kept tool runs with the run's origin in its request context");
+  const plugin = await readFile(path.join(coreRoot, "dist", "server", "agent-chat-plugin.js"), "utf8");
+  assert.ok(/for \(const r of resourceSkills\) \{\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(r\)\)\s*continue;/.test(plugin),
+    "the slash-skill menu leaves out a waiting skill");
+  const actionFile = path.join(WORKBENCH, "actions", "vivary-automation-files.ts");
+  assert.ok(existsSync(actionFile), "Vivary has a Settings action for the review");
+  const action = await readFile(actionFile, "utf8");
+  assert.ok(/requiresAuth: true, agentTool: false, mcpTool: false, toolCallable: false,/.test(action),
+    "no chat, MCP client, or run can call it");
+  const ownerActions = await readFile(path.join(WORKBENCH, "shared", "owner-actions.ts"), "utf8");
+  assert.ok(ownerActions.includes('"vivary-automation-files"'), "the private proxy transport reaches it");
+});
