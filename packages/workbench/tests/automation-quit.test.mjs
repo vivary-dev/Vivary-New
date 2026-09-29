@@ -194,7 +194,8 @@ test("the next launch schedules at its first tick", async () => {
 
 test("a hard kill keeps the lease until it expires", async () => {
   await defineScheduled("kill-app", "held");
-  await defineScheduled("kill-app", "held-second");
+  // Not due until the case makes it due, so a minute boundary during the case cannot start it in the killed child.
+  await defineScheduled("kill-app", "held-second", "0 0 1 1 *");
   await makeDue("held");
   const { child, report, exited } = spawnChild("hold", "kill-app");
   const { running, lease: held } = await report;
