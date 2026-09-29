@@ -156,7 +156,8 @@ No documentation route reads arbitrary host files.
 Issue #114. A normal quit now ends in-flight automation runs and releases the scheduler lease. The maintained Core
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
-wait, so it settles before the desktop's 15-second kill and a sibling stop that throws cannot skip it. The stop closes
+wait, so it settles before the desktop's 15-second kill. Every stop starts even when another throws, and a failed stop
+is reported only after all of them settle, so the automation stop is always waited for. The stop closes
 the scheduler to new sweeps and Run now claims, and the runner, the event handler, the in-process webhook runner, and
 Core's process-task route to new runs, so work that arrives during the quit starts no run and a due job stays due. The
 event handler checks before its first write and again right before its dispatch, and the route leaves a webhook call
@@ -178,7 +179,9 @@ which failed on the patch before its fix, and pins for a scanning sweep, a secon
 second round added process-task route cases at and after the quit and an event with a condition after the quit, each
 of which failed on the patch before its fix, and pins for an event whose condition check spans the quit and a run the
 owner stopped just before it. A third round added a quit that begins while the route's claim saves and work that
-keeps arriving during the stop, each of which failed on the patch before its fix. The unpublished `9e921ca0` package
+keeps arriving during the stop, each of which failed on the patch before its fix. A fourth round added two cases in
+which one of the owner's stops throws and another rejects, which failed on the owner's previous `Promise.all`. The
+unpublished `9e921ca0` package
 ran the Windows check ([#114 and #115 receipt](product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
 during a scheduled run left its row interrupted 18 ms after the close with the lease released, the next launch ran at
 its first tick, a webhook call cut off by a quit ran once after relaunch, and a hard kill kept the lease until it

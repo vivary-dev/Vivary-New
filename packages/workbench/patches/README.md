@@ -1095,9 +1095,10 @@ for automations, and Core had no way to stop them.
 `@agent-native/core/jobs` exports it too. Vivary's one shutdown owner,
 `stopLocalWork` in `server/plugins/02-local-code-lifecycle.ts`, calls it beside
 the Code host, original command, and preview stops. It calls the automation
-stop first, because `Promise.all` calls its members in order and the original
-command and preview stops are plain functions that could throw synchronously
-and skip it. That owner runs on the
+stop first and starts every stop even when another throws as it is called. It
+reports a failed stop only after all of them settle, so it always waits for
+the automation stop, and a failed stop cannot end the CLI host while
+automations are still stopping. That owner runs on the
 desktop's IPC shutdown and on a signal or Nitro `close` in the CLI host. The
 stop works in this order:
 
@@ -1271,6 +1272,14 @@ interrupted. A second child tracks work that keeps arriving during the stop.
 The stop waits for it until its bound, and no pass of its wait starts after
 the stop returns. Both failed on the patch before this round's fix: the task
 stayed `processing`, and the stop returned after the first piece of work.
+
+A fourth review round added two cases that load the lifecycle plugin with
+stand-ins for its four stops. One stop throws as it is called, and another
+rejects. Through the Nitro `close` hook and through the signal handler, every
+stop still starts, the automation stop first, and the failure is reported
+only after the automation stop settled. Both failed on the previous
+`stopLocalWork`, which used `Promise.all`: the preview stop never started, the
+hook rejected first, and the throw left the signal handler.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
