@@ -24,7 +24,7 @@ import { projectReconnectionPending } from "./project-reconnection-admission.mjs
 
 import {
   BOOT_ID_PATTERN, checkWorkerCleanup, endWorkerLeftovers, executeVivaryCodeWorker, isTraced, VivaryCodeWorkerCleanupError,
-  type CleanupCheck, type CleanupFailure, type CleanupTarget, type EndAttempt, type LeftoverProcess,
+  type CleanupCheck, type CleanupFailure, type CleanupTarget, type EndAttempt, type EndOutcome, type LeftoverProcess,
 } from "./code-execution-host";
 import { redactCredentialsInValue, refreshHeldCredentials } from "./credential-redaction.ts";
 import type { ProjectContextBlock, ProjectContextLoad } from "./project-memory.ts";
@@ -195,8 +195,8 @@ export type CleanupRefusal = {
   ends: CleanupEnd[];
 };
 
-/** One End them: who chose it, when, and what it did to each process it tried, or null when it could not run. */
-type CleanupEnd = { at: string; by: string; attempts: EndAttempt[] | null };
+/** One End them: who chose it, when, and what it did to each process it tried. */
+type CleanupEnd = { at: string; by: string; attempts: EndAttempt[] };
 
 /**
  * How a refusal ended, kept as `metadata.cleanupLifted` on the run. Continue anyway records the list the owner was
@@ -227,8 +227,8 @@ const storedCleanupRefusalSchema = z.object({
   refusedAt: z.string(),
   checkedAt: z.string(),
   ends: z.array(z.object({ at: z.string(), by: z.string(), attempts: z.array(leftoverSchema.extend({
-    outcome: z.enum(["ended", "mismatched", "gone", "failed"]),
-  })).max(MAX_CLEANUP_LISTED).nullable() })).max(MAX_CLEANUP_ENDS).default([]),
+    outcome: z.enum(["ended", "mismatched", "gone", "failed", "unknown"]),
+  })).max(MAX_CLEANUP_LISTED) })).max(MAX_CLEANUP_ENDS).default([]),
 });
 
 type CodeHostState = {
@@ -337,10 +337,10 @@ export async function resolveVivaryCodeCleanup(input: {
     if (!offers.canEnd || !refusal.target) return "not-offered";
     const { attempts, check } = await endWorkerLeftovers(refusal.target, refusal.remaining);
     const end: CleanupEnd = { at: new Date().toISOString(), by: input.ownerEmail, attempts };
-    const ended = endedBy([end]);
+    const ended = attemptsWith([end], "ended");
     // The credential redaction plugin redacts server output. Process names stay out of the log.
-    console.error(`[vivary-code-host] cleanup-end run=${refusal.runId} tried=${attempts?.length ?? "unavailable"} `
-      + `ended=${ended.length} result=${check.result}`);
+    console.error(`[vivary-code-host] cleanup-end run=${refusal.runId} tried=${attempts.length} ended=${ended.length} `
+      + `unknown=${attemptsWith([end], "unknown").length} result=${check.result}`);
     const recorded = { ...refusal, ends: [...refusal.ends, end].slice(-MAX_CLEANUP_ENDS) };
     if (check.result === "clean" && ended.length) {
       liftCleanupRefusal(recorded, { how: "ended", endedAt: end.at, by: input.ownerEmail, ends: recorded.ends });
@@ -381,10 +381,16 @@ function confirmedFromRun(refusal: CleanupRefusal, leftover: LeftoverProcess): b
   return refusal.target !== null && leftover.pid !== process.pid && isTraced(refusal.target.traced, leftover);
 }
 
-/** Every process these End them runs ended. */
-function endedBy(ends: readonly CleanupEnd[]): LeftoverProcess[] {
-  return ends.flatMap(({ attempts }) => (attempts ?? []).filter(attempt => attempt.outcome === "ended")
+/** Every process these End them runs gave this outcome. */
+function attemptsWith(ends: readonly CleanupEnd[], outcome: EndOutcome): LeftoverProcess[] {
+  return ends.flatMap(({ attempts }) => attempts.filter(attempt => attempt.outcome === outcome)
     .map(({ pid, name, start }) => ({ pid, name, start })));
+}
+
+/** Names the processes End them was sent but could not report on, or is empty when there are none. */
+function unreadNote(ends: readonly CleanupEnd[]): string {
+  const unknown = attemptsWith(ends, "unknown");
+  return unknown.length ? `Vivary could not read what End them did to ${processList(unknown)}.` : "";
 }
 
 /**
@@ -637,14 +643,14 @@ function cleanupFailureMessage(refusal: CleanupRefusal): string {
 function cleanupNotice(refusal: CleanupRefusal): string | null {
   const last = refusal.ends.at(-1);
   if (!last) return null;
-  if (!last.attempts) return "End them could not run, so Vivary ended nothing.";
-  const ended = last.attempts.filter(attempt => attempt.outcome === "ended");
-  const failed = last.attempts.filter(attempt => attempt.outcome === "failed");
-  if (!ended.length && !failed.length) {
+  const ended = attemptsWith([last], "ended");
+  const failed = attemptsWith([last], "failed");
+  const unread = unreadNote([last]);
+  if (!ended.length && !failed.length && !unread) {
     return "End them ended nothing, because the listed processes had already exited or changed.";
   }
   return [ended.length ? `End them ended ${processList(ended)}.` : "",
-    failed.length ? `Vivary could not end ${processList(failed)}.` : ""].filter(Boolean).join(" ");
+    failed.length ? `Vivary could not end ${processList(failed)}.` : "", unread].filter(Boolean).join(" ");
 }
 
 /** The Code composer's placeholder, which names the choices the strip offers. */
@@ -656,8 +662,9 @@ function cleanupComposer(refusal: CleanupRefusal): string {
 
 /** The transcript status when a refusal lifts. It marks any listed process Vivary did not trace to the run. */
 function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal): string {
-  const ended = endedBy(lift.ends);
-  const accepts = "Vivary accepts new messages again.";
+  const ended = attemptsWith(lift.ends, "ended");
+  // What Vivary could not read about End them comes last in every lift, before the acceptance.
+  const accepts = [unreadNote(lift.ends), "Vivary accepts new messages again."].filter(Boolean).join(" ");
   if (lift.how === "ended") {
     return `You chose End them. Vivary ended ${processList(ended)} and found no coding processes left. ${accepts}`;
   }

@@ -7344,8 +7344,10 @@ choice. End them tries each listed process traced to the run, newest first, and 
 acts. On Windows one PowerShell call takes each process by PID, reads its creation time through the handle it opens,
 and ends it through that same object only when the time matches, never with `/T`. Windows does not reuse a PID while a
 handle to it is open. On Linux it reads the process's `stat` again right before `SIGKILL` to that one PID, and skips
-it when the start time or group changed. Each process is reported as ended, mismatched, gone, or failed, and an End
-call that cannot run ends nothing. It then checks again and lifts the refusal when nothing is left. The traced
+it when the start time or group changed. Each process is reported as ended, mismatched, gone, or failed. When the
+Windows End call fails or prints output Vivary cannot read, each process it was sent is recorded as unknown, because
+it may have ended, and the strip and the lift's transcript status say that Vivary could not read what End them did to
+it. It then checks again and lifts the refusal when nothing is left. The traced
 processes are those the check right after the failed stop found, `checkStoppedWorker`, and their later children found
 through a parent alive in the same scan. A check still lists a process linked only through an exited parent or a
 reused Linux group id, so the refusal holds, but End them leaves it alone, because it could belong to another program
@@ -7354,7 +7356,8 @@ host itself. A boot id that is not a UUID fails to parse and keeps refusing. Eac
 the strip showed, and a choice about a list that changed since is refused with `vivary_code_cleanup_changed`, so the
 strip shows the new list first. Continue anyway lifts the refusal on the owner's word after one more check, unless
 that check finds a process the owner was not shown, and records the list the owner saw and what the check found. The
-refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, or failed,
+refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, failed, or
+unknown,
 also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,
 and its transcript status names what End them ended and marks any listed process that Vivary did not trace to the run.
 The server log records the scan result and the number of leftovers, never their names. The host strip lists the

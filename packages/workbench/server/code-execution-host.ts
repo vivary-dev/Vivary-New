@@ -522,9 +522,10 @@ function unixMsFromFiletime(digits: string): number {
 
 /**
  * What End them did to one process. `mismatched` means its PID now names another process, `gone` that it had exited,
- * and `failed` that Windows or the kernel refused.
+ * `failed` that Windows or the kernel refused, and `unknown` that the Windows End call it was sent to failed or printed
+ * output Vivary cannot read, so it may have ended.
  */
-export type EndOutcome = "ended" | "mismatched" | "gone" | "failed";
+export type EndOutcome = "ended" | "mismatched" | "gone" | "failed" | "unknown";
 export type EndAttempt = LeftoverProcess & { outcome: EndOutcome };
 
 /**
@@ -739,8 +740,8 @@ async function endLinuxProcess(groupId: number, leftover: LeftoverProcess, proc:
   } catch (error) { return errorCode(error) === "ESRCH" ? "gone" : "failed"; }
 }
 
-/** What one End them tried, or null when its Windows call could not run, and the check after it. */
-export type EndResult = { attempts: EndAttempt[] | null; check: CleanupCheck };
+/** What one End them tried, and the check after it. */
+export type EndResult = { attempts: EndAttempt[]; check: CleanupCheck };
 
 /**
  * Issue #121. The owner's End them. It tries each process the owner was shown that Vivary traced to the run, never this
@@ -751,9 +752,10 @@ export async function endWorkerLeftovers(target: CleanupTarget, shown: readonly 
   io: CleanupIo = cleanupIo): Promise<EndResult> {
   const candidates = shown.filter(leftover => leftover.pid !== process.pid && isTraced(target.traced, leftover))
     .sort((left, right) => right.start - left.start);
-  let attempts: EndAttempt[] | null = [];
+  let attempts: EndAttempt[] = [];
   if (candidates.length && target.platform === "win32") {
-    attempts = await io.windowsEnd(candidates).catch(() => null);
+    attempts = await io.windowsEnd(candidates)
+      .catch(() => candidates.map(leftover => ({ ...leftover, outcome: "unknown" as const })));
   } else if (candidates.length && target.platform === "linux") {
     const rebooted = await rebootedSince(target, io);
     for (const leftover of candidates) {
