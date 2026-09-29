@@ -1208,3 +1208,36 @@ pre-read race. The focused follow-up checks passed on a dirty hosted build.
 Clean-source packaged acceptance remains open.
 
 The Windows keyboard case remains open under issue #9.
+
+## Errors thrown after a request body is read
+
+Issue #142. Core mounts framework routes, the Native chat POST among them,
+through `getH3App(...).use`. Its wrapper in `server/framework-request-handler.js`
+catches a handler's error and first asks `isClientAbortError` whether the
+client left. That check counted any destroyed request stream as a client
+abort. Node destroys a request stream once its body has been read to the end,
+so every error a POST handler threw after reading its body was dropped as an
+abort. h3 then answered 404 "Cannot find any route matching", and Core's chat
+client posted the same turn nine times. The Native chat send guard's refusals
+(#91) never reached the browser.
+
+The patch changes that file in two places:
+
+- `isClientAbortError` counts a destroyed request only when its body did not
+  complete, and a destroyed response as before. A client that leaves after
+  sending its body still destroys the response, so it is still an abort and is
+  not logged as a server error.
+- The JSON error response keeps the fields of an h3 error's `body`, as h3's own
+  error response does, beside `error` and the optional stack. The guard's
+  `errorCode` and `retryable: false` reach the chat client, which then shows the
+  refusal once and does not send it again.
+
+Run the focused checks with:
+
+```sh
+pnpm --dir packages/workbench exec tsx --test tests/native-chat-route-errors.test.ts tests/native-chat-project.test.ts
+```
+
+`native-chat-route-errors.test.ts` serves a route mounted through Core's
+wrapper over a Node HTTP server and reads the body before the handler throws,
+as Core's chat handler does. It is part of `test:native-chat`.

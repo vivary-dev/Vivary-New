@@ -6585,6 +6585,36 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc592
              ...(typeof opts.status === "number" && { status: opts.status }),
              ...(opts.code && { code: opts.code }),
              strikes,
+diff --git a/dist/server/framework-request-handler.js b/dist/server/framework-request-handler.js
+index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..598587c5025ccd21e3d7d16f12975a25f13eb3c0 100644
+--- a/dist/server/framework-request-handler.js
++++ b/dist/server/framework-request-handler.js
+@@ -482,9 +482,12 @@ function isClientAbortError(error, event) {
+     const message = typeof err?.message === "string" ? err.message : "";
+     const code = typeof err?.code === "string" ? err.code : "";
+     const node = event.node;
++    // Vivary patch, issue #142. Node destroys a request stream once its body has been read to the end, so a destroyed
++    // request alone does not mean the client left. Only one destroyed before its body completed, or a destroyed
++    // response, does. Otherwise a handler's error after it read the body was dropped and the client got a 404.
+     return (message === "aborted" ||
+         code === "ECONNRESET" ||
+-        node?.req?.destroyed === true ||
++        (node?.req?.destroyed === true && node.req.complete !== true) ||
+         node?.res?.destroyed === true);
+ }
+ function debugClientAbort(args) {
+@@ -669,7 +672,11 @@ function registerMiddleware(nitroApp, path, handler, options = {}) {
+             catch {
+                 // Response already sent — best effort.
+             }
++            // Vivary patch, issue #142. An h3 error's `body` holds the fields its thrower chose for the client, such
++            // as an error code and whether to retry. h3's own error response keeps them, so this one does too.
++            const chosenFields = e?.body && typeof e.body === "object" && !Array.isArray(e.body) ? e.body : {};
+             return {
++                ...chosenFields,
+                 error: e?.message || "Internal server error",
+                 // Only surface the stack to clients when explicitly enabled.
+                 // `NODE_ENV !== "production"` was unsafe — preview deploys and
 diff --git a/dist/server/index.d.ts b/dist/server/index.d.ts
 index ef529363366369eb3b9951325fa467bdf579c1a8..8bf22a84bb7b6998d9bfe6723bd322f93e26db72 100644
 --- a/dist/server/index.d.ts
