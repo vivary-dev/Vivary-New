@@ -1419,6 +1419,23 @@ applied skill, `resources read`, the index summary, and that a chat write, a
 memory save, and an owner edit keep the mark. Source pins cover the wrapper and
 the `/skills` route. Every case failed on the previous patch.
 
+Vivary's Settings > Automation files tab lists the waiting files. It is
+Vivary code, not a Core hunk: `server/automation-file-review.ts` reads the
+store's exports, and the `vivary-automation-files` action, which no chat, MCP
+client, or run can call, lists, accepts, and deletes. The owner sees each
+file's path, scope, automation, run, and time, whether it changed after the
+run, and its text as plain text, and can accept or delete it. Delete removes
+the whole file. A personal file is its owner's. An organization file is
+listed for its members and an app default file for everyone signed in, and
+either takes an organization owner or admin to review, or anyone when there
+is no active organization, as Core's Resources routes decide who may edit
+them. A run cannot write those files, so one waits only when a caller of the
+Resources routes stored the mark through metadata. Accept and delete act only
+on the version the list showed, so a write since then refuses them with
+"This file changed. Reload the list." The same test file covers the list,
+accept, delete, and who may review, and
+`tests/automation-file-review-component.test.mjs` renders the tab.
+
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an
 upstream release holds agent-written instruction files for review and passes

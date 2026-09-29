@@ -16,13 +16,15 @@ const REVIEW = join(WORKBENCH, "app", "components", "settings", "AutomationFileR
 const CORE = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native", "core", "package.json")));
 
 const stubs = new Map([
+  // The real caller keeps one call function for the component's life, so the stand-in does too.
   ["../../lib/native-actions", `
     export const callProof = { calls: [], answer: () => ({ files: [] }) };
+    async function call(name, params) {
+      callProof.calls.push({ name, params });
+      return callProof.answer(params);
+    }
     export function useNativeActionCaller() {
-      return { ready: true, retrySession() {}, async call(name, params) {
-        callProof.calls.push({ name, params });
-        return callProof.answer(params);
-      } };
+      return { ready: true, retrySession() {}, call };
     }`],
   ["@agent-native/core/client/hooks", `export function actionErrorMessage(failure) { return failure?.message; }`],
   ["@agent-native/toolkit/ui", `
