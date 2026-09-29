@@ -43,3 +43,22 @@ test("context that itself holds a context block stays out of the title", () => {
   assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage("Sea stars", nested))),
     { title: "Sea stars", preview: "Sea stars" });
 });
+
+test("a title override wins, and the preview still leaves out the context", () => {
+  const thread = { ...threadWith(appendAgentChatContextToMessage("Sea stars", context)), _titleOverride: "Rock pools" };
+  assert.deepEqual(extractThreadMeta(thread), { title: "Rock pools", preview: "Sea stars" });
+});
+
+test("a message saved without appended context keeps its text, context tags included", () => {
+  for (const typed of ["Sea stars", 'Explain "<context>" in XML', "Explain\n\n<context>\nexample\n</context>\nKeep this sentence."]) {
+    assert.deepEqual(extractThreadMeta(threadWith(typed)), { title: typed, preview: typed }, typed);
+  }
+});
+
+// Core records no boundary between the owner's text and the appended context, and an app may put any text in the
+// context. Hidden context must not show, so text after a block the owner typed in the envelope's shape is left out too.
+test("hidden context never shows, even after a block the owner typed in the same shape", () => {
+  const typed = "Explain\n\n<context>\nexample\n</context>\nKeep this sentence.";
+  assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage(typed, context))),
+    { title: "Explain", preview: "Explain" });
+});

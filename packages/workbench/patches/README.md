@@ -1608,12 +1608,13 @@ opening because the context can hold its own block, and a later cut would show
 the rest of it. A `<context>` the owner typed inline stays in the title. A
 message that holds only context gives no title.
 
-One limit. Core does not record where the appended context begins, so a message
-the owner typed that itself ends in a block of that shape, a `<context>` line
-after a blank line through a closing `</context>` line, loses that block from
-its title too. The chat's own display already hides every `<context>` block, so
-the title agrees with what the chat shows. Recording the boundary would change
-how Core saves messages.
+The limit. Core does not record where the appended context begins, and an app
+may put any text in the context, including a block of the same shape. So in a
+message that ends with a `</context>` line, the text is kept only up to the
+first `<context>` line that follows a blank line. If the owner typed such a
+line, the title and preview stop there, even when no context was appended. The
+patch prefers a shorter title to one that shows context. Recording the boundary
+would change how Core saves messages.
 
 `native-thread-meta.test.mjs` builds messages with Core's own
 `appendAgentChatContextToMessage` and checks the title and preview. It is part
