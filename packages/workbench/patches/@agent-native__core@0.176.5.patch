@@ -6569,6 +6569,31 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
              },
      };
      return JSON.stringify(result, null, 2);
+diff --git a/dist/scripts/db/safety.js b/dist/scripts/db/safety.js
+index 1965099e723d476f9d2b02e827dc2f63de310308..3b6c8b80e6e16b2625ec923b9d5c3bf427019614 100644
+--- a/dist/scripts/db/safety.js
++++ b/dist/scripts/db/safety.js
+@@ -2,7 +2,10 @@ import { fail } from "../utils.js";
+ // Credential and identity tables are deliberately off-limits to the generic
+ // agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
+ // auth identity data; use the framework stores/actions instead.
+-const SENSITIVE_FRAMEWORK_TABLE_RE = /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
++// Vivary #109: `resources` too. It holds instruction and memory files an
++// automation run wrote that wait for the owner's review, and chats read
++// files through the resources tool, which skips a waiting file.
++const SENSITIVE_FRAMEWORK_TABLE_RE = /\b(app_secrets|oauth_tokens|resources|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+ function stripSqlNonIdentifiers(sql) {
+     let out = "";
+     let state = "normal";
+@@ -62,7 +65,7 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
+         : operation === "write"
+             ? "writable"
+             : "patchable";
+-    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`);
++    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, OAuth, or resources APIs instead.`);
+ }
+ // Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
+ // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
 diff --git a/dist/scripts/resources/read.js b/dist/scripts/resources/read.js
 index 467263c0411135a3acdfc27b790da7b330a17361..b82f01231c6267e37b88ea56bab15626f230aa5b 100644
 --- a/dist/scripts/resources/read.js

@@ -1424,6 +1424,20 @@ Every loader that a run's personal file reaches skips a waiting file:
   automation runs until the owner accepts it." in place of the text. It does
   not fall back to a shared file at the same path.
 
+Core's raw database tools, `db-query`, `db-exec`, and `db-patch`, refuse the
+`resources` table. `SENSITIVE_FRAMEWORK_TABLE_RE` in
+`dist/scripts/db/safety.js` lists it beside the credential and identity
+tables, and the refusal now names the resources APIs. In the packaged check on
+`e50ae89c`, a chat's `db-query` read a waiting file's text from the table,
+because Core's SQL tools scope `resources` by owner only, and a `db-exec` of
+the row's metadata could clear the mark. The list matches `resources` as a
+whole word outside strings and comments, so a table whose name only contains
+it and a string that holds it pass, and a quoted `"resources"` is refused. No
+Core caller sends SQL on `resources` through these tools: the store and the
+other Core modules query the table directly, and the extension SQL routes in
+`dist/extensions/routes.js` refuse `resources` in their own list before they
+reach the query and exec scripts.
+
 `LEARNINGS.md` loads from the organization or the app default only, which a
 run cannot write, so it needs no skip. The filter sits in
 `loadResourcesForPrompt`, so it covers interactive and project chats, A2A, MCP
@@ -1465,9 +1479,7 @@ stays a limit beside #144. A chat can still overwrite a waiting file, and the
 result keeps waiting, so the owner then reviews the chat's text. A run's
 personal notes stay readable, and the resource index lists no personal file.
 The prompt says only how many files wait, but a chat can still list their paths
-with `resources list`, and from the source, Core's SQL tools scope the
-`resources` table by owner only, so a chat's `db-query` can read its own
-waiting row. Neither loads a file into a prompt unasked. A shared or
+with `resources list`, which loads no file into a prompt. A shared or
 organization row that a caller of the Resources routes marked waiting through
 metadata stays hidden, and Settings does not list it, because only a run is
 expected to set the mark.
@@ -1481,7 +1493,9 @@ run, notes included, and of a path that is not plain, the refusal of a run's
 app default and organization delete and of each store delete of another user's
 file inside a run, a run's delete of its owner's note and memory, the note in
 compact and full prompts with its count and no path, a run's prompt, the
-applied skill, `resources read`, that a chat write, a memory save, and an owner
+applied skill, `resources read`, the refusal of a chat's `db-query`,
+`db-exec`, and `db-patch` on the `resources` table, that a chat write, a
+memory save, and an owner
 edit keep the mark and the run's origin, the Settings action's list, accept,
 delete, and owner check, and a stale review after a second write in the same
 millisecond. Source pins cover the wrapper, the `/skills` route, the files
@@ -1489,7 +1503,7 @@ inventory, and the action's flags.
 `tests/automation-file-review-component.test.mjs` renders the tab, its notice
 on a review refused because the file changed and on no other refusal, and its
 line for a failed list. Each case failed before its fix, on `dev` at `4c19c2e`
-or on this branch before the first or second review round's fixes.
+or on this branch before a review round's or the packaged check's fixes.
 
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an
