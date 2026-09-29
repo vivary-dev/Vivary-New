@@ -1091,11 +1091,15 @@ stop works in this order:
    after a crash. The in-process webhook runner returns `skipped` before its
    claim, so the call stays queued. A run whose setup was already past those
    checks is aborted as soon as it starts, before the model.
-2. It aborts every in-process background run with the reason `shutdown`.
-   Scheduled runs, Run now, and event and webhook runs all go through
-   `runBackgroundAutomation`, which keeps the ids of the runs it started.
+2. It aborts every in-process background run that is still running with the
+   reason `shutdown`. Scheduled runs, Run now, and event and webhook runs all
+   go through `runBackgroundAutomation`, which keeps the ids of the runs it
+   started. A run that already completed and is saving its thread is not
+   aborted, so it records its own success.
 3. Each run records its own outcome. The runner's completion callback turns a
-   `shutdown` abort into the interrupted error, and the runner writes the
+   `shutdown` abort into the interrupted error. It checks the abort reason
+   alone, because a run that reached a soft-timeout boundary reads completed
+   after the quit's abort. The runner writes the
    history row as `interrupted` with the message "The run stopped before it
    recorded a result, for example because the app quit or its worker
    restarted. No delivery was confirmed." and the code
@@ -1180,7 +1184,11 @@ the stop reads interrupted with no thread. Those three cases failed on the
 patch before the closed checks. Three more pin a sweep that is scanning when
 the stop begins, which dispatches nothing, leaves its job due, and releases the
 lease, a second stop call, which returns the first, and a run still preparing
-when the stop begins, which is interrupted before the model.
+when the stop begins, which is interrupted before the model. A quit that lands
+after a run completed, while its thread save is pending, leaves the history
+row a success and the agent run completed. A quit that lands after a
+one-second soft timeout ended a run's turn reads interrupted, not cut off.
+Both failed on the patch before the running filter and the reason check.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both

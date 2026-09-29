@@ -5117,9 +5117,18 @@ index e806ca826db827ed70671a9409b718df85644d58..6fbfb36c280a394614b67b7248894332
                  lastError: meta.lastError ?? null,
                  nextRun: nextRun(meta),
 diff --git a/dist/jobs/background-automation-runner.js b/dist/jobs/background-automation-runner.js
-index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773077ab601 100644
+index 069adb196878a306f92883587c9153e506e23910..61dfa403d43de4aa355db3263665792e62b87d37 100644
 --- a/dist/jobs/background-automation-runner.js
 +++ b/dist/jobs/background-automation-runner.js
+@@ -3,7 +3,7 @@ import { getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from
+ import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
+ import { actionsToEngineTools, filterInitialEngineTools, getOwnerActiveApiKey, } from "../agent/production-agent.js";
+ import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+-import { abortRun, resolveBackgroundAutomationSoftTimeoutMs, resolveBackgroundRunHardTimeoutMs, startRun, } from "../agent/run-manager.js";
++import { abortRun, getRun, resolveBackgroundAutomationSoftTimeoutMs, resolveBackgroundRunHardTimeoutMs, startRun, } from "../agent/run-manager.js";
+ import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+ import { buildAssistantMessage, buildUserMessage, extractThreadMeta, foldAssistantTurn, upsertUserMessage, } from "../agent/thread-data-builder.js";
+ import { attachToolSearch } from "../agent/tool-search.js";
 @@ -14,7 +14,8 @@ import { organizationIdFromResourceOwner, organizationResourceOwner, } from "../
  import { captureError } from "../server/capture-error.js";
  import { runWithRequestContext, } from "../server/request-context.js";
@@ -5130,7 +5139,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
  /**
   * Default hard abort for one in-process automation run. Read through
   * `resolveBackgroundRunHardTimeoutMs()` at the use site — this is the host's
-@@ -36,6 +37,38 @@ export class BackgroundAutomationRunError extends Error {
+@@ -36,6 +37,42 @@ export class BackgroundAutomationRunError extends Error {
          this.errorCode = errorCode;
      }
  }
@@ -5154,8 +5163,12 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
 + */
 +export function interruptBackgroundAutomations() {
 +    _backgroundAutomationsClosed = true;
-+    for (const runId of _activeBackgroundRunIds)
-+        abortRun(runId, SHUTDOWN_ABORT_REASON);
++    for (const runId of _activeBackgroundRunIds) {
++        // A run that already finished is saving its thread. It records its own
++        // outcome, so the quit does not relabel it.
++        if (getRun(runId)?.status === "running")
++            abortRun(runId, SHUTDOWN_ABORT_REASON);
++    }
 +    return Promise.allSettled([..._settlingBackgroundAutomations]);
 +}
 +/**
@@ -5169,7 +5182,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
  /**
   * A persisted background run must not outlive its execution identity.
   * Organization runs fail closed when membership state cannot be read. A
-@@ -163,18 +196,26 @@ export function backgroundRunCutOffReason(run) {
+@@ -163,18 +200,26 @@ export function backgroundRunCutOffReason(run) {
  function uniqueToolNames(names) {
      return [...new Set(names)];
  }
@@ -5204,7 +5217,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
      const { automation } = options;
      // Bookkeeping, so it must not gate the work it describes: a history table
      // that cannot be written should cost us the record, not the automation.
-@@ -212,15 +253,19 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -212,15 +257,19 @@ export async function runBackgroundAutomation(options, deps) {
      }
      catch (err) {
          const message = err instanceof Error ? err.message : String(err);
@@ -5226,7 +5239,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
              tags: {
                  area: "background-automation",
                  automation: automation.name,
-@@ -233,7 +278,7 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -233,7 +282,7 @@ export async function runBackgroundAutomation(options, deps) {
              },
              ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
          });
@@ -5235,7 +5248,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
          throw err;
      }
      // Outside the try: history is bookkeeping about the run, so a failure to
-@@ -349,7 +394,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -349,7 +398,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
          orgId,
      }, async () => {
          const baseActions = await deps.getActions(automation);
@@ -5243,19 +5256,20 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
          const configuredInitialTools = deps.getInitialToolNames?.(automation);
          const initialToolNames = configuredInitialTools
              ? uniqueToolNames([
-@@ -539,6 +583,11 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -539,6 +587,12 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  // waits for this persist via `activeRun.finalized`.
                  if (hardTimedOut)
                      return;
-+                if (run.status === "aborted" &&
-+                    run.abortReason === SHUTDOWN_ABORT_REASON) {
++                // The reason alone: a run that reached a soft-timeout boundary
++                // reads completed after the quit's abort.
++                if (run.abortReason === SHUTDOWN_ABORT_REASON) {
 +                    reject(new BackgroundAutomationRunError(INTERRUPTED_RUN_REASON, INTERRUPTED_RUN_ERROR_CODE));
 +                    return;
 +                }
                  if (persistFailure) {
                      reject(new BackgroundAutomationRunError(persistFailure.message, persistFailure.errorCode));
                      return;
-@@ -566,6 +615,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -566,6 +620,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  engineName: engine.name,
                  userId: ownerEmail,
              });
@@ -5265,7 +5279,7 @@ index 069adb196878a306f92883587c9153e506e23910..00906696923222b0fb581f3256fad773
              hardAbortTimer = setTimeout(() => {
                  hardAbortTimer = null;
                  if (activeRun.status !== "running")
-@@ -584,6 +636,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -584,6 +641,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  });
              }, hardTimeoutMs);
          }).finally(() => {

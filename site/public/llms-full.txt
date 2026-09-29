@@ -7350,7 +7350,8 @@ patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and 
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it beside the Code host stop with the same 10-second wait,
 so it still settles before the desktop's 15-second kill. The stop closes the scheduler to new sweeps and Run now
 claims, and the runner, the event handler, and the in-process webhook runner to new runs, so work that arrives during
-the quit writes nothing and a due job stays due. It aborts every in-process run with the reason `shutdown`, and waits
+the quit writes nothing and a due job stays due. It aborts every in-process run still running with the reason
+`shutdown`, so a run that already completed keeps its success, and waits
 while each run records itself interrupted
 with Core's existing message and code, the trigger dispatcher records the automation's outcome, and the sweep that
 holds the lease releases it with its own owner. It writes nothing itself. A webhook call whose run a normal quit
