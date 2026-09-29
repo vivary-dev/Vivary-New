@@ -449,6 +449,8 @@ test("Vivary's shutdown owner stops automations within the Code host's wait", as
   assert.match(lifecycle, /import \{ stopRecurringJobs \} from "@agent-native\/core\/jobs";/);
   const stopLocalWork = lifecycle.slice(lifecycle.indexOf("const stopLocalWork"), lifecycle.indexOf("]);"));
   assert.match(stopLocalWork, /stopRecurringJobs\(\{ timeoutMs: 10_000 \}\)/, "stopLocalWork stops automations");
+  // Promise.all evaluates its members in order, so a member that throws synchronously skips every later one.
+  assert.match(stopLocalWork, /Promise\.all\(\[\s*stopRecurringJobs\(/, "the automation stop is the first member");
   const codeHost = await readFile(path.join(HERE, "..", "server", "local-code-agent.ts"), "utf8");
   assert.match(codeHost, /const SHUTDOWN_WAIT_MS = 10_000;/, "the bound matches the Code host's shutdown wait");
   const jobs = await import("@agent-native/core/jobs");
