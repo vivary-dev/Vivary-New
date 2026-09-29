@@ -39,6 +39,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TiptapComposer } from "@proof/tiptap-composer";
 import { TooltipProvider } from "@proof/tooltip";
 import { UsageSection } from "@proof/usage-section";
+import * as chatHistory from "@proof/chat-history";
 
 async function mount(element) {
   const host = document.createElement("div");
@@ -46,6 +47,27 @@ async function mount(element) {
   const root = createRoot(host);
   await act(async () => { root.render(element); });
   return { host, async unmount() { await act(async () => { root.unmount(); }); host.remove(); } };
+}
+
+// Issue #131. A sidebar row menu opened from the keyboard, with the Toolkit's Rename and Pin and Vivary's Archive,
+// which Vivary adds through renderAdditionalRowActions. Radix's arrow keys, typeahead, and Enter reach only entries
+// registered as Radix menu items, which carry data-radix-collection-item.
+export async function renderRowMenu() {
+  const { ChatHistoryList, ChatHistoryMenuItem } = chatHistory;
+  const archive = ChatHistoryMenuItem
+    ? (_item, closeMenu) => <ChatHistoryMenuItem onSelect={closeMenu}><span>Archive</span></ChatHistoryMenuItem>
+    : (_item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item"
+      onClick={closeMenu}><span>Archive</span></button>;
+  const view = await mount(<ChatHistoryList variant="rail" items={[{ id: "thread-1", title: "Tide pools" }]}
+    onSelect={() => {}} onRename={() => {}} onTogglePin={() => {}} renderAdditionalRowActions={archive} />);
+  const trigger = view.host.querySelector(".an-chat-history-row__menu-trigger");
+  await act(async () => {
+    trigger.dispatchEvent(Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), { key: "Enter" }));
+  });
+  const entries = [...document.body.querySelectorAll('[role="menu"] [role="menuitem"]')].map(entry =>
+    ({ name: entry.textContent, reachable: entry.hasAttribute("data-radix-collection-item") }));
+  await view.unmount();
+  return entries;
 }
 
 // The run's terminal error event goes through the client's own event handling, and the card
@@ -274,6 +296,7 @@ const require = createProofRequire(${JSON.stringify(join(WORKBENCH, "package.jso
           if (args.path === "@proof/tiptap-composer") return { path: join(COMPOSER, "TiptapComposer.js") };
           if (args.path === "@proof/tooltip") return { path: join(TOOLKIT, "dist", "ui", "tooltip.js") };
           if (args.path === "@proof/usage-section") return { path: join(CLIENT, "settings", "UsageSection.js") };
+          if (args.path === "@proof/chat-history") return { path: join(TOOLKIT, "dist", "chat-history", "index.js") };
           // The query cache must be the copy Core's action hooks read.
           if (args.path === "@tanstack/react-query" && args.resolveDir === HERE) {
             return build.resolve(args.path, { kind: args.kind, resolveDir: CLIENT });
@@ -306,6 +329,8 @@ function installDom() {
   }
   class ResizeObserver { observe() {} unobserve() {} disconnect() {} }
   class IntersectionObserver { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
+  // Radix's menu watches its content for changes. linkedom has no MutationObserver.
+  class MutationObserver { observe() {} disconnect() {} takeRecords() { return []; } }
   // linkedom has no text selection. An unfocused editor only needs an empty one.
   const selection = { rangeCount: 0, anchorNode: null, anchorOffset: 0, focusNode: null, focusOffset: 0, isCollapsed: true,
     removeAllRanges() {}, addRange() {}, collapse() {}, extend() {} };
@@ -331,7 +356,7 @@ function installDom() {
   const values = { window: view, self: view, document: view.document, navigator: view.navigator,
     HTMLElement: view.HTMLElement, Element: view.Element, Node: view.Node, Event: view.Event,
     CustomEvent: view.CustomEvent, EventTarget: view.EventTarget, MessageChannel: TrackedMessageChannel,
-    ResizeObserver, IntersectionObserver, getComputedStyle, innerHeight: 800, innerWidth: 1200,
+    ResizeObserver, IntersectionObserver, MutationObserver, getComputedStyle, innerHeight: 800, innerWidth: 1200,
     sessionStorage: view.sessionStorage, localStorage: view.localStorage, matchMedia: view.matchMedia,
     requestAnimationFrame: view.requestAnimationFrame, cancelAnimationFrame: view.cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true };
@@ -460,6 +485,12 @@ test("Native chat controls", async t => {
     assert.equal(card.action, "error");
     assert.match(card.text, /The request was refused\./);
     assert.equal(card.retry, false);
+  });
+
+  // Issue #131.
+  await t.test("every entry in a sidebar row menu opened from the keyboard is a Radix menu item", async () => {
+    assert.deepEqual(await proof.renderRowMenu(), [
+      { name: "Rename", reachable: true }, { name: "Pin to top", reachable: true }, { name: "Archive", reachable: true }]);
   });
 
   // Issue #102.
