@@ -552,6 +552,46 @@ test("a quit leaves a run the owner stopped just before it with its own reason",
   assert.equal(rows[0].abort_reason, "user", "the stop did not abort the run again");
 });
 
+// An automation with a paired execution host is queued on that host, and the stop cannot abort a run there.
+test("a quit that begins while a remote run is marked running queues nothing on the paired host", async () => {
+  const [{ createRemoteDevice }, { listRemoteCommandsForOwner }] = await Promise.all([
+    load("integrations/remote-devices-store.js"),
+    load("integrations/remote-commands-store.js"),
+  ]);
+  const { device } = await createRemoteDevice({ ownerEmail: owner, label: "Always-on test host" });
+  const hostCommands = async () => (await listRemoteCommandsForOwner({ ownerEmail: owner }))
+    .filter(command => command.deviceId === device.id);
+  for (const [name, schedule] of [["remote-job", "* * * * *"], ["remote-manual", "0 0 1 1 *"]]) {
+    await defineAutomation({ userEmail: owner, appId: "remote-app" }, { scope: "personal", name,
+      body: "Summarize the project in one sentence.", triggerType: "schedule", schedule, timezone: "UTC",
+      executionHostId: device.id });
+  }
+  await makeDue("remote-job");
+  const before = { job: await stored("remote-job"), manual: await stored("remote-manual") };
+  const { report, exited } = spawnChild("remote-mark", "remote-app");
+  const result = await report;
+  await exited;
+  assert.deepEqual([...result.marking].sort(), ["jobs/remote-job.md", "jobs/remote-manual.md"],
+    "the stop began while both runs were being marked");
+  assert.equal((await hostCommands()).length, 0, "the quit queued nothing on the paired host");
+  const job = await stored("remote-job");
+  assert.equal(job.lastStatus, before.job.lastStatus, "the scheduled run is not left running");
+  assert.equal(job.lastRun, before.job.lastRun);
+  assert.equal(job.nextRun, before.job.nextRun, "the scheduled run stays due");
+  assert.deepEqual(await runsOf("remote-app", "remote-job"), [], "the scheduled run wrote no history row");
+  assert.deepEqual(result.manual, { skipped: false, error: "The app is quitting, so the run did not start." });
+  const row = await getAutomationRun(result.manualId);
+  assert.equal(row.status, "interrupted", "the claimed Run now row reads interrupted");
+  assert.equal(row.errorCode, INTERRUPTED_RUN_ERROR_CODE);
+  assert.equal(row.threadId, null, "no run thread was made");
+  const manual = await stored("remote-manual");
+  assert.equal(manual.lastStatus, before.manual.lastStatus, "the Run now is not left running");
+  assert.equal(manual.nextRun, before.manual.nextRun);
+  // The next launch sends the due run to the host.
+  await scheduler.processRecurringJobs(nextLaunch("remote-app"));
+  assert.equal((await hostCommands()).length, 1, "the next launch queued the due run on the paired host");
+});
+
 test("Vivary's shutdown owner stops automations within the Code host's wait", async () => {
   const lifecycle = await readFile(path.join(HERE, "..", "server", "plugins", "02-local-code-lifecycle.ts"), "utf8");
   assert.match(lifecycle, /import \{ stopRecurringJobs \} from "@agent-native\/core\/jobs";/);

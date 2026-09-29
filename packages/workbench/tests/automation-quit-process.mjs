@@ -293,6 +293,39 @@ if (role === "quit") {
   await stop;
   await claimSaved.promise;
   process.exit(0);
+} else if (role === "remote-mark") {
+  // A scheduled run and a Run now of two automations on a paired execution host are being marked running when the
+  // owner quits. Each mark is held until both are saving, then the stop begins and both save.
+  await getDbExec().execute("SELECT 1");
+  const db = getDbExec();
+  const execute = db.execute.bind(db);
+  const marking = [];
+  const bothMarking = gate();
+  const saveMarks = gate();
+  let stopping = false;
+  db.execute = async query => {
+    if (stopping || !/^UPDATE resources SET content = \?/.test(query?.sql ?? "")
+      || !/^lastStatus: running$/m.test(String(query.args?.[0] ?? ""))) {
+      return execute(query);
+    }
+    marking.push(query.args[5]);
+    if (marking.length === 2) bothMarking.open();
+    await saveMarks.promise;
+    return execute(query);
+  };
+  const cooperative = deps("cooperative");
+  const manualId = await queueRunNow("remote-manual");
+  const manual = scheduler.runQueuedAutomation(manualId, cooperative);
+  const sweep = scheduler.processRecurringJobs(cooperative);
+  await within(bothMarking.promise, 30_000, "both runs being marked running");
+  stopping = true;
+  const stop = scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
+  saveMarks.open();
+  await stop;
+  const [swept, ran] = await Promise.allSettled([sweep, manual]);
+  await report({ manualId, marking, sweep: swept.status,
+    manual: ran.status === "fulfilled" ? ran.value : String(ran.reason) });
+  process.exit(0);
 } else if (role === "endless") {
   // Work keeps arriving while the process stops: each tracked piece of work tracks the next one as it settles. The
   // stop waits for each until its bound. Each pass of its wait calls Promise.allSettled, so the count shows whether a

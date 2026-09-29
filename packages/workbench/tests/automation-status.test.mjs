@@ -75,6 +75,13 @@ await resourcePut(owner, "jobs/legacy.md", buildJobResourceContent(
   { schedule: "*/5 * * * *", enabled: true, appId }, "Check the build."));
 await resourcePut(owner, "jobs/legacy-paused.md", buildJobResourceContent(
   { schedule: "*/5 * * * *", enabled: false, appId }, "Check the build."));
+// Paused before the heartbeat and resumed after it, in the case on created times.
+await defineAutomation(actor, { scope: "personal", name: "resumed", body: "Summarize the project.",
+  triggerType: "schedule", schedule: "0 * * * *", timezone: "UTC" });
+await updateAutomation(actor, { scope: "personal", name: "resumed", enabled: false });
+// Every definition above predates the heartbeats, as one the scheduler has checked does.
+await getDbExec().execute({ sql: "UPDATE resources SET created_at = ? WHERE owner = ?",
+  args: [checkedAt - 60 * 60_000, owner] });
 
 // The first case lists on a fresh database, before any heartbeat. The others record the heartbeats first.
 let recorded;
@@ -154,6 +161,21 @@ test("LAST CHECKED ignores a heartbeat whose check failed", async () => {
   assert.equal(lists.automations.hourly.lastCheck, null, "a failed check is not a check");
   assert.equal(lists.jobs.legacy.lastCheck, null);
   assert.equal((await listBoth()).automations.hourly.lastCheck, iso(checkedAt), "the next good check counts again");
+});
+
+test("LAST CHECKED ignores a heartbeat from before the entry was created", async () => {
+  await heartbeats();
+  await defineAutomation(actor, { scope: "personal", name: "created-later", body: "Summarize the project.",
+    triggerType: "schedule", schedule: "0 * * * *", timezone: "UTC" });
+  await resourcePut(owner, "jobs/legacy-later.md", buildJobResourceContent(
+    { schedule: "*/5 * * * *", enabled: true, appId }, "Check the build."));
+  await updateAutomation(actor, { scope: "personal", name: "resumed", enabled: true });
+  const { automations, jobs } = await listBoth();
+  assert.equal(automations["created-later"].lastCheck, null, "a check from before the automation existed did not check it");
+  assert.equal(jobs["legacy-later"].lastCheck, null, "a check from before the job existed did not check it");
+  assert.equal(automations.hourly.lastCheck, iso(checkedAt), "an older automation still shows the check");
+  // Resuming keeps the created time, so a resumed automation shows the last check, which read it while it was paused.
+  assert.equal(automations.resumed.lastCheck, iso(checkedAt));
 });
 
 test("a paused automation lists no next run, although its stored next run is in the past", async () => {
