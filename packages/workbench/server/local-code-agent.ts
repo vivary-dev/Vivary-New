@@ -183,8 +183,10 @@ export type CleanupRefusal = {
   runId: string;
   /** Null when the run predates recorded targets, or on a platform Vivary cannot check. */
   target: CleanupTarget | null;
-  /** The processes last observed. */
+  /** The processes last observed, at most `MAX_CLEANUP_LISTED`. */
   remaining: LeftoverProcess[];
+  /** Whether that observation found more processes than `remaining` lists. */
+  capped: boolean;
   hidden: boolean;
   /** Whether the last check could scan. `not-recorded` is a marker that never had a target. */
   scan: CleanupScan;
@@ -221,6 +223,7 @@ const storedCleanupRefusalSchema = z.object({
     })).min(1).max(200), traced: z.array(tracedSchema).max(200).default([]) }),
   ]).nullable(),
   remaining: z.array(leftoverSchema).max(MAX_CLEANUP_LISTED),
+  capped: z.boolean().default(false),
   hidden: z.boolean(),
   scan: z.enum(["done", "unavailable", "not-recorded"]),
   step: z.enum(["taskkill", "exit", "group", "worker-exited"]).nullable(),
@@ -415,9 +418,9 @@ async function continueAnyway(refusal: CleanupRefusal, by: string): Promise<"don
   return "done";
 }
 
-/** Whether the refusal already showed every process the check found, within the listed cap. */
+/** Whether the refusal showed the owner every process the check found. A list cut at the cap never showed them all. */
 function shownBefore(check: Extract<CleanupCheck, { result: "remaining" }>, refusal: CleanupRefusal): boolean {
-  return (!check.hidden || refusal.hidden) && check.remaining.slice(0, MAX_CLEANUP_LISTED).every(found =>
+  return !refusal.capped && (!check.hidden || refusal.hidden) && check.remaining.every(found =>
     refusal.remaining.some(seen => seen.pid === found.pid && seen.start === found.start));
 }
 
@@ -479,13 +482,19 @@ function cleanupRefusalFromRun(run: CodeAgentRunRecord): CleanupRefusal | null {
   const parsed = storedCleanupRefusalSchema.safeParse(stored);
   if (parsed.success) return { runId: run.id, ...parsed.data };
   // A `cleanupUnverified: true` marker from before part B recorded no target.
-  return { runId: run.id, target: null, remaining: [], hidden: false, scan: "not-recorded", step: null,
+  return { runId: run.id, target: null, remaining: [], capped: false, hidden: false, scan: "not-recorded", step: null,
     refusedAt: run.updatedAt, checkedAt: run.updatedAt, ends: [] };
 }
 
 function storedCleanupRefusal(refusal: CleanupRefusal): Omit<CleanupRefusal, "runId"> {
-  const { target, remaining, hidden, scan, step, refusedAt, checkedAt, ends } = refusal;
-  return { target, remaining, hidden, scan, step, refusedAt, checkedAt, ends };
+  const { target, remaining, capped, hidden, scan, step, refusedAt, checkedAt, ends } = refusal;
+  return { target, remaining, capped, hidden, scan, step, refusedAt, checkedAt, ends };
+}
+
+/** What a refusal records from a check that found processes. */
+function listedFromCheck(check: Extract<CleanupCheck, { result: "remaining" }>) {
+  return { target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED),
+    capped: check.remaining.length > MAX_CLEANUP_LISTED, hidden: check.hidden, scan: "done" as const };
 }
 
 /** Records one check of a refusal. A check keeps the run's place in history, and only a lift adds to its transcript. */
@@ -495,9 +504,7 @@ function recordCleanupCheck(refusal: CleanupRefusal, check: CleanupCheck): void 
     liftCleanupRefusal(refusal, { how: "rechecked", checkedAt, ends: refusal.ends });
     return;
   }
-  writeCleanupRefusal(check.result === "remaining"
-    ? { ...refusal, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
-      scan: "done", checkedAt }
+  writeCleanupRefusal(check.result === "remaining" ? { ...refusal, ...listedFromCheck(check), checkedAt }
     : { ...refusal, scan: "unavailable", checkedAt });
 }
 
@@ -555,10 +562,9 @@ function cleanupRefusalFromFailedStop(runId: string, error: VivaryCodeWorkerClea
   const now = new Date().toISOString();
   const check = error.leftovers?.check;
   const common = { runId, step: error.cause?.step ?? null, refusedAt: refusedAt ?? now, checkedAt: now, ends: [] };
-  return check?.result === "remaining"
-    ? { ...common, target: check.target, remaining: check.remaining.slice(0, MAX_CLEANUP_LISTED), hidden: check.hidden,
-      scan: "done" }
-    : { ...common, target: error.leftovers?.target ?? null, remaining: [], hidden: false, scan: "unavailable" };
+  return check?.result === "remaining" ? { ...common, ...listedFromCheck(check) }
+    : { ...common, target: error.leftovers?.target ?? null, remaining: [], capped: false, hidden: false,
+      scan: "unavailable" };
 }
 
 function cleanupPlatform(refusal: CleanupRefusal): "linux" | "win32" {
@@ -610,18 +616,20 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
   }
   const yourself = group !== null ? `stop them with \`kill -KILL -- -${group}\``
     : `end them ${windows ? "in Task Manager" : "in your process list"} by PID`;
+  const cut = refusal.capped ? ` Vivary lists ${MAX_CLEANUP_LISTED} of the processes it found, and Continue anyway `
+    + "needs a list of all of them." : "";
   const confirmed = refusal.remaining.filter(leftover => confirmedFromRun(refusal, leftover)).length;
   if (!confirmed) {
     return "Vivary cannot confirm that these came from that run, so it does not end them. "
-      + `If they did, ${yourself}, then choose Continue anyway${at}.`;
+      + `If they did, ${yourself}, then choose Continue anyway${at}.${cut}`;
   }
   const orContinue = cleanupOffers(refusal).canContinue ? ` Or choose Continue anyway${at}.` : "";
   if (confirmed === refusal.remaining.length) {
     return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from `
-      + `that run, then checks again.${orContinue}`;
+      + `that run, then checks again.${orContinue}${cut}`;
   }
   return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It does not end `
-    + `the others. If they came from that run, ${yourself}.${orContinue}`;
+    + `the others. If they came from that run, ${yourself}.${orContinue}${cut}`;
 }
 
 /** The refusal a send gets. */
@@ -1070,8 +1078,8 @@ async function executeVivaryCodeRun(input: {
       },
       onStopFailed: ({ step, target }) => {
         stopRefusedAt = new Date().toISOString();
-        writeCleanupRefusal({ runId: input.runId, target, remaining: [], hidden: false, scan: "unavailable", step,
-          refusedAt: stopRefusedAt, checkedAt: stopRefusedAt, ends: [] });
+        writeCleanupRefusal({ runId: input.runId, target, remaining: [], capped: false, hidden: false,
+          scan: "unavailable", step, refusedAt: stopRefusedAt, checkedAt: stopRefusedAt, ends: [] });
       },
     });
     if (input.activeRun.stopReason !== null) {
