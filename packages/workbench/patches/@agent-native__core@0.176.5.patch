@@ -5065,7 +5065,7 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..efd06506f7e39f9afdc4b3227d9d26b8
          console.warn("[integrations] Could not settle usage budget:", err instanceof Error ? err.message : err);
      })));
 diff --git a/dist/jobs/actions/list-recurring-jobs.js b/dist/jobs/actions/list-recurring-jobs.js
-index e806ca826db827ed70671a9409b718df85644d58..6fbfb36c280a394614b67b7248894332fa020c46 100644
+index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e6d984923 100644
 --- a/dist/jobs/actions/list-recurring-jobs.js
 +++ b/dist/jobs/actions/list-recurring-jobs.js
 @@ -4,6 +4,7 @@ import { organizationResourceOwner, resourceGetByPath, resourceList, } from "../
@@ -5076,7 +5076,7 @@ index e806ca826db827ed70671a9409b718df85644d58..6fbfb36c280a394614b67b7248894332
  import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
  const scopeSchema = z.enum(["personal", "organization"]);
  function jobName(path) {
-@@ -28,6 +29,22 @@ function nextRun(meta) {
+@@ -28,6 +29,37 @@ function nextRun(meta) {
          ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
          : null;
  }
@@ -5096,18 +5096,33 @@ index e806ca826db827ed70671a9409b718df85644d58..6fbfb36c280a394614b67b7248894332
 +        ? stored
 +        : new Date(schedulerCheckedAt).toISOString();
 +}
++/**
++ * Vivary #115: the scheduler's last check, or null. A heartbeat whose check
++ * recorded an error is not a check. The value is informative only, so a failed
++ * read is logged and each entry keeps its stored value.
++ */
++async function readSchedulerCheckedAt(appId) {
++    try {
++        const health = await getAutomationSchedulerHealth({ appId });
++        return health && !health.lastError ? health.lastCheckedAt : null;
++    }
++    catch (error) {
++        console.warn("[automations] Could not read the scheduler's last check:", error instanceof Error ? error.message : error);
++        return null;
++    }
++}
  export default defineAction({
      description: "List legacy recurring cron jobs visible in the selected personal or organization scope. This compatibility read surface is used by the Agent Automations page.",
      agentTool: false,
-@@ -47,6 +64,7 @@ export default defineAction({
+@@ -47,6 +79,7 @@ export default defineAction({
              ? organizationResourceOwner(ctx.orgId)
              : userEmail;
          const resources = await resourceList(owner, "jobs/");
-+        const schedulerCheckedAt = (await getAutomationSchedulerHealth({ appId: ctx?.appId }))?.lastCheckedAt ?? null;
++        const schedulerCheckedAt = await readSchedulerCheckedAt(ctx?.appId);
          const jobs = [];
          for (const resource of resources) {
              if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
-@@ -74,7 +92,7 @@ export default defineAction({
+@@ -74,7 +107,7 @@ export default defineAction({
                  instructions: body,
                  enabled: meta.enabled,
                  lastRun: meta.lastRun ?? null,
@@ -7179,7 +7194,7 @@ index 0000000000000000000000000000000000000000..7d2b4779b23028b8e1abbc39f8d12e78
 +    return globalThis[BUILDER_OFFERS_KEY] !== false;
 +}
 diff --git a/dist/triggers/actions/list-automations.js b/dist/triggers/actions/list-automations.js
-index 3d0925c6967528af2b4050802324e8899add82e7..978f5a2f6f7cf856477420513426733d77eaf91d 100644
+index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e42d0bb83c 100644
 --- a/dist/triggers/actions/list-automations.js
 +++ b/dist/triggers/actions/list-automations.js
 @@ -2,6 +2,7 @@ import { z } from "zod";
@@ -7190,7 +7205,7 @@ index 3d0925c6967528af2b4050802324e8899add82e7..978f5a2f6f7cf856477420513426733d
  const scopeSchema = z.enum(["personal", "organization"]);
  function nextRun(meta) {
      if (!meta.enabled)
-@@ -22,6 +23,26 @@ function nextRun(meta) {
+@@ -22,6 +23,41 @@ function nextRun(meta) {
          ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
          : null;
  }
@@ -7214,18 +7229,33 @@ index 3d0925c6967528af2b4050802324e8899add82e7..978f5a2f6f7cf856477420513426733d
 +        ? stored
 +        : new Date(schedulerCheckedAt).toISOString();
 +}
++/**
++ * Vivary #115: the scheduler's last check, or null. A heartbeat whose check
++ * recorded an error is not a check. The value is informative only, so a failed
++ * read is logged and each entry keeps its stored value.
++ */
++async function readSchedulerCheckedAt(appId) {
++    try {
++        const health = await getAutomationSchedulerHealth({ appId });
++        return health && !health.lastError ? health.lastCheckedAt : null;
++    }
++    catch (error) {
++        console.warn("[automations] Could not read the scheduler's last check:", error instanceof Error ? error.message : error);
++        return null;
++    }
++}
  export default defineAction({
      description: "List scheduled, event-triggered, and webhook-triggered automations in the selected personal or organization scope.",
      agentTool: false,
-@@ -36,6 +57,7 @@ export default defineAction({
+@@ -36,6 +72,7 @@ export default defineAction({
          if (!userEmail)
              throw new Error("Not authenticated.");
          const definitions = await listAutomationDefinitions({ userEmail, orgId: ctx?.orgId, appId: ctx?.appId }, scope);
-+        const schedulerCheckedAt = (await getAutomationSchedulerHealth({ appId: ctx?.appId }))?.lastCheckedAt ?? null;
++        const schedulerCheckedAt = await readSchedulerCheckedAt(ctx?.appId);
          return definitions.map(({ resource, name, meta, body, canUpdate, webhookPath }) => ({
              id: resource.id,
              name,
-@@ -55,7 +77,7 @@ export default defineAction({
+@@ -55,7 +92,7 @@ export default defineAction({
              body,
              enabled: meta.enabled,
              lastRun: meta.lastRun ?? null,

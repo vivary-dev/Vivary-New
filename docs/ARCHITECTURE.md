@@ -177,13 +177,15 @@ LAST CHECKED came from the automation's front matter, which the scheduler writes
 healthy scheduled automation read as never checked. `list-automations` and `list-recurring-jobs` now report, for an
 enabled scheduled entry, the later of that field and the app's scheduler heartbeat in `automation_scheduler_health`,
 which every tick that holds the scheduler lease writes before it scans. Event, webhook, and paused entries keep their
-own value. The Details dialog no longer offers Open thread on a past run. Run threads have no chat scope, every
+own value. A heartbeat whose check recorded an error does not count, and a failed read of that row is logged and
+leaves each entry's stored value, so the list does not fail on it. The Details dialog no longer offers Open thread on a past run. Run threads have no chat scope, every
 Vivary history list shows only its own scope, and nothing on Settings handled the request, so the owner decided on
 2026-09-29 that run threads are not openable from Settings. The desktop guide says so, corrects its claim that run
 threads stay in chat history, and describes event triggers with their key requirement and #135. The Unattended
 automation runs row and the runtime flows still hold, because the scheduler, the runs, and their storage are
-unchanged. The patch README section "Settings automation status" has the detail, and
-`tests/automation-status.test.mjs` failed on the previous patch for LAST CHECKED and Open thread.
+unchanged. The patch README section "Settings automation status" has the detail. `tests/automation-status.test.mjs`
+failed on the first patch for LAST CHECKED and Open thread, and its failed-read and failed-check cases failed on the
+patch before the fallback.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer

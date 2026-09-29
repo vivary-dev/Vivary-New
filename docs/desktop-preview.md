@@ -185,8 +185,9 @@ Settings > Agent > Automations holds the controls:
 - The switch on an automation pauses or resumes it.
 - **Manage** > **Details** shows its settings and past runs. For a scheduled automation,
   LAST CHECKED is the last time the scheduler checked your automations, about once a
-  minute while Vivary is open. For an event, webhook, or paused automation, it is the
-  last time a check skipped it, and it stays empty until one does.
+  minute, and not while a scheduled run is in progress. A check that failed does not
+  count. For an event, webhook, or paused automation, it is the last time a check
+  skipped it, and it stays empty until one does.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.

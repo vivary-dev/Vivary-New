@@ -1027,9 +1027,16 @@ call through `getAutomationSchedulerHealth`. For an enabled entry with a valid
 schedule, they report the later of its stored `lastCheck` and the row's
 `last_checked_at`. Event, webhook, and paused entries keep their stored value,
 because the scheduler does not check them. The field keeps its name and ISO
-format, so the client is unchanged. Only the lease holder writes the
-heartbeat, so LAST CHECKED stops advancing while a process that has gone still
-holds the lease, which is what happened.
+format, so the client is unchanged. A heartbeat whose row records an error in
+`last_error` is not a check, so the lists ignore it: a sweep writes that error
+in its `finally` when its scan failed. The value is informative only, so a
+failed read of the row is logged and each entry keeps its stored value instead
+of failing the list. Only the lease holder writes the heartbeat, so LAST
+CHECKED stops advancing while a process that has gone still holds the lease.
+It also stands still while a scheduled run is in progress, up to the run's
+10-minute limit, because the sweep that started the run holds the lease until
+the run ends and every other tick fails to take it. That is honest, because no
+check runs then. The sweep writes the heartbeat again when it ends.
 
 The Details dialog showed Open thread on a run with an error and a thread. The
 control sent Core's `agent-chat:open-thread` window event, which only Core's
@@ -1055,7 +1062,11 @@ the same database does not count. It pins that a paused automation lists no
 next run. It bundles the Details dialog with esbuild, renders it with a
 successful, an interrupted, and an errored run, and checks that none offers
 Open thread. The LAST CHECKED and Open thread cases failed on the previous
-patch.
+patch. A review round added three cases. A list on a fresh database, before
+any heartbeat, keeps each stored value. A read that fails, because the health
+table was moved away, is logged once per list, and both lists keep the stored
+values. A heartbeat recorded with an error does not count, and the next good
+check counts again. The last two failed on the patch before the fallback.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
