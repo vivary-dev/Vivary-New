@@ -1604,16 +1604,20 @@ where Enter sent it to the model as a message.
 The Toolkit patch changes `dist/composer/TiptapComposer.js`. A new
 `composerMayTakeFocus` says whether the composer may take focus on its own: not
 while the owner is typing in another field (an input, textarea, select, or
-editable element outside the composer). It guards the composer's focus when it
-restores a saved draft, when it is handed new `initialText`, and in its
-imperative `focus()` and `setText()`, which Core calls when switching chat tabs
-and when prefilling a message. With no field in use, or with focus on a button,
-the composer still takes focus as before. `insertText()` is unchanged, because
+editable element outside the composer). `focusComposerAtEnd` replaces Tiptap's
+`focus("end")` where the composer restores a saved draft, is handed new
+`initialText`, and in its imperative `focus()` and `setText()`, which Core calls
+when switching chat tabs and when prefilling a message. It moves the caret to
+the end and focuses on the next frame, as Tiptap does, but checks
+`composerMayTakeFocus` inside that frame, right before the DOM focus, so a field
+the owner focused in between keeps it. With no field in use, or with focus on a
+button, the composer still takes focus as before. `insertText()` is unchanged, because
 it types through the browser's insert command, which needs the composer
 focused.
 
 `native-chat-components.test.mjs` hands the composer text through props,
-`setText`, and `focus`, with another field in use and without, and checks
-where focus lands. A browser run of the built app sent a message and renamed
+`setText`, and `focus`, with another field in use and without, and once focuses
+the other field after the composer asked for focus and before its frame, and
+checks where focus lands. A browser run of the built app sent a message and renamed
 the chat by mouse while the run ended: the title kept the whole name and
 nothing was sent, in eight of eight runs.

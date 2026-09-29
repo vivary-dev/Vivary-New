@@ -177,6 +177,7 @@ function Restoring({ text, focusRef }) {
 }
 
 // how: "initial text" hands text through props, "setText" and "focus" call the composer's imperative handle.
+// "field before the frame" hands text while nothing has focus, then focuses the other field before the next frame.
 export async function restoreComposerText(ownerTypingElsewhere, how = "initial text") {
   const originalFocus = window.HTMLElement.prototype.focus;
   let focused = document.body;
@@ -191,11 +192,26 @@ export async function restoreComposerText(ownerTypingElsewhere, how = "initial t
   try {
     await act(async () => { root.render(<Restoring text={undefined} focusRef={focusRef} />); });
     focused = ownerTypingElsewhere ? field : document.body;
+    // The composer focuses on the next animation frame. The proof holds frames, so the owner can focus the other
+    // field after the composer asked for focus and before the frame runs.
+    const frames = [];
+    const originalFrame = { global: globalThis.requestAnimationFrame, window: window.requestAnimationFrame };
+    if (how === "field before the frame") {
+      globalThis.requestAnimationFrame = window.requestAnimationFrame = callback => frames.push(callback);
+    }
     await act(async () => {
-      if (how === "initial text") root.render(<Restoring text="One more question" focusRef={focusRef} />);
+      if (how === "initial text" || how === "field before the frame") {
+        root.render(<Restoring text="One more question" focusRef={focusRef} />);
+      }
       else if (how === "setText") focusRef.current.setText("One more question");
       else { focusRef.current.setText("One more question"); focused = ownerTypingElsewhere ? field : document.body; focusRef.current.focus(); }
     });
+    if (how === "field before the frame") {
+      globalThis.requestAnimationFrame = originalFrame.global;
+      window.requestAnimationFrame = originalFrame.window;
+      focused = field;
+      await act(async () => { for (const frame of frames.splice(0)) frame(performance.now()); });
+    }
     // Tiptap runs its focus command on the next animation frame.
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     return { text: host.querySelector(".ProseMirror")?.textContent,
@@ -538,6 +554,8 @@ test("Native chat controls", async t => {
 
   // Issue #147.
   await t.test("text handed back to the composer does not pull focus out of another field", async () => {
+    assert.deepEqual(await proof.restoreComposerText(false, "field before the frame"),
+      { text: "One more question", focus: "other field" }, "a field focused before the composer's frame keeps focus");
     for (const how of ["initial text", "setText", "focus"]) {
       assert.deepEqual(await proof.restoreComposerText(true, how), { text: "One more question", focus: "other field" }, how);
       assert.deepEqual(await proof.restoreComposerText(false, how), { text: "One more question", focus: "composer" },

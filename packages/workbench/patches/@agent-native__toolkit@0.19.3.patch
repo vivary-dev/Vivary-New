@@ -131,7 +131,7 @@ index c4236b795a64fa82e1a983339d202cc4b8aa8099..2b74244bd785f2c33feb48acc5f8fc14
  //# sourceMappingURL=TiptapComposer.d.ts.map
 \ No newline at end of file
 diff --git a/dist/composer/TiptapComposer.js b/dist/composer/TiptapComposer.js
-index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d1838fec916 100644
+index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e8da20b8747d09d52f10d366cc7dcf311757aebc 100644
 --- a/dist/composer/TiptapComposer.js
 +++ b/dist/composer/TiptapComposer.js
 @@ -485,8 +485,23 @@ function ComposerModeChip({ mode, onRemove, }) {
@@ -159,7 +159,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
      return {
          type: "doc",
          content: lines.map((line) => ({
-@@ -499,6 +514,17 @@ function plainTextToDoc(text) {
+@@ -499,6 +514,31 @@ function plainTextToDoc(text) {
  export function isComposerEditorUsable(editor) {
      return Boolean(editor && editor.isDestroyed !== true);
  }
@@ -174,10 +174,24 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
 +        return true;
 +    return !(active.isContentEditable || active.matches?.("input, textarea, select"));
 +}
++/**
++ * Moves the caret to the end and focuses the composer on the next frame, as Tiptap's focus("end") does. The check runs
++ * right before the DOM focus, so a field the owner focused in between keeps focus. Tiptap's own command checks nothing
++ * when its frame runs. Vivary patch, issue #147.
++ */
++function focusComposerAtEnd(editor) {
++    requestAnimationFrame(() => {
++        if (!isComposerEditorUsable(editor) || !composerMayTakeFocus(editor))
++            return;
++        editor.commands.setTextSelection(editor.state.doc.content.size);
++        editor.view.focus();
++        editor.commands.scrollIntoView();
++    });
++}
  export function createTiptapComposerExtensions(getPlaceholder) {
      return [
          StarterKit.configure({
-@@ -895,7 +921,7 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+@@ -895,7 +935,7 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
          !LOCAL_RUNTIME_ENGINES.has(group.engine));
      const hasUnconfiguredVisibleModels = modelProviderGroups.some((group) => !group.configured);
      const hasConfiguredProvider = providerGroups.some((group) => group.configured);
@@ -186,7 +200,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
          !hasConfiguredCloudProviderReady &&
          (Boolean(onConnectProvider) ||
              (providerConnectStatusEnabled &&
-@@ -903,9 +929,10 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+@@ -903,9 +943,10 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
                  !builderFlow.envManaged &&
                  !hasConfiguredBuilderModels &&
                  !hasConnectedSubscription));
@@ -198,7 +212,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
      const showProviderActions = showBuilderAction || showAddKeysAction;
      const onlyConnectPathAvailable = shouldShowOnlyConnectPath(showProviderActions, providerGroups);
      const openLlmSettings = useCallback(() => {
-@@ -1107,7 +1134,7 @@ function ModelSelectorSkeleton() {
+@@ -1107,7 +1148,7 @@ function ModelSelectorSkeleton() {
                      defaultValue: "Loading models…",
                  }) }), ["w-24", "w-32", "w-20", "w-28"].map((width, index) => (_jsxs("div", { className: "flex items-center gap-1.5 px-1 py-1.5", children: [_jsx(Skeleton, { className: "size-3 rounded-sm" }), _jsx(Skeleton, { className: `h-3 ${width}` })] }, index)))] }));
  }
@@ -207,7 +221,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
      const adapters = useComposerRuntimeAdapters();
      const t = adapters.translate;
      const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
-@@ -1202,6 +1229,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1202,6 +1243,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      }, []);
      const onTextChangeRef = useRef(onTextChange);
      onTextChangeRef.current = onTextChange;
@@ -216,7 +230,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
      const contextItemsRef = useRef(contextItems);
      contextItemsRef.current = contextItems;
      const onRemoveContextItemRef = useRef(onRemoveContextItem);
-@@ -1292,7 +1321,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1292,7 +1335,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              // Drive the send button's enabled state from the actual editor contents;
              // the composer runtime is only synced on submit, so its isEmpty lags.
              setEditorHasText(composerDocumentHasContent(ed.state.doc));
@@ -225,7 +239,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
              scheduleComposerDraftPersist(ed);
          },
          onSelectionUpdate: ({ editor: ed }) => {
-@@ -1569,8 +1598,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1569,8 +1612,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      useEffect(() => {
          if (!isComposerEditorUsable(editor) || !onTextChange)
              return;
@@ -236,24 +250,23 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
      const insertReference = useCallback((ref) => {
          const normalized = adapters.agentChat.normalizeReference(ref);
          const ed = editor;
-@@ -1660,7 +1689,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
-     }, [adapters, insertReferenceIfEmpty]);
+@@ -1661,7 +1704,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      useImperativeHandle(focusRef, () => ({
          focus() {
--            if (isComposerEditorUsable(editor))
-+            if (isComposerEditorUsable(editor) && composerMayTakeFocus(editor))
-                 editor.commands.focus("end");
+             if (isComposerEditorUsable(editor))
+-                editor.commands.focus("end");
++                focusComposerAtEnd(editor);
          },
          insertText(text) {
-@@ -1675,13 +1704,14 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+             if (!isComposerEditorUsable(editor))
+@@ -1675,13 +1718,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
          setText(text) {
              if (!isComposerEditorUsable(editor))
                  return;
 -            editor.commands.setContent(plainTextToDoc(text));
 -            editor.commands.focus("end");
 +            editor.commands.setContent(plainTextToDoc(text, preserveDraftTextRef.current));
-+            if (composerMayTakeFocus(editor))
-+                editor.commands.focus("end");
++            focusComposerAtEnd(editor);
              const trimmed = editor.state.doc.textContent.trim();
              setEditorHasText(trimmed.length > 0);
              setSlotReferences([]);
@@ -263,13 +276,12 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
              flushComposerDraft();
          },
          insertReference,
-@@ -2356,18 +2386,20 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2356,18 +2399,18 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
          try {
              if (saved && editor.isEmpty) {
                  editor.commands.setContent(saved);
 -                editor.commands.focus("end");
-+                if (composerMayTakeFocus(editor))
-+                    editor.commands.focus("end");
++                focusComposerAtEnd(editor);
                  if (initialText !== undefined)
                      initialTextKeyRef.current = key;
              }
@@ -283,12 +295,11 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
 -                editor.commands.setContent(plainTextToDoc(initialText));
 -                editor.commands.focus("end");
 +                editor.commands.setContent(plainTextToDoc(initialText, preserveDraftTextRef.current));
-+                if (composerMayTakeFocus(editor))
-+                    editor.commands.focus("end");
++                focusComposerAtEnd(editor);
              }
              else {
                  return;
-@@ -2375,7 +2407,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2375,7 +2418,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              const trimmed = editor.state.doc.textContent.trim();
              setEditorHasText(composerDocumentHasContent(editor.state.doc));
              composerRuntime.setText(trimmed);
@@ -297,7 +308,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..346d49eab13a31221e8b7a878bb98d18
              scheduleComposerDraftPersist(editor);
          }
          catch {
-@@ -2430,6 +2462,6 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2430,6 +2473,6 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
                                      defaultValue: "Remove {{name}} context",
                                      name: item.title,
                                  }), className: "ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground", children: _jsx(IconX, { className: "h-3 w-3" }) })] }, item.key)))] })), _jsx("div", { "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "editor-wrap", className: `agent-composer-editor-wrap ${composerMode || hasContextRows ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"}`, children: _jsx(EditorContent, { editor: editor, "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "editor", className: "agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5" }) }), voiceEnabled && _jsx(VoiceRecordingOverlay, { voice: voice }), _jsxs("div", { "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "toolbar", className: "agent-composer-toolbar flex items-center gap-1 px-2 py-1.5", children: [attachButton ??
