@@ -158,8 +158,9 @@ Issue #121, part B. A failed stop now names what it left behind, and the owner c
 to the worker's process group. When the kernel reports no such group, the check is clean without reading `/proc`.
 Otherwise it reads each `/proc/<pid>/stat` for a member's `comm` name and start time, never its command line or
 environment, and gives the group one more second to empty. A `stat` read that fails with `EACCES` or `EPERM`, as under
-`hidepid=1`, no longer fails the stop. When no readable member is left, it marks the group hidden, because the
-unreadable entry could be a member. On Windows the check runs one `Get-CimInstance` query through PowerShell that
+`hidepid=1`, no longer fails the stop. While the group exists, such an entry marks it hidden, even beside readable
+members, because the entry could be a member. A group the kernel reports gone still reads clean, so a clean stop is
+unaffected. On Windows the check runs one `Get-CimInstance` query through PowerShell that
 selects only the process ID, parent ID, image name, and creation time of each process. The script also works under
 Constrained Language Mode, and it ends with a count of its rows. Output that lacks the count, holds a different count,
 or has a row without a creation time other than PIDs 0 and 4 makes the scan unavailable, never clean. It follows
@@ -212,7 +213,9 @@ unknown,
 also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,
 and its transcript status names what End them ended and marks any listed process that Vivary did not trace to the run.
 The server log records the scan result and the number of leftovers, never their names. The host strip lists the
-leftovers with the server's wording and marks each one Vivary did not trace to the run as not confirmed from it. It
+leftovers with the server's wording and marks each one Vivary did not trace to the run as not confirmed from it. When
+the list sits beside a hidden member, the instruction starts with "Process group N may also hold a process that
+Vivary cannot read or end.", and the fingerprint that Continue anyway compares includes the hidden mark. It
 offers End them only when a listed process is traced to the run. When none is, its heading says the processes may be
 left from an earlier run, and its instruction says Vivary does not end them and how the owner can, with the group's
 `kill` command on Linux or Task Manager by PID on Windows. The server offers Continue anyway once End them has run on

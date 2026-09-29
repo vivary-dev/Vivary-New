@@ -68,8 +68,8 @@ export type CleanupTarget =
 export const BOOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * One observation of a target. `hidden` is Linux only: the kernel reports a group member that Vivary could not read,
- * for example under `hidepid=1`. A Windows `target` also tracks every process the scan found.
+ * One observation of a target. `hidden` is Linux only. The group exists and may hold a member Vivary could not read,
+ * for example under `hidepid=1`, beside any it lists. A Windows `target` also tracks every process the scan found.
  */
 export type CleanupCheck =
   | { result: "clean" }
@@ -384,8 +384,9 @@ export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc): P
     if (stat.state === "Z" || stat.state === "X") zombie = true;
     else members.push({ pid: Number(entry), name: stat.name, start: stat.start, parentPid: stat.parentPid });
   }
-  // The group exists. A visible zombie explains that only when no entry was unreadable.
-  return { members, hidden: members.length === 0 && (!zombie || unreadable) };
+  // The group exists, so an unreadable entry could be a member, even beside readable ones. A visible zombie explains an
+  // otherwise empty group.
+  return { members, hidden: unreadable || (members.length === 0 && !zombie) };
 }
 
 /** The fields of a `/proc/<pid>/stat` line that the group scan uses. The `comm` name may itself hold `)` and spaces. */

@@ -641,18 +641,21 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
   }
   const yourself = group !== null ? `stop them with \`kill -KILL -- -${group}\``
     : `end them ${windows ? "in Task Manager" : "in your process list"} by PID`;
+  // The list names only what the scan could read, as under `hidepid=1`.
+  const unread = refusal.hidden && group !== null
+    ? `Process group ${group} may also hold a process that Vivary cannot read or end. ` : "";
   const confirmed = refusal.remaining.filter(leftover => confirmedFromRun(refusal, leftover)).length;
   if (!confirmed) {
-    return "Vivary cannot confirm that these came from that run, so it does not end them. "
+    return `${unread}Vivary cannot confirm that these came from that run, so it does not end them. `
       + `If they did, ${yourself}, then choose Continue anyway${at}.`;
   }
   const orContinue = cleanupOffers(refusal).canContinue ? ` Or choose Continue anyway${at}.` : "";
   if (confirmed === refusal.remaining.length) {
-    return `Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm came from `
-      + `that run, then checks again.${orContinue}`;
+    return `${unread}Choose End them${at} to stop these processes. Vivary ends only listed processes it can confirm `
+      + `came from that run, then checks again.${orContinue}`;
   }
-  return `Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It does not end `
-    + `the others. If they came from that run, ${yourself}.${orContinue}`;
+  return `${unread}Choose End them${at} to stop the processes confirmed from that run, then Vivary checks again. It `
+    + `does not end the others. If they came from that run, ${yourself}.${orContinue}`;
 }
 
 /** The refusal a send gets. */
