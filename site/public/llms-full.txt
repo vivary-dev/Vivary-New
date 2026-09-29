@@ -6608,13 +6608,17 @@ The published `9884670` prerelease predates the issue #51 automation changes. Th
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
 records their test on an unpublished package.
 
-An automation is a saved instruction that the agent runs on a schedule, when another
-program calls its webhook URL, or when you choose **Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
+An automation is a saved instruction that the agent runs on a schedule, when an event
+happens in Vivary, when another program calls its webhook URL, or when you choose
+**Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
 start a **Native chat**, and ask the agent for it. Say what it does, when it runs, and your
 time zone. **New automation** in Settings > Agent > Automations opens the same kind of chat
 with your prompt. If the prompt cannot reach a chat, Vivary shows it with **Copy prompt**.
 
-Each run writes one chat thread named `Job: <name>`. A run can read and change your
+Each run writes one chat thread, named `Job: <name>` for a scheduled run and
+`Automation: <name>` for **Run now**. Vivary keeps these threads but does not show them
+yet. Chat history does not list them, and **Details** cannot open one. A run can read
+and change your
 resources, memory, chat history, and progress, and it can notify you in the in-app inbox.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
@@ -6623,12 +6627,15 @@ running.
 Settings > Agent > Automations holds the controls:
 
 - The switch on an automation pauses or resumes it.
-- **Manage** > **Details** shows its settings and past runs.
+- **Manage** > **Details** shows its settings and past runs. For a scheduled automation,
+  LAST CHECKED is the last time the scheduler checked your automations, about once a
+  minute while Vivary is open. For an event, webhook, or paused automation, it is the
+  last time a check skipped it, and it stays empty until one does.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.
-- **Manage** > **Delete** removes the automation and its run history. Run threads stay in
-  chat history. A run already in progress finishes and writes its reply.
+- **Manage** > **Delete** removes the automation and its run history. Vivary keeps its
+  run threads. A run already in progress finishes and writes its reply.
 
 To change what an automation does, ask the agent in a Personal workspace Native chat.
 
@@ -6659,6 +6666,19 @@ condition with Anthropic's API, whatever provider you use for chats, and sends t
 body to Anthropic for the check. It needs an Anthropic API key. Without one, a call to that
 automation does not run, and **Details** shows the reason. Remove the condition, or add an
 Anthropic key.
+
+An event automation runs when something happens inside Vivary. Vivary emits six events:
+`agent.turn.completed` when a Native chat reply finishes, `notification.sent` when a
+notification reaches your inbox, `run.progress.started` and `run.progress.updated` when
+a run reports progress, `automation.run.finished` when an automation run ends, and
+`test.event.fired` when you ask the agent in a chat to fire a test event. The agent
+accepts other event names, but nothing in Vivary emits them, so such an automation never
+runs. An event run needs an API key for the provider chosen in Settings, saved in Vivary
+or present in its environment at launch. Without one, the event is skipped and
+**Details** shows the reason. A condition on an event automation is checked with
+Anthropic's API using that same key, whatever the provider. A key from another provider
+is rejected, and the event is skipped with no reason shown. [Issue
+#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
@@ -7314,13 +7334,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #115, failing tests. Settings > Agent > Automations is Core's page, and
-`tests/automation-status.test.mjs` shows two of its gaps against the installed Core. The list actions report LAST
-CHECKED from the automation's own front matter, which the scheduler writes only when it skips a run, so an enabled
-scheduled automation reads as never checked while the scheduler's heartbeat in `automation_scheduler_health`
-advances every minute. The Details dialog offers Open thread on an errored or interrupted run, and nothing in Vivary
-handles that request. A third case pins that a paused automation lists no next run. CI runs the file beside the
-other automation tests. The design description does not change until the fix.
+Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
+LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
+healthy scheduled automation read as never checked. `list-automations` and `list-recurring-jobs` now report, for an
+enabled scheduled entry, the later of that field and the app's scheduler heartbeat in `automation_scheduler_health`,
+which every tick that holds the scheduler lease writes before it scans. Event, webhook, and paused entries keep their
+own value. The Details dialog no longer offers Open thread on a past run. Run threads have no chat scope, every
+Vivary history list shows only its own scope, and nothing on Settings handled the request, so the owner decided on
+2026-09-29 that run threads are not openable from Settings. The desktop guide says so, corrects its claim that run
+threads stay in chat history, and describes event triggers with their key requirement and #135. The Unattended
+automation runs row and the runtime flows still hold, because the scheduler, the runs, and their storage are
+unchanged. The patch README section "Settings automation status" has the detail, and
+`tests/automation-status.test.mjs` failed on the previous patch for LAST CHECKED and Open thread.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer

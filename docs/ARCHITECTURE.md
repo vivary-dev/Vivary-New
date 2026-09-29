@@ -153,13 +153,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #115, failing tests. Settings > Agent > Automations is Core's page, and
-`tests/automation-status.test.mjs` shows two of its gaps against the installed Core. The list actions report LAST
-CHECKED from the automation's own front matter, which the scheduler writes only when it skips a run, so an enabled
-scheduled automation reads as never checked while the scheduler's heartbeat in `automation_scheduler_health`
-advances every minute. The Details dialog offers Open thread on an errored or interrupted run, and nothing in Vivary
-handles that request. A third case pins that a paused automation lists no next run. CI runs the file beside the
-other automation tests. The design description does not change until the fix.
+Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
+LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
+healthy scheduled automation read as never checked. `list-automations` and `list-recurring-jobs` now report, for an
+enabled scheduled entry, the later of that field and the app's scheduler heartbeat in `automation_scheduler_health`,
+which every tick that holds the scheduler lease writes before it scans. Event, webhook, and paused entries keep their
+own value. The Details dialog no longer offers Open thread on a past run. Run threads have no chat scope, every
+Vivary history list shows only its own scope, and nothing on Settings handled the request, so the owner decided on
+2026-09-29 that run threads are not openable from Settings. The desktop guide says so, corrects its claim that run
+threads stay in chat history, and describes event triggers with their key requirement and #135. The Unattended
+automation runs row and the runtime flows still hold, because the scheduler, the runs, and their storage are
+unchanged. The patch README section "Settings automation status" has the detail, and
+`tests/automation-status.test.mjs` failed on the previous patch for LAST CHECKED and Open thread.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer

@@ -164,13 +164,17 @@ The published `9884670` prerelease predates the issue #51 automation changes. Th
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
 records their test on an unpublished package.
 
-An automation is a saved instruction that the agent runs on a schedule, when another
-program calls its webhook URL, or when you choose **Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
+An automation is a saved instruction that the agent runs on a schedule, when an event
+happens in Vivary, when another program calls its webhook URL, or when you choose
+**Run now**. It belongs to you, not to a project. To create one, open **Personal workspace**,
 start a **Native chat**, and ask the agent for it. Say what it does, when it runs, and your
 time zone. **New automation** in Settings > Agent > Automations opens the same kind of chat
 with your prompt. If the prompt cannot reach a chat, Vivary shows it with **Copy prompt**.
 
-Each run writes one chat thread named `Job: <name>`. A run can read and change your
+Each run writes one chat thread, named `Job: <name>` for a scheduled run and
+`Automation: <name>` for **Run now**. Vivary keeps these threads but does not show them
+yet. Chat history does not list them, and **Details** cannot open one. A run can read
+and change your
 resources, memory, chat history, and progress, and it can notify you in the in-app inbox.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
@@ -179,12 +183,15 @@ running.
 Settings > Agent > Automations holds the controls:
 
 - The switch on an automation pauses or resumes it.
-- **Manage** > **Details** shows its settings and past runs.
+- **Manage** > **Details** shows its settings and past runs. For a scheduled automation,
+  LAST CHECKED is the last time the scheduler checked your automations, about once a
+  minute while Vivary is open. For an event, webhook, or paused automation, it is the
+  last time a check skipped it, and it stays empty until one does.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.
-- **Manage** > **Delete** removes the automation and its run history. Run threads stay in
-  chat history. A run already in progress finishes and writes its reply.
+- **Manage** > **Delete** removes the automation and its run history. Vivary keeps its
+  run threads. A run already in progress finishes and writes its reply.
 
 To change what an automation does, ask the agent in a Personal workspace Native chat.
 
@@ -215,6 +222,19 @@ condition with Anthropic's API, whatever provider you use for chats, and sends t
 body to Anthropic for the check. It needs an Anthropic API key. Without one, a call to that
 automation does not run, and **Details** shows the reason. Remove the condition, or add an
 Anthropic key.
+
+An event automation runs when something happens inside Vivary. Vivary emits six events:
+`agent.turn.completed` when a Native chat reply finishes, `notification.sent` when a
+notification reaches your inbox, `run.progress.started` and `run.progress.updated` when
+a run reports progress, `automation.run.finished` when an automation run ends, and
+`test.event.fired` when you ask the agent in a chat to fire a test event. The agent
+accepts other event names, but nothing in Vivary emits them, so such an automation never
+runs. An event run needs an API key for the provider chosen in Settings, saved in Vivary
+or present in its environment at launch. Without one, the event is skipped and
+**Details** shows the reason. A condition on an event automation is checked with
+Anthropic's API using that same key, whatever the provider. A key from another provider
+is rejected, and the event is skipped with no reason shown. [Issue
+#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most

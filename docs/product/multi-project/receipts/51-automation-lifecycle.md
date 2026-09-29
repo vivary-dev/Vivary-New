@@ -214,7 +214,10 @@ review. Its tests, Zo CI, a live browser check, and the packaged retest cover it
   [#114](https://github.com/vivary-dev/Vivary-New/issues/114).
 - Details shows no LAST CHECKED value while the scheduler checks every minute, and a past run has no
   way to open its thread. A paused automation keeps a next run time that has passed. Tracked in
-  [#115](https://github.com/vivary-dev/Vivary-New/issues/115).
+  [#115](https://github.com/vivary-dev/Vivary-New/issues/115). Since fixed in source: the maintained
+  Core patch reports the scheduler's last check and removes Open thread, because Settings cannot open
+  a run thread, and Settings already listed no next run for a paused automation. No package has run
+  this change yet.
 - Asked what an automation run can do, a chat agent answered from general knowledge and listed
   sending and webhooks. The run prompt, the Run now dialog, and the `manage-automations`
   description state the local-only limits.

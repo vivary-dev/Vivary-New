@@ -1006,6 +1006,61 @@ a way to approve an MCP step before a run starts. Remove this part of the patch
 only when an upstream release offers a local-only mode that passes the same
 test.
 
+## Settings automation status
+
+Issue #115. Settings > Agent > Automations is Core's page. Its Details dialog
+showed LAST CHECKED as a dash while the scheduler checked every minute, and it
+offered Open thread on some past runs, which did nothing in Vivary.
+
+LAST CHECKED read the automation's `lastCheck` front matter field. The
+scheduler writes that field only when an identity check skips the automation,
+and the event and webhook dispatcher writes it only when it declines a call or
+an event, so a healthy automation kept it empty. The scheduler records its own
+check in `automation_scheduler_health`: every tick that holds the scheduler
+lease writes the app's `<appId>:global` row before it scans.
+`list-automations.js` and `list-recurring-jobs.js` now read that row once per
+call through `getAutomationSchedulerHealth`. For an enabled entry with a valid
+schedule, they report the later of its stored `lastCheck` and the row's
+`last_checked_at`. Event, webhook, and paused entries keep their stored value,
+because the scheduler does not check them. The field keeps its name and ISO
+format, so the client is unchanged. Only the lease holder writes the
+heartbeat, so LAST CHECKED stops advancing while a process that has gone still
+holds the lease, which is what happened.
+
+The Details dialog showed Open thread on a run with an error and a thread. The
+control sent Core's `agent-chat:open-thread` window event, which only Core's
+`MultiTabAssistantChat` handles, and Vivary does not mount it on Settings. The
+run's thread also has no chat scope, and every Vivary history list shows only
+threads of its own scope, so no page could open it. The owner decided on
+2026-09-29 that run threads are not openable from Settings.
+`AutomationDetailsDialog.js` no longer renders the control, and the desktop
+guide says so.
+
+Settings lists no next run for a paused automation, because both list actions
+return none for a disabled entry. The stored value can be in the past, and the
+agent's `manage-automations list` still returns it. The page offers schedule,
+event, and webhook triggers, and both the packaged app and the hosted server
+run all three in process, so that part of #115 needed no patch change.
+
+Run `node --test packages/workbench/tests/automation-status.test.mjs`. It uses
+a disposable SQLite database with `NODE_ENV=production`. It records a
+heartbeat, then lists a scheduled automation, one whose recorded skip is later
+than the heartbeat, an event automation, a paused automation, and two legacy
+recurring jobs, and checks each LAST CHECKED value. Another app's heartbeat on
+the same database does not count. It pins that a paused automation lists no
+next run. It bundles the Details dialog with esbuild, renders it with a
+successful, an interrupted, and an errored run, and checks that none offers
+Open thread. The LAST CHECKED and Open thread cases failed on the previous
+patch.
+
+Upstream could take the LAST CHECKED change as it is, because it changes only
+a read-only field. Removing Open thread is Vivary's choice: a host that mounts
+Core's chat beside the page can open an unscoped thread. Remove the LAST
+CHECKED part when an upstream release reports the scheduler's check and passes
+the same test. Remove the Open thread part only when Vivary can open a run
+thread, by giving it a scope or a route that loads it, and the test expects
+the control.
+
 ## Credential redaction
 
 Issue #97 adds a text redaction hook. The owner asked on 2026-09-26 that
