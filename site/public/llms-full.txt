@@ -7334,6 +7334,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #114, failing tests. `tests/automation-quit.test.mjs` shows that a normal quit does nothing for automations.
+Each quitting or killed process is a child that runs `tests/automation-quit-process.mjs` against the test's
+disposable database, and the test process plays the next launch. A child that quits during a scheduled run and a
+Run now leaves both rows `running` and the scheduler lease held, and the next launch then runs nothing at its first
+tick. The stop cases fail because Core has no `stopRecurringJobs`, and the source pin fails because
+`stopLocalWork` does not call it. The hard-kill case passes: the lease still names the killed process, expires about
+10 minutes out, blocks the next scan, and the run reads interrupted only past the liveness ceiling. CI runs the file
+beside the other automation tests. The design description does not change until the fix.
+
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
 healthy scheduled automation read as never checked. `list-automations` and `list-recurring-jobs` now report, for an
