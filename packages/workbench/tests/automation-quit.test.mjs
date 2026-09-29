@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,11 +19,14 @@ for (const name of ["DEPLOY_PRIME_URL", "DEPLOY_URL", "URL", "APP_URL", "BETTER_
   "AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"]) {
   delete process.env[name]; // guard:allow-env-credential - Removes app URL, signing, and timeout names. No value is read.
 }
+// A webhook automation's token is stored as an encrypted app secret, which needs a key in production. The children
+// inherit this random, disposable value.
 Object.assign(process.env, {
   APP_NAME: "Vivary",
   NODE_ENV: "production",
   DATABASE_URL: database,
   DATABASE_URL_UNPOOLED: database,
+  BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
 });
 
 // A finished run schedules a five-minute in-memory cleanup. Unref long timers so this file can exit.
@@ -36,13 +40,19 @@ globalThis.setTimeout = (handler, delay, ...args) => {
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
 const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGetByPath, resourcePut },
-  { parseJobResource, patchJobFrontmatterFields }] = await Promise.all([
+  { parseJobResource, patchJobFrontmatterFields }, { initTriggerDispatcher }, webhookTask,
+  { setInProcessIntegrationTaskRunner }, { insertPendingTask }, { retryStuckPendingTasks }] = await Promise.all([
   load("jobs/scheduler.js"),
   load("jobs/run-history.js"),
   load("automations/service.js"),
   load("db/client.js"),
   load("resources/store.js"),
   load("jobs/frontmatter.js"),
+  load("triggers/dispatcher.js"),
+  load("integrations/automation-webhook-task.js"),
+  load("integrations/integration-durable-dispatch.js"),
+  load("integrations/pending-tasks-store.js"),
+  load("integrations/pending-tasks-retry-job.js"),
 ]);
 const { INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, getAutomationRun, listAutomationRuns } = runHistory;
 
@@ -51,6 +61,7 @@ const children = new Set();
 
 after(async () => {
   for (const child of children) child.kill("SIGKILL");
+  setInProcessIntegrationTaskRunner(null);
   globalThis.setTimeout = originalSetTimeout;
   await rm(caseRoot, { recursive: true, force: true });
 });
@@ -240,6 +251,91 @@ test("the stop returns at its bound when a run ignores its abort", async () => {
   assert.ok(result.elapsedMs >= 950 && result.elapsedMs < 3_000, `the stop returned at its 1-second bound (${result.elapsedMs} ms)`);
   assert.deepEqual(result.statuses, ["running"], "a run that did not settle is left for the fallback");
   assert.ok(result.lease.leaseOwner, "its sweep still held the lease, which then expires as after a hard kill");
+});
+
+// Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as
+// soon as the stop returns, as the CLI host does, so a write the stop did not wait for is lost.
+const PLATFORM = "automation-webhook";
+const defineTrigger = (appId, name, fields) => defineAutomation({ userEmail: owner, appId },
+  { scope: "personal", name, body: "Summarize the event in one sentence.", ...fields });
+const queueWebhookCall = async (name, eventId, id) => {
+  const resource = await resourceGetByPath(owner, `jobs/${name}.md`);
+  await insertPendingTask({ id, platform: PLATFORM, externalThreadId: `${resource.owner}:${resource.path}`,
+    ownerEmail: owner, orgId: null, externalEventKey: `${resource.id}:${eventId}`,
+    payload: JSON.stringify({ kind: "automation-webhook", automationId: resource.id, owner: resource.owner,
+      path: resource.path, eventId, payload: { id: eventId } }) });
+};
+const taskRow = async id => (await getDbExec().execute({
+  sql: "SELECT id, status, attempts, payload, error_message, created_at, updated_at FROM integration_pending_tasks WHERE id = ?",
+  args: [id],
+})).rows[0];
+const webhookPayload = row => JSON.parse(row.payload);
+let triggerQuitting;
+const triggerQuit = () => {
+  triggerQuitting ??= (async () => {
+    await defineTrigger("trigger-app", "hook", { triggerType: "webhook" });
+    await defineTrigger("trigger-app", "watcher", { triggerType: "event", event: "test.event.fired" });
+    await queueWebhookCall("hook", "evt-a", "task-a");
+    await queueWebhookCall("hook", "evt-b", "task-b");
+    const { report, exited } = spawnChild("trigger-quit", "trigger-app");
+    await report;
+    await exited;
+  })();
+  return triggerQuitting;
+};
+
+test("a quit ends an event run as interrupted and records it before the stop returns", async () => {
+  await triggerQuit();
+  const runs = await runsOf("trigger-app", "watcher");
+  assert.deepEqual(runs.map(run => run.status), ["interrupted"], "one run, interrupted");
+  assert.equal(runs[0].error, INTERRUPTED_RUN_MESSAGE);
+  assert.equal(runs[0].errorCode, INTERRUPTED_RUN_ERROR_CODE);
+  const meta = await stored("watcher");
+  assert.equal(meta.lastStatus, "error", "the dispatcher recorded the outcome before the process exited");
+  assert.match(meta.lastError ?? "", /^The run stopped before it recorded a result/);
+});
+
+test("a quit returns an interrupted webhook call and the call behind it to the queue", async () => {
+  await triggerQuit();
+  const a = await taskRow("task-a");
+  const b = await taskRow("task-b");
+  assert.equal(a.status, "pending", "the interrupted call is queued again");
+  assert.equal(Number(a.attempts), 0, "the quit did not spend an attempt");
+  assert.equal(webhookPayload(a).eventId, "evt-a", "its payload is kept");
+  assert.equal(a.error_message, INTERRUPTED_RUN_MESSAGE);
+  assert.equal(b.status, "pending", "the call behind it was not started");
+  assert.equal(Number(b.attempts), 0);
+  assert.equal(webhookPayload(b).eventId, "evt-b");
+  assert.equal(b.error_message, null);
+  const runs = await runsOf("trigger-app", "hook");
+  assert.deepEqual(runs.map(run => run.status), ["interrupted"], "one history row, for call A only");
+
+  // The next launch: the retry sweep delivers both calls, A then B, once each.
+  const calls = [];
+  const triggerEngine = { ...quickEngine, async *stream(options) {
+    calls.push(JSON.stringify(options.messages).match(/Event ID: ([a-z0-9-]+)/)?.[1]);
+    yield* quickEngine.stream(options);
+  } };
+  await initTriggerDispatcher({ ...nextLaunch("trigger-app"), engine: triggerEngine, apiKey: "synthetic-condition-key" });
+  setInProcessIntegrationTaskRunner(webhookTask.runAutomationWebhookTaskInProcess, { platforms: [PLATFORM],
+    appId: "trigger-app", acceptsTask: webhookTask.webhookTaskBelongsToApp,
+    expireTask: webhookTask.expireAutomationWebhookTask, maxTaskAgeMs: webhookTask.AUTOMATION_WEBHOOK_MAX_TASK_AGE_MS });
+  const agedAt = Date.now() - 90_000;
+  for (const [id, at] of [["task-a", agedAt - 1], ["task-b", agedAt]]) {
+    await getDbExec().execute({ sql: "UPDATE integration_pending_tasks SET created_at = ?, updated_at = ? WHERE id = ?",
+      args: [at, at, id] });
+  }
+  assert.equal((await retryStuckPendingTasks()).selected, 2, "both calls are due 90 seconds after the quit");
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline && (await taskRow("task-b")).status !== "completed") {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal((await taskRow("task-a")).status, "completed");
+  assert.equal((await taskRow("task-b")).status, "completed");
+  assert.deepEqual(calls, ["evt-a", "evt-b"], "A ran, then B, once each");
+  assert.deepEqual((await runsOf("trigger-app", "hook")).map(run => run.status), ["success", "success", "interrupted"]);
+  assert.equal((await retryStuckPendingTasks()).selected, 0, "a finished call is not delivered again");
+  assert.equal(calls.length, 2);
 });
 
 test("Vivary's shutdown owner stops automations within the Code host's wait", async () => {
