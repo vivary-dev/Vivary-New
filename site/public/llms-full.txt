@@ -7349,7 +7349,9 @@ Issue #114. A normal quit now ends in-flight automation runs and releases the sc
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it beside the Code host stop with the same 10-second wait,
 so it still settles before the desktop's 15-second kill. The stop closes the scheduler to new sweeps and Run now
-claims, aborts every in-process run with the reason `shutdown`, and waits while each run records itself interrupted
+claims, and the runner, the event handler, and the in-process webhook runner to new runs, so work that arrives during
+the quit writes nothing and a due job stays due. It aborts every in-process run with the reason `shutdown`, and waits
+while each run records itself interrupted
 with Core's existing message and code, the trigger dispatcher records the automation's outcome, and the sweep that
 holds the lease releases it with its own owner. It writes nothing itself. A webhook call whose run a normal quit
 interrupted goes back to the queue with its payload and an unspent attempt, as the owner decided on 2026-09-29. The

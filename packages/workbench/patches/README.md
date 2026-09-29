@@ -1080,11 +1080,17 @@ the Code host, original command, and preview stops. That owner runs on the
 desktop's IPC shutdown and on a signal or Nitro `close` in the CLI host. The
 stop works in this order:
 
-1. It closes the scheduler, synchronously. A timer tick returns before it
-   takes the lease, a sweep that was still scanning starts no job, and
-   `runQueuedAutomation` leaves a queued Run now row unclaimed for the next
-   start. A run that starts after this, through a path that passed its check
-   a moment earlier, is aborted as soon as it starts.
+1. It closes the scheduler and the runner, synchronously. A timer tick returns
+   before it takes the lease, a sweep that was still scanning starts no job,
+   and `runQueuedAutomation` leaves a queued Run now row unclaimed for the next
+   start. The runner exports `isBackgroundAutomationsClosed`, and three more
+   places check it before they write anything. `executeJob` returns `skipped`
+   before it marks the automation running, so a due job stays due, a direct
+   `runJobNow` starts nothing, and a Run now row it had already claimed reads
+   interrupted. The event handler dispatches nothing, so the event is lost as
+   after a crash. The in-process webhook runner returns `skipped` before its
+   claim, so the call stays queued. A run whose setup was already past those
+   checks is aborted as soon as it starts, before the model.
 2. It aborts every in-process background run with the reason `shutdown`.
    Scheduled runs, Run now, and event and webhook runs all go through
    `runBackgroundAutomation`, which keeps the ids of the runs it started.
@@ -1140,8 +1146,8 @@ owner sees the interrupted history row and later a second row for the same
 call. The rerun starts from the beginning, as after a crash. A run that
 outlasts the bound, or a kill between the history row and the task write,
 leaves the task `processing`, and the sweep delivers it again about 15 minutes
-after its claim. An event, or a webhook task the retry sweep picks up, during
-the quit starts a run that is interrupted at once.
+after its claim. An event or a webhook call that arrives during the quit starts
+no run (step 1).
 
 Run `node --test packages/workbench/tests/automation-quit.test.mjs`. Each
 quitting or killed process is a child that runs
@@ -1168,7 +1174,13 @@ tasks read `pending` with their payloads and no spent attempt, only A has a
 history row, and the next launch's retry sweep runs A and then B once each.
 Both cases failed on the previous patch: the event's automation still read
 running and call A was left `processing`, because the stop returned before the
-dispatcher's writes.
+dispatcher's writes. After the stop, an event, a direct Run now, and a queued
+webhook call start no run and write nothing, and a Run now claimed just before
+the stop reads interrupted with no thread. Those three cases failed on the
+patch before the closed checks. Three more pin a sweep that is scanning when
+the stop begins, which dispatches nothing, leaves its job due, and releases the
+lease, a second stop call, which returns the first, and a run still preparing
+when the stop begins, which is interrupted before the model.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
