@@ -7361,7 +7361,8 @@ the strip showed, and a choice about a list that changed since is refused with `
 strip shows the new list first. Continue anyway lifts the refusal on the owner's word after one more check, unless
 that check finds a process the owner was not shown, and records the list the owner saw and what the check found. A
 refusal lists at most 50 processes. When its last check found more, the owner never saw every process, so Continue
-anyway is refused as changed, and the instruction says that Vivary lists 50 of the processes it found. The
+anyway is refused as changed whenever the check before it finds processes, and the instruction says that Vivary lists
+50 of the processes it found. The
 refusal keeps each End them, with who chose it, when, and whether each process was ended, mismatched, gone, failed, or
 unknown,
 also when the check after it lists more or cannot run. Every lift copies that record into `metadata.cleanupLifted`,
