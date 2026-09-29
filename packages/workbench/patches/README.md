@@ -1602,10 +1602,18 @@ raw text. So the preview, and the title whenever no generated title replaced
 it, showed that block, including the project's scope id.
 
 The patch removes only the envelope that `appendAgentChatContextToMessage` in
-`dist/shared/agent-chat-context.js` adds: the last `\n\n<context>\n`, when
-the text ends with `\n</context>`. A `<context>` the owner typed elsewhere in
-the message stays in the title. A message that holds only context gives no
-title.
+`dist/shared/agent-chat-context.js` adds: from the first `\n\n<context>\n` to
+the end, when the text ends with `\n</context>`. The cut starts at the first
+opening because the context can hold its own block, and a later cut would show
+the rest of it. A `<context>` the owner typed inline stays in the title. A
+message that holds only context gives no title.
+
+One limit. Core does not record where the appended context begins, so a message
+the owner typed that itself ends in a block of that shape, a `<context>` line
+after a blank line through a closing `</context>` line, loses that block from
+its title too. The chat's own display already hides every `<context>` block, so
+the title agrees with what the chat shows. Recording the boundary would change
+how Core saves messages.
 
 `native-thread-meta.test.mjs` builds messages with Core's own
 `appendAgentChatContextToMessage` and checks the title and preview. It is part

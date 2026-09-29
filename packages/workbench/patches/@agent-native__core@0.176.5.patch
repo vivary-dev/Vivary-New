@@ -826,7 +826,7 @@ index bd348265bcdf57cebf5d611d2741fa9705bf6486..fb04b33d759ba1b01c40c3032b87c3e5
      preserveExistingTopLevelKeys?: boolean;
  }
 diff --git a/dist/agent/thread-data-builder.js b/dist/agent/thread-data-builder.js
-index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..d1a93bd1ccac1ceab7866ccc32b7555d814e8d6f 100644
+index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..f949955cdb3b8ae1c9e3c7ce2b1e1b03e54bdcea 100644
 --- a/dist/agent/thread-data-builder.js
 +++ b/dist/agent/thread-data-builder.js
 @@ -10,6 +10,11 @@ function isInternalContinuationError(event) {
@@ -1100,20 +1100,22 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..d1a93bd1ccac1ceab7866ccc32b7555d
      const mergedMessage = {
          ...lastMsg,
          content: normalizeAssistantToolCallIds({
-@@ -1701,6 +1778,12 @@ export function normalizeThreadTitle(value) {
+@@ -1701,6 +1778,14 @@ export function normalizeThreadTitle(value) {
          return "";
      return value.replace(/\s+/g, " ").trim().slice(0, 160);
  }
 +// Vivary patch, issue #145. appendAgentChatContextToMessage adds one trailing envelope,
-+// "\n\n<context>\n...\n</context>". Only that envelope is removed, so a "<context>" the owner typed stays.
++// "\n\n<context>\n...\n</context>". Only text from that shape to the end is removed, so a "<context>" the owner
++// typed inline stays. The cut starts at the first such opening: the context itself can hold one, and a later cut
++// would show the rest of the context.
 +function withoutAppendedContext(text) {
-+    const start = text.lastIndexOf("\n\n<context>\n");
++    const start = text.indexOf("\n\n<context>\n");
 +    return start >= 0 && text.trimEnd().endsWith("\n</context>") ? text.slice(0, start) : text;
 +}
  /**
   * Extract title and preview from a thread runtime export.
   * Isomorphic — works on both server and client.
-@@ -1717,7 +1800,7 @@ export function extractThreadMeta(repo) {
+@@ -1717,7 +1802,7 @@ export function extractThreadMeta(repo) {
          const msg = entry?.message ?? entry;
          if (msg.role !== "user")
              continue;
@@ -1122,7 +1124,7 @@ index 25782ed7958f39dd3e5d6c16dbb82ae8c33ec507..d1a93bd1ccac1ceab7866ccc32b7555d
              ? msg.content
                  .filter((p) => p.type === "text")
                  .map((p) => p.text)
-@@ -1725,6 +1808,9 @@ export function extractThreadMeta(repo) {
+@@ -1725,6 +1810,9 @@ export function extractThreadMeta(repo) {
              : typeof msg.content === "string"
                  ? msg.content
                  : "";

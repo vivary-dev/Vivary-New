@@ -37,3 +37,9 @@ test("the title comes from the first message with text and the preview from the 
   assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage("Sea stars", context),
     appendAgentChatContextToMessage("Kelp forest", context))), { title: "Sea stars", preview: "Kelp forest" });
 });
+
+test("context that itself holds a context block stays out of the title", () => {
+  const nested = `${context}\n\n<context>\nexample\n</context>`;
+  assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage("Sea stars", nested))),
+    { title: "Sea stars", preview: "Sea stars" });
+});
