@@ -251,7 +251,10 @@ test("host start lifts a refusal whose group already emptied without a send, and
   const lift = await waitFor(() => metadataOf("emptied-at-start").cleanupLifted, t.signal);
   assert.equal((lift as { how?: string }).how, "rechecked");
   assert.equal("cleanupRefusal" in metadataOf("emptied-at-start"), false);
-  assert.equal(lastStatus("emptied-at-start"), "The leftover coding processes are gone. Vivary accepts new messages again.");
+  // The legacy marker still refuses, so this lift does not say that Vivary accepts new messages. The next case lifts
+  // the marker, and its status does.
+  assert.equal(lastStatus("emptied-at-start"), "The leftover coding processes are gone. This run no longer keeps Vivary "
+    + "from accepting new messages, but another run still does.");
 
   const host = await agent.getVivaryCodeHostState(OWNER);
   assert.match(host.cleanup?.version ?? "", /^[0-9a-f]{16}$/);
