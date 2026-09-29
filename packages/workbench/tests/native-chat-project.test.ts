@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import path from "node:path";
+import test, { type TestContext } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext, type AgentChatPluginOptions } from "@agent-native/core/server";
 import { H3, HTTPError } from "h3";
@@ -79,15 +82,22 @@ test("a project chat reopens its workspace with the context project services ret
 // h3 answers 500 for any thrown value that is not its own HTTPError.
 const httpError = (statusCode: number, statusMessage: string) => (error: unknown) =>
   HTTPError.isError(error) && error.statusCode === statusCode && error.statusMessage === statusMessage;
+// Issue #91. A refused send is a final error Core's chat client shows as written.
+const refusedSend = (message: string) => (error: unknown) =>
+  HTTPError.isError(error) && error.status === 422 && error.message === message
+  && isDeepStrictEqual(error.body, { error: message, errorCode: "vivary_project_conversation_refused", retryable: false });
 
 test("a refused classification stops before any workspace read", async () => {
   const refused = Object.assign(new Error("refused"), { statusCode: 403 });
   const unready = Object.assign(new Error("starting"), { statusCode: 503 });
+  const signedOut = Object.assign(new Error("Authentication required"), { statusCode: 401 });
   let workspaceReads = 0;
   const count = async () => { workspaceReads += 1; return {}; };
-  await assert.rejects(guardFor(refused, count).guard(details()), httpError(403, "refused"));
+  await assert.rejects(guardFor(refused, count).guard(details()), refusedSend("refused"));
   await assert.rejects(guardFor(unready, count).guard(details()), httpError(503, "starting"));
-  await assert.rejects(guardFor(new Error("catalog"), count).guard(details()), { statusCode: 409 });
+  await assert.rejects(guardFor(signedOut, count).guard(details()), httpError(401, "Authentication required"));
+  await assert.rejects(guardFor(new Error("catalog"), count).guard(details()),
+    refusedSend("Project conversation access is unavailable."));
   assert.equal(workspaceReads, 0);
 });
 
@@ -95,17 +105,9 @@ test("fails closed when project access is revoked or its folder is missing", asy
   const project: ChatScopeMatch = { kind: "project", projectId: "project-a",
     context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
   const revoked = Object.assign(new Error("revoked"), { statusCode: 403 });
-  await assert.rejects(
-    guardFor(project, async () => { throw revoked; }).guard(details()),
-    httpError(403, "revoked"),
-  );
-  await assert.rejects(
-    guardFor(project, async () => { throw new Error("missing"); }).guard(details()),
-    {
-      statusCode: 409,
-      statusMessage: "This project folder is unavailable. Reconnect it from Projects.",
-    },
-  );
+  await assert.rejects(guardFor(project, async () => { throw revoked; }).guard(details()), refusedSend("revoked"));
+  await assert.rejects(guardFor(project, async () => { throw new Error("missing"); }).guard(details()),
+    refusedSend("This project folder is unavailable. Reconnect it from Projects."));
 });
 
 test("a Native tool call gets a refusal with its own error code", async () => {
@@ -116,15 +118,53 @@ test("a Native tool call gets a refusal with its own error code", async () => {
     { errorCode: "vivary_project_read_access", statusCode: 403, message: "Local project access is unavailable." });
 });
 
-test("a refusal reaches the client as its own status, not a server error", async () => {
+test("a refusal reaches the client as a final error, not a server error", async () => {
   const refused = Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
   const { guard } = guardFor(refused);
   const app = new H3().post("/", async () => { await guard(details()); return "sent"; });
   const response = await app.fetch(new Request("http://local/", { method: "POST" }));
   const body = await response.json();
-  assert.equal(response.status, 403);
-  assert.equal(body.message, "Project conversation access is unavailable.");
+  assert.equal(response.status, 422);
+  assert.equal(body.error, "Project conversation access is unavailable.");
+  assert.equal(body.errorCode, "vivary_project_conversation_refused");
+  assert.equal(body.retryable, false);
   assert.equal(body.unhandled, undefined);
+});
+
+// Core's chat client, as the browser runs it. Core's package entries do not export the adapter, so the test loads the
+// installed module by path, as the replay-id tests do.
+const coreClientDir = path.dirname(fileURLToPath(import.meta.resolve("@agent-native/core/client")));
+const { createAgentChatAdapter } = await import(pathToFileURL(path.join(coreClientDir, "agent-chat-adapter.js")).href);
+
+/** What the chat shows when the guard refuses a send, and how many times the client posted it. */
+async function shownForRefusedSend(t: TestContext, guard: ReturnType<typeof guardFor>["guard"]) {
+  let sends = 0;
+  const app = new H3()
+    .post("/_agent-native/agent-chat", async () => { sends += 1; await guard(details()); return "sent"; });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init: RequestInit = {}) =>
+    app.fetch(new Request(new URL(input instanceof Request ? input.url : input, "http://local"),
+      { method: init.method ?? "GET", body: init.body, headers: init.headers })));
+  const adapter = createAgentChatAdapter({ apiUrl: "http://local/_agent-native/agent-chat" });
+  let last: { content: { text?: string }[] } | undefined;
+  for await (const update of adapter.run({ messages: [{ id: "user-1", role: "user", content: [{ type: "text", text: "Hi" }] }],
+    abortSignal: new AbortController().signal })) last = update;
+  return { shown: last?.content.map(part => part.text), sends };
+}
+
+test("the chat shows a refusal's own sentence once, not a sign-in prompt or a server error", async t => {
+  const project: ChatScopeMatch = { kind: "project", projectId: "project-a",
+    context: { caller: "http", userEmail: ownerEmail, orgId, appId: "workbench" } };
+  const refused = Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+  assert.deepEqual(await shownForRefusedSend(t, guardFor(refused).guard),
+    { shown: ["Something went wrong: Project conversation access is unavailable."], sends: 1 });
+  assert.deepEqual(await shownForRefusedSend(t, guardFor(project, async () => { throw new Error("missing"); }).guard),
+    { shown: ["Something went wrong: This project folder is unavailable. Reconnect it from Projects."], sends: 1 });
+});
+
+test("a lost session still asks the owner to sign in again", async t => {
+  const signedOut = Object.assign(new Error("Authentication required"), { statusCode: 401 });
+  const { shown } = await shownForRefusedSend(t, guardFor(signedOut).guard);
+  assert.deepEqual(shown, ["Error: Authentication required. Sign in again to use chat."]);
 });
 
 test("uses Native's parsed scope after its HTTP body has been consumed", async () => {

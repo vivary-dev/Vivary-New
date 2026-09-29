@@ -7314,6 +7314,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #91. A Native chat send that the project send guard refuses now shows the refusal's own sentence once.
+`native-chat-project.ts` passed project services' 403 through as a 403 and answered anything else with a 409. Core's
+chat client reads a 401 or 403 on a send as a lost session: it checks the session, can send the turn again, and asks
+the owner to sign in, which a local owner cannot do and a refusal does not need. It reads a 409 as a run still
+finishing, so the folder refusal showed as "Server error: 409". The guard now answers a refusal, and its fallback,
+with a 422 whose body carries `error`, `errorCode` `vivary_project_conversation_refused`, and `retryable: false`.
+Core's client shows that as a final error in the refusal's sentence and does not send the turn again. A lost session
+keeps its 401, so the sign-in recovery still runs, and folders that are not ready keep their 503, which the client
+already shows in its sentence. Who may send is unchanged. Tests run Core's chat client, loaded from the installed
+package, against the guard in an h3 app, and check what the chat shows and how many times it sends.
+
 Issue #130. A Codex model check whose Codex stops slowly but completely no longer counts as a failed stop, and a stop
 it cannot confirm no longer blocks Codex until a restart. `codex-models.ts` gives its stop one budget from the first
 step, `CLEANUP_TIMEOUT_MS` from `code-execution-host.ts`, as the Code host does. After one second for Codex to exit on
