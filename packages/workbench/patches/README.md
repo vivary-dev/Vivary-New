@@ -1591,3 +1591,33 @@ that every entry is a Radix item, and `row-focus.test.mjs` covers the focus
 choice. A browser run of the built app walked the menu with the arrow keys and
 typeahead, renamed with Enter, and archived, with focus landing on the next
 row, the previous row, and the new chat's composer, at 1280 and 390 px.
+
+## Composer focus while the owner types elsewhere
+
+Issue #147. When a Native chat send was refused and its run ended, Vivary's
+draft owner handed the text back to the composer. The Toolkit's composer set
+the text and moved focus into itself unconditionally. If the owner was renaming
+the chat in the sidebar at that moment, the rename field lost focus, its blur
+saved the half-typed title, and the rest of the typing landed in the composer,
+where Enter sent it to the model as a message.
+
+The Toolkit patch changes `dist/composer/TiptapComposer.js`. A new
+`composerMayTakeFocus` says whether the composer may take focus on its own: not
+while the owner is typing in another field (an input, textarea, select, or
+editable element outside the composer). `focusComposerAtEnd` replaces Tiptap's
+`focus("end")` where the composer restores a saved draft, is handed new
+`initialText`, and in its imperative `focus()` and `setText()`, which Core calls
+when switching chat tabs and when prefilling a message. It moves the caret to
+the end and focuses on the next frame, as Tiptap does, but checks
+`composerMayTakeFocus` inside that frame, right before the DOM focus, so a field
+the owner focused in between keeps it. With no field in use, or with focus on a
+button, the composer still takes focus as before. `insertText()` is unchanged, because
+it types through the browser's insert command, which needs the composer
+focused.
+
+`native-chat-components.test.mjs` hands the composer text through props,
+`setText`, and `focus`, with another field in use and without, and once focuses
+the other field after the composer asked for focus and before its frame, and
+checks where focus lands. A browser run of the built app sent a message and renamed
+the chat by mouse while the run ended: the title kept the whole name and
+nothing was sent, in eight of eight runs.
