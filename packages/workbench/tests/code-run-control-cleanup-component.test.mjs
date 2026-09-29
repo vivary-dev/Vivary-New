@@ -203,6 +203,17 @@ export async function aRunningCheckHoldsEndThem() {
     assert.deepEqual(callProof.calls, [], "a click during a check does nothing");
   } finally { await dispose(); }
 }
+
+export async function aFailedStopsOwnCheckOffersNoChoice() {
+  const checking = { ...UNSCANNED, heading: "Vivary is checking what a failed stop left running",
+    instruction: "The choices appear here when the check ends.", canContinue: false, checking: true };
+  const { host, dispose } = await mount(checking);
+  try {
+    assert.equal(host.querySelector("h2")?.textContent, checking.heading);
+    assert.equal(region(host).querySelector("p")?.textContent, checking.instruction);
+    assert.deepEqual(buttons(host), [], "nothing to choose until the check ends");
+  } finally { await dispose(); }
+}
 `;
 
 async function buildProof() {
@@ -269,6 +280,7 @@ test("the host strip lists leftover coding processes and offers End them, then C
     ["End them whose check after it cannot run shows the server's state", proof.endThemWhoseCheckCannotRunShowsTheServerState],
     ["a scan Vivary cannot run offers only Continue anyway and shows its commands", proof.aScanVivaryCannotRunOffersOnlyContinue],
     ["a check already running holds End them", proof.aRunningCheckHoldsEndThem],
+    ["a failed stop's own check offers no choice and says why", proof.aFailedStopsOwnCheckOffersNoChoice],
   ]) await t.test(name, () => run());
 });
 

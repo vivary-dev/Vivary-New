@@ -454,7 +454,12 @@ function cleanupRefusalsInForce(): CleanupRefusal[] {
 
 /** The refusals a check or a decision acts on. A run still stopping takes its own check first. */
 function settledCleanupRefusals(): CleanupRefusal[] {
-  return cleanupRefusalsInForce().filter(refusal => !activeRuns.has(refusal.runId));
+  return cleanupRefusalsInForce().filter(refusal => !stopStillChecking(refusal));
+}
+
+/** Whether the refusal's run is still stopping, so the check right after its failed stop has not ended. */
+function stopStillChecking(refusal: CleanupRefusal): boolean {
+  return activeRuns.has(refusal.runId);
 }
 
 function reloadCleanup(): void {
@@ -562,6 +567,9 @@ function processList(processes: readonly LeftoverProcess[], refusal?: CleanupRef
   return more > 0 ? `${named.join(", ")}, and ${more} more` : named.join(", ");
 }
 
+/** The heading while the check right after a failed stop runs. */
+const STOP_CHECK_HEADING = "Vivary is checking what a failed stop left running";
+
 function cleanupHeading(refusal: CleanupRefusal): string {
   if (refusal.scan !== "done") return "Vivary could not confirm that an earlier run's coding processes stopped";
   if (!refusal.remaining.length) return "A coding process from an earlier run is still running";
@@ -612,6 +620,9 @@ function cleanupInstruction(refusal: CleanupRefusal, where: "strip" | "message")
 
 /** The refusal a send gets. */
 function cleanupRefusalMessage(refusal: CleanupRefusal): string {
+  if (stopStillChecking(refusal)) {
+    return `${STOP_CHECK_HEADING}. The choices appear at the top of Vivary when the check ends.`;
+  }
   const names = refusal.scan === "done" && refusal.remaining.length ? `: ${processList(refusal.remaining, refusal)}` : "";
   return `${cleanupHeading(refusal)}${names}. ${cleanupInstruction(refusal, "message")}`;
 }
@@ -667,18 +678,21 @@ function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal): string 
 function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[], ownerEmail: string,
   orgId?: string): VivaryCodeCleanupView {
   const run = runs.find(candidate => candidate.id === refusal.runId && isOwnedIdentity(candidate, ownerEmail, orgId));
-  return {
+  const shown = {
     version: cleanupVersion(refusal),
-    heading: cleanupHeading(refusal),
-    instruction: cleanupInstruction(refusal, "strip"),
     remaining: refusal.remaining.map(leftover => ({ pid: leftover.pid, name: leftover.name,
       confirmed: confirmedFromRun(refusal, leftover) })),
-    ...cleanupOffers(refusal),
     notice: cleanupNotice(refusal),
-    composer: cleanupComposer(refusal),
-    checking: hostState.cleanupCheck !== null,
     run: run ? { id: run.id, title: run.title, projectId: metadataString(run, "projectId") } : null,
   };
+  // The check right after the failed stop decides what is left, so nothing is offered until it ends.
+  if (stopStillChecking(refusal)) {
+    return { ...shown, heading: STOP_CHECK_HEADING, instruction: "The choices appear here when the check ends.",
+      canEnd: false, canContinue: false, checking: true,
+      composer: `${STOP_CHECK_HEADING}. Wait for the check to end before sending another message.` };
+  }
+  return { ...shown, heading: cleanupHeading(refusal), instruction: cleanupInstruction(refusal, "strip"),
+    ...cleanupOffers(refusal), composer: cleanupComposer(refusal), checking: hostState.cleanupCheck !== null };
 }
 
 async function stopActiveRunsForShutdown(): Promise<void> {
