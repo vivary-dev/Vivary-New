@@ -334,6 +334,29 @@ test("a Linux check traces only children of a traced member that started after i
   assert.deepEqual(check.target.traced, [{ pid: 42, start: 700 }, { pid: 43, start: 800 }]);
 });
 
+// Issue #121. A target traces at most 200 processes. Group 12345 holds the worker 100 and 250 children it started, so
+// the check right after the failed stop traces the first 200 it reads. The owner then ends 60 of those, and the worker
+// still runs, so a later check traces its children that found no room before.
+test("a Linux target past its traced cap drops ended processes to trace the rest", async () => {
+  const members = new Map<number, string>([[100, statLine(100, "codex", "S", 12345, 700)],
+    ...Array.from({ length: 250 }, (_, index): [number, string] =>
+      [101 + index, statLine(101 + index, "node", "S", 12345, 800).replace(" S 1 ", " S 100 ")])]);
+  const io = { bootId: async () => null, windowsProcesses: async () => [], windowsEnd: async () => [],
+    proc: { signalGroup: () => undefined, list: async () => [...members.keys()].map(String),
+      stat: async (pid: string) => members.get(Number(pid)) ?? assert.fail(`read ${pid}`),
+      kill: () => assert.fail("a check ended a process") } };
+  const stopped = await checkStoppedWorker({ platform: "linux", groupId: 12345, bootId: null, traced: [] }, io);
+  assert.ok(stopped.result === "remaining");
+  assert.equal(stopped.target.traced.length, 200);
+  for (let pid = 101; pid <= 160; pid += 1) members.delete(pid);
+  const later = await checkWorkerCleanup(stopped.target, io);
+  assert.ok(later.result === "remaining");
+  assert.equal(later.remaining.length, 191);
+  const untraced = later.remaining.filter(({ pid, start }) => !later.target.traced.some(traced =>
+    traced.pid === pid && traced.start === start));
+  assert.deepEqual(untraced.map(({ pid }) => pid), [], "every live child of the traced worker is traced");
+});
+
 const errno = (code: string) => Object.assign(new Error(`failed with ${code}`), { code });
 
 // Issue #121. The host just stopped the worker's group or tree, so the check right after a failed stop traces every
