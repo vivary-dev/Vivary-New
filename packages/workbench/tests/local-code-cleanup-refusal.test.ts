@@ -43,6 +43,7 @@ const scanRows = path.join(fixture, "scan-rows.txt");
 const scanFails = path.join(fixture, "scan-fails");
 const leaveChild = path.join(fixture, "leave-child");
 const scanHold = path.join(fixture, "scan-hold");
+const endUnreadable = path.join(fixture, "end-unreadable");
 const workerRecord = path.join(fixture, "worker.txt");
 const endLog = path.join(fixture, "end.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
@@ -71,8 +72,9 @@ process.send({ type: "vivary:code-worker:ready" });
 // Answers the Windows process scan from a file, names a child of the worker created while it ran, and counts the rows
 // on the last line as the real scan does. A call that ends processes gets each PID with the lowest FILETIME its
 // creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
-// PID 4130 refuses, like a process Windows denies access to. Every such call is logged. The scan-fails marker fails
-// scans only, and the scan-hold marker holds a scan for up to 10 seconds, as long as the host waits for one.
+// PID 4130 refuses, like a process Windows denies access to. Every such call is logged. The end-unreadable marker adds
+// a line Vivary cannot read, as a module's warning could, after the call ended what it ends. The scan-fails marker
+// fails scans only, and the scan-hold marker holds a scan for up to 10 seconds, as long as the host waits for one.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 case "$*" in *Stop-Process*)
@@ -94,6 +96,7 @@ case "$*" in *Stop-Process*)
     printf '%s\\t%s\\r\\n' "$pid" "$outcome"
     count=$((count + 1))
   done
+  [ -f ${JSON.stringify(endUnreadable)} ] && printf 'WARNING: a module printed this line\\r\\n'
   printf 'END\\t%s\\r\\n' "$count"
   exit 0 ;;
 esac
@@ -617,6 +620,45 @@ test("End them records what it ended even when the check after it cannot run", {
   assert.deepEqual(endsOf(lift), [{ by: OWNER, at: "string", attempts: [[4120, "ended"]] }]);
   assert.equal(lastStatus("end-unchecked"), "The leftover coding processes are gone. End them ended codex.exe "
     + "(PID 4120). Vivary accepts new messages again.");
+});
+
+// The End call ends what it can and then prints a line Vivary cannot read, so Vivary cannot tell what it did.
+test("End them whose output Vivary cannot read records what it sent as unknown and says so", {
+  ...linuxOnly, timeout: 20_000,
+}, async () => {
+  const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  const unread = (child: number) => [{ by: OWNER, at: "string", attempts: [[child, "unknown"], [4120, "unknown"]] }];
+  await writeFile(endUnreadable, "");
+  try {
+    // 4130 refuses to end, so the strip still lists it after End them.
+    await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4130, 4120, 3_000, "node.exe"));
+    seedRefusal("end-unread", worker);
+    await agent.recheckVivaryCodeCleanup();
+    const state = await decide("end");
+    assert.deepEqual(state.cleanup?.remaining.map(({ pid }) => pid), [4130]);
+    assert.equal(state.cleanup?.notice,
+      "Vivary could not read what End them did to node.exe (PID 4130), codex.exe (PID 4120).");
+    assert.deepEqual(endsOf(metadataOf("end-unread").cleanupRefusal), unread(4130), "the run records what was sent");
+    assert.equal((await continueAnyway()).cleanup, null);
+    assert.deepEqual(endsOf(metadataOf("end-unread").cleanupLifted), unread(4130));
+    assert.equal(lastStatus("end-unread"), "You chose to continue while these coding processes were still running: "
+      + "node.exe (PID 4130). Vivary could not read what End them did to node.exe (PID 4130), codex.exe (PID 4120). "
+      + "Vivary accepts new messages again.");
+
+    // Both end, as in the re-review's case, and the check after End them finds nothing left.
+    await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe") + row(4140, 4120, 3_500, "node.exe"));
+    seedRefusal("end-unread-clean", worker);
+    await agent.recheckVivaryCodeCleanup();
+    assert.equal((await decide("end")).cleanup, null);
+    const lift = metadataOf("end-unread-clean").cleanupLifted as { how?: string };
+    assert.equal(lift.how, "rechecked");
+    assert.deepEqual(endsOf(lift), unread(4140));
+    assert.equal(lastStatus("end-unread-clean"), "The leftover coding processes are gone. Vivary could not read what "
+      + "End them did to node.exe (PID 4140), codex.exe (PID 4120). Vivary accepts new messages again.");
+  } finally {
+    await rm(endUnreadable, { force: true });
+    await writeFile(scanRows, SYSTEM_ROW);
+  }
 });
 
 // A group or a parent PID that Vivary did not trace to the run can belong to another program after PID reuse, so End

@@ -376,9 +376,10 @@ test("End them on Windows hands the shown traced processes to one identity-check
   assert.deepEqual(result.attempts, [{ ...node, outcome: "failed" },
     { ...codex, outcome: "ended" }]);
 
-  const unavailable = await endWorkerLeftovers({ platform: "win32", tracked, traced }, [codex],
-    { ...io, windowsEnd: async () => { throw new Error("powershell.exe was refused"); } });
-  assert.equal(unavailable.attempts, null, "an End call that cannot run reports that it ended nothing");
+  const unread = await endWorkerLeftovers({ platform: "win32", tracked, traced }, [codex, node],
+    { ...io, windowsEnd: async () => { throw new Error("The Windows end step printed output Vivary cannot read."); } });
+  assert.deepEqual(unread.attempts, [{ ...node, outcome: "unknown" }, { ...codex, outcome: "unknown" }],
+    "an End call that fails, or whose output Vivary cannot read, leaves each process it was sent unknown");
 });
 
 test("End them on Linux reports each process as ended, mismatched, gone, or failed", async () => {
