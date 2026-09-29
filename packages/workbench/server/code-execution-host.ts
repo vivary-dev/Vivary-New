@@ -641,7 +641,7 @@ function traceable(traced: readonly TracedProcess[], found: readonly LeftoverPro
 }
 
 /** The target that finds a stopped worker's processes again, or null on a platform Vivary cannot check. */
-async function workerCleanupTarget(
+export async function workerCleanupTarget(
   pid: number | undefined, forkedFrom: number, forkedTo: number, exitedAt: number | null,
 ): Promise<CleanupTarget | null> {
   if (!pid) return null;

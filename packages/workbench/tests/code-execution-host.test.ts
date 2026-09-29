@@ -11,7 +11,7 @@ import { test } from "node:test";
 import { checkStoppedWorker, checkWorkerCleanup, CLEANUP_TIMEOUT_MS, endWorkerLeftovers, executeVivaryCodeWorker, parseWindowsEndResults,
   parseWindowsProcessRows,
   readLinuxProcStat, scanLinuxWorkerGroup, STARTUP_TIMEOUT_MS, TERMINATION_GRACE_MS, VivaryCodeWorkerCleanupError,
-  waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly,
+  waitForLinuxWorkerGroupExit, windowsLeftovers, windowsWorkerStoppedCleanly, workerCleanupTarget,
 } from "../server/code-execution-host.ts";
 import { isVivaryCodeWorkerRequest } from "../server/code-execution-protocol.ts";
 import { credentialFingerprints } from "../server/credential-redaction.ts";
@@ -958,4 +958,18 @@ process.send({ type: "vivary:code-worker:ready" });
     if (systemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = systemRoot;
     await rm(fixture, { recursive: true, force: true });
   }
+});
+
+// Issue #121. The worker's own window is the clock read just before and just after `fork`, and its children's window
+// closes at its observed exit, each widened by 20 ms for the clock's resolution. The cases above find a child through
+// its parent PID, which a window turned inside out or placed outside the fork would still pass, so this pins the bounds.
+test("the Windows worker's identity spans its fork readings and its children end at its observed exit", async () => {
+  const target = (pid: number | undefined, exitedAt: number | null) =>
+    asWindows(() => workerCleanupTarget(pid, 50_000, 50_030, exitedAt));
+  assert.deepEqual(await target(4100, 60_000), { platform: "win32", traced: [],
+    tracked: [{ pid: 4100, createdFrom: 49_980, createdTo: 50_050, childrenTo: 60_020 }] });
+  assert.deepEqual(await target(4100, null), { platform: "win32", traced: [],
+    tracked: [{ pid: 4100, createdFrom: 49_980, createdTo: 50_050, childrenTo: null }] },
+  "an exit Vivary did not observe leaves the children's window open");
+  assert.equal(await target(undefined, 60_000), null, "a worker that never got a PID has no target");
 });
