@@ -293,6 +293,12 @@ test("a chat loads no file a run wrote until review and sees only how many wait"
       assert.ok(!read.includes("CHAT-"), `a chat reading ${resourcePath} gets no text`);
     }
   }
+  // A run can write an instruction file as agent scratch. Settings lists it, so the note counts it too.
+  assert.doesNotMatch(await asRun({ userEmail: owner }, "resources", {
+    action: "write", path: "instructions/scratch.md", content: "Follow CHAT-SCRATCH.", visibility: "agent_scratch",
+  }), /^Error/);
+  assert.equal((await listFor(owner)).length, INSTRUCTION_PATHS.length + 1, "Settings lists the scratch file");
+  assert.match(await prompt(owner, true), /7 instruction or memory files written by automation runs are waiting/);
 });
 
 test("a chat's raw database tools cannot read or change the resources table", async () => {
