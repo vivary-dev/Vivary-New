@@ -1,6 +1,6 @@
 import { isCodeAgentRunActive, useChatThreads } from "@agent-native/core/client/agent-chat";
 import { actionErrorMessage, useActionQuery } from "@agent-native/core/client/hooks";
-import { ChatHistoryList, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
+import { ChatHistoryList, ChatHistoryMenuItem, useChatHistoryRailController } from "@agent-native/toolkit/chat-history";
 import { Button, Popover, PopoverContent, PopoverTrigger } from "@agent-native/toolkit/ui";
 import { IconArchive, IconArchiveOff, IconChevronDown, IconDots, IconPlus } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -138,6 +138,18 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     labels: { newChat: "New conversation", showMore: "More conversations", showLess: "Fewer conversations" },
   });
   const codeFailed = state.isError || code?.error || (state.data && !code);
+  // Issue #131. Archive removes its row, and the menu trigger that focus would return to. Once the row is gone, focus
+  // moves to the row that took its place, else the row before it, else New conversation.
+  const historySection = useRef<HTMLElement>(null);
+  const [archivedRow, setArchivedRow] = useState<{ id: string; index: number }>();
+  useEffect(() => {
+    if (!archivedRow || history.visibleItems.some(item => item.id === archivedRow.id)) return;
+    setArchivedRow(undefined);
+    const rows = historySection.current?.querySelectorAll<HTMLElement>(".an-chat-history-row__button") ?? [];
+    const next = rows[Math.min(archivedRow.index, rows.length - 1)]
+      ?? historySection.current?.querySelector<HTMLElement>(".an-chat-history-rail__new-chat");
+    next?.focus();
+  }, [archivedRow, history.visibleItems]);
   async function updateNative(action: () => Promise<boolean>, message: string) {
     setFailedAction(undefined);
     try {
@@ -179,7 +191,7 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     else navigate(`/?run=${encodeURIComponent(recordId)}`);
   }
   const loading = checking || (state.isLoading && native.isLoading);
-  return <section className="vivary-chat-history" aria-label="Project conversations">
+  return <section ref={historySection} className="vivary-chat-history" aria-label="Project conversations">
     {failedAction && <div role="alert">
       <p>{failedAction.message}</p>
       <Button variant="ghost" size="sm" onClick={() => void updateNative(failedAction.retry, failedAction.message)}>Retry change</Button>
@@ -198,10 +210,11 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
           renameMaxLength={160}
           onRename={thread ? (_id, title) => void updateNative(() => native.renameThread(thread.id, title), "The conversation could not be renamed. Try again.") : undefined}
           onTogglePin={thread ? () => void updateNative(() => native.pinThread(thread.id, !thread.pinnedAt), "The conversation pin could not be changed. Try again.") : undefined}
-          renderAdditionalRowActions={thread ? (_item, closeMenu) => <button type="button" role="menuitem" className="an-chat-history-row__menu-item" onClick={() => {
+          renderAdditionalRowActions={thread ? (row, closeMenu) => <ChatHistoryMenuItem onSelect={() => {
             closeMenu();
+            setArchivedRow({ id: row.id, index: history.visibleItems.findIndex(visible => visible.id === row.id) });
             void updateNative(() => archiveNative(thread.id), "The conversation could not be archived. Try again.");
-          }}><IconArchive size={13} aria-hidden /><span>Archive</span></button> : undefined} />;
+          }}><IconArchive size={13} aria-hidden /><span>Archive</span></ChatHistoryMenuItem> : undefined} />;
       })}
       <div className="an-chat-history-rail__footer">
         <Button variant="ghost" size="sm" className="an-chat-history-rail__new-chat" disabled={!workspaceAvailable} onClick={history.onNewChat}>

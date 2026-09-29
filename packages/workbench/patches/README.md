@@ -1560,3 +1560,30 @@ unauthenticated POST to a Native action throws its owner error after reading
 the body, so it used to answer 404 and now answers 401.
 `registry-http.test.mjs` pinned the old 404 with a comment naming this defect,
 and now expects 401. The request is refused either way.
+
+## Sidebar row menus from the keyboard
+
+Issue #131. The Toolkit's chat history rows open a Radix dropdown menu from
+their "Chat options" button. Its Rename, Pin, and Delete entries, and Vivary's
+Archive, were plain buttons with `role="menuitem"` inside the menu content.
+Radix moves focus, answers the arrow keys and typeahead, and handles Enter and
+Space only for registered `DropdownMenu.Item` entries, so a keyboard user who
+opened the menu could reach none of them.
+
+The Toolkit patch changes `dist/chat-history/ChatHistoryList.js` and its types:
+
+- A new `ChatHistoryMenuItem` wraps `DropdownMenu.Item` around the same button
+  and classes, so the entry looks the same and Radix's keyboard navigation
+  reaches it. `onSelect` runs on click, Enter, or Space.
+- Rename, Pin, and Delete use it. `chat-history` exports it, and the
+  `renderAdditionalRowActions` note says to render app entries with it.
+
+Vivary's Archive entry in `ProjectHistory.tsx` is a `ChatHistoryMenuItem`.
+Archive removes its row and the menu trigger that focus would return to, so
+focus moves to the row that took its place, else the row before it, else New
+conversation.
+
+`native-chat-components.test.mjs` opens a row menu from the keyboard and checks
+that every entry is a Radix item. A browser run of the built app walked the
+menu with the arrow keys and typeahead, renamed with Enter, archived, and saw
+focus move to the next row, at 1280 and 390 px.

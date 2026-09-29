@@ -153,6 +153,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #131. The project sidebar's conversation row menus now work from the keyboard. The maintained Toolkit patch adds
+`ChatHistoryMenuItem`, a Radix `DropdownMenu.Item` around the existing button, and uses it for Rename, Pin, and
+Delete. Vivary's Archive in `ProjectHistory.tsx` uses it too. Radix's arrow keys, typeahead, Enter, and Space reach
+only registered items, and the plain `role="menuitem"` buttons before this were unreachable. Archive removes its row
+and the trigger focus would return to, so the sidebar moves focus to the row that took its place, else the one before
+it, else New conversation. The patch README section "Sidebar row menus from the keyboard" owns the detail. A component
+test opens a row menu from the keyboard, and a browser run of the built app walked, renamed, and archived by keyboard
+at 1280 and 390 px.
+
 Issue #142. An error that a framework route throws after it has read the request body now reaches the client. Core
 mounts framework routes, the Native chat POST among them, through `getH3App(...).use`, and its wrapper treated any
 destroyed request stream as a client that left. Node destroys a request stream once its body has been read to the end,
