@@ -1136,15 +1136,25 @@ The stop waits for the sweeps, the queued runs, the runs it interrupted, and
 the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
 comes first. The runner exports `trackBackgroundAutomationWork`, and the
 dispatcher's `dispatchAgentic`, the in-process webhook runner
-`runAutomationWebhookTaskInProcess`, and the process-task route's call to
-`runClaimedAutomationWebhookTask` put their work in it, so the stop also waits
-for the automation's last status and the webhook task's row on either path.
-The desktop and the CLI host register the in-process runner, so a webhook task
-reaches the route only on a host without it, such as a deployment without the
-in-process timer. The stop waits only for work that began before it. The event
-handler's reads, identity check, and classifier call are not tracked, and its
-second check covers a handler that is past its first check when the quit
-begins. The declarations of the three runner exports are in its `.d.ts`.
+`runAutomationWebhookTaskInProcess`, and the process-task route put their work
+in it, so the stop also waits for the automation's last status and the webhook
+task's row on either path. The route tracks its claim, which follows a passed
+closed check with no await between them, and then its call to
+`runClaimedAutomationWebhookTask`. The desktop and the CLI host register the
+in-process runner, so a webhook task reaches the route only on a host without
+it, such as a deployment without the in-process timer. The runner's wait
+drains the tracked work rather than reading it once: after each pass it waits
+again for work tracked during that pass, until none is left. So a route call
+whose claim was saving when the stop began is waited for through its run and
+its requeue. That call still dispatches, as a run whose setup was past the
+closed checks does (step 1): its run is aborted before the model, records an
+interrupted history row and a thread, and the task goes back to the queue.
+The stop passes its own promise to the wait, so no pass starts after the stop
+returns and a pass still waiting then ends. Work that keeps arriving cannot
+hold the stop past `timeoutMs`. The event handler's reads, identity check, and
+classifier call are not tracked, and its second check covers a handler that is
+past its first check when the quit begins. The declarations of the three
+runner exports are in its `.d.ts`.
 Vivary passes 10 seconds, the Code host's shutdown wait, so `stopLocalWork`
 still ends 5 seconds before the desktop ends the server's process tree. A later
 call returns the first stop.
@@ -1241,6 +1251,15 @@ event cases wait for the dispatcher's handler to finish, not for a fixed delay.
 A run the owner stopped just before the quit keeps its `user` abort reason and
 reads as an error, not interrupted, which a status filter weaker than `running`
 would break.
+
+A third review round added two cases. A child starts the stop while the
+route's claim of a webhook call is saving and exits as soon as the stop
+returned and the claim saved. The task reads `pending` with its payload, no
+spent attempt, and the interrupted message, and its one history row reads
+interrupted. A second child tracks work that keeps arriving during the stop.
+The stop waits for it until its bound, and no pass of its wait starts after
+the stop returns. Both failed on the patch before this round's fix: the task
+stayed `processing`, and the stop returned after the first piece of work.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
