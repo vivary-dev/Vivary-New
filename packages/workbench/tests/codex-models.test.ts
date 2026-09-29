@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { parseCodexCatalog, probeCodexModels } from "../server/codex-models";
 
 const models = { data: [
@@ -23,6 +23,13 @@ readline.createInterface({input:process.stdin}).on('line', line => {
  if (input.id) process.stdout.write(JSON.stringify({id:input.id,result:values[input.id]})+'\n');
 });
 setInterval(() => {}, 1000);`;
+// A lingering Codex that also starts a helper holding none of its pipes, as an MCP server can, and records its PID.
+const codexWithHelper = (pidFile: string) => String.raw`import {spawn} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
+writeFileSync(${JSON.stringify(pidFile)}, String(helper.pid));
+` + lingeringCodex;
+const unconfirmedStop = /could not confirm that Codex stopped/;
 
 test("uses only reported models and returns no account or connection secrets", () => {
   const result = parseCodexCatalog(models, config, account);
@@ -138,15 +145,14 @@ test("a failed stop refuses later checks only until that Codex exits, and logs t
     throw Object.assign(new Error("Access denied."), { code: "EPERM" });
   };
   const logged = t.mock.method(console, "error", () => undefined);
-  const unconfirmed = /could not confirm that Codex stopped/;
   try {
     const failed = await probeCodexModels(launch, dir, 12_000, { stopTree: refusedTreeStop, stopBudgetMs: 200 });
-    assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmed);
+    assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
     const step = process.platform === "win32" ? "taskkill" : "group";
     assert.deepEqual(logged.mock.calls.map(call => call.arguments),
-      [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM`]]);
+      [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM scan=remaining remaining=1`]]);
     const refused = await probeCodexModels(launch, dir);
-    assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmed);
+    assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmedStop);
     lingering?.kill("SIGKILL");
     if (lingering) await once(lingering, "close");
     assert.equal((await probeCodexModels(launch, dir)).status, "ready");
@@ -155,3 +161,48 @@ test("a failed stop refuses later checks only until that Codex exits, and logs t
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+/**
+ * A check whose tree stop ends Codex but fails leaves a helper running. Codex's pipes close, yet the check reports an
+ * unconfirmed stop, and later checks start no Codex until the helper ends.
+ */
+async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildProcess, workerExited: boolean) => Promise<void>,
+  step: string) {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-helper-"));
+  const pidFile = path.join(dir, "helper.pid");
+  await writeFile(path.join(dir, "with-helper.mjs"), codexWithHelper(pidFile));
+  await writeFile(path.join(dir, "lingering.mjs"), lingeringCodex);
+  const launch = (file: string) => ({ executable: process.execPath, prefix: [path.join(dir, file)], env: {} });
+  const logged = t.mock.method(console, "error", () => undefined);
+  let helper = 0;
+  try {
+    const failed = await probeCodexModels(launch("with-helper.mjs"), dir, 12_000, { stopTree });
+    helper = Number(await readFile(pidFile, "utf8"));
+    assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
+    assert.deepEqual(logged.mock.calls.map(call => call.arguments),
+      [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM scan=remaining remaining=1`]]);
+    const refused = await probeCodexModels(launch("lingering.mjs"), dir);
+    assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmedStop);
+    process.kill(helper, "SIGKILL");
+    assert.equal((await probeCodexModels(launch("lingering.mjs"), dir)).status, "ready");
+  } finally {
+    try { if (helper) process.kill(helper, "SIGKILL"); } catch { /* The test already ended it. */ }
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+const refused = (message: string) => Object.assign(new Error(message), { code: "EPERM" });
+
+test("a failed tree stop that ends only Codex keeps later checks refused while its helper runs", t =>
+  refusesWhileHelperRuns(t, async (child, workerExited) => {
+    if (workerExited) return;
+    child.kill("SIGKILL");
+    throw refused("taskkill could not end every process.");
+  }, process.platform === "win32" ? "taskkill" : "group"));
+
+test("a failed Linux group sweep after Codex closed keeps later checks refused while its helper runs",
+  { skip: process.platform === "win32" && "Windows stops the tree once and sweeps no group." }, t =>
+    refusesWhileHelperRuns(t, async (child, workerExited) => {
+      if (workerExited) throw refused("Operation not permitted.");
+      child.kill("SIGKILL");
+    }, "group"));

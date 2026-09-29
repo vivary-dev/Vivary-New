@@ -1,5 +1,8 @@
-import { CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, hardStopWorkerTree, type CleanupFailure } from "./code-execution-host";
-import { spawn, type ChildProcess } from "node:child_process";
+import {
+  CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, checkWorkerCleanup, hardStopWorkerTree, workerCleanupTarget,
+  type CleanupCheck, type CleanupFailure, type CleanupTarget,
+} from "./code-execution-host";
+import { spawn } from "node:child_process";
 import { z } from "zod";
 import { resolveVivaryRuntimeCommand, type CommandLaunch } from "./local-runtime-setup";
 
@@ -23,9 +26,10 @@ const cleanupUnavailable = (): CodexModelCatalog => ({ status: "unavailable",
   message: "Vivary could not confirm that Codex stopped after checking models. Refresh Runtime settings in a moment. "
     + "If this message stays, restart Vivary.",
 });
-// Issue #130. Codex processes whose stop a model check could not confirm. While one runs, a check starts no other Codex,
-// so repeated refreshes cannot pile them up. Each leaves when its pipes close, so a late stop needs no restart.
-const unconfirmedStops = new Set<ChildProcess>();
+// Issue #130. What finds again the processes of each Codex whose stop a model check could not confirm. While a check
+// still finds any, a model check starts no other Codex, so repeated refreshes cannot pile them up. Every model check
+// looks again first, so a stop that finishes late needs no restart.
+const unconfirmedStops = new Set<CleanupTarget>();
 const cache = new Map<string, { expiresAt: number; value: CodexModelCatalog }>();
 const pending = new Map<string, Promise<CodexModelCatalog>>();
 
@@ -71,18 +75,35 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
   return request;
 }
 
+/** Whether an unconfirmed Codex stop still leaves processes. A clean check drops its target. */
+async function unconfirmedStopRemains(): Promise<boolean> {
+  await Promise.all([...unconfirmedStops].map(async target => {
+    const check = await checkWorkerCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }));
+    if (check.result === "unavailable") return;
+    unconfirmedStops.delete(target);
+    // A Windows check also tracks the processes it found, so their children stay linked after their parent exits.
+    if (check.result === "remaining") unconfirmedStops.add(check.target);
+  }));
+  return unconfirmedStops.size > 0;
+}
+
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
-export function probeCodexModels(
+export async function probeCodexModels(
   launch: CommandLaunch, cwd: string, timeoutMs = 12_000,
   // Tests pass their own tree stop and budget to produce the slow and failed stops a loaded Windows host shows.
   { stopTree = hardStopWorkerTree, stopBudgetMs = CLEANUP_TIMEOUT_MS }:
     { stopTree?: typeof hardStopWorkerTree; stopBudgetMs?: number } = {},
 ): Promise<CodexModelCatalog> {
-  if (unconfirmedStops.size) return Promise.resolve(cleanupUnavailable());
+  if (await unconfirmedStopRemains()) return cleanupUnavailable();
   return new Promise(resolve => {
+    // The host clock just before and after the spawn, and at the exit, bounds Codex's Windows identity for a check.
+    const spawnedFrom = Date.now();
     const child = spawn(launch.executable, [...launch.prefix, "app-server", "--listen", "stdio://"], {
       cwd, env: launch.env, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "ignore"],
     });
+    const spawnedTo = Date.now();
+    let exitedAt: number | null = null;
+    child.once("exit", () => { exitedAt = Date.now(); });
     let buffer = "";
     let bytes = 0;
     let complete = false;
@@ -95,35 +116,45 @@ export function probeCodexModels(
       const timeout = setTimeout(() => setImmediate(() => done(didClose)), Math.max(0, ms));
       void closed.then(() => { clearTimeout(timeout); done(true); });
     });
+    // Issue #130. One budget for the whole stop, from its first step, as in the Code host. A tree stop that succeeds,
+    // followed by Codex closing its pipes within the budget, finishes the stop. Otherwise this returns the failed step.
+    const stopCodex = async (): Promise<CleanupFailure | null> => {
+      const deadline = Date.now() + stopBudgetMs;
+      if (!await waitClosed(Math.min(1_000, stopBudgetMs))) {
+        const treeError = await stopTree(child, false, Math.max(1, deadline - Date.now() - CLEANUP_EXIT_RESERVE_MS))
+          .then(() => undefined, (error: unknown) => error);
+        const closedInTime = await waitClosed(deadline - Date.now());
+        if (treeError !== undefined) return { step: process.platform === "win32" ? "taskkill" : "group", error: treeError };
+        if (!closedInTime) return { step: "exit", error: undefined };
+      }
+      // On Linux the group can still hold processes that closed no pipe.
+      if (process.platform !== "win32") {
+        try { await stopTree(child, true); } catch (error) { return { step: "group", error }; }
+      }
+      return null;
+    };
+    // Codex closing its pipes does not show that a process holding none of them, such as an MCP server, stopped. So a
+    // failed step leaves the verdict to the Code host's #121 check, which only reads. When it finds nothing, the stop
+    // finished after all. Otherwise its target is kept until a later check is clean.
+    const stopConfirmed = async (failure: CleanupFailure): Promise<boolean> => {
+      const target = await workerCleanupTarget(child.pid, spawnedFrom, spawnedTo, exitedAt);
+      const check: CleanupCheck = target
+        ? await checkWorkerCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }))
+        : { result: "unavailable" };
+      if (check.result === "clean") return true;
+      // The credential redaction plugin redacts server output. Process names and error messages stay out of the log.
+      console.error(`[vivary-codex-models] cleanup-unverified step=${failure.step} error=${stopErrorCode(failure.error)} `
+        + `scan=${check.result} remaining=${check.result === "remaining" ? check.remaining.length : 0}`);
+      if (target) unconfirmedStops.add(check.result === "remaining" ? check.target : target);
+      return false;
+    };
     const finish = async (value: CodexModelCatalog) => {
       if (complete) return;
       complete = true;
       clearTimeout(timer);
       child.stdin.end();
-      // Issue #130. One budget for the whole stop, from its first step, as in the Code host. Codex closing its pipes
-      // is the verdict: a forced stop leaves no success code, and `taskkill` can fail or time out while Codex exits.
-      const deadline = Date.now() + stopBudgetMs;
-      let step: CleanupFailure["step"] = process.platform === "win32" ? "taskkill" : "group";
-      try {
-        if (!await waitClosed(Math.min(1_000, stopBudgetMs))) {
-          const treeError = await stopTree(child, false, Math.max(1, deadline - Date.now() - CLEANUP_EXIT_RESERVE_MS))
-            .then(() => undefined, (error: unknown) => error);
-          if (treeError === undefined) step = "exit";
-          if (!await waitClosed(deadline - Date.now())) throw treeError;
-        }
-        // On Linux the group can still hold processes that closed no pipe.
-        step = "group";
-        if (process.platform !== "win32") await stopTree(child, true);
-      } catch (error) {
-        // The credential redaction plugin redacts server output. Only the step and an error code are written.
-        console.error(`[vivary-codex-models] cleanup-unverified step=${step} error=${stopErrorCode(error)}`);
-        if (!didClose) {
-          unconfirmedStops.add(child);
-          void closed.then(() => unconfirmedStops.delete(child));
-        }
-        value = cleanupUnavailable();
-      }
-      resolve(value);
+      const failure = await stopCodex();
+      resolve(failure && !await stopConfirmed(failure) ? cleanupUnavailable() : value);
     };
     const timer = setTimeout(() => finish({ status: "unavailable",
       message: "Codex took too long to report its models. Refresh Runtime settings and try again.",

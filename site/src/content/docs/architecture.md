@@ -157,20 +157,24 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
-Issue #130. A Codex model check whose Codex stops slowly but completely no longer counts as a failed stop.
-`codex-models.ts` gives its stop one budget from the first step, `CLEANUP_TIMEOUT_MS` from `code-execution-host.ts`,
-as the Code host does. After one second for Codex to exit on its own, it stops the tree, with `taskkill` on Windows
-bounded by the budget less `CLEANUP_EXIT_RESERVE_MS`, and waits the rest of the budget for Codex to close its pipes.
-That close decides the stop. A `taskkill` that fails or times out while Codex exits, and the missing success code of a
-forced exit, no longer turn a completed stop into a failure. A wait whose timer fires before the host delivers a close
-that already happened reads it one turn later, as the Code host's exit wait does. A unit test stands in a `taskkill`
-that reports a timeout while it ends Codex. A stop the budget does not confirm writes `cleanup-unverified` to the
-redacted server log with its step, `taskkill`, `group`, or `exit`, and only an error code or `timeout`, never a message
-or command line. The module flag that refused every later check until a restart is gone. While a Codex process whose
-stop was not confirmed still runs, a check starts no other Codex and says so, and that process leaves the list when its
-pipes close, so the next refresh works without a restart. On Linux a failed sweep of the group after Codex closed fails
-only that check, because Vivary has no process of its own left to watch. A unit test stands in a tree stop that fails
-with `EPERM` and checks the log line, the refusal, and its lift.
+Issue #130. A Codex model check whose Codex stops slowly but completely no longer counts as a failed stop, and a stop
+it cannot confirm no longer blocks Codex until a restart. `codex-models.ts` gives its stop one budget from the first
+step, `CLEANUP_TIMEOUT_MS` from `code-execution-host.ts`, as the Code host does. After one second for Codex to exit on
+its own, it stops the tree, with `taskkill` on Windows bounded by the budget less `CLEANUP_EXIT_RESERVE_MS`, and waits
+the rest of the budget for Codex to close its pipes. A tree stop that succeeds, followed by that close, finishes the
+stop, whatever exit code a forced stop leaves. A wait whose timer fires before the host delivers a close that already
+happened reads it one turn later, as the Code host's exit wait does. Any failed step goes to the Code host's #121
+check, `checkWorkerCleanup`, which only reads: a tree stop that fails or times out, no close within the budget, or a
+failed Linux sweep of the group after the close. Codex's close cannot settle such a stop alone, because a process that
+holds none of its pipes, such as an MCP server, can outlive it. A clean check means the stop finished after all.
+Otherwise the model check reports that Vivary could not confirm that Codex stopped, keeps the check's target, and
+writes `cleanup-unverified` to the redacted server log with the step, an error code or `timeout`, the scan result, and
+the number of processes found, never their names, an error message, or a command line. Every later model check first
+checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
+Codex processes and a stop that finishes late needs no restart. The module flag that refused every later check until a
+restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. Unit
+tests stand in tree stops that fail or time out while Codex ends, that never end it, and that end Codex but leave a
+helper that holds none of its pipes.
 
 Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue.
 `code-execution-host.ts` takes one fresh check after the failure, and a check only reads. On Linux it sends signal 0
