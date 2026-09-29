@@ -42,12 +42,6 @@ const generalSearchEntries: SettingsSearchEntry[] = [
     tabId: "runtimes",
   },
   {
-    id: "vivary-automation-files",
-    label: "Automation files",
-    keywords: "automation run instructions skills memory review accept delete",
-    tabId: "automation-files",
-  },
-  {
     id: "vivary-models",
     label: "Model providers",
     keywords: "api key openai anthropic gemini models",
@@ -83,7 +77,6 @@ export default function SettingsRoute() {
     label: "Automation files",
     icon: IconFileCheck,
     group: "agent",
-    keywords: "automation run instructions skills memory agents learnings review accept delete",
     content: <AutomationFileReview />,
   };
   const tabs = nativeTabs

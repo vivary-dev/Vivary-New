@@ -183,14 +183,13 @@ and change your
 resources, memory, chat history, and progress, and it can notify you in the in-app inbox.
 An instruction, skill, or memory file a run writes waits for you: `AGENTS.md`,
 `LEARNINGS.md`, or a file under `instructions/`, `skills/`, or `memory/`. Chats and
-later runs do not load it, and a chat sees only how many files wait. Open Settings >
-**Automation files**, choose **View** to read a file as plain text, then **Accept** it
-to let chats and runs load it, or **Delete** it. Delete removes the whole file,
+later runs do not load it, and a chat sees only how many files wait. Settings >
+**Automation files** lists each waiting file with its text. Read it, then choose
+**Accept** to let chats and runs load it, or **Delete** to remove the whole file,
 including anything that was in it before the run. A file you or a chat edit after the
-run keeps waiting and shows **Changed after the run**. A run can still delete one of
-your instruction files, and a run that rewrites one hides your earlier text too until
-you review it. [Issue #144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks
-both.
+run keeps waiting. A run can still delete one of your instruction files, and a run that
+rewrites one hides your earlier text too until you review it. [Issue
+#144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
 running.

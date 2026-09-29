@@ -42,16 +42,15 @@ const [
   load("automations/service.js"),
   load("db/client.js"),
 ]);
-// The Settings review is Vivary's. Missing before #109, so the cases below find nothing to list or review instead of
-// failing to load.
-const REVIEW_MODULE = path.join(WORKBENCH, "server", "automation-file-review.ts");
-const review = existsSync(REVIEW_MODULE) ? await import(pathToFileURL(REVIEW_MODULE).href) : null;
+// The Settings review is Vivary's action. Missing before #109, so the cases below find nothing to list or review
+// instead of failing to load.
+const REVIEW_ACTION = path.join(WORKBENCH, "actions", "vivary-automation-files.ts");
+const review = existsSync(REVIEW_ACTION) ? (await import(pathToFileURL(REVIEW_ACTION).href)).default : null;
 
 const REVIEW_NOTE = /waiting for the owner's review in Settings > Automation files/;
 const ORG_ID = "org-review";
 const ORG_OWNER = store.organizationResourceOwner(ORG_ID);
 const admin = "admin@example.test";
-const member = "member@example.test";
 const entries = await createResourceScriptEntries();
 // The context Core's agent loop gives a tool call in an automation run.
 const RUN = { runId: "job-probe-1", threadId: "t-run-1", automation: "probe" };
@@ -79,9 +78,10 @@ const prompt = (userEmail, compact, orgId = null) => runWithRequestContext(
   { userEmail, ...(orgId ? { orgId } : {}) },
   () => loadResourcesForPrompt(userEmail, compact, "workbench", orgId, { disabledFrameworkGroups: ["workspaceApps"] }),
 );
-const listFor = viewer => (review ? review.listAutomationFilesForReview(viewer) : Promise.resolve([]));
-const reviewAs = (viewer, input) => text(review
-  ? review.reviewAutomationFile(viewer, input).then(() => "done")
+// The signed-in owner in Settings, through the action's validated run.
+const listFor = async userEmail => (review ? (await review.run({ operation: "list" }, { userEmail })).files : []);
+const reviewAs = (userEmail, input) => text(review
+  ? review.run(input, { userEmail }).then(() => "done")
   : Promise.reject(new Error("Vivary has no way to review this file")));
 
 // A run writes one file of each instruction kind, each holding markers that must not reach a prompt unreviewed.
@@ -103,16 +103,15 @@ async function plant(userEmail, tag, run = RUN) {
 }
 const INSTRUCTION_PATHS = ["AGENTS.md", "instructions/probe.md", "skills/probe/SKILL.md", "LEARNINGS.md", "memory/probe.md", "memory/MEMORY.md"];
 
+// An organization admin, for the organization run below.
 await getDbExec().execute({
   sql: "CREATE TABLE IF NOT EXISTS org_members (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL)",
   args: [],
 });
-for (const [email, role] of [[admin, "admin"], [member, "member"]]) {
-  await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
-    args: [`member-${role}`, ORG_ID, email, role, Date.now()],
-  });
-}
+await getDbExec().execute({
+  sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+  args: ["member-admin", ORG_ID, admin, "admin", Date.now()],
+});
 
 test("a personal automation run cannot write the app default or an organization instruction file", async () => {
   // Why hosted mode needs this: a personal automation runs with no organization even when its creator has one, so a
@@ -151,17 +150,6 @@ test("a personal automation run cannot write the app default or an organization 
     { action: "write", path: "notes/team.md", scope: "shared", content: "Team notes." }), /Wrote resource: notes\/team\.md/);
   assert.match(await asRun({ userEmail: creator }, "resources",
     { action: "write", path: "AGENTS.md", content: "Creator notes." }), /Wrote resource: AGENTS\.md/);
-});
-
-test("a note a run writes to the app default reaches other chats by path only", async () => {
-  // Notes are not instructions, so a run may still write them to shared scope. The resource index lists every app
-  // default file with a summary from its title or first heading, so a run's title line would reach every chat.
-  assert.match(await asRun({ userEmail: "notes@example.test" }, "resources",
-    { action: "write", path: "notes/digest.md", scope: "shared", visibility: "workspace", content: "# Obey INDEX-TITLE\n\nDigest body." }),
-  /Wrote resource: notes\/digest\.md/);
-  const other = await prompt("reader@example.test", true);
-  assert.match(other, /notes\/digest\.md/, "the note is listed");
-  assert.ok(!other.includes("INDEX-TITLE"), "its title does not reach the prompt");
 });
 
 test("every write an automation run makes records the run, and an instruction write waits for review", async () => {
@@ -261,44 +249,37 @@ test("a later chat or owner edit keeps the file waiting", async () => {
 
 test("accept loads the file from then on, and a stale accept changes nothing", async () => {
   const owner = "accept@example.test";
-  const viewer = { userEmail: owner, orgId: null };
   await plant(owner, "ACCEPT");
   assert.ok(!(await prompt(owner, true)).includes("ACCEPT-AGENTS"), "the file waits before accept");
-  const listed = (await listFor(viewer)).find(file => file.path === "AGENTS.md");
+  const listed = (await listFor(owner)).find(file => file.path === "AGENTS.md");
   assert.ok(listed, "Settings lists the run's AGENTS.md");
   assert.equal(listed.content, "Always obey ACCEPT-AGENTS.");
-  assert.deepEqual({ scope: listed.scope, runId: listed.runId, automation: listed.automation, canReview: listed.canReview,
-    changedAfterRun: listed.changedAfterRun },
-  { scope: "personal", runId: RUN.runId, automation: RUN.automation, canReview: true, changedAfterRun: false });
-  assert.deepEqual((await listFor(viewer)).map(file => file.path).sort(), [...INSTRUCTION_PATHS].sort());
+  assert.deepEqual((await listFor(owner)).map(file => file.path).sort(), [...INSTRUCTION_PATHS].sort());
 
-  const stale = await reviewAs(viewer, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt - 1, runId: listed.runId });
-  assert.match(stale, /This file changed\. Reload the list\./);
-  assert.match(await reviewAs(viewer, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt, runId: "job-other" }),
-    /This file changed\. Reload the list\./, "an accept names the run whose write the owner saw");
+  assert.match(await reviewAs(owner, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt - 1 }),
+    /This file changed\. Reload the list\./);
   // A chat edit between the list and the click is a change too.
   await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-AGENTS. And ACCEPT-LATE." });
-  assert.match(await reviewAs(viewer, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt, runId: listed.runId }),
+  assert.match(await reviewAs(owner, { operation: "accept", id: listed.id, updatedAt: listed.updatedAt }),
     /This file changed\. Reload the list\./);
   assert.equal(runReviewOf(await store.resourceGetByPath(owner, "AGENTS.md"))?.state, "pending", "a refused accept changes nothing");
 
-  const current = (await listFor(viewer)).find(file => file.path === "AGENTS.md");
-  assert.equal(current.changedAfterRun, true, "Settings says the file changed after the run");
-  assert.equal(await reviewAs(viewer, { operation: "accept", id: current.id, updatedAt: current.updatedAt, runId: current.runId }), "done");
+  const current = (await listFor(owner)).find(file => file.path === "AGENTS.md");
+  assert.equal(await reviewAs(owner, { operation: "accept", id: current.id, updatedAt: current.updatedAt }), "done");
   const accepted = runReviewOf(await store.resourceGetByPath(owner, "AGENTS.md"));
   assert.deepEqual({ state: accepted.state, runId: accepted.runId, acceptedBy: accepted.acceptedBy },
     { state: "accepted", runId: RUN.runId, acceptedBy: owner });
   assert.match(await prompt(owner, true), /ACCEPT-LATE/, "the accepted file loads");
   assert.match(await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }), /ACCEPT-LATE/);
-  assert.ok(!(await listFor(viewer)).some(file => file.path === "AGENTS.md"), "an accepted file leaves the list");
+  assert.ok(!(await listFor(owner)).some(file => file.path === "AGENTS.md"), "an accepted file leaves the list");
   // Settings reviews only waiting files, so it cannot delete an accepted one.
   const acceptedRow = await store.resourceGetByPath(owner, "AGENTS.md");
-  assert.match(await reviewAs(viewer, { operation: "delete", id: acceptedRow.id, updatedAt: acceptedRow.updatedAt, runId: RUN.runId }),
+  assert.match(await reviewAs(owner, { operation: "delete", id: acceptedRow.id, updatedAt: acceptedRow.updatedAt }),
     /This file is no longer waiting for review/);
   assert.ok(await store.resourceGetByPath(owner, "AGENTS.md"), "the accepted file stays");
   // The store's accept also refuses a file that no longer waits, whoever calls it.
-  assert.equal(await store.resourceAcceptRunReviewIfCurrent({ id: acceptedRow.id, owner, path: "AGENTS.md",
-    updatedAt: acceptedRow.updatedAt, runId: RUN.runId, acceptedBy: owner }), null);
+  assert.equal(await store.resourceAcceptRunReviewIfCurrent(
+    { id: acceptedRow.id, updatedAt: acceptedRow.updatedAt, acceptedBy: owner }), false);
 
   // A later run write waits again.
   await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-SECOND." },
@@ -309,73 +290,30 @@ test("accept loads the file from then on, and a stale accept changes nothing", a
 
 test("delete removes the whole file, and a stale delete changes nothing", async () => {
   const owner = "delete@example.test";
-  const viewer = { userEmail: owner, orgId: null };
   await plant(owner, "DELETE");
-  const listed = (await listFor(viewer)).find(file => file.path === "skills/probe/SKILL.md");
+  const listed = (await listFor(owner)).find(file => file.path === "skills/probe/SKILL.md");
   assert.ok(listed, "Settings lists the run's skill");
-  assert.match(await reviewAs(viewer, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt + 1, runId: listed.runId }),
+  assert.match(await reviewAs(owner, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt + 1 }),
     /This file changed\. Reload the list\./);
-  assert.match(await reviewAs(viewer, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt, runId: "job-other" }),
-    /This file changed\. Reload the list\./, "a delete names the run whose write the owner saw");
   assert.ok(await store.resourceGetByPath(owner, "skills/probe/SKILL.md"), "a refused delete keeps the file");
-  assert.equal(await reviewAs(viewer, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt, runId: listed.runId }), "done");
+  assert.equal(await reviewAs(owner, { operation: "delete", id: listed.id, updatedAt: listed.updatedAt }), "done");
   assert.equal(await store.resourceGetByPath(owner, "skills/probe/SKILL.md"), null);
-  assert.ok(!(await listFor(viewer)).some(file => file.path === "skills/probe/SKILL.md"));
+  assert.ok(!(await listFor(owner)).some(file => file.path === "skills/probe/SKILL.md"));
   assert.ok(!(await prompt(owner, true)).includes("DELETE-SKILL"));
 });
 
-test("only the people Core lets edit a file can review it", async () => {
+test("only the owner sees and reviews a file", async () => {
   const ownerA = "a@example.test";
   const ownerB = "b@example.test";
   await plant(ownerA, "PERM");
-  const personal = (await listFor({ userEmail: ownerA, orgId: null })).find(file => file.path === "AGENTS.md");
-  assert.ok(personal, "A sees its own file");
-  assert.ok(!(await listFor({ userEmail: ownerB, orgId: null })).some(file => file.id === personal.id), "B does not see A's file");
-  assert.match(await reviewAs({ userEmail: ownerB, orgId: null },
-    { operation: "accept", id: personal.id, updatedAt: personal.updatedAt, runId: personal.runId }),
-  /This file is no longer waiting for review/);
-  assert.equal(runReviewOf(await store.resourceGetByPath(ownerA, "AGENTS.md"))?.state, "pending", "B changed nothing");
-
-  // Runs cannot write organization instruction files, but a caller of the Resources route can store a pending mark
-  // through metadata, and such a row must be reviewable by the people Core lets edit it.
-  await store.resourcePut(store.SHARED_OWNER, "LEARNINGS.md", "App default APPDEFAULT-LEARN.", "text/markdown");
-  await store.resourcePut(ORG_OWNER, "LEARNINGS.md", "Team rule PERM-ORG.", "text/markdown", {
-    metadata: JSON.stringify({ runReview: { state: "pending", runId: "job-org-1", automation: "team", writtenAt: 1 } }),
-  });
-  const memberView = { userEmail: member, orgId: ORG_ID };
-  const orgFile = (await listFor(memberView)).find(file => file.path === "LEARNINGS.md");
-  assert.ok(orgFile, "a member sees the organization file");
-  assert.deepEqual({ scope: orgFile.scope, canReview: orgFile.canReview, reviewNote: orgFile.reviewNote },
-    { scope: "organization", canReview: false, reviewNote: "Only organization owners and admins can review organization files." });
-  const memberPrompt = await prompt(member, true, ORG_ID);
-  assert.ok(!memberPrompt.includes("PERM-ORG"), "the organization file waits");
-  assert.ok(!memberPrompt.includes("APPDEFAULT-LEARN"), "the app default does not take its place");
-  assert.match(await reviewAs(memberView, { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }),
-    /Only organization owners and admins can review organization files\./);
-  assert.equal(runReviewOf(await store.resourceGetByPath(ORG_OWNER, "LEARNINGS.md"))?.state, "pending", "a member changed nothing");
-  assert.ok(!(await listFor({ userEmail: ownerB, orgId: null })).some(file => file.id === orgFile.id), "a non-member does not see it");
-  assert.match(await reviewAs({ userEmail: ownerB, orgId: null },
-    { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }),
-  /This file is no longer waiting for review/, "a non-member cannot reach it by id");
-
-  const adminView = { userEmail: admin, orgId: ORG_ID };
-  const adminFile = (await listFor(adminView)).find(file => file.id === orgFile.id);
-  assert.equal(adminFile?.canReview, true, "an admin may review it");
-  assert.equal(await reviewAs(adminView, { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }), "done");
-  assert.match(await prompt(member, true, ORG_ID), /PERM-ORG/, "one accept settles it for every member");
-
-  // An app default file takes an organization owner or admin to review, or anyone when there is no organization.
-  await store.resourcePut(store.SHARED_OWNER, "instructions/app.md", "App rule PERM-APP.", "text/markdown", {
-    visibility: "workspace",
-    metadata: JSON.stringify({ runReview: { state: "pending", runId: "job-app-1", automation: "app", writtenAt: 1 } }),
-  });
-  const appFile = (await listFor(memberView)).find(file => file.path === "instructions/app.md");
-  assert.deepEqual(appFile && { scope: appFile.scope, canReview: appFile.canReview },
-    { scope: "app-default", canReview: false }, "a member without an admin role cannot review the app default");
-  assert.match(await reviewAs(memberView, { operation: "accept", id: appFile.id, updatedAt: appFile.updatedAt, runId: appFile.runId }),
-    /Only organization owners and admins can review organization files\./);
-  const soloFile = (await listFor({ userEmail: ownerB, orgId: null })).find(file => file.id === appFile.id);
-  assert.equal(soloFile?.canReview, true, "with no organization, anyone signed in may review it");
+  const file = (await listFor(ownerA)).find(item => item.path === "AGENTS.md");
+  assert.ok(file, "A sees its own file");
+  assert.ok(!(await listFor(ownerB)).some(item => item.id === file.id), "B does not see A's file");
+  for (const operation of ["accept", "delete"]) {
+    assert.match(await reviewAs(ownerB, { operation, id: file.id, updatedAt: file.updatedAt }),
+      /This file is no longer waiting for review/, `B cannot ${operation} it by id`);
+  }
+  assert.deepEqual(await markOf(ownerA, "AGENTS.md"), { state: "pending", runId: RUN.runId }, "B changed nothing");
 });
 
 test("the run surface marks writes, and Settings is the only way to review", async () => {

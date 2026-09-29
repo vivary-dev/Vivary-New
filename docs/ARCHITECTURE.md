@@ -155,23 +155,21 @@ No documentation route reads arbitrary host files.
 
 Issue #109. The owner decided on 2026-09-28 and 2026-09-29 that an instruction or memory file an automation run
 writes waits for the owner's review in Settings > Automation files, and that chats and later runs skip it until the
-owner accepts it.
-The maintained Core patch's run wrapper puts the run in the request context of each tool call, and the resource store
-reads it there: every write a run makes records its run and thread, and a write to `AGENTS.md`, `LEARNINGS.md`,
-`instructions/`, `skills/`, or `memory/` gets a pending review mark in the row's metadata that only an accept or a
-delete clears. A chat's write and an owner's edit keep it. In hosted mode a personal automation runs with no
+owner accepts it. The maintained Core patch's run wrapper puts the run in the request context of each tool call, and
+`resourcePut` reads it there: every write a run makes records its run and thread, and a write to `AGENTS.md`,
+`LEARNINGS.md`, `instructions/`, `skills/`, or `memory/` gets a pending review mark in the row's metadata that only an
+accept or a delete clears. A chat's write and an owner's edit keep it. In hosted mode a personal automation runs with no
 organization, so its run could write the app default `AGENTS.md` that every user loads, and the store now refuses a
-run's instruction write outside the run owner's personal files. Every prompt loader, the applied skill, the
-slash-skill menu, and `resources read` skip a waiting file, the prompt gets a one-line count, and the resource index
-drops the summary of a file a run wrote. The Unattended automation runs row now says so and names #144 for a run's
-delete and an overwrite that hides the owner's earlier text. The patch README section "Automation-written
-instruction files" has the detail. The review itself is Vivary code in the Settings route's new Automation files tab,
-`server/automation-file-review.ts`, and the `vivary-automation-files` owner action, which no chat, MCP client, or run
-can call. It lists the waiting files the viewer may see with their text as plain text, and accept and delete act only
-on the version the list showed. Who may review a file mirrors who may edit it in Core's Resources routes. The desktop
-guide's Automations section explains the tab and the #144 limits. `tests/automation-file-review.test.mjs` and
-`tests/automation-file-review-component.test.mjs` failed on `dev` in every case and pass now. The Settings tab has
-not run in a package.
+run's instruction write outside the run owner's personal files. The prompt loaders a personal file reaches, the
+applied skill, the slash-skill menu, and `resources read` skip a waiting file, and the prompt gets a one-line count.
+The Settings tab is a plain list of the owner's waiting files with their text, Accept, and Delete, served by the
+`vivary-automation-files` owner action, which no chat, MCP client, or run can call. Accept and Delete act only on the
+version the list showed. The owner asked on 2026-09-29 for the smallest version, so the review has no organization or
+app default tiers, the resource index is unchanged, and the tab has no extra states. The Unattended automation runs row
+says so and names #144 for a run's delete and an overwrite that hides the owner's earlier text. The patch README section
+"Automation-written instruction files" and the desktop guide's Automations section have the detail.
+`tests/automation-file-review.test.mjs` and `tests/automation-file-review-component.test.mjs` failed on `dev` in every
+case and pass now. The Settings tab has not run in a package.
 
 Issues #114 and #115 are closed. PR #137 merged `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
 #114 and #115 were closed on 2026-09-29. The Automations row in the acceptance register no longer lists the merge

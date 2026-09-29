@@ -6231,42 +6231,26 @@ index f6429f95fb3eddc4071e39f1e4394d5c2ea8d3bb..e8807f035d1a072e6a5d6e574366f7a7
                  const action = args.action;
                  switch (action) {
 diff --git a/dist/resources/store.d.ts b/dist/resources/store.d.ts
-index 9e45f714a6a3a275e97e41d67111802c17aa6c71..00d299a4f1cbf5fa7eef628558111dea204110c6 100644
+index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c0a44522a 100644
 --- a/dist/resources/store.d.ts
 +++ b/dist/resources/store.d.ts
-@@ -127,6 +127,30 @@ export declare function resourcePutIfAbsent(owner: string, path: string, content
+@@ -127,6 +127,14 @@ export declare function resourcePutIfAbsent(owner: string, path: string, content
   */
  export declare function resourcePutIfCurrent(input: ResourceConditionalWrite): Promise<Resource | null>;
  export declare function resourceDeleteIfCurrent(resource: Resource): Promise<boolean>;
-+/** Vivary #109: the review record a run's write leaves in a row's metadata. */
-+export interface ResourceRunReview {
-+    state: "pending" | "accepted";
-+    runId: string | null;
-+    automation: string | null;
-+    writtenAt: number;
-+    acceptedBy?: string;
-+    acceptedAt?: number;
-+}
-+export declare function resourceRunReview(resource: Pick<ResourceMeta, "metadata"> | null | undefined): ResourceRunReview | null;
-+/** True while a file an automation run wrote waits for the owner's review. */
++/** Vivary #109: true while a file an automation run wrote waits for the owner's review. */
 +export declare function isPendingRunReview(resource: Pick<ResourceMeta, "metadata"> | null | undefined): boolean;
-+export interface ResourceRunReviewAccept {
++/** Vivary #109: accept a waiting file only while it has the update time the owner reviewed. */
++export declare function resourceAcceptRunReviewIfCurrent(input: {
 +    id: string;
-+    owner: string;
-+    path: string;
-+    /** The update time the owner reviewed. */
 +    updatedAt: number;
-+    /** The run whose write the owner reviewed. */
-+    runId: string | null;
 +    acceptedBy: string;
-+}
-+/** Accept a waiting file only while it still holds the version the owner reviewed. */
-+export declare function resourceAcceptRunReviewIfCurrent(input: ResourceRunReviewAccept): Promise<Resource | null>;
++}): Promise<boolean>;
  export declare function resourceDelete(id: string): Promise<boolean>;
  export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
  export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
 diff --git a/dist/resources/store.js b/dist/resources/store.js
-index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45139450b6 100644
+index 44e9ccf92edf7026bae290de14c9c65388042eae..4d9f6bc9fe14e689c2072c1bba3d297f5fbf6414 100644
 --- a/dist/resources/store.js
 +++ b/dist/resources/store.js
 @@ -1,9 +1,10 @@
@@ -6281,34 +6265,17 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45
  import { getSetting, putSetting, } from "../settings/store.js";
  import { emitResourceChange, emitResourceDelete } from "./emitter.js";
  export const SHARED_OWNER = "__shared__";
-@@ -367,6 +368,79 @@ function serializeMetadata(value) {
+@@ -367,6 +368,29 @@ function serializeMetadata(value) {
          return null;
      return typeof value === "string" ? value : JSON.stringify(value);
  }
-+// ---------------------------------------------------------------------------
-+// Vivary #109: files an automation run writes wait for the owner's review
-+// ---------------------------------------------------------------------------
-+/**
-+ * Paths Core loads into prompts as instructions or memory, compared as
-+ * jobs/unattended-surface.js compares configuration paths: forward slashes,
-+ * no leading slash or dot segments, and lower case, because SQLite LIKE
-+ * prefix matching ignores ASCII case.
-+ */
++// Vivary #109: an instruction or memory file an automation run writes waits
++// for the owner's review. These are the paths Core loads into prompts.
 +const RUN_REVIEWED_FILES = new Set(["agents.md", "learnings.md"]);
 +const RUN_REVIEWED_PREFIXES = ["instructions/", "skills/", "memory/"];
-+function isRunReviewedResourcePath(value) {
-+    const normalized = nodePath.posix
-+        .normalize(String(value ?? "").trim().replace(/\\/g, "/"))
-+        .replace(/^(\.\/|\/)+/, "")
-+        .toLowerCase();
-+    return (RUN_REVIEWED_FILES.has(normalized) ||
-+        RUN_REVIEWED_PREFIXES.some((prefix) => normalized.startsWith(prefix)));
-+}
 +function metadataObject(value) {
-+    if (typeof value !== "string" || !value)
-+        return {};
 +    try {
-+        const parsed = JSON.parse(value);
++        const parsed = JSON.parse(value ?? "null");
 +        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
 +            ? parsed
 +            : {};
@@ -6317,59 +6284,43 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45
 +        return {};
 +    }
 +}
-+/** The review record a run's write left in a row's metadata, or null. */
-+export function resourceRunReview(resource) {
-+    const review = metadataObject(resource?.metadata).runReview;
-+    return review && typeof review === "object" && !Array.isArray(review)
-+        ? review
-+        : null;
-+}
-+/** True while a file an automation run wrote waits for the owner's review. */
-+export function isPendingRunReview(resource) {
-+    return resourceRunReview(resource)?.state === "pending";
-+}
 +/** Metadata as an object with the review record set, other keys kept. */
 +function withRunReview(metadata, review) {
 +    return JSON.stringify({ ...metadataObject(metadata), runReview: review });
 +}
-+function pendingRunReview(run, writtenAt) {
-+    return {
-+        state: "pending",
-+        runId: run.runId ?? null,
-+        automation: run.automation ?? null,
-+        writtenAt,
-+    };
-+}
-+/**
-+ * The automation run making this write, from the request context that
-+ * restrictActionsForUnattendedRun sets around each tool call, or null. A run
-+ * may write instruction files only in its own user's personal scope. App
-+ * default and organization files load for other people, and a personal
-+ * automation runs with no organization, so its shared writes would reach
-+ * the app default without a role check.
-+ */
-+function automationRunWrite(owner, resourcePath) {
-+    const run = getRequestContext()?.automationRun;
-+    if (!run)
-+        return null;
-+    if (isRunReviewedResourcePath(resourcePath) &&
-+        owner !== getRequestUserEmail()) {
-+        throw new Error(`Automation runs cannot write ${resourcePath} outside the owner's personal files, because shared and organization instruction files load for other people.`);
-+    }
-+    return run;
++/** True while a file an automation run wrote waits for the owner's review. */
++export function isPendingRunReview(resource) {
++    return metadataObject(resource?.metadata).runReview?.state === "pending";
 +}
  function scratchFilterSql(options) {
      return options?.includeAgentScratch === true
          ? ""
-@@ -1121,6 +1195,7 @@ export async function resourceGetByPath(owner, path, options) {
+@@ -1121,6 +1145,24 @@ export async function resourceGetByPath(owner, path, options) {
  }
  export async function resourcePut(owner, path, content, mimeType, options) {
      await ensureTable();
-+    const run = automationRunWrite(owner, path);
++    // Vivary #109: restrictActionsForUnattendedRun sets the run around each
++    // tool call of an automation run. The path is compared as
++    // jobs/unattended-surface.js compares configuration paths, in lower case
++    // because SQLite LIKE prefix matching ignores ASCII case.
++    const run = getRequestContext()?.automationRun;
++    const normalizedPath = nodePath.posix
++        .normalize(String(path).trim().replace(/\\/g, "/"))
++        .replace(/^(\.\/|\/)+/, "")
++        .toLowerCase();
++    const runReviewed = !!run &&
++        (RUN_REVIEWED_FILES.has(normalizedPath) ||
++            RUN_REVIEWED_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix)));
++    // App default and organization files load for other people, and a
++    // personal automation runs with no organization, so its shared writes
++    // would reach the app default without a role check.
++    if (runReviewed && owner !== getRequestUserEmail()) {
++        throw new Error(`Automation runs cannot write ${path} outside the owner's personal files, because shared and organization instruction files load for other people.`);
++    }
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
          const written = await writeLocalWorkspaceResource({ path, content });
-@@ -1146,18 +1221,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1146,18 +1188,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
      const existingRow = existing[0];
      const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
      const createdAt = existingRow ? Number(existingRow.created_at) : now;
@@ -6405,7 +6356,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45
      let expiresAt = hasOption(options, "expiresAt")
          ? (options?.expiresAt ?? null)
          : nullableNumber(existingRow?.expires_at);
-@@ -1168,9 +1251,19 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1168,9 +1218,24 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          expiresAt = null;
      }
      const serializedMetadata = serializeMetadata(options?.metadata);
@@ -6416,9 +6367,14 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45
 +    // Vivary #109: a run's write to an instruction path waits for review. Any
 +    // other write keeps the row's review record, so only the owner's accept
 +    // or delete in Settings settles it, never a later chat or edit.
-+    const keptRunReview = resourceRunReview({ metadata: existingRow?.metadata });
-+    if (run && isRunReviewedResourcePath(path)) {
-+        metadata = withRunReview(metadata, pendingRunReview(run, now));
++    const keptRunReview = metadataObject(existingRow?.metadata).runReview;
++    if (runReviewed) {
++        metadata = withRunReview(metadata, {
++            state: "pending",
++            runId: run.runId ?? null,
++            automation: run.automation ?? null,
++            writtenAt: now,
++        });
 +    }
 +    else if (keptRunReview) {
 +        metadata = withRunReview(metadata, keptRunReview);
@@ -6426,97 +6382,50 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45
      await client.execute({
          sql: isPostgres()
              ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-@@ -1213,6 +1306,7 @@ export async function resourcePut(owner, path, content, mimeType, options) {
- /** Insert a resource only when its owner/path pair is still unused. */
- export async function resourcePutIfAbsent(owner, path, content, mimeType, options) {
-     await ensureTable();
-+    const run = automationRunWrite(owner, path);
-     if (owner === WORKSPACE_OWNER &&
-         (await shouldHandleWorkspaceResourceAsLocal(path))) {
-         return null;
-@@ -1225,12 +1319,16 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
-     const size = Buffer.byteLength(content, "utf8");
-     const mime = mimeType || "text/markdown";
-     const id = crypto.randomUUID();
--    const createdBy = normalizeCreatedBy(options?.createdBy);
-+    const createdBy = run ? "agent" : normalizeCreatedBy(options?.createdBy);
-     const visibility = normalizeVisibility(options?.visibility);
--    const threadId = hasOption(options, "threadId")
--        ? (options?.threadId ?? null)
--        : null;
--    const runId = hasOption(options, "runId") ? (options?.runId ?? null) : null;
-+    const threadId = run
-+        ? (run.threadId ?? null)
-+        : hasOption(options, "threadId")
-+            ? (options?.threadId ?? null)
-+            : null;
-+    const runId = run
-+        ? (run.runId ?? null)
-+        : hasOption(options, "runId") ? (options?.runId ?? null) : null;
-     let expiresAt = hasOption(options, "expiresAt")
-         ? (options?.expiresAt ?? null)
-         : null;
-@@ -1240,7 +1338,9 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
-     if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
-         expiresAt = null;
-     }
--    const metadata = serializeMetadata(options?.metadata) ?? null;
-+    const metadata = run && isRunReviewedResourcePath(path)
-+        ? withRunReview(serializeMetadata(options?.metadata) ?? null, pendingRunReview(run, now))
-+        : (serializeMetadata(options?.metadata) ?? null);
-     const result = await client.execute({
-         sql: isPostgres()
-             ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
-@@ -1367,6 +1467,53 @@ export async function resourceDeleteIfCurrent(resource) {
+@@ -1367,6 +1432,47 @@ export async function resourceDeleteIfCurrent(resource) {
      }
      return deleted;
  }
 +/**
 + * Vivary #109. Record the owner's accept of a file an automation run wrote,
-+ * only while the row still holds the version the owner reviewed: the same
-+ * id, owner, path, and update time, and a pending review from the same run.
-+ * The update also compares the metadata it read, so a write in between fails
-+ * the accept instead of approving text the owner never saw.
++ * only while it still waits and has the update time the owner reviewed. The
++ * update also compares the metadata it read, so a write in between fails the
++ * accept instead of approving text the owner never saw.
 + */
 +export async function resourceAcceptRunReviewIfCurrent(input) {
 +    await ensureTable();
 +    const client = getDbExec();
 +    const { rows } = await client.execute({
-+        sql: `SELECT * FROM resources WHERE id = ? AND owner = ? AND path = ?`,
-+        args: [input.id, input.owner, input.path],
++        sql: `SELECT * FROM resources WHERE id = ?`,
++        args: [input.id],
 +    });
-+    if (rows.length === 0)
-+        return null;
-+    const current = rowToResource(rows[0]);
-+    const review = resourceRunReview(current);
-+    if (current.updatedAt !== input.updatedAt ||
-+        review?.state !== "pending" ||
-+        (review.runId ?? null) !== (input.runId ?? null)) {
-+        return null;
++    const current = rows[0] ? rowToResource(rows[0]) : null;
++    if (!current ||
++        current.updatedAt !== input.updatedAt ||
++        !isPendingRunReview(current)) {
++        return false;
 +    }
++    const review = metadataObject(current.metadata).runReview;
 +    const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
-+    const metadata = withRunReview(current.metadata, {
-+        ...review,
-+        state: "accepted",
-+        acceptedBy: input.acceptedBy,
-+        acceptedAt: updatedAt,
-+    });
 +    const result = await client.execute({
-+        sql: `UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND metadata = ?`,
++        sql: `UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ? AND updated_at = ? AND metadata = ?`,
 +        args: [
-+            metadata,
++            withRunReview(current.metadata, {
++                ...review,
++                state: "accepted",
++                acceptedBy: input.acceptedBy,
++                acceptedAt: updatedAt,
++            }),
 +            updatedAt,
 +            current.id,
-+            current.owner,
-+            current.path,
 +            current.updatedAt,
 +            current.metadata,
 +        ],
 +    });
 +    if (result.rowsAffected !== 1)
-+        return null;
++        return false;
 +    emitResourceChange(current.id, current.path, current.owner);
-+    return { ...current, metadata, updatedAt };
++    return true;
 +}
  export async function resourceDelete(id) {
      await ensureTable();
@@ -6536,10 +6445,10 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
      };
      return JSON.stringify(result, null, 2);
 diff --git a/dist/scripts/resources/read.js b/dist/scripts/resources/read.js
-index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a5302043f42f5e7 100644
+index 467263c0411135a3acdfc27b790da7b330a17361..b82f01231c6267e37b88ea56bab15626f230aa5b 100644
 --- a/dist/scripts/resources/read.js
 +++ b/dist/scripts/resources/read.js
-@@ -6,9 +6,19 @@
+@@ -6,9 +6,18 @@
   * Usage:
   *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
   */
@@ -6548,11 +6457,10 @@ index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a530204
  import { getAmbientUserEmail, getRequestOrgId, getRequestUserEmail, } from "../../server/request-context.js";
  import { parseArgs, fail } from "../utils.js";
 +// Vivary #109: a file an automation run wrote waits for the owner's review,
-+// so a chat or a run reading it gets this note instead of its text.
-+const RUN_REVIEW_NOTE = "This file was written by an automation run and is waiting for the owner's review in Settings > Automation files. Its content is not available to chats or automation runs until the owner accepts it.";
++// so a chat or a run reading it gets a note instead of its text.
 +function writeResourceContent(resource) {
 +    if (isPendingRunReview(resource)) {
-+        console.log(RUN_REVIEW_NOTE);
++        console.log("This file was written by an automation run and is waiting for the owner's review in Settings > Automation files. Its content is not available to chats or automation runs until the owner accepts it.");
 +        return;
 +    }
 +    process.stdout.write(resource.content);
@@ -6560,7 +6468,7 @@ index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a530204
  export default async function resourceReadScript(args) {
      const parsed = parseArgs(args);
      if (parsed.help === "true") {
-@@ -40,7 +50,7 @@ Options:
+@@ -40,7 +49,7 @@ Options:
              console.log(`Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`);
              return;
          }
@@ -6569,7 +6477,7 @@ index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a530204
          return;
      }
      if (scope === "shared") {
-@@ -54,13 +64,13 @@ Options:
+@@ -54,13 +63,13 @@ Options:
              console.log(`Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`);
              return;
          }
@@ -6585,7 +6493,7 @@ index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a530204
          return;
      }
      if (scope === "personal") {
-@@ -75,12 +85,12 @@ Options:
+@@ -75,12 +84,12 @@ Options:
              ? null
              : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
      if (shared) {
@@ -6846,7 +6754,7 @@ index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa
      backgroundMcpTools?: "requested" | "all";
      /**
 diff --git a/dist/server/agent-chat/prompt-resources.js b/dist/server/agent-chat/prompt-resources.js
-index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608ff256f6c6 100644
+index 40396251b3887addb4303ece517af947f2eb4ed3..28e77ab5f14e953ba55c6f9b65a0461ef3849c03 100644
 --- a/dist/server/agent-chat/prompt-resources.js
 +++ b/dist/server/agent-chat/prompt-resources.js
 @@ -1,6 +1,6 @@
@@ -6857,26 +6765,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
  import { discoverAgents } from "../agent-discovery.js";
  import { getRequestOrgId } from "../request-context.js";
  import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./skill-frontmatter.js";
-@@ -415,6 +415,18 @@ function getResourceSummaryFromContent(content) {
-         return heading.replace(/^#{1,3}\s+/, "").trim();
-     return null;
- }
-+/**
-+ * Vivary #109. One line for a prompt whose loaders skipped files an
-+ * automation run wrote. It carries a count only, because the paths and the
-+ * text are the run's.
-+ */
-+function runReviewNote(count) {
-+    const one = count === 1;
-+    const files = one
-+        ? "1 instruction or memory file written by an automation run is"
-+        : `${count} instruction or memory files written by automation runs are`;
-+    return `<context-note>${files} waiting for the owner's review in Settings > Automation files. ${one ? "It is" : "They are"} not loaded. Do not follow or rewrite ${one ? "it" : "them"}. If a task seems to depend on one, tell the owner.</context-note>`;
-+}
- export function resourceScopeForOwner(owner, currentOwner) {
-     if (owner === WORKSPACE_OWNER)
-         return "workspace";
-@@ -425,7 +437,7 @@ export function resourceScopeForOwner(owner, currentOwner) {
+@@ -425,7 +425,7 @@ export function resourceScopeForOwner(owner, currentOwner) {
          return "personal";
      return "resource";
  }
@@ -6885,7 +6774,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
      let agents;
      try {
          agents = await resourceGetByPath(owner, "AGENTS.md");
-@@ -433,6 +445,11 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
+@@ -433,6 +433,11 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
      catch (error) {
          throw new Error(`Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`, { cause: error });
      }
@@ -6897,7 +6786,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
      if (!agents?.content?.trim())
          return null;
      return promptResourceBlock({
-@@ -443,12 +460,15 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
+@@ -443,12 +448,15 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
          maxChars,
      });
  }
@@ -6916,7 +6805,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
          if (summaryOnly) {
              if (sorted.length === 0)
                  return [];
-@@ -489,7 +509,7 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
+@@ -489,7 +497,7 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
          return [];
      }
  }
@@ -6925,7 +6814,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
      try {
          const organizationOwner = sharedResourceOwner(orgId);
          const resources = owner === SHARED_OWNER
-@@ -498,7 +518,10 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+@@ -498,7 +506,10 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
              ]
              : await resourceListAccessible(owner, "skills/", { orgId });
@@ -6937,18 +6826,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
              const ownerOrder = (a.owner === owner
                  ? 0
                  : a.owner === organizationOwner
-@@ -572,7 +595,9 @@ async function loadResourceIndexForPrompt(owner, scope) {
-         for (let index = 0; index < listed.length; index++) {
-             const resource = listed[index];
-             const full = fullResources[index];
--            const summary = full?.content
-+            // Vivary #109: a file an automation run wrote is listed by path only,
-+            // so its text does not reach the prompt unasked.
-+            const summary = full?.content && !full.runId
-                 ? getResourceSummaryFromContent(full.content)
-                 : null;
-             lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
-@@ -615,6 +640,9 @@ async function loadResourceIndexForPrompt(owner, scope) {
+@@ -615,6 +626,9 @@ async function loadResourceIndexForPrompt(owner, scope) {
  export async function loadResourcesForPrompt(owner, compact = false, selfAppId, orgId = getRequestOrgId() ?? null, opts) {
      await ensurePersonalDefaults(owner);
      const sections = [];
@@ -6958,7 +6836,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
      const addSection = (content, governance = "inherited") => {
          if (content?.trim())
              sections.push({ content, governance });
-@@ -681,33 +709,33 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -681,33 +695,33 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
      // 3. Runtime workspace resources. These are global defaults inherited by
      // every app in the workspace, not copied into app scopes. They may come from
      // SQL, Dispatch, or local file mode.
@@ -7001,20 +6879,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
      addSection(resourceSkillsBlock);
      let sharedLearnings = null;
      try {
-@@ -717,6 +745,12 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
-                 : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
-     }
-     catch { }
-+    // Vivary #109: a waiting LEARNINGS.md is skipped, and the app default does
-+    // not take its place, because that is a file the owner did not choose.
-+    if (isPendingRunReview(sharedLearnings)) {
-+        runReview.skipped += 1;
-+        sharedLearnings = null;
-+    }
-     if (compact) {
-         // Integration/Slack turns use compact context, but organization learnings
-         // are operational routing input, not optional background. Preload the
-@@ -758,7 +792,10 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -758,7 +772,10 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
          if (owner !== SHARED_OWNER) {
              try {
                  const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
@@ -7026,12 +6891,16 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608f
                      const block = promptResourceBlock({
                          name: "memory/MEMORY.md",
                          scope: "personal",
-@@ -804,6 +841,9 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -804,6 +821,13 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
      catch {
          // Agent discovery is helpful context, not required for the run.
      }
++    // Vivary #109: a count only, because the paths and the text are the run's.
 +    if (runReview.skipped > 0) {
-+        addSection(runReviewNote(runReview.skipped), "required");
++        const one = runReview.skipped === 1;
++        addSection(`<context-note>${one
++            ? "1 instruction or memory file written by an automation run is"
++            : `${runReview.skipped} instruction or memory files written by automation runs are`} waiting for the owner's review in Settings > Automation files. ${one ? "It is" : "They are"} not loaded. Do not follow or rewrite ${one ? "it" : "them"}. If a task seems to depend on one, tell the owner.</context-note>`, "required");
 +    }
      if (sections.length === 0)
          return "";
@@ -7705,6 +7574,38 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc592
              ...(typeof opts.status === "number" && { status: opts.status }),
              ...(opts.code && { code: opts.code }),
              strikes,
+diff --git a/dist/server/framework-request-handler.js b/dist/server/framework-request-handler.js
+index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..85cb8b756e69b1ae421da87183a4a6f508f95f2d 100644
+--- a/dist/server/framework-request-handler.js
++++ b/dist/server/framework-request-handler.js
+@@ -482,9 +482,12 @@ function isClientAbortError(error, event) {
+     const message = typeof err?.message === "string" ? err.message : "";
+     const code = typeof err?.code === "string" ? err.code : "";
+     const node = event.node;
++    // Vivary patch, issue #142. Node destroys a request stream once its body has been read to the end, so a destroyed
++    // request alone does not mean the client left. Only one destroyed before its body completed, or a destroyed
++    // response, does. Otherwise a handler's error after it read the body was dropped and the client got a 404.
+     return (message === "aborted" ||
+         code === "ECONNRESET" ||
+-        node?.req?.destroyed === true ||
++        (node?.req?.destroyed === true && node.req.complete !== true) ||
+         node?.res?.destroyed === true);
+ }
+ function debugClientAbort(args) {
+@@ -669,7 +672,13 @@ function registerMiddleware(nitroApp, path, handler, options = {}) {
+             catch {
+                 // Response already sent — best effort.
+             }
++            // Vivary patch, issue #142. An h3 error's `body` holds the fields its thrower chose for the client, such
++            // as an error code and whether to retry. h3's own error response keeps them, so this one does too. A
++            // stack stays behind the debug switch below, even when a thrower put one in its body.
++            const { stack: _bodyStack, ...chosenFields } = e?.body && typeof e.body === "object" && !Array.isArray(e.body)
++                ? e.body : {};
+             return {
++                ...chosenFields,
+                 error: e?.message || "Internal server error",
+                 // Only surface the stack to clients when explicitly enabled.
+                 // `NODE_ENV !== "production"` was unsafe — preview deploys and
 diff --git a/dist/server/index.d.ts b/dist/server/index.d.ts
 index ef529363366369eb3b9951325fa467bdf579c1a8..8bf22a84bb7b6998d9bfe6723bd322f93e26db72 100644
 --- a/dist/server/index.d.ts
