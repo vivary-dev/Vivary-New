@@ -25,7 +25,7 @@ const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", im
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
 const [
   { restrictActionsForUnattendedRun },
-  { createResourceScriptEntries },
+  { createDbScriptEntries, createResourceScriptEntries },
   { runWithRequestContext },
   store,
   { loadResourcesForPrompt },
@@ -52,6 +52,8 @@ const ORG_ID = "org-review";
 const ORG_OWNER = store.organizationResourceOwner(ORG_ID);
 const admin = "admin@example.test";
 const entries = await createResourceScriptEntries();
+// A chat's raw database tools, with writes on.
+const dbEntries = await createDbScriptEntries("write");
 // The context Core's agent loop gives a tool call in an automation run.
 const RUN = { runId: "job-probe-1", threadId: "t-run-1", automation: "probe" };
 
@@ -65,8 +67,8 @@ function asRun(identity, tool, args, run = RUN) {
   const context = { runId: run.runId, threadId: run.threadId, automation: { triggerId: "trigger-probe", triggerName: run.automation } };
   return text(runWithRequestContext(identity, () => restricted[tool].run(args, context)));
 }
-const asChat = (identity, tool, args) =>
-  text(runWithRequestContext(identity, () => entries[tool].run(args, { caller: "tool" })));
+const asChat = (identity, tool, args, tools = entries) =>
+  text(runWithRequestContext(identity, () => tools[tool].run(args, { caller: "tool" })));
 const runReviewOf = row => {
   try { return JSON.parse(row?.metadata ?? "null")?.runReview ?? null; } catch { return null; }
 };
@@ -273,9 +275,12 @@ test("a chat loads no file a run wrote until review and sees only how many wait"
     const note = body.split("\n").find(line => REVIEW_NOTE.test(line));
     assert.ok(!/probe|CHAT/.test(note), "the note names no path and no text");
   }
-  // AGENTS.md, the instruction file, and the skill in both modes. The memory index loads only in full mode.
-  assert.match(compact, /3 instruction or memory files written by automation runs are waiting/);
-  assert.match(full, /4 instruction or memory files written by automation runs are waiting/);
+  // The count is every file Settings lists, in both modes, memory files included, though no prompt loads a memory
+  // file but the index. The packaged check on e50ae89c saw the note gone while two memory files still waited.
+  assert.equal((await listFor(owner)).length, INSTRUCTION_PATHS.length, "Settings lists the six files");
+  for (const body of [compact, full]) {
+    assert.match(body, /6 instruction or memory files written by automation runs are waiting/);
+  }
 
   await runWithRequestContext({ userEmail: owner }, async () => {
     assert.equal(await resolveSkillReferenceContent({ source: "resource", path: "skills/probe/SKILL.md" }), null,
@@ -288,6 +293,27 @@ test("a chat loads no file a run wrote until review and sees only how many wait"
       assert.ok(!read.includes("CHAT-"), `a chat reading ${resourcePath} gets no text`);
     }
   }
+});
+
+test("a chat's raw database tools cannot read or change the resources table", async () => {
+  // The packaged check on e50ae89c: a chat's db-query read a waiting file's text straight from the table. Chats read
+  // files through the resources tool, which skips a waiting file.
+  const owner = "sql@example.test";
+  await plant(owner, "SQL");
+  const as = { userEmail: owner };
+  const refused = /Sensitive framework table "resources" is not (readable|writable|patchable) through raw DB tools/;
+  const read = await asChat(as, "db-query", { sql: "SELECT path, substr(content, 1, 200) AS head FROM resources" }, dbEntries);
+  assert.ok(!read.includes("SQL-"), "db-query returns no waiting text");
+  assert.match(read, refused);
+  assert.match(await asChat(as, "db-query", { sql: 'SELECT path FROM "resources" WHERE owner = ?', args: JSON.stringify([owner]) },
+    dbEntries), refused);
+  assert.match(await asChat(as, "db-exec", { sql: "UPDATE resources SET metadata = NULL WHERE path = 'AGENTS.md'" }, dbEntries),
+    refused);
+  assert.match(await asChat(as, "db-patch", { table: "resources", column: "metadata", where: "path = 'AGENTS.md'",
+    "json-ops": JSON.stringify([{ op: "remove", path: "/runReview" }]) }, dbEntries), refused);
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), { state: "pending", runId: RUN.runId }, "no raw write cleared the mark");
+  // The word in a string literal is not the table.
+  assert.doesNotMatch(await asChat(as, "db-query", { sql: "SELECT 'resources' AS word" }, dbEntries), refused);
 });
 
 test("a later automation run loads no file an earlier run wrote", async () => {
