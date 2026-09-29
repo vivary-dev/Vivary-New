@@ -171,6 +171,48 @@ test("an automation run writes only its owner's personal files", async () => {
     { action: "write", path: "AGENTS.md", content: "Creator rules." }), /Wrote resource: AGENTS\.md/);
 });
 
+test("an automation run deletes only its owner's personal files", async () => {
+  // Owner decision (2026-09-29): a run deletes only its owner's personal files, the same rule as its writes. A personal
+  // automation runs with no organization, so a run's `resources delete` with scope shared reached the app default
+  // owner and skipped the role check (scripts/resources/delete.js assertCanDeleteSharedResource), and every user's chat
+  // loads the app default AGENTS.md.
+  const creator = "remover@example.test";
+  await store.resourcePut(store.SHARED_OWNER, "AGENTS.md", "App default rules.", "text/markdown");
+  await store.resourcePut(ORG_OWNER, "AGENTS.md", "Organization rules.", "text/markdown");
+  // The organization run's creator is an admin, who may delete organization files from a chat but not from a run.
+  for (const [identity, owner] of [
+    [{ userEmail: creator }, store.SHARED_OWNER],
+    [{ userEmail: admin, orgId: ORG_ID }, ORG_OWNER],
+  ]) {
+    assert.match(await asRun(identity, "resources", { action: "delete", path: "AGENTS.md", scope: "shared" }),
+      /^Error: Automation runs cannot delete AGENTS\.md outside the owner's personal files/, owner);
+    assert.ok(await store.resourceGetByPath(owner, "AGENTS.md"), `the ${owner} AGENTS.md stays`);
+  }
+
+  // The store refuses the delete whichever of its delete functions a tool reaches.
+  const kept = await store.resourcePut("keeper@example.test", "notes/keep.md", "Keep.", "text/markdown");
+  await runWithRequestContext({ userEmail: creator, automationRun: RUN }, async () => {
+    for (const [name, remove] of [
+      ["resourceDeleteByPath", () => store.resourceDeleteByPath(kept.owner, kept.path)],
+      ["resourceDeleteIfCurrent",
+        async () => store.resourceDeleteIfCurrent(await store.resourceGetByPath(kept.owner, kept.path))],
+      ["resourceDelete", () => store.resourceDelete(kept.id)],
+    ]) {
+      await assert.rejects(remove(), /Automation runs cannot delete notes\/keep\.md outside the owner's personal files/, name);
+    }
+  });
+  assert.ok(await store.resourceGetByPath(kept.owner, kept.path), "another user's file stays");
+
+  // The run's own files and memories stay deletable.
+  await asChat({ userEmail: creator }, "save-memory", { name: "own", type: "user", description: "own fact", content: "Own fact." });
+  assert.match(await asRun({ userEmail: creator }, "delete-memory", { name: "own" }), /Deleted memory "own"/);
+  assert.equal(await store.resourceGetByPath(creator, "memory/own.md"), null, "the run deleted its owner's memory");
+  await store.resourcePut(creator, "notes/own.md", "Own notes.", "text/markdown");
+  assert.match(await asRun({ userEmail: creator }, "resources", { action: "delete", path: "notes/own.md" }),
+    /Deleted resource: notes\/own\.md/);
+  assert.equal(await store.resourceGetByPath(creator, "notes/own.md"), null, "the run deleted its owner's note");
+});
+
 test("a run writes only plain paths, so a dot segment cannot hide an instruction file", async () => {
   // The store decides the review mark on the path, and the loaders match the stored text: `LIKE 'skills/%'` lists
   // `skills/../x/SKILL.md`. A path the store would read one way and a loader another must not be written at all.

@@ -105,7 +105,11 @@ export async function aRefusedReviewShowsTheChangedFileWithANotice() {
   const SKILL = { id: "res-skill", path: "skills/probe/SKILL.md", content: "Skill text.", updatedAt: AGENTS.updatedAt };
   let files = [AGENTS, SKILL];
   const { host, dispose } = await mount(params => {
-    if (params.operation === "accept") { files = [changed, SKILL]; throw new Error("This file changed. Reload the list."); }
+    if (params.operation === "accept") {
+      files = [changed, SKILL];
+      // The action refuses a review of a file that changed with 409, and both transports put the status on the error.
+      throw Object.assign(new Error("This file changed. Reload the list."), { status: 409 });
+    }
     return { files };
   });
   try {
@@ -116,6 +120,24 @@ export async function aRefusedReviewShowsTheChangedFileWithANotice() {
     assert.equal(host.textContent.split(CHANGED).length - 1, 1, "one notice, on that file only");
     assert.doesNotMatch(skill.textContent, new RegExp(CHANGED));
   } finally { await dispose(); }
+}
+
+export async function aReviewRefusedForAnotherReasonSaysNothingChanged() {
+  // An expired session or a lost connection refuses the review too, and the file did not change.
+  for (const failure of [
+    Object.assign(new Error("Sign in again to review automation files."), { status: 401 }),
+    new Error("Failed to fetch"),
+  ]) {
+    const { host, dispose } = await mount(params => {
+      if (params.operation !== "list") throw failure;
+      return { files: [AGENTS] };
+    });
+    try {
+      await click(button(items(host)[0], "Accept"));
+      assert.equal(items(host).length, 1, "the file still waits");
+      assert.doesNotMatch(host.textContent, new RegExp(CHANGED), failure.message + " does not say the file changed");
+    } finally { await dispose(); }
+  }
 }
 
 export async function aListThatFailsSaysSo() {
@@ -188,6 +210,8 @@ test("Settings > Automation files lists run-written files with their text, Accep
     ["Accept and Delete name the version shown and reload the list", proof.eachReviewNamesTheVersionShownAndReloads],
     ["a refused review shows the file as it is now, with one notice to read it again",
       proof.aRefusedReviewShowsTheChangedFileWithANotice],
+    ["a review refused for another reason does not say the file changed",
+      proof.aReviewRefusedForAnotherReasonSaysNothingChanged],
     ["a list that fails to load says so", proof.aListThatFailsSaysSo],
   ]) await t.test(name, () => run());
 });
