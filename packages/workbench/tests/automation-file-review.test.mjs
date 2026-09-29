@@ -291,6 +291,11 @@ test("accept loads the file from then on, and a stale accept changes nothing", a
   assert.match(await prompt(owner, true), /ACCEPT-LATE/, "the accepted file loads");
   assert.match(await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }), /ACCEPT-LATE/);
   assert.ok(!(await listFor(viewer)).some(file => file.path === "AGENTS.md"), "an accepted file leaves the list");
+  // Settings reviews only waiting files, so it cannot delete an accepted one.
+  const acceptedRow = await store.resourceGetByPath(owner, "AGENTS.md");
+  assert.match(await reviewAs(viewer, { operation: "delete", id: acceptedRow.id, updatedAt: acceptedRow.updatedAt, runId: RUN.runId }),
+    /This file is no longer waiting for review/);
+  assert.ok(await store.resourceGetByPath(owner, "AGENTS.md"), "the accepted file stays");
 
   // A later run write waits again.
   await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey ACCEPT-SECOND." },
@@ -352,6 +357,19 @@ test("only the people Core lets edit a file can review it", async () => {
   assert.equal(adminFile?.canReview, true, "an admin may review it");
   assert.equal(await reviewAs(adminView, { operation: "accept", id: orgFile.id, updatedAt: orgFile.updatedAt, runId: orgFile.runId }), "done");
   assert.match(await prompt(member, true, ORG_ID), /PERM-ORG/, "one accept settles it for every member");
+
+  // An app default file takes an organization owner or admin to review, or anyone when there is no organization.
+  await store.resourcePut(store.SHARED_OWNER, "instructions/app.md", "App rule PERM-APP.", "text/markdown", {
+    visibility: "workspace",
+    metadata: JSON.stringify({ runReview: { state: "pending", runId: "job-app-1", automation: "app", writtenAt: 1 } }),
+  });
+  const appFile = (await listFor(memberView)).find(file => file.path === "instructions/app.md");
+  assert.deepEqual(appFile && { scope: appFile.scope, canReview: appFile.canReview },
+    { scope: "app-default", canReview: false }, "a member without an admin role cannot review the app default");
+  assert.match(await reviewAs(memberView, { operation: "accept", id: appFile.id, updatedAt: appFile.updatedAt, runId: appFile.runId }),
+    /Only organization owners and admins can review organization files\./);
+  const soloFile = (await listFor({ userEmail: ownerB, orgId: null })).find(file => file.id === appFile.id);
+  assert.equal(soloFile?.canReview, true, "with no organization, anyone signed in may review it");
 });
 
 test("the run surface marks writes, and Settings is the only way to review", async () => {
