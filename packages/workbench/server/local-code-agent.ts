@@ -563,13 +563,18 @@ function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
   const scan = lift.how === "owner-confirmed" ? lift.scan : "done";
   // The credential redaction plugin redacts server output. Process names stay out of the log.
   console.error(`[vivary-code-host] cleanup-lifted run=${refusal.runId} how=${lift.how} scan=${scan} remaining=${remaining}`);
-  appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift, refusal),
-    metadata: { phase: "cleanup-lifted", how: lift.how } });
-  const recorded = updateCodeAgentRunRecord(refusal.runId, {
-    metadata: { cleanupRefusal: undefined, cleanupUnverified: undefined, cleanupLifted: lift },
-  });
-  if (!recorded) throw new Error("The run record is missing.");
-  // A refusal only in memory stays in force until its run records the lift.
+  try {
+    appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift, refusal),
+      metadata: { phase: "cleanup-lifted", how: lift.how } });
+    const recorded = updateCodeAgentRunRecord(refusal.runId, {
+      metadata: { cleanupRefusal: undefined, cleanupUnverified: undefined, cleanupLifted: lift },
+    });
+    if (!recorded) throw new Error("The run record is missing.");
+  } catch (error) {
+    // The refusal stays in force from memory, with any End them it now holds, until its run records the lift.
+    hostState.unsaved.set(refusal.runId, refusal);
+    throw error;
+  }
   hostState.unsaved.delete(refusal.runId);
 }
 

@@ -7337,8 +7337,9 @@ needs to find them again. `local-code-agent.ts` keeps that as a typed refusal on
 with the target, the processes last seen, and whether the scan ran. The host reports a failed stop before that check
 starts, so the refusal is on the record at once and gains the names after the check. A quit during the check still
 leaves it. When a write of a refusal fails, it stays in force from memory, the redacted log records
-`cleanup-record-failed`, and the next write retries it. It leaves memory only once its run records the lift, so a lift
-whose transcript or record write fails keeps refusing. `hostState.closing` now means shutdown only, with its own
+`cleanup-record-failed`, and the next write retries it. It leaves memory only once its run records the lift. A lift
+whose transcript or record write fails keeps its refusal in force from memory, with any End them it now holds, so a
+later lift still records what End them ended. `hostState.closing` now means shutdown only, with its own
 sentence. The oldest refusal in force refuses every Code send with `vivary_code_cleanup_required`, and the host state
 shows it to every user of the host, naming the run only to its owner. The host checks every refusal again at start,
 without waiting, and before a send, never from the one-second polls. A check that finds nothing lifts the refusal and
