@@ -92,6 +92,8 @@ export function CodeRunControl() {
 
   if (!current && !cleanup && !status.error) return null;
   const cleanupHeld = !ready || resolving !== null || cleanup?.checking === true;
+  // Issue #121. The run stays active while its failed stop's own check runs, and the owner sees that check, not Stop.
+  const stopChecking = Boolean(active && cleanup?.checking && cleanup.run?.id === active.id);
   return <section aria-label="Agent work" className="shrink-0 border-b px-4 py-3 text-sm">
     {pending ? <div className="flex max-h-[60vh] flex-col gap-3 overflow-auto rounded-lg bg-black/5 p-3 dark:bg-black/20" role="region" aria-label="Codex request">
       <h2 className="font-semibold">{requestTitle(pending.method)}</h2>
@@ -103,7 +105,7 @@ export function CodeRunControl() {
         <Button size="sm" variant="outline" disabled={!ready || working} onClick={() => void decide("stop")}>Stop</Button>
         <Button size="sm" variant="ghost" onClick={() => void openConversation()}>Open conversation</Button>
       </div>
-    </div> : active ? <div className="flex flex-wrap items-center gap-2">
+    </div> : active && !stopChecking ? <div className="flex flex-wrap items-center gap-2">
       <span className="min-w-0 flex-1" role="status">Agent working in the background in {projectLabel}: {active.title}</span>
       <Button variant="ghost" size="sm" onClick={() => void openConversation()}>Open conversation</Button>
       <Button variant="outline" size="sm" disabled={!ready || working} onClick={() => void decide("stop")} aria-label="Stop active run">

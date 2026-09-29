@@ -519,7 +519,7 @@ test("a failed stop's own check offers no choice until it ends and says that Viv
     const runId = await asWindows(async () => {
       const id = (await send("exit after its run")).run!.id;
       await waitFor(() => metadataOf(id).cleanupRefusal, AbortSignal.any([t.signal, AbortSignal.timeout(5_000)]));
-      // The run's owner sees it as still working. Another user of the host sees the refusal.
+      // Another user of the host sees the check without the run. The owner's view is in the Stop case above.
       const checking = (await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup;
       assert.deepEqual({ ...checking, version: "" }, {
         version: "", heading: "Vivary is checking what a failed stop left running",

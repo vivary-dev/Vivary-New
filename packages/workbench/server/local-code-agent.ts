@@ -1156,7 +1156,9 @@ export async function stopVivaryCodeRun(input: {
     });
   }
 
-  if (activeRun.stopReason === null) {
+  // Issue #121. A run whose failed stop is still checking is already ending, and a Stop then would record the worker's
+  // failure as the owner's stop.
+  if (activeRun.stopReason === null && hostState.cleanup?.runId !== input.runId) {
     activeRun.stopReason = "user";
     recordStoppingRun(
       input.runId,

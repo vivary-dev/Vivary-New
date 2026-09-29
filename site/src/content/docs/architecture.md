@@ -210,8 +210,10 @@ left from an earlier run, and its instruction says Vivary does not end them and 
 `kill` command on Linux or Task Manager by PID on Windows. The server offers Continue anyway once End them has run on
 the refusal, or when End them cannot act, and refuses it otherwise with `vivary_code_cleanup_not_offered`. While the
 check right after a failed stop runs, the strip offers neither choice and says that Vivary is checking, and a refused
-send says the same. The strip's buttons
-keep focus while a choice runs, and focus moves to the page when the refusal lifts. After End them the strip shows the
+send says the same. The run is still active then. Its owner's strip shows the check in place of the run's Stop,
+unless a Codex request from the run still waits, and a Stop request records nothing, so a check that finds nothing
+left ends the run with its own failure, not as the owner's stop. The strip's buttons keep focus while a choice runs,
+and focus moves to the page when the refusal lifts. After End them the strip shows the
 server's account of what it ended and could not end, and adds no words of its own. The Code composer stays disabled,
 and its placeholder, which the server words from the heading and the choices offered, points at the strip, and the
 chat adapter keeps a draft that the refusal returns. Runtime flow 3 now describes the refusal and the two choices. The
