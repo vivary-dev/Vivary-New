@@ -7327,7 +7327,8 @@ host, the sweep waits for the group, because a delivered SIGKILL does not mean i
 holds none of its pipes, such as an MCP server, can outlive it. A clean check means the stop finished after all.
 Otherwise the model check reports that Vivary could not confirm that Codex stopped, keeps the check's target, and
 writes `cleanup-unverified` to the redacted server log with the step, an error code, `timeout`, or the error's name,
-the scan result, and the number of processes found, never their names, an error message, or a command line. Every later model check first
+the scan result, and the number of processes found, never their names, an error message, or a command line. A Codex
+that does not close within the budget after a successful tree stop logs the `exit` step with `timeout`. Every later model check first
 checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
 Codex processes after a stop Vivary saw fail, and a stop that finishes late needs no restart. Model checks that start during that look share it, so
 each kept target is checked once and is never copied. The module flag that refused every later check until a

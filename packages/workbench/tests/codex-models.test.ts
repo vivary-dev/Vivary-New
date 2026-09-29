@@ -282,3 +282,26 @@ test("model checks that start together share one look at an unconfirmed stop", a
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a Codex that never closes after a successful tree stop is logged as an exit timeout", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-exit-timeout-"));
+  const file = path.join(dir, "lingering.mjs");
+  await writeFile(file, lingeringCodex);
+  const launch = { executable: process.execPath, prefix: [file], env: {} };
+  let lingering: ChildProcess | undefined;
+  // The tree stop reports success, but Codex keeps running past the budget.
+  const quietTreeStop = async (child: ChildProcess, workerExited: boolean) => { if (!workerExited) lingering = child; };
+  const logged = t.mock.method(console, "error", () => undefined);
+  try {
+    const failed = await probeCodexModels(launch, dir, 12_000, { stopTree: quietTreeStop, stopBudgetMs: 200 });
+    assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
+    assert.deepEqual(logged.mock.calls.map(call => call.arguments),
+      [["[vivary-codex-models] cleanup-unverified step=exit error=timeout scan=remaining remaining=1"]]);
+    lingering?.kill("SIGKILL");
+    if (lingering) await once(lingering, "close");
+    assert.equal((await probeCodexModels(launch, dir)).status, "ready");
+  } finally {
+    lingering?.kill("SIGKILL");
+    await rm(dir, { recursive: true, force: true });
+  }
+});

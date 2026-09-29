@@ -135,7 +135,10 @@ export async function probeCodexModels(
           .then(() => undefined, (error: unknown) => error);
         const closedInTime = await waitClosed(deadline - Date.now());
         if (treeError !== undefined) return { step: process.platform === "win32" ? "taskkill" : "group", error: treeError };
-        if (!closedInTime) return { step: "exit", error: undefined };
+        if (!closedInTime) {
+          const timedOut = Object.assign(new Error("Codex did not close within the stop budget."), { code: "timeout" });
+          return { step: "exit", error: timedOut };
+        }
       }
       // On Linux the group can still hold processes that closed no pipe. As in the Code host, the stop waits for the
       // group to empty, because a delivered SIGKILL does not mean its members have ended.
