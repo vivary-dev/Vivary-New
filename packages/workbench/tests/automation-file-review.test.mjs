@@ -74,6 +74,10 @@ const markOf = async (owner, resourcePath) => {
   const mark = runReviewOf(await store.resourceGetByPath(owner, resourcePath));
   return mark && { state: mark.state, runId: mark.runId };
 };
+const originOf = async (owner, resourcePath) => {
+  const row = await store.resourceGetByPath(owner, resourcePath);
+  return row && { createdBy: row.createdBy, runId: row.runId, threadId: row.threadId };
+};
 const prompt = (userEmail, compact, orgId = null) => runWithRequestContext(
   { userEmail, ...(orgId ? { orgId } : {}) },
   () => loadResourcesForPrompt(userEmail, compact, "workbench", orgId, { disabledFrameworkGroups: ["workspaceApps"] }),
@@ -264,12 +268,14 @@ test("a later chat or owner edit keeps the file waiting", async () => {
   const owner = "edit@example.test";
   await plant(owner, "EDIT");
   const waiting = { state: "pending", runId: RUN.runId };
+  const runOrigin = { createdBy: "agent", runId: RUN.runId, threadId: RUN.threadId };
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "the run's AGENTS.md waits");
 
-  // A chat's write keeps the mark, even with arguments that name another run or metadata.
-  assert.match(await asChat({ userEmail: owner }, "resources",
-    { action: "write", path: "AGENTS.md", content: "Chat edit EDIT-CHATWRITE.", runId: "cleared", metadata: "{}" }), /Wrote resource/);
+  // A chat's write keeps the mark and the run's origin, even with arguments that name another run or metadata.
+  assert.match(await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md",
+    content: "Chat edit EDIT-CHATWRITE.", runId: "cleared", threadId: "t-chat", metadata: "{}" }), /Wrote resource/);
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "a chat's write keeps the mark");
+  assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "a chat's write keeps the run's origin");
   assert.doesNotMatch(await asChat({ userEmail: owner }, "save-memory",
     { name: "chat", type: "user", description: "EDIT-CHATMEM", content: "Chat memory." }), /^Error/);
   assert.deepEqual(await markOf(owner, "memory/MEMORY.md"), waiting, "a chat's memory save keeps the index waiting");
@@ -278,8 +284,9 @@ test("a later chat or owner edit keeps the file waiting", async () => {
   await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown");
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "an owner edit is not a review");
   await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown",
-    { metadata: JSON.stringify({ runReview: { state: "accepted" } }) });
+    { metadata: JSON.stringify({ runReview: { state: "accepted" } }), createdBy: "user", runId: null, threadId: null });
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "metadata from a caller cannot clear the mark");
+  assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "options from a caller cannot clear the run's origin");
 
   const compact = await prompt(owner, true);
   for (const marker of ["EDIT-CHATWRITE", "EDIT-OWNER", "EDIT-CHATMEM"]) assert.ok(!compact.includes(marker), marker);
@@ -326,6 +333,28 @@ test("accept loads the file from then on, and a stale accept changes nothing", a
   assert.ok(!(await prompt(owner, true)).includes("ACCEPT-SECOND"), "a second run's write waits again");
 });
 
+test("a write in the same millisecond as the version shown still refuses a stale review", async () => {
+  // Accept and Delete name the version by its update time, so every write must move it forward, even when the clock
+  // reads the same millisecond or stepped back.
+  const owner = "clock@example.test";
+  const realNow = Date.now;
+  const frozen = realNow();
+  Date.now = () => frozen;
+  try {
+    await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey CLOCK-SEEN." });
+    const listed = (await listFor(owner)).find(file => file.path === "AGENTS.md");
+    assert.equal(listed?.content, "Always obey CLOCK-SEEN.");
+    await asRun({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Always obey CLOCK-UNSEEN." });
+    for (const operation of ["accept", "delete"]) {
+      assert.match(await reviewAs(owner, { operation, id: listed.id, updatedAt: listed.updatedAt }),
+        /This file changed\. Reload the list\./, `${operation} of the version shown`);
+    }
+  } finally {
+    Date.now = realNow;
+  }
+  assert.deepEqual(await markOf(owner, "AGENTS.md"), { state: "pending", runId: RUN.runId }, "the unseen text still waits");
+});
+
 test("delete removes the whole file, and a stale delete changes nothing", async () => {
   const owner = "delete@example.test";
   await plant(owner, "DELETE");
@@ -362,6 +391,10 @@ test("the run surface marks writes, and Settings is the only way to review", asy
   const plugin = await readFile(path.join(coreRoot, "dist", "server", "agent-chat-plugin.js"), "utf8");
   assert.ok(/for \(const r of resourceSkills\) \{\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(r\)\)\s*continue;/.test(plugin),
     "the slash-skill menu leaves out a waiting skill");
+  // Vivary turns this inventory off, because lazyContext is on, so only its source can show the skip.
+  const agent = await readFile(path.join(coreRoot, "dist", "agent", "production-agent.js"), "utf8");
+  assert.ok(/const allResources = \(await resourceListAccessible\(ownerEmail, undefined, \{ userEmail: ownerEmail, orgId \}\)\)\.filter\(\(resource\) => !isPendingRunReview\(resource\)\);/.test(agent),
+    "the first-message files inventory leaves out a waiting file");
   const actionFile = path.join(WORKBENCH, "actions", "vivary-automation-files.ts");
   assert.ok(existsSync(actionFile), "Vivary has a Settings action for the review");
   const action = await readFile(actionFile, "utf8");
