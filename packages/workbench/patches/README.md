@@ -1356,7 +1356,7 @@ argument can set or clear it.
 - Every write moves the row's `updated_at` at least one millisecond past the
   value it replaces. Settings names the version the owner reviewed by that
   time, and a second write in the same millisecond, or after the clock stepped
-  back, used to keep it.
+  back, used to keep it. Two concurrent writers are a limit, named below.
 - A run writes only its own user's personal files, whatever the path. In
   hosted mode several owners share one database. A personal automation runs
   with no organization, because `resolveAutomationExecutionIdentity` returns
@@ -1369,7 +1369,10 @@ argument can set or clear it.
   write the organization's files, which every member loads. `resourcePut` now
   refuses every run write, `promote` included, whose owner is not the run's
   user, with "Automation runs cannot write `<path>` outside the owner's
-  personal files".
+  personal files". A run's `LEARNINGS.md` write goes to the app default unless
+  it names the personal scope, because `shouldDefaultResourceWriteToShared`
+  sends it there, so it is refused, not held for review. A write that names
+  the personal scope waits, and no loader reads a personal `LEARNINGS.md`.
 - A run deletes only its own user's personal files too, which the owner decided
   on 2026-09-29. A personal run's `resources delete` with scope `shared`
   reached the app default owner the same way, and
@@ -1445,23 +1448,29 @@ Limits. A run can still delete its owner's own instruction file or memory entry
 with `resources delete` or `delete-memory`, and a run that overwrites an
 owner's file hides the owner's earlier text too until review, because the table
 keeps one row per path and no earlier version. Issue #144 tracks both, for the
-owner's own files only. A waiting personal file also hides a shared or
-organization file at the same path until the owner reviews it: chats list no
-skill for it, the `/skills` menu leaves it out, and `resources read` gives the
-note, not the shared text. Falling through to the shared file would change
-three places that each put a personal file before a shared one: the merge in
-`resourceListAccessible`, which seven callers share, the Resources panel among
-them, `resourceEffectiveContext`, and the personal-first order of `read.js`. It
-hides a file and loads nothing, so it stays a limit beside #144. A chat can
-still overwrite a waiting file, and the result keeps waiting, so the owner then
-reviews the chat's text. A run's personal notes stay readable, and the resource
-index lists no personal file. The prompt says only how many files wait, but a
-chat can still list their paths with `resources list`, and from the source,
-Core's SQL tools scope the `resources` table by owner only, so a chat's
-`db-query` can read its own waiting row. Neither loads a file into a prompt
-unasked. A shared or organization row that a caller of the Resources routes
-marked waiting through metadata stays hidden, and Settings does not list it,
-because only a run is expected to set the mark.
+owner's own files only. Two writes to one row in the same millisecond can still
+store the same `updated_at`. `resourcePut` reads the row and then writes it
+with no transaction, so when both read the row before either lands, neither
+sees the other's time, and an Accept of the first writer's text then approves
+the second's. Closing it needs a compare-and-set on `updated_at` in
+`resourcePut`, which the smallest version leaves out. A waiting personal file
+also hides a shared or organization file at the same path until the owner
+reviews it: chats list no skill for it, the `/skills` menu leaves it out, and
+`resources read` gives the note, not the shared text. Falling through to the
+shared file would change three places that each put a personal file before a
+shared one: the merge in `resourceListAccessible`, which seven callers share,
+the Resources panel among them, `resourceEffectiveContext`, and the
+personal-first order of `read.js`. It hides a file and loads nothing, so it
+stays a limit beside #144. A chat can still overwrite a waiting file, and the
+result keeps waiting, so the owner then reviews the chat's text. A run's
+personal notes stay readable, and the resource index lists no personal file.
+The prompt says only how many files wait, but a chat can still list their paths
+with `resources list`, and from the source, Core's SQL tools scope the
+`resources` table by owner only, so a chat's `db-query` can read its own
+waiting row. Neither loads a file into a prompt unasked. A shared or
+organization row that a caller of the Resources routes marked waiting through
+metadata stays hidden, and Settings does not list it, because only a run is
+expected to set the mark.
 
 Run `node --test packages/workbench/tests/automation-file-review.test.mjs`. It
 uses a disposable SQLite database and drives writes through

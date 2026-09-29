@@ -181,15 +181,16 @@ Each run writes one chat thread, named `Job: <name>` for a scheduled run and
 yet. Chat history does not list them, and **Details** cannot open one. A run can read
 your resources, change your personal resources, memory, chat history, and progress, and
 notify you in the in-app inbox. It cannot write or delete shared files.
-An instruction, skill, or memory file a run writes waits for you: `AGENTS.md`,
-`LEARNINGS.md`, or a file under `instructions/`, `skills/`, or `memory/`. Chats and
-later runs do not load it, and a chat's prompt says only how many files wait. Settings >
-**Automation files** lists each waiting file with its text. Read it, then choose
-**Accept** to let chats and runs load it, or **Delete** to remove the whole file,
-including anything that was in it before the run. If the file changed after the list
-showed it, Accept and Delete do nothing, and the file shows its new text with a notice.
-Read it again before you choose. A file you or a chat edit after the run keeps waiting. A run can still delete one of your instruction files, and a run that
-rewrites one hides your earlier text too until you review it. [Issue
+An instruction, skill, or memory file a run writes waits for you: `AGENTS.md` or a file
+under `instructions/`, `skills/`, or `memory/`. A run cannot write the shared
+`LEARNINGS.md`. Chats and later runs do not load a waiting file, and a chat's prompt
+says only how many files wait. Settings > **Automation files** lists each waiting file
+with its text. Read it, then choose **Accept** to let chats and runs load it, or
+**Delete** to remove the whole file, including anything that was in it before the run.
+If the file changed after the list showed it, Accept and Delete do nothing, and the file
+shows its new text with a notice. Read it again before you choose. A file you or a chat
+edit after the run keeps waiting. A run can still delete one of your instruction files,
+and a run that rewrites one hides your earlier text too until you review it. [Issue
 #144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
