@@ -1425,16 +1425,27 @@ showed, so a write since then refuses them, and the list reloads with the file
 as it is now and one notice on it to read it again. A list that fails to load
 says so. Delete removes the whole file.
 
-Limits. A run can still delete an owner's instruction file or memory entry
-with `resources delete` or `delete-memory`, and a run that overwrites an
-owner's file hides the owner's earlier text too until review, because the
-table keeps one row per path and no earlier version. Issue #144 tracks both.
-The refusal covers writes only, so a personal run's `resources delete` with
-scope `shared` still deletes an app default file, such as `AGENTS.md`, without
-a role check, as its write did. A chat can still overwrite a waiting
-file, and the result keeps waiting, so the owner then reviews the chat's text.
-A run's personal notes stay readable, and the resource index lists no personal
-file. A shared or organization row that a caller of the Resources routes
+Limits. A run can still delete an owner's instruction file or memory entry with
+`resources delete` or `delete-memory`, and a run that overwrites an owner's
+file hides the owner's earlier text too until review, because the table keeps
+one row per path and no earlier version. Issue #144 tracks both. The refusal
+covers writes only, so a personal run's `resources delete` with scope `shared`
+still deletes an app default file, such as `AGENTS.md`, without a role check,
+as its write did. A waiting personal file also hides a shared or organization
+file at the same path until the owner reviews it: chats list no skill for it,
+the `/skills` menu leaves it out, and `resources read` gives the note, not the
+shared text. Falling through to the shared file would change three places that
+each put a personal file before a shared one: the merge in
+`resourceListAccessible`, which seven callers share, the Resources panel among
+them, `resourceEffectiveContext`, and the personal-first order of `read.js`. It
+hides a file and loads nothing, so it stays a limit beside #144. A chat can
+still overwrite a waiting file, and the result keeps waiting, so the owner then
+reviews the chat's text. A run's personal notes stay readable, and the resource
+index lists no personal file. The prompt says only how many files wait, but a
+chat can still list their paths with `resources list`, and from the source,
+Core's SQL tools scope the `resources` table by owner only, so a chat's
+`db-query` can read its own waiting row. Neither loads a file into a prompt
+unasked. A shared or organization row that a caller of the Resources routes
 marked waiting through metadata stays hidden, and Settings does not list it,
 because only a run is expected to set the mark.
 
@@ -1442,15 +1453,17 @@ Run `node --test packages/workbench/tests/automation-file-review.test.mjs`. It
 uses a disposable SQLite database and drives writes through
 `restrictActionsForUnattendedRun` with a run's tool context. It checks the
 origin and the mark on each instruction path, a note that gets origin and no
-mark, the refusal of every app default and organization write and promote by
-a run, notes included, and of a path that is not plain, the note in
-compact and full prompts with its count and no path, a run's prompt, the
-applied skill, `resources read`, that a chat write, a memory save, and an owner
-edit keep the mark and the run's origin, the Settings action's list, accept,
-delete, and owner check, and a stale review after a second write in the same
-millisecond. Source pins cover the wrapper, the `/skills` route, the files
-inventory, and the action's flags. `tests/automation-file-review-component.test.mjs` renders the tab. Every
-case failed on `dev` at `4c19c2e`.
+mark, the refusal of every app default and organization write and promote by a
+run, notes included, and of a path that is not plain, the note in compact and
+full prompts with its count and no path, a run's prompt, the applied skill,
+`resources read`, that a chat write, a memory save, and an owner edit keep the
+mark and the run's origin, the Settings action's list, accept, delete, and
+owner check, and a stale review after a second write in the same millisecond.
+Source pins cover the wrapper, the `/skills` route, the files inventory, and
+the action's flags. `tests/automation-file-review-component.test.mjs` renders
+the tab, its notice on a refused review, and its line for a failed list. Each
+case failed before its fix, on `dev` at `4c19c2e` or on this branch before the
+first review round's fixes.
 
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an

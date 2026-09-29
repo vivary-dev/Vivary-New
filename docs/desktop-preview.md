@@ -179,7 +179,7 @@ your resources, change your personal resources, memory, chat history, and progre
 notify you in the in-app inbox. It cannot write shared files.
 An instruction, skill, or memory file a run writes waits for you: `AGENTS.md`,
 `LEARNINGS.md`, or a file under `instructions/`, `skills/`, or `memory/`. Chats and
-later runs do not load it, and a chat sees only how many files wait. Settings >
+later runs do not load it, and a chat's prompt says only how many files wait. Settings >
 **Automation files** lists each waiting file with its text. Read it, then choose
 **Accept** to let chats and runs load it, or **Delete** to remove the whole file,
 including anything that was in it before the run. If the file changed after the list
