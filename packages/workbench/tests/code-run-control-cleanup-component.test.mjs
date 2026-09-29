@@ -62,7 +62,7 @@ const NAMED = {
   instruction: "Choose End them to stop these processes. Vivary ends only the processes listed here and then checks again.",
   remaining: [{ pid: 4120, name: "codex.exe", confirmed: true },
     { pid: 5532, name: "mcp-server-windows-x64.exe", confirmed: true }],
-  canEnd: true, canContinue: false, checking: false,
+  unlisted: 0, canEnd: true, canContinue: false, checking: false,
   run: { id: "run-leftover", title: "Refactor the parser", projectId: null },
 };
 const UNSCANNED = {
@@ -70,7 +70,7 @@ const UNSCANNED = {
   heading: "Vivary could not confirm that an earlier run's coding processes stopped",
   instruction: "Vivary could not list the processes. Check them with \u0060pgrep -l -g 4120\u0060, stop them with "
     + "\u0060kill -KILL -- -4120\u0060, then choose Continue anyway.",
-  remaining: [], canEnd: false, canContinue: true, checking: false, run: null,
+  remaining: [], unlisted: 0, canEnd: false, canContinue: true, checking: false, run: null,
 };
 
 function deferred() {
@@ -176,6 +176,14 @@ export async function endThemWhoseCheckCannotRunShowsTheServerState() {
     assert.equal(alertText(host), null, "nothing claims the processes are still running");
     assert.equal(statusText(host), unchecked.notice);
     assert.deepEqual(buttons(host), ["Continue anyway"]);
+  } finally { await dispose(); }
+}
+
+export async function aCutListSaysHowManyProcessesItDoesNotList() {
+  const { host, dispose } = await mount({ ...NAMED, unlisted: 5 });
+  try {
+    assert.deepEqual([...host.querySelectorAll("li")].map(item => item.textContent),
+      ["codex.exe (PID 4120)", "mcp-server-windows-x64.exe (PID 5532)", "and 5 more not listed"]);
   } finally { await dispose(); }
 }
 
@@ -290,6 +298,7 @@ test("the host strip lists leftover coding processes and offers End them, then C
     ["End them lifts the refusal and moves focus to the page", proof.endThemLiftsTheRefusal],
     ["End them that leaves processes running offers Continue anyway", proof.endThemThatLeavesProcessesOffersContinue],
     ["End them whose check after it cannot run shows the server's state", proof.endThemWhoseCheckCannotRunShowsTheServerState],
+    ["a list cut at 50 says how many processes it does not list", proof.aCutListSaysHowManyProcessesItDoesNotList],
     ["a scan Vivary cannot run offers only Continue anyway and shows its commands", proof.aScanVivaryCannotRunOffersOnlyContinue],
     ["a check already running holds End them", proof.aRunningCheckHoldsEndThem],
     ["a failed stop's own check offers no choice and says why", proof.aFailedStopsOwnCheckOffersNoChoice],

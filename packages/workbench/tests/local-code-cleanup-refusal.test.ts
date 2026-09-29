@@ -44,6 +44,7 @@ const scanFails = path.join(fixture, "scan-fails");
 const leaveChild = path.join(fixture, "leave-child");
 const scanHold = path.join(fixture, "scan-hold");
 const endUnreadable = path.join(fixture, "end-unreadable");
+const endDenied = path.join(fixture, "end-denied");
 const workerRecord = path.join(fixture, "worker.txt");
 const endLog = path.join(fixture, "end.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
@@ -72,8 +73,9 @@ process.send({ type: "vivary:code-worker:ready" });
 // Answers the Windows process scan from a file, names a child of the worker created while it ran, and counts the rows
 // on the last line as the real scan does. A call that ends processes gets each PID with the lowest FILETIME its
 // creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
-// PID 4130 refuses, like a process Windows denies access to. Every such call is logged. The end-unreadable marker adds
-// a line Vivary cannot read, as a module's warning could, after the call ended what it ends. The scan-fails marker
+// PID 4130 refuses, like a process Windows denies access to, and every PID refuses while the end-denied marker exists.
+// Every such call is logged. The end-unreadable marker adds a line Vivary cannot read, as a module's warning could,
+// after the call ended what it ends. The scan-fails marker
 // fails scans only, and the scan-hold marker holds a scan for up to 10 seconds, as long as the host waits for one.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
@@ -87,7 +89,7 @@ case "$*" in *Stop-Process*)
     created=$(awk -F '\\t' -v pid="$pid" '$1 == pid { print $3 }' ${JSON.stringify(scanRows)})
     if [ -z "$created" ]; then outcome=gone
     elif [ "$created" -lt "$from" ] || [ "$created" -ge $((from + 10000)) ]; then outcome=mismatched
-    elif [ "$pid" = 4130 ]; then outcome=failed
+    elif [ "$pid" = 4130 ] || [ -f ${JSON.stringify(endDenied)} ]; then outcome=failed
     else
       outcome=ended
       awk -F '\\t' -v pid="$pid" '$1 != pid' ${JSON.stringify(scanRows)} > ${JSON.stringify(scanRows)}.next
@@ -789,42 +791,75 @@ test("End them and Continue anyway act only on the list the owner saw", { ...lin
   assert.equal((metadataOf("unscanned-choice").cleanupLifted as { how?: string }).how, "rechecked");
 });
 
-// The run's child 300 exited, so Vivary traces none of its children and offers Continue anyway at once. A refusal
-// lists at most 50 processes.
-test("Continue anyway refuses a list cut at 50 until Vivary can list every process", {
-  ...linuxOnly, timeout: 20_000,
+// The worker 4120 left 54 children, so each check finds 55 processes, all traced to the run through the live worker,
+// and a refusal lists 50 of them. Windows denies End them every one, so End them cannot bring the list under 50.
+test("Continue anyway lifts an unchanged list cut at 50, and not once a process past the 50th changed", {
+  ...linuxOnly, timeout: 30_000,
 }, async () => {
-  const children = (count: number) => Array.from({ length: count },
-    (_, index) => row(5_000 + index, 300, 20_000 + index, `child${index}.exe`)).join("");
-  const instruction = "Vivary cannot confirm that these came from that run, so it does not end them. If they did, end "
-    + "them in Task Manager by PID, then choose Continue anyway.";
-  const shown = async () => {
-    const cleanup = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
-    return { listed: cleanup?.remaining.length, canContinue: cleanup?.canContinue, instruction: cleanup?.instruction };
-  };
+  const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  const child = (index: number, createdMs = 3_000 + index) => row(5_000 + index, 4120, createdMs, `child${index}.exe`);
+  const children = Array.from({ length: 54 }, (_, index) => child(index));
+  const scan = (list: readonly string[]) => writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe")
+    + list.join(""));
   const changed = { errorCode: "vivary_code_cleanup_changed" };
-  await writeFile(scanRows, SYSTEM_ROW + children(50));
-  seedRefusal("capped-list", { platform: "win32", tracked: [{ pid: 100, createdFrom: 1_000, createdTo: 7_000,
-    childrenTo: 9_000 }, { pid: 300, createdFrom: 4_000, createdTo: 4_000, childrenTo: null }] });
-  await agent.recheckVivaryCodeCleanup();
-  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction });
+  const unlisted = async () => (await agent.getVivaryCodeHostState(OWNER)).cleanup?.unlisted;
+  await writeFile(endDenied, "");
+  try {
+    await scan(children);
+    seedRefusal("cut-unended", worker);
+    await agent.recheckVivaryCodeCleanup();
+    assert.equal((await decide("end")).cleanup?.canContinue, true);
+    const attempts = endsOf(metadataOf("cut-unended").cleanupRefusal)?.[0]?.attempts ?? [];
+    assert.deepEqual({ sent: attempts.length, failed: attempts.filter(([, outcome]) => outcome === "failed").length },
+      { sent: 50, failed: 50 }, "End them ended none of the 50 it was sent");
+    await assert.doesNotReject(continueAnyway(), "an unchanged list of 55 lifts although End them ended none");
+    const lift = metadataOf("cut-unended").cleanupLifted as { how?: string; shown?: unknown[]; remaining?: unknown[];
+      total?: number };
+    assert.deepEqual({ how: lift.how, shown: lift.shown?.length, remaining: lift.remaining?.length, total: lift.total },
+      { how: "owner-confirmed", shown: 50, remaining: 50, total: 55 });
+    assert.equal(lastStatus("cut-unended"), "You chose to continue while these coding processes were still running: "
+      + "codex.exe (PID 4120), child0.exe (PID 5000), child1.exe (PID 5001), child2.exe (PID 5002), child3.exe "
+      + "(PID 5003), and 50 more. Vivary accepts new messages again.");
 
-  // Five more start after the owner looked, and the check before Continue anyway finds 55.
-  await writeFile(scanRows, SYSTEM_ROW + children(55));
-  await assert.rejects(continueAnyway(), changed, "the owner never saw the last five");
-  assert.equal("cleanupLifted" in metadataOf("capped-list"), false);
-  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction: `${instruction} Vivary lists 50 of `
-    + "the processes it found, and Continue anyway needs a list of all of them." });
+    seedRefusal("cut-changes", worker);
+    await agent.recheckVivaryCodeCleanup();
+    const strip = (await agent.getVivaryCodeHostState(OWNER)).cleanup;
+    assert.deepEqual({ listed: strip?.remaining.length, unlisted: strip?.unlisted, instruction: strip?.instruction }, {
+      listed: 50, unlisted: 5, instruction: "Choose End them to stop these processes. Vivary ends only listed "
+        + "processes it can confirm came from that run, then checks again." });
+    await assert.rejects(send("Start beside the cut list"), (error: Error) => {
+      assert.equal(error.message, "Coding processes from an earlier run are still running: codex.exe (PID 4120), "
+        + "child0.exe (PID 5000), child1.exe (PID 5001), child2.exe (PID 5002), child3.exe (PID 5003), and 50 more. "
+        + "Choose End them at the top of Vivary to stop these processes. Vivary ends only listed processes it can "
+        + "confirm came from that run, then checks again.");
+      return true;
+    });
+    await decide("end");
+    const appeared = [...children, child(54)];
+    const exited = appeared.filter(line => line !== child(52));
+    const restarted = exited.map(line => line === child(51) ? child(51, 4_000) : line);
+    for (const [list, count, what] of [[appeared, 6, "started"], [exited, 5, "exited"],
+      [restarted, 5, "changed its start time"]] as const) {
+      await scan(list);
+      await assert.rejects(continueAnyway(), changed, `a process past the 50th ${what}`);
+      assert.equal("cleanupLifted" in metadataOf("cut-changes"), false);
+      assert.equal(await unlisted(), count, "the strip counts every process the check found");
+    }
 
-  // The five exit, so the check finds only the 50 listed, but the list the owner saw was cut.
-  await writeFile(scanRows, SYSTEM_ROW + children(50));
-  await assert.rejects(continueAnyway(), changed, "a cut list never showed every process");
-  assert.deepEqual(await shown(), { listed: 50, canContinue: true, instruction });
-  assert.equal((await continueAnyway()).cleanup, null);
-  const lift = metadataOf("capped-list").cleanupLifted as { how?: string; shown?: unknown[]; remaining?: unknown[] };
-  assert.deepEqual({ how: lift.how, shown: lift.shown?.length, remaining: lift.remaining?.length },
-    { how: "owner-confirmed", shown: 50, remaining: 50 });
-  await writeFile(scanRows, SYSTEM_ROW);
+    // Another check, as a send from another browser takes, finds that one more process past the 50th exited.
+    const seen = (await agent.getVivaryCodeHostState(OWNER)).cleanup?.version;
+    await scan(restarted.filter(line => line !== child(53)));
+    await agent.recheckVivaryCodeCleanup();
+    await assert.rejects(agent.resolveVivaryCodeCleanup({ ownerEmail: OWNER, decision: "continue", version: seen! }),
+      changed, "the version the owner saw names every process, listed or not");
+    assert.equal(await unlisted(), 4);
+    assert.equal((await continueAnyway()).cleanup, null);
+    assert.equal((metadataOf("cut-changes").cleanupLifted as { total?: number }).total, 54);
+  } finally {
+    await rm(endDenied, { force: true });
+    await writeFile(scanRows, SYSTEM_ROW);
+    await agent.recheckVivaryCodeCleanup();
+  }
 });
 
 // A refusal whose first write failed is in force only from memory, as the failed-write case above shows. Its lift
@@ -840,7 +875,7 @@ test("a refusal in force only from memory keeps refusing until its run records t
   const intact = await readFile(record, "utf8");
   const refusedAt = new Date().toISOString();
   hostSlots().unsaved.set(id, { runId: id, target: { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000,
-    createdTo: 7_000, childrenTo: 9_000 }], traced: [] }, remaining: [], capped: false, hidden: false,
+    createdTo: 7_000, childrenTo: 9_000 }], traced: [] }, remaining: [], total: 0, fingerprint: null, hidden: false,
   scan: "unavailable", step: "worker-exited", refusedAt, checkedAt: refusedAt, ends: [] });
   await writeFile(scanRows, SYSTEM_ROW);
 
