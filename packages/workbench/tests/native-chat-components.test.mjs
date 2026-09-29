@@ -166,6 +166,65 @@ export async function renderComposer(willQueue) {
   return snapshot;
 }
 
+// Issue #147. The host hands the composer new text, as Vivary's draft owner does when a send is refused and the text
+// comes back. linkedom tracks no focus, so the proof records focus() calls and serves them as document.activeElement.
+function Restoring({ text, focusRef }) {
+  const runtime = useLocalRuntime(idleModel);
+  return <AssistantRuntimeProvider runtime={runtime}><TooltipProvider>
+    <TiptapComposer initialText={text} initialTextKey={text} focusRef={focusRef} plusMenuMode="hidden" voiceEnabled={false}
+      includeDefaultSlashSkills={false} />
+  </TooltipProvider></AssistantRuntimeProvider>;
+}
+
+// how: "initial text" hands text through props, "setText" and "focus" call the composer's imperative handle.
+// "field before the frame" hands text while nothing has focus, then focuses the other field before the next frame.
+export async function restoreComposerText(ownerTypingElsewhere, how = "initial text") {
+  const originalFocus = window.HTMLElement.prototype.focus;
+  let focused = document.body;
+  window.HTMLElement.prototype.focus = function focus() { focused = this; };
+  Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+  const field = document.createElement("input");
+  document.body.appendChild(field);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const focusRef = createRef();
+  try {
+    await act(async () => { root.render(<Restoring text={undefined} focusRef={focusRef} />); });
+    focused = ownerTypingElsewhere ? field : document.body;
+    // The composer focuses on the next animation frame. The proof holds frames, so the owner can focus the other
+    // field after the composer asked for focus and before the frame runs.
+    const frames = [];
+    const originalFrame = { global: globalThis.requestAnimationFrame, window: window.requestAnimationFrame };
+    if (how === "field before the frame") {
+      globalThis.requestAnimationFrame = window.requestAnimationFrame = callback => frames.push(callback);
+    }
+    await act(async () => {
+      if (how === "initial text" || how === "field before the frame") {
+        root.render(<Restoring text="One more question" focusRef={focusRef} />);
+      }
+      else if (how === "setText") focusRef.current.setText("One more question");
+      else { focusRef.current.setText("One more question"); focused = ownerTypingElsewhere ? field : document.body; focusRef.current.focus(); }
+    });
+    if (how === "field before the frame") {
+      globalThis.requestAnimationFrame = originalFrame.global;
+      window.requestAnimationFrame = originalFrame.window;
+      focused = field;
+      await act(async () => { for (const frame of frames.splice(0)) frame(performance.now()); });
+    }
+    // Tiptap runs its focus command on the next animation frame.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    return { text: host.querySelector(".ProseMirror")?.textContent,
+      focus: focused === field ? "other field" : focused.classList?.contains("ProseMirror") ? "composer" : "page" };
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+    field.remove();
+    window.HTMLElement.prototype.focus = originalFocus;
+    delete document.activeElement;
+  }
+}
+
 // A thread loaded from its saved messages, with Core's own assistant message.
 function SavedThread({ messages: initialMessages }) {
   const runtime = useLocalRuntime(idleModel, { initialMessages });
@@ -491,6 +550,17 @@ test("Native chat controls", async t => {
   await t.test("every entry in a sidebar row menu opened from the keyboard is a Radix menu item", async () => {
     assert.deepEqual(await proof.renderRowMenu(), [
       { name: "Rename", reachable: true }, { name: "Pin to top", reachable: true }, { name: "Archive", reachable: true }]);
+  });
+
+  // Issue #147.
+  await t.test("text handed back to the composer does not pull focus out of another field", async () => {
+    assert.deepEqual(await proof.restoreComposerText(false, "field before the frame"),
+      { text: "One more question", focus: "other field" }, "a field focused before the composer's frame keeps focus");
+    for (const how of ["initial text", "setText", "focus"]) {
+      assert.deepEqual(await proof.restoreComposerText(true, how), { text: "One more question", focus: "other field" }, how);
+      assert.deepEqual(await proof.restoreComposerText(false, how), { text: "One more question", focus: "composer" },
+        `${how}: with no field in use, the composer still takes focus`);
+    }
   });
 
   // Issue #102.

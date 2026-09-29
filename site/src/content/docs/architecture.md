@@ -193,6 +193,27 @@ as remaining. It names the follow-ups #138 through #141 and says that PR #137's 
 fourth review round, have not run in a package. The #114 and #115 receipt reads merged. Documentation only, so the
 design description holds.
 
+Issue #145. A saved Native thread's fallback title and preview no longer show the context Vivary's composer appends.
+Core's `extractThreadMeta` takes the title from the first user message with text and the preview from the last, both
+from the raw text, including the `<context>` block with the project's scope id. So the preview, and the title whenever
+no generated title replaced it, showed it in the chat list. The maintained Core patch removes only the trailing
+envelope shape that `appendAgentChatContextToMessage` adds, cut from its first opening so context holding its own block
+stays hidden, and a `<context>` the owner typed inline stays. The patch README section "Native thread titles and
+previews without context" owns the detail and its limit. A test builds messages with
+Core's own `appendAgentChatContextToMessage`, and a loopback run saved a clean preview where `dev` saved the context
+block.
+
+Issue #147. The composer no longer pulls focus out of a field the owner is typing in. When a refused send's run ended,
+Vivary's draft owner handed the text back through the Toolkit composer's `initialText`, and the composer focused itself
+unconditionally, so a chat rename under way in the sidebar blurred, saved half typed, and sent the rest of the typing to
+the model. The maintained Toolkit patch adds `composerMayTakeFocus` in `dist/composer/TiptapComposer.js`, which refuses
+while an input, textarea, select, or editable element outside the composer has focus. `focusComposerAtEnd` replaces
+Tiptap's `focus("end")` for a restored draft, handed `initialText`, and the imperative `focus()` and `setText()`, and
+checks that rule inside the next frame, right before the DOM focus, because Tiptap's own command focuses a frame later
+without checking. With no field in use the composer still takes focus. The patch README section "Composer focus while the owner types elsewhere" owns the detail. A component
+test covers the three ways text arrives and a field focused between the request and the frame, and a browser run
+renamed a chat while its run ended, eight of eight times with the full title and nothing sent.
+
 Issue #131. The project sidebar's conversation row menus now work from the keyboard. The maintained Toolkit patch adds
 `ChatHistoryMenuItem`, a Radix `DropdownMenu.Item` around the existing button, and uses it for Rename, Pin, and
 Delete. Vivary's Archive in `ProjectHistory.tsx` uses it too. Radix's arrow keys, typeahead, Enter, and Space reach
