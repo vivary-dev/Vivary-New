@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -123,4 +124,34 @@ test("a forced stop counts once Codex exits, even when taskkill reports an error
     const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir, 12_000, { stopTree: slowTaskkill });
     assert.equal(result.status, "ready");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("a failed stop refuses later checks only until that Codex exits, and logs the failed step", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-failed-stop-"));
+  const file = path.join(dir, "lingering.mjs");
+  await writeFile(file, lingeringCodex);
+  const launch = { executable: process.execPath, prefix: [file], env: {} };
+  let lingering: ChildProcess | undefined;
+  const refusedTreeStop = async (child: ChildProcess, workerExited: boolean) => {
+    if (workerExited) return;
+    lingering = child;
+    throw Object.assign(new Error("Access denied."), { code: "EPERM" });
+  };
+  const logged = t.mock.method(console, "error", () => undefined);
+  const unconfirmed = /could not confirm that Codex stopped/;
+  try {
+    const failed = await probeCodexModels(launch, dir, 12_000, { stopTree: refusedTreeStop, stopBudgetMs: 200 });
+    assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmed);
+    const step = process.platform === "win32" ? "taskkill" : "group";
+    assert.deepEqual(logged.mock.calls.map(call => call.arguments),
+      [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM`]]);
+    const refused = await probeCodexModels(launch, dir);
+    assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmed);
+    lingering?.kill("SIGKILL");
+    if (lingering) await once(lingering, "close");
+    assert.equal((await probeCodexModels(launch, dir)).status, "ready");
+  } finally {
+    lingering?.kill("SIGKILL");
+    await rm(dir, { recursive: true, force: true });
+  }
 });

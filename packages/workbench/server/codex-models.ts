@@ -1,5 +1,5 @@
-import { CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, hardStopWorkerTree } from "./code-execution-host";
-import { spawn } from "node:child_process";
+import { CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, hardStopWorkerTree, type CleanupFailure } from "./code-execution-host";
+import { spawn, type ChildProcess } from "node:child_process";
 import { z } from "zod";
 import { resolveVivaryRuntimeCommand, type CommandLaunch } from "./local-runtime-setup";
 
@@ -20,9 +20,12 @@ export type CodexModelCatalog =
 const unavailable = (): CodexModelCatalog => ({ status: "unavailable",
   message: "Codex could not report its subscription models. Check Codex in your terminal, then refresh Runtime settings." });
 const cleanupUnavailable = (): CodexModelCatalog => ({ status: "unavailable",
-  message: "Vivary could not confirm that Codex stopped after checking models. Restart Vivary before trying again.",
+  message: "Vivary could not confirm that Codex stopped after checking models. Refresh Runtime settings in a moment. "
+    + "If this message stays, restart Vivary.",
 });
-let cleanupBlocked = false;
+// Issue #130. Codex processes whose stop a model check could not confirm. While one runs, a check starts no other Codex,
+// so repeated refreshes cannot pile them up. Each leaves when its pipes close, so a late stop needs no restart.
+const unconfirmedStops = new Set<ChildProcess>();
 const cache = new Map<string, { expiresAt: number; value: CodexModelCatalog }>();
 const pending = new Map<string, Promise<CodexModelCatalog>>();
 
@@ -71,10 +74,11 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
 export function probeCodexModels(
   launch: CommandLaunch, cwd: string, timeoutMs = 12_000,
-  // Tests pass their own tree stop to produce the slow and failed stops a loaded Windows host shows.
-  { stopTree = hardStopWorkerTree }: { stopTree?: typeof hardStopWorkerTree } = {},
+  // Tests pass their own tree stop and budget to produce the slow and failed stops a loaded Windows host shows.
+  { stopTree = hardStopWorkerTree, stopBudgetMs = CLEANUP_TIMEOUT_MS }:
+    { stopTree?: typeof hardStopWorkerTree; stopBudgetMs?: number } = {},
 ): Promise<CodexModelCatalog> {
-  if (cleanupBlocked) return Promise.resolve(cleanupUnavailable());
+  if (unconfirmedStops.size) return Promise.resolve(cleanupUnavailable());
   return new Promise(resolve => {
     const child = spawn(launch.executable, [...launch.prefix, "app-server", "--listen", "stdio://"], {
       cwd, env: launch.env, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "ignore"],
@@ -98,16 +102,25 @@ export function probeCodexModels(
       child.stdin.end();
       // Issue #130. One budget for the whole stop, from its first step, as in the Code host. Codex closing its pipes
       // is the verdict: a forced stop leaves no success code, and `taskkill` can fail or time out while Codex exits.
-      const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
+      const deadline = Date.now() + stopBudgetMs;
+      let step: CleanupFailure["step"] = process.platform === "win32" ? "taskkill" : "group";
       try {
-        if (!await waitClosed(1_000)) {
+        if (!await waitClosed(Math.min(1_000, stopBudgetMs))) {
           const treeError = await stopTree(child, false, Math.max(1, deadline - Date.now() - CLEANUP_EXIT_RESERVE_MS))
             .then(() => undefined, (error: unknown) => error);
-          if (!await waitClosed(deadline - Date.now())) throw treeError ?? new Error("Codex discovery did not stop.");
+          if (treeError === undefined) step = "exit";
+          if (!await waitClosed(deadline - Date.now())) throw treeError;
         }
+        // On Linux the group can still hold processes that closed no pipe.
+        step = "group";
         if (process.platform !== "win32") await stopTree(child, true);
-      } catch {
-        cleanupBlocked = true;
+      } catch (error) {
+        // The credential redaction plugin redacts server output. Only the step and an error code are written.
+        console.error(`[vivary-codex-models] cleanup-unverified step=${step} error=${stopErrorCode(error)}`);
+        if (!didClose) {
+          unconfirmedStops.add(child);
+          void closed.then(() => unconfirmedStops.delete(child));
+        }
         value = cleanupUnavailable();
       }
       resolve(value);
@@ -146,4 +159,11 @@ export function probeCodexModels(
     });
     send({ id: 1, method: "initialize", params: { clientInfo: { name: "vivary-model-discovery", version: "0.0.0" }, capabilities: {} } });
   });
+}
+
+/** A failed stop's error as the log may show it: a code, or `timeout` for a bounded `taskkill`, never its message. */
+function stopErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "none";
+  if ("killed" in error && error.killed === true) return "timeout";
+  return "code" in error && (typeof error.code === "string" || typeof error.code === "number") ? String(error.code) : "unknown";
 }
