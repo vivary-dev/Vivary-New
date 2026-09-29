@@ -185,7 +185,7 @@ function lastStatus(id: string): string | undefined {
   return listCodeAgentTranscriptEvents(id).findLast(event => event.kind === "status")?.message;
 }
 
-function hostSlots(): { activeRuns: Map<string, { execution: Promise<void> | null }> } {
+function hostSlots(): { activeRuns: Map<string, { execution: Promise<void> | null }>; unsaved: Map<string, unknown> } {
   return Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host"));
 }
 
@@ -825,6 +825,45 @@ test("Continue anyway refuses a list cut at 50 until Vivary can list every proce
   assert.deepEqual({ how: lift.how, shown: lift.shown?.length, remaining: lift.remaining?.length },
     { how: "owner-confirmed", shown: 50, remaining: 50 });
   await writeFile(scanRows, SYSTEM_ROW);
+});
+
+// A refusal whose first write failed is in force only from memory, as the failed-write case above shows. Its lift
+// writes a transcript status and then the run's record, and the refusal stays in force while either write fails.
+test("a refusal in force only from memory keeps refusing until its run records the lift", {
+  ...linuxOnly, timeout: 20_000,
+}, async t => {
+  t.mock.method(console, "error", () => undefined);
+  const id = "unsaved-lift";
+  seedRun(id, {});
+  const record = path.join(fixture, "runs", "runs", `${id}.json`);
+  const transcript = path.join(fixture, "runs", "transcripts", `${id}.jsonl`);
+  const intact = await readFile(record, "utf8");
+  const refusedAt = new Date().toISOString();
+  hostSlots().unsaved.set(id, { runId: id, target: { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000,
+    createdTo: 7_000, childrenTo: 9_000 }], traced: [] }, remaining: [], capped: false, hidden: false,
+  scan: "unavailable", step: "worker-exited", refusedAt, checkedAt: refusedAt, ends: [] });
+  await writeFile(scanRows, SYSTEM_ROW);
+
+  // A directory where the transcript belongs fails the status write.
+  await mkdir(transcript, { recursive: true });
+  await assert.rejects(agent.recheckVivaryCodeCleanup(), { code: "EISDIR" });
+  assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup?.run?.id, id,
+    "a lift whose transcript write failed keeps the refusal");
+  await assert.rejects(send("Start past a lift that was not recorded"), { errorCode: "vivary_code_cleanup_required" });
+  await rm(transcript, { recursive: true });
+
+  // A record Vivary cannot read takes no update.
+  await writeFile(record, "{");
+  await assert.rejects(agent.recheckVivaryCodeCleanup(), /^Error: The run record is missing\.$/);
+  assert.notEqual((await agent.getVivaryCodeHostState(OWNER)).cleanup, null,
+    "a lift whose record update failed keeps the refusal");
+  await writeFile(record, intact);
+  assert.equal("cleanupLifted" in metadataOf(id), false);
+
+  await agent.recheckVivaryCodeCleanup();
+  assert.equal((metadataOf(id).cleanupLifted as { how?: string }).how, "rechecked");
+  assert.equal(hostSlots().unsaved.has(id), false);
+  assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup, null);
 });
 
 test("a refusal Vivary cannot read still refuses until the owner continues", linuxOnly, async () => {
