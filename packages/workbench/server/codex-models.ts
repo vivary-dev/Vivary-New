@@ -1,5 +1,6 @@
 import {
-  CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, checkWorkerCleanup, hardStopWorkerTree, workerCleanupTarget,
+  CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, checkWorkerCleanup, hardStopWorkerTree, waitForLinuxWorkerGroupExit,
+  workerCleanupTarget,
   type CleanupCheck, type CleanupFailure, type CleanupTarget,
 } from "./code-execution-host";
 import { spawn } from "node:child_process";
@@ -128,9 +129,15 @@ export async function probeCodexModels(
         if (treeError !== undefined) return { step: process.platform === "win32" ? "taskkill" : "group", error: treeError };
         if (!closedInTime) return { step: "exit", error: undefined };
       }
-      // On Linux the group can still hold processes that closed no pipe.
+      // On Linux the group can still hold processes that closed no pipe. As in the Code host, the stop waits for the
+      // group to empty, because a delivered SIGKILL does not mean its members have ended.
       if (process.platform !== "win32") {
-        try { await stopTree(child, true); } catch (error) { return { step: "group", error }; }
+        try {
+          await stopTree(child, true);
+          if (process.platform === "linux" && child.pid) {
+            await waitForLinuxWorkerGroupExit(child.pid, undefined, deadline - Date.now());
+          }
+        } catch (error) { return { step: "group", error }; }
       }
       return null;
     };
@@ -193,9 +200,13 @@ export async function probeCodexModels(
   });
 }
 
-/** A failed stop's error as the log may show it: a code, or `timeout` for a bounded `taskkill`, never its message. */
+/**
+ * A failed stop's error as the log may show it: a code, `timeout` for a bounded `taskkill`, or the error's name, never
+ * its message.
+ */
 function stopErrorCode(error: unknown): string {
   if (!error || typeof error !== "object") return "none";
   if ("killed" in error && error.killed === true) return "timeout";
-  return "code" in error && (typeof error.code === "string" || typeof error.code === "number") ? String(error.code) : "unknown";
+  if ("code" in error && (typeof error.code === "string" || typeof error.code === "number")) return String(error.code);
+  return error instanceof Error ? error.name : "unknown";
 }

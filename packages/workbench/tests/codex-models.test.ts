@@ -199,7 +199,7 @@ test("a failed stop refuses later checks only until that Codex exits, and logs t
  * unconfirmed stop, and later checks start no Codex until the helper ends.
  */
 async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildProcess, workerExited: boolean) => Promise<void>,
-  step: string) {
+  step: string, error = "EPERM", stopBudgetMs?: number) {
   const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-helper-"));
   const pidFile = path.join(dir, "helper.pid");
   await writeFile(path.join(dir, "with-helper.mjs"), codexWithHelper(pidFile));
@@ -208,11 +208,11 @@ async function refusesWhileHelperRuns(t: TestContext, stopTree: (child: ChildPro
   const logged = t.mock.method(console, "error", () => undefined);
   let helper = 0;
   try {
-    const failed = await probeCodexModels(launch("with-helper.mjs"), dir, 12_000, { stopTree });
+    const failed = await probeCodexModels(launch("with-helper.mjs"), dir, 12_000, { stopTree, stopBudgetMs });
     helper = Number(await readFile(pidFile, "utf8"));
     assert.match(failed.status === "unavailable" ? failed.message : "", unconfirmedStop);
     assert.deepEqual(logged.mock.calls.map(call => call.arguments),
-      [[`[vivary-codex-models] cleanup-unverified step=${step} error=EPERM scan=remaining remaining=1`]]);
+      [[`[vivary-codex-models] cleanup-unverified step=${step} error=${error} scan=remaining remaining=1`]]);
     const refused = await probeCodexModels(launch("lingering.mjs"), dir);
     assert.match(refused.status === "unavailable" ? refused.message : "", unconfirmedStop);
     process.kill(helper, "SIGKILL");
@@ -238,3 +238,10 @@ test("a failed Linux group sweep after Codex closed keeps later checks refused w
       if (workerExited) throw refused("Operation not permitted.");
       child.kill("SIGKILL");
     }, "group"));
+
+test("a Linux group sweep whose helper outlasts the budget keeps later checks refused while it runs",
+  { skip: process.platform === "win32" && "Windows stops the tree once and sweeps no group." }, t =>
+    // The sweep reports success, as a delivered SIGKILL does, but the helper has not ended when the budget runs out.
+    refusesWhileHelperRuns(t, async (child, workerExited) => {
+      if (!workerExited) child.kill("SIGKILL");
+    }, "group", "VivaryCodeWorkerCleanupError", 1_500));

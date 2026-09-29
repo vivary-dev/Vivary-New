@@ -165,16 +165,18 @@ the rest of the budget for Codex to close its pipes. A tree stop that succeeds, 
 stop, whatever exit code a forced stop leaves. A wait whose timer fires before the host delivers a close that already
 happened reads it one turn later, as the Code host's exit wait does. Any failed step goes to the Code host's #121
 check, `checkWorkerCleanup`, which only reads: a tree stop that fails or times out, no close within the budget, or a
-failed Linux sweep of the group after the close. Codex's close cannot settle such a stop alone, because a process that
+Linux sweep of the group after the close that fails or whose group does not empty within the budget. As in the Code
+host, the sweep waits for the group, because a delivered SIGKILL does not mean its members have ended. Codex's close cannot settle such a stop alone, because a process that
 holds none of its pipes, such as an MCP server, can outlive it. A clean check means the stop finished after all.
 Otherwise the model check reports that Vivary could not confirm that Codex stopped, keeps the check's target, and
-writes `cleanup-unverified` to the redacted server log with the step, an error code or `timeout`, the scan result, and
-the number of processes found, never their names, an error message, or a command line. Every later model check first
+writes `cleanup-unverified` to the redacted server log with the step, an error code, `timeout`, or the error's name,
+the scan result, and the number of processes found, never their names, an error message, or a command line. Every later model check first
 checks each kept target again, drops the clean ones, and starts no Codex while one remains, so refreshes cannot pile up
 Codex processes and a stop that finishes late needs no restart. The module flag that refused every later check until a
 restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. Unit
 tests stand in tree stops that fail or time out while Codex ends, that never end it, and that end Codex but leave a
-helper that holds none of its pipes. On a mocked clock, a Codex that closes four seconds after a successful tree stop,
+helper that holds none of its pipes, including a sweep that reports success while the helper outlasts the budget. On
+a mocked clock, a Codex that closes four seconds after a successful tree stop,
 past the former three-second wait, finishes its stop without the check, which the test stands in to report Codex
 still running.
 
