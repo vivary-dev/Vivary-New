@@ -159,8 +159,8 @@ No documentation route reads arbitrary host files.
 
 Issue #114. A normal quit now ends in-flight automation runs and releases the scheduler lease. The maintained Core
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
-`stopLocalWork` in `02-local-code-lifecycle.ts`, calls it beside the Code host stop with the same 10-second wait,
-so it still settles before the desktop's 15-second kill. The stop closes the scheduler to new sweeps and Run now
+`stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
+wait, so it still settles before the desktop's 15-second kill and a sibling stop that throws cannot skip it. The stop closes the scheduler to new sweeps and Run now
 claims, and the runner, the event handler, and the in-process webhook runner to new runs, so work that arrives during
 the quit writes nothing and a due job stays due. It aborts every in-process run still running with the reason
 `shutdown`, so a run that already completed keeps its success, and waits

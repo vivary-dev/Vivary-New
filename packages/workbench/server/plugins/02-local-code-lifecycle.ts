@@ -10,9 +10,11 @@ import { shutdownProjectPreviews } from "../project-preview.ts";
 
 // Automations get the Code host's 10-second shutdown wait, so a normal quit still
 // settles before the desktop ends the server 15 seconds after asking it to stop.
+// Their stop goes first: Promise.all calls its members in order, and a member
+// that throws synchronously would skip the ones after it.
 const stopLocalWork = () => Promise.all([
-  shutdownVivaryCodeAgent(), shutdownOriginalCommands(), shutdownProjectPreviews(),
   stopRecurringJobs({ timeoutMs: 10_000 }),
+  shutdownVivaryCodeAgent(), shutdownOriginalCommands(), shutdownProjectPreviews(),
 ]);
 
 export default defineNitroPlugin(async (nitroApp) => {

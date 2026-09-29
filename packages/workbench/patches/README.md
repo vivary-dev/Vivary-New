@@ -1087,7 +1087,10 @@ for automations, and Core had no way to stop them.
 `scheduler.js` now exports `stopRecurringJobs({ timeoutMs })`, and
 `@agent-native/core/jobs` exports it too. Vivary's one shutdown owner,
 `stopLocalWork` in `server/plugins/02-local-code-lifecycle.ts`, calls it beside
-the Code host, original command, and preview stops. That owner runs on the
+the Code host, original command, and preview stops. It calls the automation
+stop first, because `Promise.all` calls its members in order and the original
+command and preview stops are plain functions that could throw synchronously
+and skip it. That owner runs on the
 desktop's IPC shutdown and on a signal or Nitro `close` in the CLI host. The
 stop works in this order:
 
