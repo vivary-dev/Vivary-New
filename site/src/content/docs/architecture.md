@@ -157,6 +157,14 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #115, failing tests. Settings > Agent > Automations is Core's page, and
+`tests/automation-status.test.mjs` shows two of its gaps against the installed Core. The list actions report LAST
+CHECKED from the automation's own front matter, which the scheduler writes only when it skips a run, so an enabled
+scheduled automation reads as never checked while the scheduler's heartbeat in `automation_scheduler_health`
+advances every minute. The Details dialog offers Open thread on an errored or interrupted run, and nothing in Vivary
+handles that request. A third case pins that a paused automation lists no next run. CI runs the file beside the
+other automation tests. The design description does not change until the fix.
+
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer
 lists part B as remaining. It names the `681e2ac9` packaged check of a seeded refusal and says that PR #134's commits
