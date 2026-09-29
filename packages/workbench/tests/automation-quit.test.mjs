@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -563,4 +564,105 @@ test("Vivary's shutdown owner stops automations within the Code host's wait", as
   const jobs = await import("@agent-native/core/jobs");
   assert.equal(typeof jobs.stopRecurringJobs, "function", "the package entry exports the stop");
   assert.equal(jobs.stopRecurringJobs, scheduler.stopRecurringJobs, "the package entry shares the scheduler's module");
+});
+
+// The shutdown owner, loaded with stand-ins for the stops it calls, so a case can make one fail. Only the lifecycle
+// plugin's own imports resolve to the stand-ins, and each stand-in calls the current case's function.
+const LIFECYCLE = pathToFileURL(path.join(HERE, "..", "server", "plugins", "02-local-code-lifecycle.ts")).href;
+const lifecycleStandIns = {
+  "@agent-native/core/jobs": "export const stopRecurringJobs = options => globalThis.__lifecycleStops.automations(options);",
+  "@agent-native/core/server": "export const defineNitroPlugin = plugin => plugin;",
+  "../local-code-agent.ts": "export const initializeVivaryCodeAgent = async () => {};\n"
+    + "export const shutdownVivaryCodeAgent = () => globalThis.__lifecycleStops.code();",
+  "../original-runtime.ts": "export const shutdownOriginalCommands = () => globalThis.__lifecycleStops.commands();",
+  "../project-preview.ts": "export const shutdownProjectPreviews = () => globalThis.__lifecycleStops.previews();",
+};
+let shutdownOwner;
+const loadShutdownOwner = () => {
+  shutdownOwner ??= (async () => {
+    registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (context.parentURL === LIFECYCLE && Object.hasOwn(lifecycleStandIns, specifier)) {
+          return { url: `data:text/javascript,${encodeURIComponent(lifecycleStandIns[specifier])}`, shortCircuit: true };
+        }
+        return nextResolve(specifier, context);
+      },
+    });
+    return (await import(LIFECYCLE)).default;
+  })();
+  return shutdownOwner;
+};
+// One case's stops. The automation stop settles when the case lets it. The Code host stop returns a rejected promise,
+// marked handled so an owner that never waits for it cannot end this process. The command stop throws as it is
+// called, as a plain function can.
+const shutdownStops = () => {
+  const events = [];
+  let finishAutomations;
+  const automationsStopping = new Promise(resolve => { finishAutomations = resolve; });
+  globalThis.__lifecycleStops = {
+    automations: () => {
+      events.push("automations");
+      return automationsStopping.then(() => { events.push("automations settled"); });
+    },
+    code: () => {
+      events.push("code");
+      const failure = Promise.reject(new Error("The Code host stop failed."));
+      failure.catch(() => {});
+      return failure;
+    },
+    commands: () => {
+      events.push("commands");
+      throw new Error("The command stop failed.");
+    },
+    previews: () => {
+      events.push("previews");
+      return Promise.resolve();
+    },
+  };
+  return { events, finishAutomations };
+};
+const fakeNitro = () => {
+  const hooks = new Map();
+  return {
+    hooks: { hook: (name, handler) => { hooks.set(name, handler); }, callHook: async name => hooks.get(name)?.() },
+    close: () => hooks.get("close")(),
+  };
+};
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+
+test("the shutdown owner starts every stop and reports a failed one only after the automation stop settled", async () => {
+  const stops = shutdownStops();
+  const nitro = fakeNitro();
+  await (await loadShutdownOwner())(nitro);
+  const closing = nitro.close().then(() => { stops.events.push("closed"); },
+    error => { stops.events.push(`failed: ${error.message}`); });
+  await nextTurn();
+  assert.deepEqual(stops.events, ["automations", "code", "commands", "previews"],
+    "every stop started, the automation stop first, although one threw and one rejected");
+  stops.finishAutomations();
+  await closing;
+  assert.equal(stops.events[4], "automations settled", "the close hook waited for the automation stop");
+  assert.match(stops.events[5] ?? "", /^failed: The (Code host|command) stop failed\.$/, "the failure still reached the host");
+});
+
+test("a shutdown signal whose stop throws reports the failure only after the automation stop settled", async t => {
+  const stops = shutdownStops();
+  const before = process.listeners("SIGTERM");
+  await (await loadShutdownOwner())(fakeNitro());
+  const [onSignal] = process.listeners("SIGTERM").filter(listener => !before.includes(listener));
+  const originalError = console.error;
+  console.error = (...args) => { stops.events.push(`logged: ${args.map(String).join(" ")}`); };
+  t.after(() => {
+    console.error = originalError;
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+  });
+  // On the standalone CLI host, the handler exits with code 1 right after it logs the failure.
+  assert.doesNotThrow(() => onSignal(), "the signal handler did not throw while the automation stop was running");
+  await nextTurn();
+  assert.deepEqual(stops.events, ["automations", "code", "commands", "previews"], "nothing was logged yet");
+  stops.finishAutomations();
+  for (let turn = 0; turn < 50 && stops.events.length < 6; turn += 1) await nextTurn();
+  assert.deepEqual(stops.events.slice(4), ["automations settled", "logged: [vivary-local-host] Shutdown did not settle."],
+    "the failure was logged after the automation stop settled");
 });
