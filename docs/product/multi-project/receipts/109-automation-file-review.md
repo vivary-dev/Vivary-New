@@ -9,7 +9,8 @@ branch.
 
 Delivery status: open. The branch `feat/automation-file-review` has not merged. After this check it merged `dev`
 at `42b1ebf` and took two fixes for the check's findings, `bda0a07` and `218cfab`. Those ran on Zo only and have
-not run in a package.
+not run in a package. A later fix for a PR review finding ran on Zo only too. With it, each loader that lists
+files checks each row it reads.
 
 ## Source and artifacts
 
@@ -103,6 +104,6 @@ Known before this check:
 
 Not covered by this check:
 
-- The two fixes after it ran in `tests/automation-file-review.test.mjs` and a probe on Zo, not in a package.
+- The fixes after it ran in `tests/automation-file-review.test.mjs` and a probe on Zo, not in a package.
 - Hosted mode, organization runs, and the refusal of a path that is not plain ran only in the test file.
 - The narrow layout and keyboard use of the Automation files tab.

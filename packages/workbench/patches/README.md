@@ -1425,6 +1425,16 @@ Every loader that a run's personal file reaches skips a waiting file:
   automation runs until the owner accepts it." in place of the text. It does
   not fall back to a shared file at the same path.
 
+A loader that lists files and then reads each one by id also checks the row it
+read. Four do: the full-mode `instructions/` loader and the resource skills
+index in `prompt-resources.js`, the `/skills` route, and the files inventory. A
+run can overwrite an accepted file between the list and the read. The overwrite
+keeps the row's id, so the read would return the run's waiting text. The note
+counts such a file, because its query runs after the loaders. The compact-mode
+`instructions/` list prints paths and reads no file. A file that a run rewrites
+during that list can still appear by its path, and `resources read` then gives
+the note.
+
 Core's raw database tools, `db-query`, `db-exec`, and `db-patch`, refuse the
 `resources` table. `SENSITIVE_FRAMEWORK_TABLE_RE` in
 `dist/scripts/db/safety.js` lists it beside the credential and identity
@@ -1500,8 +1510,9 @@ applied skill, `resources read`, the refusal of a chat's `db-query`, `db-exec`,
 and `db-patch` on the `resources` table, that a chat write, a memory save, and
 an owner edit keep the mark and the run's origin, the Settings action's list,
 accept, delete, and owner check, and a stale review after a second write in the
-same millisecond. Source pins cover the wrapper, the `/skills` route, the files
-inventory, and the action's flags.
+same millisecond, and a run's rewrite of an accepted file between a loader's
+list and its read. Source pins cover the wrapper, the `/skills` route, the files
+inventory, the check of the row read in both, and the action's flags.
 `tests/automation-file-review-component.test.mjs` renders the tab, its notice on
 a review refused because the file changed and on no other refusal, and its line
 for a failed list. Each case failed before its fix, on `dev` at `4c19c2e` or on
@@ -1513,7 +1524,8 @@ accepted, and deleted them, a chat's stored prompt held the run's `AGENTS.md`
 only after Accept, and a stale Accept showed the notice. The
 [#109 receipt](../../../docs/product/multi-project/receipts/109-automation-file-review.md)
 records the check. The raw database refusal and the note's count above came from
-it and ran on Zo only.
+it and ran on Zo only. The loaders' check of the row they read came from the PR
+review and ran on Zo only too.
 
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an

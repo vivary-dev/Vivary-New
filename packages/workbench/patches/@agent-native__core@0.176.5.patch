@@ -366,7 +366,7 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f3
      onOutcome?: (outcome: AgentLoopOutcome) => void;
      ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a9f53c073 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33e9aabc3d 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -594,7 +594,18 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a
                      if (allResources.length > 0) {
                          const fileLines = [];
                          const skillLines = [];
-@@ -7389,12 +7478,12 @@ export function createProductionAgentHandler(options) {
+@@ -7220,7 +7309,9 @@ export function createProductionAgentHandler(options) {
+                                     userEmail: ownerEmail,
+                                     orgId,
+                                 });
+-                                if (!full)
++                                // Vivary #109: a run can rewrite a skill between the
++                                // list and this read, so check the row read too.
++                                if (!full || isPendingRunReview(full))
+                                     continue;
+                                 if (kind === "skill") {
+                                     const skill = parseSkillMetadata(full.content, r.path);
+@@ -7389,12 +7480,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -609,7 +620,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
-@@ -8299,13 +8388,7 @@ export function createProductionAgentHandler(options) {
+@@ -8299,13 +8390,7 @@ export function createProductionAgentHandler(options) {
                  : typeof message === "string" && message.trim().length > 0
                      ? message
                      : undefined;
@@ -624,7 +635,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a
              const agentLoopOpts = {
                  engine,
                  model: effectiveModel,
-@@ -8318,13 +8401,8 @@ export function createProductionAgentHandler(options) {
+@@ -8318,13 +8403,8 @@ export function createProductionAgentHandler(options) {
                  actions: requestActions,
                  send,
                  signal,
@@ -640,7 +651,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..e23df13106cb3d773a50a095cdeb2c7a
                  ownerEmail,
                  orgId: getRequestOrgId() ?? null,
                  attachments: requestAttachments,
-@@ -8493,11 +8571,7 @@ export function createProductionAgentHandler(options) {
+@@ -8493,11 +8573,7 @@ export function createProductionAgentHandler(options) {
                          const { recordUsage } = await import("../usage/store.js");
                          await recordUsage({
                              ownerEmail: resolvedOwnerEmail,
@@ -6904,7 +6915,7 @@ index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa
      backgroundMcpTools?: "requested" | "all";
      /**
 diff --git a/dist/server/agent-chat/prompt-resources.js b/dist/server/agent-chat/prompt-resources.js
-index 40396251b3887addb4303ece517af947f2eb4ed3..64ce35e3e3cfee515dfefcab7c905f89976184ee 100644
+index 40396251b3887addb4303ece517af947f2eb4ed3..964d93258c786b2eb4e42af80f05d703a9bfe10d 100644
 --- a/dist/server/agent-chat/prompt-resources.js
 +++ b/dist/server/agent-chat/prompt-resources.js
 @@ -1,6 +1,6 @@
@@ -6936,7 +6947,18 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..64ce35e3e3cfee515dfefcab7c905f89
              .sort((a, b) => a.path.localeCompare(b.path));
          if (summaryOnly) {
              if (sorted.length === 0)
-@@ -498,7 +502,8 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+@@ -471,7 +475,9 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
+         for (let index = 0; index < sorted.length; index++) {
+             const resource = sorted[index];
+             const full = fullResources[index];
+-            if (!full?.content?.trim())
++            // Vivary #109: a run can rewrite the file between the list and
++            // this read, so check the row that was read too.
++            if (isPendingRunReview(full) || !full?.content?.trim())
+                 continue;
+             const block = promptResourceBlock({
+                 name: resource.path,
+@@ -498,7 +504,8 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
              ]
              : await resourceListAccessible(owner, "skills/", { orgId });
@@ -6946,7 +6968,18 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..64ce35e3e3cfee515dfefcab7c905f89
              const ownerOrder = (a.owner === owner
                  ? 0
                  : a.owner === organizationOwner
-@@ -758,7 +763,8 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -529,7 +536,9 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+         const seen = new Set();
+         const lines = [];
+         for (const { resource, full } of loaded) {
+-            if (!full?.content)
++            // Vivary #109: a run can rewrite the skill between the list and
++            // this read, so check the row that was read too.
++            if (isPendingRunReview(full) || !full?.content)
+                 continue;
+             const meta = parseSkillFrontmatter(full.content);
+             if (meta.userInvocable === false)
+@@ -758,7 +767,8 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
          if (owner !== SHARED_OWNER) {
              try {
                  const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
@@ -6956,7 +6989,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..64ce35e3e3cfee515dfefcab7c905f89
                      const block = promptResourceBlock({
                          name: "memory/MEMORY.md",
                          scope: "personal",
-@@ -804,6 +810,19 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -804,6 +814,19 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
      catch {
          // Agent discovery is helpful context, not required for the run.
      }
@@ -7143,7 +7176,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d54150428866a91fe8 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f630d113f3 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -7328,7 +7361,18 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                          // Try to get content to parse frontmatter
                          let skillName = getSkillNameFromPath(r.path);
                          let description;
-@@ -4649,6 +4665,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -3825,6 +3841,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                             const full = await resourceGet(r.id, skillsOwner
+                                 ? { userEmail: skillsOwner, orgId: skillsOrgId ?? null }
+                                 : undefined);
++                            // Vivary #109: a run can rewrite the skill between
++                            // the list and this read, so check the row read too.
++                            if (isPendingRunReview(full))
++                                continue;
+                             if (full) {
+                                 const fm = parseSkillFrontmatter(full.content);
+                                 if (!isRuntimeVisibleScope(fm.scope))
+@@ -4649,6 +4669,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -7348,7 +7392,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4695,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4699,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -7395,7 +7439,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4716,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4720,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -7404,7 +7448,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
-@@ -5113,32 +5128,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5113,32 +5132,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      ? preparedMarker.automationRunId
                      : undefined;
                  if (typeof automationRunId === "string" && automationRunId) {
@@ -7438,7 +7482,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                          }
                          catch {
                              setResponseStatus(event, 500);
-@@ -5146,7 +5142,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5146,7 +5146,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                          }
                      }
                      const waitUntil = event.req?.waitUntil;
@@ -7447,7 +7491,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5321,34 +5317,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5321,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              // Poll every 60 seconds for due recurring jobs and execute them.
              // Long-lived runtimes use setInterval; serverless runtimes rely on a
              // platform-owned sweep because an invocation cannot own a durable loop.
@@ -7485,7 +7529,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5419,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,6 +5423,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -7501,7 +7545,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5751,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5755,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -7546,7 +7590,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d541504288
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5802,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5806,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",

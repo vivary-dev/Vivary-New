@@ -523,7 +523,7 @@ test("the run surface marks writes, and Settings is the only way to review", asy
   assert.ok(/for \(const r of resourceSkills\) \{\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(r\)\)\s*continue;/.test(plugin),
     "the slash-skill menu leaves out a waiting skill");
   // A run can rewrite a skill between the list and the read, so each list-then-read also checks the row it read.
-  assert.ok(/const full = await resourceGet\(r\.id, skillsOwner[\s\S]{0,120}?: undefined\);\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(full\)\)\s*continue;/.test(plugin),
+  assert.ok(/const full = await resourceGet\(r\.id, skillsOwner[\s\S]{0,200}?: undefined\);\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(full\)\)\s*continue;/.test(plugin),
     "the slash-skill menu leaves out a skill that waits when read");
   // Vivary turns this inventory off, because lazyContext is on, so only its source can show the skip.
   const agent = await readFile(path.join(coreRoot, "dist", "agent", "production-agent.js"), "utf8");
