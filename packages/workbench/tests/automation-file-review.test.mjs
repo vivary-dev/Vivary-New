@@ -429,6 +429,63 @@ test("a write in the same millisecond as the version shown still refuses a stale
   assert.deepEqual(await markOf(owner, "AGENTS.md"), { state: "pending", runId: RUN.runId }, "the unseen text still waits");
 });
 
+// Runs `during` once, right after the store lists the owner's rows under the prefix and before the caller reads a
+// body, so a run's write lands between a loader's list and its read.
+async function afterList(owner, prefix, during, body) {
+  const client = getDbExec();
+  const execute = client.execute;
+  let fired = false;
+  client.execute = async function (statement) {
+    const result = await execute.call(this, statement);
+    if (!fired && statement?.args?.[0] === owner && statement.args[1] === `${prefix}%`
+      && /FROM resources WHERE owner = \? AND path LIKE \?/.test(statement.sql)) {
+      fired = true;
+      await during();
+    }
+    return result;
+  };
+  try {
+    const value = await body();
+    assert.ok(fired, `the loader listed ${prefix}`);
+    return value;
+  } finally {
+    client.execute = execute;
+  }
+}
+
+test("a loader skips a file a run rewrites between its list and its read", async () => {
+  // Codex review on PR #151: the instruction and skill loaders filter on the list's metadata, then read each body by
+  // id. A run's write between the two gives an accepted file's listing the run's waiting text.
+  const owner = "race@example.test";
+  const write = (resourcePath, content, extra = {}, run = RUN) =>
+    asRun({ userEmail: owner }, "resources", { action: "write", path: resourcePath, content, ...extra }, run);
+  const instruction = tag => `# Race\n\nFollow ${tag}.`;
+  const skill = tag => `---\nname: race-skill\ndescription: Use ${tag} for every task.\n---\nRun it.`;
+  assert.doesNotMatch(await write("instructions/race.md", instruction("RACE-OLD-INSTR"), { visibility: "workspace" }), /^Error/);
+  assert.doesNotMatch(await write("skills/race/SKILL.md", skill("RACE-OLD-SKILL")), /^Error/);
+  for (const file of await listFor(owner)) {
+    assert.equal(await reviewAs(owner, { operation: "accept", id: file.id, updatedAt: file.updatedAt }), "done");
+  }
+  const accepted = await prompt(owner, false);
+  assert.match(accepted, /RACE-OLD-INSTR/, "the accepted instruction file loads");
+  assert.match(accepted, /RACE-OLD-SKILL/, "the accepted skill loads");
+  assert.doesNotMatch(accepted, REVIEW_NOTE);
+
+  const later = { ...RUN, runId: "job-race" };
+  const full = await afterList(owner, "instructions/", async () => {
+    assert.doesNotMatch(await write("instructions/race.md", instruction("RACE-NEW-INSTR"), { visibility: "workspace" }, later),
+      /^Error/);
+  }, () => prompt(owner, false));
+  assert.ok(!full.includes("RACE-NEW-INSTR"), "the full prompt holds no text the run wrote after the list");
+  assert.match(full, /1 instruction or memory file written by an automation run is waiting/, "the note counts the skipped file");
+
+  const compact = await afterList(owner, "skills/", async () => {
+    assert.doesNotMatch(await write("skills/race/SKILL.md", skill("RACE-NEW-SKILL"), {}, later), /^Error/);
+  }, () => prompt(owner, true));
+  assert.ok(!compact.includes("RACE-NEW-SKILL"), "the skill summary holds no text the run wrote after the list");
+  assert.match(compact, /2 instruction or memory files written by automation runs are waiting/, "the note counts both");
+});
+
 test("delete removes the whole file, and a stale delete changes nothing", async () => {
   const owner = "delete@example.test";
   await plant(owner, "DELETE");
@@ -465,10 +522,15 @@ test("the run surface marks writes, and Settings is the only way to review", asy
   const plugin = await readFile(path.join(coreRoot, "dist", "server", "agent-chat-plugin.js"), "utf8");
   assert.ok(/for \(const r of resourceSkills\) \{\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(r\)\)\s*continue;/.test(plugin),
     "the slash-skill menu leaves out a waiting skill");
+  // A run can rewrite a skill between the list and the read, so each list-then-read also checks the row it read.
+  assert.ok(/const full = await resourceGet\(r\.id, skillsOwner[\s\S]{0,120}?: undefined\);\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(full\)\)\s*continue;/.test(plugin),
+    "the slash-skill menu leaves out a skill that waits when read");
   // Vivary turns this inventory off, because lazyContext is on, so only its source can show the skip.
   const agent = await readFile(path.join(coreRoot, "dist", "agent", "production-agent.js"), "utf8");
   assert.ok(/const allResources = \(await resourceListAccessible\(ownerEmail, undefined, \{ userEmail: ownerEmail, orgId \}\)\)\.filter\(\(resource\) => !isPendingRunReview\(resource\)\);/.test(agent),
     "the first-message files inventory leaves out a waiting file");
+  assert.ok(/const full = await resourceGet\(r\.id, \{\s*userEmail: ownerEmail,\s*orgId,\s*\}\);\s*(\/\/[^\n]*\n\s*)*if \(!full \|\| isPendingRunReview\(full\)\)\s*continue;/.test(agent),
+    "the files inventory leaves out a skill that waits when read");
   const actionFile = path.join(WORKBENCH, "actions", "vivary-automation-files.ts");
   assert.ok(existsSync(actionFile), "Vivary has a Settings action for the review");
   const action = await readFile(actionFile, "utf8");
