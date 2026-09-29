@@ -6250,7 +6250,7 @@ index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c
  export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
  export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
 diff --git a/dist/resources/store.js b/dist/resources/store.js
-index 44e9ccf92edf7026bae290de14c9c65388042eae..4d9f6bc9fe14e689c2072c1bba3d297f5fbf6414 100644
+index 44e9ccf92edf7026bae290de14c9c65388042eae..e3c7543b15c799c877669a5a3de42611b85bdea7 100644
 --- a/dist/resources/store.js
 +++ b/dist/resources/store.js
 @@ -1,9 +1,10 @@
@@ -6295,32 +6295,41 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..4d9f6bc9fe14e689c2072c1bba3d297f
  function scratchFilterSql(options) {
      return options?.includeAgentScratch === true
          ? ""
-@@ -1121,6 +1145,24 @@ export async function resourceGetByPath(owner, path, options) {
+@@ -1121,6 +1145,33 @@ export async function resourceGetByPath(owner, path, options) {
  }
  export async function resourcePut(owner, path, content, mimeType, options) {
      await ensureTable();
 +    // Vivary #109: restrictActionsForUnattendedRun sets the run around each
-+    // tool call of an automation run. The path is compared as
-+    // jobs/unattended-surface.js compares configuration paths, in lower case
-+    // because SQLite LIKE prefix matching ignores ASCII case.
++    // tool call of an automation run.
 +    const run = getRequestContext()?.automationRun;
-+    const normalizedPath = nodePath.posix
-+        .normalize(String(path).trim().replace(/\\/g, "/"))
-+        .replace(/^(\.\/|\/)+/, "")
-+        .toLowerCase();
-+    const runReviewed = !!run &&
-+        (RUN_REVIEWED_FILES.has(normalizedPath) ||
-+            RUN_REVIEWED_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix)));
-+    // App default and organization files load for other people, and a
-+    // personal automation runs with no organization, so its shared writes
-+    // would reach the app default without a role check.
-+    if (runReviewed && owner !== getRequestUserEmail()) {
-+        throw new Error(`Automation runs cannot write ${path} outside the owner's personal files, because shared and organization instruction files load for other people.`);
++    if (run) {
++        // Shared, organization, and workspace files load for other people. A
++        // personal automation runs with no organization, so its shared writes
++        // would reach the app default without a role check, and the resource
++        // index prints each shared note's title in every prompt.
++        if (owner !== getRequestUserEmail()) {
++            throw new Error(`Automation runs cannot write ${path} outside the owner's personal files, because shared, organization, and workspace files load for other people.`);
++        }
++        // The loaders match the stored path as written, so a run writes only
++        // a path that is already plain. The store would read
++        // skills/../x/SKILL.md as x/SKILL.md, and a loader lists it as a skill.
++        const plainPath = nodePath.posix
++            .normalize(String(path).trim().replace(/\\/g, "/"))
++            .replace(/^(\.\/|\/)+/, "");
++        if (plainPath !== path) {
++            throw new Error(`Automation runs cannot write ${path}, because it is not a plain path. Write ${plainPath} instead.`);
++        }
 +    }
++    // Lower case, because the store's LIKE prefix queries ignore ASCII case
++    // in SQLite, so skills/ also lists SKILLS/x/SKILL.md.
++    const lowerPath = String(path).toLowerCase();
++    const runReviewed = !!run &&
++        (RUN_REVIEWED_FILES.has(lowerPath) ||
++            RUN_REVIEWED_PREFIXES.some((prefix) => lowerPath.startsWith(prefix)));
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
          const written = await writeLocalWorkspaceResource({ path, content });
-@@ -1146,18 +1188,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1146,18 +1197,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
      const existingRow = existing[0];
      const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
      const createdAt = existingRow ? Number(existingRow.created_at) : now;
@@ -6356,7 +6365,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..4d9f6bc9fe14e689c2072c1bba3d297f
      let expiresAt = hasOption(options, "expiresAt")
          ? (options?.expiresAt ?? null)
          : nullableNumber(existingRow?.expires_at);
-@@ -1168,9 +1218,24 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1168,9 +1227,24 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          expiresAt = null;
      }
      const serializedMetadata = serializeMetadata(options?.metadata);
@@ -6382,7 +6391,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..4d9f6bc9fe14e689c2072c1bba3d297f
      await client.execute({
          sql: isPostgres()
              ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-@@ -1367,6 +1432,47 @@ export async function resourceDeleteIfCurrent(resource) {
+@@ -1367,6 +1441,47 @@ export async function resourceDeleteIfCurrent(resource) {
      }
      return deleted;
  }

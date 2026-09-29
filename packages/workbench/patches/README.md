@@ -1341,24 +1341,38 @@ argument can set or clear it.
 - A write to an instruction path also sets `runReview` in the row's JSON
   metadata: `state: "pending"`, the run id, the automation name, and
   `writtenAt`. Instruction paths are `AGENTS.md`, `LEARNINGS.md`, and anything
-  under `instructions/`, `skills/`, or `memory/`, compared in lower case with a
-  leading `./` or `/` removed, because SQLite `LIKE` prefix matching ignores
-  case. Other metadata keys are kept.
+  under `instructions/`, `skills/`, or `memory/`, compared in lower case. With
+  the libsql client, SQLite 3.53.2 on Zo, the store's `LIKE` prefix queries
+  ignore ASCII case, so `resourceList(owner, "skills/")` also returns
+  `SKILLS/x/SKILL.md` when that row is not agent scratch. `AGENTS.md` and
+  `LEARNINGS.md` load by an exact, case-sensitive path. Other metadata keys are
+  kept.
 - Any other write keeps the row's `runReview`, even when its caller passes
   metadata. A chat's write, `save-memory`, `delete-memory`, and an owner's
   edit in the Resources panel leave the file waiting. `save-memory` carries the
   index lines a run wrote into its rewrite, so clearing the mark there would
   launder them.
-- A run may write an instruction path only in its own user's personal scope.
-  In hosted mode several owners share one database. A personal automation runs
+- A run writes only its own user's personal files, whatever the path. In
+  hosted mode several owners share one database. A personal automation runs
   with no organization, because `resolveAutomationExecutionIdentity` returns
   none for it, so a run's `resources write` with scope `shared` reached the app
   default owner, `__shared__`, and `assertCanWriteSharedResource` skips its role
   check when there is no organization. Every user's chat loads the app default
-  `AGENTS.md`. An organization run whose creator is an admin could write the
-  organization's files, which every member loads. `resourcePut` now refuses
-  both with "Automation runs cannot write `<path>` outside the owner's personal
-  files". Other shared files, such as notes, stay writable.
+  `AGENTS.md`, and the resource index in `prompt-resources.js` prints the path
+  and title of each workspace, app default, and organization note in every
+  chat's and run's prompt. An organization run whose creator is an admin could
+  write the organization's files, which every member loads. `resourcePut` now
+  refuses every run write, `promote` included, whose owner is not the run's
+  user, with "Automation runs cannot write `<path>` outside the owner's
+  personal files".
+- A run writes only a plain path, with no `.` or `..` segment, no leading,
+  repeated, or back slash, and no surrounding space. The loaders match the
+  stored path as written, so `skills/../x/SKILL.md` is listed as a skill,
+  while a check on the collapsed path would read it as `x/SKILL.md` and set no
+  mark. `resourcePut` refuses such a path with "is not a plain path. Write
+  `<plain path>` instead." The same rule stops a run's `jobs/../x.md`, which
+  the run surface's configuration check collapses to `x.md`, while the
+  scheduler lists every `jobs/` row by its stored path and parses it as a job.
 
 The store exports `isPendingRunReview` and `resourceAcceptRunReviewIfCurrent`,
 declared in `store.d.ts`. The accept changes a row only while it still waits
@@ -1405,11 +1419,13 @@ as it is now. Delete removes the whole file.
 Limits. A run can still delete an owner's instruction file or memory entry
 with `resources delete` or `delete-memory`, and a run that overwrites an
 owner's file hides the owner's earlier text too until review, because the
-table keeps one row per path and no earlier version. Issue #144 tracks both. A
-chat can still overwrite a waiting file, and the result keeps waiting, so the
-owner then reviews the chat's text. A run's writes to other paths, such as
-notes, stay readable, and a shared note's title still reaches the resource
-index. A shared or organization row that a caller of the Resources routes
+table keeps one row per path and no earlier version. Issue #144 tracks both.
+The refusal covers writes only, so a personal run's `resources delete` with
+scope `shared` still deletes an app default file, such as `AGENTS.md`, without
+a role check, as its write did. A chat can still overwrite a waiting
+file, and the result keeps waiting, so the owner then reviews the chat's text.
+A run's personal notes stay readable, and the resource index lists no personal
+file. A shared or organization row that a caller of the Resources routes
 marked waiting through metadata stays hidden, and Settings does not list it,
 because only a run is expected to set the mark.
 
@@ -1417,7 +1433,8 @@ Run `node --test packages/workbench/tests/automation-file-review.test.mjs`. It
 uses a disposable SQLite database and drives writes through
 `restrictActionsForUnattendedRun` with a run's tool context. It checks the
 origin and the mark on each instruction path, a note that gets origin and no
-mark, the refusal of app default and organization writes by a run, the note in
+mark, the refusal of every app default and organization write and promote by
+a run, notes included, and of a path that is not plain, the note in
 compact and full prompts with its count and no path, a run's prompt, the
 applied skill, `resources read`, that a chat write, a memory save, and an owner
 edit keep the mark, and the Settings action's list, accept, delete, and owner
