@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,14 @@ const models = { data: [
 const account = { account: { type: "chatgpt", email: "private@example.test" } };
 const config = { config: { model: "gpt-example-b", model_provider: "openai",
   mcp_servers: { files: { command: "private-command", env: { SECRET: "do-not-return" } }, disabled: { enabled: false } } } };
+// A Codex that answers every request, then keeps running after its input closes, so only a forced stop ends it.
+const lingeringCodex = String.raw`import readline from 'node:readline';
+const values = ${JSON.stringify({ 1: {}, 2: models, 3: config, 4: account })};
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const input=JSON.parse(line);
+ if (input.id) process.stdout.write(JSON.stringify({id:input.id,result:values[input.id]})+'\n');
+});
+setInterval(() => {}, 1000);`;
 
 test("uses only reported models and returns no account or connection secrets", () => {
   const result = parseCodexCatalog(models, config, account);
@@ -97,5 +106,21 @@ process.stdin.resume();setInterval(()=>{},1000);`);
       } catch { /* A stopped process has no identity to inspect. */ }
       assert.equal(alive, false, `discovery process ${pid} survived`);
     }
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("a forced stop counts once Codex exits, even when taskkill reports an error", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-slow-stop-"));
+  const file = path.join(dir, "lingering.mjs");
+  await writeFile(file, lingeringCodex);
+  // On a loaded Windows host `taskkill /F` can time out and still end Codex, which then reports no success code.
+  const slowTaskkill = async (child: ChildProcess, workerExited: boolean) => {
+    if (workerExited) return;
+    setImmediate(() => child.kill("SIGKILL"));
+    throw Object.assign(new Error("taskkill timed out"), { killed: true });
+  };
+  try {
+    const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir, 12_000, { stopTree: slowTaskkill });
+    assert.equal(result.status, "ready");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

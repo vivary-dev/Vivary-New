@@ -1,4 +1,4 @@
-import { hardStopWorkerTree } from "./code-execution-host";
+import { CLEANUP_EXIT_RESERVE_MS, CLEANUP_TIMEOUT_MS, hardStopWorkerTree } from "./code-execution-host";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { resolveVivaryRuntimeCommand, type CommandLaunch } from "./local-runtime-setup";
@@ -69,7 +69,11 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
 }
 
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
-export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs = 12_000): Promise<CodexModelCatalog> {
+export function probeCodexModels(
+  launch: CommandLaunch, cwd: string, timeoutMs = 12_000,
+  // Tests pass their own tree stop to produce the slow and failed stops a loaded Windows host shows.
+  { stopTree = hardStopWorkerTree }: { stopTree?: typeof hardStopWorkerTree } = {},
+): Promise<CodexModelCatalog> {
   if (cleanupBlocked) return Promise.resolve(cleanupUnavailable());
   return new Promise(resolve => {
     const child = spawn(launch.executable, [...launch.prefix, "app-server", "--listen", "stdio://"], {
@@ -82,7 +86,9 @@ export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs =
     let didClose = false;
     const closed = new Promise<void>(done => child.once("close", () => { didClose = true; done(); }));
     const waitClosed = (ms: number) => new Promise<boolean>(done => {
-      const timeout = setTimeout(() => done(false), ms);
+      // A starved host can run this timer before the poll phase delivers a close that already happened, so the
+      // verdict waits one more turn and reads the close the host observed.
+      const timeout = setTimeout(() => setImmediate(() => done(didClose)), Math.max(0, ms));
       void closed.then(() => { clearTimeout(timeout); done(true); });
     });
     const finish = async (value: CodexModelCatalog) => {
@@ -90,18 +96,16 @@ export function probeCodexModels(launch: CommandLaunch, cwd: string, timeoutMs =
       complete = true;
       clearTimeout(timer);
       child.stdin.end();
+      // Issue #130. One budget for the whole stop, from its first step, as in the Code host. Codex closing its pipes
+      // is the verdict: a forced stop leaves no success code, and `taskkill` can fail or time out while Codex exits.
+      const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
       try {
         if (!await waitClosed(1_000)) {
-          if (!didClose) {
-            try { await hardStopWorkerTree(child, false); }
-            catch (error) {
-              // Codex may finish normally while Windows starts taskkill.
-              if (!await waitClosed(3_000) || child.exitCode !== 0) throw error;
-            }
-          }
-          if (!await waitClosed(3_000)) throw new Error("Codex discovery did not stop.");
+          const treeError = await stopTree(child, false, Math.max(1, deadline - Date.now() - CLEANUP_EXIT_RESERVE_MS))
+            .then(() => undefined, (error: unknown) => error);
+          if (!await waitClosed(deadline - Date.now())) throw treeError ?? new Error("Codex discovery did not stop.");
         }
-        if (process.platform !== "win32") await hardStopWorkerTree(child, true);
+        if (process.platform !== "win32") await stopTree(child, true);
       } catch {
         cleanupBlocked = true;
         value = cleanupUnavailable();

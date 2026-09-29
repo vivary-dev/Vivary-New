@@ -153,6 +153,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #130. A Codex model check whose Codex stops slowly but completely no longer counts as a failed stop.
+`codex-models.ts` gives its stop one budget from the first step, `CLEANUP_TIMEOUT_MS` from `code-execution-host.ts`,
+as the Code host does. After one second for Codex to exit on its own, it stops the tree, with `taskkill` on Windows
+bounded by the budget less `CLEANUP_EXIT_RESERVE_MS`, and waits the rest of the budget for Codex to close its pipes.
+That close decides the stop. A `taskkill` that fails or times out while Codex exits, and the missing success code of a
+forced exit, no longer turn a completed stop into a failure. A wait whose timer fires before the host delivers a close
+that already happened reads it one turn later, as the Code host's exit wait does. A unit test stands in a `taskkill`
+that reports a timeout while it ends Codex.
+
 Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue.
 `code-execution-host.ts` takes one fresh check after the failure, and a check only reads. On Linux it sends signal 0
 to the worker's process group. When the kernel reports no such group, the check is clean without reading `/proc`.
