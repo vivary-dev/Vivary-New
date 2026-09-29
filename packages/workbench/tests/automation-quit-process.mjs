@@ -90,13 +90,18 @@ const registerWebhookRunner = () => setInProcessIntegrationTaskRunner(runAutomat
   { platforms: ["automation-webhook"], appId, acceptsTask: webhookTaskBelongsToApp });
 // Core's process-task route, as a host without the in-process runner reaches a webhook task. The route needs a
 // signing secret in production, so this child gets a random one. The marker keeps the plugin's retry jobs from
-// starting here. Call it after any Run now row is queued, so the secret cannot change how that row is dispatched.
+// starting here. Every default plugin slot is marked as provided, because Core otherwise mounts its defaults on the
+// first route, and the default agent chat plugin would replace this child's trigger dispatcher and webhook runner.
+// Call it after any Run now row is queued, so the secret cannot change how that row is dispatched.
 const mountProcessTaskRoute = async () => {
   process.env.A2A_SECRET = randomBytes(32).toString("hex"); // guard:allow-env-mutation - A random signing secret in a disposable child.
   globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true;
-  const [{ createIntegrationsPlugin }, { signInternalToken }, { H3 }] = await Promise.all([
-    load("integrations/plugin.js"), load("integrations/internal-token.js"), import("h3")]);
+  const [{ createIntegrationsPlugin }, { signInternalToken }, { markDefaultPluginProvided },
+    { DEFAULT_PLUGIN_REGISTRY }, { H3 }] = await Promise.all([
+    load("integrations/plugin.js"), load("integrations/internal-token.js"), load("server/framework-request-handler.js"),
+    load("deploy/route-discovery.js"), import("h3")]);
   const nitro = { h3: new H3() };
+  for (const slot of Object.keys(DEFAULT_PLUGIN_REGISTRY)) markDefaultPluginProvided(nitro, slot);
   await createIntegrationsPlugin({ adapters: [] })(nitro);
   return async taskId => {
     const response = await nitro.h3.fetch(new Request("http://127.0.0.1/_agent-native/integrations/process-task", {
