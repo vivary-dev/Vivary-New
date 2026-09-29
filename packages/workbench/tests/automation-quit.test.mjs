@@ -413,6 +413,37 @@ test("a run still preparing when the stop begins is interrupted before the model
   assert.equal(result.lease.leaseOwner, null);
 });
 
+test("a run that completed before the stop is recorded as a success", async () => {
+  await defineScheduled("finish-app", "finishing");
+  await makeDue("finishing");
+  const { report, exited } = spawnChild("finishing", "finish-app");
+  const { runId } = await report;
+  await exited;
+  const [row] = await runsOf("finish-app", "finishing");
+  assert.equal(row.status, "success", "the quit did not relabel a finished run");
+  const { rows } = await getDbExec().execute({ sql: "SELECT status, abort_reason FROM agent_runs WHERE id = ?",
+    args: [runId] });
+  assert.equal(rows[0].status, "completed", "the stop did not abort a run that was no longer running");
+  assert.equal(rows[0].abort_reason ?? null, null);
+  assert.equal((await stored("finishing")).lastStatus, "success");
+});
+
+test("a quit after a soft-timeout boundary reads interrupted, not cut off", async () => {
+  await defineScheduled("soft-app", "soft");
+  await makeDue("soft");
+  const { report, exited } = spawnChild("soft-cut", "soft-app");
+  const { statusAtQuit } = await report;
+  await exited;
+  assert.equal(statusAtQuit, "running", "the quit landed while the run was still running");
+  const [row] = await runsOf("soft-app", "soft");
+  assert.equal(row.status, "interrupted");
+  assert.equal(row.error, INTERRUPTED_RUN_MESSAGE);
+  assert.equal(row.errorCode, INTERRUPTED_RUN_ERROR_CODE);
+  const meta = await stored("soft");
+  assert.equal(meta.lastStatus, "error");
+  assert.equal(meta.lastError, INTERRUPTED_RUN_MESSAGE);
+});
+
 test("Vivary's shutdown owner stops automations within the Code host's wait", async () => {
   const lifecycle = await readFile(path.join(HERE, "..", "server", "plugins", "02-local-code-lifecycle.ts"), "utf8");
   assert.match(lifecycle, /import \{ stopRecurringJobs \} from "@agent-native\/core\/jobs";/);
