@@ -338,6 +338,81 @@ test("a quit returns an interrupted webhook call and the call behind it to the q
   assert.equal(calls.length, 2);
 });
 
+// Work that arrives while the process stops starts no run and writes nothing.
+let lateStopping;
+const lateStop = () => {
+  lateStopping ??= (async () => {
+    await defineScheduled("late-app", "late-job");
+    await defineScheduled("late-app", "late-claimed", "0 0 1 1 *");
+    await defineTrigger("late-app", "late-watcher", { triggerType: "event", event: "test.event.fired" });
+    await defineTrigger("late-app", "late-hook", { triggerType: "webhook" });
+    await queueWebhookCall("late-hook", "evt-late", "task-late");
+    await makeDue("late-job");
+    const before = { job: await stored("late-job"), claimed: await stored("late-claimed"),
+      task: await taskRow("task-late") };
+    const { report, exited } = spawnChild("late", "late-app");
+    const result = await report;
+    await exited;
+    return { before, result };
+  })();
+  return lateStopping;
+};
+
+test("a sweep scanning when the stop begins starts nothing, and a second stop returns the first", async () => {
+  const { before, result } = await lateStop();
+  assert.equal(result.sameStop, true, "a second call returns the first stop");
+  assert.equal(result.lease.leaseOwner, null, "the sweep released the lease");
+  assert.equal(result.lease.lastDispatchedAt, null, "the sweep dispatched nothing");
+  const meta = await stored("late-job");
+  assert.equal(meta.nextRun, before.job.nextRun, "the job is still due for the next launch");
+  assert.equal(meta.lastStatus, undefined);
+});
+
+test("after the stop, an event, a Run now, and a webhook call start no run", async () => {
+  const { before, result } = await lateStop();
+  assert.deepEqual(result.starts, [], "no run reached the model");
+  assert.deepEqual(await runsOf("late-app", "late-watcher"), [], "the event wrote no run");
+  assert.equal((await stored("late-watcher")).lastStatus, undefined, "the event automation was not marked running");
+  assert.equal(result.runNow.status, "skipped");
+  assert.deepEqual(await runsOf("late-app", "late-job"), [], "Run now wrote no run");
+  assert.equal((await stored("late-job")).lastStatus, undefined, "Run now did not mark the job running");
+  assert.equal(result.webhook, "skipped");
+  const task = await taskRow("task-late");
+  assert.equal(task.status, "pending", "the webhook call stays queued");
+  assert.equal(Number(task.attempts), 0, "it was not claimed");
+  assert.equal(task.updated_at, before.task.updated_at);
+  assert.deepEqual(await runsOf("late-app", "late-hook"), []);
+});
+
+test("a Run now claimed before the stop reads interrupted without starting", async () => {
+  const { before, result } = await lateStop();
+  assert.equal(result.claimed, true);
+  assert.equal(result.claimedRun.status, "skipped");
+  const row = await getAutomationRun(result.claimedId);
+  assert.equal(row.status, "interrupted");
+  assert.equal(row.error, INTERRUPTED_RUN_MESSAGE);
+  assert.equal(row.errorCode, INTERRUPTED_RUN_ERROR_CODE);
+  assert.equal(row.threadId, null, "no run thread was made");
+  const meta = await stored("late-claimed");
+  assert.equal(meta.lastStatus, undefined, "the automation was not marked running");
+  assert.equal(meta.nextRun, before.claimed.nextRun);
+});
+
+test("a run still preparing when the stop begins is interrupted before the model", async () => {
+  await defineScheduled("setup-app", "slow-setup");
+  await makeDue("slow-setup");
+  const { report, exited } = spawnChild("setup", "setup-app");
+  const result = await report;
+  await exited;
+  assert.deepEqual(result.starts, [], "the run never reached the model");
+  assert.ok(result.elapsedMs < 3_000, `the stop waited for the run, not its bound (${result.elapsedMs} ms)`);
+  const [row] = await runsOf("setup-app", "slow-setup");
+  assert.equal(row.status, "interrupted");
+  assert.equal(row.error, INTERRUPTED_RUN_MESSAGE);
+  assert.equal((await stored("slow-setup")).lastStatus, "error");
+  assert.equal(result.lease.leaseOwner, null);
+});
+
 test("Vivary's shutdown owner stops automations within the Code host's wait", async () => {
   const lifecycle = await readFile(path.join(HERE, "..", "server", "plugins", "02-local-code-lifecycle.ts"), "utf8");
   assert.match(lifecycle, /import \{ stopRecurringJobs \} from "@agent-native\/core\/jobs";/);
