@@ -1138,9 +1138,12 @@ stop.
 The hard-kill fallback does not change. The stop writes nothing itself and
 never clears a lease by row id, so it cannot free another process's lease. Its
 flag and run list are process state that only the stop sets, so a killed
-process leaves the database as before: the row reads `running`, the automation
-reads running, and the lease holds until 10 minutes after its last renewal. A
-run that has not settled when the bound expires is left the same way. No
+process leaves the database as before: the row reads `running` until the
+liveness ceiling, 15 minutes after the run started, or the stale-run reset, the
+automation reads running, and the lease holds until 10 minutes after its last
+renewal. When the bound expires, the stop returns and writes nothing more. A
+run that settles later still records itself, as any run end does, while the
+process lives, and one that never settles is left as after a kill. No
 startup recovery was added, because clearing a lease or ending rows at launch
 is unsafe when two processes share a database. The lease length, the renewal,
 the liveness ceiling, and the claim lease are unchanged.

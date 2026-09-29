@@ -275,7 +275,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations stop after you quit during a run | Wait. The earlier session holds the scheduler lease for up to ten minutes after the quit. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. [Issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) tracks the fix. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
@@ -321,8 +321,8 @@ registration, conflict cases, clean-profile onboarding, upgrade/removal acceptan
 Native-provider turns, full adoption, search/memory coverage,
 self-hosted phone access, and integrated debugging remain outside this bounded review.
 Automations were not part of this package's review either. In later builds they run only
-while Vivary is open, runs cannot use MCP tools or wait for an approval, a quit during a
-run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
+while Vivary is open, runs cannot use MCP tools or wait for an approval, ending Vivary
+without quitting during a run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
 [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
 
 See the [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)

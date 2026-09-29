@@ -160,21 +160,22 @@ No documentation route reads arbitrary host files.
 Issue #114. A normal quit now ends in-flight automation runs and releases the scheduler lease. The maintained Core
 patch adds `stopRecurringJobs({ timeoutMs })` to `@agent-native/core/jobs`, and Vivary's one shutdown owner,
 `stopLocalWork` in `02-local-code-lifecycle.ts`, calls it first, beside the Code host stop, with the same 10-second
-wait, so it still settles before the desktop's 15-second kill and a sibling stop that throws cannot skip it. The stop closes the scheduler to new sweeps and Run now
-claims, and the runner, the event handler, and the in-process webhook runner to new runs, so work that arrives during
-the quit writes nothing and a due job stays due. It aborts every in-process run still running with the reason
-`shutdown`, so a run that already completed keeps its success, and waits
-while each run records itself interrupted
-with Core's existing message and code, the trigger dispatcher records the automation's outcome, and the sweep that
-holds the lease releases it with its own owner. It writes nothing itself. A webhook call whose run a normal quit
-interrupted goes back to the queue with its payload and an unspent attempt, as the owner decided on 2026-09-29. The
-run's own settle path writes that, never the stop, and the next launch's retry sweep runs the call at its first pass
-at least 90 seconds after the quit, with later calls behind it. A hard kill, or a run that outlasts the bound, keeps
-the fallback: the row reads running, the lease expires 10 minutes after its last renewal, and a webhook call runs
-again about 15 minutes after its claim. The Unattended automation runs row now states the quit behavior. The patch
-README section "Automation runs at quit" has the detail. `tests/automation-quit.test.mjs` failed on the first patch in
-eight of nine cases, with the hard-kill case passing on both, and its trigger cases failed on the patch before this
-change, because the stop returned before the dispatcher's writes.
+wait, so it settles before the desktop's 15-second kill and a sibling stop that throws cannot skip it. The stop closes
+the scheduler to new sweeps and Run now claims, and the runner, the event handler, and the in-process webhook runner
+to new runs, so work that arrives during the quit writes nothing and a due job stays due. It aborts every in-process
+run that is still running with the reason `shutdown`, so a run that already completed keeps its success. It waits
+while each run records itself interrupted with Core's existing message and code, the trigger dispatcher and the
+webhook runner record their outcome, and the sweep that holds the lease releases it with its own owner. It writes
+nothing itself. A webhook call whose run a normal quit interrupted goes back to the queue with its payload and an
+unspent attempt, as the owner decided on 2026-09-29. The run's own settle path writes that, never the stop, and the
+next launch's retry sweep runs the call at its first pass at least 90 seconds after the quit, with later calls behind
+it. A hard kill, or a run that outlasts the bound, keeps the fallback: the row reads running until the liveness
+ceiling, the lease expires 10 minutes after its last renewal, and a webhook call runs again about 15 minutes after its
+claim. The Unattended automation runs row states the quit behavior. The patch README section "Automation runs at
+quit" has the detail, and the desktop guide, the #51 receipt, and the acceptance register state the webhook requeue
+and its resend timing. `tests/automation-quit.test.mjs` failed on the first patch in eight of nine cases, with the
+hard-kill case passing on both. A review round added trigger, late-work, finished-run, and soft-timeout cases, each of
+which failed on the patch before its fix, and pins for a scanning sweep, a second stop, and a run still preparing.
 
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
@@ -182,14 +183,15 @@ healthy scheduled automation read as never checked. `list-automations` and `list
 enabled scheduled entry, the later of that field and the app's scheduler heartbeat in `automation_scheduler_health`,
 which every tick that holds the scheduler lease writes before it scans. Event, webhook, and paused entries keep their
 own value. A heartbeat whose check recorded an error does not count, and a failed read of that row is logged and
-leaves each entry's stored value, so the list does not fail on it. The Details dialog no longer offers Open thread on a past run. Run threads have no chat scope, every
-Vivary history list shows only its own scope, and nothing on Settings handled the request, so the owner decided on
-2026-09-29 that run threads are not openable from Settings. The desktop guide says so, corrects its claim that run
-threads stay in chat history, and describes event triggers with their key requirement and #135. The Unattended
-automation runs row and the runtime flows still hold, because the scheduler, the runs, and their storage are
-unchanged. The patch README section "Settings automation status" has the detail. `tests/automation-status.test.mjs`
-failed on the first patch for LAST CHECKED and Open thread, and its failed-read and failed-check cases failed on the
-patch before the fallback.
+leaves each entry's stored value, so the list does not fail on it. The desktop guide says LAST CHECKED updates about
+once a minute, and not while a scheduled run is in progress. The Details dialog no longer offers Open thread on a past
+run. Run threads have no chat scope, every Vivary history list shows only its own scope, and nothing on Settings
+handled the request, so the owner decided on 2026-09-29 that run threads are not openable from Settings. The desktop
+guide says so, corrects its claim that run threads stay in chat history, and describes event triggers with their key
+requirement and #135. The Unattended automation runs row and the runtime flows still hold, because the scheduler, the
+runs, and their storage are unchanged. The patch README section "Settings automation status" has the detail.
+`tests/automation-status.test.mjs` failed on the first patch for LAST CHECKED and Open thread, and its failed-read and
+failed-check cases failed on the patch before the fallback.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer
