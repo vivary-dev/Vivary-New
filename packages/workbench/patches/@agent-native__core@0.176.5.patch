@@ -5107,7 +5107,7 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..efd06506f7e39f9afdc4b3227d9d26b8
          console.warn("[integrations] Could not settle usage budget:", err instanceof Error ? err.message : err);
      })));
 diff --git a/dist/jobs/actions/list-recurring-jobs.js b/dist/jobs/actions/list-recurring-jobs.js
-index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e6d984923 100644
+index e806ca826db827ed70671a9409b718df85644d58..7008f7fd1ce14001616f1ae45392a1614b973c67 100644
 --- a/dist/jobs/actions/list-recurring-jobs.js
 +++ b/dist/jobs/actions/list-recurring-jobs.js
 @@ -4,6 +4,7 @@ import { organizationResourceOwner, resourceGetByPath, resourceList, } from "../
@@ -5118,7 +5118,7 @@ index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e
  import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
  const scopeSchema = z.enum(["personal", "organization"]);
  function jobName(path) {
-@@ -28,6 +29,37 @@ function nextRun(meta) {
+@@ -28,6 +29,40 @@ function nextRun(meta) {
          ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
          : null;
  }
@@ -5126,12 +5126,15 @@ index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e
 + * Vivary #115: the front matter `lastCheck` is written only when a check skips
 + * the job, so a healthy job read as never checked. The scheduler records its
 + * own check in the app's health row before every scan. Report the later of
-+ * the two for a job the scheduler checks.
++ * the two for a job the scheduler checks. A heartbeat from before the job's
++ * resource was created did not check it, so it does not count.
 + */
-+function lastCheck(meta, schedulerCheckedAt) {
++function lastCheck(meta, schedulerCheckedAt, createdAt) {
 +    const stored = meta.lastCheck ?? null;
 +    const scheduled = meta.enabled && meta.schedule && isValidCron(meta.schedule);
-+    if (!scheduled || schedulerCheckedAt == null)
++    if (!scheduled ||
++        schedulerCheckedAt == null ||
++        !(schedulerCheckedAt >= createdAt))
 +        return stored;
 +    const storedMs = stored ? Date.parse(stored) : Number.NaN;
 +    return Number.isFinite(storedMs) && storedMs >= schedulerCheckedAt
@@ -5156,7 +5159,7 @@ index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e
  export default defineAction({
      description: "List legacy recurring cron jobs visible in the selected personal or organization scope. This compatibility read surface is used by the Agent Automations page.",
      agentTool: false,
-@@ -47,6 +79,7 @@ export default defineAction({
+@@ -47,6 +82,7 @@ export default defineAction({
              ? organizationResourceOwner(ctx.orgId)
              : userEmail;
          const resources = await resourceList(owner, "jobs/");
@@ -5164,12 +5167,12 @@ index e806ca826db827ed70671a9409b718df85644d58..62d8c63ea142ed8f1ace456f580c432e
          const jobs = [];
          for (const resource of resources) {
              if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
-@@ -74,7 +107,7 @@ export default defineAction({
+@@ -74,7 +110,7 @@ export default defineAction({
                  instructions: body,
                  enabled: meta.enabled,
                  lastRun: meta.lastRun ?? null,
 -                lastCheck: meta.lastCheck ?? null,
-+                lastCheck: lastCheck(meta, schedulerCheckedAt),
++                lastCheck: lastCheck(meta, schedulerCheckedAt, full.createdAt),
                  lastStatus: meta.lastStatus ?? null,
                  lastError: meta.lastError ?? null,
                  nextRun: nextRun(meta),
@@ -5670,7 +5673,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..bed36d11bec3a5829931107e2b05b7c0
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779e08d1770 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e857f8b85 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,9 +1,10 @@
@@ -5748,7 +5751,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -437,6 +457,15 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -437,6 +457,22 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
          }
          return { status: "skipped", error };
      }
@@ -5761,10 +5764,36 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779
 +        }
 +        return { status: "skipped", error: "The app is quitting, so the run did not start." };
 +    }
++    // Vivary #114: the fields the mark replaces, written back when a quit
++    // begins before a remote dispatch.
++    const unmarked = {
++        lastRun: meta.lastRun,
++        lastStatus: meta.lastStatus,
++        lastError: meta.lastError,
++    };
      // Mark as running
      meta.lastRun = now.toISOString();
      meta.lastStatus = "running";
-@@ -549,7 +578,8 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -455,6 +491,18 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+         ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+         : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
+     if (meta.executionHostId) {
++        // Vivary #114: the stop cannot abort a run on a paired host, so a
++        // quit that began while the run was being marked queues nothing
++        // there. The mark is written back without moving the next run, so a
++        // scheduled job stays due, and a claimed Run now row reads
++        // interrupted, as at the check above.
++        if (isBackgroundAutomationsClosed()) {
++            await recordExecutionOutcome(resource, { ...unmarked, advanceSchedule: false });
++            if (options.historyId) {
++                await finishAutomationRun(options.historyId, "interrupted", INTERRUPTED_RUN_MESSAGE, INTERRUPTED_RUN_ERROR_CODE);
++            }
++            return { status: "skipped", error: "The app is quitting, so the run did not start." };
++        }
+         try {
+             const dispatch = await dispatchRemoteAutomation({
+                 resource,
+@@ -549,7 +597,8 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
          return { status: "success", runId: result.runId };
      }
      catch (err) {
@@ -5774,7 +5803,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779
          const reportedError = `${lastError}. No delivery was confirmed.`;
          await recordExecutionOutcome(resource, {
              lastRun: meta.lastRun,
-@@ -577,7 +607,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+@@ -577,7 +626,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -5786,7 +5815,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +619,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +638,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -5796,7 +5825,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..bb9eaebc248dfae744416aae14b3c779
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +635,36 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +654,36 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }
@@ -7286,7 +7315,7 @@ index 0000000000000000000000000000000000000000..7d2b4779b23028b8e1abbc39f8d12e78
 +    return globalThis[BUILDER_OFFERS_KEY] !== false;
 +}
 diff --git a/dist/triggers/actions/list-automations.js b/dist/triggers/actions/list-automations.js
-index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e42d0bb83c 100644
+index 3d0925c6967528af2b4050802324e8899add82e7..a5f228371ce8d3f9d0744011a4c229cd2011c26b 100644
 --- a/dist/triggers/actions/list-automations.js
 +++ b/dist/triggers/actions/list-automations.js
 @@ -2,6 +2,7 @@ import { z } from "zod";
@@ -7297,7 +7326,7 @@ index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e4
  const scopeSchema = z.enum(["personal", "organization"]);
  function nextRun(meta) {
      if (!meta.enabled)
-@@ -22,6 +23,41 @@ function nextRun(meta) {
+@@ -22,6 +23,44 @@ function nextRun(meta) {
          ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
          : null;
  }
@@ -7306,15 +7335,18 @@ index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e4
 + * the automation, so a healthy scheduled automation read as never checked.
 + * The scheduler records its own check in the app's health row before every
 + * scan. Report the later of the two for an entry the scheduler checks. Event,
-+ * webhook, and paused entries keep their own value.
++ * webhook, and paused entries keep their own value. A heartbeat from before
++ * the entry's resource was created did not check it, so it does not count.
 + */
-+function lastCheck(meta, schedulerCheckedAt) {
++function lastCheck(meta, schedulerCheckedAt, createdAt) {
 +    const stored = meta.lastCheck ?? null;
 +    const scheduled = meta.enabled &&
 +        meta.triggerType === "schedule" &&
 +        meta.schedule &&
 +        isValidCron(meta.schedule);
-+    if (!scheduled || schedulerCheckedAt == null)
++    if (!scheduled ||
++        schedulerCheckedAt == null ||
++        !(schedulerCheckedAt >= createdAt))
 +        return stored;
 +    const storedMs = stored ? Date.parse(stored) : Number.NaN;
 +    return Number.isFinite(storedMs) && storedMs >= schedulerCheckedAt
@@ -7339,7 +7371,7 @@ index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e4
  export default defineAction({
      description: "List scheduled, event-triggered, and webhook-triggered automations in the selected personal or organization scope.",
      agentTool: false,
-@@ -36,6 +72,7 @@ export default defineAction({
+@@ -36,6 +75,7 @@ export default defineAction({
          if (!userEmail)
              throw new Error("Not authenticated.");
          const definitions = await listAutomationDefinitions({ userEmail, orgId: ctx?.orgId, appId: ctx?.appId }, scope);
@@ -7347,12 +7379,12 @@ index 3d0925c6967528af2b4050802324e8899add82e7..371b7c4a1e42d77067e7a155300641e4
          return definitions.map(({ resource, name, meta, body, canUpdate, webhookPath }) => ({
              id: resource.id,
              name,
-@@ -55,7 +92,7 @@ export default defineAction({
+@@ -55,7 +95,7 @@ export default defineAction({
              body,
              enabled: meta.enabled,
              lastRun: meta.lastRun ?? null,
 -            lastCheck: meta.lastCheck ?? null,
-+            lastCheck: lastCheck(meta, schedulerCheckedAt),
++            lastCheck: lastCheck(meta, schedulerCheckedAt, resource.createdAt),
              lastStatus: meta.lastStatus ?? null,
              lastError: meta.lastError ?? null,
              nextRun: nextRun(meta),

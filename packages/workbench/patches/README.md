@@ -1028,7 +1028,14 @@ lease writes the app's `<appId>:global` row before it scans.
 call through `getAutomationSchedulerHealth`. For an enabled entry with a valid
 schedule, they report the later of its stored `lastCheck` and the row's
 `last_checked_at`. Event, webhook, and paused entries keep their stored value,
-because the scheduler does not check them. The field keeps its name and ISO
+because the scheduler does not check them. A heartbeat from before the
+entry's resource was created, its `created_at`, does not count, so a new
+entry keeps its stored value, usually empty, until the next check. Pausing
+and resuming keep the created time, so a resumed automation shows the last
+check at once, although that check read it while it was paused and skipped
+it. Checks run about once a minute, so that value is at most about a minute
+older than the resume, or older while a scheduled run holds the lease. The
+field keeps its name and ISO
 format, so the client is unchanged. A heartbeat whose row records an error in
 `last_error` is not a check, so the lists ignore it: a sweep writes that error
 in its `finally` when its scan failed. The value is informative only, so a
@@ -1074,6 +1081,10 @@ any heartbeat, keeps each stored value. A read that fails, because the health
 table was moved away, is logged once per list, and both lists keep the stored
 values. A heartbeat recorded with an error does not count, and the next good
 check counts again. The last two failed on the patch before the fallback.
+A fourth review round added a case: an automation and a legacy job created
+after the heartbeat keep their stored value, and a resumed automation shows
+the heartbeat. The first two failed on the patch before this round's fix. The
+other fixtures are backdated an hour, so they predate the heartbeat.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1108,8 +1119,15 @@ stop works in this order:
    start. The runner exports `isBackgroundAutomationsClosed`, and four more
    places check it. `executeJob` returns `skipped` before it marks the
    automation running, so a due job stays due, a direct `runJobNow` starts
-   nothing, and a Run now row it had already claimed reads interrupted. The
-   event handler checks it for each matching trigger before the identity
+   nothing, and a Run now row it had already claimed reads interrupted. For
+   an automation on a paired execution host, `executeJob` checks again after
+   the mark, right before it queues the run on that host, because the stop
+   cannot abort a run there. If a quit began during the mark, it writes back
+   the fields the mark replaced without moving the next run, so a scheduled
+   job stays due and a claimed Run now row reads interrupted. A quit that
+   begins while `dispatchRemoteAutomation` looks up the host and writes its
+   bookkeeping still queues the run. The event handler checks it for each
+   matching trigger before the identity
    check, any write, and the condition classifier, so the event is lost as
    after a crash. It checks again right before the dispatch, for a handler
    that passed the first check before the quit began. The in-process webhook
@@ -1273,13 +1291,19 @@ The stop waits for it until its bound, and no pass of its wait starts after
 the stop returns. Both failed on the patch before this round's fix: the task
 stayed `processing`, and the stop returned after the first piece of work.
 
-A fourth review round added two cases that load the lifecycle plugin with
+A fourth review round added three cases. Two load the lifecycle plugin with
 stand-ins for its four stops. One stop throws as it is called, and another
 rejects. Through the Nitro `close` hook and through the signal handler, every
 stop still starts, the automation stop first, and the failure is reported
 only after the automation stop settled. Both failed on the previous
 `stopLocalWork`, which used `Promise.all`: the preview stop never started, the
-hook rejected first, and the throw left the signal handler.
+hook rejected first, and the throw left the signal handler. In the third, a
+child holds the running mark of a scheduled run and a Run now for
+automations on a paired execution host until both are saving, then starts
+the stop. Nothing is queued on the host, the scheduled run stays due with no
+history row, the Run now row reads interrupted with no thread, and the next
+launch queues the due run. It failed on the patch before this round's fix,
+which queued both runs on the host.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both

@@ -165,7 +165,9 @@ is reported only after all of them settle, so the automation stop is always wait
 the scheduler to new sweeps and Run now claims, and the runner, the event handler, the in-process webhook runner, and
 Core's process-task route to new runs, so work that arrives during the quit starts no run and a due job stays due. The
 event handler checks before its first write and again right before its dispatch, and the route leaves a webhook call
-unclaimed. It aborts every in-process run that is still running with the reason `shutdown`, so a run that already
+unclaimed. A run for a paired execution host is checked again right before it is queued there, because the stop cannot
+abort it, so a quit during its running mark leaves the job due. It aborts every in-process run that is still running
+with the reason `shutdown`, so a run that already
 completed, or one the owner stopped, keeps its own outcome. It waits while each run records itself interrupted with
 Core's existing message and code, the trigger dispatcher and the webhook task worker record their outcome, whether
 the in-process runner or the process-task route ran the call, and the sweep that holds the lease releases it with its
@@ -184,22 +186,25 @@ second round added process-task route cases at and after the quit and an event w
 of which failed on the patch before its fix, and pins for an event whose condition check spans the quit and a run the
 owner stopped just before it. A third round added a quit that begins while the route's claim saves and work that
 keeps arriving during the stop, each of which failed on the patch before its fix. A fourth round added two cases in
-which one of the owner's stops throws and another rejects, which failed on the owner's previous `Promise.all`. The
-unpublished `9e921ca0` package
-ran the Windows check ([#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
+which one of the owner's stops throws and another rejects, and a quit during the running mark of two runs for a paired
+host, each of which failed before its fix. The unpublished `9e921ca0` package ran the Windows check
+([#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
 during a scheduled run left its row interrupted 18 ms after the close with the lease released, the next launch ran at
 its first tick, a webhook call cut off by a quit ran once after relaunch, and a hard kill kept the lease until it
 expired. The server bundle holds one copy of the scheduler module. Every normal quit still took 15.5 to 15.9 seconds,
 because the desktop server calls no exit after its cleanup and the desktop's 15-second kill ends it. After a hard kill,
 Settings shows a next run about a minute out while the held lease lets nothing run. The design description holds, and
-the receipt, the desktop guide, and the patch notes state these limits.
+the receipt, the desktop guide, and the patch notes state these limits. The fourth round's commits have not run in a
+package.
 
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
 healthy scheduled automation read as never checked. `list-automations` and `list-recurring-jobs` now report, for an
 enabled scheduled entry, the later of that field and the app's scheduler heartbeat in `automation_scheduler_health`,
 which every tick that holds the scheduler lease writes before it scans. Event, webhook, and paused entries keep their
-own value. A heartbeat whose check recorded an error does not count, and a failed read of that row is logged and
+own value. A heartbeat from before the entry was created does not count, so a new automation shows no check until the
+next one, and a resumed automation, which keeps its created time, shows the last check at once. A heartbeat whose
+check recorded an error does not count, and a failed read of that row is logged and
 leaves each entry's stored value, so the list does not fail on it. The desktop guide says LAST CHECKED updates about
 once a minute, and not while a scheduled run is in progress. The Details dialog no longer offers Open thread on a past
 run. Run threads have no chat scope, every Vivary history list shows only its own scope, and nothing on Settings
@@ -208,7 +213,8 @@ guide says so, corrects its claim that run threads stay in chat history, and des
 requirement and #135. The Unattended automation runs row and the runtime flows still hold, because the scheduler, the
 runs, and their storage are unchanged. The patch README section "Settings automation status" has the detail.
 `tests/automation-status.test.mjs` failed on the first patch for LAST CHECKED and Open thread, and its failed-read and
-failed-check cases failed on the patch before the fallback. In the `9e921ca0` package, LAST CHECKED advanced with the
+failed-check cases failed on the patch before the fallback, and its created-time case failed on the patch before the
+fourth round's fix, which has not run in a package. In the `9e921ca0` package, LAST CHECKED advanced with the
 heartbeat, Details offered no Open thread, and a paused automation showed no next run. Details shows the list entry
 captured when it opened, so LAST CHECKED can lag until the Automations tab reloads. The desktop guide and the patch notes
 say so.
