@@ -4,8 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Issue #145. A saved Native thread takes its fallback title and its preview from the first user message. Vivary's
-// composer appends the project's context to that message in a <context> block, which the owner never typed.
+// Issue #145. A saved Native thread takes its fallback title from the first user message with text and its preview from
+// the last. Vivary's composer appends the project's context to each message in a <context> block the owner never typed.
 const WORKBENCH = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native", "core", "package.json")));
 const { extractThreadMeta } = await import(pathToFileURL(join(CORE, "dist", "agent", "thread-data-builder.js")).href);
@@ -24,4 +24,16 @@ test("a message with only context gives no title, and a later message still sets
   const meta = extractThreadMeta(threadWith(appendAgentChatContextToMessage("", context),
     appendAgentChatContextToMessage("Kelp forest", context)));
   assert.deepEqual(meta, { title: "Kelp forest", preview: "Kelp forest" });
+});
+
+test("context tags the owner typed stay in the title", () => {
+  for (const typed of ['Explain "<context>" in XML', "Close it with </context> please", "<context>notes</context> are tags"]) {
+    assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage(typed, context))),
+      { title: typed, preview: typed }, typed);
+  }
+});
+
+test("the title comes from the first message with text and the preview from the last", () => {
+  assert.deepEqual(extractThreadMeta(threadWith(appendAgentChatContextToMessage("Sea stars", context),
+    appendAgentChatContextToMessage("Kelp forest", context))), { title: "Sea stars", preview: "Kelp forest" });
 });

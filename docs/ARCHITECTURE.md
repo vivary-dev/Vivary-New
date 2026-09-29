@@ -154,12 +154,13 @@ No documentation route reads arbitrary host files.
 ## Last change review
 
 Issue #145. A saved Native thread's fallback title and preview no longer show the context Vivary's composer appends.
-Core's `extractThreadMeta` built both from the first user message's raw text, including the `<context>` block with
-the project's scope id, so the preview, and the title whenever no generated title replaced it, showed it in the chat
-list. The maintained Core patch reads the message through `splitAgentChatContextFromMessage`, the split the chat
-already uses for display, before taking them. The patch README section "Native thread titles and previews without
-context" owns the detail. A test builds messages with Core's own `appendAgentChatContextToMessage`, and a loopback run
-saved a clean preview where `dev` saved the context block.
+Core's `extractThreadMeta` takes the title from the first user message with text and the preview from the last, both
+from the raw text, including the `<context>` block with the project's scope id. So the preview, and the title whenever
+no generated title replaced it, showed it in the chat list. The maintained Core patch removes only the one trailing
+envelope that `appendAgentChatContextToMessage` adds before taking them, so a `<context>` the owner typed stays. The
+patch README section "Native thread titles and previews without context" owns the detail. A test builds messages with
+Core's own `appendAgentChatContextToMessage`, and a loopback run saved a clean preview where `dev` saved the context
+block.
 
 Issue #131. The project sidebar's conversation row menus now work from the keyboard. The maintained Toolkit patch adds
 `ChatHistoryMenuItem`, a Radix `DropdownMenu.Item` around the existing button, and uses it for Rename, Pin, and

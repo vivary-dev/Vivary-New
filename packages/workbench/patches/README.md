@@ -1596,15 +1596,16 @@ row, the previous row, and the new chat's composer, at 1280 and 390 px.
 
 Issue #145. Vivary's composer appends the project's context to each message in
 a `<context>` block, which the owner never typed. Core's `extractThreadMeta` in
-`dist/agent/thread-data-builder.js` took a saved thread's fallback title and its
-preview from the first user message's raw text, so the preview, and the title
-whenever no generated title replaced it, showed that block, including the
-project's scope id.
+`dist/agent/thread-data-builder.js` takes a saved thread's fallback title from
+the first user message with text and its preview from the last, both from the
+raw text. So the preview, and the title whenever no generated title replaced
+it, showed that block, including the project's scope id.
 
-The patch reads the message through `splitAgentChatContextFromMessage` from
-`dist/shared/agent-chat-context.js`, the same split the chat uses to display
-the message, before it takes the title and preview. A message that holds only
-context gives no title.
+The patch removes only the envelope that `appendAgentChatContextToMessage` in
+`dist/shared/agent-chat-context.js` adds: the last `\n\n<context>\n`, when
+the text ends with `\n</context>`. A `<context>` the owner typed elsewhere in
+the message stays in the title. A message that holds only context gives no
+title.
 
 `native-thread-meta.test.mjs` builds messages with Core's own
 `appendAgentChatContextToMessage` and checks the title and preview. It is part
