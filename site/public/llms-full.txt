@@ -7331,7 +7331,9 @@ checks each kept target again, drops the clean ones, and starts no Codex while o
 Codex processes and a stop that finishes late needs no restart. The module flag that refused every later check until a
 restart is gone. On a platform the check does not support, a failed step is logged and refuses nothing later. Unit
 tests stand in tree stops that fail or time out while Codex ends, that never end it, and that end Codex but leave a
-helper that holds none of its pipes.
+helper that holds none of its pipes. On a mocked clock, a Codex that closes four seconds after a successful tree stop,
+past the former three-second wait, finishes its stop without the check, which the test stands in to report Codex
+still running.
 
 Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue.
 `code-execution-host.ts` takes one fresh check after the failure, and a check only reads. On Linux it sends signal 0

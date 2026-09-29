@@ -76,9 +76,9 @@ export async function getCodexModels(cwd: string, { refresh = false }: { refresh
 }
 
 /** Whether an unconfirmed Codex stop still leaves processes. A clean check drops its target. */
-async function unconfirmedStopRemains(): Promise<boolean> {
+async function unconfirmedStopRemains(checkCleanup: typeof checkWorkerCleanup): Promise<boolean> {
   await Promise.all([...unconfirmedStops].map(async target => {
-    const check = await checkWorkerCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }));
+    const check = await checkCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }));
     if (check.result === "unavailable") return;
     unconfirmedStops.delete(target);
     // A Windows check also tracks the processes it found, so their children stay linked after their parent exits.
@@ -90,11 +90,12 @@ async function unconfirmedStopRemains(): Promise<boolean> {
 /** Read safe catalog fields over Codex's supported protocol without starting a thread or model turn. */
 export async function probeCodexModels(
   launch: CommandLaunch, cwd: string, timeoutMs = 12_000,
-  // Tests pass their own tree stop and budget to produce the slow and failed stops a loaded Windows host shows.
-  { stopTree = hardStopWorkerTree, stopBudgetMs = CLEANUP_TIMEOUT_MS }:
-    { stopTree?: typeof hardStopWorkerTree; stopBudgetMs?: number } = {},
+  // Tests pass their own tree stop, check, and budget to produce the slow and failed stops a loaded Windows host shows.
+  { stopTree = hardStopWorkerTree, checkCleanup = checkWorkerCleanup, stopBudgetMs = CLEANUP_TIMEOUT_MS }: {
+    stopTree?: typeof hardStopWorkerTree; checkCleanup?: typeof checkWorkerCleanup; stopBudgetMs?: number;
+  } = {},
 ): Promise<CodexModelCatalog> {
-  if (await unconfirmedStopRemains()) return cleanupUnavailable();
+  if (await unconfirmedStopRemains(checkCleanup)) return cleanupUnavailable();
   return new Promise(resolve => {
     // The host clock just before and after the spawn, and at the exit, bounds Codex's Windows identity for a check.
     const spawnedFrom = Date.now();
@@ -139,7 +140,7 @@ export async function probeCodexModels(
     const stopConfirmed = async (failure: CleanupFailure): Promise<boolean> => {
       const target = await workerCleanupTarget(child.pid, spawnedFrom, spawnedTo, exitedAt);
       const check: CleanupCheck = target
-        ? await checkWorkerCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }))
+        ? await checkCleanup(target).catch((): CleanupCheck => ({ result: "unavailable" }))
         : { result: "unavailable" };
       if (check.result === "clean") return true;
       // The credential redaction plugin redacts server output. Process names and error messages stay out of the log.

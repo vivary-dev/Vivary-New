@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
+import type { CleanupCheck, CleanupTarget } from "../server/code-execution-host";
 import { parseCodexCatalog, probeCodexModels } from "../server/codex-models";
 
 const models = { data: [
@@ -117,19 +118,50 @@ process.stdin.resume();setInterval(()=>{},1000);`);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("a forced stop counts once Codex exits, even when taskkill reports an error", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-slow-stop-"));
+test("a forced stop that taskkill reports as failed counts once nothing is left", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-forced-stop-"));
   const file = path.join(dir, "lingering.mjs");
   await writeFile(file, lingeringCodex);
   // On a loaded Windows host `taskkill /F` can time out and still end Codex, which then reports no success code.
-  const slowTaskkill = async (child: ChildProcess, workerExited: boolean) => {
+  const timedOutTaskkill = async (child: ChildProcess, workerExited: boolean) => {
     if (workerExited) return;
     setImmediate(() => child.kill("SIGKILL"));
     throw Object.assign(new Error("taskkill timed out"), { killed: true });
   };
   try {
-    const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir, 12_000, { stopTree: slowTaskkill });
+    const result = await probeCodexModels({ executable: process.execPath, prefix: [file], env: {} }, dir, 12_000,
+      { stopTree: timedOutTaskkill });
     assert.equal(result.status, "ready");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("a stop that outlasts the former three-second wait counts once Codex exits", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivary-codex-slow-stop-"));
+  const file = path.join(dir, "lingering.mjs");
+  await writeFile(file, lingeringCodex);
+  const launch = { executable: process.execPath, prefix: [file], env: {} };
+  // The tree stop succeeds. On a mocked clock Codex then runs four more seconds, past the wait that used to fail the
+  // stop, and exits inside the budget.
+  const slowExit = async (child: ChildProcess, workerExited: boolean) => {
+    if (workerExited) return;
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+    // The check has started its wait for the close by the time this runs.
+    setImmediate(() => {
+      t.mock.timers.tick(4_000);
+      // A wait that ended at the tick settles on the next turn, before Codex exits.
+      setImmediate(() => {
+        t.mock.timers.reset();
+        child.kill("SIGKILL");
+      });
+    });
+  };
+  // Only a stop that gave up before the close would ask for a check. This one would say Codex was still running.
+  const codexStillRunning = async (target: CleanupTarget): Promise<CleanupCheck> =>
+    ({ result: "remaining", remaining: [{ pid: 1, name: "codex", start: 1 }], hidden: false, target });
+  try {
+    const result = await probeCodexModels(launch, dir, 12_000, { stopTree: slowExit, checkCleanup: codexStillRunning });
+    assert.equal(result.status, "ready");
+    assert.equal((await probeCodexModels(launch, dir, 12_000, { checkCleanup: codexStillRunning })).status, "ready");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
