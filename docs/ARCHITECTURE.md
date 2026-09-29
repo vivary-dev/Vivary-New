@@ -153,6 +153,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
+Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer
+lists part B as remaining. It names the `681e2ac9` packaged check of a seeded refusal and says that PR #134's commits
+from `1dd7880` on have not run in a package. The row now lists #133 and #130 as remaining. Documentation only, so
+the design description holds.
+
 Issue #121, part B. A failed stop now names what it left behind, and the owner can end it or continue.
 `code-execution-host.ts` takes one fresh check after the failure, and a check only reads. On Linux it sends signal 0
 to the worker's process group. When the kernel reports no such group, the check is clean without reading `/proc`.
