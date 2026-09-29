@@ -211,6 +211,12 @@ check a real process group, answer the Windows query, the Windows End call, and 
 scan and End scripts, as the host builds them, ran in Full and Constrained Language Mode against processes the probe
 started. The query and End them from inside the packaged app still need the packaged check.
 
+Issue #105 is closed. PR #132 merged into `dev` as `390271a` after all eight checks passed, including Entire
+Gates, and #105 was closed on 2026-09-28. This branch merged `dev` at that commit. The Native conversations row in
+the acceptance register no longer lists #105 as open. It names the `9698ca24` packaged check of archive and restore
+and says that PR #132's commits from `2ae5b82` on have not run in a package. Documentation only, so the design
+description holds.
+
 Issue #105, archived Native chats. Archive hides a Native chat by setting `chat_threads.archived_at`, and until now
 nothing listed archived chats for the browser. The project sidebar now ends with an Archived conversations disclosure.
 Each time it opens it lists the project's archived chats again, newest first, through the new `vivary-native-archive`
