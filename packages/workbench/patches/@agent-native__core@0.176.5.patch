@@ -366,7 +366,7 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f3
      onOutcome?: (outcome: AgentLoopOutcome) => void;
      ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f173ae9e6 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..77f6dd0ec782c5dcb8bfa652f3fd50182d2d8d76 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -411,7 +411,28 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
          : null;
  }
  /** Build enriched message with file/skill/mention references */
-@@ -1708,6 +1717,11 @@ export function isResumableEngineError(err) {
+@@ -1423,7 +1432,7 @@ export async function resolveSkillReferenceContent(ref) {
+         if (!ownerEmail || !ref.path)
+             return null;
+         try {
+-            const { resourceEffectiveContext, resourceGet } = await import("../resources/store.js");
++            const { isPendingRunReview, resourceEffectiveContext, resourceGet } = await import("../resources/store.js");
+             const resourceOptions = {
+                 userEmail: ownerEmail,
+                 orgId: getRequestOrgId() ?? null,
+@@ -1436,7 +1445,10 @@ export async function resolveSkillReferenceContent(ref) {
+             const full = await resourceGet(effective.effectiveResource.id, {
+                 ...resourceOptions,
+             });
+-            if (!full?.content || !isRuntimeVisibleSkillContent(full.content)) {
++            // Vivary #109: a skill an automation run wrote waits for the owner's review.
++            if (!full?.content ||
++                isPendingRunReview(full) ||
++                !isRuntimeVisibleSkillContent(full.content)) {
+                 return null;
+             }
+             return full.content;
+@@ -1708,6 +1720,11 @@ export function isResumableEngineError(err) {
      if (!(err instanceof Error))
          return false;
      const code = err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
@@ -423,7 +444,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
      if (code === "builder_gateway_timeout" ||
          code === "builder_gateway_network_error" ||
          // A gateway stream that stopped mid-turn. It reached here as
-@@ -3334,6 +3348,65 @@ function validateRawToolInput(entry, input) {
+@@ -3334,6 +3351,65 @@ function validateRawToolInput(entry, input) {
          dataVar: "input",
      });
  }
@@ -489,7 +510,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
  /**
   * The core agent loop — calls the engine iteratively until no more tool calls.
   * Decoupled from HTTP transport so it can run in the background.
-@@ -3625,6 +3698,7 @@ export async function runAgentLoop(opts) {
+@@ -3625,6 +3701,7 @@ export async function runAgentLoop(opts) {
                      providerOptions: opts.providerOptions,
                  };
                  usage.llmCalls = (usage.llmCalls ?? 0) + 1;
@@ -497,7 +518,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                  const eventStream = engine.stream(streamOpts);
                  let thinkingBuffer = "";
                  const toolInputNames = new Map();
-@@ -3941,6 +4015,7 @@ export async function runAgentLoop(opts) {
+@@ -3941,6 +4018,7 @@ export async function runAgentLoop(opts) {
                                  cacheReadTokens: event.cacheReadTokens ?? 0,
                                  cacheWriteTokens: event.cacheWriteTokens ?? 0,
                                  model,
@@ -505,7 +526,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                              };
                              usage.inputTokens += eventUsage.inputTokens;
                              usage.outputTokens += eventUsage.outputTokens;
-@@ -4363,7 +4438,8 @@ export async function runAgentLoop(opts) {
+@@ -4363,7 +4441,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -515,7 +536,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5161,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5164,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -526,7 +547,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5216,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5219,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -535,7 +556,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5469,6 +5549,11 @@ export function isRecoverableContinuationError(event) {
+@@ -5469,6 +5552,11 @@ export function isRecoverableContinuationError(event) {
      const message = event.error.toLowerCase();
      if (code === "builder_gateway_error")
          return false;
@@ -547,7 +568,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
      // An explicit flag outranks the message sniff below, which exists for events
      // that carry no flag at all. Every guard stop sets `recoverable: false`, and
      // sniffing its prose is how a stop that merely NAMES a connection or a
-@@ -5890,7 +5975,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5890,7 +5978,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -556,7 +577,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
          }
      }
      return updated;
-@@ -7389,12 +7474,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7477,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -571,7 +592,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
-@@ -8299,13 +8384,7 @@ export function createProductionAgentHandler(options) {
+@@ -8299,13 +8387,7 @@ export function createProductionAgentHandler(options) {
                  : typeof message === "string" && message.trim().length > 0
                      ? message
                      : undefined;
@@ -586,7 +607,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
              const agentLoopOpts = {
                  engine,
                  model: effectiveModel,
-@@ -8318,13 +8397,8 @@ export function createProductionAgentHandler(options) {
+@@ -8318,13 +8400,8 @@ export function createProductionAgentHandler(options) {
                  actions: requestActions,
                  send,
                  signal,
@@ -602,7 +623,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..39bf5d834c524f294c03c161c74c319f
                  ownerEmail,
                  orgId: getRequestOrgId() ?? null,
                  attachments: requestAttachments,
-@@ -8493,11 +8567,7 @@ export function createProductionAgentHandler(options) {
+@@ -8493,11 +8570,7 @@ export function createProductionAgentHandler(options) {
                          const { recordUsage } = await import("../usage/store.js");
                          await recordUsage({
                              ownerEmail: resolvedOwnerEmail,
@@ -5932,10 +5953,10 @@ index 0000000000000000000000000000000000000000..cde432822f3a6e0aa3dc15e06ca9a225
 +export declare function restrictActionsForUnattendedRun(actions: Record<string, ActionEntry>, automation?: Pick<BackgroundAutomationContext, "meta">): Record<string, ActionEntry>;
 diff --git a/dist/jobs/unattended-surface.js b/dist/jobs/unattended-surface.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..fbd2cbf498ed027b0737f4169df596feb6a82812
+index 0000000000000000000000000000000000000000..70d45581075d65f8265b783c863acfd40dd41067
 --- /dev/null
 +++ b/dist/jobs/unattended-surface.js
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,197 @@
 +/**
 + * Local-only tool surface for unattended automation runs.
 + *
@@ -5950,6 +5971,7 @@ index 0000000000000000000000000000000000000000..fbd2cbf498ed027b0737f4169df596fe
 + * "automation", so a tool reached some other way enforces the same limits.
 + */
 +import path from "node:path";
++import { getRequestContext, runWithRequestContext } from "../server/request-context.js";
 +/** The only tools an automation run is offered. */
 +export const UNATTENDED_TOOLS = Object.freeze([
 +    "resources",
@@ -6112,10 +6134,21 @@ index 0000000000000000000000000000000000000000..fbd2cbf498ed027b0737f4169df596fe
 +                const refusal = unattendedToolRefusal(name, args);
 +                if (refusal)
 +                    return refusal;
-+                return entry.run(unattendedToolArgs(name, args), {
++                // Vivary #109: the store records every write this call makes as the
++                // run's and holds an instruction file for the owner's review. It reads
++                // the run from the request context, so no tool argument can set or
++                // clear it.
++                return runWithRequestContext({
++                    ...getRequestContext(),
++                    automationRun: {
++                        runId: context?.runId ?? null,
++                        threadId: context?.threadId ?? null,
++                        automation: automation?.name ?? context?.automation?.triggerName ?? null,
++                    },
++                }, () => entry.run(unattendedToolArgs(name, args), {
 +                    ...context,
 +                    caller: "automation",
-+                });
++                }));
 +            },
 +        };
 +    }
@@ -6197,6 +6230,297 @@ index f6429f95fb3eddc4071e39f1e4394d5c2ea8d3bb..e8807f035d1a072e6a5d6e574366f7a7
                  const owner = getCurrentUser();
                  const action = args.action;
                  switch (action) {
+diff --git a/dist/resources/store.d.ts b/dist/resources/store.d.ts
+index 9e45f714a6a3a275e97e41d67111802c17aa6c71..00d299a4f1cbf5fa7eef628558111dea204110c6 100644
+--- a/dist/resources/store.d.ts
++++ b/dist/resources/store.d.ts
+@@ -127,6 +127,30 @@ export declare function resourcePutIfAbsent(owner: string, path: string, content
+  */
+ export declare function resourcePutIfCurrent(input: ResourceConditionalWrite): Promise<Resource | null>;
+ export declare function resourceDeleteIfCurrent(resource: Resource): Promise<boolean>;
++/** Vivary #109: the review record a run's write leaves in a row's metadata. */
++export interface ResourceRunReview {
++    state: "pending" | "accepted";
++    runId: string | null;
++    automation: string | null;
++    writtenAt: number;
++    acceptedBy?: string;
++    acceptedAt?: number;
++}
++export declare function resourceRunReview(resource: Pick<ResourceMeta, "metadata"> | null | undefined): ResourceRunReview | null;
++/** True while a file an automation run wrote waits for the owner's review. */
++export declare function isPendingRunReview(resource: Pick<ResourceMeta, "metadata"> | null | undefined): boolean;
++export interface ResourceRunReviewAccept {
++    id: string;
++    owner: string;
++    path: string;
++    /** The update time the owner reviewed. */
++    updatedAt: number;
++    /** The run whose write the owner reviewed. */
++    runId: string | null;
++    acceptedBy: string;
++}
++/** Accept a waiting file only while it still holds the version the owner reviewed. */
++export declare function resourceAcceptRunReviewIfCurrent(input: ResourceRunReviewAccept): Promise<Resource | null>;
+ export declare function resourceDelete(id: string): Promise<boolean>;
+ export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
+ export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
+diff --git a/dist/resources/store.js b/dist/resources/store.js
+index 44e9ccf92edf7026bae290de14c9c65388042eae..cc63f8dbb20846d393156db5fac16c45139450b6 100644
+--- a/dist/resources/store.js
++++ b/dist/resources/store.js
+@@ -1,9 +1,10 @@
+ import crypto from "crypto";
++import nodePath from "node:path";
+ import { getDbExec, isPostgres, intType, retryOnDdlRace, } from "../db/client.js";
+ import { ensureColumnExists, ensureIndexExists, ensureTableExists, } from "../db/ddl-guard.js";
+ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+ import { canUseLocalWorkspaceResourcePath, deleteLocalWorkspaceResource, isLocalWorkspaceResourceId, isLocalWorkspaceResourcesEnabled, listLocalWorkspaceResources, localWorkspaceResourcePathFromId, readLocalWorkspaceResource, writeLocalWorkspaceResource, } from "../local-artifacts/index.js";
+-import { getRequestOrgId, getRequestUserEmail, } from "../server/request-context.js";
++import { getRequestContext, getRequestOrgId, getRequestUserEmail, } from "../server/request-context.js";
+ import { getSetting, putSetting, } from "../settings/store.js";
+ import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+ export const SHARED_OWNER = "__shared__";
+@@ -367,6 +368,79 @@ function serializeMetadata(value) {
+         return null;
+     return typeof value === "string" ? value : JSON.stringify(value);
+ }
++// ---------------------------------------------------------------------------
++// Vivary #109: files an automation run writes wait for the owner's review
++// ---------------------------------------------------------------------------
++/**
++ * Paths Core loads into prompts as instructions or memory, compared as
++ * jobs/unattended-surface.js compares configuration paths: forward slashes,
++ * no leading slash or dot segments, and lower case, because SQLite LIKE
++ * prefix matching ignores ASCII case.
++ */
++const RUN_REVIEWED_FILES = new Set(["agents.md", "learnings.md"]);
++const RUN_REVIEWED_PREFIXES = ["instructions/", "skills/", "memory/"];
++function isRunReviewedResourcePath(value) {
++    const normalized = nodePath.posix
++        .normalize(String(value ?? "").trim().replace(/\\/g, "/"))
++        .replace(/^(\.\/|\/)+/, "")
++        .toLowerCase();
++    return (RUN_REVIEWED_FILES.has(normalized) ||
++        RUN_REVIEWED_PREFIXES.some((prefix) => normalized.startsWith(prefix)));
++}
++function metadataObject(value) {
++    if (typeof value !== "string" || !value)
++        return {};
++    try {
++        const parsed = JSON.parse(value);
++        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
++            ? parsed
++            : {};
++    }
++    catch {
++        return {};
++    }
++}
++/** The review record a run's write left in a row's metadata, or null. */
++export function resourceRunReview(resource) {
++    const review = metadataObject(resource?.metadata).runReview;
++    return review && typeof review === "object" && !Array.isArray(review)
++        ? review
++        : null;
++}
++/** True while a file an automation run wrote waits for the owner's review. */
++export function isPendingRunReview(resource) {
++    return resourceRunReview(resource)?.state === "pending";
++}
++/** Metadata as an object with the review record set, other keys kept. */
++function withRunReview(metadata, review) {
++    return JSON.stringify({ ...metadataObject(metadata), runReview: review });
++}
++function pendingRunReview(run, writtenAt) {
++    return {
++        state: "pending",
++        runId: run.runId ?? null,
++        automation: run.automation ?? null,
++        writtenAt,
++    };
++}
++/**
++ * The automation run making this write, from the request context that
++ * restrictActionsForUnattendedRun sets around each tool call, or null. A run
++ * may write instruction files only in its own user's personal scope. App
++ * default and organization files load for other people, and a personal
++ * automation runs with no organization, so its shared writes would reach
++ * the app default without a role check.
++ */
++function automationRunWrite(owner, resourcePath) {
++    const run = getRequestContext()?.automationRun;
++    if (!run)
++        return null;
++    if (isRunReviewedResourcePath(resourcePath) &&
++        owner !== getRequestUserEmail()) {
++        throw new Error(`Automation runs cannot write ${resourcePath} outside the owner's personal files, because shared and organization instruction files load for other people.`);
++    }
++    return run;
++}
+ function scratchFilterSql(options) {
+     return options?.includeAgentScratch === true
+         ? ""
+@@ -1121,6 +1195,7 @@ export async function resourceGetByPath(owner, path, options) {
+ }
+ export async function resourcePut(owner, path, content, mimeType, options) {
+     await ensureTable();
++    const run = automationRunWrite(owner, path);
+     if (owner === WORKSPACE_OWNER &&
+         (await shouldHandleWorkspaceResourceAsLocal(path))) {
+         const written = await writeLocalWorkspaceResource({ path, content });
+@@ -1146,18 +1221,26 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+     const existingRow = existing[0];
+     const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
+     const createdAt = existingRow ? Number(existingRow.created_at) : now;
+-    const createdBy = normalizeCreatedBy(hasOption(options, "createdBy")
+-        ? options?.createdBy
+-        : existingRow?.created_by);
++    // Vivary #109: a run's write records the run, whatever the caller passed
++    // or the row held.
++    const createdBy = run
++        ? "agent"
++        : normalizeCreatedBy(hasOption(options, "createdBy")
++            ? options?.createdBy
++            : existingRow?.created_by);
+     const visibility = normalizeVisibility(hasOption(options, "visibility")
+         ? options?.visibility
+         : existingRow?.visibility);
+-    const threadId = hasOption(options, "threadId")
+-        ? (options?.threadId ?? null)
+-        : nullableString(existingRow?.thread_id);
+-    const runId = hasOption(options, "runId")
+-        ? (options?.runId ?? null)
+-        : nullableString(existingRow?.run_id);
++    const threadId = run
++        ? (run.threadId ?? null)
++        : hasOption(options, "threadId")
++            ? (options?.threadId ?? null)
++            : nullableString(existingRow?.thread_id);
++    const runId = run
++        ? (run.runId ?? null)
++        : hasOption(options, "runId")
++            ? (options?.runId ?? null)
++            : nullableString(existingRow?.run_id);
+     let expiresAt = hasOption(options, "expiresAt")
+         ? (options?.expiresAt ?? null)
+         : nullableNumber(existingRow?.expires_at);
+@@ -1168,9 +1251,19 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+         expiresAt = null;
+     }
+     const serializedMetadata = serializeMetadata(options?.metadata);
+-    const metadata = serializedMetadata !== undefined
++    let metadata = serializedMetadata !== undefined
+         ? serializedMetadata
+         : nullableString(existingRow?.metadata);
++    // Vivary #109: a run's write to an instruction path waits for review. Any
++    // other write keeps the row's review record, so only the owner's accept
++    // or delete in Settings settles it, never a later chat or edit.
++    const keptRunReview = resourceRunReview({ metadata: existingRow?.metadata });
++    if (run && isRunReviewedResourcePath(path)) {
++        metadata = withRunReview(metadata, pendingRunReview(run, now));
++    }
++    else if (keptRunReview) {
++        metadata = withRunReview(metadata, keptRunReview);
++    }
+     await client.execute({
+         sql: isPostgres()
+             ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
+@@ -1213,6 +1306,7 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+ /** Insert a resource only when its owner/path pair is still unused. */
+ export async function resourcePutIfAbsent(owner, path, content, mimeType, options) {
+     await ensureTable();
++    const run = automationRunWrite(owner, path);
+     if (owner === WORKSPACE_OWNER &&
+         (await shouldHandleWorkspaceResourceAsLocal(path))) {
+         return null;
+@@ -1225,12 +1319,16 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
+     const size = Buffer.byteLength(content, "utf8");
+     const mime = mimeType || "text/markdown";
+     const id = crypto.randomUUID();
+-    const createdBy = normalizeCreatedBy(options?.createdBy);
++    const createdBy = run ? "agent" : normalizeCreatedBy(options?.createdBy);
+     const visibility = normalizeVisibility(options?.visibility);
+-    const threadId = hasOption(options, "threadId")
+-        ? (options?.threadId ?? null)
+-        : null;
+-    const runId = hasOption(options, "runId") ? (options?.runId ?? null) : null;
++    const threadId = run
++        ? (run.threadId ?? null)
++        : hasOption(options, "threadId")
++            ? (options?.threadId ?? null)
++            : null;
++    const runId = run
++        ? (run.runId ?? null)
++        : hasOption(options, "runId") ? (options?.runId ?? null) : null;
+     let expiresAt = hasOption(options, "expiresAt")
+         ? (options?.expiresAt ?? null)
+         : null;
+@@ -1240,7 +1338,9 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
+     if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
+         expiresAt = null;
+     }
+-    const metadata = serializeMetadata(options?.metadata) ?? null;
++    const metadata = run && isRunReviewedResourcePath(path)
++        ? withRunReview(serializeMetadata(options?.metadata) ?? null, pendingRunReview(run, now))
++        : (serializeMetadata(options?.metadata) ?? null);
+     const result = await client.execute({
+         sql: isPostgres()
+             ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+@@ -1367,6 +1467,53 @@ export async function resourceDeleteIfCurrent(resource) {
+     }
+     return deleted;
+ }
++/**
++ * Vivary #109. Record the owner's accept of a file an automation run wrote,
++ * only while the row still holds the version the owner reviewed: the same
++ * id, owner, path, and update time, and a pending review from the same run.
++ * The update also compares the metadata it read, so a write in between fails
++ * the accept instead of approving text the owner never saw.
++ */
++export async function resourceAcceptRunReviewIfCurrent(input) {
++    await ensureTable();
++    const client = getDbExec();
++    const { rows } = await client.execute({
++        sql: `SELECT * FROM resources WHERE id = ? AND owner = ? AND path = ?`,
++        args: [input.id, input.owner, input.path],
++    });
++    if (rows.length === 0)
++        return null;
++    const current = rowToResource(rows[0]);
++    const review = resourceRunReview(current);
++    if (current.updatedAt !== input.updatedAt ||
++        review?.state !== "pending" ||
++        (review.runId ?? null) !== (input.runId ?? null)) {
++        return null;
++    }
++    const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
++    const metadata = withRunReview(current.metadata, {
++        ...review,
++        state: "accepted",
++        acceptedBy: input.acceptedBy,
++        acceptedAt: updatedAt,
++    });
++    const result = await client.execute({
++        sql: `UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND metadata = ?`,
++        args: [
++            metadata,
++            updatedAt,
++            current.id,
++            current.owner,
++            current.path,
++            current.updatedAt,
++            current.metadata,
++        ],
++    });
++    if (result.rowsAffected !== 1)
++        return null;
++    emitResourceChange(current.id, current.path, current.owner);
++    return { ...current, metadata, updatedAt };
++}
+ export async function resourceDelete(id) {
+     await ensureTable();
+     if (isLocalWorkspaceResourceId(id)) {
 diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
 index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b12d0f633 100644
 --- a/dist/scripts/agent-engines/list-agent-engines.js
@@ -6211,6 +6535,71 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
              },
      };
      return JSON.stringify(result, null, 2);
+diff --git a/dist/scripts/resources/read.js b/dist/scripts/resources/read.js
+index 467263c0411135a3acdfc27b790da7b330a17361..8a9543848a115390617875255a5302043f42f5e7 100644
+--- a/dist/scripts/resources/read.js
++++ b/dist/scripts/resources/read.js
+@@ -6,9 +6,19 @@
+  * Usage:
+  *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
+  */
+-import { SHARED_OWNER, resourceGetByPath, ensurePersonalDefaults, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
++import { SHARED_OWNER, isPendingRunReview, resourceGetByPath, ensurePersonalDefaults, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
+ import { getAmbientUserEmail, getRequestOrgId, getRequestUserEmail, } from "../../server/request-context.js";
+ import { parseArgs, fail } from "../utils.js";
++// Vivary #109: a file an automation run wrote waits for the owner's review,
++// so a chat or a run reading it gets this note instead of its text.
++const RUN_REVIEW_NOTE = "This file was written by an automation run and is waiting for the owner's review in Settings > Automation files. Its content is not available to chats or automation runs until the owner accepts it.";
++function writeResourceContent(resource) {
++    if (isPendingRunReview(resource)) {
++        console.log(RUN_REVIEW_NOTE);
++        return;
++    }
++    process.stdout.write(resource.content);
++}
+ export default async function resourceReadScript(args) {
+     const parsed = parseArgs(args);
+     if (parsed.help === "true") {
+@@ -40,7 +50,7 @@ Options:
+             console.log(`Resource not found: ${resourcePath} (scope: workspace). Workspace resources are managed from Dispatch.`);
+             return;
+         }
+-        process.stdout.write(resource.content);
++        writeResourceContent(resource);
+         return;
+     }
+     if (scope === "shared") {
+@@ -54,13 +64,13 @@ Options:
+             console.log(`Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`);
+             return;
+         }
+-        process.stdout.write(resource.content);
++        writeResourceContent(resource);
+         return;
+     }
+     // Default: try personal first, then app/organization shared, then workspace.
+     const personal = await resourceGetByPath(owner, resourcePath);
+     if (personal) {
+-        process.stdout.write(personal.content);
++        writeResourceContent(personal);
+         return;
+     }
+     if (scope === "personal") {
+@@ -75,12 +85,12 @@ Options:
+             ? null
+             : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
+     if (shared) {
+-        process.stdout.write(shared.content);
++        writeResourceContent(shared);
+         return;
+     }
+     const workspace = await resourceGetByPath(WORKSPACE_OWNER, resourcePath);
+     if (workspace) {
+-        process.stdout.write(workspace.content);
++        writeResourceContent(workspace);
+         return;
+     }
+     console.log(`Resource not found: ${resourcePath}. You can create it with resource-write.`);
 diff --git a/dist/secrets/index.d.ts b/dist/secrets/index.d.ts
 index 19ab59c282011ce119477d20ea60218680fdaea6..823aff77963542185d30dd565a3dd72ffc4f1966 100644
 --- a/dist/secrets/index.d.ts
@@ -6456,6 +6845,197 @@ index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa
       */
      backgroundMcpTools?: "requested" | "all";
      /**
+diff --git a/dist/server/agent-chat/prompt-resources.js b/dist/server/agent-chat/prompt-resources.js
+index 40396251b3887addb4303ece517af947f2eb4ed3..a5b9ce23c5b8219ad8cc7a1ce363608ff256f6c6 100644
+--- a/dist/server/agent-chat/prompt-resources.js
++++ b/dist/server/agent-chat/prompt-resources.js
+@@ -1,6 +1,6 @@
+ import { frameworkGroupEnabled, } from "../../framework-tools.js";
+ import { getFrontmatterValue, getSkillNameFromPath, parseFrontmatter, } from "../../resources/metadata.js";
+-import { ensurePersonalDefaults, organizationIdFromResourceOwner, resourceGet, resourceGetByPath, resourceList, resourceListAccessible, SHARED_OWNER, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
++import { ensurePersonalDefaults, isPendingRunReview, organizationIdFromResourceOwner, resourceGet, resourceGetByPath, resourceList, resourceListAccessible, SHARED_OWNER, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
+ import { discoverAgents } from "../agent-discovery.js";
+ import { getRequestOrgId } from "../request-context.js";
+ import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./skill-frontmatter.js";
+@@ -415,6 +415,18 @@ function getResourceSummaryFromContent(content) {
+         return heading.replace(/^#{1,3}\s+/, "").trim();
+     return null;
+ }
++/**
++ * Vivary #109. One line for a prompt whose loaders skipped files an
++ * automation run wrote. It carries a count only, because the paths and the
++ * text are the run's.
++ */
++function runReviewNote(count) {
++    const one = count === 1;
++    const files = one
++        ? "1 instruction or memory file written by an automation run is"
++        : `${count} instruction or memory files written by automation runs are`;
++    return `<context-note>${files} waiting for the owner's review in Settings > Automation files. ${one ? "It is" : "They are"} not loaded. Do not follow or rewrite ${one ? "it" : "them"}. If a task seems to depend on one, tell the owner.</context-note>`;
++}
+ export function resourceScopeForOwner(owner, currentOwner) {
+     if (owner === WORKSPACE_OWNER)
+         return "workspace";
+@@ -425,7 +437,7 @@ export function resourceScopeForOwner(owner, currentOwner) {
+         return "personal";
+     return "resource";
+ }
+-async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS) {
++async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS, runReview = { skipped: 0 }) {
+     let agents;
+     try {
+         agents = await resourceGetByPath(owner, "AGENTS.md");
+@@ -433,6 +445,11 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
+     catch (error) {
+         throw new Error(`Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`, { cause: error });
+     }
++    // Vivary #109: a file an automation run wrote waits for the owner's review.
++    if (isPendingRunReview(agents)) {
++        runReview.skipped += 1;
++        return null;
++    }
+     if (!agents?.content?.trim())
+         return null;
+     return promptResourceBlock({
+@@ -443,12 +460,15 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
+         maxChars,
+     });
+ }
+-async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS, summaryOnly = false) {
++async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS, summaryOnly = false, runReview = { skipped: 0 }) {
+     try {
+         const resources = await resourceList(owner, "instructions/");
+-        const sorted = resources
+-            .filter((resource) => isAutoLoadedInstructionPath(resource.path))
++        const instructions = resources.filter((resource) => isAutoLoadedInstructionPath(resource.path));
++        // Vivary #109: files an automation run wrote wait for the owner's review.
++        const sorted = instructions
++            .filter((resource) => !isPendingRunReview(resource))
+             .sort((a, b) => a.path.localeCompare(b.path));
++        runReview.skipped += instructions.length - sorted.length;
+         if (summaryOnly) {
+             if (sorted.length === 0)
+                 return [];
+@@ -489,7 +509,7 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
+         return [];
+     }
+ }
+-async function loadResourceSkillsPromptBlock(owner, orgId) {
++async function loadResourceSkillsPromptBlock(owner, orgId, runReview = { skipped: 0 }) {
+     try {
+         const organizationOwner = sharedResourceOwner(orgId);
+         const resources = owner === SHARED_OWNER
+@@ -498,7 +518,10 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+                 ...(await resourceList(WORKSPACE_OWNER, "skills/")),
+             ]
+             : await resourceListAccessible(owner, "skills/", { orgId });
+-        const sorted = resources.sort((a, b) => {
++        // Vivary #109: skills an automation run wrote wait for the owner's review.
++        const reviewed = resources.filter((resource) => !isPendingRunReview(resource));
++        runReview.skipped += resources.length - reviewed.length;
++        const sorted = reviewed.sort((a, b) => {
+             const ownerOrder = (a.owner === owner
+                 ? 0
+                 : a.owner === organizationOwner
+@@ -572,7 +595,9 @@ async function loadResourceIndexForPrompt(owner, scope) {
+         for (let index = 0; index < listed.length; index++) {
+             const resource = listed[index];
+             const full = fullResources[index];
+-            const summary = full?.content
++            // Vivary #109: a file an automation run wrote is listed by path only,
++            // so its text does not reach the prompt unasked.
++            const summary = full?.content && !full.runId
+                 ? getResourceSummaryFromContent(full.content)
+                 : null;
+             lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
+@@ -615,6 +640,9 @@ async function loadResourceIndexForPrompt(owner, scope) {
+ export async function loadResourcesForPrompt(owner, compact = false, selfAppId, orgId = getRequestOrgId() ?? null, opts) {
+     await ensurePersonalDefaults(owner);
+     const sections = [];
++    // Vivary #109: counts the files an automation run wrote that the loaders
++    // below skip, for the note at the end.
++    const runReview = { skipped: 0 };
+     const addSection = (content, governance = "inherited") => {
+         if (content?.trim())
+             sections.push({ content, governance });
+@@ -681,33 +709,33 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+     // 3. Runtime workspace resources. These are global defaults inherited by
+     // every app in the workspace, not copied into app scopes. They may come from
+     // SQL, Dispatch, or local file mode.
+-    const workspaceAgents = await loadAgentsResourceForPrompt(WORKSPACE_OWNER, "workspace", promptResourceMaxChars);
++    const workspaceAgents = await loadAgentsResourceForPrompt(WORKSPACE_OWNER, "workspace", promptResourceMaxChars, runReview);
+     addSection(workspaceAgents, "required");
+-    addSections(await loadInstructionResourcesForPrompt(WORKSPACE_OWNER, "workspace-instruction", promptResourceMaxChars, compact));
++    addSections(await loadInstructionResourcesForPrompt(WORKSPACE_OWNER, "workspace-instruction", promptResourceMaxChars, compact, runReview));
+     const organizationOwner = sharedResourceOwner(orgId);
+     // 4. Legacy app-wide defaults. Existing deployments keep their seeded
+     // shared guidance as an inherited fallback; organization writes never
+     // mutate this owner.
+-    const appDefaultAgents = await loadAgentsResourceForPrompt(SHARED_OWNER, organizationOwner === SHARED_OWNER ? "shared" : "app-default", promptResourceMaxChars);
++    const appDefaultAgents = await loadAgentsResourceForPrompt(SHARED_OWNER, organizationOwner === SHARED_OWNER ? "shared" : "app-default", promptResourceMaxChars, runReview);
+     addSection(appDefaultAgents, "required");
+     addSections(await loadInstructionResourcesForPrompt(SHARED_OWNER, organizationOwner === SHARED_OWNER
+         ? "shared-instruction"
+-        : "app-default-instruction", promptResourceMaxChars, compact));
++        : "app-default-instruction", promptResourceMaxChars, compact, runReview));
+     // 5. Active organization resources. These are the durable team rules and
+     // learnings that Slack/integration runs share with interactive app chat.
+     if (organizationOwner !== SHARED_OWNER) {
+-        const organizationAgents = await loadAgentsResourceForPrompt(organizationOwner, "organization", promptResourceMaxChars);
++        const organizationAgents = await loadAgentsResourceForPrompt(organizationOwner, "organization", promptResourceMaxChars, runReview);
+         addSection(organizationAgents, "required");
+-        addSections(await loadInstructionResourcesForPrompt(organizationOwner, "organization-instruction", promptResourceMaxChars, compact));
++        addSections(await loadInstructionResourcesForPrompt(organizationOwner, "organization-instruction", promptResourceMaxChars, compact, runReview));
+     }
+     // 6. Personal SQL resources. These come last in the instruction stack so a
+     // user can narrow or override organization/app and workspace defaults.
+     if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
+-        const personalAgents = await loadAgentsResourceForPrompt(owner, "personal", promptResourceMaxChars);
++        const personalAgents = await loadAgentsResourceForPrompt(owner, "personal", promptResourceMaxChars, runReview);
+         addSection(personalAgents, "required");
+-        addSections(await loadInstructionResourcesForPrompt(owner, "personal-instruction", promptResourceMaxChars, compact), "user");
++        addSections(await loadInstructionResourcesForPrompt(owner, "personal-instruction", promptResourceMaxChars, compact, runReview), "user");
+     }
+-    const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);
++    const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId, runReview);
+     addSection(resourceSkillsBlock);
+     let sharedLearnings = null;
+     try {
+@@ -717,6 +745,12 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+                 : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
+     }
+     catch { }
++    // Vivary #109: a waiting LEARNINGS.md is skipped, and the app default does
++    // not take its place, because that is a file the owner did not choose.
++    if (isPendingRunReview(sharedLearnings)) {
++        runReview.skipped += 1;
++        sharedLearnings = null;
++    }
+     if (compact) {
+         // Integration/Slack turns use compact context, but organization learnings
+         // are operational routing input, not optional background. Preload the
+@@ -758,7 +792,10 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+         if (owner !== SHARED_OWNER) {
+             try {
+                 const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
+-                if (memoryIndex?.content?.trim()) {
++                if (isPendingRunReview(memoryIndex)) {
++                    runReview.skipped += 1;
++                }
++                else if (memoryIndex?.content?.trim()) {
+                     const block = promptResourceBlock({
+                         name: "memory/MEMORY.md",
+                         scope: "personal",
+@@ -804,6 +841,9 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+     catch {
+         // Agent discovery is helpful context, not required for the run.
+     }
++    if (runReview.skipped > 0) {
++        addSection(runReviewNote(runReview.skipped), "required");
++    }
+     if (sections.length === 0)
+         return "";
+     let selectedSections = sections.map((section) => section.content);
 diff --git a/dist/server/agent-chat/script-entries.js b/dist/server/agent-chat/script-entries.js
 index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae5e1158b9 100644
 --- a/dist/server/agent-chat/script-entries.js
@@ -6623,7 +7203,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c17f64211 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..bba335c8b0803a83765a97d54150428866a91fe8 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -6631,6 +7211,15 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
  import crypto from "node:crypto";
  import nodePath from "node:path";
  import { createError, defineEventHandler, setResponseStatus, setResponseHeader, getMethod, getQuery, getHeader, getRequestIP, } from "h3";
+@@ -35,7 +36,7 @@ import { McpClientManager, mcpToolsToActionEntries, syncMcpActionEntries, mountM
+ import { declaredMcpToolNames } from "../mcp/build-server.js";
+ import { setProgressPreListHook } from "../progress/store.js";
+ import { getSkillNameFromPath } from "../resources/metadata.js";
+-import { resourceList, resourceListAccessible, resourceGet, ensurePersonalDefaults, SHARED_OWNER, WORKSPACE_OWNER, } from "../resources/store.js";
++import { isPendingRunReview, resourceList, resourceListAccessible, resourceGet, ensurePersonalDefaults, SHARED_OWNER, WORKSPACE_OWNER, } from "../resources/store.js";
+ import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+ import { getSetting, putSetting } from "../settings/store.js";
+ import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD, normalizeAnalyticsClientPlatform, } from "../shared/analytics-platform.js";
 @@ -128,6 +129,7 @@ import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
  import { createAgentEngineScriptEntries, createAgentLoopSettingsScriptEntries, createCallAgentScriptEntry, createChatScriptEntries, createDbScriptEntries, createDocsScriptEntries, createResourceScriptEntries, } from "./agent-chat/script-entries.js";
  import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./agent-chat/skill-frontmatter.js";
@@ -6789,7 +7378,17 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                          : "";
                      const hostedHarnessRuntime = getRequestRunContext()?.hostedHarnessRuntime;
                      const hostedHarnessPromptNote = hostedHarnessRuntime
-@@ -4649,6 +4662,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -3817,6 +3830,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                         return a.path.localeCompare(b.path);
+                     });
+                     for (const r of resourceSkills) {
++                        // Vivary #109: a skill an automation run wrote waits for the owner's review.
++                        if (isPendingRunReview(r))
++                            continue;
+                         // Try to get content to parse frontmatter
+                         let skillName = getSkillNameFromPath(r.path);
+                         let description;
+@@ -4649,6 +4665,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -6809,7 +7408,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4692,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4695,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -6856,7 +7455,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4713,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4716,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -6865,7 +7464,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
-@@ -5113,32 +5125,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5113,32 +5128,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      ? preparedMarker.automationRunId
                      : undefined;
                  if (typeof automationRunId === "string" && automationRunId) {
@@ -6899,7 +7498,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                          }
                          catch {
                              setResponseStatus(event, 500);
-@@ -5146,7 +5139,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5146,7 +5142,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                          }
                      }
                      const waitUntil = event.req?.waitUntil;
@@ -6908,7 +7507,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5321,34 +5314,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5317,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              // Poll every 60 seconds for due recurring jobs and execute them.
              // Long-lived runtimes use setInterval; serverless runtimes rely on a
              // platform-owned sweep because an invocation cannot own a durable loop.
@@ -6946,7 +7545,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5416,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,6 +5419,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -6962,7 +7561,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5748,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5751,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -7007,7 +7606,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..3c5593a1b7de945efa0f3fd971185c3c
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5799,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5802,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",
