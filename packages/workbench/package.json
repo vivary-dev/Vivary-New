@@ -35,7 +35,7 @@
     "test:mutation-admission": "node --max-old-space-size=192 --test tests/mutation-admission.test.mjs",
     "test:mutation-quarantine": "node --max-old-space-size=192 --test tests/mutation-quarantine.test.mjs",
     "test:chat-title": "node --max-old-space-size=192 --test tests/chat-title.test.mjs",
-    "test:chat-draft": "node --import tsx --test tests/chat-draft.test.mjs tests/native-archive.test.mjs tests/conversation-surface.test.mjs tests/native-chat-selection.test.mjs",
+    "test:chat-draft": "node --import tsx --test tests/chat-draft.test.mjs tests/native-archive.test.mjs tests/conversation-surface.test.mjs tests/native-chat-selection.test.mjs tests/row-focus.test.mjs",
     "test:chat-draft-adapter": "node --test-force-exit --import tsx --test tests/local-code-chat-adapter.test.mjs",
     "test:settings-chat-handoff": "node --test tests/settings-chat-handoff-component.test.mjs",
     "test:native-chat": "node --import tsx --test --test-concurrency=1 --test-force-exit tests/native-stream-errors.test.ts tests/native-usage-cost.test.ts tests/native-stop.test.ts tests/native-chat-components.test.mjs tests/native-chat-route-errors.test.ts",

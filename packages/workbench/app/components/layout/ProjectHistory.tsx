@@ -12,6 +12,7 @@ import { codeDraftSelectionKey } from "../../../shared/code-draft";
 import { useChatDraftList } from "@/lib/chat-draft";
 import type { VivaryChatIdentity } from "@/lib/chat-scope";
 import { useNativeActionCaller } from "@/lib/native-actions";
+import { focusAfterRemoval } from "@/lib/row-focus";
 import { useProjects } from "../projects/ProjectContext";
 import { useVivaryChatIdentity } from "./use-vivary-chat-identity";
 import { CodeHistory } from "./CodeHistory";
@@ -138,17 +139,20 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
     labels: { newChat: "New conversation", showMore: "More conversations", showLess: "Fewer conversations" },
   });
   const codeFailed = state.isError || code?.error || (state.data && !code);
-  // Issue #131. Archive removes its row, and the menu trigger that focus would return to. Once the row is gone, focus
-  // moves to the row that took its place, else the row before it, else New conversation.
+  // Issue #131. Archive removes its row, and the menu trigger that focus would return to. After a confirmed archive,
+  // once the row is gone, focus moves to the row that took its place, else the row before it, else New conversation.
+  // Archiving the open chat also opens a new one, whose view may take focus first. Focus in a field the owner types in
+  // stays there.
   const historySection = useRef<HTMLElement>(null);
   const [archivedRow, setArchivedRow] = useState<{ id: string; index: number }>();
   useEffect(() => {
     if (!archivedRow || history.visibleItems.some(item => item.id === archivedRow.id)) return;
     setArchivedRow(undefined);
-    const rows = historySection.current?.querySelectorAll<HTMLElement>(".an-chat-history-row__button") ?? [];
-    const next = rows[Math.min(archivedRow.index, rows.length - 1)]
-      ?? historySection.current?.querySelector<HTMLElement>(".an-chat-history-rail__new-chat");
-    next?.focus();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && (active.isContentEditable || active.matches("input, textarea, select"))) return;
+    const section = historySection.current;
+    focusAfterRemoval([...(section?.querySelectorAll<HTMLElement>(".an-chat-history-row__button") ?? [])], archivedRow.index,
+      section?.querySelector<HTMLElement>(".an-chat-history-rail__new-chat") ?? null)?.focus();
   }, [archivedRow, history.visibleItems]);
   async function updateNative(action: () => Promise<boolean>, message: string) {
     setFailedAction(undefined);
@@ -212,8 +216,13 @@ function SessionHistory({ identity }: { identity: VivaryChatIdentity }) {
           onTogglePin={thread ? () => void updateNative(() => native.pinThread(thread.id, !thread.pinnedAt), "The conversation pin could not be changed. Try again.") : undefined}
           renderAdditionalRowActions={thread ? (row, closeMenu) => <ChatHistoryMenuItem onSelect={() => {
             closeMenu();
-            setArchivedRow({ id: row.id, index: history.visibleItems.findIndex(visible => visible.id === row.id) });
-            void updateNative(() => archiveNative(thread.id), "The conversation could not be archived. Try again.");
+            const index = history.visibleItems.findIndex(visible => visible.id === row.id);
+            void updateNative(async () => {
+              const archived = await archiveNative(thread.id);
+              // Only a confirmed archive asks to move focus, so a failed one leaves no request behind.
+              if (archived) setArchivedRow({ id: row.id, index });
+              return archived;
+            }, "The conversation could not be archived. Try again.");
           }}><IconArchive size={13} aria-hidden /><span>Archive</span></ChatHistoryMenuItem> : undefined} />;
       })}
       <div className="an-chat-history-rail__footer">
