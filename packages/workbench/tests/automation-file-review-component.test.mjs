@@ -41,6 +41,7 @@ import { AutomationFileReview } from "@proof/AutomationFileReview";
 import { callProof } from "../../lib/native-actions";
 
 const PLANTED = "# Rules\n\n![x](http://evil.test/x.png) <img src=x onerror=alert(1)> [click](http://evil.test)";
+const CHANGED = "This file changed since the list showed it. Read it again before you accept or delete it.";
 const AGENTS = { id: "res-agents", path: "AGENTS.md", content: PLANTED, updatedAt: Date.UTC(2026, 8, 29, 13) };
 
 async function flush() {
@@ -99,16 +100,30 @@ export async function eachReviewNamesTheVersionShownAndReloads() {
   }
 }
 
-export async function aRefusedReviewReloadsTheList() {
+export async function aRefusedReviewShowsTheChangedFileWithANotice() {
   const changed = { ...AGENTS, content: "Changed text.", updatedAt: AGENTS.updatedAt + 1 };
-  let files = [AGENTS];
+  const SKILL = { id: "res-skill", path: "skills/probe/SKILL.md", content: "Skill text.", updatedAt: AGENTS.updatedAt };
+  let files = [AGENTS, SKILL];
   const { host, dispose } = await mount(params => {
-    if (params.operation === "accept") { files = [changed]; throw new Error("This file changed. Reload the list."); }
+    if (params.operation === "accept") { files = [changed, SKILL]; throw new Error("This file changed. Reload the list."); }
     return { files };
   });
   try {
     await click(button(items(host)[0], "Accept"));
-    assert.equal(items(host)[0].querySelector("pre")?.textContent, "Changed text.", "the list shows the file as it is now");
+    const [agents, skill] = items(host);
+    assert.equal(agents.querySelector("pre")?.textContent, "Changed text.", "the list shows the file as it is now");
+    assert.match(agents.textContent, new RegExp(CHANGED), "the refused file says it changed and must be read again");
+    assert.equal(host.textContent.split(CHANGED).length - 1, 1, "one notice, on that file only");
+    assert.doesNotMatch(skill.textContent, new RegExp(CHANGED));
+  } finally { await dispose(); }
+}
+
+export async function aListThatFailsSaysSo() {
+  const { host, dispose } = await mount(() => { throw new Error("Server error: 500"); });
+  try {
+    assert.equal(items(host).length, 0);
+    assert.match(host.textContent, /The list of waiting files could not load, so files may still be waiting\./,
+      "a failed list does not look like an empty one");
   } finally { await dispose(); }
 }
 `;
@@ -171,7 +186,9 @@ test("Settings > Automation files lists run-written files with their text, Accep
   for (const [name, run] of [
     ["a file shows its path and its text as plain text", proof.aFileShowsItsPathAndPlainText],
     ["Accept and Delete name the version shown and reload the list", proof.eachReviewNamesTheVersionShownAndReloads],
-    ["a refused review reloads the list", proof.aRefusedReviewReloadsTheList],
+    ["a refused review shows the file as it is now, with one notice to read it again",
+      proof.aRefusedReviewShowsTheChangedFileWithANotice],
+    ["a list that fails to load says so", proof.aListThatFailsSaysSo],
   ]) await t.test(name, () => run());
 });
 
