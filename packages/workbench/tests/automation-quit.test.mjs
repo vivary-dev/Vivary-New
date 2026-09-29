@@ -296,6 +296,17 @@ test("a quit ends an event run as interrupted and records it before the stop ret
   assert.match(meta.lastError ?? "", /^The run stopped before it recorded a result/);
 });
 
+test("a quit waits for an event run's outcome when nothing else is in flight", async () => {
+  await defineTrigger("event-app", "solo", { triggerType: "event", event: "test.event.fired" });
+  const { report, exited } = spawnChild("event-quit", "event-app");
+  await report;
+  await exited;
+  assert.deepEqual((await runsOf("event-app", "solo")).map(run => run.status), ["interrupted"]);
+  const meta = await stored("solo");
+  assert.equal(meta.lastStatus, "error", "the stop waited for the dispatcher's write");
+  assert.match(meta.lastError ?? "", /^The run stopped before it recorded a result/);
+});
+
 test("a quit returns an interrupted webhook call and the call behind it to the queue", async () => {
   await triggerQuit();
   const a = await taskRow("task-a");

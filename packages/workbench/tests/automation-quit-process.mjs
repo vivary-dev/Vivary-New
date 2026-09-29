@@ -162,6 +162,14 @@ if (role === "quit") {
   await report({ ready: true });
   await scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
   process.exit(0);
+} else if (role === "event-quit") {
+  // Only an event run is in flight when the owner quits, so no other work holds the stop open for its write.
+  await initTriggerDispatcher(triggerDeps("cooperative"));
+  emit("test.event.fired", { data: { id: "evt-solo" } }, { owner, eventId: "evt-solo" });
+  await within(started("solo:evt-solo").promise, 30_000, "the event run starting");
+  await report({ ready: true });
+  await scheduler.stopRecurringJobs({ timeoutMs: 10_000 });
+  process.exit(0);
 } else if (role === "late") {
   // Work that arrives while the process stops: a sweep scanning when the stop begins, then an event, a direct Run
   // now, a Run now whose row was claimed before the stop, and a queued webhook call.
@@ -197,7 +205,8 @@ if (role === "quit") {
   const quitAt = Date.now();
   await stop;
   const elapsedMs = Date.now() - quitAt;
-  await sweep.catch(() => {});
+  // A run that reached the model is never aborted here, so do not wait on its sweep for long.
+  await Promise.race([sweep.catch(() => {}), new Promise(resolve => setTimeout(resolve, 5_000).unref())]);
   await report({ elapsedMs, starts: [...starts.keys()], lease: await leaseRow() });
   process.exit(0);
 } else if (role === "finishing") {
