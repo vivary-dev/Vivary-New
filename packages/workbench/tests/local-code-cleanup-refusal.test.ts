@@ -45,6 +45,7 @@ const leaveChild = path.join(fixture, "leave-child");
 const scanHold = path.join(fixture, "scan-hold");
 const endUnreadable = path.join(fixture, "end-unreadable");
 const endDenied = path.join(fixture, "end-denied");
+const endBreaksRecord = path.join(fixture, "end-breaks-record");
 const workerRecord = path.join(fixture, "worker.txt");
 const endLog = path.join(fixture, "end.log");
 await mkdir(path.join(fixture, ".output", "server"), { recursive: true });
@@ -75,8 +76,9 @@ process.send({ type: "vivary:code-worker:ready" });
 // creation time may have, and ends a PID only when the file still holds it with a creation time in that millisecond.
 // PID 4130 refuses, like a process Windows denies access to, and every PID refuses while the end-denied marker exists.
 // Every such call is logged. The end-unreadable marker adds a line Vivary cannot read, as a module's warning could,
-// after the call ended what it ends. The scan-fails marker
-// fails scans only, and the scan-hold marker holds a scan for up to 10 seconds, as long as the host waits for one.
+// after the call ended what it ends. The end-breaks-record marker holds a run record's path, and the call leaves that
+// record unreadable. The scan-fails marker fails scans only, and the scan-hold marker holds a scan for up to 10
+// seconds, as long as the host waits for one.
 const scanOut = path.join(fixture, "scan-out.txt");
 await writeFile(path.join(scanner, "powershell.exe"), `#!/bin/sh
 case "$*" in *Stop-Process*)
@@ -98,6 +100,7 @@ case "$*" in *Stop-Process*)
     printf '%s\\t%s\\r\\n' "$pid" "$outcome"
     count=$((count + 1))
   done
+  [ -f ${JSON.stringify(endBreaksRecord)} ] && printf '{' > "$(cat ${JSON.stringify(endBreaksRecord)})"
   [ -f ${JSON.stringify(endUnreadable)} ] && printf 'WARNING: a module printed this line\\r\\n'
   printf 'END\\t%s\\r\\n' "$count"
   exit 0 ;;
@@ -899,6 +902,55 @@ test("a refusal in force only from memory keeps refusing until its run records t
   assert.equal((metadataOf(id).cleanupLifted as { how?: string }).how, "rechecked");
   assert.equal(hostSlots().unsaved.has(id), false);
   assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup, null);
+});
+
+// End them ends codex.exe 4120, and the check after it finds nothing left, but a write of the lift fails. In one case
+// a directory where the transcript belongs fails the status write. In the other the End call leaves the run's record
+// unreadable, so the record update fails. The refusal, with what End them did, stays in force until a later check
+// records the lift.
+test("End them that ends processes keeps what it did in force until its run records the lift", {
+  ...linuxOnly, timeout: 20_000,
+}, async t => {
+  t.mock.method(console, "error", () => undefined);
+  const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  for (const [id, failing] of [["end-status-unwritten", "transcript"], ["end-record-unwritten", "record"]] as const) {
+    await t.test(`when the lift's ${failing} write fails`, async () => {
+      const record = path.join(fixture, "runs", "runs", `${id}.json`);
+      const transcript = path.join(fixture, "runs", "transcripts", `${id}.jsonl`);
+      try {
+        await writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe"));
+        seedRefusal(id, worker);
+        await agent.recheckVivaryCodeCleanup();
+        const intact = await readFile(record, "utf8");
+        if (failing === "transcript") await mkdir(transcript, { recursive: true });
+        else await writeFile(endBreaksRecord, record);
+        try {
+          await assert.rejects(decide("end"),
+            failing === "transcript" ? { code: "EISDIR" } : /^Error: The run record is missing\.$/);
+          assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup?.notice,
+            "End them ended codex.exe (PID 4120).", `a lift whose ${failing} write failed keeps what End them did`);
+        } finally {
+          if (failing === "transcript") await rm(transcript, { recursive: true, force: true });
+          else {
+            await rm(endBreaksRecord, { force: true });
+            await writeFile(record, intact);
+          }
+        }
+        await agent.recheckVivaryCodeCleanup();
+        const lift = metadataOf(id).cleanupLifted as { how?: string };
+        assert.equal(lift.how, "rechecked");
+        assert.deepEqual(endsOf(lift), [{ by: OWNER, at: "string", attempts: [[4120, "ended"]] }],
+          "the lift records what End them ended");
+        assert.equal(lastStatus(id), "The leftover coding processes are gone. End them ended codex.exe (PID 4120). "
+          + "Vivary accepts new messages again.");
+        assert.equal(hostSlots().unsaved.has(id), false);
+      } finally {
+        // A refusal this case leaves in force would refuse every later case.
+        await writeFile(scanRows, SYSTEM_ROW);
+        await agent.recheckVivaryCodeCleanup();
+      }
+    });
+  }
 });
 
 // The worker 4120 left 250 children and a grandchild, more processes than a target tracks. The children exit and the
