@@ -190,7 +190,8 @@ function lastStatus(id: string): string | undefined {
   return listCodeAgentTranscriptEvents(id).findLast(event => event.kind === "status")?.message;
 }
 
-function hostSlots(): { activeRuns: Map<string, { execution: Promise<void> | null }>; unsaved: Map<string, unknown> } {
+function hostSlots(): { activeRuns: Map<string, { execution: Promise<void> | null }>; unsaved: Map<string, unknown>;
+  cleanup: unknown } {
   return Reflect.get(globalThis, Symbol.for("vivary.workbench.code-host"));
 }
 
@@ -950,6 +951,36 @@ test("End them that ends processes keeps what it did in force until its run reco
         await agent.recheckVivaryCodeCleanup();
       }
     });
+  }
+});
+
+// Under `hidepid=1` a group can hold a member Vivary reads beside an entry it cannot read. Zo runs these tests as root,
+// so no scan here meets such an entry, and the refusal that scan leaves is put in force directly, with every listed
+// process traced to the run, with none, and with some.
+test("a refusal whose group may hold a process Vivary cannot read says so beside the list", linuxOnly, async () => {
+  const slots = hostSlots();
+  const before = slots.cleanup;
+  const refusedAt = new Date().toISOString();
+  const sleep = { pid: 4321, name: "sleep", start: 700 };
+  const node = { pid: 4322, name: "node", start: 800 };
+  const unread = "Process group 4321 may also hold a process that Vivary cannot read or end. ";
+  const cases: [traced: (typeof sleep)[], remaining: (typeof sleep)[], instruction: string][] = [
+    [[sleep], [sleep], "Choose End them to stop these processes. Vivary ends only listed processes it can confirm "
+      + "came from that run, then checks again."],
+    [[], [sleep], "Vivary cannot confirm that these came from that run, so it does not end them. If they did, stop "
+      + "them with `kill -KILL -- -4321`, then choose Continue anyway."],
+    [[sleep], [sleep, node], "Choose End them to stop the processes confirmed from that run, then Vivary checks "
+      + "again. It does not end the others. If they came from that run, stop them with `kill -KILL -- -4321`."],
+  ];
+  try {
+    for (const [traced, remaining, instruction] of cases) {
+      slots.cleanup = { runId: "hidden-beside", target: { platform: "linux", groupId: 4321, bootId: null,
+        traced: traced.map(({ pid, start }) => ({ pid, start })) }, remaining, total: remaining.length,
+      fingerprint: null, hidden: true, scan: "done", step: "group", refusedAt, checkedAt: refusedAt, ends: [] };
+      assert.equal((await agent.getVivaryCodeHostState(OWNER)).cleanup?.instruction, unread + instruction);
+    }
+  } finally {
+    slots.cleanup = before;
   }
 });
 

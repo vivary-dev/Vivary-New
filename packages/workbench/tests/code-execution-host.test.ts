@@ -127,6 +127,16 @@ test("Linux group scan tolerates gone and unreadable entries and refuses other r
   await assert.rejects(scanLinuxWorkerGroup(12345, procWithStatError("EIO", true)), VivaryCodeWorkerCleanupError);
 });
 
+// Issue #121. Under `hidepid=1` a group can hold a member Vivary reads beside an entry it cannot read, which could be
+// another member. The kernel says the group exists, so the scan lists the member and marks the group hidden.
+test("Linux group scan marks an unreadable entry hidden beside a member it can read", async () => {
+  const observation = await scanLinuxWorkerGroup(12345, procReader(async pid => {
+    if (pid === "42") throw Object.assign(new Error("reading /proc/42/stat failed with EACCES"), { code: "EACCES" });
+    return pid === "43" ? statLine(43, "codex", "S", 12345, 700) : statLine(44, "unrelated", "S", 999, 800);
+  }));
+  assert.deepEqual(observation, { members: [{ pid: 43, name: "codex", start: 700, parentPid: 1 }], hidden: true });
+});
+
 // Issue #121. Each scan advances the mocked clock by a second, so these cases take milliseconds.
 test("Linux worker cleanup accepts a group that empties after more than 3 seconds", async t => {
   t.mock.timers.enable({ apis: ["Date"] });
