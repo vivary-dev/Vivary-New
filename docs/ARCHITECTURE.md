@@ -183,7 +183,13 @@ hides a shared file at the same path, and the desktop guide's Automations sectio
 merged `dev` at `3ec2f02`, so the Core patch's #142 hunk comes from `dev` and the branch adds only the #109 hunks.
 `tests/automation-file-review.test.mjs` and `tests/automation-file-review-component.test.mjs` pass, and each case failed
 before its fix, on `dev` at `4c19c2e` or on this branch before a review round's or the packaged check's fixes. The
-Settings tab has not run in a package.
+unpublished `e50ae89c` package ran the Windows check ([#109
+receipt](product/multi-project/receipts/109-automation-file-review.md)). A run's `AGENTS.md`, instruction file, and
+memory waited with their origin and mark, its shared write and delete were refused, Settings listed, accepted, and
+deleted them, a chat's stored prompt held the run's `AGENTS.md` only after Accept, and a stale Accept showed the notice.
+The raw database tools and the note's count were fixed after that check and ran on Zo only. The design description
+holds. The receipt lists the limits: a waiting file that hides a shared file at the same path, #144, a chat's `resources
+read` of an automation's body, which is outside #109, and a normal quit that takes about 15 seconds (#138).
 
 Issues #114 and #115 are closed. PR #137 merged `fix/automation-quit-and-status` into `dev` as `4c19c2e`, and
 #114 and #115 were closed on 2026-09-29. The Automations row in the acceptance register no longer lists the merge

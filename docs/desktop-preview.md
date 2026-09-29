@@ -163,7 +163,8 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 The published `9884670` prerelease predates the issue #51 automation changes. This section
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
 records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
-records a later package's test of quitting during a run and of LAST CHECKED.
+records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
+records a package's test of **Automation files**.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
 happens in Vivary, when another program calls its webhook URL, or when you choose

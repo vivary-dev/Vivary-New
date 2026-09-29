@@ -199,7 +199,9 @@ review. Its tests, Zo CI, a live browser check, and the packaged retest cover it
   [#108](https://github.com/vivary-dev/Vivary-New/issues/108).
 - Runs can still write files that later chats read as instructions, such as `AGENTS.md`,
   `instructions/`, `skills/`, `LEARNINGS.md`, and `memory/`. The owner accepted this risk. Tracked
-  in [#109](https://github.com/vivary-dev/Vivary-New/issues/109).
+  in [#109](https://github.com/vivary-dev/Vivary-New/issues/109). On the unmerged branch for #109,
+  such a file waits for the owner's review in Settings, and the unpublished `e50ae89c` package
+  confirmed it ([#109 receipt](109-automation-file-review.md)).
 - An event automation subscribed to `automation.run.finished` fires again after each of its own runs.
   Runs stay local, so the cost is model spend. Tracked in
   [#110](https://github.com/vivary-dev/Vivary-New/issues/110).

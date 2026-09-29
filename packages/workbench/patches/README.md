@@ -1507,6 +1507,14 @@ a review refused because the file changed and on no other refusal, and its line
 for a failed list. Each case failed before its fix, on `dev` at `4c19c2e` or on
 this branch before a review round's or the packaged check's fixes.
 
+The unpublished `e50ae89c` package holds one copy of the store: the #109
+strings are in the Core chunk only. A run's files waited there, Settings listed,
+accepted, and deleted them, a chat's stored prompt held the run's `AGENTS.md`
+only after Accept, and a stale Accept showed the notice. The
+[#109 receipt](../../../docs/product/multi-project/receipts/109-automation-file-review.md)
+records the check. The raw database refusal and the note's count above came from
+it and ran on Zo only.
+
 Upstream could take the origin and the review mark as they are, with the host
 choosing the note's wording. Remove this part of the patch only when an
 upstream release holds agent-written instruction files for review and passes
