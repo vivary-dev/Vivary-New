@@ -6606,7 +6606,8 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 
 The published `9884670` prerelease predates the issue #51 automation changes. This section
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
-records their test on an unpublished package.
+records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records a later package's test of quitting during a run and of LAST CHECKED.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
 happens in Vivary, when another program calls its webhook URL, or when you choose
@@ -6631,7 +6632,9 @@ Settings > Agent > Automations holds the controls:
   LAST CHECKED is the last time the scheduler checked your automations, about once a
   minute, and not while a scheduled run is in progress. A check that failed does not
   count. For an event, webhook, or paused automation, it is the last time a check
-  skipped it, and it stays empty until one does.
+  skipped it, and it stays empty until one does. **Details** shows the values from when
+  the Automations tab loaded. To refresh them, open another Settings tab, come back, and
+  open **Details** again.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.
@@ -6687,17 +6690,20 @@ or present in its environment at launch. Without one, the event is skipped and
 **Details** shows the reason. A condition on an event automation is checked with
 Anthropic's API using that same key, whatever the provider. A key from another provider
 is rejected, and the event is skipped with no reason shown. [Issue
-#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this.
+#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this. Each event run
+writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
 once, then follows its schedule. When Vivary serves browser access, runs continue with no
 browser tab open.
 
-Quitting Vivary during a run ends the run, and **Details** shows it as interrupted. The
-next launch checks schedules about 70 seconds after it starts. If Vivary was ended
-without quitting, for example from Task Manager, the run shows as running, and
-scheduled automations wait up to 10 minutes after the next launch.
+Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
+Vivary takes about 15 seconds to close. The next launch checks schedules about 70
+seconds after it starts. If Vivary was ended without quitting, for example from Task
+Manager, the run shows as running, and scheduled automations wait up to 10 minutes
+after the next launch. During that wait, **Details** can show a next run about a minute
+away, but nothing runs until the wait ends.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute
@@ -6717,7 +6723,8 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |
@@ -7373,7 +7380,14 @@ which failed on the patch before its fix, and pins for a scanning sweep, a secon
 second round added process-task route cases at and after the quit and an event with a condition after the quit, each
 of which failed on the patch before its fix, and pins for an event whose condition check spans the quit and a run the
 owner stopped just before it. A third round added a quit that begins while the route's claim saves and work that
-keeps arriving during the stop, each of which failed on the patch before its fix.
+keeps arriving during the stop, each of which failed on the patch before its fix. The unpublished `9e921ca0` package
+ran the Windows check ([#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
+during a scheduled run left its row interrupted 18 ms after the close with the lease released, the next launch ran at
+its first tick, a webhook call cut off by a quit ran once after relaunch, and a hard kill kept the lease until it
+expired. The server bundle holds one copy of the scheduler module. Every normal quit still took 15.5 to 15.9 seconds,
+because the desktop server calls no exit after its cleanup and the desktop's 15-second kill ends it. After a hard kill,
+Settings shows a next run about a minute out while the held lease lets nothing run. The design description holds, and
+the receipt, the desktop guide, and the patch notes state these limits.
 
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
@@ -7389,7 +7403,10 @@ guide says so, corrects its claim that run threads stay in chat history, and des
 requirement and #135. The Unattended automation runs row and the runtime flows still hold, because the scheduler, the
 runs, and their storage are unchanged. The patch README section "Settings automation status" has the detail.
 `tests/automation-status.test.mjs` failed on the first patch for LAST CHECKED and Open thread, and its failed-read and
-failed-check cases failed on the patch before the fallback.
+failed-check cases failed on the patch before the fallback. In the `9e921ca0` package, LAST CHECKED advanced with the
+heartbeat, Details offered no Open thread, and a paused automation showed no next run. Details shows the list entry
+captured when it opened, so LAST CHECKED can lag until the Automations tab reloads. The desktop guide and the patch notes
+say so.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer

@@ -1038,7 +1038,12 @@ CHECKED stops advancing while a process that has gone still holds the lease.
 It also stands still while a scheduled run is in progress, up to the run's
 10-minute limit, because the sweep that started the run holds the lease until
 the run ends and every other tick fails to take it. That is honest, because no
-check runs then. The sweep writes the heartbeat again when it ends.
+check runs then. The sweep writes the heartbeat again when it ends. The Details
+dialog shows the list entry captured when it opened (`AgentJobsTab.js`), and the
+list query has no refresh interval, so LAST CHECKED in Details can lag behind
+the heartbeat until the Automations tab reloads. The packaged check on the
+unpublished `9e921ca0` package saw this right after a tick. This patch does not
+change that.
 
 The Details dialog showed Open thread on a run with an error and a thread. The
 control sent Core's `agent-chat:open-thread` window event, which only Core's
@@ -1157,7 +1162,10 @@ past its first check when the quit begins. The declarations of the three
 runner exports are in its `.d.ts`.
 Vivary passes 10 seconds, the Code host's shutdown wait, so `stopLocalWork`
 still ends 5 seconds before the desktop ends the server's process tree. A later
-call returns the first stop.
+call returns the first stop. On the desktop the server calls no exit after
+`stopLocalWork` settles, so the desktop's kill still ends it 15 seconds after
+the shutdown message. The packaged check timed each normal quit at 15.5 to 15.9
+seconds, with the automation rows written within 40 ms.
 
 The hard-kill fallback does not change. The stop writes nothing itself and
 never clears a lease by row id, so it cannot free another process's lease. Its
@@ -1170,7 +1178,10 @@ run that settles later still records itself, as any run end does, while the
 process lives, and one that never settles is left as after a kill. No
 startup recovery was added, because clearing a lease or ending rows at launch
 is unsafe when two processes share a database. The lease length, the renewal,
-the liveness ceiling, and the claim lease are unchanged.
+the liveness ceiling, and the claim lease are unchanged. While a dead process's
+lease holds, Settings shows the automation's next run about a minute out,
+because the list actions report the next occurrence from now once the stored
+one has passed. Nothing runs until the lease expires.
 
 Trigger runs record their outcome through the dispatcher, which catches the
 run's error and writes the automation's last error from its message, without
@@ -1263,9 +1274,12 @@ stayed `processing`, and the stop returned after the first piece of work.
 
 The plugin's import and Core's timer must share one copy of `scheduler.js` in
 the server bundle, or the stop would close a scheduler that never runs. Both
-resolve to the same Core file, but no build has checked the bundle yet. The
-packaged check confirms it when a quit during a run leaves the row
-interrupted.
+resolve to the same Core file. The unpublished `9e921ca0` package holds one
+copy: the scheduler's lease warning and the stop's message check are in one
+Core chunk, `index.mjs` imports that chunk once, and a quit during a run left
+the row interrupted 18 ms after the quit. The
+[#114 and #115 receipt](../../../docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records the check.
 
 Upstream could take the stop as it is, because nothing changes until a host
 calls it. Remove this part of the patch when an upstream release offers a stop

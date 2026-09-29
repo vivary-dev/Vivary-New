@@ -166,7 +166,8 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 
 The published `9884670` prerelease predates the issue #51 automation changes. This section
 describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
-records their test on an unpublished package.
+records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records a later package's test of quitting during a run and of LAST CHECKED.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
 happens in Vivary, when another program calls its webhook URL, or when you choose
@@ -191,7 +192,9 @@ Settings > Agent > Automations holds the controls:
   LAST CHECKED is the last time the scheduler checked your automations, about once a
   minute, and not while a scheduled run is in progress. A check that failed does not
   count. For an event, webhook, or paused automation, it is the last time a check
-  skipped it, and it stays empty until one does.
+  skipped it, and it stays empty until one does. **Details** shows the values from when
+  the Automations tab loaded. To refresh them, open another Settings tab, come back, and
+  open **Details** again.
 - **Manage** > **Run now** runs it once. The next scheduled run does not change.
 - **Manage** > **Edit** changes the schedule and time zone. Pick a preset, or enter a cron
   expression under **Advanced**.
@@ -247,17 +250,20 @@ or present in its environment at launch. Without one, the event is skipped and
 **Details** shows the reason. A condition on an event automation is checked with
 Anthropic's API using that same key, whatever the provider. A key from another provider
 is rejected, and the event is skipped with no reason shown. [Issue
-#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this.
+#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this. Each event run
+writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
 once, then follows its schedule. When Vivary serves browser access, runs continue with no
 browser tab open.
 
-Quitting Vivary during a run ends the run, and **Details** shows it as interrupted. The
-next launch checks schedules about 70 seconds after it starts. If Vivary was ended
-without quitting, for example from Task Manager, the run shows as running, and
-scheduled automations wait up to 10 minutes after the next launch.
+Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
+Vivary takes about 15 seconds to close. The next launch checks schedules about 70
+seconds after it starts. If Vivary was ended without quitting, for example from Task
+Manager, the run shows as running, and scheduled automations wait up to 10 minutes
+after the next launch. During that wait, **Details** can show a next run about a minute
+away, but nothing runs until the wait ends.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute
@@ -277,7 +283,8 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |

@@ -178,7 +178,14 @@ which failed on the patch before its fix, and pins for a scanning sweep, a secon
 second round added process-task route cases at and after the quit and an event with a condition after the quit, each
 of which failed on the patch before its fix, and pins for an event whose condition check spans the quit and a run the
 owner stopped just before it. A third round added a quit that begins while the route's claim saves and work that
-keeps arriving during the stop, each of which failed on the patch before its fix.
+keeps arriving during the stop, each of which failed on the patch before its fix. The unpublished `9e921ca0` package
+ran the Windows check ([#114 and #115 receipt](product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
+during a scheduled run left its row interrupted 18 ms after the close with the lease released, the next launch ran at
+its first tick, a webhook call cut off by a quit ran once after relaunch, and a hard kill kept the lease until it
+expired. The server bundle holds one copy of the scheduler module. Every normal quit still took 15.5 to 15.9 seconds,
+because the desktop server calls no exit after its cleanup and the desktop's 15-second kill ends it. After a hard kill,
+Settings shows a next run about a minute out while the held lease lets nothing run. The design description holds, and
+the receipt, the desktop guide, and the patch notes state these limits.
 
 Issue #115. Settings > Agent > Automations is Core's page, and the maintained Core patch changes two things in it.
 LAST CHECKED came from the automation's front matter, which the scheduler writes only when it skips a run, so a
@@ -194,7 +201,10 @@ guide says so, corrects its claim that run threads stay in chat history, and des
 requirement and #135. The Unattended automation runs row and the runtime flows still hold, because the scheduler, the
 runs, and their storage are unchanged. The patch README section "Settings automation status" has the detail.
 `tests/automation-status.test.mjs` failed on the first patch for LAST CHECKED and Open thread, and its failed-read and
-failed-check cases failed on the patch before the fallback.
+failed-check cases failed on the patch before the fallback. In the `9e921ca0` package, LAST CHECKED advanced with the
+heartbeat, Details offered no Open thread, and a paused automation showed no next run. Details shows the list entry
+captured when it opened, so LAST CHECKED can lag until the Automations tab reloads. The desktop guide and the patch notes
+say so.
 
 Issue #121 is closed. PR #134 merged part B into `dev` as `e21174b` after all eight checks passed, including
 Entire Gates, and #121 was closed on 2026-09-29. The Coding worker startup row in the acceptance register no longer

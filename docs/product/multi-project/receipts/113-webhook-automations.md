@@ -75,8 +75,10 @@ them. Fable re-reviewed it and found three smaller issues, fixed in `9eaf055`.
 
 ## Remaining limits
 
-- An interrupted call reruns from the start only after the lease, and it may repeat local steps such as
-  a memory write. Later calls to that automation wait behind it.
+- An interrupted call reruns from the start, and it may repeat local steps such as a memory write.
+  Later calls to that automation wait behind it. After a hard kill it reruns only after the lease. Since
+  #114, a call whose run a normal quit interrupted goes back to the queue and runs at the first retry
+  pass at least 90 seconds after the quit, as the [#114 and #115 receipt](114-automation-quit-and-status.md) records.
 - Conditions need an Anthropic key and send the request body to Anthropic.
 - Event-triggered automations keep Core's older key check.
 - In local mode only programs on the same computer can call a webhook. A self-hosted install with a
