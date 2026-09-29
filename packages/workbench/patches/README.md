@@ -1228,9 +1228,10 @@ The patch changes that file in two places:
   sending its body still destroys the response, so it is still an abort and is
   not logged as a server error.
 - The JSON error response keeps the fields of an h3 error's `body`, as h3's own
-  error response does, beside `error` and the optional stack. The guard's
-  `errorCode` and `retryable: false` reach the chat client, which then shows the
-  refusal once and does not send it again.
+  error response does, beside `error`. The guard's `errorCode` and
+  `retryable: false` reach the chat client, which then shows the refusal once
+  and does not send it again. A `stack` in that body is left out, so a stack
+  still appears only when `AGENT_NATIVE_DEBUG_ERRORS=1`.
 
 Run the focused checks with:
 

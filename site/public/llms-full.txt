@@ -7321,7 +7321,8 @@ so the error was dropped, h3 answered 404 "Cannot find any route", and Core's ch
 The maintained Core patch now counts a destroyed request as an abort only when its body did not complete, and a
 destroyed response as before, so a client that really leaves is still not logged as a server error. The wrapper's JSON
 error response also keeps the fields of an h3 error's `body`, as h3's own response does, so the send guard's
-`errorCode` and `retryable: false` from #91 reach the chat client. The patch README section "Errors thrown after a
+`errorCode` and `retryable: false` from #91 reach the chat client. A `stack` in that body is left out, so a stack
+still reaches a client only with `AGENT_NATIVE_DEBUG_ERRORS=1`. The patch README section "Errors thrown after a
 request body is read" owns the detail. A test serves a route mounted through Core's wrapper over a Node HTTP server.
 
 Issue #91. A Native chat send that the project send guard refuses now shows the refusal's own sentence once.

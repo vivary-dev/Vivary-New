@@ -6586,7 +6586,7 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc592
              ...(opts.code && { code: opts.code }),
              strikes,
 diff --git a/dist/server/framework-request-handler.js b/dist/server/framework-request-handler.js
-index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..598587c5025ccd21e3d7d16f12975a25f13eb3c0 100644
+index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..85cb8b756e69b1ae421da87183a4a6f508f95f2d 100644
 --- a/dist/server/framework-request-handler.js
 +++ b/dist/server/framework-request-handler.js
 @@ -482,9 +482,12 @@ function isClientAbortError(error, event) {
@@ -6603,13 +6603,15 @@ index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..598587c5025ccd21e3d7d16f12975a25
          node?.res?.destroyed === true);
  }
  function debugClientAbort(args) {
-@@ -669,7 +672,11 @@ function registerMiddleware(nitroApp, path, handler, options = {}) {
+@@ -669,7 +672,13 @@ function registerMiddleware(nitroApp, path, handler, options = {}) {
              catch {
                  // Response already sent — best effort.
              }
 +            // Vivary patch, issue #142. An h3 error's `body` holds the fields its thrower chose for the client, such
-+            // as an error code and whether to retry. h3's own error response keeps them, so this one does too.
-+            const chosenFields = e?.body && typeof e.body === "object" && !Array.isArray(e.body) ? e.body : {};
++            // as an error code and whether to retry. h3's own error response keeps them, so this one does too. A
++            // stack stays behind the debug switch below, even when a thrower put one in its body.
++            const { stack: _bodyStack, ...chosenFields } = e?.body && typeof e.body === "object" && !Array.isArray(e.body)
++                ? e.body : {};
              return {
 +                ...chosenFields,
                  error: e?.message || "Internal server error",

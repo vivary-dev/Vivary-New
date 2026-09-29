@@ -75,3 +75,12 @@ test("a client that leaves mid-request is still an abort, not a server error", {
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(logged.mock.calls.map(call => String(call.arguments[0])).filter(line => line.includes("agent-chat")), []);
 });
+
+test("an error's body cannot put a stack in the response unless debug errors are on", { timeout: 10_000 }, async t => {
+  const { HTTPError } = await import("h3");
+  const url = await mountedChatRoute(t, async () => {
+    throw new HTTPError({ status: 422, message: "Refused.", body: { errorCode: "refused", stack: "at private (/srv/app.js:1)" } });
+  });
+  const response = await fetch(url, { method: "POST", body: "{}" });
+  assert.deepEqual(await response.json(), { errorCode: "refused", error: "Refused." });
+});
