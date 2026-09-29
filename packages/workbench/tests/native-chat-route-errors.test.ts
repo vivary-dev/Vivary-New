@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, type TestContext } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Issue #142. Core mounts its chat route through `getH3App(...).use`. That wrapper decided an error came from a client
 // that left whenever the request stream was destroyed, which Node does once a body has been read to the end. The error
@@ -83,4 +84,38 @@ test("an error's body cannot put a stack in the response unless debug errors are
   });
   const response = await fetch(url, { method: "POST", body: "{}" });
   assert.deepEqual(await response.json(), { errorCode: "refused", error: "Refused." });
+});
+
+// Core's chat client, as the browser runs it, loaded from the installed package by path as the #91 tests do.
+const coreClientDir = path.dirname(fileURLToPath(import.meta.resolve("@agent-native/core/client")));
+const { createAgentChatAdapter } = await import(pathToFileURL(path.join(coreClientDir, "agent-chat-adapter.js")).href);
+
+/** What the chat shows for a send the guard refuses behind Core's mounted route, and how many sends reached it. */
+async function shownThroughMountedRoute(t: TestContext, dependencies: Parameters<typeof createVivaryNativeChatProjectGuard>[0]) {
+  const guard = createVivaryNativeChatProjectGuard(dependencies);
+  let sends = 0;
+  const url = await mountedChatRoute(t, async event => {
+    if (event.req.method !== "POST") return new Response(null, { status: 404 });
+    sends += 1;
+    await guard({ event: {}, ownerEmail: "owner@example.test", message: "Hi", attachments: [], references: [], mode: "act" });
+    return "sent";
+  });
+  const adapter = createAgentChatAdapter({ apiUrl: url });
+  let last: { content: { text?: string }[] } | undefined;
+  for await (const update of adapter.run({ messages: [{ id: "user-1", role: "user", content: [{ type: "text", text: "Hi" }] }],
+    abortSignal: new AbortController().signal })) last = update;
+  return { shown: last?.content.map(part => part.text), sends };
+}
+
+test("the chat shows a refusal from behind Core's mounted route once", { timeout: 15_000 }, async t => {
+  const refused = Object.assign(new Error("Project conversation access is unavailable."), { statusCode: 403 });
+  assert.deepEqual(await shownThroughMountedRoute(t, { getOrgId: () => "org-a",
+    matchChatProject: async () => { throw refused; }, resolveProjectWorkspace: async () => ({}) }),
+  { shown: ["Something went wrong: Project conversation access is unavailable."], sends: 1 });
+  const missing = Object.assign(new Error("The project folder is missing or changed."), { statusCode: 409 });
+  assert.deepEqual(await shownThroughMountedRoute(t, { getOrgId: () => "org-a",
+    matchChatProject: async () => ({ kind: "project", projectId: "project-a",
+      context: { caller: "http", userEmail: "owner@example.test", orgId: "org-a", appId: "workbench" } }),
+    resolveProjectWorkspace: async () => { throw missing; } }),
+  { shown: ["Something went wrong: This project folder is unavailable. Reconnect it from Projects."], sends: 1 });
 });
