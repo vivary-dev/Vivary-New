@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const [role, appId] = process.argv.slice(2);
 // A one-second soft timeout makes a run reach a boundary that ends its turn, as a long run does.
-if (role === "soft-cut") process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "1000"; // guard:allow-env-credential - A timeout, not a credential.
+if (role === "soft-cut") process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "1000"; // guard:allow-env-mutation - A test-only timeout in a disposable child.
 const owner = "owner@example.test";
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
