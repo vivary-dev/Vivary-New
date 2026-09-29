@@ -7344,7 +7344,9 @@ later lift still records what End them ended. `hostState.closing` now means shut
 sentence. The oldest refusal in force refuses every Code send with `vivary_code_cleanup_required`, and the host state
 shows it to every user of the host, naming the run only to its owner. The host checks every refusal again at start,
 without waiting, and before a send, never from the one-second polls. A check that finds nothing lifts the refusal and
-adds a transcript status. A marker from before this change, `cleanupUnverified: true`, has no target and stays until a
+adds a transcript status. Every lift's status says that Vivary accepts new messages again only when no other refusal
+is in force. Otherwise it says that this run no longer keeps Vivary from accepting new messages, but another run still
+does. A marker from before this change, `cleanupUnverified: true`, has no target and stays until a
 person continues. The `vivary-code-cleanup` action, which no agent or tool may call, carries a signed-in person's
 choice. End them tries each listed process traced to the run, newest first, and checks its identity at the moment it
 acts. On Windows one PowerShell call takes each process by PID, reads its creation time through the handle it opens,

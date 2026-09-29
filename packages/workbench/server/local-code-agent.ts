@@ -564,8 +564,10 @@ function liftCleanupRefusal(refusal: CleanupRefusal, lift: CleanupLift): void {
   // The credential redaction plugin redacts server output. Process names stay out of the log.
   console.error(`[vivary-code-host] cleanup-lifted run=${refusal.runId} how=${lift.how} scan=${scan} remaining=${remaining}`);
   try {
-    appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status", message: cleanupLiftMessage(lift, refusal),
-      metadata: { phase: "cleanup-lifted", how: lift.how } });
+    // Another refusal in force still refuses every send.
+    const othersInForce = cleanupRefusalsInForce().some(other => other.runId !== refusal.runId);
+    appendCodeAgentTranscriptEvent({ runId: refusal.runId, kind: "status",
+      message: cleanupLiftMessage(lift, refusal, othersInForce), metadata: { phase: "cleanup-lifted", how: lift.how } });
     const recorded = updateCodeAgentRunRecord(refusal.runId, {
       metadata: { cleanupRefusal: undefined, cleanupUnverified: undefined, cleanupLifted: lift },
     });
@@ -696,26 +698,31 @@ function cleanupComposer(refusal: CleanupRefusal): string {
   return `${cleanupHeading(refusal)}. Choose ${choice} above before sending another message.`;
 }
 
-/** The transcript status when a refusal lifts. It marks any listed process Vivary did not trace to the run. */
-function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal): string {
+/**
+ * The transcript status when a refusal lifts. It marks any listed process Vivary did not trace to the run, and it says
+ * that Vivary accepts new messages again only when no other refusal is in force.
+ */
+function cleanupLiftMessage(lift: CleanupLift, refusal: CleanupRefusal, othersInForce: boolean): string {
   const ended = attemptsWith(lift.ends, "ended");
-  // What Vivary could not read about End them comes last in every lift, before the acceptance.
-  const accepts = [unreadNote(lift.ends), "Vivary accepts new messages again."].filter(Boolean).join(" ");
+  // What Vivary could not read about End them comes last in every lift, before what the lift means for new messages.
+  const outcome = [unreadNote(lift.ends), othersInForce
+    ? "This run no longer keeps Vivary from accepting new messages, but another run still does."
+    : "Vivary accepts new messages again."].filter(Boolean).join(" ");
   if (lift.how === "ended") {
-    return `You chose End them. Vivary ended ${processList(ended)} and found no coding processes left. ${accepts}`;
+    return `You chose End them. Vivary ended ${processList(ended)} and found no coding processes left. ${outcome}`;
   }
   const endedNote = ended.length ? ` End them ended ${processList(ended)}.` : "";
-  if (lift.how === "rechecked") return `The leftover coding processes are gone.${endedNote} ${accepts}`;
+  if (lift.how === "rechecked") return `The leftover coding processes are gone.${endedNote} ${outcome}`;
   if (lift.scan !== "done") {
     return `You chose to continue. Vivary could not check whether this run's coding processes stopped.${endedNote} `
-      + accepts;
+      + outcome;
   }
   const which = lift.remaining.every(leftover => confirmedFromRun(refusal, leftover)) ? "these coding processes"
     : "these processes";
   return lift.remaining.length
     ? `You chose to continue while ${which} were still running: ${processList(lift.remaining, refusal, lift.total)}.`
-      + `${endedNote} ${accepts}`
-    : `You chose to continue while a coding process from this run was still running.${endedNote} ${accepts}`;
+      + `${endedNote} ${outcome}`
+    : `You chose to continue while a coding process from this run was still running.${endedNote} ${outcome}`;
 }
 
 function cleanupView(refusal: CleanupRefusal, runs: readonly CodeAgentRunRecord[], ownerEmail: string,
