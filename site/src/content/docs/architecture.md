@@ -24,6 +24,8 @@ These are release criteria, not a claim that the full journey passes. The [accep
 
 ## System structure
 
+The [architecture and UX diagrams](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/diagrams/README.md) provide six editable tldraw pages and image exports. They are a dated view of this design and its interaction contracts.
+
 ```mermaid
 flowchart LR
   Person[Person] --> Desktop[Electron desktop]
@@ -156,6 +158,8 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+PR #127 brings the dated diagram collection together with the current design without replacing its newer product reviews. The project flow separates denied/revoked access from authorized missing-folder recovery, and resume from new-runtime selection, denial returns to the running session, pending approval exposes Stop, and answer-bearing questions/forms collect required content before Continue. Automation flows distinguish event triggers, paused definitions, rejected/duplicate webhooks that do not queue runs, and dispatch-specific next-run bookkeeping; deletion terminates the definition/run-row lifecycle while preserving internal job thread rows. Run inspection uses automation history; retained run threads are not openable from Settings or chat history. The workspace interaction contract, Code approval owner, and automation lifecycle receipt support these corrections. The planning checker recognizes only signature-matching JPEG and tldraw assets directly in the diagram directory, with the exact visually reviewed source/export hashes pinned in code. Changed, unknown, or mismatched exports require another visual/source review and deliberate pin update before acceptance; other planning text remains strict UTF-8, and preflight and visible-byte privacy checks remain. Tldraw ZIP entries are decompressed in memory under entry/count/total-size limits and scanned for private paths and credentials; invalid or unscannable archives fail closed. The scan validates actual DEFLATE stream completion and sizes, and decodes escaped strings in SQLite diagram records, rather than trusting ZIP headers or raw bytes alone. The editable archive uses ZIP compression while preserving identical entry contents, so storage encoding does not change any diagram record. Its thumbnail-sized preview is rendered from the same reviewed diagram; the editable database, viewport settings, and full-size exports are unchanged. This changes documentation and its validation, not runtime behavior or release acceptance.
 
 Issue #109. The owner decided on 2026-09-28 and 2026-09-29 that an instruction or memory file an automation run writes
 waits for the owner's review in Settings > Automation files, and that chats and later runs skip it until the owner
