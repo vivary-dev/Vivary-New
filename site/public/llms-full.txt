@@ -7370,7 +7370,11 @@ origin, with a one-use initial navigation exception. Preview subframes receive n
 Settings requests changes, but native desktop confirmation over correlated IPC owns
 enablement, pairing approval, revocation and disablement. Remote browsers cannot use
 those controls or the desktop folder chooser. Connection UI names the host, detects
-unavailability and offers explicit retry without sending a message. Remote project
+unavailability and offers explicit retry without sending a message. The connection
+wrapper owns the dynamic viewport height; its wrapping notice and workspace share
+that height, with the existing shell filling the remaining space. Conversation recovery notices, runtime selectors and the setup
+card share the existing scrollable composer slot when space is short, preserving
+the composer. Remote project
 previews remain unavailable until isolated authenticated routing exists. This source
 slice does not establish packaged Electron or actual-phone acceptance.
 
@@ -7399,6 +7403,14 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 viewport correction: BrowserConnection now allocates space for its
+notice and the workspace within Core's dynamic viewport height. The shell uses
+its remaining row instead of adding another viewport below the notice. The
+existing private normal-app UI proof checks composer bounds and page overflow at
+390x844 and 390x600, wrapping connection/error notices, and paired Alpha/Beta
+selection across reload. These simulated viewports do not establish physical
+phone keyboard acceptance.
 
 Issue #30 introduces the desktop capability, outer paired-browser admission,
 persisted device lifecycle and Settings/connection UI described above. Focused tests

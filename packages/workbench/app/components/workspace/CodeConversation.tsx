@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -318,6 +318,21 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, ownerKey, projectLabel
     }
   }
 
+  const conversationNotices = <>
+    {error && <div className="local-agent-notice" role="alert">
+      <span>{error}</span><Button variant="ghost" size="sm" onClick={() => { void state.refetch(); if (selection?.runId) void selectedState.refetch(); }}>Retry</Button>
+    </div>}
+    {activeRun && activeRun.id !== selection?.runId && <div className="local-agent-notice" role="status">
+      <span>An agent is working in another conversation.</span>
+      <Button variant="ghost" size="sm" onClick={() => {
+        if (activeRun.projectId === projectId) selectConversation(activeRun.id);
+        else void onOpenActive(activeRun).then(opened => {
+          if (!opened) setNotice("The active conversation's project could not be opened. You can still stop the agent here.");
+        });
+      }}>Open conversation</Button>
+    </div>}
+  </>;
+
   return <section className="local-agent-page" aria-label="Vivary agent">
     <header className="local-agent-header">
       <div className="local-agent-heading">
@@ -346,22 +361,11 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, ownerKey, projectLabel
 
       </div>
     </header>
-    {error && <div className="local-agent-notice" role="alert">
-      <span>{error}</span><Button variant="ghost" size="sm" onClick={() => { void state.refetch(); if (selection?.runId) void selectedState.refetch(); }}>Retry</Button>
-    </div>}
-    {activeRun && activeRun.id !== selection?.runId && <div className="local-agent-notice" role="status">
-      <span>An agent is working in another conversation.</span>
-      <Button variant="ghost" size="sm" onClick={() => {
-        if (activeRun.projectId === projectId) selectConversation(activeRun.id);
-        else void onOpenActive(activeRun).then(opened => {
-          if (!opened) setNotice("The active conversation's project could not be opened. You can still stop the agent here.");
-        });
-      }}>Open conversation</Button>
-    </div>}
+    {(!selection || !codeState || openingSavedRun) && conversationNotices}
     <div className="local-agent-layout">
       <div className="local-agent-chat">
         {selection && codeState && !openingSavedRun ? <LocalCodeConversation key={selection.key}
-          projectId={projectId} ownerKey={ownerKey} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
+          notices={conversationNotices} projectId={projectId} ownerKey={ownerKey} selection={selection} run={run ?? null} previewScope={previewScope} onPreviewChatTarget={onPreviewChatTarget}
           state={run && selectedState.data?.projectId === projectId && selectedState.data.run?.id === run.id
             ? { ...codeState, engines: selectedState.data.engines } : codeState}
           workspaceAvailable={workspaceAvailable}
@@ -382,6 +386,7 @@ function ProjectCodeWorkspace({ projectId, draftScopeKey, ownerKey, projectLabel
 }
 
 type LocalCodeConversationProps = PreviewChatProps & {
+  notices: ReactNode;
   ownerKey: string;
   projectId: string | null;
   workspaceAvailable: boolean;
@@ -501,64 +506,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     props.onChoice(next);
   }
 
-  return <>
-    {!draftError && draft.draftSaveStatusForThread(draftThreadId) && <div className="local-agent-notice" role="status">
-      <span>{draft.draftSaveStatusForThread(draftThreadId) === "saved"
-        ? "Draft saved for this conversation." : "Saving draft…"}</span>
-      <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
-    </div>}
-    {draftError && <div className="local-agent-notice" role="alert">
-      <span>{draftError}</span>
-      <Button variant="outline" size="sm" onClick={() => draft.retry(draftThreadId)}>{draft.hasConflictForThread(draftThreadId)
-        ? "Reload saved draft" : draft.hasFailedDiscardForThread(draftThreadId) ? "Retry discard" : "Retry draft"}</Button>
-      {draft.hasPendingForThread(draftThreadId) && (!restoreReview
-        ? <Button variant="outline" size="sm" onClick={() => setRestoreReview(true)}>Review before restoring</Button>
-        : !restoreAcknowledged
-          ? <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" aria-label="I checked this conversation and queued follow-ups"
-              onChange={event => setRestoreAcknowledged(event.target.checked)} />
-            I checked this conversation and queued follow-ups. The message could still appear later, so sending this draft again could duplicate it.
-          </label>
-          : <Button variant="outline" size="sm" onClick={() => {
-            setRestoreReview(false);
-            setRestoreAcknowledged(false);
-            void draft.restorePending(draftThreadId);
-          }}>Restore draft for editing</Button>)}
-      <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
-    </div>}
-    {!props.selection.runId && <div className="local-agent-notice">
-      <label className="flex items-center gap-2 text-sm">
-        Runtime
-        <select aria-label="Conversation runtime" value={choice.engine}
-          className="rounded-md border bg-background px-2 py-1 text-foreground"
-          disabled={!props.workspaceAvailable || props.active || props.streaming}
-          onChange={event => chooseRuntime(event.target.value)}>
-          {props.state.engines.map(engine => <option key={engine.engine} value={engine.engine}>
-            {engine.label}{engine.runtime.status === "ready" ? "" : ` (${engine.runtime.status.replaceAll("-", " ")})`}
-          </option>)}
-        </select>
-      </label>
-      <label className="flex min-w-0 items-center gap-2 text-sm">
-        Model
-        <select aria-label="Conversation model" value={choice.model}
-          className="min-w-0 max-w-full rounded-md border bg-background px-2 py-1 text-foreground"
-          disabled={!props.workspaceAvailable || props.active || props.streaming || !modelChoices.length}
-          onChange={event => {
-            const model = event.target.value;
-            if (!selectedEngine || !modelChoices.includes(model)) return;
-            const next = { engine: selectedEngine.engine, model };
-            setChoice(next);
-            props.onChoice(next);
-          }}>
-          {!modelChoices.length && <option value={choice.model}>Models unavailable</option>}
-          {modelChoices.map(model => <option key={model} value={model}>
-            {selectedEngine?.modelCatalog?.status === "ready"
-              ? selectedEngine.modelCatalog.models.find(item => item.id === model)?.label ?? model : model}
-          </option>)}
-        </select>
-      </label>
-    </div>}
-    <AssistantChat key={viewKey.current} ref={chatRef}
+  return <AssistantChat key={viewKey.current} ref={chatRef}
     tabId={draftThreadId}
     hostComposerDraft={draft.hostComposerDraft}
     contextNamespace={previewContextKey}
@@ -592,15 +540,74 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
       <p>Read files, make changes, and inspect the results in your workspace.</p>
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => chatRef.current?.prefillMessage(example)}>Try a file change</Button>
     </div>}
-    composerSlot={props.workspaceAvailable && !runtimeReady ? <div className="local-agent-runtime-setup" role="status">
+    composerSlot={<div className="min-h-0 overflow-auto">
+      {props.notices}
+      {!draftError && draft.draftSaveStatusForThread(draftThreadId) && <div className="local-agent-notice" role="status">
+        <span>{draft.draftSaveStatusForThread(draftThreadId) === "saved"
+          ? "Draft saved for this conversation." : "Saving draft…"}</span>
+        <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
+      </div>}
+      {draftError && <div className="local-agent-notice" role="alert">
+        <span>{draftError}</span>
+        <Button variant="outline" size="sm" onClick={() => draft.retry(draftThreadId)}>{draft.hasConflictForThread(draftThreadId)
+          ? "Reload saved draft" : draft.hasFailedDiscardForThread(draftThreadId) ? "Retry discard" : "Retry draft"}</Button>
+        {draft.hasPendingForThread(draftThreadId) && (!restoreReview
+          ? <Button variant="outline" size="sm" onClick={() => setRestoreReview(true)}>Review before restoring</Button>
+          : !restoreAcknowledged
+            ? <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" aria-label="I checked this conversation and queued follow-ups"
+                onChange={event => setRestoreAcknowledged(event.target.checked)} />
+              I checked this conversation and queued follow-ups. The message could still appear later, so sending this draft again could duplicate it.
+            </label>
+            : <Button variant="outline" size="sm" onClick={() => {
+              setRestoreReview(false);
+              setRestoreAcknowledged(false);
+              void draft.restorePending(draftThreadId);
+            }}>Restore draft for editing</Button>)}
+        <Button variant="ghost" size="sm" onClick={() => void draft.discard(draftThreadId)}>Discard draft</Button>
+      </div>}
+      {!props.selection.runId && <div className="local-agent-notice">
+        <label className="flex items-center gap-2 text-sm">
+          Runtime
+          <select aria-label="Conversation runtime" value={choice.engine}
+            className="rounded-md border bg-background px-2 py-1 text-foreground"
+            disabled={!props.workspaceAvailable || props.active || props.streaming}
+            onChange={event => chooseRuntime(event.target.value)}>
+            {props.state.engines.map(engine => <option key={engine.engine} value={engine.engine}>
+              {engine.label}{engine.runtime.status === "ready" ? "" : ` (${engine.runtime.status.replaceAll("-", " ")})`}
+            </option>)}
+          </select>
+        </label>
+        <label className="flex min-w-0 items-center gap-2 text-sm">
+          Model
+          <select aria-label="Conversation model" value={choice.model}
+            className="min-w-0 max-w-full rounded-md border bg-background px-2 py-1 text-foreground"
+            disabled={!props.workspaceAvailable || props.active || props.streaming || !modelChoices.length}
+            onChange={event => {
+              const model = event.target.value;
+              if (!selectedEngine || !modelChoices.includes(model)) return;
+              const next = { engine: selectedEngine.engine, model };
+              setChoice(next);
+              props.onChoice(next);
+            }}>
+            {!modelChoices.length && <option value={choice.model}>Models unavailable</option>}
+            {modelChoices.map(model => <option key={model} value={model}>
+              {selectedEngine?.modelCatalog?.status === "ready"
+                ? selectedEngine.modelCatalog.models.find(item => item.id === model)?.label ?? model : model}
+            </option>)}
+          </select>
+        </label>
+      </div>}
+      {props.workspaceAvailable && !runtimeReady ? <div className="local-agent-runtime-setup" role="status">
       <div><h3>Set up {selectedEngine?.label ?? "a runtime"}</h3><p>{selectedEngine?.modelCatalog?.status === "unavailable"
         ? selectedEngine.modelCatalog.message : runtime?.message ?? "Choose a local runtime in Settings."}</p></div>
       <Button variant="outline" size="sm" onClick={props.onSettings}>Open runtime settings</Button>
-    </div> : undefined}
+      </div> : null}
+    </div>}
     composerExtraActionButton={props.active && !props.streaming ?
       <Button variant="outline" size="sm" disabled={props.stopping} onClick={() => void props.onStop()} aria-label="Stop response">
         <IconSquare size={14} /> Stop
       </Button> : undefined}
     threadFooterSlot={<p className="local-agent-limits"><span>{selectedEngine?.label ?? choice.engine} · {choice.model}</span>. {choice.engine === "codex-cli" ? "Codex uses the permissions selected in Runtime settings." : "Claude Code uses file tools."} Work continues if you leave this page. Use Stop to end the active turn.</p>}
-  /></>;
+  />;
 }

@@ -40,8 +40,8 @@ export function BrowserConnection({ children }: { children: ReactNode }) {
   }, [retry]);
   if (connection.kind === 'checking') return <p role="status" className="p-4 text-sm">Connecting to Vivary…</p>;
   if (connection.kind === 'local') return children;
-  return <BrowserHost.Provider value={connection.host}>
-    <div className="border-b bg-muted px-4 py-2 text-sm" role="status">
+  return <BrowserHost.Provider value={connection.host}><div className="browser-connection">
+    <div className="min-w-0 border-b bg-muted px-4 py-2 text-sm [overflow-wrap:anywhere]" role="status">
       {connection.problem === 'changed' ? 'The host at this address changed. Requests are paused. Return to your original host.'
         : connection.problem === 'revoked' ? 'Browser access ended. Unsent text stays here; copy it before pairing again.'
           : connection.problem === 'unavailable' ? `Cannot reach ${connection.host.label}. Keep this page open to preserve unsaved text. Retry does not send messages.`
@@ -49,6 +49,6 @@ export function BrowserConnection({ children }: { children: ReactNode }) {
       {connection.problem && connection.problem !== 'changed' && <button className="ml-3 min-h-11 underline" onClick={() => setRetry(value => value + 1)}>Retry connection</button>}
       {connection.problem === 'revoked' && <a className="ml-3 underline" href="/pair">Pair again</a>}
     </div>
-    {connection.problem === 'changed' ? null : children}
-  </BrowserHost.Provider>;
+    <div className="browser-connection-workspace">{connection.problem === 'changed' ? null : children}</div>
+  </div></BrowserHost.Provider>;
 }
