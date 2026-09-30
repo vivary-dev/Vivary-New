@@ -130,6 +130,7 @@ export function Workspace() {
   const [maximized, setMaximized] = useState(false);
   const [previewChatTarget, setPreviewChatTarget] = useState<PreviewChatTarget | null>(null);
   const panel = useRef<PanelHandle>(null);
+  const surfaceElement = useRef<HTMLElement>(null);
   const conversation = useRef<PanelHandle>(null);
   const split = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -154,7 +155,27 @@ export function Workspace() {
   ]);
   const [searchVisited, setSearchVisited] = useState(opened === "search");
   const [fileTreeOpen, setFileTreeOpen] = useState(true);
+  const fullPage = opened === "preview" && maximized;
   const showOnlySurface = Boolean(opened) && (narrow || maximized || (splitWidth > 0 && splitWidth < 620));
+
+  useEffect(() => {
+    if (!fullPage || !surfaceElement.current) return;
+    // Expand in place: moving the frame into a portal would restart its browsing session.
+    // Keep the covered workspace out of keyboard navigation while the preview fills the page.
+    const covered: { element: HTMLElement; inert: boolean }[] = [];
+    let current: HTMLElement = surfaceElement.current;
+    while (current.parentElement) {
+      for (const sibling of current.parentElement.children) {
+        if (sibling instanceof HTMLElement && sibling !== current) {
+          covered.push({ element: sibling, inert: sibling.inert });
+          sibling.inert = true;
+        }
+      }
+      current = current.parentElement;
+      if (current === document.body) break;
+    }
+    return () => { for (const { element, inert } of covered) element.inert = inert; };
+  }, [fullPage]);
 
   function changeSurface(next: Surface | null, trigger?: HTMLButtonElement) {
     if (trigger) opener.current = trigger;
@@ -269,16 +290,18 @@ export function Workspace() {
             </div> : native ? <NativeConversation /> : <CodeConversation previewScope={previewScope} onPreviewChatTarget={setPreviewChatTarget} />}
           </div>
         </ResizablePanel>
-        <ResizableHandle disabled={!opened || showOnlySurface} hidden={!opened || showOnlySurface}
+        <ResizableHandle withHandle title="Drag to resize the work panel, or use the arrow keys" disabled={!opened || showOnlySurface} hidden={!opened || showOnlySurface}
           className="workspace-resize-handle" aria-label="Resize work panel" />
         <ResizablePanel id="surface" panelRef={panel} defaultSize={opened ? width : 0}
           minSize={showOnlySurface ? 0 : 260} collapsible collapsedSize={0}>
-          <aside className="workspace-surface" hidden={!opened} aria-label="Work panel">
+          <aside ref={surfaceElement} className={`workspace-surface${fullPage ? " workspace-surface-fullpage" : ""}`} hidden={!opened} aria-label="Work panel">
             <header className="workspace-surface-toolbar">
-              <h2>{opened === "files" ? "Files" : opened === "preview" ? "Page preview" : opened === "search" ? "Search" : "Project details"}</h2>
+              <h2>{opened === "files" ? "Files" : opened === "preview" ? `Preview · ${activeProject?.displayName ?? "Personal workspace"}` : opened === "search" ? "Search" : "Project details"}</h2>
               {opened === "files" && <Button variant="ghost" size="sm" aria-expanded={fileTreeOpen}
                 onClick={() => setFileTreeOpen(value => !value)}>{fileTreeOpen ? "Hide file list" : "Show file list"}</Button>}
-              {!narrow && splitWidth >= 620 && <Button size="icon" variant="ghost" aria-label={maximized ? "Restore panel" : "Maximize panel"}
+              {opened === "preview" && <Button size="sm" variant="outline" aria-expanded={fullPage}
+                onClick={() => setMaximized(value => !value)}>{fullPage ? <IconArrowsMinimize size={17} aria-hidden /> : <IconArrowsMaximize size={17} aria-hidden />}{fullPage ? "Back to workspace" : "Full page"}</Button>}
+              {opened !== "preview" && !narrow && splitWidth >= 620 && <Button size="icon" variant="ghost" aria-label={maximized ? "Restore panel" : "Maximize panel"}
                 onClick={() => setMaximized(value => !value)}>{maximized ? <IconArrowsMinimize size={17} /> : <IconArrowsMaximize size={17} />}</Button>}
               <Button size="icon" variant="ghost" aria-label="Close work panel" onClick={() => changeSurface(null)}><IconX size={18} /></Button>
             </header>

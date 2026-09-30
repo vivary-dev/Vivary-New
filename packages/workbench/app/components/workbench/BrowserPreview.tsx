@@ -191,11 +191,14 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
 
   const browserHost = useBrowserHost();
   const [setupOpen, setSetupOpen] = useState(true);
+  useEffect(() => {
+    if (!browserHost && canEmbed) setSetupOpen(false);
+  }, [browserHost, canEmbed, page?.url]);
 
   if (!projectId) return <section className="p-5 text-sm text-muted-foreground">Connect and select a project before opening its preview.</section>;
-  return <section className="flex h-full min-h-0 flex-col" aria-label="Web preview">
-    {browserHost && <div className="shrink-0 border-b px-3 py-2"><Button size="sm" variant="outline" aria-expanded={setupOpen} aria-controls="preview-setup" onClick={() => setSetupOpen(value => !value)}>Preview setup and server controls</Button></div>}
-    <div id="preview-setup" hidden={!!browserHost && !setupOpen} className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
+  return <section className="preview-page flex h-full min-h-0 flex-col" aria-label="Web preview">
+    <div className="shrink-0 border-b px-3 py-2"><Button size="sm" variant="outline" aria-expanded={setupOpen} aria-controls="preview-setup" onClick={() => setSetupOpen(value => !value)}>Preview setup and server controls</Button></div>
+    <div id="preview-setup" hidden={!setupOpen} className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
       <p className="break-words text-xs text-muted-foreground">Preview for {projectName}{host ? ` on ${host}` : " on the connected host"}</p>
       <form onSubmit={reviewCommand} className="space-y-2">
         <label className="block text-xs" htmlFor="preview-address">{browserHost ? "Host preview address for the reviewed command" : "Project preview address"}</label>

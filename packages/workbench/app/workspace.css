@@ -8,17 +8,29 @@
 .workspace-tools button { gap:6px; }
 .workspace-split { min-height:0; min-width:0; flex:1; }
 .workspace-conversation { height:100%; min-height:0; min-width:0; }
-.workspace-resize-handle { width:5px!important; height:100%!important; flex-shrink:0; background:hsl(var(--border))!important; }
+.workspace-resize-handle { width:12px!important; touch-action:none; height:100%!important; flex-shrink:0; background:hsl(var(--border))!important; }
 .workspace-resize-handle::after { inset:0 -2px!important; width:auto!important; height:auto!important; transform:none!important; }
 .workspace-resize-handle:hover,.workspace-resize-handle:focus-visible { background:hsl(var(--ring))!important; }
 .workspace-surface { height:100%; display:flex; flex-direction:column; min-height:0; overflow:hidden; background:hsl(var(--background)); }
 .workspace-surface-toolbar { display:flex; align-items:center; gap:4px; padding:8px 10px; border-bottom:1px solid hsl(var(--border)); }
-.workspace-surface-toolbar h2 { flex:1; font-size:13px; font-weight:600; }
+.workspace-surface-toolbar h2 { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
 .workspace-file-surface { display:flex; flex:1; min-height:0; min-width:0; flex-direction:column; }
 .workspace-file-tree { max-height:240px; overflow:auto; border-bottom:1px solid hsl(var(--border)); flex-shrink:0; }
 .workspace-file-document { flex:1; min-height:0; overflow:auto; }
 .workspace-file-document .file-document { min-height:100%; height:auto; }
-.workspace-preview { flex:1; min-height:0; }
+.workspace-preview { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.workspace-preview > .preview-page { flex:1; height:auto; }
+.workspace-surface-fullpage { position:fixed; inset:0; z-index:50; height:100dvh; }
+.workspace-surface-toolbar { flex-shrink:0; }
+.workspace-surface-toolbar button { flex-shrink:0; gap:6px; }
+.workspace-resize-handle > div { height:48px; width:12px; border-radius:6px; }
+.workspace-resize-handle > div svg { height:24px; width:12px; }
+@media (max-width:767px) {
+  .workspace-surface-toolbar { flex-wrap:wrap; }
+  .workspace-surface-toolbar h2 { flex-basis:100%; }
+  .workspace-surface-toolbar button,.preview-page button { min-height:44px; }
+  .workspace-surface-toolbar button[aria-label="Close work panel"] { min-width:44px; margin-left:auto; }
+}
 .workspace-search { height:100%; min-width:0; overflow:auto; }
 .workspace-details { padding:24px; overflow:auto; font-size:13px; line-height:1.6; }
 .workspace-details h3 { font-weight:600; font-size:16px; }

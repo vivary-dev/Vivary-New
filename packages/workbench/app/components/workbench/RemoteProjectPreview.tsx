@@ -102,7 +102,7 @@ export function RemoteProjectPreview({ projectId, launch, onOpen }: { projectId:
     }
     catch { setError('Preview access could not be closed. Keep this page open and retry after reconnecting.'); setBusy(false); }
   }
-  return <section className="flex min-h-0 flex-1 flex-col" aria-label="Remote project preview">
+  return <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Remote project preview">
     <div className="max-h-[50%] shrink-0 space-y-3 overflow-y-auto border-b p-3 text-sm">
       {!launch && <p>Review and start a preview command above.</p>}
       {!frame && launch && <p>{launch.code === 'ready' ? 'Owned preview command is available. Opening verifies its connection.' : 'The owned preview is not ready.'}</p>}

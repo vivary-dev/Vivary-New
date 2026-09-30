@@ -202,8 +202,12 @@ selection close-flush must succeed before grant closure and reload. File editing
 retains its beforeunload guard. A restored browser-history document requires a
 refresh. Preview grants expire on restart and revocation cuts their streams without
 stopping unrelated host work. Shared review/start/status/stop controls remain in
-BrowserPreview. After opening, remote setup collapses behind a disclosure so the
-page fills the remaining phone viewport. Server controls stay reachable, and
+BrowserPreview. After opening, setup collapses behind a disclosure so the page
+fills the available height. The shared work panel has a visible drag grip with
+keyboard resizing. Full page and Back to workspace controls expand and restore
+the same mounted panel on desktop and phone. The iframe stays in its DOM position,
+so display changes preserve page state, navigation and live connections. Covered
+workspace controls are inert during full-page display. Server controls stay reachable, and
 Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
 required. This source slice does not establish packaged Windows or actual-phone
 acceptance.
@@ -233,6 +237,12 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 preview sizing reuses the shared panel resize and maximize state.
+Full-page display changes CSS on the existing panel without moving or replacing
+its iframe. Setup remains available after automatic collapse for local and remote
+pages. Isolation and document identity reload guards are unchanged. Review covers
+the flex height chain, keyboard access and the existing preview fixture.
 
 The local preview confirmation no longer says remote phone routing is unavailable.
 Review of BrowserPreview confirms that this copy correction preserves the local
