@@ -210,8 +210,8 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
         if (mounted.current) receive(result);
       })}>Stop</Button>}
     </div>
+    {error && <p role="alert" className="preview-action-error shrink-0 border-b px-3 py-2 text-sm text-destructive">{error}</p>}
     <div id="preview-setup" hidden={!setupOpen} className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <p className="break-words text-xs text-muted-foreground">Preview for {projectName}{host ? ` on ${host}` : " on the connected host"}</p>
       <form onSubmit={reviewCommand} className="space-y-2">
         <label className="block text-xs" htmlFor="preview-address">{browserHost ? "Host preview address for the reviewed command" : "Project preview address"}</label>

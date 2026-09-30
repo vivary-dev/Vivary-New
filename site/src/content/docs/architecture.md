@@ -211,8 +211,8 @@ workspace controls are inert during full-page display. A compact header preserve
 project identity and Back to workspace. Setup, Stop, Refresh and Close share one
 action row while the remote frame is open. A failed preview action reveals setup
 and its error without changing the recorded running state, with Stop available
-for an explicit retry. The alert appears first in setup so the phone viewport
-shows the failure without scrolling past the form. Stop remains directly available, and
+for an explicit retry. The alert sits beside the controls, outside the scrollable setup, so it stays
+visible even when setup was already open and scrolled. Stop remains directly available, and
 Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
 required. This source slice does not establish packaged Windows or actual-phone
 acceptance.
