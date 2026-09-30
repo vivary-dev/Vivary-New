@@ -6,6 +6,8 @@ import io
 import json
 import os
 import re
+import sqlite3
+import struct
 import zipfile
 import zlib
 from pathlib import Path
@@ -261,6 +263,63 @@ def privacy_errors(body: str, *, is_json: bool = False) -> list[str]:
     return errors
 
 
+def diagram_sqlite_errors(content: bytes) -> list[str]:
+    """Read serialized record values without files, extensions, or writable SQL."""
+    errors = []
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.deserialize(content)
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("PRAGMA trusted_schema = OFF")
+        connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_DIAGRAM_ENTRY_BYTES)
+        # Malformed databases and expensive schema expressions must fail closed.
+        steps = 0
+
+        def stop_expensive_query():
+            nonlocal steps
+            steps += 1
+            return steps > 1000
+
+        connection.set_progress_handler(stop_expensive_query, 1000)
+        tables = list(connection.execute("PRAGMA main.table_list"))
+        connection.set_authorizer(lambda action, name, *_: sqlite3.SQLITE_OK
+                                  if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ)
+                                  or (action == sqlite3.SQLITE_PRAGMA and name == "table_xinfo")
+                                  else sqlite3.SQLITE_DENY)
+        total = 0
+        for _, name, kind, *_ in tables:
+            if name == "sqlite_schema":
+                continue
+            if kind != "table":
+                return ["unsupported SQLite table or view"]
+            quoted_name = name.replace('"', '""')
+            columns = list(connection.execute(f'PRAGMA table_xinfo("{quoted_name}")'))
+            if any(column[6] for column in columns):
+                return ["unsupported generated SQLite column"]
+            for row in connection.execute(f'SELECT * FROM "{quoted_name}"'):
+                for value in row:
+                    if not isinstance(value, (str, bytes)):
+                        continue
+                    total += len(value.encode("utf-8") if isinstance(value, str) else value)
+                    if total > MAX_DIAGRAM_ENTRY_BYTES:
+                        return ["SQLite record data exceeds size limit"]
+                    body = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+                    is_json = body.lstrip().startswith(("{", "[", '"'))
+                    if is_json and isinstance(value, bytes):
+                        try:
+                            body = value.decode("utf-8")
+                        except UnicodeDecodeError:
+                            return ["invalid UTF-8 JSON in SQLite record"]
+                    errors.extend(privacy_errors(body, is_json=is_json))
+                    if errors:
+                        return errors
+    except (sqlite3.Error, UnicodeError, ValueError):
+        errors.append("invalid or unreadable diagram SQLite database")
+    finally:
+        connection.close()
+    return errors
+
+
 def diagram_archive_errors(data: bytes) -> list[str]:
     """Scan bounded ZIP entries in memory; never extract them onto the filesystem."""
     errors = []
@@ -283,13 +342,29 @@ def diagram_archive_errors(data: bytes) -> list[str]:
                 if entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
                     errors.append(f"{label}: unsupported ZIP compression")
                     continue
-                # Bound actual reads as well as the sizes claimed in ZIP headers.
+                # Let zipfile validate the local header/name and overlapping spans,
+                # but do not read via ZipExtFile: it truncates to the claimed size.
+                with archive.open(entry):
+                    pass
+                name_size, extra_size = struct.unpack_from("<HH", data, entry.header_offset + 26)
+                start = entry.header_offset + 30 + name_size + extra_size
+                compressed = data[start:start + entry.compress_size]
+                if len(compressed) != entry.compress_size:
+                    raise zipfile.BadZipFile("truncated compressed data")
                 limit = min(MAX_DIAGRAM_ENTRY_BYTES, MAX_DIAGRAM_TOTAL_BYTES - total)
-                with archive.open(entry) as stream:
-                    content = stream.read(limit + 1)
-                total += len(content)
+                if entry.compress_type == zipfile.ZIP_DEFLATED:
+                    decoder = zlib.decompressobj(-zlib.MAX_WBITS)
+                    content = decoder.decompress(compressed, limit + 1)
+                else:
+                    content = compressed
                 if len(content) > limit:
                     return errors + [f"{label}: decompressed data exceeds size limit"]
+                if entry.compress_type == zipfile.ZIP_DEFLATED and (
+                        not decoder.eof or decoder.unused_data or decoder.unconsumed_tail):
+                    raise zipfile.BadZipFile("incomplete or trailing compressed data")
+                if len(content) != entry.file_size or zlib.crc32(content) != entry.CRC:
+                    raise zipfile.BadZipFile("incorrect uncompressed size or CRC")
+                total += len(content)
                 if content.startswith(DIAGRAM_BINARY_SIGNATURES[".tldraw"]):
                     errors.append(f"{label}: nested ZIP archives cannot be scanned")
                     continue
@@ -300,7 +375,9 @@ def diagram_archive_errors(data: bytes) -> list[str]:
                     errors.append(f"{label}: invalid UTF-8 JSON")
                     continue
                 errors.extend(f"{label}: {error}" for error in privacy_errors(body, is_json=is_json))
-    except (zipfile.BadZipFile, OSError, UnicodeError, EOFError, RuntimeError, ValueError, zlib.error):
+                if entry.filename.lower().endswith(".sqlite") or content.startswith(b"SQLite format 3\x00"):
+                    errors.extend(f"{label}: {error}" for error in diagram_sqlite_errors(content))
+    except (struct.error, zipfile.BadZipFile, OSError, UnicodeError, EOFError, RuntimeError, ValueError, zlib.error):
         errors.append("invalid or unreadable diagram ZIP archive")
     return errors
 

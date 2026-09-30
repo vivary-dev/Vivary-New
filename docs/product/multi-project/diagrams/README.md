@@ -29,8 +29,9 @@ Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../u
 - Resume preserves the existing runtime and native session reference; only a new conversation chooses a runtime
 - Denial returns to running activity, rather than declaring a terminal run outcome
 - Stop remains available from the pending-request state
-- Delete removes the automation definition and run rows and ends that lifecycle, while existing job conversations remain
+- Delete removes the automation definition and run rows and ends that lifecycle, while internal job thread rows remain
 
+- Run inspection uses automation history; retained job thread rows are not openable from Settings or chat history
 - Question/form requests collect the required answers and Continue separately from permission approval
 - Event triggers enter condition/configuration checks and retain their snapshot acceptance limitation
 - Pause holds the stored definition outside automatic dispatch; Resume re-enables it

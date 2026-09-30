@@ -1,13 +1,17 @@
 """Adversarial tests for planning drift and false execution readiness."""
 import importlib.util
 import io
+import json
 from pathlib import Path
 import shutil
+import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
 from unittest import mock
 
 spec = importlib.util.spec_from_file_location('plan_check', Path(__file__).resolve().parents[1] / 'check_multi_project_plan.py')
@@ -21,6 +25,27 @@ def diagram_archive_bytes(entries, *, compression=zipfile.ZIP_DEFLATED):
         for name, content in entries.items():
             archive.writestr(name, content)
     return buffer.getvalue()
+
+
+def diagram_sqlite_bytes(state=b'{"name":"System"}'):
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("PRAGMA page_size = 512")
+        connection.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, state BLOB NOT NULL)")
+        connection.execute("INSERT INTO documents VALUES (?, ?)", ("shape:fixture", state))
+        return connection.serialize()
+    finally:
+        connection.close()
+
+
+def forge_diagram_entry_metadata(data, *, size, crc):
+    data = bytearray(data)
+    central = data.index(b"PK\x01\x02")
+    struct.pack_into("<I", data, 14, crc)
+    struct.pack_into("<I", data, 22, size)
+    struct.pack_into("<I", data, central + 16, crc)
+    struct.pack_into("<I", data, central + 24, size)
+    return bytes(data)
 
 
 class PlanCheckTests(unittest.TestCase):
@@ -349,7 +374,7 @@ class PlanCheckTests(unittest.TestCase):
             diagrams / 'system.jpg': b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\xff\xd9',
             diagrams / 'system.tldraw': diagram_archive_bytes({
                 'assets/': b'',
-                'db.sqlite': b'SQLite format 3\x00\xff',
+                'db.sqlite': diagram_sqlite_bytes(),
                 'metadata.json': b'{"name":"System"}',
                 'session.json': b'{"pageId":"page:system"}',
                 'preview.png': b'\x89PNG\r\n\x1a\n',
@@ -389,7 +414,7 @@ class PlanCheckTests(unittest.TestCase):
         (self.plan / 'diagrams').mkdir()
         for suffix, signature in (
             ('.jpg', b'\xff\xd8\xff'),
-            ('.tldraw', diagram_archive_bytes({'db.sqlite': b'SQLite format 3\x00'})),
+            ('.tldraw', diagram_archive_bytes({'db.sqlite': diagram_sqlite_bytes()})),
         ):
             for private in (b'C:/Users/example/private.txt', b'ghp_12345678901234567890'):
                 with self.subTest(suffix=suffix, private=private):
@@ -499,19 +524,83 @@ class PlanCheckTests(unittest.TestCase):
                     self.assert_error(expected)
 
     def test_diagram_archive_checks_actual_decompressed_size(self):
+        data = forge_diagram_entry_metadata(
+            diagram_archive_bytes({'content.txt': b'x' * 100}), size=4, crc=zlib.crc32(b'x' * 4))
+        for setting in ('MAX_DIAGRAM_ENTRY_BYTES', 'MAX_DIAGRAM_TOTAL_BYTES'):
+            with self.subTest(limit=setting), mock.patch.object(module, setting, 10):
+                errors = module.diagram_archive_errors(data)
+                self.assertTrue(any('decompressed data exceeds size limit' in error for error in errors), errors)
+
+    def test_forged_size_and_crc_cannot_hide_private_compressed_tail(self):
         (self.plan / 'diagrams').mkdir()
         artifact = self.plan / 'diagrams/system.tldraw'
-        artifact.write_bytes(diagram_archive_bytes({'db.sqlite': b'safe'}))
-        for setting in ('MAX_DIAGRAM_ENTRY_BYTES', 'MAX_DIAGRAM_TOTAL_BYTES'):
-            with self.subTest(limit=setting):
-                # Simulate a ZIP reader returning more than the header promised.
-                stream = mock.MagicMock(wraps=io.BytesIO(b'x' * 100))
-                stream.__enter__.return_value = stream
-                with mock.patch.object(module, setting, 10), \
-                        mock.patch.object(zipfile.ZipFile, 'open', return_value=stream):
-                    errors = module.check(self.root)
-                self.assertTrue(any('decompressed data exceeds size limit' in error for error in errors), errors)
-                stream.read.assert_called_once_with(11)
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            with self.subTest(compression=compression):
+                data = forge_diagram_entry_metadata(
+                    diagram_archive_bytes({'content.txt': b'safeghp_12345678901234567890'},
+                                          compression=compression),
+                    size=4, crc=zlib.crc32(b'safe'))
+                # This is an actual malformed archive accepted/truncated by ZipExtFile.
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    self.assertEqual(archive.read('content.txt'), b'safe')
+                artifact.write_bytes(data)
+                for render in (False, True):
+                    self.assertTrue(any('invalid or unreadable diagram ZIP archive' in error
+                                        for error in module.check(self.root, render=render)))
+
+    def test_diagram_archive_rejects_incomplete_or_trailing_deflate_data(self):
+        data = diagram_archive_bytes({'content.txt': b'ordinary'})
+        central = data.index(b'PK\x01\x02')
+        compressed_size = struct.unpack_from('<I', data, 18)[0]
+        for tail, size_change in ((b'secret trailing bytes', len(b'secret trailing bytes')), (b'', -1)):
+            with self.subTest(size_change=size_change):
+                # Adjust the container offsets so only the DEFLATE stream is malformed.
+                payload_end = central if size_change > 0 else central - 1
+                changed = bytearray(data[:payload_end] + tail + data[central:])
+                new_central = central + size_change
+                struct.pack_into('<I', changed, 18, compressed_size + size_change)
+                struct.pack_into('<I', changed, new_central + 20, compressed_size + size_change)
+                struct.pack_into('<I', changed, len(changed) - 6, new_central)
+                self.assertIn('invalid or unreadable diagram ZIP archive',
+                              module.diagram_archive_errors(bytes(changed)))
+
+    def test_sqlite_json_blobs_scan_escaped_private_values(self):
+        for content in (
+            json.dumps({'path': r'C:\Users\example\private.txt'}).encode(),
+            b'{"token":"\\u0067hp_12345678901234567890","token":"safe"}',
+            # SQLite must reassemble overflow-page records before JSON decoding.
+            json.dumps({'padding': 'x' * 2000, 'path': r'C:\Users\example'}).encode(),
+        ):
+            with self.subTest(content=content[:80]):
+                self.assertIsNone(module.PRIVATE_VALUE.search(content.decode()))
+                data = diagram_archive_bytes({'db.sqlite': diagram_sqlite_bytes(content)})
+                self.assertIn('diagram ZIP entry 1: possible private path or credential',
+                              module.diagram_archive_errors(data))
+
+    def test_diagram_sqlite_rejects_unreadable_or_invalid_json_records(self):
+        for content, expected in (
+            (b'SQLite format 3\x00broken', 'invalid or unreadable diagram SQLite database'),
+            (diagram_sqlite_bytes(b'{"name":'), 'invalid JSON'),
+            (diagram_sqlite_bytes(b'{"name":"\xff"}'), 'invalid UTF-8 JSON'),
+        ):
+            with self.subTest(expected=expected):
+                errors = module.diagram_archive_errors(diagram_archive_bytes({'db.sqlite': content}))
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_diagram_sqlite_does_not_execute_views_or_generated_columns(self):
+        for schema in (
+            'CREATE VIEW private AS SELECT load_extension("not-allowed")',
+            'CREATE TABLE private (raw TEXT, computed TEXT GENERATED ALWAYS AS (upper(raw)))',
+        ):
+            with self.subTest(schema=schema):
+                connection = sqlite3.connect(':memory:')
+                try:
+                    connection.execute(schema)
+                    content = connection.serialize()
+                finally:
+                    connection.close()
+                errors = module.diagram_archive_errors(diagram_archive_bytes({'db.sqlite': content}))
+                self.assertTrue(any('unsupported' in error for error in errors), errors)
 
     def test_diagram_extensions_do_not_exempt_plain_text_or_bad_encoding(self):
         (self.plan / 'diagrams').mkdir()
