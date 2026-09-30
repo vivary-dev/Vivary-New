@@ -5,9 +5,10 @@ The [canonical architecture](../../../ARCHITECTURE.md) and its linked contracts 
 These diagrams distinguish the documented design from unfinished capabilities. They do not establish release acceptance.
 
 Download [the editable tldraw document](vivary-architecture-and-ux.tldraw) and open it in tldraw Desktop.
-Its page menu contains the six diagrams below. All 104 arrows remain bound at both ends.
+Its page menu contains the six diagrams below. All 113 arrows remain bound at both ends.
 The original six pages passed tldraw layout and connector lint checks on 2026-09-28.
 On 2026-09-29, pages 03, 04, and 06 were corrected and re-rendered from the document's shape and binding records.
+Pages 04 and 06 received the additional reviewed flow corrections on 2026-09-30.
 The edited records passed tldraw schema migration/validation and connector/flow checks;
 the three updated images were visually checked. Desktop layout lint was not rerun.
 
@@ -23,12 +24,17 @@ Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../u
 
 ![Engine ownership](02-engine-ownership.jpg)
 
-## Review corrections (2026-09-29)
+## Review corrections (2026-09-29 and 2026-09-30)
 
 - Resume preserves the existing runtime and native session reference; only a new conversation chooses a runtime
 - Denial returns to running activity, rather than declaring a terminal run outcome
 - Stop remains available from the pending-request state
 - Delete removes the automation definition and run rows and ends that lifecycle, while existing job conversations remain
+
+- Question/form requests collect the required answers and Continue separately from permission approval
+- Event triggers enter condition/configuration checks and retain their snapshot acceptance limitation
+- Pause holds the stored definition outside automatic dispatch; Resume re-enables it
+- Only scheduled dispatches compute a next scheduled run; Run now preserves it, and event/webhook dispatches have none
 
 These corrections preserve the dated snapshot; they are not a full refresh to the latest development state.
 

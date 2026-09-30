@@ -1,16 +1,26 @@
 """Adversarial tests for planning drift and false execution readiness."""
 import importlib.util
+import io
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 spec = importlib.util.spec_from_file_location('plan_check', Path(__file__).resolve().parents[1] / 'check_multi_project_plan.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+def diagram_archive_bytes(entries, *, compression=zipfile.ZIP_DEFLATED):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=compression) as archive:
+        for name, content in entries.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
 
 
 class PlanCheckTests(unittest.TestCase):
@@ -337,7 +347,13 @@ class PlanCheckTests(unittest.TestCase):
         diagrams.mkdir()
         assets = {
             diagrams / 'system.jpg': b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\xff\xd9',
-            diagrams / 'system.tldraw': b'PK\x03\x04\x00\xff\x00SQLite format 3\x00',
+            diagrams / 'system.tldraw': diagram_archive_bytes({
+                'assets/': b'',
+                'db.sqlite': b'SQLite format 3\x00\xff',
+                'metadata.json': b'{"name":"System"}',
+                'session.json': b'{"pageId":"page:system"}',
+                'preview.png': b'\x89PNG\r\n\x1a\n',
+            }),
         }
         for path, data in assets.items():
             path.write_bytes(data)
@@ -371,7 +387,10 @@ class PlanCheckTests(unittest.TestCase):
 
     def test_binary_diagrams_still_scan_raw_private_values(self):
         (self.plan / 'diagrams').mkdir()
-        for suffix, signature in (('.jpg', b'\xff\xd8\xff'), ('.tldraw', b'PK\x03\x04\xff')):
+        for suffix, signature in (
+            ('.jpg', b'\xff\xd8\xff'),
+            ('.tldraw', diagram_archive_bytes({'db.sqlite': b'SQLite format 3\x00'})),
+        ):
             for private in (b'C:/Users/example/private.txt', b'ghp_12345678901234567890'):
                 with self.subTest(suffix=suffix, private=private):
                     artifact = self.plan / f'diagrams/system{suffix}'
@@ -380,6 +399,119 @@ class PlanCheckTests(unittest.TestCase):
                         self.assert_error('possible private path or credential')
                     finally:
                         artifact.unlink()
+
+    def test_compressed_diagram_entries_scan_private_paths_and_credentials(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        cases = (
+            ('db.sqlite', b'SQLite format 3\x00\xffC:/Users/example/private.txt'),
+            ('db.sqlite', b'SQLite format 3\x00\xffghp_12345678901234567890'),
+            ('session.json', b'{"path":"C:\\\\Users\\\\example\\\\private.txt"}'),
+            ('metadata.json', b'{"token":"\\u0067hp_12345678901234567890","token":"safe"}'),
+            ('preview.png', b'\x89PNG\r\n\x1a\ngithub_pat_' + b'SYNTHETIC' * 8),
+        )
+        for name, content in cases:
+            with self.subTest(entry=name, content=content):
+                data = diagram_archive_bytes({name: content})
+                self.assertNotIn(content, data)
+                artifact.write_bytes(data)
+                self.assert_error('diagram ZIP entry 1: possible private path or credential')
+
+    def test_archive_entry_names_are_scanned_without_extracting(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        for name, expected in (
+            ('../escaped.txt', []),
+            ('/home/example/private.txt', ['possible private path or credential']),
+        ):
+            with self.subTest(name=name):
+                artifact.write_bytes(diagram_archive_bytes({name: b'ordinary'}))
+                with mock.patch.object(zipfile.ZipFile, 'extract', side_effect=AssertionError('must not extract')), \
+                        mock.patch.object(zipfile.ZipFile, 'extractall', side_effect=AssertionError('must not extract')):
+                    errors = module.check(self.root)
+                if expected:
+                    self.assertTrue(any(expected[0] in error for error in errors), errors)
+                else:
+                    self.assertEqual(errors, [])
+                self.assertFalse((self.plan / 'escaped.txt').exists())
+
+    def test_archive_json_entries_preserve_json_validation(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        for content, expected in (
+            (b'{"name":"\xff"}', 'invalid UTF-8 JSON'),
+            (b'{"name":', 'invalid JSON'),
+        ):
+            with self.subTest(content=content):
+                artifact.write_bytes(diagram_archive_bytes({'metadata.json': content}))
+                self.assert_error(expected)
+
+    def test_malformed_diagram_archives_fail_without_rendering(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        valid = diagram_archive_bytes({'db.sqlite': b'ordinary content'}, compression=zipfile.ZIP_STORED)
+        corrupt = valid.replace(b'ordinary content', b'corrupted bytes!')
+        self.assertEqual(len(corrupt), len(valid))
+        graph = self.plan / 'graph.md'
+        index = self.plan / 'index.md'
+        before = (graph.read_bytes(), index.read_bytes())
+        for data in (b'PK\x03\x04\x00\xff', valid[:-22], corrupt):
+            for render in (False, True):
+                with self.subTest(data=data[:20], render=render):
+                    artifact.write_bytes(data)
+                    errors = module.check(self.root, render=render)
+                    self.assertTrue(any('invalid or unreadable diagram ZIP archive' in error for error in errors), errors)
+                    self.assertEqual((graph.read_bytes(), index.read_bytes()), before)
+
+    def test_unscannable_diagram_archives_fail(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        encrypted = bytearray(diagram_archive_bytes({'db.sqlite': b'ordinary'}))
+        encrypted[6] |= 1
+        encrypted[encrypted.index(b'PK\x01\x02') + 8] |= 1
+        cases = (
+            (encrypted, 'encrypted entries cannot be scanned'),
+            (diagram_archive_bytes({'db.sqlite': b'ordinary'}, compression=zipfile.ZIP_BZIP2),
+             'unsupported ZIP compression'),
+            (diagram_archive_bytes({'nested.zip': diagram_archive_bytes({'private.txt': b'ordinary'})}),
+             'nested ZIP archives cannot be scanned'),
+        )
+        for data, expected in cases:
+            with self.subTest(expected=expected):
+                artifact.write_bytes(data)
+                self.assert_error(expected)
+
+    def test_diagram_archive_limits_fail_before_decompression(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        cases = (
+            ('MAX_DIAGRAM_ARCHIVE_BYTES', 10, {'db.sqlite': b'ordinary'}, 'archive size limit'),
+            ('MAX_DIAGRAM_ENTRY_BYTES', 10, {'db.sqlite': b'x' * 11}, 'entry size limit'),
+            ('MAX_DIAGRAM_TOTAL_BYTES', 10, {'first': b'x' * 6, 'second': b'x' * 6},
+             'total uncompressed size limit'),
+            ('MAX_DIAGRAM_ENTRIES', 1, {'first': b'', 'second': b''}, 'entry count limit'),
+        )
+        for setting, limit, entries, expected in cases:
+            with self.subTest(limit=setting):
+                artifact.write_bytes(diagram_archive_bytes(entries))
+                with mock.patch.object(module, setting, limit), \
+                        mock.patch.object(zipfile.ZipFile, 'open', side_effect=AssertionError('must not decompress')):
+                    self.assert_error(expected)
+
+    def test_diagram_archive_checks_actual_decompressed_size(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        artifact.write_bytes(diagram_archive_bytes({'db.sqlite': b'safe'}))
+        for setting in ('MAX_DIAGRAM_ENTRY_BYTES', 'MAX_DIAGRAM_TOTAL_BYTES'):
+            with self.subTest(limit=setting):
+                # Simulate a ZIP reader returning more than the header promised.
+                stream = mock.MagicMock(wraps=io.BytesIO(b'x' * 100))
+                stream.__enter__.return_value = stream
+                with mock.patch.object(module, setting, 10), \
+                        mock.patch.object(zipfile.ZipFile, 'open', return_value=stream):
+                    errors = module.check(self.root)
+                self.assertTrue(any('decompressed data exceeds size limit' in error for error in errors), errors)
+                stream.read.assert_called_once_with(11)
 
     def test_diagram_extensions_do_not_exempt_plain_text_or_bad_encoding(self):
         (self.plan / 'diagrams').mkdir()
@@ -399,6 +531,20 @@ class PlanCheckTests(unittest.TestCase):
         artifact = self.plan / 'diagrams/system.jpg'
         artifact.write_bytes(b'\xff\xd8\xff')
         with mock.patch.object(Path, 'read_bytes', side_effect=PermissionError('synthetic asset read failure')):
+            self.assert_error('cannot read planning artifact')
+
+    def test_diagram_archive_read_errors_are_reported(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.tldraw'
+        artifact.write_bytes(diagram_archive_bytes({'db.sqlite': b'ordinary'}))
+        original_open = Path.open
+
+        def unavailable(path, *args, **kwargs):
+            if path == artifact:
+                raise PermissionError('synthetic archive read failure')
+            return original_open(path, *args, **kwargs)
+
+        with mock.patch.object(Path, 'open', unavailable):
             self.assert_error('cannot read planning artifact')
 
     def test_structural_markdown_reports_encoding_errors(self):
@@ -489,6 +635,7 @@ class PlanCheckTests(unittest.TestCase):
                 ('directory', self.plan / 'receipts/directory-link', directory_target, True),
                 ('broken', self.plan / 'packets/broken-link.md', outside / 'missing', False),
                 ('binary diagram', self.plan / 'diagrams/system.jpg', file_target, False),
+                ('diagram archive', self.plan / 'diagrams/system.tldraw', file_target, False),
                 ('diagram directory', self.plan / 'diagrams/linked', directory_target, True),
             )
             for kind, link, target, target_is_directory in cases:
@@ -506,6 +653,7 @@ class PlanCheckTests(unittest.TestCase):
                     try:
                         with mock.patch.object(Path, 'read_text', new=guarded_read_text), \
                                 mock.patch.object(Path, 'read_bytes', new=guarded_read_text), \
+                                mock.patch.object(Path, 'open', new=guarded_read_text), \
                                 mock.patch.object(Path, 'resolve', new=guarded_resolve):
                             errors = module.check(self.root)
                         relative = link.relative_to(self.root)

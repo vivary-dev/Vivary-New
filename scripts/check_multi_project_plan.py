@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
+import zipfile
+import zlib
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -13,7 +16,13 @@ PACKET_STATES = {"ready-for-agent", "in-progress", "needs-info", "ready-for-huma
 REQUIRED_PACKET_HEADINGS = ("Goal", "Context", "Owned files", "Done condition", "Verify", "Stop conditions", "Log")
 EXPECTED_SCOPES = {"S-00A"} | {f"S-{n:02}" for n in range(14)}
 PRIVATE_VALUE = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/]|/home/[^/\s]+/|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
-DIAGRAM_BINARY_SIGNATURES = {".jpg": b"\xff\xd8\xff", ".tldraw": b"PK\x03\x04"}
+DIAGRAM_BINARY_SIGNATURES = {".jpg": b"\xff\xd8\xff", ".tldraw": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")}
+# Generous headroom for the current SQLite, JSON, and PNG export, without letting
+# an untrusted ZIP expand indefinitely during the public-source privacy check.
+MAX_DIAGRAM_ARCHIVE_BYTES = 16 * 1024 * 1024
+MAX_DIAGRAM_ENTRY_BYTES = 16 * 1024 * 1024
+MAX_DIAGRAM_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_DIAGRAM_ENTRIES = 128
 
 
 def parse_header(body: str) -> tuple[dict[str, str], list[str]]:
@@ -229,6 +238,73 @@ def reject_json_constant(value: str):
     raise ValueError(value)
 
 
+def privacy_errors(body: str, *, is_json: bool = False) -> list[str]:
+    errors = []
+    private_value = bool(PRIVATE_VALUE.search(body))
+    if is_json:
+        try:
+            decoded = json.loads(
+                body.removeprefix("\ufeff"),
+                object_pairs_hook=lambda pairs: pairs,
+                parse_constant=reject_json_constant,
+            )
+        except json.JSONDecodeError as exc:
+            errors.append(f"invalid JSON: {exc.msg}")
+        except RecursionError:
+            errors.append("JSON nesting exceeds parser limit")
+        except ValueError as exc:
+            errors.append(f"invalid JSON constant {exc}")
+        else:
+            private_value = private_value or any(PRIVATE_VALUE.search(value) for value in json_text_values(decoded))
+    if private_value:
+        errors.append("possible private path or credential")
+    return errors
+
+
+def diagram_archive_errors(data: bytes) -> list[str]:
+    """Scan bounded ZIP entries in memory; never extract them onto the filesystem."""
+    errors = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_DIAGRAM_ENTRIES:
+                return ["diagram ZIP exceeds entry count limit"]
+            if any(entry.file_size > MAX_DIAGRAM_ENTRY_BYTES for entry in entries):
+                return ["diagram ZIP exceeds entry size limit"]
+            if sum(entry.file_size for entry in entries) > MAX_DIAGRAM_TOTAL_BYTES:
+                return ["diagram ZIP exceeds total uncompressed size limit"]
+            total = 0
+            for number, entry in enumerate(entries, 1):
+                label = f"diagram ZIP entry {number}"
+                errors.extend(f"{label}: {error}" for error in privacy_errors(entry.filename))
+                if entry.flag_bits & 1:
+                    errors.append(f"{label}: encrypted entries cannot be scanned")
+                    continue
+                if entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                    errors.append(f"{label}: unsupported ZIP compression")
+                    continue
+                # Bound actual reads as well as the sizes claimed in ZIP headers.
+                limit = min(MAX_DIAGRAM_ENTRY_BYTES, MAX_DIAGRAM_TOTAL_BYTES - total)
+                with archive.open(entry) as stream:
+                    content = stream.read(limit + 1)
+                total += len(content)
+                if len(content) > limit:
+                    return errors + [f"{label}: decompressed data exceeds size limit"]
+                if content.startswith(DIAGRAM_BINARY_SIGNATURES[".tldraw"]):
+                    errors.append(f"{label}: nested ZIP archives cannot be scanned")
+                    continue
+                is_json = entry.filename.lower().endswith(".json")
+                try:
+                    body = content.decode("utf-8", errors="strict" if is_json else "replace")
+                except UnicodeDecodeError:
+                    errors.append(f"{label}: invalid UTF-8 JSON")
+                    continue
+                errors.extend(f"{label}: {error}" for error in privacy_errors(body, is_json=is_json))
+    except (zipfile.BadZipFile, OSError, UnicodeError, EOFError, RuntimeError, ValueError, zlib.error):
+        errors.append("invalid or unreadable diagram ZIP archive")
+    return errors
+
+
 def preflight_plan(plan: Path, root: Path) -> list[str]:
     """Reject unsafe plan entries without following links or reading content."""
     errors = []
@@ -292,11 +368,21 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
             if signature is None:
                 texts[path] = path.read_text(encoding="utf-8")
             else:
-                data = path.read_bytes()
-                # Only recognized diagram exports may contain binary bytes. Keep
-                # their readable byte strings in the privacy scan; others remain
-                # strict UTF-8. This does not inspect compressed archive contents.
-                texts[path] = data.decode("utf-8", errors="replace" if data.startswith(signature) else "strict")
+                is_archive = path.suffix.lower() == ".tldraw"
+                if is_archive:
+                    with path.open("rb") as stream:
+                        data = stream.read(MAX_DIAGRAM_ARCHIVE_BYTES + 1)
+                    if len(data) > MAX_DIAGRAM_ARCHIVE_BYTES:
+                        errors.append(f"{path.relative_to(root)}: diagram ZIP exceeds archive size limit")
+                        return
+                else:
+                    data = path.read_bytes()
+                # The exception remains scoped to recognized diagram exports;
+                # every other planning artifact must be valid UTF-8.
+                recognized = data.startswith(signature)
+                texts[path] = data.decode("utf-8", errors="replace" if recognized else "strict")
+                if is_archive and recognized:
+                    errors.extend(f"{path.relative_to(root)}: {error}" for error in diagram_archive_errors(data))
         except UnicodeDecodeError:
             kind = "JSON" if path.suffix.lower() == ".json" else "Markdown" if path.suffix.lower() == ".md" else "planning artifact"
             errors.append(f"{path.relative_to(root)}: invalid UTF-8 {kind}")
@@ -523,24 +609,8 @@ def check(root: Path, *, render: bool = False) -> list[str]:
                     anchors = {re.sub(r"[^\w -]", "", h.lower()).replace(" ", "-") for h in headings}
                     if anchor not in anchors:
                         errors.append(f"{path.relative_to(root)}: missing anchor {link}")
-        private_value = bool(PRIVATE_VALUE.search(body))
-        if path.suffix.lower() == ".json":
-            try:
-                decoded = json.loads(
-                    body.removeprefix("\ufeff"),
-                    object_pairs_hook=lambda pairs: pairs,
-                    parse_constant=reject_json_constant,
-                )
-            except json.JSONDecodeError as exc:
-                errors.append(f"{path.relative_to(root)}: invalid JSON: {exc.msg}")
-            except RecursionError:
-                errors.append(f"{path.relative_to(root)}: JSON nesting exceeds parser limit")
-            except ValueError as exc:
-                errors.append(f"{path.relative_to(root)}: invalid JSON constant {exc}")
-            else:
-                private_value = private_value or any(PRIVATE_VALUE.search(value) for value in json_text_values(decoded))
-        if private_value:
-            errors.append(f"{path.relative_to(root)}: possible private path or credential")
+        errors.extend(f"{path.relative_to(root)}: {error}"
+                      for error in privacy_errors(body, is_json=path.suffix.lower() == ".json"))
     if render and not errors:
         for path in generated_paths:
             try:
