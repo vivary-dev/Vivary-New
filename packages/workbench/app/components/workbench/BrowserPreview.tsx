@@ -211,6 +211,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
       })}>Stop</Button>}
     </div>
     <div id="preview-setup" hidden={!setupOpen} className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <p className="break-words text-xs text-muted-foreground">Preview for {projectName}{host ? ` on ${host}` : " on the connected host"}</p>
       <form onSubmit={reviewCommand} className="space-y-2">
         <label className="block text-xs" htmlFor="preview-address">{browserHost ? "Host preview address for the reviewed command" : "Project preview address"}</label>
@@ -247,7 +248,6 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
         {run.staleBinding && <p role="alert">This command belongs to an earlier folder connection. Stop it before starting a preview for the current folder.</p>}
         <details><summary className="cursor-pointer">Command and folder</summary><pre className="mt-1 whitespace-pre-wrap break-all">{run.command}{"\n"}{run.folder}{"\n"}{run.url}</pre>{run.code === "unavailable" && run.logTail && <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-all">{run.logTail}</pre>}</details>
       </div>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {page && <>
         <p className="break-all text-xs">Requested page: {page.url}</p>
         {!browserHost && hostLocal && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={sameHost} onChange={event => setConfirmedTarget(event.target.checked ? pageKey : null)} className="mt-0.5" /><span>This browser is running on {page.host}. Host-local addresses open on this device.</span></label>}
