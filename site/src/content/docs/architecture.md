@@ -157,6 +157,12 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+PR #151 merged issue #109 into `dev` as `b63ed90f` on 2026-09-29 and closed the issue.
+The acceptance register now records that closure. Its `e50ae89c` Windows evidence
+predates the later raw-database, count and loader fixes described below, which ran
+on Zo only. The merge does not establish final-head packaged acceptance. This
+update changes delivery status; the instruction-review design remains unchanged.
+
 Issue #109. The owner decided on 2026-09-28 and 2026-09-29 that an instruction or memory file an automation run writes
 waits for the owner's review in Settings > Automation files, and that chats and later runs skip it until the owner
 accepts it. The maintained Core patch's run wrapper puts the run in the request context of each tool call, and
