@@ -204,9 +204,9 @@ async function worker(scenario) {
       await noDispatch();
     } else if (scenario === "authorization") {
       const missing = await call({ authenticated: false, headers: { "x-actor-id": "actor-a" } });
-      // Core currently classifies the thrown owner error as an aborted Node
-      // request after body consumption, producing 404. It still refuses entry.
-      assert.equal(missing.status, 404, missing.text);
+      // Issue #142. Core once dropped the thrown owner error as a client
+      // abort after reading the body and answered 404. It keeps the 401 now.
+      assert.equal(missing.status, 401, missing.text);
       const denied = await call({ headers: { authorization: `Bearer ${deniedToken}` } });
       assert.equal(denied.status, 403, denied.text);
       assert.equal(authenticated, 2);

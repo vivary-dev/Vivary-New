@@ -332,6 +332,75 @@ class PlanCheckTests(unittest.TestCase):
                 finally:
                     artifact.unlink()
 
+    def test_recognized_binary_diagrams_pass_check_and_render(self):
+        diagrams = self.plan / 'diagrams'
+        diagrams.mkdir()
+        assets = {
+            diagrams / 'system.jpg': b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\xff\xd9',
+            diagrams / 'system.tldraw': b'PK\x03\x04\x00\xff\x00SQLite format 3\x00',
+        }
+        for path, data in assets.items():
+            path.write_bytes(data)
+        (diagrams / 'README.md').write_text(
+            '# Diagrams\n\n![System](system.jpg)\n[Edit](system.tldraw)\n', encoding='utf-8')
+        for render in (False, True):
+            with self.subTest(render=render):
+                self.assertEqual(module.check(self.root, render=render), [])
+                self.assertEqual({path: path.read_bytes() for path in assets}, assets)
+
+    def test_binary_diagram_exception_is_scoped_to_directory_and_format(self):
+        cases = (
+            ('system.jpg', b'\xff\xd8\xff'),
+            ('receipts/system.tldraw', b'PK\x03\x04\xff'),
+            ('diagrams/nested/system.jpg', b'\xff\xd8\xff'),
+            ('diagrams/system.png', b'\x89PNG\r\n\x1a\n'),
+            ('diagrams/system.md', b'\xff\xd8\xff'),
+            ('diagrams/system.json', b'PK\x03\x04\xff'),
+            ('diagrams/system.jpg', b'PK\x03\x04\xff'),
+            ('diagrams/system.tldraw', b'\xff\xd8\xff'),
+        )
+        for name, data in cases:
+            with self.subTest(name=name):
+                artifact = self.plan / name
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes(data)
+                try:
+                    self.assert_error('invalid UTF-8')
+                finally:
+                    artifact.unlink()
+
+    def test_binary_diagrams_still_scan_raw_private_values(self):
+        (self.plan / 'diagrams').mkdir()
+        for suffix, signature in (('.jpg', b'\xff\xd8\xff'), ('.tldraw', b'PK\x03\x04\xff')):
+            for private in (b'C:/Users/example/private.txt', b'ghp_12345678901234567890'):
+                with self.subTest(suffix=suffix, private=private):
+                    artifact = self.plan / f'diagrams/system{suffix}'
+                    artifact.write_bytes(signature + b'\x00' + private + b'\xff')
+                    try:
+                        self.assert_error('possible private path or credential')
+                    finally:
+                        artifact.unlink()
+
+    def test_diagram_extensions_do_not_exempt_plain_text_or_bad_encoding(self):
+        (self.plan / 'diagrams').mkdir()
+        for suffix in ('.jpg', '.tldraw'):
+            artifact = self.plan / f'diagrams/system{suffix}'
+            with self.subTest(suffix=suffix):
+                try:
+                    artifact.write_text('ghp_12345678901234567890\n', encoding='utf-8')
+                    self.assert_error('possible private path or credential')
+                    artifact.write_bytes(b'ghp_12345678901234567890\n\xff')
+                    self.assert_error('invalid UTF-8')
+                finally:
+                    artifact.unlink()
+
+    def test_binary_diagram_read_errors_are_reported(self):
+        (self.plan / 'diagrams').mkdir()
+        artifact = self.plan / 'diagrams/system.jpg'
+        artifact.write_bytes(b'\xff\xd8\xff')
+        with mock.patch.object(Path, 'read_bytes', side_effect=PermissionError('synthetic asset read failure')):
+            self.assert_error('cannot read planning artifact')
+
     def test_structural_markdown_reports_encoding_errors(self):
         paths = [self.ticket('01'), self.packet] + [self.plan / name for name in (
             'external-dependencies.md', 'capability-matrix.md', 'graph.md', 'index.md')]
@@ -408,6 +477,7 @@ class PlanCheckTests(unittest.TestCase):
 
     def test_plan_preflight_rejects_all_symlink_kinds_without_reading_targets(self):
         original_resolve = Path.resolve
+        (self.plan / 'diagrams').mkdir()
         with tempfile.TemporaryDirectory() as outside_temp:
             outside = Path(outside_temp)
             file_target = outside / 'private.txt'
@@ -418,6 +488,8 @@ class PlanCheckTests(unittest.TestCase):
                 ('file', self.plan / 'tickets/file-link.md', file_target, False),
                 ('directory', self.plan / 'receipts/directory-link', directory_target, True),
                 ('broken', self.plan / 'packets/broken-link.md', outside / 'missing', False),
+                ('binary diagram', self.plan / 'diagrams/system.jpg', file_target, False),
+                ('diagram directory', self.plan / 'diagrams/linked', directory_target, True),
             )
             for kind, link, target, target_is_directory in cases:
                 with self.subTest(kind=kind):
@@ -433,6 +505,7 @@ class PlanCheckTests(unittest.TestCase):
 
                     try:
                         with mock.patch.object(Path, 'read_text', new=guarded_read_text), \
+                                mock.patch.object(Path, 'read_bytes', new=guarded_read_text), \
                                 mock.patch.object(Path, 'resolve', new=guarded_resolve):
                             errors = module.check(self.root)
                         relative = link.relative_to(self.root)

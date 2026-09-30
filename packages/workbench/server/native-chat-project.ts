@@ -1,7 +1,7 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { AgentChatPluginOptions } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server";
-import { createError } from "h3";
+import { createError, HTTPError } from "h3";
 import { refreshHeldCredentials } from "./credential-redaction.ts";
 import { projectIdentity, sameProject } from "./project-files.ts";
 import {
@@ -36,10 +36,6 @@ const defaultDependencies: NativeChatProjectDependencies = {
   resolveProjectWorkspace: resolveLocalProjectWorkspace,
 };
 
-function projectConversationError(statusCode: number, statusMessage: string): Error {
-  return createError({ statusCode, statusMessage });
-}
-
 // Project services refuse with a 401, 403, or 503 and a fixed sentence.
 function accessRefusal(error: unknown): { statusCode: 401 | 403 | 503; message: string } | null {
   if (!(error instanceof Error) || !("statusCode" in error)) return null;
@@ -48,12 +44,20 @@ function accessRefusal(error: unknown): { statusCode: 401 | 403 | 503; message: 
 }
 
 // The send guard is the HTTP boundary: an error must leave it as an h3 error,
-// or h3 answers 500. A refusal keeps its status and sentence, and anything
-// else is the caller's 409.
+// or h3 answers 500. Issue #91. Core's chat client reads a 401 or 403 on a
+// send as a lost session and asks the owner to sign in, and a 409 as a run
+// still finishing. A lost session keeps its 401, so that sign-in recovery
+// runs, and a folder that is not ready yet keeps its 503. Any other refusal,
+// and anything else, leaves as a 422 whose body the client shows as a final
+// error in the refusal's own sentence.
 function conversationError(error: unknown, fallback: string): Error {
   const refusal = accessRefusal(error);
-  return refusal ? createError({ statusCode: refusal.statusCode, statusMessage: refusal.message, cause: error })
-    : projectConversationError(409, fallback);
+  if (refusal?.statusCode === 401 || refusal?.statusCode === 503) {
+    return createError({ statusCode: refusal.statusCode, statusMessage: refusal.message, cause: error });
+  }
+  const message = refusal?.message ?? fallback;
+  return new HTTPError({ status: 422, message, cause: error,
+    body: { error: message, errorCode: "vivary_project_conversation_refused", retryable: false } });
 }
 
 // Project services classify the scope Native pinned to this request. Native
@@ -183,12 +187,11 @@ export async function loadNativeProjectContext(context: ActionRunContext, projec
 
 /**
  * Native actions that reach owner-wide data: memory and resources, chat
- * history, and the SQL database tools, which can read the owner-scoped
- * resources table and other threads. None of these stores has a project
- * column, so a project chat has no grant for them. Tests pin the names
- * against Native's registry and against the database entries Native builds,
- * so a rename or a new database tool fails instead of silently exposing
- * owner-wide data again.
+ * history, and the SQL database tools, which can read other threads. None
+ * of these stores has a project column, so a project chat has no grant for
+ * them. Tests pin the names against Native's registry and against the
+ * database entries Native builds, so a rename or a new database tool fails
+ * instead of silently exposing owner-wide data again.
  */
 export const OWNER_WIDE_ACTIONS = [
   "resources", "save-memory", "delete-memory", "chat-history",

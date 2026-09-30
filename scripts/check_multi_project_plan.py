@@ -13,6 +13,7 @@ PACKET_STATES = {"ready-for-agent", "in-progress", "needs-info", "ready-for-huma
 REQUIRED_PACKET_HEADINGS = ("Goal", "Context", "Owned files", "Done condition", "Verify", "Stop conditions", "Log")
 EXPECTED_SCOPES = {"S-00A"} | {f"S-{n:02}" for n in range(14)}
 PRIVATE_VALUE = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/]|/home/[^/\s]+/|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+DIAGRAM_BINARY_SIGNATURES = {".jpg": b"\xff\xd8\xff", ".tldraw": b"PK\x03\x04"}
 
 
 def parse_header(body: str) -> tuple[dict[str, str], list[str]]:
@@ -287,7 +288,15 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
     errors = []
     def load_text(path):
         try:
-            texts[path] = path.read_text(encoding="utf-8")
+            signature = DIAGRAM_BINARY_SIGNATURES.get(path.suffix.lower()) if path.parent == plan / "diagrams" else None
+            if signature is None:
+                texts[path] = path.read_text(encoding="utf-8")
+            else:
+                data = path.read_bytes()
+                # Only recognized diagram exports may contain binary bytes. Keep
+                # their readable byte strings in the privacy scan; others remain
+                # strict UTF-8. This does not inspect compressed archive contents.
+                texts[path] = data.decode("utf-8", errors="replace" if data.startswith(signature) else "strict")
         except UnicodeDecodeError:
             kind = "JSON" if path.suffix.lower() == ".json" else "Markdown" if path.suffix.lower() == ".md" else "planning artifact"
             errors.append(f"{path.relative_to(root)}: invalid UTF-8 {kind}")

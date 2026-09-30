@@ -5,6 +5,7 @@ import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 import { hasOwnedVivaryCodeSubmit, type VivaryCodeReadScope } from "./local-code-agent";
 import type { VivaryChatIdentity } from "../app/lib/chat-scope";
+import { threadBelongsToChatIdentity } from "./chat-identity";
 
 const revision = z.string().uuid();
 export const chatDraftRecordSchema = z.discriminatedUnion("status", [
@@ -91,20 +92,13 @@ export function parseChatDraft(value: Record<string, unknown> | null): ChatDraft
   return parsed.success ? parsed.data : null;
 }
 
-function matchesChatDraftThread(identity: VivaryChatIdentity,
-  thread: NonNullable<Awaited<ReturnType<typeof getThread>>>, ownerEmail: string, orgId: string): boolean {
-  return thread.ownerEmail.toLowerCase() === ownerEmail.toLowerCase()
-    && (thread.orgId === null || thread.orgId === orgId)
-    && thread.scope?.type === identity.scope.type && thread.scope.id === identity.scope.id;
-}
-
 export async function assertChatDraftThread(identity: VivaryChatIdentity, threadId: string,
   ownerEmail: string, orgId: string) {
   const thread = await getThread(threadId);
   // Native creates a client-side optimistic ID before the first message.
   // An empty conversation may therefore have a draft but no thread row yet.
   if (!thread) return null;
-  if (!matchesChatDraftThread(identity, thread, ownerEmail, orgId)) {
+  if (!threadBelongsToChatIdentity(identity, thread, ownerEmail, orgId)) {
     fail("This conversation does not belong to the selected workspace.", { statusCode: 404 });
   }
   return thread;
@@ -114,7 +108,7 @@ export async function listNativeChatDrafts(identity: VivaryChatIdentity, ownerEm
   const drafts = await listChatDrafts(identity);
   const visible = await Promise.all(drafts.map(async draft => {
     const thread = await getThread(draft.threadId);
-    return thread && (!matchesChatDraftThread(identity, thread, ownerEmail, orgId) || thread.archivedAt)
+    return thread && (!threadBelongsToChatIdentity(identity, thread, ownerEmail, orgId) || thread.archivedAt)
       ? null : draft;
   }));
   return visible.filter((draft): draft is { threadId: string; createdAt: number; preview: string; status: "draft" | "pending" } => draft !== null);

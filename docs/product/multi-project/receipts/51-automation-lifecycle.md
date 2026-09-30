@@ -72,7 +72,8 @@ history and keeps the latest 50 runs per automation. Each run writes one chat th
 - One process holds the scheduler lease in `automation_scheduler_health`. The lease lasts 10 minutes
   and renews every 60 seconds. A normal quit during a run neither ends the run nor releases the lease,
   so the next launch schedules nothing until the lease expires
-  ([#114](https://github.com/vivary-dev/Vivary-New/issues/114)).
+  ([#114](https://github.com/vivary-dev/Vivary-New/issues/114)). The #114 fix changes this, and the
+  [#114 and #115 receipt](114-automation-quit-and-status.md) records its packaged check.
 
 ## Permissions
 
@@ -198,7 +199,9 @@ review. Its tests, Zo CI, a live browser check, and the packaged retest cover it
   [#108](https://github.com/vivary-dev/Vivary-New/issues/108).
 - Runs can still write files that later chats read as instructions, such as `AGENTS.md`,
   `instructions/`, `skills/`, `LEARNINGS.md`, and `memory/`. The owner accepted this risk. Tracked
-  in [#109](https://github.com/vivary-dev/Vivary-New/issues/109).
+  in [#109](https://github.com/vivary-dev/Vivary-New/issues/109). On the unmerged branch for #109,
+  such a file waits for the owner's review in Settings, and the unpublished `e50ae89c` package
+  confirmed it ([#109 receipt](109-automation-file-review.md)).
 - An event automation subscribed to `automation.run.finished` fires again after each of its own runs.
   Runs stay local, so the cost is model spend. Tracked in
   [#110](https://github.com/vivary-dev/Vivary-New/issues/110).
@@ -211,10 +214,18 @@ review. Its tests, Zo CI, a live browser check, and the packaged retest cover it
   decides how webhooks work. Tracked in [#113](https://github.com/vivary-dev/Vivary-New/issues/113).
 - A normal quit during a run leaves the run `running` and the lease held. The next launch schedules
   nothing for up to ten minutes after the last renewal, about four minutes in this run. Tracked in
-  [#114](https://github.com/vivary-dev/Vivary-New/issues/114).
+  [#114](https://github.com/vivary-dev/Vivary-New/issues/114). Since fixed in source: a normal quit
+  records in-flight runs as interrupted with the interruption message, returns an interrupted
+  webhook call to the queue, and releases the lease, and a hard kill keeps the lease expiry as the
+  fallback. The unpublished `9e921ca0` package confirmed it ([#114 and #115 receipt](114-automation-quit-and-status.md)).
+  A normal quit there still took about 15 seconds, because the desktop's kill ends the server.
 - Details shows no LAST CHECKED value while the scheduler checks every minute, and a past run has no
   way to open its thread. A paused automation keeps a next run time that has passed. Tracked in
-  [#115](https://github.com/vivary-dev/Vivary-New/issues/115).
+  [#115](https://github.com/vivary-dev/Vivary-New/issues/115). Since fixed in source: the maintained
+  Core patch reports the scheduler's last check and removes Open thread, because Settings cannot open
+  a run thread, and Settings already listed no next run for a paused automation. The unpublished
+  `9e921ca0` package confirmed it. Its Details dialog can show an older LAST CHECKED until the
+  Automations tab reloads.
 - Asked what an automation run can do, a chat agent answered from general knowledge and listed
   sending and webhooks. The run prompt, the Run now dialog, and the `manage-automations`
   description state the local-only limits.

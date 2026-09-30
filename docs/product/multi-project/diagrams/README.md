@@ -5,8 +5,11 @@ The [canonical architecture](../../../ARCHITECTURE.md) and its linked contracts 
 These diagrams distinguish the documented design from unfinished capabilities. They do not establish release acceptance.
 
 Download [the editable tldraw document](vivary-architecture-and-ux.tldraw) and open it in tldraw Desktop.
-Its page menu contains the six diagrams below. The diagrams contain 215 editable shapes and 100 arrows bound at both ends.
-All six pages passed tldraw's layout and connector lint checks when exported.
+Its page menu contains the six diagrams below. All 104 arrows remain bound at both ends.
+The original six pages passed tldraw layout and connector lint checks on 2026-09-28.
+On 2026-09-29, pages 03, 04, and 06 were corrected and re-rendered from the document's shape and binding records.
+The edited records passed tldraw schema migration/validation and connector/flow checks;
+the three updated images were visually checked. Desktop layout lint was not rerun.
 
 Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../unified-workspace.md),
 [desktop release](../desktop-release.md), [automation lifecycle](../receipts/51-automation-lifecycle.md),
@@ -19,6 +22,15 @@ Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../u
 ## 02. Engine ownership
 
 ![Engine ownership](02-engine-ownership.jpg)
+
+## Review corrections (2026-09-29)
+
+- Resume preserves the existing runtime and native session reference; only a new conversation chooses a runtime
+- Denial returns to running activity, rather than declaring a terminal run outcome
+- Stop remains available from the pending-request state
+- Delete removes the automation definition and run rows and ends that lifecycle, while existing job conversations remain
+
+These corrections preserve the dated snapshot; they are not a full refresh to the latest development state.
 
 ## 03. Start a project
 

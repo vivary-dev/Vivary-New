@@ -1,3 +1,91 @@
+diff --git a/dist/chat-history/ChatHistoryList.d.ts b/dist/chat-history/ChatHistoryList.d.ts
+index 21dc80dde23f25392f4d7ed1d40539a0f1eeb537..1657be582d9ada31b7a63c24b7a2059b636e8f52 100644
+--- a/dist/chat-history/ChatHistoryList.d.ts
++++ b/dist/chat-history/ChatHistoryList.d.ts
+@@ -55,8 +55,9 @@ export interface ChatHistoryListProps {
+      * built-in rename/pin/delete items. Still gated by the trigger button,
+      * which shows whenever this or any of the on* callbacks above is set. */
+     renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
+-    /** App-specific actions inserted after pin and before delete. Call
+-     * `closeMenu` before starting the action. */
++    /** App-specific actions inserted after pin and before delete. Render each as a
++     * `ChatHistoryMenuItem` so the keyboard reaches it, and call `closeMenu` before
++     * starting the action. */
+     renderAdditionalRowActions?: (item: ChatHistoryItem, closeMenu: () => void) => React.ReactNode;
+     /** Controlled search input. Omit `onSearchChange` to hide the search box
+      * entirely and let the host render its own (results are always supplied
+@@ -86,6 +87,18 @@ export interface ChatHistoryListProps {
+     className?: string;
+     listClassName?: string;
+ }
++/** Props of a row menu entry. `onSelect` runs when the entry is chosen by click, Enter, or Space. */
++export interface ChatHistoryMenuItemProps {
++    onSelect?: (event: Event) => void;
++    danger?: boolean;
++    className?: string;
++    children?: React.ReactNode;
++}
++/**
++ * A row menu entry that Radix's keyboard navigation reaches: the arrow keys, typeahead, Enter, and Space. Use it for
++ * entries returned from `renderAdditionalRowActions`. Vivary patch, issue #131.
++ */
++export declare function ChatHistoryMenuItem({ onSelect, danger, className, children, }: ChatHistoryMenuItemProps): React.JSX.Element;
+ /**
+  * Presentational chat history list shared by the Core `HistoryPopover`
+  * and Agent-Native Code's run rail
+diff --git a/dist/chat-history/ChatHistoryList.js b/dist/chat-history/ChatHistoryList.js
+index ebf3bdb2cbc9069ada34d9944b454bb49feeeb5f..29c821abc25e3051e841395a62db253464428234 100644
+--- a/dist/chat-history/ChatHistoryList.js
++++ b/dist/chat-history/ChatHistoryList.js
+@@ -45,6 +45,13 @@ export function ChatHistoryList({ items, sections, activeId = null, onSelect, on
+     const hasSearchValue = Boolean(searchValue?.trim());
+     return (_jsxs("div", { className: cn("an-chat-history", variant === "rail" && "an-chat-history--rail", className), "data-agent-native": "chat-history-list", children: [onSearchChange && (_jsxs("div", { className: "an-chat-history__search", children: [_jsx(IconSearch, { size: 13, className: "an-chat-history__search-icon" }), _jsx("input", { ref: searchInputRef, type: "text", value: searchValue ?? "", onChange: (event) => onSearchChange(event.target.value), placeholder: searchPlaceholder, "aria-label": searchPlaceholder, className: "an-chat-history__search-input" })] })), _jsxs("div", { className: cn("an-chat-history__list", listClassName), children: [error ? (_jsx("div", { className: "an-chat-history__state an-chat-history__state--error", children: error })) : loading ? (_jsx("div", { className: "an-chat-history__state", children: loadingLabel })) : totalCount === 0 ? (_jsx("div", { className: "an-chat-history__state", children: hasSearchValue ? emptySearchLabel : emptyLabel })) : (resolvedSections.map((section) => section.items.length > 0 && (_jsxs("div", { className: "an-chat-history__section", children: [section.label && (_jsx("div", { className: "an-chat-history__section-label", children: section.label })), section.items.map((item) => (_jsx(ChatHistoryRow, { item: item, active: item.id === activeId, onSelect: onSelect, onOpen: onOpen, onTogglePin: onTogglePin, onRename: onRename, renameMaxLength: renameMaxLength, onDelete: onDelete, renderRowActions: renderRowActions, renderAdditionalRowActions: renderAdditionalRowActions, labels: resolvedLabels }, item.id)))] }, section.id)))), footer] })] }));
+ }
++/**
++ * A row menu entry that Radix's keyboard navigation reaches: the arrow keys, typeahead, Enter, and Space. A plain
++ * button with role="menuitem" inside the menu content is skipped by those keys. Vivary patch, issue #131.
++ */
++export function ChatHistoryMenuItem({ onSelect, danger = false, className, children, }) {
++    return (_jsx(DropdownMenuPrimitive.Item, { asChild: true, onSelect: onSelect, children: _jsx("button", { type: "button", className: cn("an-chat-history-row__menu-item", danger && "an-chat-history-row__menu-item--danger", className), children: children }) }));
++}
+ const ChatHistoryRow = React.memo(function ChatHistoryRow({ item, active, onSelect, onOpen, onTogglePin, onRename, renameMaxLength, onDelete, renderRowActions, renderAdditionalRowActions, labels, }) {
+     const [isRenaming, setIsRenaming] = useState(false);
+     const [draftTitle, setDraftTitle] = useState("");
+@@ -91,10 +98,10 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({ item, active, onSele
+                 return;
+             event.preventDefault();
+             setMenuOpen(true);
+-        }, children: [isRenaming ? (_jsx("div", { className: "an-chat-history-row__rename", children: _jsx("input", { ref: renameInputRef, className: "an-chat-history-row__rename-input", value: draftTitle, maxLength: renameMaxLength, onChange: (event) => setDraftTitle(event.target.value), onKeyDown: handleRenameKeyDown, onBlur: commitRename, autoFocus: true, "aria-label": renameInputLabel }) })) : (_jsxs("button", { type: "button", className: "an-chat-history-row__button", onClick: () => !item.disabled && onSelect(item.id), onDoubleClick: () => !item.disabled && onOpen?.(item.id), disabled: item.disabled, children: [_jsxs("div", { className: "an-chat-history-row__topline", children: [_jsx("span", { className: "an-chat-history-row__title", children: item.title }), item.timestamp != null && (_jsx("span", { className: "an-chat-history-row__timestamp", children: item.timestamp }))] }), item.subtitle != null && (_jsx("div", { className: "an-chat-history-row__subtitle", children: item.subtitle })), item.detail != null && (_jsx("div", { className: "an-chat-history-row__detail", children: item.detail }))] })), !isRenaming && hasMenu && (_jsx(DropdownMenuPrimitive.Root, { open: menuOpen, onOpenChange: setMenuOpen, children: _jsxs("div", { className: "an-chat-history-row__menu", children: [_jsx(DropdownMenuPrimitive.Trigger, { asChild: true, children: _jsx("button", { type: "button", className: cn("an-chat-history-row__menu-trigger", item.pinned && "an-chat-history-row__menu-trigger--pinned"), "aria-label": optionsLabel, "aria-haspopup": "menu", "aria-expanded": menuOpen, children: item.pinned ? (_jsx(IconPinned, { size: 13, strokeWidth: 1.8 })) : (_jsx(IconDots, { size: 14, strokeWidth: 1.8 })) }) }), _jsx(DropdownMenuPrimitive.Portal, { children: _jsx(DropdownMenuPrimitive.Content, { className: "an-chat-history-row__menu-content", align: "end", collisionPadding: 8, side: "bottom", sideOffset: 4, children: renderRowActions ? (renderRowActions(item)) : (_jsxs(_Fragment, { children: [onRename && (_jsxs("button", { type: "button", role: "menuitem", className: "an-chat-history-row__menu-item", onClick: startRename, children: [_jsx(IconPencil, { size: 13, strokeWidth: 1.8 }), _jsx("span", { children: labels.rename })] })), onTogglePin && (_jsxs("button", { type: "button", role: "menuitem", className: "an-chat-history-row__menu-item", onClick: () => {
++        }, children: [isRenaming ? (_jsx("div", { className: "an-chat-history-row__rename", children: _jsx("input", { ref: renameInputRef, className: "an-chat-history-row__rename-input", value: draftTitle, maxLength: renameMaxLength, onChange: (event) => setDraftTitle(event.target.value), onKeyDown: handleRenameKeyDown, onBlur: commitRename, autoFocus: true, "aria-label": renameInputLabel }) })) : (_jsxs("button", { type: "button", className: "an-chat-history-row__button", onClick: () => !item.disabled && onSelect(item.id), onDoubleClick: () => !item.disabled && onOpen?.(item.id), disabled: item.disabled, children: [_jsxs("div", { className: "an-chat-history-row__topline", children: [_jsx("span", { className: "an-chat-history-row__title", children: item.title }), item.timestamp != null && (_jsx("span", { className: "an-chat-history-row__timestamp", children: item.timestamp }))] }), item.subtitle != null && (_jsx("div", { className: "an-chat-history-row__subtitle", children: item.subtitle })), item.detail != null && (_jsx("div", { className: "an-chat-history-row__detail", children: item.detail }))] })), !isRenaming && hasMenu && (_jsx(DropdownMenuPrimitive.Root, { open: menuOpen, onOpenChange: setMenuOpen, children: _jsxs("div", { className: "an-chat-history-row__menu", children: [_jsx(DropdownMenuPrimitive.Trigger, { asChild: true, children: _jsx("button", { type: "button", className: cn("an-chat-history-row__menu-trigger", item.pinned && "an-chat-history-row__menu-trigger--pinned"), "aria-label": optionsLabel, "aria-haspopup": "menu", "aria-expanded": menuOpen, children: item.pinned ? (_jsx(IconPinned, { size: 13, strokeWidth: 1.8 })) : (_jsx(IconDots, { size: 14, strokeWidth: 1.8 })) }) }), _jsx(DropdownMenuPrimitive.Portal, { children: _jsx(DropdownMenuPrimitive.Content, { className: "an-chat-history-row__menu-content", align: "end", collisionPadding: 8, side: "bottom", sideOffset: 4, children: renderRowActions ? (renderRowActions(item)) : (_jsxs(_Fragment, { children: [onRename && (_jsxs(ChatHistoryMenuItem, { onSelect: startRename, children: [_jsx(IconPencil, { size: 13, strokeWidth: 1.8 }), _jsx("span", { children: labels.rename })] })), onTogglePin && (_jsxs(ChatHistoryMenuItem, { onSelect: () => {
+                                                 setMenuOpen(false);
+                                                 onTogglePin(item.id);
+-                                            }, children: [item.pinned ? (_jsx(IconPinnedOff, { size: 13, strokeWidth: 1.8 })) : (_jsx(IconPinned, { size: 13, strokeWidth: 1.8 })), _jsx("span", { children: item.pinned ? labels.unpin : labels.pin })] })), renderAdditionalRowActions?.(item, () => setMenuOpen(false)), onDelete && (_jsxs("button", { type: "button", role: "menuitem", className: "an-chat-history-row__menu-item an-chat-history-row__menu-item--danger", onClick: () => {
++                                            }, children: [item.pinned ? (_jsx(IconPinnedOff, { size: 13, strokeWidth: 1.8 })) : (_jsx(IconPinned, { size: 13, strokeWidth: 1.8 })), _jsx("span", { children: item.pinned ? labels.unpin : labels.pin })] })), renderAdditionalRowActions?.(item, () => setMenuOpen(false)), onDelete && (_jsxs(ChatHistoryMenuItem, { danger: true, onSelect: () => {
+                                                 setMenuOpen(false);
+                                                 onDelete(item.id);
+                                             }, children: [_jsx(IconTrash, { size: 13, strokeWidth: 1.8 }), _jsx("span", { children: labels.delete })] }))] })) }) })] }) }))] }));
+diff --git a/dist/chat-history/index.d.ts b/dist/chat-history/index.d.ts
+index 0eb004ef5ba30ebdc55ce5fae7653feeafea769c..84dec6660ed7ec86273c9baf799fe1ed9a127013 100644
+--- a/dist/chat-history/index.d.ts
++++ b/dist/chat-history/index.d.ts
+@@ -1,4 +1,4 @@
+-export { ChatHistoryList, type ChatHistoryItem, type ChatHistoryListLabels, type ChatHistoryListProps, type ChatHistorySection, } from "./ChatHistoryList.js";
++export { ChatHistoryList, ChatHistoryMenuItem, type ChatHistoryItem, type ChatHistoryListLabels, type ChatHistoryListProps, type ChatHistoryMenuItemProps, type ChatHistorySection, } from "./ChatHistoryList.js";
+ export { ChatHistoryRail, DefaultChatHistoryRailView, type DefaultChatHistoryRailViewProps, type ChatHistoryRailLabels, type ChatHistoryRailProps, type ChatHistoryRailRenderContext, } from "./ChatHistoryRail.js";
+ export { type ChatHistoryRailController, type ChatHistoryRailControllerLabels, type UseChatHistoryRailControllerOptions, useChatHistoryRailController, } from "./useChatHistoryRailController.js";
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/chat-history/index.js b/dist/chat-history/index.js
+index 0675b2cfb5587938eccf28f58b7fcd0b61f378d4..e0e5ec87257a3d1221094e159bec1ea96858eeff 100644
+--- a/dist/chat-history/index.js
++++ b/dist/chat-history/index.js
+@@ -1,4 +1,4 @@
+-export { ChatHistoryList, } from "./ChatHistoryList.js";
++export { ChatHistoryList, ChatHistoryMenuItem, } from "./ChatHistoryList.js";
+ export { ChatHistoryRail, DefaultChatHistoryRailView, } from "./ChatHistoryRail.js";
+ export { useChatHistoryRailController, } from "./useChatHistoryRailController.js";
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
 diff --git a/dist/composer/RealtimeVoiceMode.js b/dist/composer/RealtimeVoiceMode.js
 index 79f08a69220401ee275387865d58a1f7c5da8fd0..82c5863501ae66faa335f1c6baba47e6a1d49296 100644
 --- a/dist/composer/RealtimeVoiceMode.js
@@ -43,7 +131,7 @@ index c4236b795a64fa82e1a983339d202cc4b8aa8099..2b74244bd785f2c33feb48acc5f8fc14
  //# sourceMappingURL=TiptapComposer.d.ts.map
 \ No newline at end of file
 diff --git a/dist/composer/TiptapComposer.js b/dist/composer/TiptapComposer.js
-index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe62d9f829b 100644
+index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..e8da20b8747d09d52f10d366cc7dcf311757aebc 100644
 --- a/dist/composer/TiptapComposer.js
 +++ b/dist/composer/TiptapComposer.js
 @@ -485,8 +485,23 @@ function ComposerModeChip({ mode, onRemove, }) {
@@ -71,7 +159,39 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
      return {
          type: "doc",
          content: lines.map((line) => ({
-@@ -895,7 +910,7 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+@@ -499,6 +514,31 @@ function plainTextToDoc(text) {
+ export function isComposerEditorUsable(editor) {
+     return Boolean(editor && editor.isDestroyed !== true);
+ }
++/**
++ * Whether the composer may take focus when the host restores or hands it text or asks it to focus. It may not while the
++ * owner is typing in another field, such as a chat rename field, because that field's blur saves it half typed and the
++ * rest of the typing lands in the composer. Vivary patch, issue #147.
++ */
++function composerMayTakeFocus(editor) {
++    const active = document.activeElement;
++    if (!active || active === document.body || editor.view.dom.contains(active))
++        return true;
++    return !(active.isContentEditable || active.matches?.("input, textarea, select"));
++}
++/**
++ * Moves the caret to the end and focuses the composer on the next frame, as Tiptap's focus("end") does. The check runs
++ * right before the DOM focus, so a field the owner focused in between keeps focus. Tiptap's own command checks nothing
++ * when its frame runs. Vivary patch, issue #147.
++ */
++function focusComposerAtEnd(editor) {
++    requestAnimationFrame(() => {
++        if (!isComposerEditorUsable(editor) || !composerMayTakeFocus(editor))
++            return;
++        editor.commands.setTextSelection(editor.state.doc.content.size);
++        editor.view.focus();
++        editor.commands.scrollIntoView();
++    });
++}
+ export function createTiptapComposerExtensions(getPlaceholder) {
+     return [
+         StarterKit.configure({
+@@ -895,7 +935,7 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
          !LOCAL_RUNTIME_ENGINES.has(group.engine));
      const hasUnconfiguredVisibleModels = modelProviderGroups.some((group) => !group.configured);
      const hasConfiguredProvider = providerGroups.some((group) => group.configured);
@@ -80,7 +200,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
          !hasConfiguredCloudProviderReady &&
          (Boolean(onConnectProvider) ||
              (providerConnectStatusEnabled &&
-@@ -903,9 +918,10 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
+@@ -903,9 +943,10 @@ function ModelSelector({ model, effort, engines, agents, selectedAgent, selected
                  !builderFlow.envManaged &&
                  !hasConfiguredBuilderModels &&
                  !hasConnectedSubscription));
@@ -92,7 +212,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
      const showProviderActions = showBuilderAction || showAddKeysAction;
      const onlyConnectPathAvailable = shouldShowOnlyConnectPath(showProviderActions, providerGroups);
      const openLlmSettings = useCallback(() => {
-@@ -1107,7 +1123,7 @@ function ModelSelectorSkeleton() {
+@@ -1107,7 +1148,7 @@ function ModelSelectorSkeleton() {
                      defaultValue: "Loading models…",
                  }) }), ["w-24", "w-32", "w-20", "w-28"].map((width, index) => (_jsxs("div", { className: "flex items-center gap-1.5 px-1 py-1.5", children: [_jsx(Skeleton, { className: "size-3 rounded-sm" }), _jsx(Skeleton, { className: `h-3 ${width}` })] }, index)))] }));
  }
@@ -101,7 +221,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
      const adapters = useComposerRuntimeAdapters();
      const t = adapters.translate;
      const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
-@@ -1202,6 +1218,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1202,6 +1243,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      }, []);
      const onTextChangeRef = useRef(onTextChange);
      onTextChangeRef.current = onTextChange;
@@ -110,7 +230,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
      const contextItemsRef = useRef(contextItems);
      contextItemsRef.current = contextItems;
      const onRemoveContextItemRef = useRef(onRemoveContextItem);
-@@ -1292,7 +1310,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1292,7 +1335,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              // Drive the send button's enabled state from the actual editor contents;
              // the composer runtime is only synced on submit, so its isEmpty lags.
              setEditorHasText(composerDocumentHasContent(ed.state.doc));
@@ -119,7 +239,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
              scheduleComposerDraftPersist(ed);
          },
          onSelectionUpdate: ({ editor: ed }) => {
-@@ -1569,8 +1587,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1569,8 +1612,8 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
      useEffect(() => {
          if (!isComposerEditorUsable(editor) || !onTextChange)
              return;
@@ -130,13 +250,23 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
      const insertReference = useCallback((ref) => {
          const normalized = adapters.agentChat.normalizeReference(ref);
          const ed = editor;
-@@ -1675,13 +1693,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -1661,7 +1704,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+     useImperativeHandle(focusRef, () => ({
+         focus() {
+             if (isComposerEditorUsable(editor))
+-                editor.commands.focus("end");
++                focusComposerAtEnd(editor);
+         },
+         insertText(text) {
+             if (!isComposerEditorUsable(editor))
+@@ -1675,13 +1718,13 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
          setText(text) {
              if (!isComposerEditorUsable(editor))
                  return;
 -            editor.commands.setContent(plainTextToDoc(text));
+-            editor.commands.focus("end");
 +            editor.commands.setContent(plainTextToDoc(text, preserveDraftTextRef.current));
-             editor.commands.focus("end");
++            focusComposerAtEnd(editor);
              const trimmed = editor.state.doc.textContent.trim();
              setEditorHasText(trimmed.length > 0);
              setSlotReferences([]);
@@ -146,7 +276,13 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
              flushComposerDraft();
          },
          insertReference,
-@@ -2361,12 +2379,12 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2356,18 +2399,18 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+         try {
+             if (saved && editor.isEmpty) {
+                 editor.commands.setContent(saved);
+-                editor.commands.focus("end");
++                focusComposerAtEnd(editor);
+                 if (initialText !== undefined)
                      initialTextKeyRef.current = key;
              }
              else if (initialText === undefined) {
@@ -157,11 +293,13 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
              else if (initialTextKeyRef.current !== key) {
                  initialTextKeyRef.current = key;
 -                editor.commands.setContent(plainTextToDoc(initialText));
+-                editor.commands.focus("end");
 +                editor.commands.setContent(plainTextToDoc(initialText, preserveDraftTextRef.current));
-                 editor.commands.focus("end");
++                focusComposerAtEnd(editor);
              }
              else {
-@@ -2375,7 +2393,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+                 return;
+@@ -2375,7 +2418,7 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
              const trimmed = editor.state.doc.textContent.trim();
              setEditorHasText(composerDocumentHasContent(editor.state.doc));
              composerRuntime.setText(trimmed);
@@ -170,7 +308,7 @@ index 8b7b4ac1ffa851146584b0f97325f45a84d7d308..7436e5bf475e8cf80070265dcb634fe6
              scheduleComposerDraftPersist(editor);
          }
          catch {
-@@ -2430,6 +2448,6 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
+@@ -2430,6 +2473,6 @@ export function TiptapComposer({ placeholder, disabled = false, maxDocumentAttac
                                      defaultValue: "Remove {{name}} context",
                                      name: item.title,
                                  }), className: "ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground", children: _jsx(IconX, { className: "h-3 w-3" }) })] }, item.key)))] })), _jsx("div", { "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "editor-wrap", className: `agent-composer-editor-wrap ${composerMode || hasContextRows ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"}`, children: _jsx(EditorContent, { editor: editor, "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "editor", className: "agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5" }) }), voiceEnabled && _jsx(VoiceRecordingOverlay, { voice: voice }), _jsxs("div", { "data-agent-composer-variant": layoutVariant, "data-agent-composer-slot": "toolbar", className: "agent-composer-toolbar flex items-center gap-1 px-2 py-1.5", children: [attachButton ??

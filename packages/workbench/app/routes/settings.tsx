@@ -9,7 +9,8 @@ import {
 } from "@agent-native/core/client/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { Button } from "@agent-native/toolkit/ui";
-import { IconTerminal2 } from "@tabler/icons-react";
+import { IconFileCheck, IconTerminal2 } from "@tabler/icons-react";
+import { AutomationFileReview } from "@/components/settings/AutomationFileReview";
 import { LocalRuntimeSettings } from "@/components/settings/LocalRuntimeSettings";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
@@ -70,9 +71,17 @@ export default function SettingsRoute() {
     keywords: "local cli claude code codex terminal coding sign in",
     content: <LocalRuntimeSettings />,
   };
+  // Issue #109: files automation runs wrote wait here for the owner's review.
+  const automationFilesTab = {
+    id: "automation-files",
+    label: "Automation files",
+    icon: IconFileCheck,
+    group: "agent",
+    content: <AutomationFileReview />,
+  };
   const tabs = nativeTabs
     .filter((tab) => tab.id !== "organization" && tab.id !== "workspace")
-    .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, tab] : [tab]));
+    .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, automationFilesTab, tab] : [tab]));
   useSetPageTitle("Settings");
 
   return (
