@@ -40,14 +40,16 @@
     "test:settings-chat-handoff": "node --test tests/settings-chat-handoff-component.test.mjs",
     "test:native-chat": "node --import tsx --test --test-concurrency=1 --test-force-exit tests/native-stream-errors.test.ts tests/native-usage-cost.test.ts tests/native-stop.test.ts tests/native-chat-components.test.mjs tests/native-chat-route-errors.test.ts tests/native-thread-meta.test.mjs",
     "test:credential-redaction": "node --import tsx --test --test-concurrency=1 tests/credential-redaction.test.ts tests/native-redaction.test.ts tests/code-run-redaction.test.ts tests/code-run-worker.test.ts",
-    "test:maintained": "pnpm run test:registry-actions && pnpm run test:registry && pnpm run test:registry-http && pnpm run test:project-services && pnpm run test:shell && pnpm run test:mutation-admission && pnpm run test:mutation-quarantine && pnpm run test:chat-title && pnpm run test:chat-draft && pnpm run test:chat-draft-adapter && pnpm run test:settings-chat-handoff && pnpm run test:native-chat && pnpm run test:credential-redaction",
+    "test:maintained": "pnpm run test:registry-actions && pnpm run test:registry && pnpm run test:registry-http && pnpm run test:project-services && pnpm run test:shell && pnpm run test:mutation-admission && pnpm run test:mutation-quarantine && pnpm run test:chat-title && pnpm run test:chat-draft && pnpm run test:chat-draft-adapter && pnpm run test:settings-chat-handoff && pnpm run test:native-chat && pnpm run test:credential-redaction && pnpm run test:browser-access",
     "build": "agent-native build",
     "dev": "agent-native dev",
     "start": "node bin/start.mjs",
     "typecheck": "agent-native typecheck",
     "test:shell": "vitest run tests/workbench-preview.test.ts",
     "doctor": "agent-native doctor",
-    "test:project-services": "node --test tests/project-services.test.mjs"
+    "test:project-services": "node --test tests/project-services.test.mjs",
+    "test:browser-access": "node --import tsx --test tests/browser-access.test.mjs ../desktop/tests/browser-capability.test.mjs",
+    "test:browser-access-app": "node --test tests/browser-access-app.test.mjs"
   },
   "devDependencies": {
     "@react-router/dev": "8.3.1",

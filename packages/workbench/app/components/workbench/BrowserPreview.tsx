@@ -1,3 +1,4 @@
+import { useBrowserHost } from "../layout/BrowserConnection";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { IconWorld, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -187,6 +188,8 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
   const sameHost = confirmedTarget === pageKey;
   const canEmbed = page && isolated && new URL(page.url).origin !== window.location.origin && page.embedding !== "blocked" && (!hostLocal || sameHost);
 
+  const browserHost = useBrowserHost();
+  if (browserHost) return <p className="p-4 text-sm" role="status">Remote preview routing for {browserHost.label} is not available yet. Open the preview in the desktop app.</p>;
   if (!projectId) return <section className="p-5 text-sm text-muted-foreground">Connect and select a project before opening its preview.</section>;
   return <section className="flex h-full min-h-0 flex-col" aria-label="Web preview">
     <div className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">

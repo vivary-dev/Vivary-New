@@ -1,3 +1,4 @@
+import { isDesktopRequest, browserRequestIdentity } from "./browser-request-context.mjs";
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
 
 import { randomBytes } from "node:crypto";
@@ -42,6 +43,7 @@ export type VivaryLocalAccessConfig = {
   origin: string;
   ownerEmail: typeof VIVARY_LOCAL_OWNER_EMAIL;
   port: number;
+  desktop?: boolean;
 };
 
 export type VivaryLocalAccessRequest = {
@@ -160,6 +162,7 @@ export function resolveVivaryLocalAccessConfig(
     origin: appUrl.origin,
     ownerEmail: VIVARY_LOCAL_OWNER_EMAIL,
     port,
+    ...(env.VIVARY_DESKTOP_HOST === "1" ? { desktop: true } : {}),
   };
 }
 
@@ -192,6 +195,7 @@ export function createVivaryLocalSessionResolver(
   dependencies: VivaryLocalAccessSessionDependencies = defaultDependencies,
 ): (event: H3Event) => Promise<AuthSession | null> {
   return async (event) => {
+    if (config.desktop && !isDesktopRequest(event.context)) return null;
     let request: VivaryLocalAccessRequest;
     try {
       request = dependencies.readRequest(event);
@@ -245,7 +249,11 @@ export function createVivaryLocalAuthOptions(
   const config = resolveVivaryLocalAccessConfig(env);
   if (!config) return null;
   return {
-    getSession: createVivaryLocalSessionResolver(config, dependencies),
+    getSession: async (event) => {
+      const identity = browserRequestIdentity(event.context);
+      if (identity?.kind === "remote") return { email: config.ownerEmail, name: "Paired browser" };
+      return createVivaryLocalSessionResolver(config, dependencies)(event);
+    },
     loginHtml: SELF_HOSTED_AUTH_REDIRECT_HTML,
     rootAuth: false,
   };

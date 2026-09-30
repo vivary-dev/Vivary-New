@@ -74,3 +74,14 @@ remain unaccepted until demonstrated through a supported interface.
 - 2026-09-13: Added from Jeff's explicit self-hosted mobile-browser requirement.
   The first host is a user-controlled computer. A suitable Linux server can use
   the same client contract. No remote service was exposed or tested by this plan.
+
+### First source slice, 2026-09-30
+
+The desktop adds optional device pairing through a dedicated loopback ingress and
+local IPC approval. Grants and explicit configuration persist across restart. The
+outer admission boundary protects Native authentication, and revocation ends the
+device's responses without ending unrelated host work. Settings and connection UI
+identify the host and expose failure/retry states. The Workbench README owns setup
+and focused test commands. This is source implementation, not full issue acceptance.
+Protected transport setup, isolated remote previews, an exact Windows package and
+the actual phone journey remain outstanding.

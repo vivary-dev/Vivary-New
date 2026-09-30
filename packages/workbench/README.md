@@ -576,3 +576,26 @@ under the working directory, which is ignored here.
 Exercise changed flows through normal startup. The private handoff preserves
 actual browser and desktop results, including failed attempts. These checks do not
 establish the complete desktop/web release journey or macOS runtime acceptance.
+
+## Paired browser access
+
+In the desktop app, Settings > Browser access accepts an already protected private
+HTTPS origin and a dedicated loopback ingress port. Access starts off. Confirm the
+change in the native desktop dialog, open `/pair` on that origin, and compare the
+code on both screens before approving the browser. Vivary does not configure the
+network path. Approved browsers share this host's projects, files and Native history.
+
+Grants and the enabled setting survive restarts. Pending challenges expire on
+restart or after five minutes; grants expire after 30 days. Disable ends browser
+streams while retaining grants. Revoke ends that device's streams and future
+admission. If saving a revoke fails, admission closes and the UI reports failure;
+retry before restarting because only saved revocation survives a process restart.
+An unavailable ingress port leaves the desktop and its repair controls usable.
+Remote browsers cannot approve devices or open the desktop folder chooser. Remote
+preview routing is not yet available. Real-phone and packaged Windows acceptance
+remain open under issue #30.
+
+Focused lifecycle and capability checks run in `pnpm test:browser-access`, included
+in `test:maintained`. After building the normal app, run
+`pnpm test:browser-access-app` for the disposable loopback admission, Native state,
+restart and streaming-revocation journey. These commands use existing test runners.

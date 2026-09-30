@@ -1,3 +1,4 @@
+import { desktopCapability, createDesktopCapabilityHandler, attachBrowserAccessDialogs } from "./browser-access.mjs";
 import { fork, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -28,6 +29,7 @@ let serverChild = null;
 let allowQuit = false;
 let shutdownPromise = null;
 let serverOrigin = null;
+let serverCapability = null;
 let disposeProjectChooser = () => undefined;
 
 app.setName("Vivary");
@@ -217,6 +219,10 @@ async function launchServer({ root, node, entry, dataDir, port }) {
     windowsHide: true,
   });
   serverChild = child;
+  serverCapability = desktopCapability();
+  const capability = serverCapability;
+  const disposeBrowserDialogs = attachBrowserAccessDialogs(child, () => mainWindow, (window, options) => dialog.showMessageBox(window, options));
+  child.once("exit", disposeBrowserDialogs);
   disposeProjectChooser = attachProjectFolderChooser(child, () => mainWindow);
 
   await new Promise((resolve, reject) => {
@@ -240,7 +246,9 @@ async function launchServer({ root, node, entry, dataDir, port }) {
       new Error(`Vivary local server exited during startup (${code ?? "signal"}).`),
     );
     const onMessage = (message) => {
-      if (message?.type === "ready" && message.origin === origin) {
+      if (message?.type === "vivary:desktop:bootstrap-needed") {
+        child.send({ type: "vivary:desktop:bootstrap", capability });
+      } else if (message?.type === "ready" && message.origin === origin) {
         settle();
       } else if (message?.type === "error") {
         settle(new Error(String(message.message || "Vivary local server failed.")));
@@ -385,6 +393,10 @@ async function createWindow(origin) {
     width: 1440,
   });
   mainWindow = window;
+  window.webContents.session.webRequest.onBeforeSendHeaders(
+    createDesktopCapabilityHandler(() => window.isDestroyed() ? null : window.webContents, origin, serverCapability),
+  );
+  window.once("closed", () => session.defaultSession.webRequest.onBeforeSendHeaders(null));
   const allow = (target) => {
     try {
       return new URL(target).origin === origin;

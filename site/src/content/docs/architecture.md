@@ -131,6 +131,38 @@ Coordinated releases publish Core before its dependent role packages.
 
 The local desktop server binds to loopback and opens without a Vivary login. Hosted mode uses Native authentication. The private Zo preview uses its owner-login proxy boundary. Remote access to a user's host remains an explicit, authenticated setup requirement, with real-phone and revocation acceptance still open. [`local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts) owns request checks. The [host decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#host-and-browser-access-decision-2026-09-13) owns the product boundary.
 
+Issue #30 adds optional paired-browser access to the same desktop process and Native database.
+It is off on a new installation. The owner's enabled setting, exact HTTPS origin,
+stable host identity and approved device grants survive normal restarts; pending
+pairing challenges do not. The protected HTTPS path must already be configured.
+Vivary opens only the configured extra loopback port and does not install a tunnel,
+certificate or firewall rule. A failed optional listener leaves desktop access and
+its repair controls available.
+
+[`browser-access.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-access.mjs) owns pairing,
+grant expiry and revocation in Native-backed tables. A browser receives a separate
+Secure, HttpOnly cookie; its digest identifies a grant whose Native session token
+stays on the server. The reserved owner, existing organization, projects and threads
+remain unchanged. [`browser-ingress.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-ingress.mjs)
+rejects requests before Native dispatch, including alternate authentication inputs,
+encoded auth/control routes and public MCP credential routes. Listener-owned request
+context supplies identity. Remote session responses omit the Native token, and all
+forwarded responses strip Native cookies. Revocation closes device-owned responses
+and future admission before Native session cleanup; it does not roll back accepted
+host actions or stop unrelated runs. Failed persistence closes admission and reports
+failure. Restart after an unsaved revocation can restore the last saved grant, so the
+owner must retry that failure before restarting.
+
+The desktop listener also requires a per-launch capability passed through private
+parent/child IPC. Electron injects it only for the owned main frame at the exact app
+origin, with a one-use initial navigation exception. Preview subframes receive none.
+Settings requests changes, but native desktop confirmation over correlated IPC owns
+enablement, pairing approval, revocation and disablement. Remote browsers cannot use
+those controls or the desktop folder chooser. Connection UI names the host, detects
+unavailability and offers explicit retry without sending a message. Remote project
+previews remain unavailable until isolated authenticated routing exists. This source
+slice does not establish packaged Electron or actual-phone acceptance.
+
 The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs) own those limits.
 
 ## Delivery and known gaps
@@ -156,6 +188,14 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 introduces the desktop capability, outer paired-browser admission,
+persisted device lifecycle and Settings/connection UI described above. Focused tests
+exercise interrupted completion, admission during shutdown, stale response cleanup,
+expiry, alternate-auth denial, bodyless response headers and listener shutdown.
+The normal-app and browser checks use disposable state and no real provider calls.
+Transport setup, isolated preview routing and the real Windows/phone journey remain
+separate acceptance work. No external service is enabled by this source change.
 
 PR #151 merged issue #109 into `dev` as `b63ed90f` on 2026-09-29 and closed the issue.
 The acceptance register now records that closure. Its `e50ae89c` Windows evidence
