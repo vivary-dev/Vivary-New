@@ -3,8 +3,9 @@ import { createServer } from 'node:http';
 import { toNodeHandler } from 'h3/node';
 import { z } from 'zod';
 import { createBrowserAccess, browserConfiguration } from './browser-access.mjs';
+import { createPreviewGateway, installPreviewGateway } from './preview-ingress.mjs';
 import { browserPairingPage } from './browser-pairing-page.mjs';
-import { admitBrowserContext } from './browser-request-context.mjs';
+import { admitBrowserContext, runWithBrowserIdentity } from './browser-request-context.mjs';
 
 const DEVICE_COOKIE = '__Host-vivary-device';
 const PAIR_COOKIE = '__Host-vivary-pair';
@@ -145,7 +146,7 @@ export function createBrowserIngress({ dispatch, access, capability, localOrigin
           headers, body: request.body, duplex: 'half', signal: controller.signal });
         forwarded.context = {};
         admitBrowserContext(forwarded.context, { kind: 'remote', deviceId: grant.id });
-        const response = await dispatch(forwarded);
+        const response = await runWithBrowserIdentity({ kind: 'remote', deviceId: grant.id }, () => dispatch(forwarded));
         if (controller.signal.aborted) { await response.body?.cancel(); return denied(); }
         const result = deviceResponse(response, controller, release);
         transferred = true;
@@ -172,7 +173,7 @@ export function createBrowserIngress({ dispatch, access, capability, localOrigin
             : command.operation === 'revoke' ? status.devices.find(item => item.id === command.id) : null;
           if (['approve', 'revoke'].includes(command.operation) && !target) throw new Error('Request no longer exists.');
           const detail = command.operation === 'configure'
-            ? `Enable access to ${command.configuration.label} at ${command.configuration.origin} through loopback port ${command.configuration.port}. Configure a protected HTTPS path separately; Vivary does not create one.`
+            ? `Enable access to ${command.configuration.label} at ${command.configuration.origin} through loopback port ${command.configuration.port}. ${command.configuration.preview ? `Preview: ${command.configuration.preview.origin} through loopback port ${command.configuration.preview.port}. ` : 'Remote previews off. '}Configure protected HTTPS separately. Vivary does not create it.`
             : command.operation === 'approve' ? `Pair ${target.label} with ${status.label}? Compare code ${target.code} on both screens. This browser will have access to this host's projects and tools.`
               : command.operation === 'revoke' ? `Revoke ${target.label}? Its streams and future requests will end. Host runs will continue.`
                 : 'Disable browser access? All browser streams will end. Approved devices remain saved.';
@@ -242,8 +243,16 @@ export function installDesktopBrowserAccess(nitroApp, localOrigin) {
   let stopped = false;
   let access;
   let listener;
+  let previewListener;
+  let previewGateway;
+  const reconcilePreview = async () => {
+    previewGateway?.close(); await previewListener?.close();
+    previewGateway = createPreviewGateway({ access }); installPreviewGateway(previewGateway);
+    previewListener = createBrowserListener({ access: { configuration: () => { const config = access.configuration(); return { enabled: config.enabled && !!config.preview, port: config.preview?.port }; } }, fetch: request => previewGateway.handle(request) });
+    await previewListener.reconcile();
+  };
   const close = async () => {
-    stopped = true; access?.close(); await listener?.close();
+    stopped = true; previewGateway?.close(); await previewListener?.close(); access?.close(); await listener?.close();
   };
   process.once('disconnect', close);
   nitroApp.hooks.hook('close', close);
@@ -253,8 +262,8 @@ export function installDesktopBrowserAccess(nitroApp, localOrigin) {
     if (stopped) { access.close(); return; }
     listener = createBrowserListener({ access, fetch: request => ingress.remote(request) });
     ingress = createBrowserIngress({ dispatch, access, capability: bootstrap.capability, localOrigin,
-      onConfiguration: () => listener.reconcile(), listenerError: () => listener.error() });
-    await listener.reconcile();
+      onConfiguration: async () => { await listener.reconcile(); await reconcilePreview(); }, listenerError: () => listener.error() ?? previewListener?.error() });
+    await listener.reconcile(); await reconcilePreview();
   })();
   // Install synchronously before Nitro captures fetch for the desktop listener.
   nitroApp.fetch = async request => {

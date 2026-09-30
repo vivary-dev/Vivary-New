@@ -592,10 +592,35 @@ admission. If saving a revoke fails, admission closes and the UI reports failure
 retry before restarting because only saved revocation survives a process restart.
 An unavailable ingress port leaves the desktop and its repair controls usable.
 Remote browsers cannot approve devices or open the desktop folder chooser. Remote
-preview routing is not yet available. Real-phone and packaged Windows acceptance
-remain open under issue #30.
+preview requires the optional isolated origin described below. Real-phone and
+packaged Windows preview acceptance remain open under issue #30.
 
 Focused lifecycle and capability checks run in `pnpm test:browser-access`, included
 in `test:maintained`. After building the normal app, run
 `pnpm test:browser-access-app` for the disposable loopback admission, Native state,
 restart and streaming-revocation journey. These commands use existing test runners.
+
+### Optional isolated paired-browser previews
+
+Remote preview stays off when the optional preview origin in desktop Browser
+access settings is empty. An owner can prepare a second protected HTTPS port on
+the same hostname and a separate loopback ingress port, then confirm those exact
+values in the native dialog. Vivary does not create certificates, routes or public
+exposure. Both transport paths must already be protected before enabling access.
+
+The paired owner uses the existing project preview review, start, status and stop
+controls. Remote embedding accepts only that registered project's owned launch.
+An arbitrary running URL cannot be forwarded. The host verifies the connected
+socket's process identity before sending HTTP. Unsupported ownership inspection
+fails closed. Windows inspection still requires packaged verification.
+
+A supported browser must provide credentialless frames. The preview opens only
+inside Vivary, with separate preview authority and no app credentials forwarded.
+Preview access lasts five minutes and reopening is explicit. Workers, external
+sign-in flows and websocket upgrades are unsupported. Projects with hardcoded
+loopback resource URLs need their own reviewed public-base configuration.
+
+Opening another project or launch needs a full Vivary refresh. Save file edits
+first. Vivary flushes existing chat drafts and project selection and refuses the
+refresh if saving fails. Browser Back/Forward restoration requires a fresh reload
+before preview access resumes. Removing the frame alone does not clear storage.

@@ -287,3 +287,85 @@ test('connection gate distinguishes access denial and network failure without re
     stop();
   }
 });
+
+test('preview gateway binds a document to one launch and strips credentials before a verified connection', { timeout: 15000 }, async t => {
+  const { spawn } = await import('node:child_process');
+  const { once } = await import('node:events');
+  const { randomUUID } = await import('node:crypto');
+  const { capturePreviewProcess, connectOwnedPreview } = await import('../server/preview-socket-owner.ts');
+  const { createPreviewGateway } = await import('../server/preview-ingress.mjs');
+  const child = spawn(process.execPath, ['-e', `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url.startsWith('/account/start')){r.writeHead(302,{Location:q.url.includes('?')?'?next=1':'next'});r.end();return;}if(q.url==='/root-redirect'){r.writeHead(302,{Location:'/next'});r.end();return;}if(q.url==='/external'){r.writeHead(302,{Location:'https://outside.test/'});r.end();return;}if(q.url==='/upgrade'){r.writeHead(101,{Upgrade:'websocket',Connection:'Upgrade'});r.flushHeaders();return;}if(q.url==='/close'){q.socket.destroy();return;}r.setHeader('Set-Cookie','upstream=secret');r.setHeader('WWW-Authenticate','secret');r.end(JSON.stringify(q.headers));});s.listen(0,'127.0.0.1',()=>process.send(s.address().port));process.on('message',()=>s.close(()=>process.exit(0)));`], { detached: process.platform !== 'win32', stdio: ['ignore','ignore','ignore','ipc'] });
+  const [port] = await once(child, 'message');
+  t.after(async () => { if (child.exitCode === null) { child.send('close'); await once(child, 'exit'); } });
+  const identity = await capturePreviewProcess(child); assert.ok(identity);
+  const controllers = []; let released = 0;
+  const origin = 'https://paired.vivary.test:9443', app = 'https://paired.vivary.test';
+  const targetController = new AbortController();
+  const gateway = createPreviewGateway({ access: {
+    configuration: () => ({ enabled: true, origin: app, preview: { origin, port: 42203 } }),
+    async admitPreviewGrant(_id, controller) { controllers.push(controller); return { release() { released++; } }; },
+  }, resolveTarget: async () => ({ generation: 'generation', initialPath: '/', upstreamOrigin: `http://127.0.0.1:${port}`,
+    signal: targetController.signal, check: async () => {}, connect: signal => connectOwnedPreview({ port, identity, signal }) }) });
+  t.after(() => gateway.close());
+  const request = (pathname, options = {}) => gateway.handle(new Request(origin + pathname, { ...options, headers: {
+    host: new URL(origin).host, 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'empty', ...options.headers,
+  } }));
+  const input = { operation: 'open', documentId: randomUUID(), projectId: 'alpha', launchId: randomUUID() };
+  const opened = await gateway.command(input, {}, 'device');
+  assert.equal((await request('/', { headers: { 'sec-fetch-dest': 'document', cookie: '__Host-vivary-device=ordinary-app-cookie' } })).status, 403);
+  assert.equal((await request('/_vivary/preview/bootstrap', { headers: { 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-site' } })).status, 200);
+  const redeem = () => request('/_vivary/preview/redeem', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ ticket: opened.ticket }) });
+  const response = await redeem(); assert.equal(response.status, 200);
+  const cookie = response.headers.get('set-cookie').split(';')[0];
+  assert.equal((await redeem()).status, 403);
+  const served = await request('/', { headers: { cookie: cookie + '; __Host-vivary-device=app-secret', authorization: 'Bearer app-secret', 'x-vivary-desktop': 'desktop-secret', 'x-forwarded-host': 'private', 'sec-fetch-dest': 'iframe' } });
+  assert.equal(served.status, 200);
+  const upstream = await served.json();
+  for (const field of ['cookie','authorization','x-vivary-desktop','x-forwarded-host']) assert.equal(upstream[field], undefined);
+  assert.equal(served.headers.get('set-cookie'), null); assert.equal(served.headers.get('www-authenticate'), null);
+  assert.match(served.headers.get('content-security-policy'), /worker-src 'none'/);
+  for (const [route, location] of [['/account/start', '/account/next'], ['/account/start?old=1', '/account/start?next=1'], ['/root-redirect', '/next']]) {
+    const redirected = await request(route, { headers: { cookie } });
+    assert.equal(redirected.headers.get('location'), origin + location);
+  }
+  for (const route of ['/upgrade','/close','/external']) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1000);
+    const result = await request(route, { headers: { cookie }, signal: controller.signal });
+    clearTimeout(timer); assert.equal(result.status, 502); assert.equal(controller.signal.aborted, false);
+  }
+  const failedBody = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('partial')); setTimeout(() => controller.error(new Error('Interrupted upload')), 50); } });
+  const interrupted = await request('/upload', { method: 'POST', headers: { cookie, origin }, body: failedBody, duplex: 'half' });
+  assert.ok([200,502].includes(interrupted.status)); await interrupted.text().catch(() => undefined);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await request('/', { headers: { cookie } })).status, 200);
+  for (const destination of ['document','worker','serviceworker','sharedworker']) assert.equal((await request('/', { headers: { cookie, 'sec-fetch-dest': destination } })).status, 403);
+  await assert.rejects(gateway.command({ ...input, projectId: 'beta', launchId: randomUUID() }, {}, 'device'), /refresh/);
+  controllers[0].abort();
+  assert.equal(released, 1);
+  const { getEventListeners } = await import('node:events');
+  assert.equal(getEventListeners(targetController.signal, 'abort').length, 0);
+  assert.equal((await request('/', { headers: { cookie } })).status, 403);
+  await gateway.command({ operation: 'close', documentId: input.documentId }, {}, 'device');
+  assert.equal(released, 1);
+  await assert.rejects(gateway.command({ ...input, launchId: randomUUID() }, {}, 'device'), /refresh/);
+});
+
+test('preview disable during pending admission releases the granted admission', async () => {
+  const { createPreviewGateway } = await import('../server/preview-ingress.mjs');
+  let finish, entered, released = 0;
+  const pending = new Promise(resolve => { entered = resolve; });
+  const settings = { enabled: true, origin: 'https://fixture.test', preview: { origin: 'https://fixture.test:9443' } };
+  const gateway = createPreviewGateway({ access: {
+    configuration: () => settings,
+    admitPreviewGrant: () => { entered(); return new Promise(resolve => { finish = resolve; }); },
+  }, resolveTarget: async () => ({ generation: 'one', signal: new AbortController().signal, check: async () => {} }) });
+  try {
+    const opening = gateway.command({ operation: 'open', documentId: 'document', projectId: 'alpha', launchId: 'launch' }, {}, 'device');
+    await pending;
+    settings.preview = null;
+    finish({ release() { released++; } });
+    await assert.rejects(opening);
+    assert.equal(released, 1);
+  } finally { gateway.close(); }
+});

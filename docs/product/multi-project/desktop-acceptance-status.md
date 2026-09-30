@@ -207,6 +207,16 @@ The packaged Workbench reports `sourceCommitVerified: false`, and no
 post-restart Native HTTP response was captured. The public `9884670`
 prerelease does not contain these unpublished changes.
 
+## Isolated browser preview candidate, September 30
+
+Issue #30 adds an optional separate-port, credentialless preview source slice.
+Real Linux ownership checks reject unrelated and rebound responders before HTTP
+bytes. Gateway and draft-close regression checks cover the new boundaries.
+Windows socket inspection is prepared, not proven by mocked platform queries.
+Protected preview transport, the exact Windows package, supported physical phone
+browser and full issue journey remain acceptance gates. Existing dated desktop
+preview evidence below remains specific to its named candidate.
+
 ## Project preview and debugging, September 22
 
 [Issue #31's receipt](receipts/11e-live-project-preview.md) records reviewed

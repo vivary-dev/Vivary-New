@@ -12,8 +12,14 @@ export const browserConfiguration = z.object({
     try { const url = new URL(value); return url.origin === value && url.protocol === 'https:' && !url.username && !url.password
       && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname); } catch { return false; }
   }, 'Use an exact private HTTPS origin without a path.'),
+  preview: z.object({ origin: z.string().url().max(300), port: z.number().int().min(1024).max(65535) }).strict().nullable().default(null),
   port: z.number().int().min(1024).max(65535), label: z.string().trim().min(1).max(80),
-}).strict();
+}).strict().refine(config => {
+  if (!config.preview) return true;
+  const app = new URL(config.origin), preview = new URL(config.preview.origin);
+  return preview.origin === config.preview.origin && preview.protocol === 'https:' && preview.hostname === app.hostname
+    && preview.origin !== app.origin && !preview.username && !preview.password && config.preview.port !== config.port;
+}, 'Use the same HTTPS hostname on a separate public port and a separate loopback ingress port.');
 const migrate = runMigrations([{ version: 1, name: 'paired-browser-access', sql: `
 CREATE TABLE IF NOT EXISTS vivary_browser_instance (
  slot INTEGER PRIMARY KEY, id TEXT NOT NULL, enabled INTEGER NOT NULL,
@@ -22,7 +28,8 @@ CREATE TABLE IF NOT EXISTS vivary_browser_instance (
 CREATE TABLE IF NOT EXISTS vivary_browser_grants (
  id TEXT PRIMARY KEY, credential_hash TEXT NOT NULL UNIQUE, native_token TEXT NOT NULL,
  label TEXT NOT NULL, status TEXT NOT NULL, expires_at BIGINT NOT NULL
-);` }], { table: 'vivary_browser_migrations' });
+);` }, { version: 2, name: 'isolated-preview-configuration', sql: `ALTER TABLE vivary_browser_instance ADD COLUMN preview_origin TEXT;
+ALTER TABLE vivary_browser_instance ADD COLUMN preview_port INTEGER;` }], { table: 'vivary_browser_migrations' });
 
 export async function createBrowserAccess({ database = getDbExec(), sessions = { addSession, getSessionEmail, removeSession },
   migrateDatabase = migrate, now = Date.now } = {}) {
@@ -48,8 +55,25 @@ export async function createBrowserAccess({ database = getDbExec(), sessions = {
     await sessions.removeSession(row.native_token).catch(() => undefined);
   }
 
+  async function register(grant, controller) {
+      if (!grant || await sessions.getSessionEmail(grant.native_token) !== OWNER
+        || !enabled() || controller.signal.aborted || Number(grant.expires_at) <= now()) return null;
+      const controllers = active.get(grant.id) ?? new Set(); controllers.add(controller); active.set(grant.id, controllers);
+      let timer;
+      const release = () => {
+        clearTimeout(timer); controllers.delete(controller);
+        if (!controllers.size && active.get(grant.id) === controllers) active.delete(grant.id);
+      };
+      const expire = () => {
+        const remaining = Number(grant.expires_at) - now();
+        if (remaining <= 0) { controller.abort(); release(); }
+        else { timer = setTimeout(expire, Math.min(remaining, 2_147_483_647)); timer.unref(); }
+      };
+      expire();
+      return { id: grant.id, release };
+  }
   return {
-    configuration() { return { enabled: enabled(), origin: instance.origin, port: Number(instance.port), instanceId: instance.id, label: instance.label }; },
+    configuration() { return { enabled: enabled(), origin: instance.origin, port: Number(instance.port), instanceId: instance.id, label: instance.label, preview: instance.preview_origin ? { origin: instance.preview_origin, port: Number(instance.preview_port) } : null }; },
     async status() {
       prune();
       return { ...this.configuration(), fault, devices: (await execute('SELECT id,label,status,expires_at FROM vivary_browser_grants ORDER BY expires_at DESC')).rows,
@@ -64,7 +88,7 @@ export async function createBrowserAccess({ database = getDbExec(), sessions = {
           await execute("UPDATE vivary_browser_grants SET status='revoked' WHERE status='active'");
           cancelAll(); pending.clear();
         }
-        await execute('UPDATE vivary_browser_instance SET enabled=1,origin=?,port=?,label=? WHERE slot=1', [config.origin, config.port, config.label]);
+        await execute('UPDATE vivary_browser_instance SET enabled=1,origin=?,port=?,label=?,preview_origin=?,preview_port=? WHERE slot=1', [config.origin, config.port, config.label, config.preview?.origin ?? null, config.preview?.port ?? null]);
         instance = await load(); fault = false;
       } catch { failClosed(); throw new Error('Browser access could not be saved. Admission is closed.'); }
     }); },
@@ -118,21 +142,12 @@ export async function createBrowserAccess({ database = getDbExec(), sessions = {
     admit(credential, controller) { return serial(async () => {
       if (!enabled() || !credential) return null;
       const grant = (await execute("SELECT * FROM vivary_browser_grants WHERE credential_hash=? AND status='active' AND expires_at>?", [digest(credential), now()])).rows[0];
-      if (!grant || await sessions.getSessionEmail(grant.native_token) !== OWNER
-        || !enabled() || controller.signal.aborted || Number(grant.expires_at) <= now()) return null;
-      const controllers = active.get(grant.id) ?? new Set(); controllers.add(controller); active.set(grant.id, controllers);
-      let timer;
-      const release = () => {
-        clearTimeout(timer); controllers.delete(controller);
-        if (!controllers.size && active.get(grant.id) === controllers) active.delete(grant.id);
-      };
-      const expire = () => {
-        const remaining = Number(grant.expires_at) - now();
-        if (remaining <= 0) { controller.abort(); release(); }
-        else { timer = setTimeout(expire, Math.min(remaining, 2_147_483_647)); timer.unref(); }
-      };
-      expire();
-      return { id: grant.id, release };
+      return register(grant, controller);
+    }); },
+    admitPreviewGrant(id, controller) { return serial(async () => {
+      if (!enabled()) return null;
+      const grant = (await execute("SELECT * FROM vivary_browser_grants WHERE id=? AND status='active' AND expires_at>?", [id, now()])).rows[0];
+      return register(grant, controller);
     }); },
     revoke(id) { return serial(async () => {
       const grant = (await execute('SELECT * FROM vivary_browser_grants WHERE id=?', [id])).rows[0];

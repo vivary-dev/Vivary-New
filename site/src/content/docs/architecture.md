@@ -183,9 +183,30 @@ failure so unsent drafts survive. The connection
 wrapper owns the dynamic viewport height; its wrapping notice and workspace share
 that height, with the existing shell filling the remaining space. Conversation recovery notices, runtime selectors and the setup
 card share the existing scrollable composer slot when space is short, preserving
-the composer. Remote project
-previews remain unavailable until isolated authenticated routing exists. This source
-slice does not establish packaged Electron or actual-phone acceptance.
+the composer.
+
+Optional remote previews use a separate protected HTTPS port on the same hostname,
+with a dedicated loopback listener that never dispatches Native. Port separation
+isolates DOM origins. Credentialless sandboxed embedding isolates ordinary cookies
+and storage, and a trusted bootstrap exchanges a one-use preview ticket through
+an exact-origin message. Top-level preview entry is refused. The gateway strips
+app credentials and upstream cookies, blocks workers and upgrades, and forwards
+only to the established socket verified as belonging to the selected registered
+project launch. Existing process identities, launch ownership and shutdown remain
+the owners. Unknown ownership fails closed, including on unsupported platforms.
+
+One app document is locked to one project, launch and host generation because
+removing an iframe does not reset its credentialless storage partition. Opening a
+different preview requires an explicit full refresh. The existing chat and
+selection close-flush must succeed before grant closure and reload. File editing
+retains its beforeunload guard. A restored browser-history document requires a
+refresh. Preview grants expire on restart and revocation cuts their streams without
+stopping unrelated host work. Shared review/start/status/stop controls remain in
+BrowserPreview. After opening, remote setup collapses behind a disclosure so the
+page fills the remaining phone viewport. Server controls stay reachable, and
+Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
+required. This source slice does not establish packaged Windows or actual-phone
+acceptance.
 
 The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs) own those limits.
 
@@ -212,6 +233,19 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 isolated preview candidate reuses the project launcher and Native owner
+transport. A new socket check verifies the established peer before HTTP bytes are
+sent. Focused Linux checks reject an unrelated responder and a rebound port while
+the original launcher remains alive. Gateway tests cover credential stripping,
+document identity, interrupted uploads, unsupported upgrades and redirects.
+The existing close-flush test proves save failure prevents preview revocation and
+reload. Windows socket inspection is prepared but needs packaged acceptance.
+The disposable HTTPS Chromium journey verifies storage partition reset on guarded
+reload, saved draft and selection, hostile-content denial and stream revocation.
+At phone width, setup collapses after opening and the page retains usable height.
+Actual BFCache restoration and packaged Windows acceptance remain unproven.
+The PR #127 diagrams and their dated review remain intact.
 
 Issue #30 denial wording correction: BrowserConnection owns a denied state without
 host metadata and checks HTTP 401 before the standalone-local fallback. It avoids

@@ -354,7 +354,7 @@ const linuxProc: LinuxProcReader = {
  * signal 0 decides whether the group exists, so a member that `/proc` cannot show is reported as `hidden`, never as
  * gone.
  */
-export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc): Promise<LinuxGroupObservation> {
+export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc, signal?: AbortSignal): Promise<LinuxGroupObservation> {
   try { proc.signalGroup(groupId); } catch (error) {
     // ESRCH means no process, zombies included, has this group id. EPERM means one exists that we may not signal.
     if (errorCode(error) === "ESRCH") return { members: [], hidden: false };
@@ -367,6 +367,7 @@ export async function scanLinuxWorkerGroup(groupId: number, proc = linuxProc): P
   let zombie = false;
   let unreadable = false;
   for (const entry of entries) {
+    signal?.throwIfAborted();
     if (!/^\d+$/.test(entry)) continue;
     let raw: string;
     try { raw = await proc.stat(entry); }
@@ -475,13 +476,31 @@ function windowsSystem32(): string {
   return path.join(process.env.SystemRoot || "C:\\Windows", "System32");
 }
 
-function runPowerShell(script: string): Promise<string> {
+function runPowerShell(script: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
   const powershell = path.join(windowsSystem32(), "WindowsPowerShell", "v1.0", "powershell.exe");
   return new Promise((resolve, reject) => {
     execFile(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], {
-      windowsHide: true, shell: false, timeout: WINDOWS_SCAN_TIMEOUT_MS, maxBuffer: 1024 * 1024, encoding: "utf8",
+      windowsHide: true, shell: false, signal, timeout: WINDOWS_SCAN_TIMEOUT_MS, maxBuffer: 1024 * 1024, encoding: "utf8",
     }, (error, stdout) => { if (error) reject(error); else resolve(stdout); });
   });
+}
+
+/** Match the server side of an established preview connection, never just a listening port. */
+export async function windowsTcpOwner(serverPort: number, clientPort: number, signal?: AbortSignal): Promise<number> {
+  if (![serverPort, clientPort].every(port => Number.isInteger(port) && port > 0 && port <= 65535)) {
+    throw new Error("Invalid preview connection.");
+  }
+  const output = await runPowerShell([
+    "$ErrorActionPreference = 'Stop'",
+    `$rows = @(Get-NetTCPConnection -State Established -LocalAddress 127.0.0.1 -LocalPort ${serverPort} -RemoteAddress 127.0.0.1 -RemotePort ${clientPort})`,
+    "if ($rows.Count -ne 1) { throw 'Ambiguous preview connection' }",
+    "$rows[0].OwningProcess",
+  ].join("; "), signal);
+  if (!/^\d+$/.test(output.trim())) throw new Error("Unknown preview connection owner.");
+  const pid = Number(output.trim());
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Unknown preview connection owner.");
+  return pid;
 }
 
 /** The lines before a last line that counts them, or null when that count is missing or wrong. */
@@ -493,8 +512,8 @@ function countedLines(text: string): string[] | null {
 }
 
 /** Issue #121. Every process on this Windows host by PID, parent PID, creation time, and image name. */
-export async function scanWindowsProcesses(): Promise<WindowsProcessRow[]> {
-  const rows = parseWindowsProcessRows(await runPowerShell(WINDOWS_PROCESS_SCAN));
+export async function scanWindowsProcesses(signal?: AbortSignal): Promise<WindowsProcessRow[]> {
+  const rows = parseWindowsProcessRows(await runPowerShell(WINDOWS_PROCESS_SCAN, signal));
   if (!rows) throw new Error("The Windows process scan printed output Vivary cannot read.");
   return rows;
 }

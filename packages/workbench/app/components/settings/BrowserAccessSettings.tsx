@@ -10,6 +10,8 @@ export function BrowserAccessSettings() {
   const initialValuesLoaded = useRef(false);
   const [origin, setOrigin] = useState('');
   const [port, setPort] = useState('42300');
+  const [previewOrigin, setPreviewOrigin] = useState('');
+  const [previewPort, setPreviewPort] = useState('42301');
   const [label, setLabel] = useState('My Vivary laptop');
   async function refresh() {
     const response = await fetch('/_vivary/browser/status', { cache: 'no-store' });
@@ -17,6 +19,7 @@ export function BrowserAccessSettings() {
     const next = browserStatus.parse(await response.json());
     setStatus(next);
     if (!initialValuesLoaded.current) {
+      setPreviewOrigin(next.preview?.origin ?? ''); setPreviewPort(String(next.preview?.port ?? 42301));
       setOrigin(next.origin ?? ''); setPort(String(next.port || 42300)); setLabel(next.label);
       initialValuesLoaded.current = true; setInitialized(true);
     }
@@ -43,10 +46,13 @@ export function BrowserAccessSettings() {
     {status?.listenerError && <p role="alert" className="text-sm text-destructive">{status.listenerError}</p>}
     {status?.remote ? <p>Connected to {status.label}. Approve devices and change access in that computer's desktop app.</p> : <>
       <p role="status">{!status ? 'Checking desktop access…' : status.fault ? 'Admission closed. A change could not be saved. Retry before restarting.' : status.listenerError ? 'Browser listener unavailable' : status.enabled ? 'Browser access enabled' : 'Browser access off'}</p>
-      <form className="space-y-4" onSubmit={event => { event.preventDefault(); void change({ operation: 'configure', configuration: { origin, port: Number(port), label } }); }}>
+      <form className="space-y-4" onSubmit={event => { event.preventDefault(); void change({ operation: 'configure', configuration: { origin, port: Number(port), label, preview: previewOrigin ? { origin: previewOrigin, port: Number(previewPort) } : null } }); }}>
         <label className="block text-sm">Host name<Input disabled={busy || !initialized} className="mt-2 min-h-11" value={label} onChange={event => setLabel(event.target.value)} maxLength={80} required /></label>
         <label className="block text-sm">Private HTTPS origin<Input disabled={busy || !initialized} className="mt-2 min-h-11" placeholder="https://your-private-host" value={origin} onChange={event => setOrigin(event.target.value)} required /></label>
         <label className="block text-sm">Loopback ingress port<Input disabled={busy || !initialized} className="mt-2 min-h-11" type="number" min={1024} max={65535} value={port} onChange={event => setPort(event.target.value)} required /></label>
+        <label className="block text-sm">Optional preview HTTPS origin<Input disabled={busy || !initialized} className="mt-2 min-h-11" placeholder="Same hostname, separate HTTPS port" value={previewOrigin} onChange={event => setPreviewOrigin(event.target.value)} /></label>
+        {previewOrigin && <label className="block text-sm">Preview loopback ingress port<Input disabled={busy || !initialized} className="mt-2 min-h-11" type="number" min={1024} max={65535} value={previewPort} onChange={event => setPreviewPort(event.target.value)} required /></label>}
+        <p className="text-sm text-muted-foreground">Leave preview origin empty to keep remote previews off. Preview requires a separately protected HTTPS port. Configuring this field does not set up transport.</p>
         <p className="text-sm text-muted-foreground">Use an already configured protected HTTPS path to this loopback port. Vivary does not create a tunnel or change your firewall. The desktop asks you to confirm.</p>
         <div className="flex flex-wrap gap-3"><Button className="min-h-11" type="submit" disabled={busy || !initialized}>Enable browser access</Button><Button className="min-h-11" type="button" variant="outline" disabled={busy || !status?.enabled} onClick={() => { void change({ operation: 'disable' }); }}>Disable access</Button></div>
       </form>

@@ -1,3 +1,5 @@
+import { currentBrowserIdentity } from './browser-request-context.mjs';
+import { capturePreviewProcess, connectOwnedPreview } from './preview-socket-owner';
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -34,6 +36,8 @@ type Entry = {
   retiredAt?: number;
   reservationToken: symbol;
   stopPromise?: Promise<void>;
+  remote: AbortController;
+  processIdentity: ReturnType<typeof capturePreviewProcess>;
   exitCleanup?: Promise<boolean>;
 };
 type HostState = {
@@ -420,6 +424,7 @@ export function createProjectPreviewService(
     if (state.reservedPorts.get(port) === reservationToken) state.reservedPorts.delete(port);
   }
   function settle(entry: Entry): void {
+    entry.remote.abort();
     entry.retiredAt ??= deps.now();
     releasePort(Number(new URL(entry.review.url).port), entry.reservationToken);
   }
@@ -458,6 +463,7 @@ export function createProjectPreviewService(
         folder: workspace.root, scripts };
     }
     if (input.operation === "inspect") {
+      if (currentBrowserIdentity()?.kind === "remote") return refuse("Remote preview requires an owned project launch.", 403);
       await deps.resolveWorkspace(context, input.projectId);
       const url = checkedUrl(input.url);
       const observation = await deps.probe(url);
@@ -473,7 +479,7 @@ export function createProjectPreviewService(
       const entry = state.current.get(key);
       if (!entry) return { code: "idle", projectId: input.projectId, host };
       const staleBinding = await bindingStale(entry, context);
-      if ((entry.state === "ready" || entry.state === "unavailable")
+      if (currentBrowserIdentity()?.kind !== "remote" && (entry.state === "ready" || entry.state === "unavailable")
         && entry.child?.exitCode === null && entry.child.signalCode === null) {
         const observation = await deps.probe(new URL(entry.review.url));
         if (entry.stopPromise || !entry.child || entry.child.exitCode !== null || entry.child.signalCode !== null) {
@@ -497,6 +503,7 @@ export function createProjectPreviewService(
         && candidate.workspace.projectId === input.projectId
         && candidate.launchId === input.launchId);
       if (!entry) return refuse("That preview launch is not owned by this project.");
+      entry.remote.abort();
       await stopOwned(entry, deps.portOccupied, () => settle(entry));
       return snapshot(entry, await bindingStale(entry, context));
     }
@@ -581,6 +588,7 @@ export function createProjectPreviewService(
         identity: owner, workspace: last, review: reviewed,
         requestId: input.requestId, launchId: randomUUID(), pid: child.pid ?? null,
         child, state: "starting", embedding: "unknown", logTail: "", reservationToken,
+        remote: new AbortController(), processIdentity: capturePreviewProcess(child),
       };
       state.current.set(key, entry);
       state.byRequest.set(reservation, entry);
@@ -596,6 +604,7 @@ export function createProjectPreviewService(
         }
       });
       child.once("exit", () => {
+        entry.remote.abort();
         if (entry.state !== "stopped") {
           entry.state = "unavailable";
           entry.reason = "The preview process exited.";
@@ -631,6 +640,7 @@ export function createProjectPreviewService(
   }
   function shutdown(): Promise<void> {
     state.closing = true;
+    for (const entry of state.current.values()) entry.remote.abort();
     state.shutdown ??= Promise.allSettled([...state.current.values()].map(entry =>
       stopOwned(entry, deps.portOccupied, () => settle(entry)))).then(results => {
       if (results.some(result => result.status === "rejected")) {
@@ -639,8 +649,35 @@ export function createProjectPreviewService(
     });
     return state.shutdown;
   }
-  return { run, shutdown };
+  async function ownedTarget(context: ActionRunContext, projectId: string, launchId: string) {
+    const owner = identity(context, deps.mode());
+    const entry = state.current.get(keyFor(owner, projectId));
+    if (!entry || entry.launchId !== launchId || entry.remote.signal.aborted) return refuse("That preview launch is unavailable.");
+    const processIdentity = await entry.processIdentity;
+    if (!processIdentity) return refuse("This host cannot establish preview process ownership.");
+    async function check() {
+      if (!entry || state.closing || entry.remote.signal.aborted || entry.stopPromise || !entry.child
+        || entry.child.exitCode !== null || entry.child.signalCode !== null || await bindingStale(entry, context)) {
+        entry?.remote.abort(); return refuse("The preview launch or project binding changed.");
+      }
+    }
+    await check();
+    const url = new URL(entry.review.url);
+    return {
+      generation: state.generation, initialPath: url.pathname, upstreamOrigin: url.origin,
+      signal: entry.remote.signal, check,
+      async connect(signal: AbortSignal) {
+        await check();
+        const socket = await connectOwnedPreview({ port: Number(url.port), identity: processIdentity, signal });
+        try { await check(); if (signal.aborted) throw new Error("Preview access ended."); return socket; }
+        catch (error) { socket.destroy(); throw error; }
+      },
+    };
+  }
+  return { run, shutdown, ownedTarget };
 }
 const production = createProjectPreviewService({}, productionState);
 export const projectPreviewService = production.run;
 export const shutdownProjectPreviews = production.shutdown;
+
+export const ownedProjectPreview = production.ownedTarget;

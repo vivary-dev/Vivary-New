@@ -48,7 +48,7 @@
     "test:shell": "vitest run tests/workbench-preview.test.ts",
     "doctor": "agent-native doctor",
     "test:project-services": "node --test tests/project-services.test.mjs",
-    "test:browser-access": "node --import tsx --test tests/browser-access.test.mjs ../desktop/tests/browser-capability.test.mjs",
+    "test:browser-access": "node --import tsx --test tests/browser-access.test.mjs tests/preview-socket-owner.test.ts ../desktop/tests/browser-capability.test.mjs",
     "test:browser-access-app": "node --test tests/browser-access-app.test.mjs"
   },
   "devDependencies": {

@@ -1,3 +1,4 @@
+import { RemoteProjectPreview } from './RemoteProjectPreview';
 import { useBrowserHost } from "../layout/BrowserConnection";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { IconWorld, IconRefresh } from "@tabler/icons-react";
@@ -189,13 +190,15 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
   const canEmbed = page && isolated && new URL(page.url).origin !== window.location.origin && page.embedding !== "blocked" && (!hostLocal || sameHost);
 
   const browserHost = useBrowserHost();
-  if (browserHost) return <p className="p-4 text-sm" role="status">Remote preview routing for {browserHost.label} is not available yet. Open the preview in the desktop app.</p>;
+  const [setupOpen, setSetupOpen] = useState(true);
+
   if (!projectId) return <section className="p-5 text-sm text-muted-foreground">Connect and select a project before opening its preview.</section>;
   return <section className="flex h-full min-h-0 flex-col" aria-label="Web preview">
-    <div className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
+    {browserHost && <div className="shrink-0 border-b px-3 py-2"><Button size="sm" variant="outline" aria-expanded={setupOpen} aria-controls="preview-setup" onClick={() => setSetupOpen(value => !value)}>Preview setup and server controls</Button></div>}
+    <div id="preview-setup" hidden={!!browserHost && !setupOpen} className="max-h-[60%] shrink-0 overflow-y-auto border-b border-border p-3 space-y-3">
       <p className="break-words text-xs text-muted-foreground">Preview for {projectName}{host ? ` on ${host}` : " on the connected host"}</p>
       <form onSubmit={reviewCommand} className="space-y-2">
-        <label className="block text-xs" htmlFor="preview-address">Project preview address</label>
+        <label className="block text-xs" htmlFor="preview-address">{browserHost ? "Host preview address for the reviewed command" : "Project preview address"}</label>
         <Input id="preview-address" value={address} disabled={busy || !!pendingStart}
           onChange={event => { setAddress(event.target.value); setReview(null); }} placeholder="http://127.0.0.1:5173/" />
         <div className="flex flex-wrap items-end gap-2">
@@ -207,7 +210,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
             </select>
           </label>
           <Button type="submit" size="sm" disabled={!ready || busy || !!active || !!pendingStart || !discovery?.scripts.length}>Review command</Button>
-          <Button type="button" size="sm" variant="outline" disabled={!ready || busy} onClick={openExisting}>Open running page</Button>
+          {!browserHost && <Button type="button" size="sm" variant="outline" disabled={!ready || busy} onClick={openExisting}>Open running page</Button>}
         </div>
       </form>
       {review && <div className="rounded-md border border-border p-3 space-y-2" aria-label="Review preview command">
@@ -236,9 +239,9 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {page && <>
         <p className="break-all text-xs">Requested page: {page.url}</p>
-        {hostLocal && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={sameHost} onChange={event => setConfirmedTarget(event.target.checked ? pageKey : null)} className="mt-0.5" /><span>This browser is running on {page.host}. Host-local addresses open on this device. Remote phone routing is not available yet.</span></label>}
+        {!browserHost && hostLocal && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={sameHost} onChange={event => setConfirmedTarget(event.target.checked ? pageKey : null)} className="mt-0.5" /><span>This browser is running on {page.host}. Host-local addresses open on this device. Remote phone routing is not available yet.</span></label>}
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={!canEmbed} onClick={() => setRevision(value => value + 1)}><IconRefresh className="mr-1 size-4" />Refresh page</Button>
+          {!browserHost && <Button size="sm" variant="outline" disabled={!canEmbed} onClick={() => setRevision(value => value + 1)}><IconRefresh className="mr-1 size-4" />Refresh page</Button>}
           <Button size="sm" variant="outline" disabled={!chatTarget} onClick={() => {
             if (chatTarget?.attach({ projectId, projectName, host: page.host, url: page.url })) setNotice("Preview attached to this conversation. Add your request and send when ready. Your draft is unchanged.");
             else setError("Open a Code conversation for this project before attaching the preview.");
@@ -251,8 +254,9 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
     </div>
     {isolated === false ? <p role="alert" className="p-4 text-sm">This browser cannot isolate preview credentials. Open Vivary in a browser that supports credentialless frames before embedding a page.</p>
       : page?.embedding === "blocked" ? <p role="alert" className="p-4 text-sm">The server blocks embedded previews. Ask the coding agent to inspect it in an isolated browser session.</p>
+      : browserHost ? <RemoteProjectPreview projectId={projectId} launch={run} onOpen={() => setSetupOpen(false)} />
       : canEmbed ? <IsolatedPage url={page.url} revision={revision} />
       : <div className="m-auto max-w-sm px-6 py-8 text-center text-sm text-muted-foreground"><IconWorld className="mx-auto mb-3 size-7" />{page && hostLocal ? "Confirm this browser is on the selected host to open its local address." : "Review a project command to start it, or open an already running page."}</div>}
-    <p className="shrink-0 border-t border-border px-3 py-2 text-xs text-muted-foreground">Refresh reloads the requested address. Links stay within the isolated preview. Your coding runtime supplies browser inspection tools. Sign-in flows may need a separately authorized browser session.</p>
+    {!browserHost && <p className="shrink-0 border-t border-border px-3 py-2 text-xs text-muted-foreground">Refresh reloads the requested address. Links stay within the isolated preview. Your coding runtime supplies browser inspection tools. Sign-in flows may need a separately authorized browser session.</p>}
   </section>;
 }

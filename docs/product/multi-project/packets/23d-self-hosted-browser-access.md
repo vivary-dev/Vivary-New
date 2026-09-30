@@ -85,3 +85,13 @@ identify the host and expose failure/retry states. The Workbench README owns set
 and focused test commands. This is source implementation, not full issue acceptance.
 Protected transport setup, isolated remote previews, an exact Windows package and
 the actual phone journey remain outstanding.
+
+### Isolated preview source candidate
+
+The next source slice adds embedded-only remote preview through a separate HTTPS
+port and loopback listener. It retains existing project command review/start/stop
+and requires a verified owned connection, a preview-only grant and credentialless
+framing. One preview identity per app document requires a guarded real refresh
+for another project or launch. Unknown socket ownership and unsupported browsers
+remain denied. Transport stays off until explicitly configured. Focused source
+checks do not establish Windows, actual-phone or live transport acceptance.
