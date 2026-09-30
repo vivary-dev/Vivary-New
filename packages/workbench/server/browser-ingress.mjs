@@ -98,14 +98,19 @@ export function createBrowserIngress({ dispatch, access, capability, localOrigin
     if (!config.enabled || request.headers.get('host') !== new URL(config.origin).host) return denied();
     const origin = request.headers.get('origin');
     const site = request.headers.get('sec-fetch-site');
-    if ((origin && origin !== config.origin) || (site && !['none', 'same-origin'].includes(site))) return denied();
-    if (!['GET', 'HEAD'].includes(request.method) && origin !== config.origin) return denied();
     // Block alternate Native authentication before its embed/access-token/BYOA fallback chain.
     if (request.headers.has('authorization') || request.headers.has('x-vivary-session') || request.headers.has('x-vivary-desktop')
       || (url.searchParams.has('_session') || url.searchParams.has('__an_embed_token')) || request.headers.has('upgrade')) return denied();
     if (routePath.startsWith('/_agent-native/auth') && routePath !== '/_agent-native/auth/session') return denied();
     if (/^\/_agent-native\/(embed|desktop|connect|oauth|mcp)(\/|$)/.test(routePath) || /^\/mcp(?:\/|$)/.test(routePath)
       || routePath === '/_agent-native/actions/vivary-connect-project-folder') return denied();
+    // External entry is public HTML only. Strict cookies are checked after same-origin navigation.
+    if (site === 'cross-site' && request.method === 'GET' && !url.search
+      && ['/', '/pair'].includes(url.pathname) && request.headers.get('sec-fetch-mode') === 'navigate'
+      && request.headers.get('sec-fetch-dest') === 'document'
+      && request.headers.get('accept')?.split(',').some(value => value.trim().split(';')[0] === 'text/html')) return browserPairingPage();
+    if ((origin && origin !== config.origin) || (site && !['none', 'same-origin'].includes(site))) return denied();
+    if (!['GET', 'HEAD'].includes(request.method) && origin !== config.origin) return denied();
     try {
       if (url.pathname === '/pair' && request.method === 'GET') return browserPairingPage();
       if (url.pathname === `${ROOT}/pair` && request.method === 'POST') {

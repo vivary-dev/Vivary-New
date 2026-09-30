@@ -128,3 +128,48 @@ test('listener shutdown owns a server whose listen callback is still pending', a
   const opening = listener.reconcile(); await starting.promise; const closing = listener.close();
   completeListen(); await opening; await closing; assert.equal(closed, true);
 });
+
+
+test('external top-level entry serves only public bootstrap before any device access', async () => {
+  let enabled = true;
+  const calls = [];
+  const access = {
+    configuration: () => ({ enabled, origin: 'https://fixture.vivary.test', label: 'Private host identity' }),
+    async admit() { calls.push('admit'); return { id: 'valid-device', release() {} }; },
+    requestPairing() { calls.push('pair'); throw new Error('Unexpected pairing'); },
+  };
+  const ingress = createBrowserIngress({ access, capability: 'fixture', localOrigin: 'http://127.0.0.1:1',
+    dispatch: async () => { calls.push('dispatch'); return new Response('Native'); } });
+  const headers = { host: 'fixture.vivary.test', cookie: '__Host-vivary-device=' + 'a'.repeat(43), 'sec-fetch-site': 'cross-site',
+    'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', accept: 'text/html,application/xhtml+xml' };
+  const request = (route, extra = {}, method = 'GET') => new Request('https://fixture.vivary.test' + route,
+    { method, headers: { ...headers, ...extra } });
+  let bootstrap;
+  for (const route of ['/', '/pair']) for (const cookie of ['', '__Host-vivary-device=' + 'a'.repeat(43)]) {
+    const response = await ingress.remote(request(route, { cookie }));
+    assert.equal(response.status, 200, route);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-frame-options'), 'DENY');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+    assert.equal(response.headers.get('set-cookie'), null);
+    const body = await response.text();
+    assert.equal(body.includes('Private host identity'), false);
+    bootstrap ??= body; assert.equal(body, bootstrap);
+  }
+  const refused = [
+    ['/_vivary/browser/status'], ['/_vivary/browser/pair', {}, 'POST'],
+    ['/_vivary/browser/complete', {}, 'POST'], ['/_agent-native/auth/session'], ['/settings'],
+    ['/', {}, 'POST'], ['/', {}, 'HEAD'], ['/', { 'sec-fetch-mode': 'cors' }],
+    ['/', { 'sec-fetch-mode': '' }], ['/', { 'sec-fetch-dest': 'iframe' }],
+    ['/', { 'sec-fetch-dest': 'empty' }], ['/', { accept: 'application/json' }],
+    ['/', { host: 'localhost' }], ['/', { authorization: 'Bearer alternate' }],
+    ['/', { 'x-vivary-session': 'alternate' }], ['/', { 'x-vivary-desktop': 'alternate' }],
+    ['/?_session=alternate'], ['/?__an_embed_token=alternate'], ['/%70air'],
+    ['/%6dcp/connect/token'], ['/_agent-native/%61uth/login'], ['/%ZZ'],
+  ];
+  for (const [route, extra, method] of refused) assert.equal((await ingress.remote(request(route, extra, method))).status, 401, route);
+  enabled = false;
+  for (const route of ['/', '/pair']) assert.equal((await ingress.remote(request(route))).status, 401);
+  assert.deepEqual(calls, []);
+});

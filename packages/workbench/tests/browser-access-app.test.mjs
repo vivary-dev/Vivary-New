@@ -108,6 +108,18 @@ test('normal desktop app admits only paired devices and preserves grants across 
     assert.equal(JSON.stringify([...response.headers]).includes(token), false);
   }
   assert.equal((await remote('/_vivary/browser/control', deviceCookie, { method: 'POST', body: JSON.stringify({ operation: 'disable' }) })).status, 401);
+  const beforeEntry = await (await desktop('/_vivary/browser/status')).json();
+  for (const route of ['/', '/pair']) for (const credential of ['', deviceCookie]) {
+    const entry = await remote(route, credential, { headers: { 'sec-fetch-site': 'cross-site',
+      'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', accept: 'text/html' } });
+    assert.equal(entry.status, 200);
+    const html = await entry.text();
+    assert.equal(html.includes(token) || html.includes(capability) || html.includes('Fixture laptop'), false);
+    assert.equal(entry.headers.get('set-cookie'), null);
+  }
+  const afterEntry = await (await desktop('/_vivary/browser/status')).json();
+  assert.deepEqual(afterEntry.devices, beforeEntry.devices);
+  assert.deepEqual(afterEntry.pending, beforeEntry.pending);
   const firstStatus = await (await remote('/_vivary/browser/status', deviceCookie)).json();
   await stop(); await start();
   const restarted = await (await remote('/_vivary/browser/status', deviceCookie)).json();

@@ -143,7 +143,15 @@ remain unchanged. [`browser-ingress.mjs`](../packages/workbench/server/browser-i
 rejects requests before Native dispatch, including alternate authentication inputs,
 encoded auth/control routes and public MCP credential routes. Listener-owned request
 context supplies identity. Remote session responses omit the Native token, and all
-forwarded responses strip Native cookies. Revocation closes device-owned responses
+forwarded responses strip Native cookies. An external top-level HTML navigation to
+exactly `/` or `/pair` receives only generic bootstrap HTML after the host, enabled
+state, path and alternate-credential guards. That request never admits a device or
+creates a challenge. The page checks status once from the app origin, where its
+Strict cookie can resume a saved grant. A 401 offers pairing; connection failure
+offers explicit retry without changing the saved grant. Pairing still ends with an
+explicit same-origin completion after desktop matching-code approval. Cross-site
+API, frame, mutation and other-route requests remain denied.
+Revocation closes device-owned responses
 and future admission before Native session cleanup; it does not roll back accepted
 host actions or stop unrelated runs. Failed persistence closes admission and reports
 failure. Restart after an unsaved revocation can restore the last saved grant, so the
@@ -188,6 +196,15 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 browser entry correction: the outer ingress now serves a generic public
+bootstrap for guarded cross-site top-level HTML entry at `/` and `/pair`. It does
+not dispatch Native or use the supplied cookie. The bootstrap then checks the
+saved grant from the same origin, preserving Strict cookies, and distinguishes
+pairing from a connection failure. Focused denial tests and the existing normal-app
+browser journey cover external-link entry, saved-cookie resume, explicit completion,
+revocation and connection retry. This source correction does not establish the
+headers sent by any particular phone or acceptance of its packaged candidate.
 
 Issue #30 viewport correction: BrowserConnection now allocates space for its
 notice and the workspace within Core's dynamic viewport height. The shell uses
