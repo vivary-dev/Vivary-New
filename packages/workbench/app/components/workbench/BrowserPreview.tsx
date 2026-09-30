@@ -239,7 +239,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {page && <>
         <p className="break-all text-xs">Requested page: {page.url}</p>
-        {!browserHost && hostLocal && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={sameHost} onChange={event => setConfirmedTarget(event.target.checked ? pageKey : null)} className="mt-0.5" /><span>This browser is running on {page.host}. Host-local addresses open on this device. Remote phone routing is not available yet.</span></label>}
+        {!browserHost && hostLocal && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={sameHost} onChange={event => setConfirmedTarget(event.target.checked ? pageKey : null)} className="mt-0.5" /><span>This browser is running on {page.host}. Host-local addresses open on this device.</span></label>}
         <div className="flex flex-wrap gap-2">
           {!browserHost && <Button size="sm" variant="outline" disabled={!canEmbed} onClick={() => setRevision(value => value + 1)}><IconRefresh className="mr-1 size-4" />Refresh page</Button>}
           <Button size="sm" variant="outline" disabled={!chatTarget} onClick={() => {

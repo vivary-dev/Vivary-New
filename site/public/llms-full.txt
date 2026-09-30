@@ -7445,6 +7445,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The local preview confirmation no longer says remote phone routing is unavailable.
+Review of BrowserPreview confirms that this copy correction preserves the local
+host checkbox and embedding conditions. The isolated paired-browser preview
+boundary described below is unchanged.
+
 The runtime CI command now runs its existing test files with explicit concurrency
 of one. This scheduling change preserves every assertion and production timeout.
 The original parallel runs failed process-scan checks, while the same file list
