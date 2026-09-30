@@ -123,7 +123,12 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
     setError("");
     setNotice("");
     try { await work(); }
-    catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : "The preview request failed."); }
+    catch (cause) {
+      if (mounted.current) {
+        setError(cause instanceof Error ? cause.message : "The preview request failed.");
+        setSetupOpen(true);
+      }
+    }
     finally { if (mounted.current) setBusy(false); }
   }
   function chosenUrl() {

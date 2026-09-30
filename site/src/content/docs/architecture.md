@@ -209,7 +209,9 @@ the same mounted panel on desktop and phone. The iframe stays in its DOM positio
 so display changes preserve page state, navigation and live connections. Covered
 workspace controls are inert during full-page display. A compact header preserves
 project identity and Back to workspace. Setup, Stop, Refresh and Close share one
-action row while the remote frame is open. Stop remains directly available, and
+action row while the remote frame is open. A failed preview action reveals setup
+and its error without changing the recorded running state, with Stop available
+for an explicit retry. Stop remains directly available, and
 Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
 required. This source slice does not establish packaged Windows or actual-phone
 acceptance.
@@ -243,6 +245,7 @@ No documentation route reads arbitrary host files.
 Issue #30 preview sizing reuses the shared panel resize and maximize state.
 Parent visual review prompted a compact header and shared action row so phone
 full-page space goes to the iframe while retaining touch targets and direct Stop.
+Action failure reopens setup so a rejected Stop cannot hide its feedback.
 Full-page display changes CSS on the existing panel without moving or replacing
 its iframe. Setup remains available after automatic collapse for local and remote
 pages. Isolation and document identity reload guards are unchanged. Review covers
