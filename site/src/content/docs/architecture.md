@@ -234,6 +234,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+The runtime CI command now runs its existing test files with explicit concurrency
+of one. This scheduling change preserves every assertion and production timeout.
+The original parallel runs failed process-scan checks, while the same file list
+passed serially. That evidence does not establish the precise failure cause.
+Runtime ownership and cleanup contracts remain unchanged. Review covered the
+workflow command and retained failed and serial test results.
+
 Issue #30 isolated preview candidate reuses the project launcher and Native owner
 transport. A new socket check verifies the established peer before HTTP bytes are
 sent. Focused Linux checks reject an unrelated responder and a rebound port while
