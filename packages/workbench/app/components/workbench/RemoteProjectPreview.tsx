@@ -102,8 +102,8 @@ export function RemoteProjectPreview({ projectId, launch, onOpen }: { projectId:
     }
     catch { setError('Preview access could not be closed. Keep this page open and retry after reconnecting.'); setBusy(false); }
   }
-  return <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Remote project preview">
-    <div className="max-h-[50%] shrink-0 space-y-3 overflow-y-auto border-b p-3 text-sm">
+  return <section className="remote-project-preview flex min-h-0 min-w-0 flex-1 flex-col" data-open={!!frame} aria-label="Remote project preview">
+    <div className="preview-remote-controls max-h-[50%] shrink-0 space-y-3 overflow-y-auto border-b p-3 text-sm">
       {!launch && <p>Review and start a preview command above.</p>}
       {!frame && launch && <p>{launch.code === 'ready' ? 'Owned preview command is available. Opening verifies its connection.' : 'The owned preview is not ready.'}</p>}
       {reload ? <div role="status" className="space-y-3">
@@ -111,8 +111,8 @@ export function RemoteProjectPreview({ projectId, launch, onOpen }: { projectId:
         <label className="flex gap-2"><input type="checkbox" checked={saved} onChange={event => setSaved(event.target.checked)} />I have saved or copied my unsaved work.</label>
         <Button disabled={!saved || busy} onClick={() => void refreshDocument()}>Refresh Vivary for this preview</Button>
       </div> : <div className="flex flex-wrap gap-2">
-        <Button disabled={!ready || busy || !launch || launch.code !== 'ready' || launch.staleBinding} onClick={() => void open()}>{frame ? 'Refresh preview' : 'Open isolated preview'}</Button>
-        <Button variant="outline" disabled={!frame || busy} onClick={() => void close().catch(() => setError('Could not close preview access.'))}>Close preview</Button>
+        <Button aria-label={frame ? "Refresh preview" : "Open isolated preview"} disabled={!ready || busy || !launch || launch.code !== 'ready' || launch.staleBinding} onClick={() => void open()}>{frame ? 'Refresh' : 'Open isolated preview'}</Button>
+        <Button aria-label="Close preview" variant="outline" disabled={!frame || busy} onClick={() => void close().catch(() => setError('Could not close preview access.'))}>Close</Button>
       </div>}
       {error && <p role="alert">{error}</p>}
       {!frame && <p className="text-xs text-muted-foreground">Embedded preview access lasts five minutes. Reopen explicitly when it ends. External login, workers and live-reload upgrades are not supported.</p>}

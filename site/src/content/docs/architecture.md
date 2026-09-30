@@ -207,7 +207,9 @@ fills the available height. The shared work panel has a visible drag grip with
 keyboard resizing. Full page and Back to workspace controls expand and restore
 the same mounted panel on desktop and phone. The iframe stays in its DOM position,
 so display changes preserve page state, navigation and live connections. Covered
-workspace controls are inert during full-page display. Server controls stay reachable, and
+workspace controls are inert during full-page display. A compact header preserves
+project identity and Back to workspace. Setup, Stop, Refresh and Close share one
+action row while the remote frame is open. Stop remains directly available, and
 Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
 required. This source slice does not establish packaged Windows or actual-phone
 acceptance.
@@ -239,6 +241,8 @@ No documentation route reads arbitrary host files.
 ## Last change review
 
 Issue #30 preview sizing reuses the shared panel resize and maximize state.
+Parent visual review prompted a compact header and shared action row so phone
+full-page space goes to the iframe while retaining touch targets and direct Stop.
 Full-page display changes CSS on the existing panel without moving or replacing
 its iframe. Setup remains available after automatic collapse for local and remote
 pages. Isolation and document identity reload guards are unchanged. Review covers
