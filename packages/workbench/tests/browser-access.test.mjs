@@ -145,8 +145,8 @@ test('external top-level entry serves only public bootstrap before any device ac
   const request = (route, extra = {}, method = 'GET') => new Request('https://fixture.vivary.test' + route,
     { method, headers: { ...headers, ...extra } });
   let bootstrap;
-  for (const route of ['/', '/pair']) for (const cookie of ['', '__Host-vivary-device=' + 'a'.repeat(43)]) {
-    const response = await ingress.remote(request(route, { cookie }));
+  for (const site of ['cross-site', 'same-site']) for (const route of ['/', '/pair', '/?project=fixture&unknown=value', '/pair?path=ignored']) for (const cookie of ['', '__Host-vivary-device=' + 'a'.repeat(43)]) {
+    const response = await ingress.remote(request(route, { cookie, 'sec-fetch-site': site }));
     assert.equal(response.status, 200, route);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(response.headers.get('x-frame-options'), 'DENY');
@@ -166,10 +166,44 @@ test('external top-level entry serves only public bootstrap before any device ac
     ['/', { host: 'localhost' }], ['/', { authorization: 'Bearer alternate' }],
     ['/', { 'x-vivary-session': 'alternate' }], ['/', { 'x-vivary-desktop': 'alternate' }],
     ['/?_session=alternate'], ['/?__an_embed_token=alternate'], ['/%70air'],
+    ['/?%5Fsession=alternate'], ['/pair?%5F%5Fan_embed_token=alternate'],
+    ['/?project=ok&_session=&_session=alternate'], ['/pair?__an_embed_token=&__an_embed_token=alternate'],
+    ['/?%5Fsession=&_session=alternate'], ['/pair?%5F%5Fan_embed_token=&__an_embed_token=alternate'],
     ['/%6dcp/connect/token'], ['/_agent-native/%61uth/login'], ['/%ZZ'],
   ];
-  for (const [route, extra, method] of refused) assert.equal((await ingress.remote(request(route, extra, method))).status, 401, route);
+  for (const site of ['cross-site', 'same-site']) for (const [route, extra, method] of refused) assert.equal((await ingress.remote(request(route, { ...extra, 'sec-fetch-site': site }, method))).status, 401, route);
   enabled = false;
   for (const route of ['/', '/pair']) assert.equal((await ingress.remote(request(route))).status, 401);
   assert.deepEqual(calls, []);
+});
+
+
+test('bootstrap preserves only inert root navigation values when resuming or completing pairing', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const { browserPairingPage } = await import('../server/browser-pairing-page.mjs');
+  const html = await browserPairingPage().text();
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const navigation = { project: 'fixture', run: 'run', draft: 'draft', runtime: 'native', history: 'project',
+    thread: 'thread', panel: 'files', path: '</script><script>globalThis.attacked=true</script>&redirect=https://outside.test/', line: '3' };
+  const search = new URLSearchParams({ ...navigation, _agentNativeDesktopCode: 'internal', prompt: 'do not submit',
+    redirect: 'https://outside.test/', next: '//outside.test/' });
+  search.append('path', 'javascript:globalThis.attacked=true');
+  for (const pathname of ['/', '/pair']) for (const paired of [true, false]) {
+    const elements = new Map(); const destinations = []; const calls = [];
+    const context = { URLSearchParams, AbortSignal, location: { pathname, search: '?' + search, replace: value => destinations.push(value) },
+      document: { getElementById: id => { if (!elements.has(id)) elements.set(id, {}); return elements.get(id); } },
+      fetch: async (url, options) => { calls.push([url, options.method ?? 'GET']);
+        return url.endsWith('/status') ? { ok: paired, status: paired ? 200 : 401 } : { ok: true, json: async () => ({}) }; } };
+    runInNewContext(script, context);
+    await new Promise(resolve => setImmediate(resolve));
+    if (!paired) { assert.deepEqual(destinations, []); await elements.get('complete').onclick(); }
+    assert.equal(destinations.length, 1);
+    assert.ok(destinations[0].startsWith('/'));
+    const destination = new URL(destinations[0], 'https://fixture.vivary.test');
+    assert.equal(destination.origin, 'https://fixture.vivary.test'); assert.equal(destination.pathname, '/');
+    const expected = pathname === '/' ? [...new URLSearchParams(navigation), ['path', 'javascript:globalThis.attacked=true']] : [];
+    assert.deepEqual([...destination.searchParams], expected);
+    assert.equal(context.attacked, undefined);
+    assert.deepEqual(calls, paired ? [['/_vivary/browser/status', 'GET']] : [['/_vivary/browser/status', 'GET'], ['/_vivary/browser/complete', 'POST']]);
+  }
 });

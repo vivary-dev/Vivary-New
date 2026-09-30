@@ -105,7 +105,7 @@ export function createBrowserIngress({ dispatch, access, capability, localOrigin
     if (/^\/_agent-native\/(embed|desktop|connect|oauth|mcp)(\/|$)/.test(routePath) || /^\/mcp(?:\/|$)/.test(routePath)
       || routePath === '/_agent-native/actions/vivary-connect-project-folder') return denied();
     // External entry is public HTML only. Strict cookies are checked after same-origin navigation.
-    if (site === 'cross-site' && request.method === 'GET' && !url.search
+    if (['cross-site', 'same-site'].includes(site) && request.method === 'GET'
       && ['/', '/pair'].includes(url.pathname) && request.headers.get('sec-fetch-mode') === 'navigate'
       && request.headers.get('sec-fetch-dest') === 'document'
       && request.headers.get('accept')?.split(',').some(value => value.trim().split(';')[0] === 'text/html')) return browserPairingPage();

@@ -6,11 +6,22 @@ export function browserPairingPage() {
 <output id="code" aria-label="Pairing code"></output><p id="status" role="status">Checking your browser connection…</p><button id="retry" hidden>Retry connection</button><button id="complete" hidden>Finish pairing and open Vivary</button>
 <script>
 const status=document.getElementById('status'), complete=document.getElementById('complete'), form=document.getElementById('pair'), retry=document.getElementById('retry');
+function rootDestination(){
+  const navigation=new URLSearchParams();
+  if(location.pathname==='/'){
+    const keys=['project','run','draft','runtime','history','thread','panel','path','line'];
+    for(const [key,value] of new URLSearchParams(location.search)){
+      if(keys.includes(key))navigation.append(key,value);
+    }
+  }
+  const query=navigation.toString();
+  return query?'/?'+query:'/';
+}
 async function checkConnection(){
   retry.hidden=true;form.hidden=true;status.textContent='Checking your browser connection…';
   try{
     const response=await fetch('/_vivary/browser/status',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000)});
-    if(response.ok){location.replace('/');}
+    if(response.ok){location.replace(rootDestination());}
     else if(response.status===401){
       form.hidden=false;
       status.textContent='To pair, request a code and approve the matching code in the desktop app on your laptop. Then finish pairing here.';
@@ -24,7 +35,7 @@ retry.onclick=()=>void checkConnection();
 void checkConnection();
 async function post(path,body){const response=await fetch('/_vivary/browser/'+path,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not connect.');return result;}
 form.onsubmit=async event=>{event.preventDefault();form.querySelector('button').disabled=true;try{const result=await post('pair',{label:document.getElementById('label').value});document.getElementById('code').textContent=result.code;status.textContent='On '+result.label+', open Settings > Browser access and approve this matching code. It expires in five minutes. After approval on your laptop, select Finish pairing and open Vivary here.';complete.hidden=false;}catch(error){status.textContent=error.message;}finally{form.querySelector('button').disabled=false;}};
-complete.onclick=async()=>{complete.disabled=true;try{const result=await post('complete',{});if(result.pending){status.textContent='Still waiting for approval on the desktop.';}else{location.replace('/');}}catch(error){status.textContent=error.message;complete.hidden=true;}finally{complete.disabled=false;}};
+complete.onclick=async()=>{complete.disabled=true;try{const result=await post('complete',{});if(result.pending){status.textContent='Still waiting for approval on the desktop.';}else{location.replace(rootDestination());}}catch(error){status.textContent=error.message;complete.hidden=true;}finally{complete.disabled=false;}};
 </script></main></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
     'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
     'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer' } });

@@ -7358,12 +7358,17 @@ remain unchanged. [`browser-ingress.mjs`](https://github.com/vivary-dev/Vivary-N
 rejects requests before Native dispatch, including alternate authentication inputs,
 encoded auth/control routes and public MCP credential routes. Listener-owned request
 context supplies identity. Remote session responses omit the Native token, and all
-forwarded responses strip Native cookies. An external top-level HTML navigation to
-exactly `/` or `/pair` receives only generic bootstrap HTML after the host, enabled
+forwarded responses strip Native cookies. A cross-site or same-site top-level HTML navigation to
+exactly `/` or `/pair`, including queries, receives only generic bootstrap HTML after the host, enabled
 state, path and alternate-credential guards. That request never admits a device or
 creates a challenge. The page checks status once from the app origin, where its
-Strict cookie can resume a saved grant. A 401 offers pairing; connection failure
-offers explicit retry without changing the saved grant. Pairing still ends with an
+Strict cookie can resume a saved grant. A 401 offers pairing. Connection failure
+offers explicit retry without changing the saved grant. On return to a relative
+root URL, the client preserves only `project`, `run`, `draft`, `runtime`, `history`,
+`thread`, `panel`, `path` and `line` through URLSearchParams. Other keys, including
+Native desktop codes, are dropped. Pair-page queries are dropped entirely. Raw
+queries are never reflected in server HTML or interpreted as redirect targets.
+Pairing still ends with an
 explicit same-origin completion after desktop matching-code approval. Cross-site
 API, frame, mutation and other-route requests remain denied.
 Revocation closes device-owned responses
@@ -7413,7 +7418,9 @@ No documentation route reads arbitrary host files.
 ## Last change review
 
 Issue #30 browser entry correction: the outer ingress now serves a generic public
-bootstrap for guarded cross-site top-level HTML entry at `/` and `/pair`. It does
+bootstrap for guarded cross-site and same-site top-level HTML entry at `/` and
+`/pair`, including query strings. The client preserves only the named root
+navigation keys as inert URLSearchParams values and drops pair-page queries. It does
 not dispatch Native or use the supplied cookie. The bootstrap then checks the
 saved grant from the same origin, preserving Strict cookies, and distinguishes
 pairing from a connection failure. Focused denial tests and the existing normal-app
