@@ -1,5 +1,6 @@
 """Adversarial tests for planning drift and false execution readiness."""
 import importlib.util
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -98,6 +99,14 @@ class PlanCheckTests(unittest.TestCase):
 
     def assert_error(self, text):
         self.assertTrue(any(text in error for error in module.check(self.root)), module.check(self.root))
+
+    def reviewed_diagrams(self, assets):
+        return mock.patch.multiple(
+            module,
+            REVIEWED_DIAGRAM_SOURCE='system.tldraw',
+            REVIEWED_DIAGRAM_SHA256={path.name: hashlib.sha256(data).hexdigest()
+                                     for path, data in assets.items()},
+        )
 
     def test_consistent_graph_passes(self):
         self.assertEqual(module.check(self.root), [])
@@ -367,7 +376,7 @@ class PlanCheckTests(unittest.TestCase):
                 finally:
                     artifact.unlink()
 
-    def test_recognized_binary_diagrams_pass_check_and_render(self):
+    def test_reviewed_binary_diagram_pair_passes_check_and_render(self):
         diagrams = self.plan / 'diagrams'
         diagrams.mkdir()
         assets = {
@@ -384,10 +393,48 @@ class PlanCheckTests(unittest.TestCase):
             path.write_bytes(data)
         (diagrams / 'README.md').write_text(
             '# Diagrams\n\n![System](system.jpg)\n[Edit](system.tldraw)\n', encoding='utf-8')
-        for render in (False, True):
-            with self.subTest(render=render):
-                self.assertEqual(module.check(self.root, render=render), [])
-                self.assertEqual({path: path.read_bytes() for path in assets}, assets)
+        with self.reviewed_diagrams(assets):
+            for render in (False, True):
+                with self.subTest(render=render):
+                    self.assertEqual(module.check(self.root, render=render), [])
+                    self.assertEqual({path: path.read_bytes() for path in assets}, assets)
+
+    def test_diagram_exemptions_require_exact_reviewed_source_and_export(self):
+        diagrams = self.plan / 'diagrams'
+        diagrams.mkdir()
+        image = diagrams / 'system.jpg'
+        source = diagrams / 'system.tldraw'
+        assets = {
+            image: b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\xff\xd9',
+            source: diagram_archive_bytes({'db.sqlite': diagram_sqlite_bytes()}),
+        }
+        for changed, replacement, expected in (
+            (image, assets[image] + b'changed image', 'system.jpg: diagram is not the reviewed asset'),
+            (source, diagram_archive_bytes({'db.sqlite': diagram_sqlite_bytes(b'{"name":"Changed"}')}),
+             'JPEG requires the exact reviewed diagram source'),
+            (source, None, 'JPEG requires the exact reviewed diagram source'),
+            (diagrams / 'unknown.jpg', assets[image], 'unknown.jpg: diagram is not the reviewed asset'),
+            (diagrams / 'unknown.tldraw', assets[source], 'unknown.tldraw: diagram is not the reviewed asset'),
+        ):
+            with self.subTest(changed=changed.name, missing=replacement is None):
+                for path, data in assets.items():
+                    path.write_bytes(data)
+                if replacement is None:
+                    changed.unlink()
+                else:
+                    changed.write_bytes(replacement)
+                try:
+                    with self.reviewed_diagrams(assets), \
+                            mock.patch.object(Path, 'write_text', side_effect=AssertionError('must not render')):
+                        for render in (False, True):
+                            errors = module.check(self.root, render=render)
+                            self.assertTrue(any(expected in error for error in errors), errors)
+                            if changed == source and replacement is not None:
+                                self.assertTrue(any('system.tldraw: diagram is not the reviewed asset' in error
+                                                    for error in errors), errors)
+                finally:
+                    if changed not in assets:
+                        changed.unlink()
 
     def test_binary_diagram_exception_is_scoped_to_directory_and_format(self):
         cases = (
@@ -450,8 +497,10 @@ class PlanCheckTests(unittest.TestCase):
             ('/home/example/private.txt', ['possible private path or credential']),
         ):
             with self.subTest(name=name):
-                artifact.write_bytes(diagram_archive_bytes({name: b'ordinary'}))
-                with mock.patch.object(zipfile.ZipFile, 'extract', side_effect=AssertionError('must not extract')), \
+                data = diagram_archive_bytes({name: b'ordinary'})
+                artifact.write_bytes(data)
+                with self.reviewed_diagrams({artifact: data}), \
+                        mock.patch.object(zipfile.ZipFile, 'extract', side_effect=AssertionError('must not extract')), \
                         mock.patch.object(zipfile.ZipFile, 'extractall', side_effect=AssertionError('must not extract')):
                     errors = module.check(self.root)
                 if expected:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -19,6 +20,19 @@ REQUIRED_PACKET_HEADINGS = ("Goal", "Context", "Owned files", "Done condition", 
 EXPECTED_SCOPES = {"S-00A"} | {f"S-{n:02}" for n in range(14)}
 PRIVATE_VALUE = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/]|/home/[^/\s]+/|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
 DIAGRAM_BINARY_SIGNATURES = {".jpg": b"\xff\xd8\xff", ".tldraw": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")}
+# This narrowly scoped exception covers one visually reviewed source/export set.
+# Byte scans cannot read private text drawn into images. Any changed or new asset
+# needs visual review and a reviewed checker diff updating these exact pins.
+REVIEWED_DIAGRAM_SOURCE = "vivary-architecture-and-ux.tldraw"
+REVIEWED_DIAGRAM_SHA256 = {
+    "vivary-architecture-and-ux.tldraw": "4a55161fe03cfb359aa519da2cb4d1ac71f92bdc767bab5711ba15a70dbcd646",
+    "01-system-architecture.jpg": "588641f9916da336caa2ea3b92d7ebd5c22845f22585591f2fb200732f6223e2",
+    "02-engine-ownership.jpg": "65250b3bf9668b580993e5b0dd05af36e1c51aad6363b069881bead7eec119d0",
+    "03-start-a-project.jpg": "a2720ebe29d0f4380552e8d04a570b684895c700e28164702a8acc9827b2ed50",
+    "04-work-and-recover.jpg": "1d8b9184e9525d1d41274c6e585709c680f0cbf40f2e93e47b22ef2172631afb",
+    "05-files-and-memory.jpg": "6e323fefa2534e503504f984b667ba4032f6202885d2d552f120a59943559021",
+    "06-automation-lifecycle.jpg": "45129a1054d50c423ba605552ddca363fabf0e874ad7a4b71c97e79409171794",
+}
 # Generous headroom for the current SQLite, JSON, and PNG export, without letting
 # an untrusted ZIP expand indefinitely during the public-source privacy check.
 MAX_DIAGRAM_ARCHIVE_BYTES = 16 * 1024 * 1024
@@ -439,6 +453,7 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
     """Read the preflighted plan once before parsing any structural documents."""
     texts = {}
     errors = []
+    diagram_hashes = {}
     def load_text(path):
         try:
             signature = DIAGRAM_BINARY_SIGNATURES.get(path.suffix.lower()) if path.parent == plan / "diagrams" else None
@@ -458,6 +473,8 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
                 # every other planning artifact must be valid UTF-8.
                 recognized = data.startswith(signature)
                 texts[path] = data.decode("utf-8", errors="replace" if recognized else "strict")
+                diagram_hashes[path.name] = hashlib.sha256(data).hexdigest()
+                errors.extend(f"{path.relative_to(root)}: {error}" for error in privacy_errors(texts[path]))
                 if is_archive and recognized:
                     errors.extend(f"{path.relative_to(root)}: {error}" for error in diagram_archive_errors(data))
         except UnicodeDecodeError:
@@ -468,6 +485,13 @@ def read_plan_texts(plan: Path, root: Path, *, skip: tuple[Path, ...] = ()) -> t
 
     for path in sorted(path for path in plan.rglob("*") if path.is_file() and path not in skip):
         load_text(path)
+    for name, digest in diagram_hashes.items():
+        relative = (plan / "diagrams" / name).relative_to(root)
+        if digest != REVIEWED_DIAGRAM_SHA256.get(name):
+            errors.append(f"{relative}: diagram is not the reviewed asset; visual review and SHA-256 pin update required")
+        if name.lower().endswith(".jpg") and (
+                diagram_hashes.get(REVIEWED_DIAGRAM_SOURCE) != REVIEWED_DIAGRAM_SHA256[REVIEWED_DIAGRAM_SOURCE]):
+            errors.append(f"{relative}: JPEG requires the exact reviewed diagram source {REVIEWED_DIAGRAM_SOURCE}")
     if errors:
         return texts, errors
     for path, body in list(texts.items()):

@@ -5,12 +5,15 @@ The [canonical architecture](../../../ARCHITECTURE.md) and its linked contracts 
 These diagrams distinguish the documented design from unfinished capabilities. They do not establish release acceptance.
 
 Download [the editable tldraw document](vivary-architecture-and-ux.tldraw) and open it in tldraw Desktop.
-Its page menu contains the six diagrams below. All 113 arrows remain bound at both ends.
+Its page menu contains the six diagrams below. All 116 arrows remain bound at both ends.
 The original six pages passed tldraw layout and connector lint checks on 2026-09-28.
 On 2026-09-29, pages 03, 04, and 06 were corrected and re-rendered from the document's shape and binding records.
-Pages 04 and 06 received the additional reviewed flow corrections on 2026-09-30.
+Pages 03, 04, and 06 received the additional reviewed flow corrections on 2026-09-30.
 The edited records passed tldraw schema migration/validation and connector/flow checks;
-the three updated images were visually checked. Desktop layout lint was not rerun.
+all six images were visually checked for private values and consistency with the source.
+The planning checker pins the exact reviewed source and export hashes. Any asset change
+requires visual/source review and an intentional pin update; unknown or mismatched exports fail.
+Desktop layout lint was not rerun.
 
 Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../unified-workspace.md),
 [desktop release](../desktop-release.md), [automation lifecycle](../receipts/51-automation-lifecycle.md),
@@ -32,6 +35,8 @@ Sources: [architecture](../../../ARCHITECTURE.md), [workspace interactions](../u
 - Delete removes the automation definition and run rows and ends that lifecycle, while internal job thread rows remain
 
 - Run inspection uses automation history; retained job thread rows are not openable from Settings or chat history
+- Missing-folder recovery keeps history readable only under a valid grant; denied/revoked access protects transcript and file content
+- Rejected webhook tokens and duplicate event IDs end without queueing a run
 - Question/form requests collect the required answers and Continue separately from permission approval
 - Event triggers enter condition/configuration checks and retain their snapshot acceptance limitation
 - Pause holds the stored definition outside automatic dispatch; Resume re-enables it
