@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -205,5 +205,85 @@ test('bootstrap preserves only inert root navigation values when resuming or com
     assert.deepEqual([...destination.searchParams], expected);
     assert.equal(context.attacked, undefined);
     assert.deepEqual(calls, paired ? [['/_vivary/browser/status', 'GET']] : [['/_vivary/browser/status', 'GET'], ['/_vivary/browser/complete', 'POST']]);
+  }
+});
+
+test('connection gate distinguishes access denial and network failure without remounting drafts', async () => {
+  const { createRequire } = await import('node:module');
+  const { build, stop } = await import('esbuild');
+  const { realpathSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const workbench = fileURLToPath(new URL('..', import.meta.url));
+  const { parseHTML } = createRequire(realpathSync(path.join(workbench, 'node_modules/@agent-native/core/package.json')))('linkedom');
+  const { window } = parseHTML('<html><body></body></html>');
+  window.location = new URL('https://fixture.test/');
+  const bundleDirectory = await mkdtemp(path.join(tmpdir(), 'vivary-connection-component-'));
+  const saved = new Map();
+  const channels = [];
+  class TrackedMessageChannel extends MessageChannel {
+    constructor() { super(); channels.push(this); }
+  }
+  let poll;
+  for (const [key, value] of Object.entries({ window, document: window.document, navigator: window.navigator,
+    HTMLElement: window.HTMLElement, MessageChannel: TrackedMessageChannel, IS_REACT_ACT_ENVIRONMENT: true,
+    sessionStorage: { getItem: () => null, setItem() {} },
+    setInterval: fn => { poll = fn; return 1; }, clearInterval() {} })) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  const oldFetch = globalThis.fetch;
+  try {
+    const result = await build({ stdin: { contents: `
+      import { act, useEffect, useState } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { BrowserConnection } from './app/components/layout/BrowserConnection';
+      export async function run(assert, tick) {
+        const host={enabled:true,remote:true,instanceId:'11111111-1111-4111-8111-111111111111',label:'Fixture',origin:'https://fixture.test',port:42300};
+        let reply=()=>new Response(null,{status:401}), calls=0, mounts=0;
+        globalThis.fetch=async()=>{calls++;return reply();};
+        let setDenied;
+        function Gate(){const [denied,update]=useState(false);setDenied=update;return <><p>{denied?'Temporary server failure':''}</p><Draft/></>;}
+        function Draft(){useEffect(()=>{mounts++;},[]);return <textarea defaultValue="unsent draft"/>;}
+        let root;
+        async function mount(){document.body.innerHTML='<div id="root"></div>';root=createRoot(document.getElementById('root'));await act(async()=>root.render(<BrowserConnection><Gate/></BrowserConnection>));}
+        async function click(label){const button=[...document.querySelectorAll('button')].find(node=>node.textContent===label);assert.ok(button,label);await act(async()=>button.click());}
+        const text=()=>document.body.textContent;
+        await mount();
+        assert.match(text(),/Browser access ended/);assert.equal(mounts,0);
+        assert.equal(document.querySelector('a').getAttribute('href'),'/pair');
+        await act(async()=>tick());assert.equal(calls,1);
+        reply=()=>Response.json(host);await click('Check access again');
+        const draft=document.querySelector('textarea');draft.value='dirty draft';assert.equal(mounts,1);
+        reply=()=>{throw new Error('offline');};await act(async()=>tick());
+        assert.match(text(),/Cannot reach Fixture/);assert.equal(document.querySelector('a'),null);
+        reply=()=>Response.json(host);await click('Retry connection');
+        assert.equal(document.querySelector('textarea'),draft);assert.equal(draft.value,'dirty draft');
+        reply=()=>new Response(null,{status:401});await act(async()=>{const response=await fetch('/session');setDenied(response.status===401);tick();});
+        assert.match(text(),/Browser access ended/);assert.doesNotMatch(text(),/revoked/i);
+        assert.equal(document.querySelector('textarea'),draft);assert.equal(draft.value,'dirty draft');assert.equal(mounts,1);
+        const notice=[...document.querySelectorAll('p')].find(node=>node.textContent==='Temporary server failure');
+        assert.ok(notice);assert.ok(notice.closest('[hidden]'));
+        assert.equal(document.querySelector('a').closest('[hidden]'),null);
+        reply=()=>Response.json(host);await act(async()=>setDenied(false));await click('Check access again');
+        assert.equal(draft.closest('[hidden]'),null);assert.equal(document.querySelector('textarea'),draft);assert.equal(draft.value,'dirty draft');assert.equal(mounts,1);
+        await act(async()=>root.unmount());
+        reply=()=>{throw new Error('offline');};await mount();
+        assert.match(text(),/Cannot reach/);assert.equal(document.querySelector('textarea'),null);assert.equal(document.querySelector('a'),null);
+        await act(async()=>root.unmount());
+        reply=()=>Response.json({...host,remote:false,origin:null});await mount();
+        assert.ok(document.querySelector('textarea'));assert.doesNotMatch(text(),/access ended|Cannot reach/);
+        await act(async()=>root.unmount());
+      }`, resolveDir: workbench, loader: 'tsx' }, bundle: true, write: false,
+      platform: 'node', format: 'esm', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
+    const bundlePath = path.join(bundleDirectory, 'proof.mjs');
+    await writeFile(bundlePath, result.outputFiles[0].text);
+    const proof = await import(bundlePath);
+    await proof.run(assert, () => poll());
+  } finally {
+    for (const channel of channels) { channel.port1.close(); channel.port2.close(); }
+    await rm(bundleDirectory, { recursive: true, force: true });
+    globalThis.fetch = oldFetch;
+    for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
+    stop();
   }
 });

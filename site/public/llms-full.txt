@@ -7383,7 +7383,12 @@ origin, with a one-use initial navigation exception. Preview subframes receive n
 Settings requests changes, but native desktop confirmation over correlated IPC owns
 enablement, pairing approval, revocation and disablement. Remote browsers cannot use
 those controls or the desktop folder chooser. Connection UI names the host, detects
-unavailability and offers explicit retry without sending a message. The connection
+unavailability and offers explicit retry without sending a message. A status 401
+means access ended, including when a restored shell has no cached host metadata.
+That initial denied state does not mount Native session providers. Pairing and
+checking access again are explicit choices. Network failures have separate retry
+wording. An already mounted workspace is hidden during denial so Native fallback notices cannot compete with access recovery. It stays mounted through denial or connection
+failure so unsent drafts survive. The connection
 wrapper owns the dynamic viewport height; its wrapping notice and workspace share
 that height, with the existing shell filling the remaining space. Conversation recovery notices, runtime selectors and the setup
 card share the existing scrollable composer slot when space is short, preserving
@@ -7416,6 +7421,15 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #30 denial wording correction: BrowserConnection owns a denied state without
+host metadata and checks HTTP 401 before the standalone-local fallback. It avoids
+Native's generic temporary-server message on a restored denied shell, retains an
+already mounted workspace behind a hidden wrapper during denial, and separates access checks from connection retries.
+Component tests exercise initial denial, desktop-local status and dirty drafts.
+The existing HTTPS fixture covers a loaded and restored shell after revocation
+against a healthy backend, plus distinct network failure. The component test proves
+dirty draft identity across denial, connection failure and explicit recovery.
 
 Issue #30 browser entry correction: the outer ingress now serves a generic public
 bootstrap for guarded cross-site and same-site top-level HTML entry at `/` and
