@@ -172,15 +172,13 @@ export function resolveVivaryLocalAccessConfig(
   };
 }
 
-// Native's MCP endpoint skips the session guard and, with no ACCESS_TOKEN or
-// A2A_SECRET, trusts a loopback caller that names an owner email. Local owner
-// launches set neither, so only hosted mode serves that endpoint. The MCP
-// connect and OAuth routes follow it, because the tokens they mint also open
-// Native's action routes.
-export function vivaryNativeMcpOptions(config: VivaryLocalAccessConfig | null) {
-  const hosted = config === null;
-  return { agentChat: { enabled: hosted }, coreRoutes: { connect: hosted } };
-}
+// No Vivary launch serves Native's MCP endpoint. Agents work through the coding
+// runtimes instead. The MCP connect and OAuth routes turn off with it, because
+// the tokens they mint also open Native's action routes.
+export const VIVARY_NATIVE_MCP_OPTIONS = {
+  agentChat: { enabled: false },
+  coreRoutes: { connect: false },
+} as const;
 
 // How a request proves it comes from the owner before Vivary creates a new
 // owner session. Existing owner sessions need no proof.

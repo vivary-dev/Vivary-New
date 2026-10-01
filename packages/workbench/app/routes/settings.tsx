@@ -84,7 +84,7 @@ export default function SettingsRoute() {
   const browserTab = { id: "browser-access", label: "Browser access", icon: IconTerminal2, group: "agent", content: <BrowserAccessSettings /> };
   const tabs = nativeTabs
     .filter((tab) => tab.id !== "organization" && tab.id !== "workspace")
-    .map((tab) => (tab.id === "mcp" ? { ...tab, content: <McpSettings nativeContent={tab.content} /> } : tab))
+    .map((tab) => (tab.id === "mcp" ? { ...tab, content: <McpSettings /> } : tab))
     .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, browserTab, automationFilesTab, tab] : [tab]));
   useSetPageTitle("Settings");
 

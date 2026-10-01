@@ -17,7 +17,7 @@ import {
   localAccessRequestRejection,
   readVivarySessionTokens,
   resolveVivaryLocalAccessConfig,
-  vivaryNativeMcpOptions,
+  VIVARY_NATIVE_MCP_OPTIONS,
   type VivaryLocalAccessConfig,
   type VivaryLocalAccessRequest,
   type VivaryLocalAccessSessionDependencies,
@@ -280,25 +280,25 @@ describe("Vivary local access configuration", () => {
     }
   });
 
-  it("serves Native's MCP endpoint and its connect and OAuth routes only in hosted mode", async () => {
+  it("serves Native's MCP endpoint and its connect and OAuth routes in no launch mode", async () => {
     const nativeServer = import.meta.resolve("@agent-native/core/server");
     const { resolveAgentChatMcpOptions } = await import(new URL("./agent-chat/mcp-options.js", nativeServer).href);
     const { resolveCoreRoutesMcpOptions } = await import(
       new URL("./core-routes/mcp-connect-options.js", nativeServer).href);
-    for (const [mode, environment, served] of [
+    for (const [mode, environment, hosted] of [
       ["desktop", localEnvironment({ VIVARY_DESKTOP_HOST: "1" }), false],
       ["local", localEnvironment(), false],
       ["private-proxy", privateProxyEnvironment(), false],
       ["hosted", { NODE_ENV: "production", VIVARY_ACCESS_MODE: "hosted" }, true],
       ["unset", { NODE_ENV: "production" }, true],
     ] as const) {
-      const mcp = vivaryNativeMcpOptions(resolveVivaryLocalAccessConfig(environment));
-      assert.equal(resolveAgentChatMcpOptions({ mcp: mcp.agentChat }).enabled, served, mode);
-      assert.equal(resolveCoreRoutesMcpOptions({ mcp: mcp.coreRoutes }).connect, served, mode);
+      assert.equal(resolveVivaryLocalAccessConfig(environment) === null, hosted, mode);
+      assert.equal(resolveAgentChatMcpOptions({ mcp: VIVARY_NATIVE_MCP_OPTIONS.agentChat }).enabled, false, mode);
+      assert.equal(resolveCoreRoutesMcpOptions({ mcp: VIVARY_NATIVE_MCP_OPTIONS.coreRoutes }).connect, false, mode);
     }
 
     const chatPlugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
-    assert.match(chatPlugin, /\bmcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.agentChat\b/);
+    assert.match(chatPlugin, /\bmcp:\s*VIVARY_NATIVE_MCP_OPTIONS\.agentChat\b/);
     const nativeChat = await readFile(new URL("./agent-chat-plugin.js", nativeServer), "utf8");
     // Native imports mountMCP inside the gate, so no call outside it can mount the endpoint.
     const endpointGate = /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*const\s*\{\s*mountMCP\s*\}\s*=\s*await\s+import\([^)]*\);\s*mountMCP\(\s*nitroApp\b/;
@@ -312,7 +312,7 @@ describe("Vivary local access configuration", () => {
     // Native skips its default core routes when an app plugin has the same file stem. A packaged
     // build has no plugins folder on disk, so there the plugin must mark the slot before its first await.
     const routesPlugin = await readFile(new URL("../server/plugins/core-routes.ts", import.meta.url), "utf8");
-    assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*mcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.coreRoutes,?\s*\}\)/);
+    assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*mcp:\s*VIVARY_NATIVE_MCP_OPTIONS\.coreRoutes,?\s*\}\)/);
     const nativeRoutes = await readFile(new URL("./core-routes-plugin.js", nativeServer), "utf8");
     assert.match(nativeRoutes, /export\s+const\s+defaultCoreRoutesPlugin\s*=\s*createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",?\s*\}\)/);
     const pluginBody = nativeRoutes.slice(nativeRoutes.search(/export\s+function\s+createCoreRoutesPlugin\s*\(/));
