@@ -73,6 +73,7 @@ test("the creator child receives no server credential", async () => {
     BETTER_AUTH_SECRET: randomBytes(24).toString("hex"),
     OPENROUTER_API_KEY: randomBytes(24).toString("hex"),
   };
+  // guard:allow-env-credential - Saves two random test values seeded below, restored in `finally`.
   const previous = Object.fromEntries(Object.keys(seeded).map(name => [name, process.env[name]]));
   Object.assign(process.env, seeded);
   try {
@@ -83,7 +84,9 @@ test("the creator child receives no server credential", async () => {
     assert.ok(names.includes("PATH"), "an ordinary variable still reaches the creator");
   } finally {
     for (const [name, value] of Object.entries(previous)) {
+      // guard:allow-env-credential - Removes a random test value seeded above.
       if (value === undefined) delete process.env[name];
+      // guard:allow-env-credential - Restores the value saved above.
       else process.env[name] = value;
     }
     await rm(dataDir, { recursive: true, force: true });
