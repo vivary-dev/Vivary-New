@@ -84,7 +84,8 @@ const engine = mode => ({
 });
 const deps = (mode, extra = {}) => ({ appId, engine: engine(mode), model: "fake-model", getActions: () => ({}),
   getSystemPrompt: async () => "", ...extra });
-// Event runs need a key for the condition check, even without a condition. A synthetic value, never sent anywhere.
+// An event condition needs an Anthropic key, and the dispatcher falls back to `deps.apiKey` when none is stored. A
+// synthetic value, never sent anywhere.
 const triggerDeps = mode => deps(mode, { apiKey: "synthetic-condition-key" });
 const registerWebhookRunner = () => setInProcessIntegrationTaskRunner(runAutomationWebhookTaskInProcess,
   { platforms: ["automation-webhook"], appId, acceptsTask: webhookTaskBelongsToApp });

@@ -240,3 +240,15 @@ test("two refused conditions on automation.run.finished do not retrigger each ot
   }));
   assert.equal(engineCalls.length, 0, "no run started");
 });
+
+test("a rejected condition key on automation.run.finished does not retrigger itself", async () => {
+  await withKeys({ ANTHROPIC_API_KEY: fakeKey("sk-ant-") }, () => withRunFinishedAutomations(["after-run-rejected"],
+    () => withAnthropicStub(undefined, async sentKeys => {
+      emitExternalRunFinished();
+      assert.deepEqual(await settledHistoryCounts(["after-run-rejected"]), [1], "one external event gives one refusal row");
+      assert.equal(sentKeys.length, 1, "one condition check reached Anthropic");
+      const [run] = await runsOf("after-run-rejected");
+      assert.equal(run?.errorCode, "automation_condition_key_rejected");
+    })));
+  assert.equal(engineCalls.length, 0, "no run started");
+});
