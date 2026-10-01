@@ -1,11 +1,9 @@
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
-import { VIVARY_OWNER_SESSION_STORAGE_KEY } from "../shared/owner-session.ts";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { runInNewContext } from "node:vm";
 
 import { H3Event } from "h3";
 import { COOKIE_NAME } from "@agent-native/core/server";
@@ -14,6 +12,7 @@ import { admitBrowserContext } from "../server/browser-request-context.mjs";
 import {
   createVivaryLocalAuthOptions,
   createVivaryLocalSessionResolver,
+  createVivaryOwnerProof,
   localAccessRequestRejection,
   readVivarySessionTokens,
   resolveVivaryLocalAccessConfig,
@@ -21,6 +20,7 @@ import {
   type VivaryLocalAccessConfig,
   type VivaryLocalAccessRequest,
   type VivaryLocalAccessSessionDependencies,
+  type VivaryOwnerProof,
 } from "../server/local-access.ts";
 import {
   createVivaryOwnerSignIn,
@@ -120,7 +120,8 @@ function sessionFixture(initialSessions: ReadonlyArray<readonly [string, string]
   return { cookies, dependencies, persisted, sessions };
 }
 
-function ownerSignInFixture(origin = ORIGIN) {
+// A real one-time sign-in store that keeps its saved addresses in memory.
+function signInProof(origin = ORIGIN) {
   const saved: string[] = [];
   const signIn = createVivaryOwnerSignIn({
     origin,
@@ -130,80 +131,30 @@ function ownerSignInFixture(origin = ORIGIN) {
     },
   });
   const currentSecret = () => (saved.at(-1) ?? "").trim().split("#")[1] ?? "";
-  return { currentSecret, saved, signIn };
+  const proof: VivaryOwnerProof = { kind: "one-time-sign-in", signIn };
+  return { currentSecret, proof, saved, signIn };
 }
 
-type PageStorage = Map<string, string> | "blocked" | "failing";
-type SessionAnswer = object | Error | number;
+// Counts how often a resolver tries to spend the store's secret.
+function countedSignInProof(origin = ORIGIN) {
+  const store = signInProof(origin);
+  let redeemCalls = 0;
+  const proof: VivaryOwnerProof = {
+    kind: "one-time-sign-in",
+    signIn: {
+      redeem: (presented) => {
+        redeemCalls++;
+        return store.signIn.redeem(presented);
+      },
+    },
+  };
+  return { ...store, proof, redeemCalls: () => redeemCalls };
+}
 
-// Runs a sign-in page script against a fake browser. A number answer is a
-// non-OK status and an Error answer is a failed request.
-async function openSignInPage(
-  html: string,
-  { hash = "", storage = new Map(), answer }: {
-    hash?: string;
-    storage?: PageStorage;
-    answer: (headers: Record<string, string>) => SessionAnswer;
-  },
-) {
-  const script = /<script>([\s\S]*)<\/script>/.exec(html)?.[1];
-  assert.ok(script);
-  const steps: string[] = [];
-  const help = { hidden: true };
-  let storageReads = 0;
-  let onHashChange: (() => Promise<void>) | undefined;
-  const location = {
-    hash,
-    pathname: "/sign-in",
-    replace: (target: string) => { steps.push(`replace ${target}`); },
-  };
-  const failing = () => { throw new Error("storage is full"); };
-  const browserStorage = () => {
-    storageReads++;
-    if (storage === "blocked") throw new Error("storage is blocked");
-    if (storage === "failing") return { getItem: failing, setItem: failing, removeItem: failing };
-    return {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        steps.push(`set ${key} ${value}`);
-        storage.set(key, value);
-      },
-      removeItem: (key: string) => {
-        steps.push(`remove ${key}`);
-        storage.delete(key);
-      },
-    };
-  };
-  const context = {
-    addEventListener: (type: string, listener: () => Promise<void>) => {
-      if (type === "hashchange") onHashChange = listener;
-    },
-    document: { getElementById: () => help },
-    fetch: async (_target: string, init: { headers: Record<string, string> }) => {
-      steps.push(`session ${JSON.stringify(init.headers)}`);
-      const body = answer(init.headers);
-      if (body instanceof Error) throw body;
-      if (typeof body === "number") return { ok: false, status: body, json: async () => ({}) };
-      return { ok: true, json: async () => body };
-    },
-    history: {
-      replaceState: () => { location.hash = ""; },
-    },
-    location,
-  };
-  Object.defineProperty(context, "localStorage", { get: browserStorage });
-  Object.defineProperty(context, "sessionStorage", { get: browserStorage });
-  await runInNewContext(script, context);
-  return {
-    help: () => (help.hidden ? "hidden" : "shown"),
-    steps,
-    storageReads: () => storageReads,
-    openAddress: async (next: string) => {
-      assert.ok(onHashChange, "the page listens for an address opened in the same tab");
-      location.hash = next;
-      await onHashChange();
-    },
-  };
+function desktopConfig(): VivaryLocalAccessConfig {
+  const config = resolveVivaryLocalAccessConfig(localEnvironment({ VIVARY_DESKTOP_HOST: "1" }));
+  assert.ok(config?.desktop);
+  return config;
 }
 
 describe("Vivary local access configuration", () => {
@@ -310,9 +261,8 @@ describe("Vivary local access configuration", () => {
   });
 
   it("replaces Native credential pages with the unified workspace route on the desktop", () => {
-    const config = resolveVivaryLocalAccessConfig(localEnvironment());
-    assert.ok(config);
-    const options = createVivaryLocalAuthOptions({ ...config, desktop: true });
+    const config = desktopConfig();
+    const options = createVivaryLocalAuthOptions(config, createVivaryOwnerProof(config, {}));
     assert.equal(options.rootAuth, false);
     assert.match(options.loginHtml ?? "", /url=\/"/);
     assert.match(options.loginHtml ?? "", /location\.replace\("\/"\)/);
@@ -323,233 +273,30 @@ describe("Vivary local access configuration", () => {
     for (const environment of [localEnvironment(), privateProxyEnvironment()]) {
       const config = resolveVivaryLocalAccessConfig(environment);
       assert.ok(config);
-      const options = createVivaryLocalAuthOptions(config);
-      const html = options.loginHtml ?? "";
+      const options = createVivaryLocalAuthOptions(config, signInProof(config.origin).proof);
       assert.equal(options.rootAuth, false);
-      assert.equal(html, VIVARY_OWNER_SIGN_IN_HTML[config.mode]);
-      assert.match(html, /<meta name="referrer" content="no-referrer">/);
-      assert.match(html, /<noscript>/);
-      assert.match(html, /owner-sign-in\.txt/);
-      assert.doesNotMatch(html, /http-equiv|src=|href=|https?:\/\//i);
-      assert.doesNotMatch(html, /email|password|signup/i);
+      assert.equal(options.loginHtml, VIVARY_OWNER_SIGN_IN_HTML[config.mode]);
     }
-    const pageCopy = (html: string) => html.replace(/<script>[\s\S]*<\/script>/, "");
-    assert.equal(pageCopy(VIVARY_OWNER_SIGN_IN_HTML["private-proxy"]), pageCopy(VIVARY_OWNER_SIGN_IN_HTML.local));
   });
 
-  it("removes the sign-in secret from the address before it requests a session", async () => {
-    const script = /<script>([\s\S]*)<\/script>/.exec(VIVARY_OWNER_SIGN_IN_HTML.local)?.[1];
-    assert.ok(script);
-    const secret = "s".repeat(43);
-    const signedIn = { email: VIVARY_LOCAL_OWNER_EMAIL };
-    const signedOut = { error: "Not authenticated" };
-    const visit = async (hash: string, body: object) => {
-      const steps: string[] = [];
-      const help = { hidden: true };
-      const location = {
-        hash,
-        pathname: "/sign-in",
-        replace: (target: string) => { steps.push(`replace ${target}`); },
-      };
-      await runInNewContext(script, {
-        addEventListener: () => undefined,
-        document: { getElementById: () => help },
-        fetch: async (target: string, init: object) => {
-          steps.push(`fetch ${target} ${JSON.stringify(init)} hash=${location.hash}`);
-          return { ok: true, json: async () => body };
-        },
-        history: {
-          replaceState: (_state: unknown, _title: string, target: string) => {
-            location.hash = "";
-            steps.push(`replaceState ${target}`);
-          },
-        },
-        location,
-      });
-      return { help: help.hidden ? "hidden" : "shown", steps };
-    };
-    const sessionRequest = (headers: object) => `fetch /_agent-native/auth/session ${JSON.stringify({
-      headers,
-      credentials: "same-origin",
-      cache: "no-store",
-    })} hash=`;
+  it("gives desktop admission only to a desktop config and a sign-in file to every other", async (t) => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), "vivary-owner-proof-"));
+    t.after(() => rm(dataDir, { recursive: true, force: true }));
+    const file = path.join(dataDir, VIVARY_OWNER_SIGN_IN_FILE);
 
-    assert.deepEqual(await visit(`#${secret}`, signedIn), {
-      help: "hidden",
-      steps: ["replaceState /sign-in", sessionRequest({ "x-vivary-owner-sign-in": secret }), "replace /"],
-    });
-    assert.deepEqual(await visit(`#${secret}`, signedOut), {
-      help: "shown",
-      steps: ["replaceState /sign-in", sessionRequest({ "x-vivary-owner-sign-in": secret })],
-    });
-    assert.deepEqual(await visit(`#${secret.slice(1)}`, signedIn), {
-      help: "shown",
-      steps: ["replaceState /sign-in"],
-    });
-    assert.deepEqual(await visit("", signedIn), { help: "hidden", steps: [sessionRequest({}), "replace /"] });
-    assert.deepEqual(await visit("", signedOut), { help: "shown", steps: [sessionRequest({})] });
+    assert.deepEqual(createVivaryOwnerProof(desktopConfig(), { VIVARY_DATA_DIR: dataDir }), { kind: "desktop-admission" });
+    assert.deepEqual(createVivaryOwnerProof(desktopConfig(), {}), { kind: "desktop-admission" });
+    assert.deepEqual(await readdir(dataDir), [], "a desktop launch writes no sign-in file");
 
-    const steps: string[] = [];
-    const help = { hidden: true };
-    let body: object = signedOut;
-    let onHashChange: (() => Promise<void>) | undefined;
-    const location = {
-      hash: "",
-      pathname: "/sign-in",
-      replace: (target: string) => { steps.push(`replace ${target}`); },
-    };
-    await runInNewContext(script, {
-      addEventListener: (type: string, listener: () => Promise<void>) => {
-        if (type === "hashchange") onHashChange = listener;
-      },
-      document: { getElementById: () => help },
-      fetch: async (target: string, init: object) => {
-        steps.push(`fetch ${target} ${JSON.stringify(init)} hash=${location.hash}`);
-        return { ok: true, json: async () => body };
-      },
-      history: {
-        replaceState: (_state: unknown, _title: string, target: string) => {
-          location.hash = "";
-          steps.push(`replaceState ${target}`);
-        },
-      },
-      location,
-    });
-    assert.equal(help.hidden, false);
-    assert.ok(onHashChange, "an address opened on the open sign-in page still signs in");
-    location.hash = `#${secret}`;
-    body = signedIn;
-    await onHashChange();
-    assert.deepEqual(steps, [
-      sessionRequest({}),
-      "replaceState /sign-in",
-      sessionRequest({ "x-vivary-owner-sign-in": secret }),
-      "replace /",
-    ]);
-  });
-
-  describe("private proxy sign-in page storage", () => {
-    const html = VIVARY_OWNER_SIGN_IN_HTML["private-proxy"];
-    const key = VIVARY_OWNER_SESSION_STORAGE_KEY;
-    const secret = "s".repeat(43);
-    const signedOut = { error: "Not authenticated" };
-    // Answers like the session resolver, which checks a known stored token before the one-time secret.
-    const server = (known: string[], issued = "fresh-session-token") =>
-      (headers: Record<string, string>): SessionAnswer => {
-        const stored = headers["x-vivary-session"];
-        if (stored !== undefined && known.includes(stored)) {
-          return { email: VIVARY_LOCAL_OWNER_EMAIL, name: "Local owner", token: stored };
-        }
-        if (headers["x-vivary-owner-sign-in"] === secret) {
-          return { email: VIVARY_LOCAL_OWNER_EMAIL, name: "Local owner", token: issued };
-        }
-        return signedOut;
-      };
-
-    it("stores the session token after a successful exchange", async () => {
-      const storage = new Map<string, string>();
-      const page = await openSignInPage(html, { hash: `#${secret}`, storage, answer: server([]) });
-      assert.deepEqual(page.steps, [
-        `session ${JSON.stringify({ "x-vivary-owner-sign-in": secret })}`,
-        `set ${key} fresh-session-token`,
-        "replace /",
-      ]);
-      assert.equal(page.help(), "hidden");
-      assert.deepEqual([...storage], [[key, "fresh-session-token"]]);
-
-      for (const issued of ["bad token", "bad\ntoken", "x".repeat(4097)]) {
-        const unstored = new Map<string, string>();
-        const malformed = await openSignInPage(html, { hash: `#${secret}`, storage: unstored, answer: server([], issued) });
-        assert.equal(malformed.steps.at(-1), "replace /");
-        assert.deepEqual([...unstored], [], "a malformed token is never stored");
-      }
-    });
-
-    it("signs in with a stored token on a plain visit and sends it beside a secret", async () => {
-      const storage = new Map([[key, "owner-session-token"]]);
-      const plain = await openSignInPage(html, { storage, answer: server(["owner-session-token"]) });
-      assert.deepEqual(plain.steps, [
-        `session ${JSON.stringify({ "x-vivary-session": "owner-session-token" })}`,
-        `set ${key} owner-session-token`,
-        "replace /",
-      ]);
-
-      const withSecret = await openSignInPage(html, {
-        hash: `#${secret}`,
-        storage,
-        answer: server(["owner-session-token"]),
-      });
-      assert.deepEqual(withSecret.steps, [
-        `session ${JSON.stringify({ "x-vivary-session": "owner-session-token", "x-vivary-owner-sign-in": secret })}`,
-        `set ${key} owner-session-token`,
-        "replace /",
-      ]);
-      assert.deepEqual([...storage], [[key, "owner-session-token"]]);
-    });
-
-    it("forgets a stored token the server no longer knows", async () => {
-      const storage = new Map([[key, "stale-session-token"]]);
-      const page = await openSignInPage(html, { storage, answer: server([]) });
-      assert.deepEqual(page.steps, [
-        `session ${JSON.stringify({ "x-vivary-session": "stale-session-token" })}`,
-        `remove ${key}`,
-      ]);
-      assert.equal(page.help(), "shown");
-      assert.deepEqual([...storage], []);
-
-      for (const malformed of ["bad token", "x".repeat(4097)]) {
-        const unsent = await openSignInPage(html, { storage: new Map([[key, malformed]]), answer: server([]) });
-        assert.deepEqual(unsent.steps, [`session ${JSON.stringify({})}`, `remove ${key}`]);
-      }
-
-      for (const failure of [new Error("offline"), 502]) {
-        const kept = new Map([[key, "owner-session-token"]]);
-        const page = await openSignInPage(html, { storage: kept, answer: () => failure });
-        assert.equal(page.help(), "shown");
-        assert.deepEqual([...kept], [[key, "owner-session-token"]], "a failed check keeps the stored token");
-      }
-    });
-
-    it("still signs in when storage is blocked or failing", async () => {
-      for (const storage of ["blocked", "failing"] as const) {
-        const page = await openSignInPage(html, { hash: `#${secret}`, storage, answer: server([]) });
-        assert.deepEqual(page.steps, [`session ${JSON.stringify({ "x-vivary-owner-sign-in": secret })}`, "replace /"]);
-        assert.equal(page.help(), "hidden");
-
-        const signedOutPage = await openSignInPage(html, { storage, answer: server([]) });
-        assert.deepEqual(signedOutPage.steps, [`session ${JSON.stringify({})}`]);
-        assert.equal(signedOutPage.help(), "shown");
-      }
-    });
-
-    it("signs in from an address opened on the open page", async () => {
-      const storage = new Map<string, string>();
-      const page = await openSignInPage(html, { storage, answer: server([]) });
-      assert.equal(page.help(), "shown");
-      await page.openAddress(`#${secret}`);
-      assert.deepEqual(page.steps, [
-        `session ${JSON.stringify({})}`,
-        `remove ${key}`,
-        `session ${JSON.stringify({ "x-vivary-owner-sign-in": secret })}`,
-        `set ${key} fresh-session-token`,
-        "replace /",
-      ]);
-    });
-
-    it("keeps the local page away from browser storage", async () => {
-      for (const [hash, answer] of [
-        ["", () => signedOut],
-        ["", server(["owner-session-token"])],
-        [`#${secret}`, server(["owner-session-token"])],
-      ] as const) {
-        const storage = new Map([[key, "owner-session-token"]]);
-        const page = await openSignInPage(VIVARY_OWNER_SIGN_IN_HTML.local, { hash, storage, answer });
-        await page.openAddress(`#${secret}`);
-        assert.equal(page.storageReads(), 0);
-        assert.ok(page.steps.every(step => !step.includes("x-vivary-session")));
-        assert.deepEqual([...storage], [[key, "owner-session-token"]]);
-      }
-    });
+    for (const environment of [localEnvironment(), privateProxyEnvironment()]) {
+      const config = resolveVivaryLocalAccessConfig(environment);
+      assert.ok(config);
+      // Only the resolved config decides desktop admission, never the raw marker.
+      const proof = createVivaryOwnerProof(config, { VIVARY_DATA_DIR: dataDir, VIVARY_DESKTOP_HOST: "1" });
+      assert.equal(proof.kind, "one-time-sign-in");
+      assert.match(await readFile(file, "utf8"), new RegExp(`^${config.origin}/sign-in#[\\w-]{43}\\n$`));
+      assert.throws(() => createVivaryOwnerProof(config, {}), /VIVARY_DATA_DIR is required for owner sign-in/);
+    }
   });
 });
 
@@ -637,8 +384,8 @@ describe("Vivary local session provider", () => {
 
   it("bootstraps on a safe page read and restores the persisted Native session", async () => {
     const fixture = sessionFixture();
-    const signIn = ownerSignInFixture();
-    const firstResolver = createVivaryLocalSessionResolver(config, fixture.dependencies, signIn.signIn);
+    const signIn = signInProof();
+    const firstResolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
     const firstSession = await firstResolver(event(request({ ownerSignIn: signIn.currentSecret() })));
 
     assert.equal(firstSession?.email, VIVARY_LOCAL_OWNER_EMAIL);
@@ -647,7 +394,7 @@ describe("Vivary local session provider", () => {
       { email: VIVARY_LOCAL_OWNER_EMAIL, token: fixture.cookies[0] },
     ]);
 
-    const restoredResolver = createVivaryLocalSessionResolver(config, {
+    const restoredResolver = createVivaryLocalSessionResolver(config, signInProof().proof, {
       ...fixture.dependencies,
       createToken: () => {
         throw new Error("restored sessions must not mint another token");
@@ -662,7 +409,7 @@ describe("Vivary local session provider", () => {
 
   it("does not create an identity for POST before the browser bootstrap", async () => {
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies);
+    const resolver = createVivaryLocalSessionResolver(config, signInProof().proof, fixture.dependencies);
     const result = await resolver(event(request({ method: "POST", origin: ORIGIN })));
 
     assert.equal(result, null);
@@ -672,7 +419,7 @@ describe("Vivary local session provider", () => {
 
   it("does not authenticate foreign sessions or bootstrap hostile requests", async () => {
     const fixture = sessionFixture([["foreign-token", "someone@example.test"]]);
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies);
+    const resolver = createVivaryLocalSessionResolver(config, signInProof().proof, fixture.dependencies);
 
     assert.equal(await resolver(event(request(), ["foreign-token"])), null);
     assert.equal(
@@ -685,7 +432,7 @@ describe("Vivary local session provider", () => {
 
   it("fails closed when persisted session lookup is unavailable", async () => {
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver(config, {
+    const resolver = createVivaryLocalSessionResolver(config, signInProof().proof, {
       ...fixture.dependencies,
       getSessionEmail: async () => {
         throw new Error("database unavailable");
@@ -703,8 +450,8 @@ describe("Vivary private proxy session provider", () => {
 
   it("bootstraps one reserved owner and restores only that Native session", async () => {
     const fixture = sessionFixture();
-    const signIn = ownerSignInFixture(PRIVATE_ORIGIN);
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies, signIn.signIn);
+    const signIn = signInProof(PRIVATE_ORIGIN);
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
     const first = await resolver(event(privateProxyRequest({ ownerSignIn: signIn.currentSecret() })));
 
     assert.equal(first?.email, VIVARY_LOCAL_OWNER_EMAIL);
@@ -722,7 +469,7 @@ describe("Vivary private proxy session provider", () => {
 
   it("does not mint an owner on POST or accept a foreign Native session", async () => {
     const fixture = sessionFixture([["foreign-token", "someone@example.test"]]);
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies);
+    const resolver = createVivaryLocalSessionResolver(config, signInProof(PRIVATE_ORIGIN).proof, fixture.dependencies);
 
     assert.equal(
       await resolver(event(privateProxyRequest({ method: "POST", origin: PRIVATE_ORIGIN }))),
@@ -742,8 +489,8 @@ describe("Vivary private proxy session provider", () => {
 
   it("replaces a stale foreign cookie on a safe page read", async () => {
     const fixture = sessionFixture([["foreign-token", "someone@example.test"]]);
-    const signIn = ownerSignInFixture(PRIVATE_ORIGIN);
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies, signIn.signIn);
+    const signIn = signInProof(PRIVATE_ORIGIN);
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
 
     const migrated = await resolver(
       event(
@@ -770,18 +517,21 @@ describe("Vivary owner session bootstrap secret", () => {
     const config = resolveVivaryLocalAccessConfig(localEnvironment());
     assert.ok(config);
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies);
+    const signIn = signInProof();
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
 
     assert.equal(await resolver(event(rawLocalProgram)), null);
     assert.deepEqual(fixture.persisted, []);
     assert.deepEqual(fixture.cookies, []);
+    assert.equal(signIn.saved.length, 1);
   });
 
   it("gives a private proxy backend request with no Origin and no secret no session", async () => {
     const config = resolveVivaryLocalAccessConfig(privateProxyEnvironment());
     assert.ok(config);
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies);
+    const signIn = signInProof(PRIVATE_ORIGIN);
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
 
     assert.equal(
       await resolver(event(privateProxyRequest({ origin: undefined, secFetchSite: undefined }))),
@@ -789,6 +539,7 @@ describe("Vivary owner session bootstrap secret", () => {
     );
     assert.deepEqual(fixture.persisted, []);
     assert.deepEqual(fixture.cookies, []);
+    assert.equal(signIn.saved.length, 1);
   });
 
   for (const [mode, environment, makeRequest, origin] of [
@@ -799,13 +550,13 @@ describe("Vivary owner session bootstrap secret", () => {
       const config = resolveVivaryLocalAccessConfig(environment);
       assert.ok(config);
       const fixture = sessionFixture();
-      const signIn = ownerSignInFixture(origin);
-      const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies, signIn.signIn);
+      const signIn = signInProof(origin);
+      const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
       const secret = signIn.currentSecret();
       assert.match(secret, /^[\w-]{43}$/);
 
-      for (const ownerSignIn of ["x".repeat(43), secret.slice(1), `${secret}=`, ` ${secret}`, ""]) {
-        assert.equal(await resolver(event(makeRequest({ ownerSignIn }))), null);
+      for (const ownerSignIn of [undefined, "", "x".repeat(43), secret.slice(1), `${secret}=`, ` ${secret}`]) {
+        assert.equal(await resolver(event(makeRequest({ ownerSignIn }))), null, JSON.stringify(ownerSignIn));
       }
       assert.equal(signIn.saved.length, 1);
 
@@ -828,14 +579,8 @@ describe("Vivary owner session bootstrap secret", () => {
       ["owner-token", VIVARY_LOCAL_OWNER_EMAIL],
       ["foreign-token", "someone@example.test"],
     ]);
-    const signIn = ownerSignInFixture();
-    let redeemCalls = 0;
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies, {
-      redeem: (presented) => {
-        redeemCalls++;
-        return signIn.signIn.redeem(presented);
-      },
-    });
+    const signIn = countedSignInProof();
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
     const ownerSignIn = signIn.currentSecret();
 
     assert.equal(await resolver(event(request({ ownerSignIn, origin: "https://attacker.example" }))), null);
@@ -846,20 +591,20 @@ describe("Vivary owner session bootstrap secret", () => {
       name: "Local owner",
       token: "owner-token",
     });
-    assert.equal(redeemCalls, 0);
+    assert.equal(signIn.redeemCalls(), 0);
     assert.equal(signIn.saved.length, 1);
     assert.deepEqual(fixture.persisted, []);
 
     assert.equal((await resolver(event(request({ ownerSignIn }))))?.email, VIVARY_LOCAL_OWNER_EMAIL);
-    assert.equal(redeemCalls, 1);
+    assert.equal(signIn.redeemCalls(), 1);
   });
 
   it("lets only one of several concurrent requests spend a secret", async () => {
     const config = resolveVivaryLocalAccessConfig(localEnvironment());
     assert.ok(config);
     const fixture = sessionFixture();
-    const signIn = ownerSignInFixture();
-    const resolver = createVivaryLocalSessionResolver(config, fixture.dependencies, signIn.signIn);
+    const signIn = signInProof();
+    const resolver = createVivaryLocalSessionResolver(config, signIn.proof, fixture.dependencies);
     const ownerSignIn = signIn.currentSecret();
 
     const results = await Promise.all(
@@ -869,57 +614,13 @@ describe("Vivary owner session bootstrap secret", () => {
     assert.equal(fixture.persisted.length, 1);
     assert.equal(signIn.saved.length, 2);
   });
-
-  it("saves each address in an owner-only file and replaces it after use", async (t) => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "vivary-owner-sign-in-"));
-    t.after(() => rm(dataDir, { recursive: true, force: true }));
-    const file = path.join(dataDir, VIVARY_OWNER_SIGN_IN_FILE);
-    const readSecret = async () => {
-      const address = await readFile(file, "utf8");
-      assert.match(address, /^http:\/\/127\.0\.0\.1:4317\/sign-in#[\w-]{43}\n$/);
-      if (process.platform !== "win32") assert.equal((await stat(file)).mode & 0o777, 0o600);
-      return address.trim().split("#")[1];
-    };
-
-    const signIn = createVivaryOwnerSignIn({ origin: ORIGIN, dataDir });
-    const first = await readSecret();
-    assert.equal(signIn.redeem(first), true);
-    assert.notEqual(await readSecret(), first);
-    assert.equal(signIn.redeem(first), false);
-    assert.deepEqual(await readdir(dataDir), [VIVARY_OWNER_SIGN_IN_FILE]);
-  });
-
-  it("still signs in once when the next address cannot be saved, and logs no secret", (t) => {
-    const output: string[] = [];
-    t.mock.method(process.stderr, "write", (chunk: string) => {
-      output.push(chunk);
-      return true;
-    });
-    const saved: string[] = [];
-    const signIn = createVivaryOwnerSignIn({
-      origin: ORIGIN,
-      dataDir: "/unused",
-      saveFile: (_file, contents) => {
-        if (saved.length > 0) throw new Error(`could not save ${contents}`);
-        saved.push(contents);
-      },
-    });
-    const secret = saved[0].trim().split("#")[1];
-
-    assert.equal(signIn.redeem(secret), true);
-    assert.equal(signIn.redeem(secret), false);
-    assert.equal(output.length, 1);
-    assert.match(output[0], /^\[vivary-local-access\] [^\n]+\n$/);
-    assert.doesNotMatch(output[0], /sign-in#|127\.0\.0\.1/);
-    assert.ok(!output[0].includes(secret));
-  });
 });
 
 describe("Vivary session diagnostics", () => {
   it("is opt-in and reports only cookie presence and token counts", async (t) => {
     const config = resolveVivaryLocalAccessConfig(localEnvironment());
     assert.ok(config);
-    const resolveSession = createVivaryLocalSessionResolver(config);
+    const resolveSession = createVivaryLocalSessionResolver(config, signInProof().proof);
     const output: string[] = [];
     t.mock.method(process.stderr, "write", (chunk: string) => {
       output.push(chunk);
@@ -1055,6 +756,7 @@ describe("Vivary private state session header", () => {
           { "sec-fetch-site": undefined },
           { "x-vivary-session": "" },
           { "x-vivary-session": "x".repeat(4097) },
+          { "x-vivary-session": "owner token" },
         ]) {
           assert.deepEqual(read(patch), [], `${method} ${path} ${JSON.stringify(patch)}`);
         }
@@ -1081,17 +783,11 @@ describe("Vivary private state session header", () => {
   it("resolves the owner from a read header before it spends a sign-in secret", async () => {
     for (const method of ["GET", "HEAD"]) {
       const fixture = sessionFixture([["owner-token", VIVARY_LOCAL_OWNER_EMAIL]]);
-      const signIn = ownerSignInFixture(PRIVATE_ORIGIN);
-      let redeemCalls = 0;
-      const resolver = createVivaryLocalSessionResolver(config, {
+      const signIn = countedSignInProof(PRIVATE_ORIGIN);
+      const resolver = createVivaryLocalSessionResolver(config, signIn.proof, {
         ...fixture.dependencies,
         readRequest: () => privateProxyRequest({ method, ownerSignIn: signIn.currentSecret() }),
         readSessionTokens: readVivarySessionTokens,
-      }, {
-        redeem: (presented) => {
-          redeemCalls++;
-          return signIn.signIn.redeem(presented);
-        },
       });
       const sessionRead = (patch: Record<string, string | undefined> = {}) =>
         stateEvent("/_agent-native/auth/session", method, { origin: undefined, ...patch });
@@ -1101,7 +797,7 @@ describe("Vivary private state session header", () => {
         name: "Local owner",
         token: "owner-token",
       });
-      assert.equal(redeemCalls, 0);
+      assert.equal(signIn.redeemCalls(), 0);
       assert.equal(signIn.saved.length, 1);
       assert.deepEqual(fixture.persisted, []);
       assert.deepEqual(fixture.cookies, []);
@@ -1109,7 +805,7 @@ describe("Vivary private state session header", () => {
       const replaced = await resolver(sessionRead({ "x-vivary-session": "stale-token" }));
       assert.equal(replaced?.email, VIVARY_LOCAL_OWNER_EMAIL);
       assert.notEqual(replaced?.token, "owner-token");
-      assert.equal(redeemCalls, 1, "an unknown header token falls through to the secret");
+      assert.equal(signIn.redeemCalls(), 1, "an unknown header token falls through to the secret");
       assert.equal(fixture.persisted.length, 1);
     }
   });
@@ -1117,7 +813,7 @@ describe("Vivary private state session header", () => {
   it("requires an existing reserved-owner session and never mints on a write", async () => {
     for (const email of [VIVARY_LOCAL_OWNER_EMAIL, "foreign@example.test", null]) {
       const fixture = sessionFixture(email ? [["owner-token", email]] : []);
-      const resolver = createVivaryLocalSessionResolver(config, {
+      const resolver = createVivaryLocalSessionResolver(config, signInProof(PRIVATE_ORIGIN).proof, {
         ...fixture.dependencies,
         readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN }),
         readSessionTokens: readVivarySessionTokens,
@@ -1139,7 +835,7 @@ describe("Vivary private state session header", () => {
     ]) {
       let lookups = 0;
       const fixture = sessionFixture();
-      const resolver = createVivaryLocalSessionResolver(config, {
+      const resolver = createVivaryLocalSessionResolver(config, signInProof(PRIVATE_ORIGIN).proof, {
         ...fixture.dependencies,
         readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN, ...patch }),
         readSessionTokens: readVivarySessionTokens,
@@ -1153,7 +849,7 @@ describe("Vivary private state session header", () => {
 
   it("fails closed when a header token lookup fails", async () => {
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver(config, {
+    const resolver = createVivaryLocalSessionResolver(config, signInProof(PRIVATE_ORIGIN).proof, {
       ...fixture.dependencies,
       readRequest: () => privateProxyRequest({ method: "PUT", origin: PRIVATE_ORIGIN }),
       readSessionTokens: readVivarySessionTokens,
@@ -1166,33 +862,39 @@ describe("Vivary private state session header", () => {
 });
 
 describe('desktop listener admission', () => {
+  const admitted = (localRequest: VivaryLocalAccessRequest) => {
+    const value = Object.assign(event(localRequest), { context: {} });
+    admitBrowserContext(value.context, { kind: 'desktop' });
+    return value;
+  };
+
   it('does not bootstrap an apparent loopback request without desktop admission', async () => {
-    const config = resolveVivaryLocalAccessConfig(localEnvironment());
-    assert.ok(config);
+    const config = desktopConfig();
     const fixture = sessionFixture();
-    const resolver = createVivaryLocalSessionResolver({ ...config, desktop: true }, fixture.dependencies);
+    const resolver = createVivaryLocalSessionResolver(config, createVivaryOwnerProof(config, {}), fixture.dependencies);
     assert.equal(await resolver(event(request())), null);
+    assert.equal(await resolver(event(request({ ownerSignIn: 's'.repeat(43) }))), null);
     assert.equal(fixture.persisted.length, 0);
   });
 
-  it('bootstraps with desktop admission and never spends a sign-in secret', async () => {
-    const config = resolveVivaryLocalAccessConfig(localEnvironment());
-    assert.ok(config);
+  it('bootstraps with desktop admission and no sign-in secret', async () => {
+    const config = desktopConfig();
     const fixture = sessionFixture();
-    let redeemCalls = 0;
-    const resolver = createVivaryLocalSessionResolver({ ...config, desktop: true }, fixture.dependencies, {
-      redeem: () => {
-        redeemCalls++;
-        return true;
-      },
-    });
-    const presented = request({ ownerSignIn: 's'.repeat(43) });
-
-    assert.equal(await resolver(event(presented)), null);
-    const admitted = Object.assign(event(presented), { context: {} });
-    admitBrowserContext(admitted.context, { kind: 'desktop' });
-    assert.equal((await resolver(admitted))?.email, VIVARY_LOCAL_OWNER_EMAIL);
-    assert.equal(redeemCalls, 0);
+    const resolver = createVivaryLocalSessionResolver(config, createVivaryOwnerProof(config, {}), fixture.dependencies);
+    assert.equal((await resolver(admitted(request())))?.email, VIVARY_LOCAL_OWNER_EMAIL);
     assert.equal(fixture.persisted.length, 1);
+  });
+
+  it('checks desktop admission itself even when paired with a non-desktop config', async () => {
+    for (const environment of [localEnvironment(), privateProxyEnvironment()]) {
+      const config = resolveVivaryLocalAccessConfig(environment);
+      assert.ok(config);
+      const makeRequest = config.mode === 'local' ? request : privateProxyRequest;
+      const fixture = sessionFixture();
+      const resolver = createVivaryLocalSessionResolver(config, { kind: 'desktop-admission' }, fixture.dependencies);
+      assert.equal(await resolver(event(makeRequest())), null);
+      assert.equal(fixture.persisted.length, 0);
+      assert.equal((await resolver(admitted(makeRequest())))?.email, VIVARY_LOCAL_OWNER_EMAIL);
+    }
   });
 });

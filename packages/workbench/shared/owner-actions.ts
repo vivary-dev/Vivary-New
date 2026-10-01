@@ -1,4 +1,5 @@
-// Only these owner actions accept the private proxy session transport.
+// Only these owner actions accept the private proxy session transport on a POST.
+// Same-origin reads may carry it on every route.
 export const VIVARY_OWNER_ACTIONS = [
   "vivary-chat-draft", "vivary-native-archive",
   "vivary-code-send", "vivary-code-stop", "vivary-code-approve", "vivary-code-deny",

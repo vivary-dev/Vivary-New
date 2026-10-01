@@ -37,8 +37,6 @@ export type AppStateWriterHandle = {
   writeAppState: AppStateWriter;
 };
 
-export { isValidSessionToken };
-
 export function sessionToken(snapshot: Pick<SessionSnapshot, "session" | "status">) {
   if (snapshot.status !== "authenticated") {
     const message = snapshot.status === "loading"

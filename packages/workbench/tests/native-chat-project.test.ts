@@ -326,3 +326,16 @@ test("the Native chat plugin uses the project guard, context, and action surface
   const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
   assert.match(plugin, /\.\.\.vivaryNativeChatProjectOptions,/);
 });
+
+test("local owner modes serve no Native MCP endpoint but keep the MCP server settings routes", async () => {
+  const plugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+  assert.match(plugin, /\n {2}mcp: \{ enabled: resolveVivaryLocalAccessConfig\(process\.env\) === null \},\n\}\);/);
+  const core = await readFile(new URL("./agent-chat-plugin.js", import.meta.resolve("@agent-native/core/server")), "utf8");
+  const gate = core.indexOf("\n            if (mcpOptions.enabled) {\n");
+  const mount = core.indexOf("mountMCP(nitroApp");
+  assert.ok(gate > 0 && mount > gate && mount - gate < 300, "Native mounts its MCP endpoint only when enabled");
+  assert.equal(core.indexOf("mountMCP(nitroApp", mount + 1), -1);
+  assert.match(core, /\n {12}const mcpOptions = resolveAgentChatMcpOptions\(options\);\n/);
+  assert.match(core, /\n {12}mountMcpServersRoutes\(nitroApp, mcpManager, \{\n/,
+    "the settings routes mount in the same block as the options, not behind the enabled option");
+});

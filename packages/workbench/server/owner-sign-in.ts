@@ -64,7 +64,7 @@ function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-// Synchronous because the local access plugin saves the first address while its module loads.
+// Synchronous so the local access plugin saves the first address before the server answers requests.
 function saveOwnerOnlyFile(file: string, contents: string): void {
   const temporary = `${file}.${randomBytes(8).toString("hex")}.tmp`;
   try {
@@ -78,12 +78,14 @@ function saveOwnerOnlyFile(file: string, contents: string): void {
 }
 
 // Served at every Native sign-in route. The page holds no secret. The secret
-// arrives in the address fragment, which browsers never send to a server, and
-// the page removes it from the address bar and history before it signs in.
-const signInPage = (script: string) => `<!doctype html>
+// arrives in the address fragment, which browsers never send to a server. The
+// script comes first in the head, before any script Native adds there, so it
+// removes the secret from the address bar and history before other code runs.
+const signInPage = (keepSession: boolean) => `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>${signInScript(keepSession)}</script>
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to Vivary</title>
@@ -94,9 +96,11 @@ const signInPage = (script: string) => `<!doctype html>
   <div id="help" hidden>
     <p>Open the current one-time sign-in address from ${VIVARY_OWNER_SIGN_IN_FILE} in the Vivary data folder on the computer that runs Vivary.</p>
     <p>Each address works once. After you use one, Vivary saves a new address in the same file.</p>
-  </div>
+  </div>${keepSession ? `
+  <div id="storage-blocked" hidden>
+    <p>This browser blocks site storage. Vivary needs it to stay signed in through the private proxy. Allow site data for this address, then open the sign-in address again.</p>
+  </div>` : ""}
   <noscript><p>Vivary needs JavaScript to finish signing in. Turn on JavaScript, then open the address from ${VIVARY_OWNER_SIGN_IN_FILE} again.</p></noscript>
-  <script>${script}</script>
 </body>
 </html>`;
 
@@ -105,11 +109,16 @@ const signInPage = (script: string) => `<!doctype html>
 // local page keeps the cookie session and never touches storage.
 const signInScript = (keepSession: boolean) => `
     (() => {
+      const takeSecret = () => {
+        const secret = location.hash.slice(1);
+        if (location.hash) history.replaceState(null, "", location.pathname);
+        return secret;
+      };
+      const firstSecret = takeSecret();
       const keepSession = ${keepSession};
       const storageKey = ${JSON.stringify(VIVARY_OWNER_SESSION_STORAGE_KEY)};
       const isSessionToken = (value) => typeof value === "string" && value.length > 0
         && value.length <= ${MAX_SESSION_TOKEN_LENGTH} && ${SESSION_TOKEN_PATTERN}.test(value);
-      // Storage can be missing or blocked. Signing in still works without it.
       const withStorage = (use) => {
         if (!keepSession) return null;
         try {
@@ -117,6 +126,17 @@ const signInScript = (keepSession: boolean) => `
         } catch {
           return null;
         }
+      };
+      const storageWorks = () => withStorage((storage) => {
+        storage.setItem(storageKey + ":check", "1");
+        storage.removeItem(storageKey + ":check");
+        return true;
+      }) === true;
+      // This script runs before the body is parsed.
+      const show = (id) => {
+        const reveal = () => { document.getElementById(id).hidden = false; };
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", reveal);
+        else reveal();
       };
       const readSession = async (headers) => {
         try {
@@ -129,33 +149,32 @@ const signInScript = (keepSession: boolean) => `
           return undefined;
         }
       };
-      const signIn = async () => {
-        const secret = location.hash.slice(1);
-        if (location.hash) history.replaceState(null, "", location.pathname);
-        if (!secret || /^[A-Za-z0-9_-]{43}$/.test(secret)) {
-          const stored = withStorage((storage) => storage.getItem(storageKey));
-          const headers = {};
-          // Vivary checks a stored session before the secret, so a valid one never spends the secret.
-          if (isSessionToken(stored)) headers["x-vivary-session"] = stored;
-          if (secret) headers[${JSON.stringify(VIVARY_OWNER_SIGN_IN_HEADER)}] = secret;
-          const session = await readSession(headers);
-          if (session) {
-            if (isSessionToken(session.token)) withStorage((storage) => storage.setItem(storageKey, session.token));
-            location.replace("/");
-            return;
-          }
-          // A failed check proves nothing, so only an answer of no session forgets the stored one.
-          if (session === null) withStorage((storage) => storage.removeItem(storageKey));
+      const signIn = async (secret) => {
+        if (secret && !${SECRET_PATTERN}.test(secret)) return show("help");
+        // The proxy drops cookies, so a session this browser cannot store is useless and must not spend the secret.
+        if (keepSession && !storageWorks()) return show("storage-blocked");
+        const stored = withStorage((storage) => storage.getItem(storageKey));
+        const headers = {};
+        // Vivary checks a stored session before the secret, so a valid one never spends the secret.
+        if (isSessionToken(stored)) headers["x-vivary-session"] = stored;
+        if (secret) headers[${JSON.stringify(VIVARY_OWNER_SIGN_IN_HEADER)}] = secret;
+        const session = await readSession(headers);
+        if (session) {
+          if (isSessionToken(session.token)) withStorage((storage) => storage.setItem(storageKey, session.token));
+          location.replace("/");
+          return;
         }
-        document.getElementById("help").hidden = false;
+        // A failed check proves nothing, so only an answer of no session forgets the stored one.
+        if (session === null) withStorage((storage) => storage.removeItem(storageKey));
+        show("help");
       };
       // Opening an address in a tab already on this page changes only the fragment, which does not reload the page.
-      addEventListener("hashchange", signIn);
-      return signIn();
+      addEventListener("hashchange", () => signIn(takeSecret()));
+      return signIn(firstSecret);
     })();
   `;
 
 export const VIVARY_OWNER_SIGN_IN_HTML: Record<"local" | "private-proxy", string> = {
-  local: signInPage(signInScript(false)),
-  "private-proxy": signInPage(signInScript(true)),
+  local: signInPage(false),
+  "private-proxy": signInPage(true),
 };

@@ -1,10 +1,12 @@
 import { isDesktopRequest, browserRequestIdentity } from "./browser-request-context.mjs";
 import {
+  createVivaryOwnerSignIn,
   VIVARY_OWNER_SIGN_IN_HEADER,
   VIVARY_OWNER_SIGN_IN_HTML,
   type VivaryOwnerSignIn,
 } from "./owner-sign-in.ts";
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
+import { isValidSessionToken } from "../shared/owner-session.ts";
 
 import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
@@ -172,6 +174,24 @@ export function resolveVivaryLocalAccessConfig(
   };
 }
 
+// How a request proves it comes from the owner before Vivary creates a new
+// owner session. Existing owner sessions need no proof.
+export type VivaryOwnerProof =
+  | { kind: "desktop-admission" }
+  | { kind: "one-time-sign-in"; signIn: VivaryOwnerSignIn };
+
+// The desktop parent admits its own browser, so only a desktop config gets
+// desktop admission. Every other config saves sign-in addresses in its data folder.
+export function createVivaryOwnerProof(
+  config: VivaryLocalAccessConfig,
+  env: AccessEnvironment,
+): VivaryOwnerProof {
+  if (config.desktop) return { kind: "desktop-admission" };
+  const dataDir = env.VIVARY_DATA_DIR;
+  if (!dataDir) throw new Error("[vivary-local-access] VIVARY_DATA_DIR is required for owner sign-in.");
+  return { kind: "one-time-sign-in", signIn: createVivaryOwnerSignIn({ origin: config.origin, dataDir }) };
+}
+
 export function localAccessRequestRejection(
   config: VivaryLocalAccessConfig,
   request: VivaryLocalAccessRequest,
@@ -196,22 +216,11 @@ export function localAccessRequestRejection(
   return null;
 }
 
-// How a request proves it comes from the owner before Vivary creates a new
-// owner session. Existing owner sessions need no proof. A non-desktop launch
-// without a sign-in store has no proof, so it never creates a session.
-type OwnerProof =
-  | { kind: "desktop-admission" }
-  | { kind: "one-time-sign-in"; signIn: VivaryOwnerSignIn }
-  | { kind: "none" };
-
 export function createVivaryLocalSessionResolver(
   config: VivaryLocalAccessConfig,
+  ownerProof: VivaryOwnerProof,
   dependencies: VivaryLocalAccessSessionDependencies = defaultDependencies,
-  ownerSignIn?: VivaryOwnerSignIn,
 ): (event: H3Event) => Promise<AuthSession | null> {
-  const ownerProof: OwnerProof = config.desktop
-    ? { kind: "desktop-admission" }
-    : ownerSignIn ? { kind: "one-time-sign-in", signIn: ownerSignIn } : { kind: "none" };
   return async (event) => {
     if (config.desktop && !isDesktopRequest(event.context)) return null;
     let request: VivaryLocalAccessRequest;
@@ -245,7 +254,7 @@ export function createVivaryLocalSessionResolver(
     if (
       (resolvedForeignOwner && config.mode === "local") ||
       !SESSION_BOOTSTRAP_METHODS.has(request.method.toUpperCase()) ||
-      !presentsOwnerProof(ownerProof, request)
+      !presentsOwnerProof(ownerProof, event, request)
     ) {
       return null;
     }
@@ -262,30 +271,33 @@ export function createVivaryLocalSessionResolver(
   };
 }
 
-function presentsOwnerProof(proof: OwnerProof, request: VivaryLocalAccessRequest): boolean {
+function presentsOwnerProof(
+  proof: VivaryOwnerProof,
+  event: H3Event,
+  request: VivaryLocalAccessRequest,
+): boolean {
   switch (proof.kind) {
     case "desktop-admission":
-      // The resolver refuses every desktop request without admission before this point.
-      return true;
+      return isDesktopRequest(event.context);
     case "one-time-sign-in":
       return proof.signIn.redeem(request.ownerSignIn);
-    case "none":
-      return false;
   }
 }
 
 export function createVivaryLocalAuthOptions(
   config: VivaryLocalAccessConfig,
-  ownerSignIn?: VivaryOwnerSignIn,
+  ownerProof: VivaryOwnerProof,
 ): AuthOptions {
-  const resolveSession = createVivaryLocalSessionResolver(config, defaultDependencies, ownerSignIn);
+  const resolveSession = createVivaryLocalSessionResolver(config, ownerProof);
   return {
     getSession: async (event) => {
       const identity = browserRequestIdentity(event.context);
       if (identity?.kind === "remote") return { email: config.ownerEmail, name: "Paired browser" };
       return resolveSession(event);
     },
-    loginHtml: config.desktop ? SELF_HOSTED_AUTH_REDIRECT_HTML : VIVARY_OWNER_SIGN_IN_HTML[config.mode],
+    loginHtml: ownerProof.kind === "desktop-admission"
+      ? SELF_HOSTED_AUTH_REDIRECT_HTML
+      : VIVARY_OWNER_SIGN_IN_HTML[config.mode],
     rootAuth: false,
   };
 }
@@ -384,7 +396,7 @@ export function readVivarySessionTokens(
     || !acceptsSessionHeader(event, config)) return tokens;
 
   const token = getHeader(event, "x-vivary-session");
-  if (token && token.length <= 4096 && !tokens.includes(token)) tokens.push(token);
+  if (isValidSessionToken(token) && !tokens.includes(token)) tokens.push(token);
   return tokens;
 }
 

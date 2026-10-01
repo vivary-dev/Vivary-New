@@ -21,18 +21,34 @@ async function freePort() {
 }
 
 // fetch() cannot set Host, which the private proxy boundary reads.
-function get(port, route, headers) {
+function send(port, method, route, headers, body) {
   return new Promise((resolve, reject) => {
-    const request = httpRequest({ host: '127.0.0.1', port, path: route, method: 'GET', headers }, response => {
-      let body = '';
+    const request = httpRequest({ host: '127.0.0.1', port, path: route, method, headers }, response => {
+      let text = '';
       response.setEncoding('utf8');
-      response.on('data', chunk => { body += chunk; });
-      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body }));
+      response.on('data', chunk => { text += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: text }));
     });
-    request.setTimeout(15_000, () => request.destroy(new Error(`GET ${route} timed out`)));
+    request.setTimeout(15_000, () => request.destroy(new Error(`${method} ${route} timed out`)));
     request.on('error', reject);
-    request.end();
+    request.end(body);
   });
+}
+
+const get = (port, route, headers) => send(port, 'GET', route, headers);
+
+// Native's MCP dev-open mode trusted a loopback caller that names the owner, with no session.
+async function mcpInitialize(port, route, headers) {
+  const body = JSON.stringify({
+    jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'raw-local-program', version: '0' } },
+  });
+  return send(port, 'POST', route, {
+    ...headers,
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    'x-agent-native-owner-email': OWNER,
+  }, body);
 }
 
 const modes = {
@@ -127,6 +143,10 @@ for (const [name, mode] of Object.entries(modes)) {
     const anonymous = await session(server, mode);
     assert.equal(anonymous.body.email, undefined, 'a request without the secret gets no session');
     assert.equal(anonymous.cookie, '');
+    for (const route of ['/mcp', '/_agent-native/mcp']) {
+      const mcp = await mcpInitialize(server.port, route, { host: `127.0.0.1:${server.port}` });
+      assert.notEqual(mcp.status, 200, `${route} must not admit a raw local program that names the owner`);
+    }
 
     const signedIn = await session(server, mode, { 'x-vivary-owner-sign-in': secrets[0] });
     assert.equal(signedIn.body.email, OWNER);
@@ -143,9 +163,14 @@ for (const [name, mode] of Object.entries(modes)) {
     assert.equal((await session(server, mode, headerOnly)).body.email, name === 'local' ? undefined : OWNER,
       'only the private proxy accepts the session header on reads');
 
+    const servers = await get(server.port, '/_agent-native/mcp/servers', { ...mode.headers(server.port), ...mode.carry(signedIn) });
+    assert.equal(servers.status, 200, 'the MCP client settings route still answers the owner');
+
     const page = await get(server.port, '/sign-in', mode.headers(server.port));
     assert.equal(page.status, 200);
-    assert.match(page.body, /x-vivary-owner-sign-in/);
+    const scriptStart = page.body.indexOf('<script');
+    const firstScript = page.body.slice(scriptStart, page.body.indexOf('</script>', scriptStart));
+    assert.match(firstScript, /x-vivary-owner-sign-in/, 'the sign-in script runs before any script Native adds');
 
     await server.stop();
     const firstOutput = server.output();

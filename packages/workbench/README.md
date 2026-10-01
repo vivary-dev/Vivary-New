@@ -33,6 +33,11 @@ one after each use and at each start. A browser that already signed in stays
 signed in across restarts. Another program on the computer cannot open an
 owner session without that file. The desktop app signs in on its own.
 
+On Windows the sign-in file has the data directory's permissions. The default
+directory in your user profile is private to your account. If you choose a
+directory elsewhere, make sure other accounts cannot read it. The same applies
+to the database and session secret beside it.
+
 The default data directory is `~/.vivary/workbench`. It contains the SQLite
 database, saved runs, personal workspace, generated private session secret,
 and the current one-time sign-in address.
