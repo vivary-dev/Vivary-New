@@ -13,7 +13,7 @@ const outDir = path.resolve(here, '..', 'src', 'content', 'docs');
 const docsWalkthroughAssetsDir = path.join(docsDir, 'assets', 'walkthrough');
 const publicWalkthroughAssetsDir = path.resolve(here, '..', 'public', 'assets', 'walkthrough');
 const GH = 'https://github.com/vivary-dev/vivary/blob/dev';
-const APP_GH = 'https://github.com/vivary-dev/Vivary-New/blob/dev';
+const APP_GH = 'https://github.com/vivary-dev/vivary/blob/dev';
 const noDelete = process.env.VIVARY_SYNC_NO_DELETE === '1';
 
 const normalizeForCompare = (p) => {
@@ -264,7 +264,7 @@ for (const slug of retiredGeneratedSlugs) {
 }
 for (const [src, slug, title, desc] of pages) {
   const raw = readCanonicalMarkdown(docsDir, `${src}.md`, `docs/${src}.md`);
-  const editUrl = `https://github.com/vivary-dev/Vivary-New/edit/dev/docs/${src}.md`;
+  const editUrl = `https://github.com/vivary-dev/vivary/edit/dev/docs/${src}.md`;
   const output = path.join(outDir, `${slug}.md`);
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, render(raw, title, desc, editUrl));
@@ -280,7 +280,7 @@ fs.writeFileSync(
     changelog,
     'Changelog',
     'Release history for the Vivary packages.',
-    'https://github.com/vivary-dev/Vivary-New/edit/dev/CHANGELOG.md',
+    'https://github.com/vivary-dev/vivary/edit/dev/CHANGELOG.md',
   ),
 );
 console.log('  synced CHANGELOG.md -> changelog.md');

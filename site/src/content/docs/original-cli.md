@@ -1,7 +1,7 @@
 ---
 title: "Original Vivary CLI"
 description: "Package release history, verified versions, setup commands, and workspace contracts for the original Vivary command-line tools."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/ORIGINAL-CLI.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/ORIGINAL-CLI.md"
 ---
 
 This reference preserves the original command tools, package release history,
@@ -25,7 +25,7 @@ The coordinated release train named **Vivary Governed Context** is **published a
 verified**. A train is a release label, not a suite version: packages retain
 independent semvers. The only numeric lockstep is the same scaffolder distributed as
 `create-vivary` on PyPI and `@vivary/create` on npm. This policy resolves
-[#149](https://github.com/vivary-dev/vivary/issues/149); its lifecycle lives in the
+[#149](https://github.com/vivary-dev/vivary-cli/issues/149); its lifecycle lives in the
 [release workflow](/release-workflow/#train-and-version-lifecycle).
 
 The table below preserves the package installation checks from **2026-08-15**.

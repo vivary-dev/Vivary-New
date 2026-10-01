@@ -126,7 +126,7 @@ test("manifest records the runtime, source, exact component closure, and relativ
     managedProjectBridge: {
       path: "bridge/managed_project_workspace.py",
       sha256: "b".repeat(64),
-      licensePath: "licenses/LICENSE.vivary-new-managed-project-bridge",
+      licensePath: "licenses/LICENSE.vivary-managed-project-bridge",
     },
     runtimeLicensePaths: ["licenses/LICENSE.distlib", "licenses/python-build-standalone.rst", "python/LICENSE.txt"],
   });
@@ -156,7 +156,7 @@ test("managed project bridge is copied with a content hash and repository licens
     assert.deepEqual(entry, {
       path: "bridge/managed_project_workspace.py",
       sha256: createHash("sha256").update(bridge).digest("hex"),
-      licensePath: "licenses/LICENSE.vivary-new-managed-project-bridge",
+      licensePath: "licenses/LICENSE.vivary-managed-project-bridge",
     });
     assert.equal(await readFile(path.join(destination, ...entry.path.split("/")), "utf8"), bridge);
     assert.equal(await readFile(path.join(destination, ...entry.licensePath.split("/")), "utf8"), "MIT fixture license\n");

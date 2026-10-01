@@ -93,7 +93,7 @@ Bump rules (semver-ish, pre-1.0):
 The historical independent versions remain valid history. A source change after one
 of its versions has published requires a new package version; it never reuses the
 published number or forces unrelated packages to match it. This is the selected
-versioning policy for [#149](https://github.com/vivary-dev/vivary/issues/149).
+versioning policy for [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 
 ## 2. Set release truth first
 
@@ -156,7 +156,7 @@ hook or deployment status; merging its docs does not publish a website.
 The site CI job runs `npm audit --audit-level=high` from `site/` immediately after
 `npm ci`. HIGH and CRITICAL advisories block the job. Lower-severity findings remain
 visible without turning every advisory-database change into a release blocker. This
-is the selected threshold for [#232](https://github.com/vivary-dev/vivary/issues/232):
+is the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232):
 it catches release-threatening dependency defects while limiting unrelated CI churn.
 
 The audit reads live registry data, so a site-scoped PR can turn red without changing

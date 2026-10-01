@@ -1,7 +1,7 @@
 ---
 title: "Command reference"
 description: "Every CLI across Vivary: tropo, strato, ozone, exo, create-vivary, and optional adapters."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/COMMANDS.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/COMMANDS.md"
 ---
 
 This is the full, technical list of every command. If you're just starting, you only

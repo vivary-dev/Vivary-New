@@ -1,7 +1,7 @@
 # Getting started with Vivary
 
 For the Windows application, use the public
-[September 22 prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22)
+[September 22 prerelease](https://github.com/vivary-dev/vivary/releases/tag/desktop-preview-2026-09-22)
 and the [Windows installation guide](desktop-preview.md). The unsigned portable
 `9884670` package includes Codex conversations, project-file search, project health,
 setup previews, and project-owned page previews with confirmed desktop browser opening.
@@ -9,7 +9,7 @@ Full desktop acceptance remains open.
 
 The rest of this page installs the original command-line engine. Its pinned
 registry versions remain separate from the desktop package. See the
-[desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
+[desktop acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
 for candidate-specific evidence and remaining gaps. Source contributors can use
 [Workbench setup](../packages/workbench/README.md#run-from-source) or
 [desktop development](../packages/desktop/README.md#development).

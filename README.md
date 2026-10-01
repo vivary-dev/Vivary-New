@@ -4,12 +4,12 @@
 
 <p align="center">
   <a href="#release-status"><img src="https://shieldcn.dev/badge/status-in%20development-b5ef4a.svg?mode=dark&amp;variant=default&amp;font=geist" alt="Status: in development"></a>
-  <a href="https://github.com/vivary-dev/Vivary-New/milestone/1"><img src="https://shieldcn.dev/badge/desktop-Windows%20first-b5ef4a.svg?mode=dark&amp;variant=default&amp;font=geist" alt="Desktop target: Windows first"></a>
+  <a href="https://github.com/vivary-dev/vivary/milestone/1"><img src="https://shieldcn.dev/badge/desktop-Windows%20first-b5ef4a.svg?mode=dark&amp;variant=default&amp;font=geist" alt="Desktop target: Windows first"></a>
   <a href="LICENSE"><img src="https://shieldcn.dev/badge/license-MIT-b5ef4a.svg?mode=dark&amp;variant=default&amp;font=geist" alt="License: MIT"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vivary-dev/Vivary-New/milestone/1">Release queue</a> ·
+  <a href="https://github.com/vivary-dev/vivary/milestone/1">Release queue</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
   <a href="docs/product/multi-project/design.md">Product design</a> ·
   <a href="docs/ORIGINAL-CLI.md">Original CLI reference</a>
@@ -44,7 +44,7 @@ and authentication. Provider accounts are separate.
 
 **Public Windows prerelease available. Full desktop acceptance remains open.**
 
-[Download the Windows preview](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22) and follow the
+[Download the Windows preview](https://github.com/vivary-dev/vivary/releases/tag/desktop-preview-2026-09-22) and follow the
 [installation guide](docs/desktop-preview.md). The portable ZIP includes
 `Vivary.exe` and its runtime files. There is no setup wizard in this release.
 

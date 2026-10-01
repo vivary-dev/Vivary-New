@@ -17,7 +17,7 @@ This brief records public code and source-safe constraints for the proposed mult
 
 `vivary-dev/Vivary-New` is the private desktop-development repository. Topic PRs
 integrate into `dev`, with reviewed promotion to the default branch, `main`.
-`vivary-dev/vivary` remains the original public product and release repository. `Jeff-Kazzee/littleagent` is the public source identity for the workbench specifications and implementation. `The-Little-AI-Company/harnessmax` is a public legacy evidence source. Private planning, machine paths, branches, commit hashes, dirty-state inventories, and review material are maintained outside this public contract.
+`vivary-dev/vivary-cli` remains the original public product and release repository. `Jeff-Kazzee/littleagent` is the public source identity for the workbench specifications and implementation. `The-Little-AI-Company/harnessmax` is a public legacy evidence source. Private planning, machine paths, branches, commit hashes, dirty-state inventories, and review material are maintained outside this public contract.
 
 The public repository contract governs branches, reviews, tests, documentation generation, and release evidence. This brief does not convert a source observation, proposal, or local result into shipped or published behavior.
 

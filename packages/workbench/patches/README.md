@@ -723,7 +723,8 @@ have no such check. The key feeds only the condition classifier, so the check
 now applies only to an automation with a condition. Before, a webhook run
 failed with "No API key is available for this automation." for an owner whose
 key came from the launch environment under another engine, a Builder gateway,
-or a keyless local model. Event triggers keep the old check.
+or a keyless local model. Event automations follow the same rule, described
+in "Event automation conditions" below.
 
 The condition classifier calls Anthropic's API directly with a small Claude
 model, whatever provider runs the automation, and it sends the webhook payload
@@ -790,6 +791,76 @@ data file.
 Upstream could take the registry as it is, because nothing changes until a
 host registers a runner. The same limits as Run now apply: one runner per
 process.
+
+## Event automation conditions
+
+Issue #135. An event automation with a condition had the defect that #113
+fixed for webhook calls. `handleEvent` in `triggers/dispatcher.js` checked the
+condition with `getOwnerActiveApiKey`, the key of whatever provider the
+`agent-engine` setting names. With OpenRouter active, the OpenRouter key went
+to Anthropic's API, Anthropic rejected it, and the event was skipped with no
+reason. The same lookup refused every event automation with "No API key is
+available for this automation" when the active provider had no stored key,
+although the key feeds only the condition check.
+
+`handleEvent` now applies the webhook rule. It looks up a key only for an
+automation with a condition, and only an Anthropic key, from the owner's
+settings or the launch environment. An automation without a condition starts
+its run, which resolves its engine and credential as a scheduled run does.
+Without an Anthropic key, the event starts no run and no request reaches
+Anthropic. When Anthropic rejects the key with 401 or 403, the event starts no
+run either. In both cases the automation's history gets an errored row with the
+code `automation_condition_key_missing` or `automation_condition_key_rejected`
+and a message that names the cause and ends with "The event did not start a
+run.", and its last status reads as an error. Each such event adds its own row,
+as each refused webhook call does, so a frequent event such as
+`agent.turn.completed` can add many. Another failure of the check, such as a
+network error, is logged and still records a plain skip with no history row,
+as before, because an event has no queue to retry it from.
+
+A refused event records its history row and last status but emits no
+`automation.run.finished`, because nothing ran. That event's registered
+description says it fires after a run records a terminal status.
+`finishAutomationRun` takes `{ emitFinished: false }` for this, and
+`recordAutomationFailure` passes it only from `handleEvent`. Without it, an
+automation subscribed to `automation.run.finished`, with a condition and no
+Anthropic key, refused the event, wrote its row, received the event that row
+emitted, and refused again without end. Two such automations retriggered each
+other, and a rejected key looped with one Anthropic call per turn. The local
+SQLite driver answers synchronously, so the loop ran on microtasks alone, and
+in the test no timer fired until the process was killed. A webhook refusal
+still emits the event, because an external call starts each one, so it cannot
+loop. A run that finishes still emits it too. An automation that retriggers
+itself through its own finished run is #110's case, and this patch leaves it
+alone.
+
+`conditionKeyMissingMessage` and `conditionKeyRejectedMessage` build the
+wording for both triggers, and the webhook messages are unchanged.
+`recordAutomationWebhookFailure` is now `recordAutomationFailure`. It takes the
+automation's owner, path, and resource id, which a queued webhook payload and
+an event's resource both supply, and `integrations/automation-webhook-task.js`
+calls it by the new name.
+
+Run `node --test packages/workbench/tests/automation-event-condition.test.mjs`.
+It uses a disposable SQLite database with `NODE_ENV=production`, a fake
+engine, random fake keys in the environment, and a stub for Anthropic's API
+that accepts only the Anthropic key. It emits each automation's event through
+Core's event bus. With OpenRouter active and only an OpenRouter key, nothing
+reaches Anthropic and the history gets an `automation_condition_key_missing`
+row. A rejected Anthropic key gets an `automation_condition_key_rejected` row
+and no run. With both keys and OpenRouter active, only the Anthropic key
+reaches Anthropic and the run starts. An automation without a condition runs
+with no stored key. These four cases failed on the previous patch. Two more
+cases emit one `automation.run.finished` for another automation's path. One
+subscribed automation with a condition and no Anthropic key gets exactly one
+refusal row and sends nothing to Anthropic, and two such automations get one
+row each. A listener drops every listener for that event after 50 events, so a
+loop fails the case instead of hanging it. On the first version of this fix,
+each automation wrote 50 rows.
+
+Upstream could take this change as it is. Remove it when an upstream release
+checks event conditions with an Anthropic key only, records a missing or
+rejected key in the automation's history, and passes the same test.
 
 ## Builder.io offers in local mode
 
