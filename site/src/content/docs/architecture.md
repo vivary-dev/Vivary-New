@@ -243,6 +243,11 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+PR #154 CI timeout. The tests + checks job now allows 30 minutes for dependency installation and its
+sequential suites. The previous 10-minute limit cancelled passing checks before the job finished. The workflow
+keeps every test and acceptance gate; this changes the execution budget, not the product design. The workflow
+and its contract tests support this review.
+
 Issue #152, repository name. Agent and contributor instructions, the engineering policy, the README, the Windows
 prerelease and getting-started guides, the in-app documentation link resolver, the site generator, and the plan
 generator now name `vivary-dev/vivary` instead of `vivary-dev/Vivary-New`. Sentences that mean the original CLI
