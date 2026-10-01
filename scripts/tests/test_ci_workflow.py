@@ -140,6 +140,14 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "      - name: require changed-path and dispatch validation\n"
         "        if: needs.changes.result != 'success'\n"
         "        run: exit 1\n"
+        "\n"
+        "  workbench-maintained:\n"
+        "    needs: changes\n"
+        "    if: ${{ always() }}\n"
+        "    steps:\n"
+        "      - name: require changed-path and dispatch validation\n"
+        "        if: needs.changes.result != 'success'\n"
+        "        run: exit 1\n"
         "      - name: maintained workbench checks\n"
         f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
         "\n"
@@ -465,30 +473,38 @@ def test_dispatch_must_run_graph_review_gate():
     assert "workflow_dispatch" in message
 
 
-def test_workbench_job_must_wait_for_dispatch_validation():
-    workflow = _workflow(INSTALL + AUDIT).replace(
-        "  workbench:\n    needs: changes\n",
-        "  workbench:\n",
-        1,
-    )
-    message = _run(workflow)
-    assert message, "the workbench job must wait for dispatch validation"
-    assert "workbench job must wait" in message
+def test_workbench_jobs_must_wait_for_dispatch_validation():
+    for job in ("workbench", "workbench-maintained"):
+        workflow = _workflow(INSTALL + AUDIT).replace(
+            f"  {job}:\n    needs: changes\n",
+            f"  {job}:\n",
+            1,
+        )
+        message = _run(workflow)
+        assert message, f"the {job} job must wait for dispatch validation"
+        assert f"{job} job must wait" in message
 
 
-def test_maintained_workbench_checks_must_run_once_in_workbench_job():
+def test_maintained_workbench_checks_must_run_once_in_their_own_job():
     workflow = _workflow(INSTALL + AUDIT)
-    duplicated_in_tests = workflow.replace(
-        "      - name: diff hygiene\n",
+    step = (
         "      - name: maintained workbench checks\n"
         f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
+    )
+    duplicated_in_tests = workflow.replace(
         "      - name: diff hygiene\n",
+        step + "      - name: diff hygiene\n",
+        1,
+    )
+    in_workbench_job = workflow.replace(step, "").replace(
+        "\n  workbench-maintained:\n",
+        step + "\n  workbench-maintained:\n",
         1,
     )
     skipped = workflow.replace(MAINTAINED_CHECKS_COMMAND, "echo skipped")
-    for variant in (duplicated_in_tests, skipped):
+    for variant in (duplicated_in_tests, in_workbench_job, skipped):
         message = _run(variant)
-        assert message, "maintained checks must run once, in the workbench job"
+        assert message, "maintained checks must run once, in their own job"
         assert MAINTAINED_CHECKS_COMMAND in message
 
 

@@ -43,6 +43,7 @@ def main() -> None:
     changes_job = job_block(text, "changes")
     test_job = job_block(text, "test")
     workbench_job = job_block(text, "workbench")
+    workbench_maintained_job = job_block(text, "workbench-maintained")
     governed_job = job_block(text, "governed-platform-proof")
     orientation_job = job_block(text, "orientation-proof")
     review_job = job_block(text, "review")
@@ -131,6 +132,7 @@ def main() -> None:
     for name, block in (
         ("test", test_job),
         ("workbench", workbench_job),
+        ("workbench-maintained", workbench_maintained_job),
         ("governed-platform-proof", governed_job),
         ("orientation-proof", orientation_job),
         ("review", review_job),
@@ -140,7 +142,11 @@ def main() -> None:
             "    needs: changes" in block,
             f"{name} job must wait for dispatch validation",
         )
-    for name, block in (("test", test_job), ("workbench", workbench_job)):
+    for name, block in (
+        ("test", test_job),
+        ("workbench", workbench_job),
+        ("workbench-maintained", workbench_maintained_job),
+    ):
         require(
             "    if: ${{ always() }}" in block,
             f"required {name} job must run even when dispatch validation fails",
@@ -152,8 +158,9 @@ def main() -> None:
         )
     maintained_checks = "pnpm --dir packages/workbench test:maintained"
     require(
-        text.count(maintained_checks) == 1 and maintained_checks in workbench_job,
-        f"{maintained_checks} must run exactly once, in the workbench job",
+        text.count(maintained_checks) == 1
+        and maintained_checks in workbench_maintained_job,
+        f"{maintained_checks} must run exactly once, in the workbench-maintained job",
     )
     require(
         "github.event_name == 'pull_request' || "
