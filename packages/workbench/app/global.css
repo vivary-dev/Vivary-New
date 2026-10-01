@@ -173,6 +173,12 @@ button, a, input, summary { outline-offset: 3px; }
 
 .conversation-checking { display: flex; flex-direction: column; height: 100%; padding: 20px; }
 
+/* The connection notice and shell share Core's dynamic viewport height. */
+.browser-connection { height: var(--agent-native-viewport-height); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+.browser-connection-workspace { min-width: 0; min-height: 0; }
+.browser-connection-workspace .agent-layout-shell,
+.browser-connection-workspace .shell-skeleton { height: 100%; }
+
 .vivary-shell { --agent-layout-left-drawer-collapsed-width: 56px; --agent-layout-left-drawer-expanded-width: 248px; }
 .vivary-sidebar { width: 100%; background: hsl(var(--sidebar-background)); color: hsl(var(--sidebar-foreground)); }
 .vivary-sidebar.is-collapsed { width: 56px; }

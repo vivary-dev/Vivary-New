@@ -576,3 +576,51 @@ under the working directory, which is ignored here.
 Exercise changed flows through normal startup. The private handoff preserves
 actual browser and desktop results, including failed attempts. These checks do not
 establish the complete desktop/web release journey or macOS runtime acceptance.
+
+## Paired browser access
+
+In the desktop app, Settings > Browser access accepts an already protected private
+HTTPS origin and a dedicated loopback ingress port. Access starts off. Confirm the
+change in the native desktop dialog, open `/pair` on that origin, and compare the
+code on both screens before approving the browser. Vivary does not configure the
+network path. Approved browsers share this host's projects, files and Native history.
+
+Grants and the enabled setting survive restarts. Pending challenges expire on
+restart or after five minutes; grants expire after 30 days. Disable ends browser
+streams while retaining grants. Revoke ends that device's streams and future
+admission. If saving a revoke fails, admission closes and the UI reports failure;
+retry before restarting because only saved revocation survives a process restart.
+An unavailable ingress port leaves the desktop and its repair controls usable.
+Remote browsers cannot approve devices or open the desktop folder chooser. Remote
+preview requires the optional isolated origin described below. Real-phone and
+packaged Windows preview acceptance remain open under issue #30.
+
+Focused lifecycle and capability checks run in `pnpm test:browser-access`, included
+in `test:maintained`. After building the normal app, run
+`pnpm test:browser-access-app` for the disposable loopback admission, Native state,
+restart and streaming-revocation journey. These commands use existing test runners.
+
+### Optional isolated paired-browser previews
+
+Remote preview stays off when the optional preview origin in desktop Browser
+access settings is empty. An owner can prepare a second protected HTTPS port on
+the same hostname and a separate loopback ingress port, then confirm those exact
+values in the native dialog. Vivary does not create certificates, routes or public
+exposure. Both transport paths must already be protected before enabling access.
+
+The paired owner uses the existing project preview review, start, status and stop
+controls. Remote embedding accepts only that registered project's owned launch.
+An arbitrary running URL cannot be forwarded. The host verifies the connected
+socket's process identity before sending HTTP. Unsupported ownership inspection
+fails closed. Windows inspection still requires packaged verification.
+
+A supported browser must provide credentialless frames. The preview opens only
+inside Vivary, with separate preview authority and no app credentials forwarded.
+Preview access lasts five minutes and reopening is explicit. Workers, external
+sign-in flows and websocket upgrades are unsupported. Projects with hardcoded
+loopback resource URLs need their own reviewed public-base configuration.
+
+Opening another project or launch needs a full Vivary refresh. Save file edits
+first. Vivary flushes existing chat drafts and project selection and refuses the
+refresh if saving fails. Browser Back/Forward restoration requires a fresh reload
+before preview access resumes. Removing the frame alone does not clear storage.
