@@ -141,7 +141,7 @@ test("a cache inside the install folder or the call's project is refused once pe
     pycachePrefixFlag(await f.prefix()), "a managed project inside the data folder does not hold the cache");
 });
 
-test("a project inside the cache folder is refused once per process and never swept", async t => {
+test("a project inside the cache folder is refused once per process, and the refused call does not sweep", async t => {
   const f = await folders(t);
   const project = path.join(f.realData, "python-cache", "a71d44e0", "project");
   await mkdir(project, { recursive: true });
@@ -151,7 +151,25 @@ test("a project inside the cache folder is refused once per process and never sw
   });
   assert.deepEqual(lines, ["[vivary-python-cache] refused holds=project"]);
   assert.deepEqual(await readdir(path.join(f.realData, "python-cache")), ["a71d44e0"], "no build folder was made");
-  assert.ok((await stat(project)).isDirectory(), "the project was not swept");
+  assert.ok((await stat(project)).isDirectory(), "the refused call did not sweep");
+});
+
+test("a cache folder whose real path is elsewhere, such as a mount point, is refused, and the sweep keeps one", async t => {
+  const elsewhere = name => realpath => (target, options) => path.basename(target) === name
+    ? Promise.resolve(path.join(path.dirname(target), "elsewhere")) : realpath(target, options);
+  const f = await folders(t);
+  const refused = await patched("realpath", elsewhere(BUILD),
+    () => stderrOf(() => bytecodeFlag(freshState(), f.bundle, f.data)));
+  assert.equal(refused.result, "-B");
+  assert.deepEqual(refused.lines, ["[vivary-python-cache] unavailable code=ENOTDIR"]);
+  const g = await folders(t);
+  const old = path.join(g.data, "python-cache", "a71d44e0");
+  await mkdir(old, { recursive: true });
+  const swept = await patched("realpath", elsewhere("a71d44e0"),
+    () => stderrOf(() => bytecodeFlag(freshState(), g.bundle, g.data)));
+  assert.equal(swept.result, pycachePrefixFlag(await g.prefix()));
+  assert.deepEqual(swept.lines, [], "nothing was removed");
+  assert.ok((await stat(old)).isDirectory(), "the sweep keeps a folder whose real path is elsewhere");
 });
 
 test("a sweep that cannot list or remove a folder logs it and the launch still gets the cache", async t => {

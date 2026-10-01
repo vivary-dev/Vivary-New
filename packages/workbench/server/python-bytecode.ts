@@ -33,7 +33,8 @@ export async function bytecodeFlag(state: BytecodeState, bundle: Bundle | null, 
   const prefix = path.join(data, CACHE_FOLDER, bundle.build);
   // A cache in the install folder would write into the bundle, and one in the
   // project would let that project's tools change what the next command runs.
-  // A project in the cache folder could be overwritten or swept away.
+  // A project in the cache folder could be overwritten or swept away. This
+  // refusal protects only that project's own calls. Another call still sweeps.
   const refusal = containsPath(bundle.root, prefix) ? "inside=bundle"
     : project && containsPath(project, prefix) ? "inside=project"
     : project && containsPath(path.dirname(prefix), project) ? "holds=project" : undefined;

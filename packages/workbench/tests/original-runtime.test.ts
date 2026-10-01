@@ -453,7 +453,7 @@ test("public doctor, find, and check append an app receipt without the question"
   } finally { await f.cleanup(); }
 });
 
-test("an original command keeps -B for a project inside the bytecode cache folder, which the sweep never reaches", async () => {
+test("an original command keeps -B for a project inside the bytecode cache folder, and that call does not sweep", async () => {
   const { directory, runtime, data } = await bundle("vivary-original-cache-");
   const root = path.join(await realpath(data), "python-cache", "a71d44e0", "project");
   await mkdir(root, { recursive: true });
@@ -470,7 +470,7 @@ test("an original command keeps -B for a project inside the bytecode cache folde
     const result = await read("project-a", { verb: "doctor" }, context);
     assert.equal("exitCode" in result && result.exitCode, 0);
     assert.deepEqual(flags, ["-B"]);
-    assert.ok((await stat(root)).isDirectory(), "the project was not swept");
+    assert.ok((await stat(root)).isDirectory(), "the refused call did not sweep");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
