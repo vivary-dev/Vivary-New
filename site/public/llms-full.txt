@@ -7454,6 +7454,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #30 saves the layout supplied by the panel group when the user resizes with
+the keyboard. The callback runs before DOM widths update, so the work panel
+converts the new percentage using the two panels' stable total width. User-input,
+full-page and narrow-layout guards still exclude programmatic sizing from saved
+preferences. Review covers pointer then keyboard resizing and an exact width
+comparison after Full page and return, alongside retained iframe state.
+
 Issue #30 gives the work-panel splitter a 1px divider and a 3px by 28px vertical
 grip inside a 14px transparent pointer target. The grip disables the toolkit's
 inherited CSS rotation. Hover and keyboard focus reveal

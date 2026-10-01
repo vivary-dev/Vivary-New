@@ -274,9 +274,11 @@ export function Workspace() {
       <Button size="sm" variant="outline" onClick={() => void refresh()}>Retry project</Button>
     </div>}
     <div ref={split} className="workspace-split">
-      <ResizablePanelGroup orientation="horizontal" onLayoutChanged={(_, meta) => {
-        if (meta.isUserInteraction && !showOnlySurface && opened && panel.current) {
-          const pixels = panel.current.getSize().inPixels;
+      <ResizablePanelGroup orientation="horizontal" onLayoutChanged={(layout, meta) => {
+        if (meta.isUserInteraction && !showOnlySurface && opened && panel.current && conversation.current) {
+          // Keyboard callbacks precede DOM sizing. Apply the new layout to the stable panel total.
+          const available = panel.current.getSize().inPixels + conversation.current.getSize().inPixels;
+          const pixels = layout.surface / 100 * available;
           if (pixels >= 260) { savePanelWidth(WIDTH_KEY, pixels); setWidth(pixels); }
           if (panel.current.isCollapsed()) changeSurface(null);
         }
