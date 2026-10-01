@@ -35,14 +35,14 @@
 .remote-project-preview[data-open="true"] > .preview-remote-controls > div { gap:4px; }
 .workspace-resize-handle > div { height:48px; width:12px; border-radius:6px; }
 .workspace-resize-handle > div svg { height:24px; width:12px; }
-.workspace-preview-resize-handle { width:14px!important; background:transparent!important; }
-.workspace-preview-resize-handle::before { content:""; position:absolute; inset:0 auto 0 50%; width:1px; background:hsl(var(--border)); transform:translateX(-50%); }
-.workspace-preview-resize-handle::after { inset:0!important; }
-.workspace-preview-resize-handle > div { width:3px; height:28px; border:0; border-radius:1px; background:hsl(var(--muted-foreground) / .45); rotate:none!important; transform:none!important; }
-.workspace-preview-resize-handle > div svg { display:none; }
-.workspace-preview-resize-handle:hover,.workspace-preview-resize-handle:focus-visible { background:transparent!important; box-shadow:none!important; }
-.workspace-preview-resize-handle:hover > div,.workspace-preview-resize-handle:focus-visible > div { background:hsl(var(--ring)); }
-.workspace-preview-resize-handle:focus-visible > div { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
+.workspace-work-panel-resize-handle { width:14px!important; background:transparent!important; }
+.workspace-work-panel-resize-handle::before { content:""; position:absolute; inset:0 auto 0 50%; width:1px; background:hsl(var(--border)); transform:translateX(-50%); }
+.workspace-work-panel-resize-handle::after { inset:0!important; }
+.workspace-work-panel-resize-handle > div { width:3px; height:28px; border:0; border-radius:1px; background:hsl(var(--muted-foreground) / .45); rotate:none!important; transform:none!important; }
+.workspace-work-panel-resize-handle > div svg { display:none; }
+.workspace-work-panel-resize-handle:hover,.workspace-work-panel-resize-handle:focus-visible { background:transparent!important; box-shadow:none!important; }
+.workspace-work-panel-resize-handle:hover > div,.workspace-work-panel-resize-handle:focus-visible > div { background:hsl(var(--ring)); }
+.workspace-work-panel-resize-handle:focus-visible > div { outline:2px solid hsl(var(--ring)); outline-offset:2px; }
 @media (max-width:767px) {
   .workspace-surface-toolbar button,.preview-page button { min-height:44px; }
   .workspace-surface-toolbar button[aria-label="Close work panel"] { min-width:44px; margin-left:auto; }
