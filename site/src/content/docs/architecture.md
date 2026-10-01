@@ -243,6 +243,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #30 acceptance references now identify the tested browser and Windows
+candidates, the Node 24.19 runtime checks, and the shared work-panel grip and
+Details containment proof. The issue #9 row reflects its verified merged delivery.
+This documentation review changes no runtime ownership or access boundary.
+The `77282275` native Windows check restored the keyboard-selected width after
+Full page and Back while retaining preview state and the contained workspace.
+
 Issue #30 saves the layout supplied by the panel group when the user resizes with
 the keyboard. The callback runs before DOM widths update, so the work panel
 converts the new percentage using the two panels' stable total width. User-input,
@@ -269,8 +276,8 @@ and the [upstream Windows TCP crash report](https://github.com/nodejs/node/issue
 Node 24.19.0 includes the upstream
 [Windows version-structure initialization fix](https://github.com/libuv/libuv/commit/aabb7651de).
 This runtime update preserves packaging ownership and local access boundaries.
-The original Vivary crash remains unreproduced, and Windows acceptance requires
-a rebuilt package.
+The original Vivary crash remains unreproduced. The acceptance register and
+issue #30 packet retain the tested package and its platform limits.
 
 Issue #30 preview sizing reuses the shared panel resize and maximize state.
 Parent visual review prompted a compact header and shared action row so phone
@@ -299,11 +306,13 @@ sent. Focused Linux checks reject an unrelated responder and a rebound port whil
 the original launcher remains alive. Gateway tests cover credential stripping,
 document identity, interrupted uploads, unsupported upgrades and redirects.
 The existing close-flush test proves save failure prevents preview revocation and
-reload. Windows socket inspection is prepared but needs packaged acceptance.
+reload. At that source review, Windows socket inspection was prepared and
+awaited packaged acceptance.
 The disposable HTTPS Chromium journey verifies storage partition reset on guarded
 reload, saved draft and selection, hostile-content denial and stream revocation.
 At phone width, setup collapses after opening and the page retains usable height.
-Actual BFCache restoration and packaged Windows acceptance remain unproven.
+That source review did not prove actual BFCache restoration or packaged Windows
+acceptance. The issue #30 packet records later candidate-specific acceptance.
 The PR #127 diagrams and their dated review remain intact.
 
 Issue #30 denial wording correction: BrowserConnection owns a denied state without

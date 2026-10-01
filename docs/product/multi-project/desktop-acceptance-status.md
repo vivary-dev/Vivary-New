@@ -164,8 +164,8 @@ carry the source qualification. The fixture did not call a real model.
 
 All seven GitHub checks passed on the source, and the PR review threads are
 resolved. PR #88 merged into `dev` as `0c8c7eb` on 2026-09-24, and issue #9
-closed. The GitHub and Entire `dev` refs both point at that commit. The
-Entire gate now counts the author's approval.
+closed. At delivery, the GitHub and Entire `dev` refs matched that commit.
+The Entire gate counted the author's approval.
 Parent outcome 17 retains its separate gates.
 
 ## Built-in guidance, September 23
@@ -207,15 +207,23 @@ The packaged Workbench reports `sourceCommitVerified: false`, and no
 post-restart Native HTTP response was captured. The public `9884670`
 prerelease does not contain these unpublished changes.
 
-## Isolated browser preview candidate, September 30
+## Browser access and isolated preview, September 30
 
-Issue #30 adds an optional separate-port, credentialless preview source slice.
-Real Linux ownership checks reject unrelated and rebound responders before HTTP
-bytes. Gateway and draft-close regression checks cover the new boundaries.
-Windows socket inspection is prepared, not proven by mocked platform queries.
-Protected preview transport, the exact Windows package, supported physical phone
-browser and full issue journey remain acceptance gates. Existing dated desktop
-preview evidence below remains specific to its named candidate.
+Issue #30's unpublished `0c552b88` Windows candidate passed core physical Android
+access, including pairing, project selection, restart, an authorized host file-tool
+turn, draft recovery and revocation. Later phone preview and draft-refresh
+observations are owner reports. Corrected denial wording after the final phone
+refresh was not reported.
+
+The unpublished `77282275` replacement uses Node 24.19.0, a slim shared work-panel
+grip, contained Project details scrolling and saved keyboard-resize width.
+Native Windows checks passed the slim divider, contained Details scrolling and
+keyboard width restoration, with counter and live updates retained.
+One earlier backend crash remains unattributed. The runtime update addresses a
+known upstream defect without establishing that crash's cause.
+The [issue 30 packet](packets/23d-self-hosted-browser-access.md) owns candidate
+attribution and remaining limits. These results do not establish full desktop
+release acceptance under #23.
 
 ## Project preview and debugging, September 22
 
@@ -694,9 +702,9 @@ The fixes after the packaged check ran on Zo only; `e50ae89c` is not final-head 
 | Provider setup offers | The local app shows no Builder.io offer on the missing-access card, provider setup, model picker, or any Settings tab in the unpublished `ec82a872` package, and the provider-key path stays ([#104 receipt](receipts/104-local-provider-offers.md)). PR #122 merged into `dev` as `15fed03` | Self-hosted mode keeps Core's offers |
 | Automations | Owner-scoped automations created in a Personal Native chat, every-minute runs with no overlap, in-process Run now, pause and resume, chat and dialog edits, the MCP refusal and next-run retry, a local-only probe, closed-app and quit recovery, and delete passed on the unpublished `c096528a` package. Settings prompts reached a Personal Native chat on the `f0c3cac0` retest. Scheduled runs continued on Zo with no client connected ([#51 receipt](receipts/51-automation-lifecycle.md)). The #114 and #115 fixes passed on the unpublished `9e921ca0` package: a quit during a scheduled run marked it interrupted within 18 ms and released the lease, the next launch ran at its first tick, a webhook call cut off by a quit ran once after relaunch, a hard kill kept the lease until it expired, LAST CHECKED advanced, Details offered no Open thread, and an event automation ran once ([#114 and #115 receipt](receipts/114-automation-quit-and-status.md)). PR #137 merged into `dev` as `4c19c2e`, and #114 and #115 were closed on 2026-09-29. PR #137's commits from `0c150ae` on have not run in a package. Run-written instruction files waited for review on the unpublished `e50ae89c` package: a run's `AGENTS.md`, instruction file, and memory were marked, its shared write and delete were refused, Settings listed, accepted, and deleted them, and a chat's prompt held the run's `AGENTS.md` only after **Accept** ([#109 receipt](receipts/109-automation-file-review.md)). PR #151 merged as `b63ed90f` and closed #109. The fixes after that check ran on Zo only | The limits in the #114 and #115 receipt, including a normal quit that takes about 15 seconds, and their follow-ups #138 through #141. The limits in the #109 receipt and #144. The limits tracked in issues #108, #110, #111, and #112 |
 | Projects | Managed creation, external reconnect, and shared Native/CLI plans passed their named journeys. Current `2d620af` hosted proof and qualified `f024979` packaged Windows proof cover populated-folder adoption, preserved originals, and mixed-schema blockers under #17. Installed guidance composition and reviewed reconfiguration passed hosted acceptance under #16 | Remaining parent packet 08 scope and final artifact acceptance under #23 |
-| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen | #9 PR delivery and Entire mirror verification remain pending. Formal trail approval failed separately. Chat-content search stays in its owning issue. Scoped memory (#21) passed its hosted journey and one real Codex check and waits for packaged Windows acceptance |
+| Files and continuity | Read/Edit/Save/Rename, conflicts, completed history, clean shutdown, and project-file search with line navigation included in `250aaa0`. Repaired `9682472b` package restored seven unsent drafts and selected Native history after delayed write, pending close, and changed-port reopen. Issue #9 closed after [PR #88](https://github.com/vivary-dev/Vivary-New/pull/88) merged on 2026-09-24 as `0c8c7eb`. The dated restart acceptance above records matching delivery refs and the author's approval | Chat-content search stays in its owning issue. Scoped memory (#21) passed its hosted journey and one real Codex check and waits for packaged Windows acceptance |
 | Original Vivary | Bundled ten-verb CLI and packaged Python. Managed creation uses the packaged creator. The Details health check matched headless Doctor in the Windows `43ae417` EXE. Issue #20 adds public Review and Impact and owner and agent Decide and Control, with hosted and packaged Windows fake-provider proof | Complete GUI/agent flows for every original operation on the final product journey |
-| Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview | Clean self-hosted setup, authenticated real-phone routing, revocation/reconnect, macOS preview, and Windows cleanup after launcher exit. Agent image viewing is unavailable in the tested Zo sandbox |
+| Web and preview | [Issue #31](receipts/11e-live-project-preview.md) adds reviewed commands, isolated module-capable preview, desktop/narrow checks, and a real Codex/Astra repair loop on Zo. The `df4aedc` Windows package reviewed, started, displayed, and stopped an npm preview. The [issue 30 packet](packets/23d-self-hosted-browser-access.md) records core physical Android access on `0c552b88`, local isolated preview on `4d565337`, and `ce5abf7a` Windows sizing. Phone preview and draft-refresh observations are owner reports. Native Windows checks on `77282275` passed the shared slim grip, contained Details scrolling and keyboard width restoration with preview state retained. | The earlier backend crash remains unattributed. Corrected phone denial wording after the final preview refresh was not reported. Separate Linux-server installation, macOS preview and Windows cleanup after an already-exited launcher retain their own acceptance gaps. Agent image viewing is unavailable in the tested Zo sandbox |
 | Distribution | Public `9884670` portable prerelease remains the published build. The unpublished `df4aedc` package passed fresh application-profile first launch, bundled-runtime use, second instance, and idle/active cleanup | Upgrade/removal behavior, the remaining desktop/web journey, and stable-release approval |
 
 Earlier Windows checks used an existing configured profile. Credentials are
