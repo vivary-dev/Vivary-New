@@ -4383,7 +4383,7 @@ index 0000000000000000000000000000000000000000..ca1ddd519e48e2229c8f710616723174
 +}): Promise<AutomationWebhookTaskOutcome | "skipped">;
 diff --git a/dist/integrations/automation-webhook-task.js b/dist/integrations/automation-webhook-task.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..c085d95eebc02ed9e2377c255c7874b37c6185ab
+index 0000000000000000000000000000000000000000..b10123ff924bcd9a70e96dafccd8466354380ac7
 --- /dev/null
 +++ b/dist/integrations/automation-webhook-task.js
 @@ -0,0 +1,165 @@
@@ -4392,7 +4392,7 @@ index 0000000000000000000000000000000000000000..c085d95eebc02ed9e2377c255c7874b3
 +import { INTERRUPTED_RUN_MESSAGE } from "../jobs/run-history.js";
 +import { resourceGetByPath } from "../resources/store.js";
 +import { runWithRequestContext } from "../server/request-context.js";
-+import { AutomationWebhookRefusedError, dispatchAutomationWebhookTask, recordAutomationWebhookFailure, } from "../triggers/dispatcher.js";
++import { AutomationWebhookRefusedError, dispatchAutomationWebhookTask, recordAutomationFailure, } from "../triggers/dispatcher.js";
 +import { dispatchPendingIntegrationTask } from "./integration-durable-dispatch.js";
 +import { claimPendingTask, failOpenPendingTask, getNextPendingTaskForThread, getPendingTask, MAX_PENDING_TASK_ATTEMPTS, markTaskCompleted, markTaskFailed, markTaskRetryable, } from "./pending-tasks-store.js";
 +/** A queued webhook call older than this is expired instead of run. */
@@ -4461,7 +4461,7 @@ index 0000000000000000000000000000000000000000..c085d95eebc02ed9e2377c255c7874b3
 +            }
 +            else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
 +                await markTaskFailed(task.id, message);
-+                await recordAutomationWebhookFailure(taskPayload, `The webhook call failed ${task.attempts} times and will not be retried. Last error: ${message.replace(/\.$/, "")}. No delivery was confirmed.`, "automation_webhook_failed", { userEmail: task.ownerEmail, orgId: task.orgId });
++                await recordAutomationFailure(taskPayload, `The webhook call failed ${task.attempts} times and will not be retried. Last error: ${message.replace(/\.$/, "")}. No delivery was confirmed.`, "automation_webhook_failed", { userEmail: task.ownerEmail, orgId: task.orgId });
 +            }
 +            else {
 +                await markTaskRetryable(task.id, message);
@@ -4520,7 +4520,7 @@ index 0000000000000000000000000000000000000000..c085d95eebc02ed9e2377c255c7874b3
 +    if (!(await failOpenPendingTask(taskId, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, expectedUpdatedAt)))
 +        return false;
 +    if (payload) {
-+        await recordAutomationWebhookFailure(payload, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, "automation_webhook_expired", { userEmail: task.ownerEmail, orgId: task.orgId });
++        await recordAutomationFailure(payload, AUTOMATION_WEBHOOK_EXPIRED_MESSAGE, "automation_webhook_expired", { userEmail: task.ownerEmail, orgId: task.orgId });
 +    }
 +    return true;
 +}
@@ -8131,7 +8131,7 @@ index 489b36d86f416c8f40c44727bd62e190048f43c4..a2c488f61e8f7fc01b1002d6f99fd223
   * Assemble the prompt for an agentic trigger run.
   *
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d4186c947 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec36331d2f1b9 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
 @@ -5,12 +5,13 @@
@@ -8139,7 +8139,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
   * loop) when matching events fire.
   */
 -import { getOwnerActiveApiKey } from "../agent/production-agent.js";
-+import { getOwnerActiveApiKey, getOwnerApiKeyForEngine } from "../agent/production-agent.js";
++import { getOwnerApiKeyForEngine } from "../agent/production-agent.js";
 +import { finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, startAutomationRun, } from "../jobs/run-history.js";
  import { automationMatchesEventOwner, resolveAutomationExecutionIdentity, } from "../automations/service.js";
  import { subscribe, unsubscribe } from "../event-bus/index.js";
@@ -8162,7 +8162,51 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
              let identity;
              if (resource.owner === "__shared__") {
                  // Compatibility for old workspace-wide event resources. New personal
-@@ -268,6 +273,11 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -247,17 +252,34 @@ async function handleEvent(eventName, payload, eventMeta) {
+                 }
+                 identity = resolved.identity;
+             }
+-            // Resolve API key for condition evaluation
+-            const owner = identity.userEmail;
+-            const userApiKey = await getOwnerActiveApiKey(owner);
+-            const apiKey = userApiKey || deps.apiKey;
+-            if (!apiKey) {
+-                await recordTriggerSkip(resource, "error", "No API key is available for this automation");
+-                console.warn(`[triggers] ${meta.lastError}: "${resource.path}"`);
++            // As for a webhook call, the condition classifier takes an Anthropic key
++            // only, and an automation without a condition needs no key here.
++            const hasCondition = Boolean(meta.condition?.trim());
++            const conditionKey = hasCondition
++                ? (await getOwnerApiKeyForEngine("anthropic", identity.userEmail)).apiKey ||
++                    deps.apiKey
++                : undefined;
++            const target = { owner: resource.owner, path: resource.path, automationId: resource.id };
++            if (hasCondition && !conditionKey) {
++                await recordAutomationFailure(target, conditionKeyMissingMessage("event"), "automation_condition_key_missing", identity);
++                continue;
++            }
++            let matches;
++            try {
++                matches = await evaluateCondition(meta.condition, payload, conditionKey, { throwOnError: true });
++            }
++            catch (error) {
++                if (error?.status === 401 || error?.status === 403) {
++                    await recordAutomationFailure(target, conditionKeyRejectedMessage(error.status, "event"), "automation_condition_key_rejected", identity);
++                }
++                else {
++                    // An event has no queue to retry from, so another failure stays a
++                    // plain skip, as before.
++                    console.error(`[triggers] Could not check the condition of "${resource.path}":`, error);
++                    await recordTriggerSkip(resource, "skipped", undefined);
++                }
+                 continue;
+             }
+-            // Evaluate condition
+-            const matches = await evaluateCondition(meta.condition, payload, apiKey);
+             if (!matches) {
+                 await recordTriggerSkip(resource, "skipped", undefined);
+                 continue;
+@@ -268,6 +290,11 @@ async function handleEvent(eventName, payload, eventMeta) {
              const dispatchKey = `${resource.owner}:${resource.path}`;
              if (_dispatchingTriggers.has(dispatchKey))
                  continue;
@@ -8174,7 +8218,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
              if (meta.mode === "agentic") {
                  _dispatchingTriggers.add(dispatchKey);
                  try {
-@@ -286,6 +296,62 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -286,6 +313,70 @@ async function handleEvent(eventName, payload, eventMeta) {
          console.error(`[triggers] Error handling event "${eventName}":`, err);
      }
  }
@@ -8190,35 +8234,43 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
 +        this.errorCode = errorCode;
 +    }
 +}
-+export const CONDITION_KEY_MISSING_MESSAGE = "This automation has a condition. Conditions are checked with Anthropic's API, which needs an Anthropic API key, and none is available. Add an Anthropic key, or remove the condition. The webhook call did not run.";
-+export function conditionKeyRejectedMessage(status) {
-+    return `Anthropic rejected the API key used to check this automation's condition (HTTP ${status}). Update the Anthropic key, or remove the condition. The webhook call did not run.`;
++/** The closing sentence of a condition key message, for each kind of trigger. */
++const CONDITION_FAILURE_OUTCOME = {
++    webhook: "The webhook call did not run.",
++    event: "The event did not start a run.",
++};
++export function conditionKeyMissingMessage(trigger) {
++    return `This automation has a condition. Conditions are checked with Anthropic's API, which needs an Anthropic API key, and none is available. Add an Anthropic key, or remove the condition. ${CONDITION_FAILURE_OUTCOME[trigger]}`;
++}
++export function conditionKeyRejectedMessage(status, trigger) {
++    return `Anthropic rejected the API key used to check this automation's condition (HTTP ${status}). Update the Anthropic key, or remove the condition. ${CONDITION_FAILURE_OUTCOME[trigger]}`;
 +}
 +/**
-+ * Record a webhook call that did not run where the owner sees it: an errored
-+ * history row and the automation's last status. `task` is the queued webhook
-+ * payload, and `identity` names the user and organization the run would have
-+ * used. A failure to record is logged, never thrown.
++ * Record a webhook call or an event that did not run where the owner sees it:
++ * an errored history row and the automation's last status. `target` names the
++ * automation by owner, path, and resource id, and `identity` names the user
++ * and organization the run would have used. A failure to record is logged,
++ * never thrown.
 + */
-+export async function recordAutomationWebhookFailure(task, message, errorCode, identity) {
++export async function recordAutomationFailure(target, message, errorCode, identity) {
 +    const orgId = identity?.orgId ?? null;
 +    const historyOwner = orgId
 +        ? organizationResourceOwner(orgId)
-+        : task.owner === "__shared__"
-+            ? identity?.userEmail ?? task.owner
-+            : task.owner;
++        : target.owner === "__shared__"
++            ? identity?.userEmail ?? target.owner
++            : target.owner;
 +    try {
 +        const historyId = await startAutomationRun({
 +            owner: historyOwner,
-+            automation: task.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
-+            path: task.path,
++            automation: target.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
++            path: target.path,
 +            scope: orgId ? "organization" : "personal",
 +            orgId,
 +            appId: _deps?.appId,
 +        });
 +        await finishAutomationRun(historyId, "error", message, errorCode);
-+        const resource = await resourceGetByPath(task.owner, task.path);
-+        if (resource && resource.id === task.automationId) {
++        const resource = await resourceGetByPath(target.owner, target.path);
++        if (resource && resource.id === target.automationId) {
 +            await recordTriggerExecutionOutcome(resource, {
 +                lastRun: new Date().toISOString(),
 +                lastStatus: "error",
@@ -8227,17 +8279,17 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
 +        }
 +    }
 +    catch (error) {
-+        console.error(`[triggers] Could not record the failed webhook call for "${task.path}":`, error);
++        console.error(`[triggers] Could not record the automation failure for "${target.path}":`, error);
 +    }
 +}
 +async function refuseWebhookCall(task, message, errorCode, identity) {
-+    await recordAutomationWebhookFailure(task, message, errorCode, identity);
++    await recordAutomationFailure(task, message, errorCode, identity);
 +    return new AutomationWebhookRefusedError(message, errorCode);
 +}
  /**
   * Process a webhook task after the public route has persisted it. The queue
   * worker supplies the target resource identity; the request body never gets
-@@ -297,11 +363,11 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -297,11 +388,11 @@ export async function dispatchAutomationWebhookTask(task) {
          throw new Error("Automation trigger dispatcher is not initialized.");
      const resource = await resourceGetByPath(task.owner, task.path);
      if (!resource || resource.id !== task.automationId) {
@@ -8251,7 +8303,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
      }
      if (!meta.enabled)
          return "completed";
-@@ -314,13 +380,35 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -314,13 +405,35 @@ export async function dispatchAutomationWebhookTask(task) {
      if (!resolved.ok)
          throw new Error(resolved.reason);
      const identity = resolved.identity;
@@ -8270,7 +8322,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
 +            deps.apiKey
 +        : undefined;
 +    if (hasCondition && !conditionKey) {
-+        throw await refuseWebhookCall(task, CONDITION_KEY_MISSING_MESSAGE, "automation_condition_key_missing", identity);
++        throw await refuseWebhookCall(task, conditionKeyMissingMessage("webhook"), "automation_condition_key_missing", identity);
 +    }
      if (isBackgroundAutomationRunActive(meta)) {
          return "retry";
@@ -8284,14 +8336,14 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
 +        // A rejected key fails the same way every time. Other failures, such as
 +        // a network error, are retried.
 +        if (error?.status === 401 || error?.status === 403) {
-+            throw await refuseWebhookCall(task, conditionKeyRejectedMessage(error.status), "automation_condition_key_rejected", identity);
++            throw await refuseWebhookCall(task, conditionKeyRejectedMessage(error.status, "webhook"), "automation_condition_key_rejected", identity);
 +        }
 +        throw error;
 +    }
      if (!matches) {
          await recordTriggerSkip(resource, "skipped", undefined);
          return "completed";
-@@ -333,8 +421,9 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -333,8 +446,9 @@ export async function dispatchAutomationWebhookTask(task) {
      if (_dispatchingTriggers.has(dispatchKey))
          return "retry";
      _dispatchingTriggers.add(dispatchKey);
@@ -8302,7 +8354,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
              eventId: task.eventId,
              emittedAt: new Date().toISOString(),
              owner: identity.eventOwner,
-@@ -343,9 +432,19 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -343,9 +457,19 @@ export async function dispatchAutomationWebhookTask(task) {
      finally {
          _dispatchingTriggers.delete(dispatchKey);
      }
@@ -8324,7 +8376,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..1dc75cbe54b5d8906b780a64ce5a609d
      if (!_deps)
          return;
      const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -450,5 +549,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
+@@ -450,5 +574,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
              lastError,
          });
          console.error(`[triggers] "${triggerName}" failed:`, lastError);
