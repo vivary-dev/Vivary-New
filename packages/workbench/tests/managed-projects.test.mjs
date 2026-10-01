@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createManagedProject, previewManagedProject, readWorkspaceContext } from "../server/managed-projects.mjs";
+import {
+  createManagedProject, installedPatternCatalog, previewManagedProject, readWorkspaceContext,
+} from "../server/managed-projects.mjs";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -57,6 +60,31 @@ test("creator keeps isolated mode and explicitly enables UTF-8", async () => {
     assert.equal(launch.executable, "python-test");
     assert.deepEqual(launch.options, { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
   } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("the creator child receives no server credential", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-creator-environment-"));
+  const bridge = path.join(dataDir, "managed_project_workspace.py");
+  await writeFile(bridge, "import json, os, sys\nsys.stdin.read()\nprint(json.dumps(sorted(os.environ)))\n");
+  const seeded = {
+    BETTER_AUTH_SECRET: randomBytes(24).toString("hex"),
+    OPENROUTER_API_KEY: randomBytes(24).toString("hex"),
+  };
+  const previous = Object.fromEntries(Object.keys(seeded).map(name => [name, process.env[name]]));
+  Object.assign(process.env, seeded);
+  try {
+    const names = await installedPatternCatalog({}, {
+      getAccess: async () => ({ code: "catalog" }), python: "python3", bridge,
+    });
+    for (const name of Object.keys(seeded)) assert.equal(names.includes(name), false, `${name} reached the creator`);
+    assert.ok(names.includes("PATH"), "an ordinary variable still reaches the creator");
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     await rm(dataDir, { recursive: true, force: true });
   }
 });
