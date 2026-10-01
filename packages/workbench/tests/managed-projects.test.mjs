@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   createManagedProject, installedPatternCatalog, previewManagedProject, readWorkspaceContext,
 } from "../server/managed-projects.mjs";
-import { ORIGINAL_RUN_FAILURES } from "../server/original-runtime.ts";
+import { isOriginalRunFailure, ORIGINAL_RUN_FAILURES } from "../server/original-runtime.ts";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -208,14 +208,31 @@ test("a project's own Python never runs for that project", { skip: process.platf
   }
 });
 
+test("a relative interpreter path resolves against the server's working folder", async () => {
+  const launches = [];
+  const execute = async (executable, _args, _stdin, cwd) => {
+    launches.push({ executable, cwd });
+    return { exitCode: 0, stdout: JSON.stringify({ code: "catalog", patterns: [] }), stderr: "", signal: null };
+  };
+  const bridge = path.join(os.tmpdir(), "vivary-creator-bridge", "managed_project_workspace.py");
+  await installedPatternCatalog({}, { getAccess: async () => ({ code: "catalog" }), access: async () => {}, bridge,
+    python: path.join("rel", "python3"), execute });
+  assert.deepEqual(launches, [{ executable: path.resolve("rel", "python3"), cwd: path.dirname(bridge) }]);
+});
+
 test("an unbundled interpreter that is missing or cannot start is named without a reinstall step", async () => {
   const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-creator-python-"));
   const dependencies = { getAccess: async () => ({ code: "catalog" }), access: async () => {},
     bridge: path.join(folder, "managed_project_workspace.py") };
   try {
-    await assert.rejects(installedPatternCatalog({}, { ...dependencies, python: path.join(folder, "python3") }),
-      { message: "The Python interpreter for the workspace creator could not start.",
-        errorCode: ORIGINAL_RUN_FAILURES.runtimeUnavailable, statusCode: 503 });
+    for (const python of ["vivary-no-such-python", path.join(folder, "python3")]) {
+      await assert.rejects(installedPatternCatalog({}, { ...dependencies, python }), error => {
+        assert.ok(isOriginalRunFailure(error), `${python} fails as an original run failure`);
+        assert.deepEqual([error.message, error.errorCode, error.statusCode],
+          ["The Python interpreter for the workspace creator could not start.", ORIGINAL_RUN_FAILURES.runtimeUnavailable, 503]);
+        return true;
+      });
+    }
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

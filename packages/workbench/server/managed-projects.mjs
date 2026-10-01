@@ -1,5 +1,6 @@
 import { access, lstat, mkdir, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { ActionContractError } from "@agent-native/core/action";
 import { z } from "zod";
 import { redactCredentials } from "./credential-redaction.ts";
 import { ORIGINAL_RUN_FAILURES, runCreatorBridge } from "./original-runtime.ts";
@@ -25,7 +26,8 @@ async function creatorRuntime(dependencies) {
   const bundled = runtimeDirectory ? await resolveOriginalRuntime(runtimeDirectory) : null;
   // guard:allow-env-credential - Development-selected Python executable, not a credential.
   const python = dependencies.python ?? process.env.VIVARY_PYTHON ?? "python3";
-  // The child starts in the bridge's folder, so a relative path resolves here. A bare name is found on the child's PATH.
+  // The child starts in the bridge's folder, so a relative path resolves here. The child finds a bare name itself,
+  // first in that folder on Windows, then on a PATH without the entries spelled inside the project's folder.
   const executable = bundled?.executable ?? (path.basename(python) === python ? python : path.resolve(python));
   const bridge = bundled ? path.join(bundled.root, "bridge", BRIDGE_FILE)
     : dependencies.bridge ?? path.join(process.cwd(), "server", BRIDGE_FILE);
@@ -62,7 +64,8 @@ async function runCreator(call, dependencies = {}) {
     { dataDir: managedProjectDataDirectory(dependencies), execute: dependencies.execute }).catch(error => {
     // The runner's start failure says to reinstall Vivary, which cannot help a Python outside the bundle.
     if (runtime.version !== "unbundled" || error?.errorCode !== ORIGINAL_RUN_FAILURES.runtimeUnavailable) throw error;
-    throw Object.assign(new Error("The Python interpreter for the workspace creator could not start."),
+    console.error(`[vivary-managed-projects] interpreter-unavailable executable=${path.basename(runtime.executable)}`);
+    throw new ActionContractError("The Python interpreter for the workspace creator could not start.",
       { errorCode: error.errorCode, statusCode: error.statusCode });
   });
   return parseBridgeAnswer(exitCode, stdout, runtime);
