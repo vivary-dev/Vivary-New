@@ -23,12 +23,19 @@ pnpm --dir packages/workbench build
 pnpm --dir packages/workbench start
 ```
 
-Open the URL printed by the launcher. The server listens on numeric loopback.
-Native creates an internal local owner so actions and saved records retain
-their existing identity boundary.
+The server listens on numeric loopback. Native creates an internal local
+owner so actions and saved records retain their existing identity boundary.
+
+Sign in through the one-time address the launcher saves in `owner-sign-in.txt`
+in the data directory. The launcher prints that file's path, not the address.
+Open the address in your browser. Each address works once. Vivary saves a new
+one after each use and at each start. A browser that already signed in stays
+signed in across restarts. Another program on the computer cannot open an
+owner session without that file. The desktop app signs in on its own.
 
 The default data directory is `~/.vivary/workbench`. It contains the SQLite
-database, saved runs, personal workspace, and generated private session secret.
+database, saved runs, personal workspace, generated private session secret,
+and the current one-time sign-in address.
 Keep this directory out of source control and preserve its secret on restart.
 
 ```console

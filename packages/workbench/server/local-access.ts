@@ -1,4 +1,9 @@
 import { isDesktopRequest, browserRequestIdentity } from "./browser-request-context.mjs";
+import {
+  VIVARY_OWNER_SIGN_IN_HEADER,
+  VIVARY_OWNER_SIGN_IN_HTML,
+  type VivaryOwnerSignIn,
+} from "./owner-sign-in.ts";
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
 
 import { randomBytes } from "node:crypto";
@@ -55,6 +60,7 @@ export type VivaryLocalAccessRequest = {
   host?: string;
   method: string;
   origin?: string;
+  ownerSignIn?: string;
   peerAddress?: string;
   realIp?: string;
   secFetchSite?: string;
@@ -190,10 +196,22 @@ export function localAccessRequestRejection(
   return null;
 }
 
+// How a request proves it comes from the owner before Vivary creates a new
+// owner session. Existing owner sessions need no proof. A non-desktop launch
+// without a sign-in store has no proof, so it never creates a session.
+type OwnerProof =
+  | { kind: "desktop-admission" }
+  | { kind: "one-time-sign-in"; signIn: VivaryOwnerSignIn }
+  | { kind: "none" };
+
 export function createVivaryLocalSessionResolver(
   config: VivaryLocalAccessConfig,
   dependencies: VivaryLocalAccessSessionDependencies = defaultDependencies,
+  ownerSignIn?: VivaryOwnerSignIn,
 ): (event: H3Event) => Promise<AuthSession | null> {
+  const ownerProof: OwnerProof = config.desktop
+    ? { kind: "desktop-admission" }
+    : ownerSignIn ? { kind: "one-time-sign-in", signIn: ownerSignIn } : { kind: "none" };
   return async (event) => {
     if (config.desktop && !isDesktopRequest(event.context)) return null;
     let request: VivaryLocalAccessRequest;
@@ -223,9 +241,11 @@ export function createVivaryLocalSessionResolver(
     } catch {
       return null;
     }
+    // The owner proof runs last so a refused request never spends a one-time secret.
     if (
       (resolvedForeignOwner && config.mode === "local") ||
-      !SESSION_BOOTSTRAP_METHODS.has(request.method.toUpperCase())
+      !SESSION_BOOTSTRAP_METHODS.has(request.method.toUpperCase()) ||
+      !presentsOwnerProof(ownerProof, request)
     ) {
       return null;
     }
@@ -242,19 +262,30 @@ export function createVivaryLocalSessionResolver(
   };
 }
 
+function presentsOwnerProof(proof: OwnerProof, request: VivaryLocalAccessRequest): boolean {
+  switch (proof.kind) {
+    case "desktop-admission":
+      // The resolver refuses every desktop request without admission before this point.
+      return true;
+    case "one-time-sign-in":
+      return proof.signIn.redeem(request.ownerSignIn);
+    case "none":
+      return false;
+  }
+}
+
 export function createVivaryLocalAuthOptions(
-  env: AccessEnvironment,
-  dependencies: VivaryLocalAccessSessionDependencies = defaultDependencies,
-): AuthOptions | null {
-  const config = resolveVivaryLocalAccessConfig(env);
-  if (!config) return null;
+  config: VivaryLocalAccessConfig,
+  ownerSignIn?: VivaryOwnerSignIn,
+): AuthOptions {
+  const resolveSession = createVivaryLocalSessionResolver(config, defaultDependencies, ownerSignIn);
   return {
     getSession: async (event) => {
       const identity = browserRequestIdentity(event.context);
       if (identity?.kind === "remote") return { email: config.ownerEmail, name: "Paired browser" };
-      return createVivaryLocalSessionResolver(config, dependencies)(event);
+      return resolveSession(event);
     },
-    loginHtml: SELF_HOSTED_AUTH_REDIRECT_HTML,
+    loginHtml: config.desktop ? SELF_HOSTED_AUTH_REDIRECT_HTML : VIVARY_OWNER_SIGN_IN_HTML[config.mode],
     rootAuth: false,
   };
 }
@@ -349,25 +380,30 @@ export function readVivarySessionTokens(
   config: VivaryLocalAccessConfig,
 ): string[] {
   const tokens = getFrameworkSessionCookieValues(event);
-  if (config.mode !== "private-proxy" || !["PUT", "POST"].includes(getMethod(event))
-    || getHeader(event, "origin") !== config.origin
-    || getHeader(event, "sec-fetch-site") !== "same-origin") return tokens;
-
-  // req.url stays absolute while Native middleware changes the mount-relative URL.
-  const path = new URL(event.req.url, config.origin).pathname;
-  if (getMethod(event) === "POST") {
-    if (!VIVARY_OWNER_ACTIONS.some(name => path === "/_agent-native/actions/" + name)) return tokens;
-  } else {
-    const prefix = "/_agent-native/application-state/";
-    if (!path.startsWith(prefix)) return tokens;
-    let key: string;
-    try { key = decodeURIComponent(path.slice(prefix.length)); } catch { return tokens; }
-    if (key === "compose" || !/^[a-zA-Z0-9_:-]+$/.test(key)) return tokens;
-  }
+  if (config.mode !== "private-proxy" || getHeader(event, "sec-fetch-site") !== "same-origin"
+    || !acceptsSessionHeader(event, config)) return tokens;
 
   const token = getHeader(event, "x-vivary-session");
   if (token && token.length <= 4096 && !tokens.includes(token)) tokens.push(token);
   return tokens;
+}
+
+// The private proxy never returns cookies, so every read may carry the session
+// header. Writes carry it only to the owner actions and application state.
+function acceptsSessionHeader(event: H3Event, config: VivaryLocalAccessConfig): boolean {
+  const method = getMethod(event);
+  const origin = getHeader(event, "origin");
+  if (method === "GET" || method === "HEAD") return origin === undefined || origin === config.origin;
+  if (!["PUT", "POST"].includes(method) || origin !== config.origin) return false;
+
+  // req.url stays absolute while Native middleware changes the mount-relative URL.
+  const path = new URL(event.req.url, config.origin).pathname;
+  if (method === "POST") return VIVARY_OWNER_ACTIONS.some(name => path === "/_agent-native/actions/" + name);
+  const prefix = "/_agent-native/application-state/";
+  if (!path.startsWith(prefix)) return false;
+  let key: string;
+  try { key = decodeURIComponent(path.slice(prefix.length)); } catch { return false; }
+  return key !== "compose" && /^[a-zA-Z0-9_:-]+$/.test(key);
 }
 
 const defaultDependencies: VivaryLocalAccessSessionDependencies = {
@@ -383,6 +419,7 @@ const defaultDependencies: VivaryLocalAccessSessionDependencies = {
     host: getHeader(event, "host"),
     method: getMethod(event),
     origin: getHeader(event, "origin"),
+    ownerSignIn: getHeader(event, VIVARY_OWNER_SIGN_IN_HEADER),
     peerAddress: getRequestIP(event, { xForwardedFor: false }),
     realIp: getHeader(event, "x-real-ip"),
     secFetchSite: getHeader(event, "sec-fetch-site"),
