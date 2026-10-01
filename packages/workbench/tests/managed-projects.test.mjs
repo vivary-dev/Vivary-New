@@ -11,6 +11,8 @@ import {
   createManagedProject, installedPatternCatalog, previewManagedProject, readWorkspaceContext,
 } from "../server/managed-projects.mjs";
 import { isOriginalRunFailure, ORIGINAL_RUN_FAILURES } from "../server/original-runtime.ts";
+import { pycachePrefixFlag } from "../server/python-bytecode.ts";
+import { bundle, cacheFolder } from "./original-runtime-harness.ts";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -65,6 +67,31 @@ test("the creator runs isolated Python through the original runner with only all
     ], "the bridge never receives the project id");
   } finally {
     await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a bundled creator call compiles into its build's cache, and keeps -B without data or inside its project", async () => {
+  const { directory, runtime, data } = await bundle("vivary-creator-cache-");
+  const flags = [];
+  const answers = { catalog: { code: "catalog", patterns: [] }, plan: { code: "preview" },
+    context: { code: "context", context: { status: "invalid", message: "unset" } } };
+  const execute = async (_executable, args, stdin) => {
+    const { operation } = JSON.parse(stdin);
+    flags.push([operation, args[3]]);
+    return { exitCode: 0, stdout: JSON.stringify(answers[operation]), stderr: "", signal: null };
+  };
+  const dependencies = { runtimeDirectory: runtime, dataDir: data, getAccess: async () => ({ code: "catalog" }),
+    access: async () => {}, execute };
+  try {
+    const cache = pycachePrefixFlag(await cacheFolder(runtime, data));
+    await installedPatternCatalog({}, dependencies);
+    await previewManagedProject({}, { name: "Alpha" }, dependencies);
+    await readWorkspaceContext({ projectId: "project_a", root: path.join(directory, "project") }, [], dependencies);
+    await readWorkspaceContext({ projectId: "project_data", root: data }, [], dependencies);
+    await installedPatternCatalog({}, { ...dependencies, dataDir: undefined });
+    assert.deepEqual(flags, [["catalog", cache], ["plan", cache], ["context", cache], ["context", "-B"], ["catalog", "-B"]]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

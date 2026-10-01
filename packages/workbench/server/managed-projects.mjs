@@ -40,8 +40,9 @@ async function creatorRuntime(dependencies) {
     console.error(`[vivary-managed-projects] bridge-unavailable executable=${path.basename(executable)} bridge=${bridge}`);
     throw new Error("The original workspace creator is unavailable in this Vivary runtime.");
   }
-  // A receipt names the interpreter's version, and a Python outside the bundle has none.
-  return { executable, bridge, version: bundled?.version ?? "unbundled" };
+  // A receipt names the interpreter's version. A Python outside the bundle has none, and no bytecode cache.
+  return { executable, bridge, version: bundled?.version ?? "unbundled",
+    bundle: bundled && { root: bundled.root, build: bundled.build } };
 }
 
 /** Exit 0 resolves the answer, another exit rejects with the bridge's message, and unparseable output is unavailable. */

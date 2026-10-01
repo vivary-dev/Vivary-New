@@ -1,21 +1,55 @@
 // Windows CI runs this file too, so the extended-length prefix, junction
 // refusals, and the deep-tree sweep are proven on a real Windows file system.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { originalChildEnvironment, runOriginalProcess } from "../server/original-runtime.ts";
 import { bytecodeFlag, pycachePrefixFlag } from "../server/python-bytecode.ts";
 
 const BUILD = "3f9a0c12";
 const freshState = () => ({ prepared: new Map(), logged: new Set() });
 // A link the current user can always make: a junction on Windows, a symbolic link elsewhere.
 const link = (target, at) => symlink(target, at, process.platform === "win32" ? "junction" : "dir");
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const python = execFileSync(process.platform === "win32" ? "python" : "python3",
+  ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
+// Imports a package from the folder in argv[1] and prints where its bytecode belongs.
+// Given a marker path, it then creates the marker and waits to be stopped.
+const IMPORT = [
+  "import sys",
+  "sys.path.insert(0, sys.argv[1])",
+  "import cachedpkg.module as module",
+  "print(module.__cached__, flush=True)",
+  "if len(sys.argv) > 2:",
+  "    open(sys.argv[2], 'w').close()",
+  "    import time",
+  "    time.sleep(60)",
+].join("\n");
+const launch = (flag, args, signal) => runOriginalProcess(python, ["-I", "-X", "utf8", flag, "-c", IMPORT, ...args], "",
+  os.tmpdir(), originalChildEnvironment(process.env, undefined), signal);
+
+async function packageTree(lib) {
+  await mkdir(path.join(lib, "cachedpkg"), { recursive: true });
+  await writeFile(path.join(lib, "cachedpkg", "__init__.py"), "");
+  await writeFile(path.join(lib, "cachedpkg", "module.py"), "VALUE = 155\n");
+}
+
+// CPython mirrors a source path as it is spelled on sys.path, which on a Windows
+// runner is an 8.3 temp folder name, so the test searches rather than predicts.
+async function findCached(prefix, name) {
+  const entries = await readdir(prefix, { recursive: true }).catch(() => []);
+  const hit = entries.find(entry => path.basename(entry).startsWith(`${name}.`) && entry.endsWith(".pyc"));
+  return hit && path.join(prefix, hit);
+}
 
 async function folders(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "vivary-bytecode-"));
   t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 5 }));
-  const data = path.join(directory, "data");
+  const data = path.join(directory, "app data é");
   const install = path.join(directory, "install");
   await Promise.all([mkdir(data), mkdir(install)]);
   const prefix = async () => path.join(await realpath(data), "python-cache", BUILD);
@@ -139,3 +173,61 @@ test("the first launch removes other builds' folders and nothing else", async t 
   assert.equal(await bytecodeFlag(state, f.bundle, f.data), pycachePrefixFlag(await f.prefix()));
   assert.ok((await stat(old)).isDirectory(), "a later launch in the same process does not sweep again");
 });
+
+test("a real child compiles into the cache, the next launch reads it, and nothing lands beside the sources", async t => {
+  const f = await folders(t);
+  const lib = path.join(f.install, "lib");
+  const marker = path.join(f.directory, "imported");
+  await packageTree(lib);
+  const flag = await bytecodeFlag(freshState(), f.bundle, f.data);
+  assert.equal(flag, pycachePrefixFlag(await f.prefix()));
+  const readOnly = mode => process.platform === "win32" ? undefined
+    : Promise.all([lib, path.join(lib, "cachedpkg")].map(folder => chmod(folder, mode)));
+  await readOnly(0o555);
+  try {
+    const controller = new AbortController();
+    const first = launch(flag, [lib, marker], controller.signal);
+    first.catch(() => undefined);
+    for (let attempt = 0; attempt < 100 && !existsSync(marker); attempt++) await delay(100);
+    assert.ok(existsSync(marker), "the first child imported the package");
+    controller.abort();
+    await assert.rejects(first, /cancelled/);
+    const cached = await findCached(await f.prefix(), "module");
+    assert.ok(cached, "the stopped child left its bytecode under the prefix");
+    const before = await stat(cached, { bigint: true });
+    const second = await launch(flag, [lib]);
+    assert.equal(second.exitCode, 0, second.stderr);
+    const after = await stat(second.stdout.trim(), { bigint: true });
+    assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs],
+      "the second child read the first child's file instead of compiling again");
+  } finally {
+    await readOnly(0o755);
+  }
+  const stray = (await readdir(f.install, { recursive: true }))
+    .filter(entry => entry.endsWith(".pyc") || path.basename(entry) === "__pycache__");
+  assert.deepEqual(stray, [], "nothing was written beside the sources");
+});
+
+test("on Windows a cached path past 300 characters is written through the extended-length prefix",
+  { skip: process.platform !== "win32" && "Windows paths only" }, async t => {
+    const f = await folders(t);
+    let lib = f.install;
+    while (path.join(lib, "cachedpkg", "module.py").length < 200) lib = path.join(lib, "s".repeat(39));
+    await packageTree(lib);
+    const flag = await bytecodeFlag(freshState(), f.bundle, f.data);
+    const run = await launch(flag, [lib]);
+    assert.equal(run.exitCode, 0, run.stderr);
+    const cached = await findCached(await f.prefix(), "module");
+    assert.ok(cached, "the bytecode file exists");
+    assert.ok(cached.length > 300, `the cached path has ${cached.length} characters`);
+    const longPaths = execFileSync(python, ["-c", "import ctypes; enabled = ctypes.windll.ntdll.RtlAreLongPathsEnabled; "
+      + "enabled.restype = ctypes.c_ubyte; print(enabled())"], { encoding: "utf8" }).trim() === "1";
+    await t.test("a plain prefix loses the same file while long paths are off",
+      { skip: longPaths && "long paths are enabled on this computer, so a plain prefix would also work" }, async () => {
+        const plain = path.join(await realpath(f.data), "python-cache", "plain");
+        await mkdir(plain);
+        const control = await launch(`-Xpycache_prefix=${plain}`, [lib]);
+        assert.equal(control.exitCode, 0, control.stderr);
+        assert.equal(await findCached(plain, "module"), undefined, "the plain prefix wrote no bytecode");
+      });
+  });
