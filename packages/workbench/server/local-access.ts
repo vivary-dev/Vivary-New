@@ -6,7 +6,7 @@ import {
   type VivaryOwnerSignIn,
 } from "./owner-sign-in.ts";
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
-import { isValidSessionToken } from "../shared/owner-session.ts";
+import { isValidSessionToken, VIVARY_LOCAL_OWNER_EMAIL } from "../shared/owner-session.ts";
 
 import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
@@ -20,8 +20,6 @@ import {
   setFrameworkSessionCookie,
 } from "@agent-native/core/server";
 import { getHeader, getMethod, getRequestIP, type H3Event } from "h3";
-
-export const VIVARY_LOCAL_OWNER_EMAIL = "owner@local.vivary.test";
 
 const FORBIDDEN_PROXY_HEADERS = [
   "forwarded",
@@ -174,6 +172,13 @@ export function resolveVivaryLocalAccessConfig(
   };
 }
 
+// Native's MCP endpoint skips the session guard and, with no ACCESS_TOKEN or
+// A2A_SECRET, trusts a loopback caller that names an owner email. Local owner
+// launches set neither, so only hosted mode serves that endpoint.
+export function vivaryNativeMcpOptions(config: VivaryLocalAccessConfig | null) {
+  return { enabled: config === null };
+}
+
 // How a request proves it comes from the owner before Vivary creates a new
 // owner session. Existing owner sessions need no proof.
 export type VivaryOwnerProof =
@@ -222,7 +227,7 @@ export function createVivaryLocalSessionResolver(
   dependencies: VivaryLocalAccessSessionDependencies = defaultDependencies,
 ): (event: H3Event) => Promise<AuthSession | null> {
   return async (event) => {
-    if (config.desktop && !isDesktopRequest(event.context)) return null;
+    if (ownerProof.kind === "desktop-admission" && !isDesktopRequest(event.context)) return null;
     let request: VivaryLocalAccessRequest;
     try {
       request = dependencies.readRequest(event);
@@ -278,7 +283,8 @@ function presentsOwnerProof(
 ): boolean {
   switch (proof.kind) {
     case "desktop-admission":
-      return isDesktopRequest(event.context);
+      // The resolver already returned early for a request without desktop admission.
+      return true;
     case "one-time-sign-in":
       return proof.signIn.redeem(request.ownerSignIn);
   }

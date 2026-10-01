@@ -1,6 +1,7 @@
 import { BrowserAccessSettings } from "@/components/settings/BrowserAccessSettings";
 import { useAppearancePreferences } from "@/components/layout/AppearancePreferences";
 import { AppearancePicker } from "@agent-native/core/client/ui";
+import { useSession } from "@agent-native/core/client/hooks";
 import {
   SettingsGroup,
   SettingsRow,
@@ -22,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { VIVARY_LOCAL_OWNER_EMAIL } from "../../shared/owner-session";
 
 const generalSearchEntries: SettingsSearchEntry[] = [
   {
@@ -64,6 +66,9 @@ export default function SettingsRoute() {
     appName: "Vivary",
     usageAppId: "vivary",
   });
+  const { session } = useSession();
+  // Local owner launches serve no MCP endpoint, so Native's MCP setup guides would end in a 404.
+  const localOwner = session?.email.trim().toLowerCase() === VIVARY_LOCAL_OWNER_EMAIL;
   const runtimeTab = {
     id: "runtimes",
     label: "Coding runtimes",
@@ -82,7 +87,7 @@ export default function SettingsRoute() {
   };
   const browserTab = { id: "browser-access", label: "Browser access", icon: IconTerminal2, group: "agent", content: <BrowserAccessSettings /> };
   const tabs = nativeTabs
-    .filter((tab) => tab.id !== "organization" && tab.id !== "workspace")
+    .filter((tab) => tab.id !== "organization" && tab.id !== "workspace" && !(localOwner && tab.id === "mcp"))
     .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, browserTab, automationFilesTab, tab] : [tab]));
   useSetPageTitle("Settings");
 

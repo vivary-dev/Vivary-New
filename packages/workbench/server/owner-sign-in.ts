@@ -79,14 +79,15 @@ function saveOwnerOnlyFile(file: string, contents: string): void {
 
 // Served at every Native sign-in route. The page holds no secret. The secret
 // arrives in the address fragment, which browsers never send to a server. The
-// script comes first in the head, before any script Native adds there, so it
-// removes the secret from the address bar and history before other code runs.
+// referrer policy comes before the script so the session request already uses
+// it. No script comes before this one, including any Native adds to the head,
+// so it removes the secret from the address bar and history before other code runs.
 const signInPage = (keepSession: boolean) => `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <script>${signInScript(keepSession)}</script>
   <meta name="referrer" content="no-referrer">
+  <script>${signInScript(keepSession)}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to Vivary</title>
   <style>body{color-scheme:light dark;font:16px/1.5 system-ui,sans-serif;margin:3rem auto;max-width:34rem;padding:0 1rem}</style>
@@ -134,7 +135,13 @@ const signInScript = (keepSession: boolean) => `
       }) === true;
       // This script runs before the body is parsed.
       const show = (id) => {
-        const reveal = () => { document.getElementById(id).hidden = false; };
+        const reveal = () => {
+          for (const message of ["help", "storage-blocked"]) {
+            // The local page has no storage-blocked message.
+            const element = document.getElementById(message);
+            if (element) element.hidden = message !== id;
+          }
+        };
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", reveal);
         else reveal();
       };

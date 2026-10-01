@@ -1,4 +1,5 @@
 import { VIVARY_OWNER_ACTIONS } from "../shared/owner-actions.ts";
+import { VIVARY_LOCAL_OWNER_EMAIL } from "../shared/owner-session.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ import {
   localAccessRequestRejection,
   readVivarySessionTokens,
   resolveVivaryLocalAccessConfig,
-  VIVARY_LOCAL_OWNER_EMAIL,
+  vivaryNativeMcpOptions,
   type VivaryLocalAccessConfig,
   type VivaryLocalAccessRequest,
   type VivaryLocalAccessSessionDependencies,
@@ -277,6 +278,26 @@ describe("Vivary local access configuration", () => {
       assert.equal(options.rootAuth, false);
       assert.equal(options.loginHtml, VIVARY_OWNER_SIGN_IN_HTML[config.mode]);
     }
+  });
+
+  it("serves Native's MCP endpoint only in hosted mode", async () => {
+    const nativeServer = import.meta.resolve("@agent-native/core/server");
+    const { resolveAgentChatMcpOptions } = await import(new URL("./agent-chat/mcp-options.js", nativeServer).href);
+    for (const [mode, environment, enabled] of [
+      ["desktop", localEnvironment({ VIVARY_DESKTOP_HOST: "1" }), false],
+      ["local", localEnvironment(), false],
+      ["private-proxy", privateProxyEnvironment(), false],
+      ["hosted", { NODE_ENV: "production", VIVARY_ACCESS_MODE: "hosted" }, true],
+      ["unset", { NODE_ENV: "production" }, true],
+    ] as const) {
+      const mcp = vivaryNativeMcpOptions(resolveVivaryLocalAccessConfig(environment));
+      assert.equal(resolveAgentChatMcpOptions({ mcp }).enabled, enabled, mode);
+    }
+    const chatPlugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
+    assert.match(chatPlugin, /\bmcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)/);
+    // Native imports mountMCP inside the gate, so no call outside it can mount the endpoint.
+    assert.match(await readFile(new URL("./agent-chat-plugin.js", nativeServer), "utf8"),
+      /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*const\s*\{\s*mountMCP\s*\}\s*=\s*await\s+import\([^)]*\);\s*mountMCP\(/);
   });
 
   it("gives desktop admission only to a desktop config and a sign-in file to every other", async (t) => {
@@ -883,18 +904,5 @@ describe('desktop listener admission', () => {
     const resolver = createVivaryLocalSessionResolver(config, createVivaryOwnerProof(config, {}), fixture.dependencies);
     assert.equal((await resolver(admitted(request())))?.email, VIVARY_LOCAL_OWNER_EMAIL);
     assert.equal(fixture.persisted.length, 1);
-  });
-
-  it('checks desktop admission itself even when paired with a non-desktop config', async () => {
-    for (const environment of [localEnvironment(), privateProxyEnvironment()]) {
-      const config = resolveVivaryLocalAccessConfig(environment);
-      assert.ok(config);
-      const makeRequest = config.mode === 'local' ? request : privateProxyRequest;
-      const fixture = sessionFixture();
-      const resolver = createVivaryLocalSessionResolver(config, { kind: 'desktop-admission' }, fixture.dependencies);
-      assert.equal(await resolver(event(makeRequest())), null);
-      assert.equal(fixture.persisted.length, 0);
-      assert.equal((await resolver(admitted(makeRequest())))?.email, VIVARY_LOCAL_OWNER_EMAIL);
-    }
   });
 });

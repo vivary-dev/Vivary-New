@@ -46,9 +46,9 @@ async function openSignInPage(
     answer?: (headers: Record<string, string>) => SessionAnswer;
   } = {},
 ) {
-  const script = /^<!doctype html>\s*<html lang="en">\s*<head>\s*<meta charset="utf-8">\s*<script>([\s\S]*?)<\/script>/
+  const script = /^<!doctype html>\s*<html lang="en">\s*<head>\s*(?:<meta [^>]*>\s*)*<script>([\s\S]*?)<\/script>/
     .exec(html)?.[1];
-  assert.ok(script, "the sign-in script is the first element in the head after the charset");
+  assert.ok(script, "the sign-in script is the first script in the head, after only meta tags");
   const messages = new Map([...html.matchAll(/<div id="([\w-]+)" hidden>/g)]
     .map(([, id]): [string, { hidden: boolean }] => [id, { hidden: true }]));
   const steps: string[] = [];
@@ -72,17 +72,18 @@ async function openSignInPage(
   const failing = () => { throw new Error("storage is full"); };
   const browserStorage = () => {
     storageReads++;
-    if (storage === "blocked") throw new Error("storage is blocked");
-    if (storage === "failing") return { getItem: failing, setItem: failing, removeItem: failing };
+    const current = storage;
+    if (current === "blocked") throw new Error("storage is blocked");
+    if (current === "failing") return { getItem: failing, setItem: failing, removeItem: failing };
     return {
-      getItem: (key: string) => storage.get(key) ?? null,
+      getItem: (key: string) => current.get(key) ?? null,
       setItem: (key: string, value: string) => {
         steps.push(`set ${key} ${value}`);
-        storage.set(key, value);
+        current.set(key, value);
       },
       removeItem: (key: string) => {
         steps.push(`remove ${key}`);
-        storage.delete(key);
+        current.delete(key);
       },
     };
   };
@@ -120,6 +121,7 @@ async function openSignInPage(
     shown: () => [...messages].filter(([, message]) => !message.hidden).map(([id]) => id),
     steps,
     storageReads: () => storageReads,
+    setStorage: (next: PageStorage) => { storage = next; },
     openAddress: async (next: string) => {
       const onHashChange = windowListeners.get("hashchange")?.[0];
       assert.ok(onHashChange, "the page listens for an address opened in the same tab");
@@ -176,10 +178,10 @@ describe("Vivary owner sign-in store", () => {
 });
 
 describe("Vivary owner sign-in page", () => {
-  it("runs first in the head and holds no secret, form, or outside address", () => {
+  it("runs as the first script, after the referrer policy, and holds no secret, form, or outside address", () => {
     for (const html of Object.values(VIVARY_OWNER_SIGN_IN_HTML)) {
-      assert.match(html, /^<!doctype html>\n<html lang="en">\n<head>\n {2}<meta charset="utf-8">\n {2}<script>/);
-      assert.match(html, /<meta name="referrer" content="no-referrer">/);
+      assert.match(html, /^<!doctype html>\n<html lang="en">\n<head>\n {2}<meta charset="utf-8">\n(?: {2}<meta [^>]*>\n)* {2}<script>/);
+      assert.match(html.slice(0, html.indexOf("<script>")), /<meta name="referrer" content="no-referrer">/);
       assert.match(html, /<noscript>/);
       assert.match(html, /owner-sign-in\.txt/);
       assert.doesNotMatch(html, /http-equiv|src=|href=|https?:\/\//i);
@@ -352,6 +354,17 @@ describe("Vivary owner sign-in page", () => {
         assert.deepEqual(plain.requests, []);
         assert.deepEqual(plain.shown(), ["storage-blocked"]);
       }
+    });
+
+    it("shows only one message when storage changes between addresses in the same tab", async () => {
+      const page = await openSignInPage(html, { hash: `#${SECRET}`, storage: "blocked" });
+      assert.deepEqual(page.shown(), ["storage-blocked"]);
+      page.setStorage(new Map());
+      await page.openAddress(`#${"o".repeat(43)}`);
+      assert.deepEqual(page.shown(), ["help"], "an old address after storage is allowed shows only help");
+      page.setStorage("blocked");
+      await page.openAddress(`#${SECRET}`);
+      assert.deepEqual(page.shown(), ["storage-blocked"]);
     });
 
     it("keeps the local page away from browser storage", async () => {

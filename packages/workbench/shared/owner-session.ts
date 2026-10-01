@@ -1,3 +1,6 @@
+// Every local access session, including a paired browser, uses this email.
+export const VIVARY_LOCAL_OWNER_EMAIL = "owner@local.vivary.test";
+
 // The private proxy sign-in page saves the owner session token under this key,
 // and the app reads it back because that proxy never returns cookies.
 export const VIVARY_OWNER_SESSION_STORAGE_KEY = "vivary:owner-session";
