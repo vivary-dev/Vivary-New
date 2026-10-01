@@ -1,7 +1,7 @@
 ---
 title: "Changelog"
 description: "Release history for the Vivary packages."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/CHANGELOG.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/CHANGELOG.md"
 ---
 
 Notable changes to Vivary. The project ships several **independently versioned**

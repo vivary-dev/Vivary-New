@@ -155,6 +155,13 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #152, repository name. Agent and contributor instructions, the engineering policy, the README, the Windows
+prerelease and getting-started guides, the in-app documentation link resolver, the site generator, and the plan
+generator now name `vivary-dev/vivary` instead of `vivary-dev/Vivary-New`. Sentences that mean the original CLI
+repository name `vivary-dev/vivary-cli`. Dated plans, packets, receipts, and the changelog keep `Vivary-New` links,
+because GitHub redirects the former name. The bundled managed-project bridge license is now
+`licenses/LICENSE.vivary-managed-project-bridge`. This changes names and links, not the design.
+
 Issue #152, original-repository links. On 2026-09-30 the original CLI repository becomes `vivary-dev/vivary-cli`
 and this repository takes the name `vivary-dev/vivary`. Links to the original repository's issues, pull requests,
 releases, and Actions runs now name `vivary-dev/vivary-cli`, and so does one changelog link to line numbers in a file

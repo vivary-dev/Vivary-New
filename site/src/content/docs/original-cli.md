@@ -1,7 +1,7 @@
 ---
 title: "Original Vivary CLI"
 description: "Package release history, verified versions, setup commands, and workspace contracts for the original Vivary command-line tools."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/ORIGINAL-CLI.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/ORIGINAL-CLI.md"
 ---
 
 This reference preserves the original command tools, package release history,

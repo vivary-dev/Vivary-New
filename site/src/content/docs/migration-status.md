@@ -1,7 +1,7 @@
 ---
 title: "Migration status"
 description: "Current status of stable, optional, experimental, held, deprecated, and planned Vivary surfaces."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/MIGRATION-STATUS.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/MIGRATION-STATUS.md"
 ---
 
 This page classifies public and development surfaces. Published versions are

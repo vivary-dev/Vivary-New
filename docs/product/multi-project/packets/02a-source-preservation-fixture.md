@@ -54,7 +54,7 @@ behavioral requirement or close outcome 02.
 ```console
 git diff --check
 git diff -- docs/product/multi-project/contracts/source-preservation.md docs/product/multi-project/fixtures/source-preservation.json
-gh pr checks 328 --repo vivary-dev/vivary
+gh pr checks 328 --repo vivary-dev/vivary-cli
 ```
 
 ## Stop conditions

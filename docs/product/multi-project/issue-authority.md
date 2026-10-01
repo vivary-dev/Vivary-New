@@ -21,7 +21,7 @@ and forth without a declared synchronization owner.
 
 ## Existing issues retained as inputs
 
-These public `vivary-dev/vivary` issues remain historical inputs. Read live
+These public `vivary-dev/vivary-cli` issues remain historical inputs. Read live
 issue state before working on a linked requirement. This map does not close,
 erase, or waive any accepted evidence requirement.
 
