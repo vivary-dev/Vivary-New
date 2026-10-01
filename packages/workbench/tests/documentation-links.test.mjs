@@ -4,16 +4,16 @@ import { documentationLink, resolveDocumentationLinks } from "../app/lib/documen
 
 test("documentation links resolve to explicit online pages", () => {
   assert.equal(documentationLink("SEMANTIC-MEMORY.md"),
-    "https://github.com/vivary-dev/Vivary-New/blob/dev/docs/SEMANTIC-MEMORY.md");
+    "https://github.com/vivary-dev/vivary/blob/dev/docs/SEMANTIC-MEMORY.md");
   assert.equal(documentationLink("COMMANDS.md#vivary--the-front-door"),
-    "https://github.com/vivary-dev/Vivary-New/blob/dev/docs/COMMANDS.md#vivary--the-front-door");
+    "https://github.com/vivary-dev/vivary/blob/dev/docs/COMMANDS.md#vivary--the-front-door");
   assert.equal(documentationLink("/concepts/"), "https://vivary.vercel.app/concepts/");
   assert.equal(documentationLink("../packages/workbench/server/local-access.ts"),
-    "https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts");
+    "https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/local-access.ts");
   assert.equal(documentationLink("../.agents/skills/maintain-hldd/SKILL.md"),
-    "https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md");
+    "https://github.com/vivary-dev/vivary/blob/dev/.agents/skills/maintain-hldd/SKILL.md");
   assert.equal(documentationLink("../packages"),
-    "https://github.com/vivary-dev/Vivary-New/tree/dev/packages");
+    "https://github.com/vivary-dev/vivary/tree/dev/packages");
   assert.equal(documentationLink("https://github.com/vivary-dev/vivary/tree/dev/packages"),
     "https://github.com/vivary-dev/vivary/tree/dev/packages");
 });
@@ -31,7 +31,7 @@ test("documentation links reject unsupported destinations", () => {
 test("Markdown anchors carry resolved destinations before rendering", () => {
   assert.equal(
     resolveDocumentationLinks("[catalog](product/multi-project/specification/modules.md) [section](#original-engine)"),
-    "[catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) [section](#original-engine)",
+    "[catalog](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/modules.md) [section](#original-engine)",
   );
   assert.equal(resolveDocumentationLinks("[unsafe](javascript:alert(1))"), "[unsafe](#))");
 });

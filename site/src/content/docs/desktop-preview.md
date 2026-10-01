@@ -1,12 +1,12 @@
 ---
 title: "Windows prerelease installation"
 description: "Download, verify, install, preserve data, and review the limits of the Windows portable prerelease."
-editUrl: "https://github.com/vivary-dev/Vivary-New/edit/dev/docs/desktop-preview.md"
+editUrl: "https://github.com/vivary-dev/vivary/edit/dev/docs/desktop-preview.md"
 ---
 
 Verified 2026-09-22. This is an unsigned Windows x64 portable preview of Vivary.
 It includes PR #78's desktop browser-link fix and the preceding application changes. It is available
-from the [GitHub prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22). The repository and download are public.
+from the [GitHub prerelease](https://github.com/vivary-dev/vivary/releases/tag/desktop-preview-2026-09-22). The repository and download are public.
 The complete desktop and self-hosted web acceptance journey remains unfinished.
 
 ## Download and verify
@@ -32,7 +32,7 @@ if ($actual -ne $expected) { throw 'Vivary archive checksum mismatch' }
 If you already use GitHub CLI, download the pinned assets with:
 
 ```console
-gh release download desktop-preview-2026-09-22 --repo vivary-dev/Vivary-New --pattern Vivary-windows-x64-9884670.zip --pattern Vivary-windows-x64-9884670.zip.sha256
+gh release download desktop-preview-2026-09-22 --repo vivary-dev/vivary --pattern Vivary-windows-x64-9884670.zip --pattern Vivary-windows-x64-9884670.zip.sha256
 ```
 
 ## Install and launch
@@ -165,9 +165,9 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 ### Automations
 
 The published `9884670` prerelease predates the issue #51 automation changes. This section
-describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
-records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
-records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
+describes later builds. The [#51 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
+records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
 records a package's test of **Automation files**.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
@@ -192,7 +192,7 @@ If the file changed after the list showed it, Accept and Delete do nothing, and 
 shows its new text with a notice. Read it again before you choose. A file you or a chat
 edit after the run keeps waiting. A run can still delete one of your instruction files,
 and a run that rewrites one hides your earlier text too until you review it. [Issue
-#144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
+#144](https://github.com/vivary-dev/vivary/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
 running.
@@ -295,7 +295,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/vivary/issues/114) fix release the lease at a normal quit. |
 | LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
@@ -308,7 +308,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
 does not publish your laptop to the internet. Consult the
-[Workbench setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md) before enabling remote access.
+[Workbench setup](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/README.md) before enabling remote access.
 
 ## Verification and known limits
 
@@ -344,9 +344,9 @@ self-hosted phone access, and integrated debugging remain outside this bounded r
 Automations were not part of this package's review either. In later builds they run only
 while Vivary is open, runs cannot use MCP tools or wait for an approval, ending Vivary
 without quitting during a run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
-[#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
+[#51 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
 
-See the [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
-and [remaining release work](https://github.com/vivary-dev/Vivary-New/issues/23). For a bug report, include the
+See the [acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
+and [remaining release work](https://github.com/vivary-dev/vivary/issues/23). For a bug report, include the
 release tag, OS version, reproduction steps, and sanitized screenshots or errors.
 Do not include credentials, profile databases, or private transcripts.

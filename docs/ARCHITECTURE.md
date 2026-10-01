@@ -253,6 +253,25 @@ and their storage keep their owners. The desktop guide's event paragraph and tro
 patch README section "Event automation conditions" has the detail. `tests/automation-event-condition.test.mjs`
 failed 4 of 4 on the previous patch, and its two loop cases failed on the first version of this fix.
 
+PR #154 CI timeout. The tests + checks job now allows 30 minutes for dependency installation and its
+sequential suites. The previous 10-minute limit cancelled passing checks before the job finished. The workflow
+keeps every test and acceptance gate; this changes the execution budget, not the product design. The workflow
+and its contract tests support this review.
+
+Issue #152, repository name. Agent and contributor instructions, the engineering policy, the README, the Windows
+prerelease and getting-started guides, the in-app documentation link resolver, the site generator, and the plan
+generator now name `vivary-dev/vivary` instead of `vivary-dev/Vivary-New`. Sentences that mean the original CLI
+repository name `vivary-dev/vivary-cli`. Dated plans, packets, receipts, and the changelog keep `Vivary-New` links,
+because GitHub redirects the former name. The bundled managed-project bridge license is now
+`licenses/LICENSE.vivary-managed-project-bridge`. This changes names and links, not the design.
+
+Issue #152, original-repository links. On 2026-09-30 the original CLI repository becomes `vivary-dev/vivary-cli`
+and this repository takes the name `vivary-dev/vivary`. Links to the original repository's issues, pull requests,
+releases, and Actions runs now name `vivary-dev/vivary-cli`, and so does one changelog link to line numbers in a file
+whose lines have since moved here. Repository-root, issue-tracker, API, and blob or tree links whose path exists in
+this repository stay unchanged, because after the rename they name this repository. This changes documentation links
+only, not the design.
+
 Issue #30 acceptance references now identify the tested browser and Windows
 candidates, the Node 24.19 runtime checks, and the shared work-panel grip and
 Details containment proof. The issue #9 row reflects its verified merged delivery.

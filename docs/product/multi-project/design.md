@@ -166,7 +166,7 @@ The owner answered the three questions in
    without a gate is not selected.
 
 The owner subsequently added **decision four**, recorded separately in
-[PR #334](https://github.com/vivary-dev/vivary/pull/334) on 2026-09-06:
+[PR #334](https://github.com/vivary-dev/vivary-cli/pull/334) on 2026-09-06:
 Vivary drives whichever coding agent the user already pays for, Claude Code,
 Codex, or another through an adapter, with one role contract and one receipt
 shape. The loop never requires its own model API key and never resells tokens.

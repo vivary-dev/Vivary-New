@@ -237,7 +237,7 @@ If the answer to #4 or #5 is yes, use the simpler method.
 
 ## Issue-led delivery
 
-Approved by Jeff on 2026-09-13. GitHub `vivary-dev/Vivary-New` issues own task
+Approved by Jeff on 2026-09-13. GitHub `vivary-dev/vivary` issues own task
 goals, acceptance, dependencies, ownership, priority, and lifecycle. Documents
 own architecture, code contracts, implementation guidance, and retained
 evidence. Packets and the generated graph are synchronized references, not an

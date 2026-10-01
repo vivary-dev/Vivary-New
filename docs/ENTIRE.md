@@ -13,7 +13,7 @@ explain the capture model.
 ## Enable a checkout
 
 Install Entire using its official instructions and authenticate your contributor
-account. Confirm `origin` is `vivary-dev/Vivary-New` and `entire` points to its
+account. Confirm `origin` is `vivary-dev/vivary` and `entire` points to its
 Entire mirror. Never put authentication tokens in tracked files.
 
 For a fresh checkout with no checkpoint store, run:
