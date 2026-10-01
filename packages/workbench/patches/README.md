@@ -818,6 +818,22 @@ as each refused webhook call does, so a frequent event such as
 network error, is logged and still records a plain skip with no history row,
 as before, because an event has no queue to retry it from.
 
+A refused event records its history row and last status but emits no
+`automation.run.finished`, because nothing ran. That event's registered
+description says it fires after a run records a terminal status.
+`finishAutomationRun` takes `{ emitFinished: false }` for this, and
+`recordAutomationFailure` passes it only from `handleEvent`. Without it, an
+automation subscribed to `automation.run.finished`, with a condition and no
+Anthropic key, refused the event, wrote its row, received the event that row
+emitted, and refused again without end. Two such automations retriggered each
+other, and a rejected key looped with one Anthropic call per turn. The local
+SQLite driver answers synchronously, so the loop ran on microtasks alone, and
+in the test no timer fired until the process was killed. A webhook refusal
+still emits the event, because an external call starts each one, so it cannot
+loop. A run that finishes still emits it too. An automation that retriggers
+itself through its own finished run is #110's case, and this patch leaves it
+alone.
+
 `conditionKeyMissingMessage` and `conditionKeyRejectedMessage` build the
 wording for both triggers, and the webhook messages are unchanged.
 `recordAutomationWebhookFailure` is now `recordAutomationFailure`. It takes the
@@ -834,7 +850,13 @@ reaches Anthropic and the history gets an `automation_condition_key_missing`
 row. A rejected Anthropic key gets an `automation_condition_key_rejected` row
 and no run. With both keys and OpenRouter active, only the Anthropic key
 reaches Anthropic and the run starts. An automation without a condition runs
-with no stored key. All four cases failed on the previous patch.
+with no stored key. These four cases failed on the previous patch. Two more
+cases emit one `automation.run.finished` for another automation's path. One
+subscribed automation with a condition and no Anthropic key gets exactly one
+refusal row and sends nothing to Anthropic, and two such automations get one
+row each. A listener drops every listener for that event after 50 events, so a
+loop fails the case instead of hanging it. On the first version of this fix,
+each automation wrote 50 rows.
 
 Upstream could take this change as it is. Remove it when an upstream release
 checks event conditions with an Anthropic key only, records a missing or

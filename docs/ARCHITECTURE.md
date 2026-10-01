@@ -159,13 +159,15 @@ Issue #135. An event automation's condition now follows the webhook rule from #1
 dispatcher looks up a key only for an automation with a condition, and only an Anthropic key, from the owner's settings
 or the launch environment. Before, it sent Anthropic the key of whatever provider the `agent-engine` setting names. A
 missing or rejected Anthropic key starts no run and leaves an errored history row with
-`automation_condition_key_missing` or `automation_condition_key_rejected`. Another failure of the check stays a plain
-skip, because an event has no queue to retry it from. An automation without a condition no longer needs a stored key,
+`automation_condition_key_missing` or `automation_condition_key_rejected`. That row emits no
+`automation.run.finished`, because nothing ran, so an automation subscribed to that event cannot retrigger itself
+through its own refusal. Issue #110 still owns a run that retriggers itself through its own finished run. Another
+failure of the check stays a plain skip, because an event has no queue to retry it from. An automation without a condition no longer needs a stored key,
 because its run resolves its own engine and credential as a scheduled run does. The Unattended automation runs row now
 names event automations in its condition sentence. The runtime flows are unchanged, because the dispatcher, the runs,
 and their storage keep their owners. The desktop guide's event paragraph and troubleshooting row say the same. The
-patch README section "Event automation conditions" has the detail, and `tests/automation-event-condition.test.mjs`
-failed 4 of 4 on the previous patch.
+patch README section "Event automation conditions" has the detail. `tests/automation-event-condition.test.mjs`
+failed 4 of 4 on the previous patch, and its two loop cases failed on the first version of this fix.
 
 PR #127 brings the dated diagram collection together with the current design without replacing its newer product reviews. The project flow separates denied/revoked access from authorized missing-folder recovery, and resume from new-runtime selection, denial returns to the running session, pending approval exposes Stop, and answer-bearing questions/forms collect required content before Continue. Automation flows distinguish event triggers, paused definitions, rejected/duplicate webhooks that do not queue runs, and dispatch-specific next-run bookkeeping; deletion terminates the definition/run-row lifecycle while preserving internal job thread rows. Run inspection uses automation history; retained run threads are not openable from Settings or chat history. The workspace interaction contract, Code approval owner, and automation lifecycle receipt support these corrections. The planning checker recognizes only signature-matching JPEG and tldraw assets directly in the diagram directory, with the exact visually reviewed source/export hashes pinned in code. Changed, unknown, or mismatched exports require another visual/source review and deliberate pin update before acceptance; other planning text remains strict UTF-8, and preflight and visible-byte privacy checks remain. Tldraw ZIP entries are decompressed in memory under entry/count/total-size limits and scanned for private paths and credentials; invalid or unscannable archives fail closed. The scan validates actual DEFLATE stream completion and sizes, and decodes escaped strings in SQLite diagram records, rather than trusting ZIP headers or raw bytes alone. The editable archive uses ZIP compression while preserving identical entry contents, so storage encoding does not change any diagram record. Its thumbnail-sized preview is rendered from the same reviewed diagram; the editable database, viewport settings, and full-size exports are unchanged. This changes documentation and its validation, not runtime behavior or release acceptance.
 

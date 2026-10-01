@@ -5501,7 +5501,7 @@ index ed81476fcde88609feb1e861346cf3baa10bce35..bf184155efb3bf1243c704685d6d5baa
  export { RECURRING_JOBS_SWEEP_PATH, RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, } from "./scheduler-dispatch.js";
  export { createJobTools } from "./tools.js";
 diff --git a/dist/jobs/run-history.d.ts b/dist/jobs/run-history.d.ts
-index 2188250bd393e45badf4a61d0df23c28099bf000..ca094450eb8e3f31b277739c8f78fb76fa921cd7 100644
+index 2188250bd393e45badf4a61d0df23c28099bf000..c857e8b89c9ddea98470d53a69c21fef9c321c1a 100644
 --- a/dist/jobs/run-history.d.ts
 +++ b/dist/jobs/run-history.d.ts
 @@ -18,6 +18,8 @@ export interface AutomationRun {
@@ -5525,8 +5525,20 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..ca094450eb8e3f31b277739c8f78fb76
  export declare const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[];
  export declare function runAutomationRunMigrations(nitroApp: unknown): Promise<void>;
  export declare function ensureTable(): Promise<void>;
+@@ -62,7 +69,10 @@ export declare function listUnclaimedAutomationRuns(options?: {
+     olderThanMs?: number;
+     limit?: number;
+ }): Promise<AutomationRun[]>;
+-export declare function finishAutomationRun(id: string, status: Exclude<AutomationRunStatus, "running">, error?: string, errorCode?: string): Promise<void>;
++export declare function finishAutomationRun(id: string, status: Exclude<AutomationRunStatus, "running">, error?: string, errorCode?: string, options?: {
++    /** False records the terminal status without emitting `automation.run.finished`. */
++    emitFinished?: boolean;
++}): Promise<void>;
+ /**
+  * Attach the agent thread once it exists. The thread is created after the run
+  * row so the history survives a crash between the two.
 diff --git a/dist/jobs/run-history.js b/dist/jobs/run-history.js
-index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..b7000b1d0dd3730134f078acbcbb05da43f68d6e 100644
+index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd4151eeeae2 100644
 --- a/dist/jobs/run-history.js
 +++ b/dist/jobs/run-history.js
 @@ -5,6 +5,7 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
@@ -5583,7 +5595,16 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..b7000b1d0dd3730134f078acbcbb05da
              ...(appId ? [appId] : []),
              Date.now() - olderThanMs,
          ],
-@@ -315,7 +317,8 @@ export async function finishAutomationRun(id, status, error, errorCode) {
+@@ -302,7 +304,7 @@ async function pruneAutomationRuns(owner, automation) {
+         args: [owner, automation, owner, automation],
+     });
+ }
+-export async function finishAutomationRun(id, status, error, errorCode) {
++export async function finishAutomationRun(id, status, error, errorCode, options) {
+     await ensureTable();
+     const existing = await getDbExec().execute({
+         sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+@@ -315,12 +317,15 @@ export async function finishAutomationRun(id, status, error, errorCode) {
          args: [
              status,
              finishedAt,
@@ -5593,6 +5614,14 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..b7000b1d0dd3730134f078acbcbb05da
              errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
              id,
          ],
+     });
+-    if (!row)
++    // Vivary #135: a caller that records a refusal, not a run, can leave out
++    // the event.
++    if (!row || options?.emitFinished === false)
+         return;
+     const rawStartedAt = Number(row.started_at);
+     const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
 diff --git a/dist/jobs/run-now.d.ts b/dist/jobs/run-now.d.ts
 index d171bf0e5f313133e3f0dc937bafaf9a29e25084..ab3b310f74cfe514977783531512ea91b900798c 100644
 --- a/dist/jobs/run-now.d.ts
@@ -8131,7 +8160,7 @@ index 489b36d86f416c8f40c44727bd62e190048f43c4..a2c488f61e8f7fc01b1002d6f99fd223
   * Assemble the prompt for an agentic trigger run.
   *
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec36331d2f1b9 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a8646a5fb2f4 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
 @@ -5,12 +5,13 @@
@@ -8162,7 +8191,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
              let identity;
              if (resource.owner === "__shared__") {
                  // Compatibility for old workspace-wide event resources. New personal
-@@ -247,17 +252,34 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -247,17 +252,37 @@ async function handleEvent(eventName, payload, eventMeta) {
                  }
                  identity = resolved.identity;
              }
@@ -8180,9 +8209,12 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
 +                ? (await getOwnerApiKeyForEngine("anthropic", identity.userEmail)).apiKey ||
 +                    deps.apiKey
 +                : undefined;
++            // A refused event emits no automation.run.finished, because nothing ran.
++            // An automation subscribed to that event would otherwise refuse the
++            // event its own history row emits, without end.
 +            const target = { owner: resource.owner, path: resource.path, automationId: resource.id };
 +            if (hasCondition && !conditionKey) {
-+                await recordAutomationFailure(target, conditionKeyMissingMessage("event"), "automation_condition_key_missing", identity);
++                await recordAutomationFailure(target, conditionKeyMissingMessage("event"), "automation_condition_key_missing", identity, { emitFinished: false });
 +                continue;
 +            }
 +            let matches;
@@ -8191,7 +8223,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
 +            }
 +            catch (error) {
 +                if (error?.status === 401 || error?.status === 403) {
-+                    await recordAutomationFailure(target, conditionKeyRejectedMessage(error.status, "event"), "automation_condition_key_rejected", identity);
++                    await recordAutomationFailure(target, conditionKeyRejectedMessage(error.status, "event"), "automation_condition_key_rejected", identity, { emitFinished: false });
 +                }
 +                else {
 +                    // An event has no queue to retry from, so another failure stays a
@@ -8206,7 +8238,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
              if (!matches) {
                  await recordTriggerSkip(resource, "skipped", undefined);
                  continue;
-@@ -268,6 +290,11 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -268,6 +293,11 @@ async function handleEvent(eventName, payload, eventMeta) {
              const dispatchKey = `${resource.owner}:${resource.path}`;
              if (_dispatchingTriggers.has(dispatchKey))
                  continue;
@@ -8218,7 +8250,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
              if (meta.mode === "agentic") {
                  _dispatchingTriggers.add(dispatchKey);
                  try {
-@@ -286,6 +313,70 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -286,6 +316,70 @@ async function handleEvent(eventName, payload, eventMeta) {
          console.error(`[triggers] Error handling event "${eventName}":`, err);
      }
  }
@@ -8249,10 +8281,10 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
 + * Record a webhook call or an event that did not run where the owner sees it:
 + * an errored history row and the automation's last status. `target` names the
 + * automation by owner, path, and resource id, and `identity` names the user
-+ * and organization the run would have used. A failure to record is logged,
-+ * never thrown.
++ * and organization the run would have used. `options` goes to
++ * `finishAutomationRun`. A failure to record is logged, never thrown.
 + */
-+export async function recordAutomationFailure(target, message, errorCode, identity) {
++export async function recordAutomationFailure(target, message, errorCode, identity, options) {
 +    const orgId = identity?.orgId ?? null;
 +    const historyOwner = orgId
 +        ? organizationResourceOwner(orgId)
@@ -8268,7 +8300,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
 +            orgId,
 +            appId: _deps?.appId,
 +        });
-+        await finishAutomationRun(historyId, "error", message, errorCode);
++        await finishAutomationRun(historyId, "error", message, errorCode, options);
 +        const resource = await resourceGetByPath(target.owner, target.path);
 +        if (resource && resource.id === target.automationId) {
 +            await recordTriggerExecutionOutcome(resource, {
@@ -8289,7 +8321,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
  /**
   * Process a webhook task after the public route has persisted it. The queue
   * worker supplies the target resource identity; the request body never gets
-@@ -297,11 +388,11 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -297,11 +391,11 @@ export async function dispatchAutomationWebhookTask(task) {
          throw new Error("Automation trigger dispatcher is not initialized.");
      const resource = await resourceGetByPath(task.owner, task.path);
      if (!resource || resource.id !== task.automationId) {
@@ -8303,7 +8335,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
      }
      if (!meta.enabled)
          return "completed";
-@@ -314,13 +405,35 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -314,13 +408,35 @@ export async function dispatchAutomationWebhookTask(task) {
      if (!resolved.ok)
          throw new Error(resolved.reason);
      const identity = resolved.identity;
@@ -8343,7 +8375,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
      if (!matches) {
          await recordTriggerSkip(resource, "skipped", undefined);
          return "completed";
-@@ -333,8 +446,9 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -333,8 +449,9 @@ export async function dispatchAutomationWebhookTask(task) {
      if (_dispatchingTriggers.has(dispatchKey))
          return "retry";
      _dispatchingTriggers.add(dispatchKey);
@@ -8354,7 +8386,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
              eventId: task.eventId,
              emittedAt: new Date().toISOString(),
              owner: identity.eventOwner,
-@@ -343,9 +457,19 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -343,9 +460,19 @@ export async function dispatchAutomationWebhookTask(task) {
      finally {
          _dispatchingTriggers.delete(dispatchKey);
      }
@@ -8376,7 +8408,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..275691bb56c8aec092eda09bb4dec363
      if (!_deps)
          return;
      const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -450,5 +574,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
+@@ -450,5 +577,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
              lastError,
          });
          console.error(`[triggers] "${triggerName}" failed:`, lastError);
