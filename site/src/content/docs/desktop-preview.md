@@ -258,13 +258,12 @@ notification reaches your inbox, `run.progress.started` and `run.progress.update
 a run reports progress, `automation.run.finished` when an automation run ends, and
 `test.event.fired` when you ask the agent in a chat to fire a test event. The agent
 accepts other event names, but nothing in Vivary emits them, so such an automation never
-runs. An event run needs an API key for the provider chosen in Settings, saved in Vivary
-or present in its environment at launch. Without one, the event is skipped and
-**Details** shows the reason. A condition on an event automation is checked with
-Anthropic's API using that same key, whatever the provider. A key from another provider
-is rejected, and the event is skipped with no reason shown. [Issue
-#135](https://github.com/vivary-dev/vivary/issues/135) tracks this. Each event run
-writes a chat thread whose name starts with `Trigger: <name>`.
+runs. An event run uses the provider chosen in Settings, as a scheduled run does. A
+condition on an event automation is checked the same way as a webhook condition, with
+Anthropic's API, whatever provider you use for chats, and Vivary sends the event's data to
+Anthropic for the check. It needs an Anthropic API key. Without one, or when Anthropic
+rejects the key, the event does not start a run, and **Details** shows the reason. Each
+event run writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
@@ -305,7 +304,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | A webhook call gets 404 | The URL is wrong or the automation was deleted. Copy the URL again from **Manage** > **Details**. |
 | A webhook call runs late after a restart | A call accepted before a quit, or one whose run the quit interrupted, runs the first time Vivary looks for waiting calls at least 90 seconds after the quit. Vivary looks 10 seconds after it starts and then once a minute, so the call runs about 10 seconds after the next start when the quit was more than about 80 seconds earlier, and 70 to 130 seconds after it otherwise. A call whose run was cut off because Vivary was ended without quitting runs again about 15 minutes after that run began. Later calls for that automation wait behind it. |
 | A webhook call gets 429 | The automation has 20 calls waiting. Wait for them to run, then send the call again. |
-| A webhook automation with a condition never runs | Conditions need an Anthropic API key. Open **Manage** > **Details** for the reason, then add an Anthropic key or remove the condition. |
+| A webhook or event automation with a condition never runs | Conditions need an Anthropic API key. Open **Manage** > **Details** for the reason, then add an Anthropic key or remove the condition. |
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
 does not publish your laptop to the internet. Consult the
