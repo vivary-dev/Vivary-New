@@ -243,6 +243,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #30 updates the Windows x64 Node pin to 24.19.0. The packager still requires
+Workbench output built with that exact Node version and ABI 137. SQLite 12.11.1
+keeps its existing ABI 137 Windows asset. Review checked the runtime pin,
+the build-marker guard, the [official checksums](https://nodejs.org/dist/v24.19.0/SHASUMS256.txt),
+and the [upstream Windows TCP crash report](https://github.com/nodejs/node/issues/63620).
+Node 24.19.0 includes the upstream
+[Windows version-structure initialization fix](https://github.com/libuv/libuv/commit/aabb7651de).
+This runtime update preserves packaging ownership and local access boundaries.
+The original Vivary crash remains unreproduced, and Windows acceptance requires
+a rebuilt package.
+
 Issue #30 preview sizing reuses the shared panel resize and maximize state.
 Parent visual review prompted a compact header and shared action row so phone
 full-page space goes to the iframe while retaining touch targets and direct Stop.
