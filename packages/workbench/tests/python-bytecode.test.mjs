@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import fsPromises, { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,14 +47,30 @@ async function findCached(prefix, name) {
   return hit && path.join(prefix, hit);
 }
 
+// `data` and `install` keep the temp folder's spelling, an 8.3 name on a Windows
+// runner. The bundle root and `realData` are canonical, as production passes them.
 async function folders(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "vivary-bytecode-"));
   t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 5 }));
   const data = path.join(directory, "app data é");
   const install = path.join(directory, "install");
   await Promise.all([mkdir(data), mkdir(install)]);
-  const prefix = async () => path.join(await realpath(data), "python-cache", BUILD);
-  return { directory, data, install, bundle: { root: install, build: BUILD }, prefix };
+  const realData = await realpath(data);
+  const prefix = async () => path.join(realData, "python-cache", BUILD);
+  return { directory, data, realData, install, bundle: { root: await realpath(install), build: BUILD }, prefix };
+}
+
+// Swaps one fs/promises function, here and in the module under test, while `run` runs.
+async function patched(name, replace, run) {
+  const original = fsPromises[name];
+  fsPromises[name] = replace(original);
+  syncBuiltinESMExports();
+  try {
+    return await run();
+  } finally {
+    fsPromises[name] = original;
+    syncBuiltinESMExports();
+  }
 }
 
 async function stderrOf(run) {
@@ -115,13 +132,46 @@ test("a cache inside the install folder or the call's project is refused once pe
   const state = freshState();
   const { lines } = await stderrOf(async () => {
     assert.equal(await bytecodeFlag(state, f.bundle, inner), "-B");
-    for (let call = 0; call < 2; call++) assert.equal(await bytecodeFlag(state, f.bundle, f.data, f.data), "-B");
+    for (let call = 0; call < 2; call++) assert.equal(await bytecodeFlag(state, f.bundle, f.data, f.realData), "-B");
   });
   assert.deepEqual(await readdir(inner), [], "nothing was written in the install folder");
   assert.deepEqual(await readdir(f.data), [], "nothing was written in the project");
   assert.deepEqual(lines, ["[vivary-python-cache] refused inside=bundle", "[vivary-python-cache] refused inside=project"]);
-  assert.equal(await bytecodeFlag(state, f.bundle, f.data, path.join(f.data, "projects", "Alpha")),
+  assert.equal(await bytecodeFlag(state, f.bundle, f.data, path.join(f.realData, "projects", "Alpha")),
     pycachePrefixFlag(await f.prefix()), "a managed project inside the data folder does not hold the cache");
+});
+
+test("a project inside the cache folder is refused once per process and never swept", async t => {
+  const f = await folders(t);
+  const project = path.join(f.realData, "python-cache", "a71d44e0", "project");
+  await mkdir(project, { recursive: true });
+  const state = freshState();
+  const { lines } = await stderrOf(async () => {
+    for (let call = 0; call < 2; call++) assert.equal(await bytecodeFlag(state, f.bundle, f.data, project), "-B");
+  });
+  assert.deepEqual(lines, ["[vivary-python-cache] refused holds=project"]);
+  assert.deepEqual(await readdir(path.join(f.realData, "python-cache")), ["a71d44e0"], "no build folder was made");
+  assert.ok((await stat(project)).isDirectory(), "the project was not swept");
+});
+
+test("a sweep that cannot list or remove a folder logs it and the launch still gets the cache", async t => {
+  const f = await folders(t);
+  const old = path.join(f.data, "python-cache", "a71d44e0");
+  await mkdir(old, { recursive: true });
+  const busy = Object.assign(new Error("busy"), { code: "EBUSY" });
+  const removal = await patched("rm", rm => (target, options) =>
+    path.basename(target) === "a71d44e0" ? Promise.reject(busy) : rm(target, options),
+  () => stderrOf(() => bytecodeFlag(freshState(), f.bundle, f.data)));
+  assert.equal(removal.result, pycachePrefixFlag(await f.prefix()));
+  assert.deepEqual(removal.lines, ["[vivary-python-cache] kept build=a71d44e0 code=EBUSY"]);
+  assert.ok((await stat(old)).isDirectory(), "the folder waits for a later start");
+  const g = await folders(t);
+  const denied = Object.assign(new Error("denied"), { code: "EACCES" });
+  const listing = await patched("readdir", readdir => (target, options) =>
+    path.basename(target) === "python-cache" ? Promise.reject(denied) : readdir(target, options),
+  () => stderrOf(() => bytecodeFlag(freshState(), g.bundle, g.data)));
+  assert.equal(listing.result, pycachePrefixFlag(await g.prefix()));
+  assert.deepEqual(listing.lines, ["[vivary-python-cache] sweep skipped code=EACCES"]);
 });
 
 test("a link or a file where a cache folder belongs gives -B, writes nothing through it, and is retried", async t => {

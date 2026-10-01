@@ -21,7 +21,7 @@ export async function resolveOriginalRuntime(directory) {
     throw new Error("The bundled Vivary runtime path is invalid.");
   }
   // The manifest records the source commit and the hash of every wheel, the bridge, and the interpreter,
-  // so its digest changes exactly when the bundle's Python files can.
+  // so its digest changes whenever the bundle's Python files can.
   const build = createHash("sha256").update(bytes).digest("hex").slice(0, 8);
   return { root, executable, version: manifest.pythonVersion, build };
 }

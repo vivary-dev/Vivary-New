@@ -22,7 +22,8 @@ const BUILD = /^[0-9a-f]{8}$/;
  * Never throws. A bundle with a usable data folder compiles into
  * `<data>/python-cache/<build>`. Anything else keeps `-B`, including a Python
  * outside the bundle, which a prefix would cut off from its own `__pycache__`.
- * `project` is the folder a creator call works on.
+ * `project` is the folder the call works on. `bundle.root` and `project` must
+ * be canonical, because they are compared with the data folder's real path.
  */
 export async function bytecodeFlag(state: BytecodeState, bundle: Bundle | null, dataDir: string | undefined,
   project?: string): Promise<BytecodeFlag> {
@@ -32,9 +33,12 @@ export async function bytecodeFlag(state: BytecodeState, bundle: Bundle | null, 
   const prefix = path.join(data, CACHE_FOLDER, bundle.build);
   // A cache in the install folder would write into the bundle, and one in the
   // project would let that project's tools change what the next command runs.
-  const holder = containsPath(bundle.root, prefix) ? "bundle" : project && containsPath(project, prefix) ? "project" : undefined;
-  if (holder) {
-    logOnce(state, `[vivary-python-cache] refused inside=${holder}`);
+  // A project in the cache folder could be overwritten or swept away.
+  const refusal = containsPath(bundle.root, prefix) ? "inside=bundle"
+    : project && containsPath(project, prefix) ? "inside=project"
+    : project && containsPath(path.dirname(prefix), project) ? "holds=project" : undefined;
+  if (refusal) {
+    logOnce(state, `[vivary-python-cache] refused ${refusal}`);
     return "-B";
   }
   let pending = state.prepared.get(prefix);
@@ -67,8 +71,9 @@ async function prepareCache(state: BytecodeState, prefix: string): Promise<boole
       await mkdir(folder, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "EEXIST") throw error;
       });
-      // lstat reports a link or a Windows junction as a link, never as a directory.
-      if (!(await lstat(folder)).isDirectory()) {
+      // At preparation time each folder must be a directory under its own real name. lstat
+      // refuses a link or a junction, and realpath a mount point lstat reports as a directory.
+      if (!(await lstat(folder)).isDirectory() || await realpath(folder) !== folder) {
         logOnce(state, "[vivary-python-cache] unavailable code=ENOTDIR");
         return false;
       }
@@ -81,15 +86,26 @@ async function prepareCache(state: BytecodeState, prefix: string): Promise<boole
   }
 }
 
-/** Removes each other build's folder. Files, links, junctions, and other names stay. */
+/**
+ * Removes each other build's folder. Files, links, junctions, mount points, and
+ * other names stay. A folder it cannot list or remove never costs the cache.
+ */
 async function sweepOtherBuilds(root: string, build: string): Promise<void> {
-  for (const name of await readdir(root)) {
+  const names = await readdir(root).catch((error: NodeJS.ErrnoException) => {
+    console.error(`[vivary-python-cache] sweep skipped code=${error.code ?? "unknown"}`);
+    return [];
+  });
+  for (const name of names) {
     if (name === build || !BUILD.test(name)) continue;
     const folder = path.join(root, name);
-    if (!(await lstat(folder).catch(() => undefined))?.isDirectory()) continue;
-    // Windows refuses to delete a file a running child holds open. That folder goes at a later server start.
-    if (await rm(folder, { recursive: true, force: true, maxRetries: 3 }).then(() => true, () => false)) {
+    if (!(await lstat(folder).catch(() => undefined))?.isDirectory()
+      || await realpath(folder).catch(() => undefined) !== folder) continue;
+    try {
+      await rm(folder, { recursive: true, force: true, maxRetries: 3 });
       console.error(`[vivary-python-cache] removed build=${name}`);
+    } catch (error) {
+      // Windows refuses to delete a file a running child holds open. That folder goes at a later server start.
+      console.error(`[vivary-python-cache] kept build=${name} code=${(error as NodeJS.ErrnoException).code ?? "unknown"}`);
     }
   }
 }

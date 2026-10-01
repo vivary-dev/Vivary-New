@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -87,7 +87,7 @@ test("a bundled creator call compiles into its build's cache, and keeps -B witho
     await installedPatternCatalog({}, dependencies);
     await previewManagedProject({}, { name: "Alpha" }, dependencies);
     await readWorkspaceContext({ projectId: "project_a", root: path.join(directory, "project") }, [], dependencies);
-    await readWorkspaceContext({ projectId: "project_data", root: data }, [], dependencies);
+    await readWorkspaceContext({ projectId: "project_data", root: await realpath(data) }, [], dependencies);
     await installedPatternCatalog({}, { ...dependencies, dataDir: undefined });
     assert.deepEqual(flags, [["catalog", cache], ["plan", cache], ["context", cache], ["context", "-B"], ["catalog", "-B"]]);
   } finally {

@@ -867,7 +867,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date 
       ORIGINAL_RUN_FAILURES.runtimeUnavailable, 503));
     const { dataDir, receiptDir } = await privateReceiptDirectory(environment.VIVARY_DATA_DIR, workspace.root);
     await governedRequest(workspace);
-    const python = { ...runtime, bytecode: await bytecodeFor(runtime, dataDir) };
+    const python = { ...runtime, bytecode: await bytecodeFor(runtime, dataDir, workspace.root) };
     const invocationFor = (requestFile?: string, document?: string) => {
       const invocation = originalCommandArguments(command, workspace.root, requestFile, document);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
