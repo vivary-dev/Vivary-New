@@ -7453,6 +7453,26 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+CI runs the workbench tests in two jobs apart from `tests + checks`. `workbench
+tests` installs the workbench dependencies and runs state transport, and
+`maintained workbench checks` installs them and runs the maintained checks.
+Serializing the runtime tests raised the state transport step from 137 to 255
+seconds, and `tests + checks`, which took 9m44s on a passing run, was cancelled
+at its 10-minute limit. One combined workbench job would take about 8 minutes,
+and each change adds state transport tests, so the maintained checks run alone.
+The split restores the 10-minute limit for `tests + checks`, superseding the
+temporary 30-minute allowance from PR #154. Both workbench jobs also use a
+10-minute limit. Every job keeps the changed-path guard and every test command
+and flag, including the event-condition regression from PR #153. The pinned pip install stays with the state transport step
+because the desktop launcher test imports pip's vendored distlib. The
+maintained checks run only Node tests, so their job skips the Python setup and
+the pin. No later `tests + checks` step uses the pin. The CI workflow contract
+now requires both workbench jobs to wait for dispatch validation and fail closed
+when it fails, and requires the maintained checks to run once, in their own job.
+Review covered a step comparison of both workflow versions, the contract
+regression tests, and the step times of runs 36808062653 and 36815482778.
+Runtime ownership and product behavior are unchanged.
+
 Issue #135. An event automation's condition now follows the webhook rule from #113. The maintained Core patch's event
 dispatcher looks up a key only for an automation with a condition, and only an Anthropic key, from the owner's settings
 or the launch environment. Before, it sent Anthropic the key of whatever provider the `agent-engine` setting names. A

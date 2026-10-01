@@ -133,6 +133,24 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}\n"
         "        run: git diff --check \"$BASE_SHA...HEAD\"\n"
         "\n"
+        "  workbench:\n"
+        "    needs: changes\n"
+        "    if: ${{ always() }}\n"
+        "    steps:\n"
+        "      - name: require changed-path and dispatch validation\n"
+        "        if: needs.changes.result != 'success'\n"
+        "        run: exit 1\n"
+        "\n"
+        "  workbench-maintained:\n"
+        "    needs: changes\n"
+        "    if: ${{ always() }}\n"
+        "    steps:\n"
+        "      - name: require changed-path and dispatch validation\n"
+        "        if: needs.changes.result != 'success'\n"
+        "        run: exit 1\n"
+        "      - name: maintained workbench checks\n"
+        f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
+        "\n"
         "  governed-platform-proof:\n"
         "    needs: changes\n"
         "    steps:\n"
@@ -200,6 +218,7 @@ WINDOWS_PARITY_CHARACTERIZE_COMMAND = (
     "python scripts/check_installed_route_parity.py --characterize $scripts"
 )
 STRATO_PIN = 'assert version("vivary-strato") == "0.1.3"'
+MAINTAINED_CHECKS_COMMAND = "pnpm --dir packages/workbench test:maintained"
 
 
 def test_real_workflow_passes_and_is_not_modified():
@@ -452,6 +471,41 @@ def test_dispatch_must_run_graph_review_gate():
     message = _run(workflow)
     assert message, "validated dispatches must retain the graph review gate"
     assert "workflow_dispatch" in message
+
+
+def test_workbench_jobs_must_wait_for_dispatch_validation():
+    for job in ("workbench", "workbench-maintained"):
+        workflow = _workflow(INSTALL + AUDIT).replace(
+            f"  {job}:\n    needs: changes\n",
+            f"  {job}:\n",
+            1,
+        )
+        message = _run(workflow)
+        assert message, f"the {job} job must wait for dispatch validation"
+        assert f"{job} job must wait" in message
+
+
+def test_maintained_workbench_checks_must_run_once_in_their_own_job():
+    workflow = _workflow(INSTALL + AUDIT)
+    step = (
+        "      - name: maintained workbench checks\n"
+        f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
+    )
+    duplicated_in_tests = workflow.replace(
+        "      - name: diff hygiene\n",
+        step + "      - name: diff hygiene\n",
+        1,
+    )
+    in_workbench_job = workflow.replace(step, "").replace(
+        "\n  workbench-maintained:\n",
+        step + "\n  workbench-maintained:\n",
+        1,
+    )
+    skipped = workflow.replace(MAINTAINED_CHECKS_COMMAND, "echo skipped")
+    for variant in (duplicated_in_tests, in_workbench_job, skipped):
+        message = _run(variant)
+        assert message, "maintained checks must run once, in their own job"
+        assert MAINTAINED_CHECKS_COMMAND in message
 
 
 def test_hldd_gate_and_regressions_must_run():
