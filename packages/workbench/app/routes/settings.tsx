@@ -13,6 +13,7 @@ import { Button } from "@agent-native/toolkit/ui";
 import { IconFileCheck, IconTerminal2 } from "@tabler/icons-react";
 import { AutomationFileReview } from "@/components/settings/AutomationFileReview";
 import { LocalRuntimeSettings } from "@/components/settings/LocalRuntimeSettings";
+import { McpSettings } from "@/components/settings/McpSettings";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 import {
@@ -83,6 +84,7 @@ export default function SettingsRoute() {
   const browserTab = { id: "browser-access", label: "Browser access", icon: IconTerminal2, group: "agent", content: <BrowserAccessSettings /> };
   const tabs = nativeTabs
     .filter((tab) => tab.id !== "organization" && tab.id !== "workspace")
+    .map((tab) => (tab.id === "mcp" ? { ...tab, content: <McpSettings nativeContent={tab.content} /> } : tab))
     .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, browserTab, automationFilesTab, tab] : [tab]));
   useSetPageTitle("Settings");
 

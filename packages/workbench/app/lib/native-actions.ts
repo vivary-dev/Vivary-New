@@ -1,9 +1,10 @@
 import { useCallback, useRef } from "react";
 import { actionErrorMessage, callAction, tryCallActionKeepalive, notifySessionInvalidated, useSession } from "@agent-native/core/client/hooks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { isValidSessionToken, sessionToken } from "./native-state";
+import { sessionToken } from "./native-state";
 import { isRejectedSessionToken, rejectSessionToken } from "./native-session-rejections";
 import { VIVARY_OWNER_ACTIONS, type VivaryOwnerAction } from "../../shared/owner-actions";
+import { isValidSessionToken } from "../../shared/owner-session";
 
 export type NativeActionCaller = <T>(name: VivaryOwnerAction, params: Record<string, unknown>,
   options?: { keepalive?: boolean }) => Promise<T>;

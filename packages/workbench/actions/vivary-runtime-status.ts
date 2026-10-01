@@ -4,7 +4,7 @@ import { defineAction, fail, type ActionRunContext } from "@agent-native/core/ac
 import { CLI_REGISTRY } from "@agent-native/core/terminal/server";
 import { z } from "zod";
 
-import { VIVARY_LOCAL_OWNER_EMAIL } from "../server/local-access.ts";
+import { VIVARY_LOCAL_OWNER_EMAIL } from "../shared/owner-session.ts";
 import { getVivaryRuntimeStatus, type VivaryRuntimeStatusResult } from "../server/local-runtime-setup.ts";
 
 export default defineAction({

@@ -1,6 +1,6 @@
 # Desktop acceptance status
 
-Updated 2026-09-26. This page is the current tracked acceptance register for the
+Updated 2026-10-01. This page is the current tracked acceptance register for the
 Windows desktop and self-hosted Workbench. GitHub issues still own task
 scope and lifecycle. Dated receipts preserve detailed evidence. This page states
 what a new contributor or tester can rely on now.
@@ -206,6 +206,38 @@ The original installed profiles remained unchanged during the Windows proof.
 The packaged Workbench reports `sourceCommitVerified: false`, and no
 post-restart Native HTTP response was captured. The public `9884670`
 prerelease does not contain these unpublished changes.
+
+## Owner session bootstrap, October 1
+
+Issue #157 requires an owner proof before Vivary creates a local owner session.
+The unpublished `15063405` Windows package, `Vivary-windows-x64-15063405.zip`
+(222,418,656 bytes, SHA-256
+`e369f720e116a04ccfd744b3fc67b75cd26c6c71576d8f8b7953861beaf77fa9`), passed the
+packaged check on 2026-10-01 with fresh profiles and no provider credentials.
+
+- The window opened directly into the signed-in workspace. A normal quit and a
+  relaunch on the same profile kept it signed in.
+- A profile first signed in under the earlier `0ac3bc10` package opened signed in
+  on `15063405` at the same draft, and its owner session count did not change, so
+  the existing session was reused.
+- Raw requests to the desktop port from another local program returned 401 with
+  no header, a guessed capability, or a one-time sign-in header. None returned
+  owner data or a cookie.
+- The desktop wrote no `owner-sign-in.txt`. None of the seven Vivary process
+  command lines held a 43-character token or a secret header name. The server's
+  arguments were only its port and data folder.
+- Settings > MCP showed the local-owner note in place of Native's setup guides,
+  and its link opened Coding runtimes.
+- View > Reload kept the window signed in on the `0ac3bc10` package. It was not
+  rerun on `15063405`, whose later changes do not touch the desktop session path.
+- A normal quit ended every candidate process within 16 seconds.
+
+Hosted checks on Zo are separate from that result. A Chromium journey in
+standalone local mode signed in through the one-time address and refused a
+replay. A disposable private-proxy instance behind the real Zo proxy did the
+same. Its 393 proxied requests carried no `Cookie` header, and 381 were
+authenticated by the `X-Vivary-Session` header. The package's Workbench output
+keeps `sourceCommitVerified: false`, like earlier candidates.
 
 ## Browser access and isolated preview, September 30
 
