@@ -17,12 +17,12 @@ import {
   localAccessRequestRejection,
   readVivarySessionTokens,
   resolveVivaryLocalAccessConfig,
-  vivaryNativeMcpOptions,
   type VivaryLocalAccessConfig,
   type VivaryLocalAccessRequest,
   type VivaryLocalAccessSessionDependencies,
   type VivaryOwnerProof,
 } from "../server/local-access.ts";
+import { NATIVE_MCP_DISCOVERY_PATH, VIVARY_NATIVE_MCP_OPTIONS } from "../server/native-mcp.ts";
 import {
   createVivaryOwnerSignIn,
   VIVARY_OWNER_SIGN_IN_FILE,
@@ -158,6 +158,21 @@ function desktopConfig(): VivaryLocalAccessConfig {
   return config;
 }
 
+// The range of the block an opener starts. Braces in comments and string literals do not count.
+function blockRange(source: string, opener: RegExp): [number, number] {
+  const start = source.search(opener);
+  assert.ok(start >= 0, `${opener} is present`);
+  const masked = source.slice(start).replace(
+    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g,
+    literal => " ".repeat(literal.length));
+  let depth = 0;
+  for (let index = masked.indexOf("{"); index < masked.length; index += 1) {
+    if (masked[index] === "{") depth += 1;
+    if (masked[index] === "}" && --depth === 0) return [start, start + index];
+  }
+  assert.fail(`${opener} closes`);
+}
+
 describe("Vivary local access configuration", () => {
   it("leaves unset and explicit hosted modes to Native's default auth plugin", () => {
     for (const environment of [
@@ -280,25 +295,17 @@ describe("Vivary local access configuration", () => {
     }
   });
 
-  it("serves Native's MCP endpoint and its connect and OAuth routes only in hosted mode", async () => {
+  it("turns off Native's MCP endpoint and its connect, OAuth, embed, and discovery routes", async () => {
     const nativeServer = import.meta.resolve("@agent-native/core/server");
     const { resolveAgentChatMcpOptions } = await import(new URL("./agent-chat/mcp-options.js", nativeServer).href);
     const { resolveCoreRoutesMcpOptions } = await import(
       new URL("./core-routes/mcp-connect-options.js", nativeServer).href);
-    for (const [mode, environment, served] of [
-      ["desktop", localEnvironment({ VIVARY_DESKTOP_HOST: "1" }), false],
-      ["local", localEnvironment(), false],
-      ["private-proxy", privateProxyEnvironment(), false],
-      ["hosted", { NODE_ENV: "production", VIVARY_ACCESS_MODE: "hosted" }, true],
-      ["unset", { NODE_ENV: "production" }, true],
-    ] as const) {
-      const mcp = vivaryNativeMcpOptions(resolveVivaryLocalAccessConfig(environment));
-      assert.equal(resolveAgentChatMcpOptions({ mcp: mcp.agentChat }).enabled, served, mode);
-      assert.equal(resolveCoreRoutesMcpOptions({ mcp: mcp.coreRoutes }).connect, served, mode);
-    }
+    assert.equal(resolveAgentChatMcpOptions(VIVARY_NATIVE_MCP_OPTIONS.agentChat).enabled, false);
+    assert.equal(resolveCoreRoutesMcpOptions(VIVARY_NATIVE_MCP_OPTIONS.coreRoutes).connect, false);
+    assert.equal(VIVARY_NATIVE_MCP_OPTIONS.coreRoutes.disableEmbedRoute, true);
 
     const chatPlugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
-    assert.match(chatPlugin, /\bmcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.agentChat\b/);
+    assert.match(chatPlugin, /\.\.\.vivaryNativeChatProjectOptions,\s*\.\.\.VIVARY_NATIVE_MCP_OPTIONS\.agentChat,?\s*\}\)/);
     const nativeChat = await readFile(new URL("./agent-chat-plugin.js", nativeServer), "utf8");
     // Native imports mountMCP inside the gate, so no call outside it can mount the endpoint.
     const endpointGate = /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*const\s*\{\s*mountMCP\s*\}\s*=\s*await\s+import\([^)]*\);\s*mountMCP\(\s*nitroApp\b/;
@@ -309,10 +316,28 @@ describe("Vivary local access configuration", () => {
     assert.equal(nativeChat.match(/if\s*\(\s*mcpOptions\.enabled\s*\)/g)?.length, 1);
     assert.ok(nativeChat.search(/\bmountMcpServersRoutes\s*\(\s*nitroApp\b/) < nativeChat.search(endpointGate));
 
+    // Native mounts its public MCP discovery card outside that gate and after an await, so Vivary's
+    // refusal, mounted while plugins load, answers first. If Native gates the card, the refusal can go.
+    const [gateStart, gateEnd] = blockRange(nativeChat, /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{/);
+    assert.equal(nativeChat.match(/\bmountWebMcpActionRoutes\s*\(/g)?.length, 1);
+    const cardMount = nativeChat.search(/\bmountWebMcpActionRoutes\s*\(\s*nitroApp\b/);
+    assert.ok(cardMount < gateStart || cardMount > gateEnd, "the discovery card mounts outside the MCP gate");
+    assert.match(nativeChat,
+      /const\s*\{[^}]*\bmountWebMcpActionRoutes\b[^}]*\}\s*=\s*await\s+import\(\s*"\.\/action-routes\.js"\s*\)/);
+    const actionRoutes = await readFile(new URL("./action-routes.js", nativeServer), "utf8");
+    const webMcp = actionRoutes.slice(actionRoutes.search(/export\s+function\s+mountWebMcpActionRoutes\s*\(/));
+    const card = /\.use\(\s*"([^"]+)"\s*,/.exec(webMcp);
+    assert.ok(card);
+    assert.equal(card[1], NATIVE_MCP_DISCOVERY_PATH);
+    assert.ok(card.index < webMcp.search(/\breturn\b/), "the discovery card mounts before any early return");
+    const refusal = await readFile(new URL("../server/plugins/00-mcp-discovery.ts", import.meta.url), "utf8");
+    assert.match(refusal,
+      /defineNitroPlugin\(\s*nitroApp\s*=>\s*\{\s*getH3App\(\s*nitroApp\s*\)\.use\(\s*NATIVE_MCP_DISCOVERY_PATH\s*,\s*defineEventHandler\(\s*\(\)\s*=>\s*Response\.json\(\s*\{[^}]*\}\s*,\s*\{\s*status:\s*404\b/);
+
     // Native skips its default core routes when an app plugin has the same file stem. A packaged
     // build has no plugins folder on disk, so there the plugin must mark the slot before its first await.
     const routesPlugin = await readFile(new URL("../server/plugins/core-routes.ts", import.meta.url), "utf8");
-    assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*mcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.coreRoutes,?\s*\}\)/);
+    assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*\.\.\.VIVARY_NATIVE_MCP_OPTIONS\.coreRoutes,?\s*\}\)/);
     const nativeRoutes = await readFile(new URL("./core-routes-plugin.js", nativeServer), "utf8");
     assert.match(nativeRoutes, /export\s+const\s+defaultCoreRoutesPlugin\s*=\s*createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",?\s*\}\)/);
     const pluginBody = nativeRoutes.slice(nativeRoutes.search(/export\s+function\s+createCoreRoutesPlugin\s*\(/));
@@ -326,6 +351,12 @@ describe("Vivary local access configuration", () => {
     const gatedHandlers = nativeRoutes.slice(connectGate, afterGate).match(connectHandlers)?.length ?? 0;
     assert.ok(gatedHandlers > 0);
     assert.equal(nativeRoutes.match(connectHandlers)?.length, gatedHandlers, "every connect and OAuth route sits behind the gate");
+    // Only MCP tools mint MCP App embed tickets, and both embed routes sit behind disableEmbedRoute.
+    assert.equal(nativeRoutes.match(/\.use\(\s*\x60\$\{P\}\/(?:embed\/start|mcp\/embed-error)\x60/g)?.length, 2);
+    for (const route of [String.raw`embed\/start`, String.raw`mcp\/embed-error`]) {
+      assert.match(nativeRoutes, new RegExp(String.raw`if\s*\(\s*!options\.disableEmbedRoute\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*` +
+        String.raw`getH3App\(\s*nitroApp\s*\)\.use\(\s*\x60\$\{P\}\/${route}\x60`), route);
+    }
   });
 
   it("gives desktop admission only to a desktop config and a sign-in file to every other", async (t) => {
