@@ -1,6 +1,6 @@
 // Shutdown closes the process-wide command host for good, so this test has a
 // file of its own, and node:test runs each file in its own process. Windows CI
-// runs only this file, so it proves the taskkill tree stop on a real Python tree.
+// runs this file, so it proves the taskkill tree stop on a real Python tree.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";

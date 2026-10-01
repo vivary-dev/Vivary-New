@@ -184,10 +184,15 @@ Workbench reaches this runtime through a deterministic server adapter. It:
 - resolves and revalidates the selected project grant;
 - checks governed scope and capsule paths against the canonical project, rejecting
   links and raw dot segments while allowing planned files under verified parents;
-- invokes `python -I -X utf8 -B -m vivary_cli` without a shell;
+- invokes `python -I -X utf8 <bytecode flag> -m vivary_cli` without a shell;
 - bounds time, input, and output;
 - exposes bounded text search for Find and the structure pack for Review; and
 - derives app receipts from `VIVARY_DATA_DIR`, without accepting a caller path.
+
+The bytecode flag is `-Xpycache_prefix=` with this build's folder under
+`python-cache` in the data folder, so each module compiles once and later
+commands read the cache. It is `-B` when no cache can be used. The standalone
+launchers keep `-B`, and the bundle neither ships nor receives a `.pyc` file.
 
 The standalone bundled CLI keeps the complete original command flags and the
 original `.vivary/receipts.jsonl` default. The adapter is neither a model tool

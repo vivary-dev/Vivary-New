@@ -17,7 +17,7 @@ const plan = (target: string): CreatorCall => ({ operation: "plan", target, patt
 const apply = (target: string): CreatorCall => ({ operation: "apply", target,
   acceptedPlanSha256: "sha256:" + "a".repeat(64), patternChoices: [], preset: "coding" });
 const fakeRuntime = (directory: string): CreatorRuntime =>
-  ({ executable: "python-test", bridge: path.join(directory, "managed_project_workspace.py"), version: "test" });
+  ({ executable: "python-test", bridge: path.join(directory, "managed_project_workspace.py"), version: "test", bundle: null });
 
 /** An executor that records each request and holds it until released. */
 function holding() {
@@ -39,7 +39,7 @@ async function standIn(body: string) {
   const directory = await mkdtemp(path.join(tmpdir(), "vivary-creator-runner-"));
   const bridge = path.join(directory, "managed_project_workspace.py");
   await writeFile(bridge, `import json, sys\nsys.stdin.read()\n${body}\n`);
-  return { bridge, runtime: { executable: python, bridge, version: "test" },
+  return { bridge, runtime: { executable: python, bridge, version: "test", bundle: null },
     cleanup: () => rm(directory, { recursive: true, force: true }) };
 }
 

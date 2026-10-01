@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir, symlink, utimes } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, link, readdir, realpath, stat, symlink, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -451,6 +451,29 @@ test("public doctor, find, and check append an app receipt without the question"
     assert.equal(text.includes("private question text"), false);
     assert.equal(text.includes(f.root), false);
   } finally { await f.cleanup(); }
+});
+
+test("an original command keeps -B for a project inside the bytecode cache folder, and that call does not sweep", async () => {
+  const { directory, runtime, data } = await bundle("vivary-original-cache-");
+  const root = path.join(await realpath(data), "python-cache", "a71d44e0", "project");
+  await mkdir(root, { recursive: true });
+  const flags: string[] = [];
+  const read = createProjectReadRunner({
+    environment: () => ({ VIVARY_ORIGINAL_RUNTIME: runtime, VIVARY_DATA_DIR: data }),
+    resolveWorkspace: async () => projectWorkspace("project-a", root), parallelism: 4,
+    execute: async (_python, args) => {
+      flags.push(args[3]);
+      return { exitCode: 0, stdout: "report", stderr: "", signal: null };
+    },
+  });
+  try {
+    const result = await read("project-a", { verb: "doctor" }, context);
+    assert.equal("exitCode" in result && result.exitCode, 0);
+    assert.deepEqual(flags, ["-B"]);
+    assert.ok((await stat(root)).isDirectory(), "the refused call did not sweep");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("a project read names its project and keeps host paths out of band", async () => {

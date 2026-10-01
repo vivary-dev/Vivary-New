@@ -23,6 +23,7 @@ import { EvidenceCodecError, governedDocument, projectAgentActorId, type BoundAc
 import { requireVivaryCodeUser } from "./local-code-agent";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
 import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
+import { bytecodeFlag, type BytecodeFlag, type BytecodeState, type Bundle } from "./python-bytecode.ts";
 
 const REQUEST_BYTES = 65_536;
 const commandSchema = z.discriminatedUnion("verb", [
@@ -80,8 +81,11 @@ export type CreatorCall =
   | { operation: "apply"; target: string; acceptedPlanSha256: string;
       patternChoices: WorkspacePatternChoice[]; preset: WorkspacePreset }
   | { operation: "context"; projectId: string; target: string; candidates?: readonly string[] };
-/** The bundle's interpreter and staged bridge, or a development or standalone Python and the source bridge. */
-export type CreatorRuntime = { executable: string; bridge: string; version: string };
+/**
+ * The bundle's interpreter and staged bridge, or a development or standalone
+ * Python and the source bridge. Only a bundle has a bytecode cache.
+ */
+export type CreatorRuntime = { executable: string; bridge: string; version: string; bundle: Bundle | null };
 type CreatorVerb = `creator-${CreatorCall["operation"]}`;
 
 // A Native tool call may run these reads and the governed evaluations, and none of the owner's commands.
@@ -106,8 +110,8 @@ const QUEUE_WAIT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
 const CHILD_RECEIPT_BYTES = 64 * 1024;
 const STALE_RUN_MS = 10 * 60_000;
-/** Flags every Python child gets. Isolated mode ignores PYTHON* names and the user site. */
-const ISOLATED_PYTHON = ["-I", "-X", "utf8", "-B"] as const;
+/** Flags every Python child gets before its bytecode flag. Isolated mode ignores PYTHON* names and the user site. */
+const ISOLATED_PYTHON = ["-I", "-X", "utf8"] as const;
 
 /** How much a child may print across stdout and stderr, and whether its stdout is redacted. Stderr always is. */
 export type ChildOutput = { bytes: number; stdout: "redacted" | "structured" };
@@ -536,6 +540,8 @@ type CommandHost = {
   running: number; projects: Map<GateKey, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
   /** Commands registered before their request is staged, until their receipt is recorded and their private folder is gone. */
   recording?: Set<Promise<void>>;
+  /** Bytecode cache preparations and the lines already logged about them. */
+  bytecode?: BytecodeState;
 };
 // Action source and Nitro's bundled lifecycle plugin share the same process owner.
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
@@ -721,7 +727,7 @@ type Invocation = { args: string[]; stdin: string; environment: NodeJS.ProcessEn
 type GatedRun = {
   verb: Verb;
   gate: GateKey;
-  python: { executable: string; version: string };
+  python: { executable: string; version: string; bytecode: BytecodeFlag };
   /** Undefined when the verb records nothing, or when no data folder is configured. */
   receiptDir: string | undefined;
   cwd: string;
@@ -730,6 +736,10 @@ type GatedRun = {
   /** Runs with the gate held, before any child exists. A throw here records nothing. */
   admit: (receipts: Receipts) => Promise<Invocation>;
 };
+
+/** One launch's bytecode flag. The host keeps the preparations, so both module copies share them. */
+const bytecodeFor = (bundle: Bundle | null, dataDir: string | undefined, project?: string) =>
+  bytecodeFlag(commandHost.bytecode ??= { prepared: new Map(), logged: new Set() }, bundle, dataDir, project);
 
 /**
  * The one place a Python child starts. It holds the gate while the child
@@ -768,7 +778,7 @@ async function runGated(run: GatedRun, dependencies: Pick<Dependencies, "execute
         run.signal?.throwIfAborted();
         const startedAt = performance.now();
         // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
-        const running = dependencies.execute(run.python.executable, [...ISOLATED_PYTHON, ...invocation.args],
+        const running = dependencies.execute(run.python.executable, [...ISOLATED_PYTHON, run.python.bytecode, ...invocation.args],
           invocation.stdin, run.cwd, invocation.environment, run.signal, run.output);
         started = startedAt;
         try { result = await running; } finally { ended = performance.now(); }
@@ -809,14 +819,15 @@ export async function runCreatorBridge(call: CreatorCall, runtime: CreatorRuntim
   const verb = `creator-${call.operation}` as const;
   const receiptDir = commandPolicy[verb].receipt === "none" || !dependencies.dataDir ? undefined
     : (await privateReceiptDirectory(dependencies.dataDir)).receiptDir;
+  const project = call.operation === "catalog" ? undefined : call.target;
+  const python = { ...runtime, bytecode: await bytecodeFor(runtime.bundle, dependencies.dataDir, project) };
   const result = await runGated({
-    verb, gate: creatorGate(call), python: runtime, receiptDir,
+    verb, gate: creatorGate(call), python, receiptDir,
     // The bridge finds its engine from its own file, never from its working folder.
     cwd: path.dirname(runtime.bridge), output: CREATOR_OUTPUT,
     // The bridge calls library functions and never writes a component receipt, so it gets no receipt path.
     admit: async () => ({ args: [runtime.bridge], stdin: JSON.stringify(bridgeRequest(call)),
-      environment: originalChildEnvironment(runtimeDependencies.environment(), undefined,
-        call.operation === "catalog" ? undefined : call.target) }),
+      environment: originalChildEnvironment(runtimeDependencies.environment(), undefined, project) }),
   }, { execute: dependencies.execute ?? runtimeDependencies.execute, parallelism: runtimeDependencies.parallelism });
   return { exitCode: result.exitCode, stdout: result.stdout };
 }
@@ -856,6 +867,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date 
       ORIGINAL_RUN_FAILURES.runtimeUnavailable, 503));
     const { dataDir, receiptDir } = await privateReceiptDirectory(environment.VIVARY_DATA_DIR, workspace.root);
     await governedRequest(workspace);
+    const python = { ...runtime, bytecode: await bytecodeFor(runtime, dataDir, workspace.root) };
     const invocationFor = (requestFile?: string, document?: string) => {
       const invocation = originalCommandArguments(command, workspace.root, requestFile, document);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
@@ -867,7 +879,7 @@ function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date 
     const checked = governed ? undefined : invocationFor();
     let current!: LocalProjectWorkspace;
     const result = await runGated({
-      verb: command.verb, gate: projectGate(projectId), python: runtime, receiptDir, cwd: dataDir,
+      verb: command.verb, gate: projectGate(projectId), python, receiptDir, cwd: dataDir,
       output: ORIGINAL_OUTPUT, signal: context?.signal,
       admit: async receipts => {
         current = await dependencies.resolveWorkspace(context, projectId);

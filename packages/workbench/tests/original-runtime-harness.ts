@@ -2,12 +2,14 @@
 // process-wide command host for good, so each shutdown test lives in its own
 // file, and node:test runs each file in its own process.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ActionRunContext } from "@agent-native/core/action";
 import type { LocalProjectWorkspace } from "../server/project-services.mjs";
 import { createAdoptionCommandRunner, createOriginalCommandRunner, createProjectEvaluateRunner } from "../server/original-runtime";
+import { pycachePrefixFlag } from "../server/python-bytecode.ts";
 
 export const context: ActionRunContext = { caller: "http", userEmail: "owner@example.test", orgId: "test-org" };
 
@@ -23,11 +25,18 @@ export async function bundle(prefix: string) {
   return { directory, runtime, data, executable };
 }
 
+/** The folder a fixture bundle's launches compile into, named by its manifest's digest. */
+export async function cacheFolder(runtime: string, data: string) {
+  const build = createHash("sha256").update(await readFile(path.join(runtime, "manifest.json"))).digest("hex").slice(0, 8);
+  return path.join(await realpath(data), "python-cache", build);
+}
+
 export const projectWorkspace = (projectId: string, root: string): LocalProjectWorkspace => ({ root, actorId: "actor-owner", label: "Project A",
   projectId, rootId: "root-a", bindingId: "binding-a", bindingRevision: 1, policyRevision: 1, locationRef: "local:a", verificationKind: "local-stat-revalidated-v1" });
 
 export async function fixture(inspect?: (args: string[], stdin: string) => Promise<void>) {
   const { directory, runtime, data, executable } = await bundle("vivary-original-");
+  const cache = await cacheFolder(runtime, data);
   const root = path.join(directory, "project");
   await mkdir(root);
   let workspace = projectWorkspace("project-a", root);
@@ -43,7 +52,8 @@ export async function fixture(inspect?: (args: string[], stdin: string) => Promi
     execute: async (python, args, stdin, cwd, environment) => {
       calls++;
       assert.equal(python, executable);
-      assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", "-B", "-m", "vivary_cli"]);
+      assert.deepEqual(args.slice(0, 6), ["-I", "-X", "utf8", pycachePrefixFlag(cache), "-m", "vivary_cli"]);
+      assert.ok((await stat(cache)).isDirectory(), "the build folder exists before the child starts");
       assert.equal(cwd, data);
       const childLog = environment.VIVARY_RECEIPT_LOG;
       // A component writes a private receipt. The app records decide and every project read, and logs reads the shared log.
