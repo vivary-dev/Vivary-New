@@ -830,9 +830,7 @@ other, and a rejected key looped with one Anthropic call per turn. The local
 SQLite driver answers synchronously, so the loop ran on microtasks alone, and
 in the test no timer fired until the process was killed. A webhook refusal
 still emits the event, because an external call starts each one, so it cannot
-loop. A run that finishes still emits it too. An automation that retriggers
-itself through its own finished run is #110's case, and this patch leaves it
-alone.
+loop. The section "Event automation loops" says which finished runs emit it.
 
 `conditionKeyMissingMessage` and `conditionKeyRejectedMessage` build the
 wording for both triggers, and the webhook messages are unchanged.
@@ -861,6 +859,97 @@ each automation wrote 50 rows.
 Upstream could take this change as it is. Remove it when an upstream release
 checks event conditions with an Anthropic key only, records a missing or
 rejected key in the automation's history, and passes the same test.
+
+## Event automation loops
+
+Issue #110. Every finished automation run emitted `automation.run.finished`,
+and the trigger dispatcher starts each enabled event automation subscribed to
+that event. The only guard skipped an automation whose last status still read
+"running". That guard stops an overlap, not a sequential loop. A
+self-subscribed automation started again from its own finished run whenever
+its earlier run had settled first. Two subscribed automations traded runs
+without end, whether their runs succeeded, failed, or failed with
+`missing_credentials` for want of a provider key. The #135 change covered only
+refused conditions.
+
+Two rules now hold.
+
+A run that a bus event started finishes silently. `dispatchAgentic` in
+`triggers/dispatcher.js` takes a required `startedBy`. `handleEvent` passes
+`"event"`, and `dispatchAutomationWebhookTask` passes `"webhook"`.
+`dispatchAgenticRun` gives the runner `emitFinished: startedBy === "webhook"`,
+so a missing value is silent and fails toward no loop.
+`jobs/background-automation-runner.js` takes the new `emitFinished` option and
+passes it to `finishAutomationRun` on the success path and on the error and
+interrupted path. Unset emits, so scheduled runs, Run now, and remote
+execution still emit. Every `automation.run.finished` now comes from a run
+that a schedule, Run now, remote execution, or a webhook call started. No
+cycle of runs can pass through that event, whatever other event closes the
+cycle. The rule covers runs that any event started, not only those that
+`automation.run.finished` started. A run can send an inbox notification, and
+an automation on `notification.sent` would otherwise restart the first
+automation through its own finish.
+
+An automation never starts from its own run. `handleEvent` skips an
+`automation.run.finished` event whose payload names the subscriber's path and
+the owner on the subscriber's history rows. `isOwnAutomationRun` derives that
+owner with `automationHistoryOwner` in `jobs/run-history.js`, the function
+every history writer uses. So an organization automation does not take its
+creator's personal automation at the same path for itself. The check runs
+after the identity and owner checks and before the condition, so a skipped
+event costs no classifier call. It stops a scheduled run or Run now of a
+self-subscribed automation from starting that automation again.
+
+A skipped event writes no history row, no last status, and no
+`recordTriggerSkip`. A skip record would write "skipped" over the status of
+the run that just finished. A silent finish is not a skip. It records its
+history row and the automation's last status as before, and leaves out only
+the event.
+
+The silent finish holds across a restart, because a row that an event started
+has no other finisher. `automations/service.js` gives every event automation
+an empty schedule, and execution hosts take only scheduled automations. The
+stale-row sweep in `jobs/scheduler.js` skips automations without a schedule.
+`listUnclaimedAutomationRuns` reads only rows that Run now queued. So the
+runner and `recordAutomationFailure` are the only finishers of such a row. A
+row that a crash leaves running reads as interrupted and emits nothing.
+
+The owner sees each real run in history with its own status. After one
+scheduled run with two subscribed automations, each subscriber shows one run.
+An automation on `automation.run.finished` no longer hears about runs that
+events started, including their failures. Settings still shows those failures.
+The registered description of `automation.run.finished`, which the agent reads
+before it defines an automation, now says which runs fire it and that an
+automation is never started by its own runs.
+
+Two gaps stay open, and neither is #110's. Two automations on
+`notification.sent` whose runs each send an inbox notification can still
+alternate. That loop has no `automation.run.finished` edge, and closing it
+needs causation carried on the events a run emits. An organization
+automation's finished run reaches no subscriber, because its event owner is
+the organization owner and `automationMatchesEventOwner` compares the
+creator's email. That is a visibility gap, not a loop. This change adds no
+column, migration, or payload field. If a second subscriber of
+`automation.run.finished` or a "started by" history view arrives, store the
+origin on the row with a named migration and add an optional payload key.
+
+Run `node --test packages/workbench/tests/automation-event-loop.test.mjs`. It
+uses a disposable SQLite database, a fake engine, and a closed network. A
+listener counts `automation.run.finished` events and drops every listener
+after 30, so a loop fails a case instead of hanging it. A self-subscribed
+automation whose own run finishes twice gets no extra run. One outside run
+starts each of two subscribed automations once, whether they succeed, fail, or
+lack a credential, and only the outside run emits the event. A run that
+another event started starts no subscriber. A webhook call, queued as the
+route queues it and run by the in-process runner, starts a subscriber once,
+and that subscriber's finish emits nothing. Unit cases check
+`isOwnAutomationRun` for a personal, an organization, and a legacy
+`__shared__` automation. All eight cases fail on the previous patch. Removing
+each part of the fix fails at least one case.
+
+Upstream could take this change as it is. Remove it when an upstream release
+keeps runs that events started and an automation's own runs from starting
+`automation.run.finished` subscribers, and passes the same test.
 
 ## Builder.io offers in local mode
 
