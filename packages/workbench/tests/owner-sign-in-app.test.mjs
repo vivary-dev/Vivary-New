@@ -148,9 +148,11 @@ for (const [name, mode] of Object.entries(modes)) {
       const mcp = await mcpInitialize(server.port, route, { host: raw.host });
       assert.notEqual(mcp.status, 200, `${route} must not admit a raw local program that names the owner`);
       const device = await send(server.port, 'POST', `${route}/connect/device/start`, raw, '{}');
+      assert.ok([401, 404].includes(device.status), `${route} connect is unmounted, got ${device.status}`);
       assert.doesNotMatch(device.body, /device_code|user_code/, `${route} must not start an MCP connect flow`);
       const client = await send(server.port, 'POST', `${route}/oauth/register`, raw,
         JSON.stringify({ client_name: 'raw-local-program', redirect_uris: ['http://127.0.0.1:9/callback'] }));
+      assert.ok([401, 404].includes(client.status), `${route} OAuth is unmounted, got ${client.status}`);
       assert.doesNotMatch(client.body, /client_id/, `${route} must not register an MCP OAuth client`);
     }
 

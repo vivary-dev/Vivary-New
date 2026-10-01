@@ -309,11 +309,15 @@ describe("Vivary local access configuration", () => {
     assert.equal(nativeChat.match(/if\s*\(\s*mcpOptions\.enabled\s*\)/g)?.length, 1);
     assert.ok(nativeChat.search(/\bmountMcpServersRoutes\s*\(\s*nitroApp\b/) < nativeChat.search(endpointGate));
 
-    // Native mounts its default core routes only when no app plugin has the same file stem.
+    // Native skips its default core routes when an app plugin has the same file stem. A packaged
+    // build has no plugins folder on disk, so there the plugin must mark the slot before its first await.
     const routesPlugin = await readFile(new URL("../server/plugins/core-routes.ts", import.meta.url), "utf8");
     assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*mcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.coreRoutes,?\s*\}\)/);
     const nativeRoutes = await readFile(new URL("./core-routes-plugin.js", nativeServer), "utf8");
     assert.match(nativeRoutes, /export\s+const\s+defaultCoreRoutesPlugin\s*=\s*createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",?\s*\}\)/);
+    const pluginBody = nativeRoutes.slice(nativeRoutes.search(/export\s+function\s+createCoreRoutesPlugin\s*\(/));
+    const slotMark = pluginBody.search(/\bmarkDefaultPluginProvided\s*\(\s*nitroApp\s*,\s*"core-routes"\s*\)/);
+    assert.ok(slotMark > 0 && slotMark < pluginBody.search(/\bawait\b/), "the core routes slot is marked before any await");
     const connectGate = nativeRoutes.search(
       /const\s+mcpConnect\s*=\s*resolveCoreRoutesMcpOptions\(\s*options\s*\);\s*if\s*\(\s*mcpConnect\.connect\s*\)\s*\{/);
     const afterGate = nativeRoutes.search(/if\s*\(\s*!options\.disableOpenRoute\s*\)/);
