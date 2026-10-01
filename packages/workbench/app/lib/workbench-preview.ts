@@ -1,3 +1,4 @@
+import { flushChatDraftsForClose } from './chat-draft';
 export function previewUrl(value: string, origin: string): string {
   const url = new URL(value, origin);
   if (url.protocol !== "https:" && url.protocol !== "http:") {
@@ -55,4 +56,11 @@ export function previewStartRefused(error: unknown): boolean {
   if (error.status === 409 && "errorCode" in error && error.errorCode === "vivary_project_preview_refused") return true;
   return [400, 403, 404, 422].includes(error.status)
     && "actionMessage" in error && typeof error.actionMessage === "string" && error.actionMessage.trim().length > 0;
+}
+
+export async function refreshPreviewDocument(close: () => Promise<void>, reload: () => void): Promise<boolean> {
+  if (!await flushChatDraftsForClose()) return false;
+  await close();
+  reload();
+  return true;
 }

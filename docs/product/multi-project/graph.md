@@ -59,7 +59,7 @@ In-progress snapshot: none.
 | [23a: Bundle the original Vivary command runtime](packets/23a-bundle-original-vivary-runtime.md) | 23 | done | [] |
 | [23b: Make the packaged application start on Windows](packets/23b-windows-first-launch.md) | 23 | done | [23a] |
 | [23c: Deliver and accept the desktop and self-hosted web product](packets/23c-windows-product-acceptance.md) | 23 | needs-info | [06g, 06h, 04b, 04c, 17a, 18a, 07c, 08a, 11a, 11c, 09b, 09c, 23b, 23d, 11e] |
-| [23d: Connect a responsive browser to a self-hosted Vivary instance](packets/23d-self-hosted-browser-access.md) | 23 | needs-info | [06g, 04a, 17a] |
+| [23d: Connect a responsive browser to a self-hosted Vivary instance](packets/23d-self-hosted-browser-access.md) | 23 | ready-for-human | [06g, 04a, 17a] |
 | [24a: Index canonical sources and module ownership](packets/24a-source-module-navigation.md) | 24 | done | [12a] |
 
 ## Product outcomes

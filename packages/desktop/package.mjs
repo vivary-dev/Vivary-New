@@ -87,7 +87,9 @@ async function packageDesktop() {
     const runtimeDir = path.join(stage, "workbench");
     const nodeDir = path.join(stage, "node");
     await Promise.all([mkdir(appDir), mkdir(path.join(runtimeDir, "bin"), { recursive: true }), mkdir(nodeDir)]);
-    await copyFile(path.join(sourceDesktop, "main.mjs"), path.join(appDir, "main.mjs"));
+    for (const file of ["main.mjs", "browser-access.mjs"]) {
+      await copyFile(path.join(sourceDesktop, file), path.join(appDir, file));
+    }
     await writeFile(path.join(appDir, "package.json"), JSON.stringify({
       name: "vivary", productName: "Vivary", version: manifest.version,
       private: true, type: "module", main: "main.mjs",

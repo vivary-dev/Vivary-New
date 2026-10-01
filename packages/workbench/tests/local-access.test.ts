@@ -598,3 +598,14 @@ describe("Vivary private state session header", () => {
     assert.deepEqual(fixture.cookies, []);
   });
 });
+
+describe('desktop listener admission', () => {
+  it('does not bootstrap an apparent loopback request without desktop admission', async () => {
+    const config = resolveVivaryLocalAccessConfig(localEnvironment());
+    assert.ok(config);
+    const fixture = sessionFixture();
+    const resolver = createVivaryLocalSessionResolver({ ...config, desktop: true }, fixture.dependencies);
+    assert.equal(await resolver(event(request())), null);
+    assert.equal(fixture.persisted.length, 0);
+  });
+});
