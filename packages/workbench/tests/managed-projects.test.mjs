@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   createManagedProject, installedPatternCatalog, previewManagedProject, readWorkspaceContext,
 } from "../server/managed-projects.mjs";
+import { ORIGINAL_RUN_FAILURES } from "../server/original-runtime.ts";
 
 test("production package cwd resolves the shipped creator bridge", async () => {
   const originalCwd = process.cwd();
@@ -39,8 +40,7 @@ test("the creator runs isolated Python through the original runner with only all
     launches.push({ executable, args, request: JSON.parse(stdin), cwd, environment, output });
     return { exitCode: 0, stdout: JSON.stringify(value), stderr: "", signal: null };
   };
-  const python = path.join(dataDir, "python-test");
-  const dependencies = { dataDir, getAccess: async () => ({ code: "catalog" }), python, bridge,
+  const dependencies = { dataDir, getAccess: async () => ({ code: "catalog" }), python: "python-test", bridge,
     access: async () => {} };
   const target = path.join(dataDir, "projects", "Preview");
   const allowed = new Set(["PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "HOME", "USERPROFILE",
@@ -53,7 +53,7 @@ test("the creator runs isolated Python through the original runner with only all
       { ...dependencies, execute: answer({ code: "context", context: { status: "invalid", message: "bad toml" } }) }),
     { status: "invalid", message: "bad toml" });
     for (const launch of launches) {
-      assert.equal(launch.executable, python);
+      assert.equal(launch.executable, "python-test");
       assert.deepEqual(launch.args, ["-I", "-X", "utf8", "-B", bridge]);
       assert.equal(launch.cwd, dataDir);
       assert.deepEqual(launch.output, { bytes: 512 * 1024, stdout: "structured" });
@@ -180,44 +180,42 @@ test("workspace context reads the engine answer through the shipped bridge", asy
   }
 });
 
-test("a bare interpreter name resolves on the server's PATH, so a project's own Python never runs instead",
-  { skip: process.platform === "win32" }, async () => {
-    const originalCwd = process.cwd();
-    const workbenchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-context-venv-"));
-    const root = path.join(folder, "project");
-    const venv = path.join(root, ".venv", "bin");
-    const marker = path.join(folder, "server-python-ran");
-    const real = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
-    await mkdir(venv, { recursive: true });
-    await writeFile(path.join(venv, "python3"),
-      `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
-    // guard:allow-env-credential - Saves the server's executable search path, restored in `finally`.
-    const previous = process.env.PATH;
-    // guard:allow-env-mutation - Puts the project's activated virtual environment first, as a developer shell would.
-    process.env.PATH = `${venv}${path.delimiter}${previous}`; // guard:allow-env-credential - The search path, not a credential.
-    try {
-      process.chdir(workbenchRoot);
-      const answer = await readWorkspaceContext({ projectId: "project_venv", root }, [], { python: "python3" });
-      assert.equal(answer.status, "plain");
-      assert.ok(existsSync(marker), "the context read ran the python3 the server's PATH names");
-    } finally {
-      // guard:allow-env-mutation - Restores the search path saved above.
-      process.env.PATH = previous; // guard:allow-env-credential - The search path, not a credential.
-      process.chdir(originalCwd);
-      await rm(folder, { recursive: true, force: true });
-    }
-  });
+test("a project's own Python never runs for that project", { skip: process.platform === "win32" }, async () => {
+  const originalCwd = process.cwd();
+  const workbenchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-context-venv-"));
+  const root = path.join(folder, "project");
+  const venv = path.join(root, ".venv", "bin");
+  const marker = path.join(folder, "project-python-ran");
+  const real = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
+  await mkdir(venv, { recursive: true });
+  await writeFile(path.join(venv, "python3"),
+    `#!/bin/sh\n: > ${JSON.stringify(marker)}\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
+  // guard:allow-env-credential - Saves the server's executable search path, restored in `finally`.
+  const previous = process.env.PATH;
+  // guard:allow-env-mutation - Puts the project's activated virtual environment first, as a developer shell would.
+  process.env.PATH = `${venv}${path.delimiter}${previous}`; // guard:allow-env-credential - The search path, not a credential.
+  try {
+    process.chdir(workbenchRoot);
+    const answer = await readWorkspaceContext({ projectId: "project_venv", root }, [], { python: "python3" });
+    assert.equal(answer.status, "plain", "the context read ran the next python3 on the server's PATH");
+    assert.equal(existsSync(marker), false, "the project's .venv python3 never ran");
+  } finally {
+    // guard:allow-env-mutation - Restores the search path saved above.
+    process.env.PATH = previous; // guard:allow-env-credential - The search path, not a credential.
+    process.chdir(originalCwd);
+    await rm(folder, { recursive: true, force: true });
+  }
+});
 
 test("an unbundled interpreter that is missing or cannot start is named without a reinstall step", async () => {
   const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-creator-python-"));
   const dependencies = { getAccess: async () => ({ code: "catalog" }), access: async () => {},
     bridge: path.join(folder, "managed_project_workspace.py") };
   try {
-    await assert.rejects(installedPatternCatalog({}, { ...dependencies, python: "vivary-no-such-python" }),
-      { message: "The Python interpreter for the workspace creator, vivary-no-such-python, is not on Vivary's PATH." });
     await assert.rejects(installedPatternCatalog({}, { ...dependencies, python: path.join(folder, "python3") }),
-      { message: "The Python interpreter for the workspace creator could not start." });
+      { message: "The Python interpreter for the workspace creator could not start.",
+        errorCode: ORIGINAL_RUN_FAILURES.runtimeUnavailable, statusCode: 503 });
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

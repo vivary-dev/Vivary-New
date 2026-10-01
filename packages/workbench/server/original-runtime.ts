@@ -141,8 +141,8 @@ type AccessMode = "read" | "write";
 // in a private file the app appends after the command settles, or the app
 // itself. `logs` reads the shared log and records nothing. A governed command
 // or a write fails without its component's receipt. The creator's catalog and
-// context reads record nothing, because project memory reads context for every
-// message and the Receipts panel shows only the newest lines.
+// context reads record nothing, because project memory reads context whenever
+// its memo misses and the Receipts panel shows only the newest lines.
 type CommandPolicy = { access: AccessMode } & (
   | { receipt: "component" | "app"; required: boolean }
   | { receipt: "reads-log" }
@@ -528,11 +528,12 @@ export function creatorGate(call: CreatorCall): GateKey {
 }
 
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
-type Waiter = { key: GateKey; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
-type GateAccess = { reads: number; writing: boolean };
+type Waiter = { projectId: GateKey; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
+type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
-  running: number; gates: Map<GateKey, GateAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
+  // A key in `projects` may also be a creator key, which holds ":" and never equals a project id.
+  running: number; projects: Map<GateKey, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
   /** Commands registered before their request is staged, until their receipt is recorded and their private folder is gone. */
   recording?: Set<Promise<void>>;
 };
@@ -540,10 +541,8 @@ type CommandHost = {
 const commandHostKey = Symbol.for("vivary.workbench.original-commands");
 const commandProcess = globalThis as typeof globalThis & { [commandHostKey]?: CommandHost };
 const commandHost: CommandHost = commandProcess[commandHostKey] ??= {
-  closing: false, active: new Set<ActiveCommand>(), shutdown: null, running: 0, gates: new Map(), waiting: [],
+  closing: false, active: new Set<ActiveCommand>(), shutdown: null, running: 0, projects: new Map(), waiting: [],
 };
-// A host an older copy of this module created keyed its locks by project and has no gates.
-commandHost.gates ??= new Map();
 const closingError = () => new Error("Vivary is closing. New original commands cannot start.");
 
 // Codex's read/write tool lock, keyed by gate. Waiters start in arrival
@@ -552,9 +551,9 @@ function admitWaiting(): void {
   const blocked = new Set<GateKey>();
   for (const waiter of [...commandHost.waiting]) {
     if (commandHost.running >= waiter.ceiling) return;
-    const access = commandHost.gates.get(waiter.key);
-    if (blocked.has(waiter.key) || (waiter.mode === "write" ? access : access?.writing)) {
-      blocked.add(waiter.key);
+    const access = commandHost.projects.get(waiter.projectId);
+    if (blocked.has(waiter.projectId) || (waiter.mode === "write" ? access : access?.writing)) {
+      blocked.add(waiter.projectId);
       continue;
     }
     const index = commandHost.waiting.indexOf(waiter);
@@ -562,7 +561,7 @@ function admitWaiting(): void {
     commandHost.waiting.splice(index, 1);
     const held = access ?? { reads: 0, writing: false };
     if (waiter.mode === "write") held.writing = true; else held.reads += 1;
-    commandHost.gates.set(waiter.key, held);
+    commandHost.projects.set(waiter.projectId, held);
     commandHost.running += 1;
     waiter.start();
   }
@@ -576,15 +575,15 @@ function acquireGate(key: GateKey, mode: AccessMode, ceiling: number, signal?: A
     const release = () => {
       if (released) return;
       released = true;
-      const access = commandHost.gates.get(key)!;
+      const access = commandHost.projects.get(key)!;
       if (mode === "write") access.writing = false; else access.reads -= 1;
-      if (!access.writing && access.reads === 0) commandHost.gates.delete(key);
+      if (!access.writing && access.reads === 0) commandHost.projects.delete(key);
       commandHost.running -= 1;
       admitWaiting();
     };
     const settle = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); };
     const waiter: Waiter = {
-      key, mode, ceiling,
+      projectId: key, mode, ceiling,
       start: () => { settle(); resolve(release); },
       refuse: error => { settle(); reject(error); },
     };
