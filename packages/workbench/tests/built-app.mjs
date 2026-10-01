@@ -88,6 +88,10 @@ export async function assertNoMcpSurface(port, headers) {
     assert.equal(client.status, 404, `${prefix} OAuth is unmounted`);
     assert.doesNotMatch(client.body, /client_id/, `${prefix} must not register an MCP OAuth client`);
   }
+  // Native mounts embed-error ahead of its guard, so the route answers 204 when mounted.
+  const embedError = await send(port, 'POST', '/_agent-native/mcp/embed-error', json, '{}');
+  assert.equal(embedError.status, 401, 'POST /_agent-native/mcp/embed-error is unmounted and reaches the guard');
+  assert.deepEqual(JSON.parse(embedError.body), { error: 'Unauthorized' });
   for (const route of [
     '/.well-known/oauth-protected-resource',
     '/.well-known/oauth-authorization-server',
@@ -97,4 +101,7 @@ export async function assertNoMcpSurface(port, headers) {
   ]) {
     assert.equal((await send(port, 'GET', route, headers)).status, 404, `GET ${route} is unmounted`);
   }
+  const card = await send(port, 'GET', '/.well-known/mcp.json', headers);
+  assert.equal(card.headers['x-content-type-options'], 'nosniff', 'the card refusal sets nosniff');
+  assert.equal(card.headers['cache-control'], 'no-store', 'the card refusal is not cached');
 }

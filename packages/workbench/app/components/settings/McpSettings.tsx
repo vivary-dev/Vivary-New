@@ -1,4 +1,4 @@
-// Vivary serves no MCP endpoint, so Native's setup guides would end in a 404.
+// The Vivary app serves no MCP endpoint, so Native's setup guides would end in a 404.
 export function McpSettings() {
   return (
     <div className="mx-auto w-full max-w-2xl">

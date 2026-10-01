@@ -332,7 +332,7 @@ describe("Vivary local access configuration", () => {
     assert.ok(card.index < webMcp.search(/\breturn\b/), "the discovery card mounts before any early return");
     const refusal = await readFile(new URL("../server/plugins/00-mcp-discovery.ts", import.meta.url), "utf8");
     assert.match(refusal,
-      /defineNitroPlugin\(\s*nitroApp\s*=>\s*\{\s*getH3App\(\s*nitroApp\s*\)\.use\(\s*NATIVE_MCP_DISCOVERY_PATH\s*,\s*defineEventHandler\(\s*\(\)\s*=>\s*Response\.json\([^)]*\bstatus:\s*404\s*\}\s*\)\s*\)\s*\)/);
+      /defineNitroPlugin\(\s*nitroApp\s*=>\s*\{\s*getH3App\(\s*nitroApp\s*\)\.use\(\s*NATIVE_MCP_DISCOVERY_PATH\s*,\s*defineEventHandler\(\s*\(\)\s*=>\s*Response\.json\(\s*\{[^}]*\}\s*,\s*\{\s*status:\s*404\b/);
 
     // Native skips its default core routes when an app plugin has the same file stem. A packaged
     // build has no plugins folder on disk, so there the plugin must mark the slot before its first await.
