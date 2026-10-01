@@ -5287,10 +5287,10 @@ index 4dfe9233dfd9db3068aee0c262344a7b1d2b8881..90e56794f834bfe431d2e0720b6af97a
 +export declare function trackBackgroundAutomationWork<T>(work: Promise<T>): Promise<T>;
  export declare function runBackgroundAutomation(options: BackgroundAutomationRunOptions, deps: BackgroundAutomationDeps): Promise<BackgroundAutomationRunResult>;
 diff --git a/dist/jobs/background-automation-runner.js b/dist/jobs/background-automation-runner.js
-index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd022dbf6da1 100644
+index 069adb196878a306f92883587c9153e506e23910..f6628e3185b036a51384cc2cf4ac9728d257d792 100644
 --- a/dist/jobs/background-automation-runner.js
 +++ b/dist/jobs/background-automation-runner.js
-@@ -3,7 +3,7 @@ import { getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from
+@@ -3,18 +3,19 @@ import { getStoredModelForEngine, normalizeModelForEngine, resolveEngine, } from
  import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
  import { actionsToEngineTools, filterInitialEngineTools, getOwnerActiveApiKey, } from "../agent/production-agent.js";
  import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
@@ -5299,12 +5299,16 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
  import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
  import { buildAssistantMessage, buildUserMessage, extractThreadMeta, foldAssistantTurn, upsertUserMessage, } from "../agent/thread-data-builder.js";
  import { attachToolSearch } from "../agent/tool-search.js";
-@@ -14,7 +14,8 @@ import { organizationIdFromResourceOwner, organizationResourceOwner, } from "../
+ import { resolveAutomationExecutionIdentity, } from "../automations/service.js";
+ import { createThread, getThread, updateThreadData, withThreadDataLock, } from "../chat-threads/store.js";
+ import { queryOrgMembers } from "../org/context.js";
+-import { organizationIdFromResourceOwner, organizationResourceOwner, } from "../resources/store.js";
++import { organizationIdFromResourceOwner, } from "../resources/store.js";
  import { captureError } from "../server/capture-error.js";
  import { runWithRequestContext, } from "../server/request-context.js";
  import { recoveredFactoryOwnerOrgId, } from "./frontmatter.js";
 -import { attachAutomationRunThread, finishAutomationRun, startAutomationRun, } from "./run-history.js";
-+import { attachAutomationRunThread, finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, startAutomationRun, } from "./run-history.js";
++import { attachAutomationRunThread, automationHistoryOwner, finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, startAutomationRun, } from "./run-history.js";
 +import { UnattendedRunRefusedError } from "./unattended-surface.js";
  /**
   * Default hard abort for one in-process automation run. Read through
@@ -5408,7 +5412,25 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
      const { automation } = options;
      // Bookkeeping, so it must not gate the work it describes: a history table
      // that cannot be written should cost us the record, not the automation.
-@@ -212,15 +278,19 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -185,13 +251,11 @@ export async function runBackgroundAutomation(options, deps) {
+     }
+     else {
+         try {
+-            const historyOwner = options.orgId
+-                ? organizationResourceOwner(options.orgId)
+-                : automation.resource.owner === "__shared__"
+-                    ? options.ownerEmail
+-                    : automation.resource.owner;
+             historyId = await startAutomationRun({
+-                owner: historyOwner,
++                owner: automationHistoryOwner(automation.resource.owner, {
++                    userEmail: options.ownerEmail,
++                    orgId: options.orgId,
++                }),
+                 automation: automation.name,
+                 path: automation.resource.path,
+                 scope: options.orgId ? "organization" : "personal",
+@@ -212,15 +276,19 @@ export async function runBackgroundAutomation(options, deps) {
      }
      catch (err) {
          const message = err instanceof Error ? err.message : String(err);
@@ -5430,7 +5452,7 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
              tags: {
                  area: "background-automation",
                  automation: automation.name,
-@@ -233,7 +303,7 @@ export async function runBackgroundAutomation(options, deps) {
+@@ -233,7 +301,7 @@ export async function runBackgroundAutomation(options, deps) {
              },
              ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
          });
@@ -5439,7 +5461,7 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
          throw err;
      }
      // Outside the try: history is bookkeeping about the run, so a failure to
-@@ -349,7 +419,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -349,7 +417,6 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
          orgId,
      }, async () => {
          const baseActions = await deps.getActions(automation);
@@ -5447,7 +5469,7 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
          const configuredInitialTools = deps.getInitialToolNames?.(automation);
          const initialToolNames = configuredInitialTools
              ? uniqueToolNames([
-@@ -539,6 +608,12 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -539,6 +606,12 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  // waits for this persist via `activeRun.finalized`.
                  if (hardTimedOut)
                      return;
@@ -5460,7 +5482,7 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
                  if (persistFailure) {
                      reject(new BackgroundAutomationRunError(persistFailure.message, persistFailure.errorCode));
                      return;
-@@ -566,6 +641,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -566,6 +639,9 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  engineName: engine.name,
                  userId: ownerEmail,
              });
@@ -5470,7 +5492,7 @@ index 069adb196878a306f92883587c9153e506e23910..00b84ffd96af98c8d3ff79f9ddbbfd02
              hardAbortTimer = setTimeout(() => {
                  hardAbortTimer = null;
                  if (activeRun.status !== "running")
-@@ -584,6 +662,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
+@@ -584,6 +660,7 @@ async function executeBackgroundAutomation(options, deps, historyId, runIdRef) {
                  });
              }, hardTimeoutMs);
          }).finally(() => {
@@ -5500,8 +5522,41 @@ index ed81476fcde88609feb1e861346cf3baa10bce35..bf184155efb3bf1243c704685d6d5baa
  export { getAutomationSchedulerHealth, recordAutomationSchedulerHealth, } from "./scheduler-health.js";
  export { RECURRING_JOBS_SWEEP_PATH, RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, } from "./scheduler-dispatch.js";
  export { createJobTools } from "./tools.js";
+diff --git a/dist/jobs/remote-execution.js b/dist/jobs/remote-execution.js
+index 09a7c7dea53e0ee91159c25626d8acbe905713b6..d5b8d08194157ff58e4f8aec2608c64203462a1a 100644
+--- a/dist/jobs/remote-execution.js
++++ b/dist/jobs/remote-execution.js
+@@ -1,8 +1,8 @@
+ import { enqueueRemoteCommand, getRemoteCommand, getRemoteCommandByIdempotencyKey, } from "../integrations/remote-commands-store.js";
+ import { getRemoteDeviceForOwner, getRemoteExecutionCapabilities, } from "../integrations/remote-devices-store.js";
+-import { organizationResourceOwner, resourceGetByPath, resourcePutIfCurrent, } from "../resources/store.js";
++import { resourceGetByPath, resourcePutIfCurrent, } from "../resources/store.js";
+ import { buildJobResourceContent, parseJobResource, } from "./frontmatter.js";
+-import { finishAutomationRun, startAutomationRun } from "./run-history.js";
++import { automationHistoryOwner, finishAutomationRun, startAutomationRun } from "./run-history.js";
+ /** A remote run is allowed to be long-lived, but never indefinitely invisible. */
+ export const REMOTE_AUTOMATION_MAX_ACTIVE_MS = 24 * 60 * 60_000;
+ function isRecord(value) {
+@@ -107,13 +107,11 @@ export async function dispatchRemoteAutomation(input) {
+     let createdHistory = false;
+     if (!automationRunId) {
+         try {
+-            const historyOwner = input.orgId
+-                ? organizationResourceOwner(input.orgId)
+-                : input.resource.owner === "__shared__"
+-                    ? input.ownerEmail
+-                    : input.resource.owner;
+             automationRunId = await startAutomationRun({
+-                owner: historyOwner,
++                owner: automationHistoryOwner(input.resource.owner, {
++                    userEmail: input.ownerEmail,
++                    orgId: input.orgId,
++                }),
+                 automation: automationName(input.resource.path),
+                 path: input.resource.path,
+                 scope: input.orgId ? "organization" : "personal",
 diff --git a/dist/jobs/run-history.d.ts b/dist/jobs/run-history.d.ts
-index 2188250bd393e45badf4a61d0df23c28099bf000..c857e8b89c9ddea98470d53a69c21fef9c321c1a 100644
+index 2188250bd393e45badf4a61d0df23c28099bf000..be44c20dad4372cfc7ff4e3a38afbaa0c45f6a8d 100644
 --- a/dist/jobs/run-history.d.ts
 +++ b/dist/jobs/run-history.d.ts
 @@ -18,6 +18,8 @@ export interface AutomationRun {
@@ -5513,7 +5568,7 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..c857e8b89c9ddea98470d53a69c21fef
      finishedAt: number | null;
      error: string | null;
      /**
-@@ -40,6 +42,11 @@ export interface StartAutomationRunInput {
+@@ -40,9 +42,23 @@ export interface StartAutomationRunInput {
      dispatchPending?: boolean;
  }
  /** Authoritative release-time schema for durable automation history. */
@@ -5525,7 +5580,19 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..c857e8b89c9ddea98470d53a69c21fef
  export declare const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[];
  export declare function runAutomationRunMigrations(nitroApp: unknown): Promise<void>;
  export declare function ensureTable(): Promise<void>;
-@@ -62,7 +69,10 @@ export declare function listUnclaimedAutomationRuns(options?: {
++/**
++ * Vivary #110. The owner on every history row of an automation: the
++ * organization owner for an organization identity, the creator for a legacy
++ * `__shared__` resource, and the resource owner otherwise.
++ */
++export declare function automationHistoryOwner(resourceOwner: string, identity?: {
++    userEmail?: string;
++    orgId?: string | null;
++}): string;
+ /**
+  * Record an automation execution. Manual runs create the row before dispatch,
+  * so `dispatchPending` distinguishes that durable handoff from a run that has
+@@ -62,7 +78,10 @@ export declare function listUnclaimedAutomationRuns(options?: {
      olderThanMs?: number;
      limit?: number;
  }): Promise<AutomationRun[]>;
@@ -5538,18 +5605,19 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..c857e8b89c9ddea98470d53a69c21fef
   * Attach the agent thread once it exists. The thread is created after the run
   * row so the history survives a crash between the two.
 diff --git a/dist/jobs/run-history.js b/dist/jobs/run-history.js
-index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd4151eeeae2 100644
+index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..29bb5d4ff6b7dc43226b31b8382e804f718355ea 100644
 --- a/dist/jobs/run-history.js
 +++ b/dist/jobs/run-history.js
-@@ -5,6 +5,7 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
+@@ -5,6 +5,8 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
  import { ensureColumnExists, ensureIndexExists, ensureTableExists, } from "../db/ddl-guard.js";
  import { runMigrations } from "../db/migrations.js";
  import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 +import { redactText } from "../audit/redact.js";
++import { organizationResourceOwner } from "../resources/store.js";
  registerEvent({
      name: "automation.run.finished",
      description: "Fires after a scheduled or manual automation run records a terminal status.",
-@@ -40,16 +41,16 @@ const MAX_ERROR_CODE_LENGTH = 100;
+@@ -40,16 +42,16 @@ const MAX_ERROR_CODE_LENGTH = 100;
  function resolveRunLivenessCeilingMs() {
      return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
  }
@@ -5569,7 +5637,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd41
  /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
  const RUNS_RETAINED_PER_AUTOMATION = 50;
  /** Authoritative release-time schema for durable automation history. */
-@@ -188,6 +189,7 @@ function toRun(row, now) {
+@@ -188,6 +190,7 @@ function toRun(row, now) {
          threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
          status,
          startedAt,
@@ -5577,7 +5645,26 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd41
          finishedAt: row.finished_at == null ? null : Number(row.finished_at),
          error: row.error == null && status === "interrupted"
              ? INTERRUPTED_RUN_MESSAGE
-@@ -244,7 +246,7 @@ export async function claimAutomationRun(id) {
+@@ -201,6 +204,18 @@ function toRun(row, now) {
+                 : stringifyValue(row.error_code),
+     };
+ }
++/**
++ * Vivary #110. The owner on every history row of an automation: the
++ * organization owner for an organization identity, the creator for a legacy
++ * `__shared__` resource, and the resource owner otherwise.
++ */
++export function automationHistoryOwner(resourceOwner, identity) {
++    return identity?.orgId
++        ? organizationResourceOwner(identity.orgId)
++        : resourceOwner === "__shared__"
++            ? (identity?.userEmail ?? resourceOwner)
++            : resourceOwner;
++}
+ /**
+  * Record an automation execution. Manual runs create the row before dispatch,
+  * so `dispatchPending` distinguishes that durable handoff from a run that has
+@@ -244,7 +259,7 @@ export async function claimAutomationRun(id) {
      const now = Date.now();
      const result = await getDbExec().execute({
          sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
@@ -5586,7 +5673,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd41
      });
      return Number(result.rowsAffected ?? 0) > 0;
  }
-@@ -266,7 +268,7 @@ export async function listUnclaimedAutomationRuns(options) {
+@@ -266,7 +281,7 @@ export async function listUnclaimedAutomationRuns(options) {
              AND started_at <= ?
            ORDER BY started_at ASC LIMIT ${limit}`,
          args: [
@@ -5595,7 +5682,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd41
              ...(appId ? [appId] : []),
              Date.now() - olderThanMs,
          ],
-@@ -302,7 +304,7 @@ async function pruneAutomationRuns(owner, automation) {
+@@ -302,7 +317,7 @@ async function pruneAutomationRuns(owner, automation) {
          args: [owner, automation, owner, automation],
      });
  }
@@ -5604,7 +5691,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..0c08fcf291dec051881b8900409ebd41
      await ensureTable();
      const existing = await getDbExec().execute({
          sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
-@@ -315,12 +317,15 @@ export async function finishAutomationRun(id, status, error, errorCode) {
+@@ -315,12 +330,15 @@ export async function finishAutomationRun(id, status, error, errorCode) {
          args: [
              status,
              finishedAt,
@@ -8160,26 +8247,23 @@ index 489b36d86f416c8f40c44727bd62e190048f43c4..a2c488f61e8f7fc01b1002d6f99fd223
   * Assemble the prompt for an agentic trigger run.
   *
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a8646a5fb2f4 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..9f939fb5c20d1c281c6575633f295109da384dbb 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
-@@ -5,12 +5,13 @@
+@@ -5,10 +5,11 @@
   * subscribes to their events, and dispatches them (condition eval → agent
   * loop) when matching events fire.
   */
 -import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 +import { getOwnerApiKeyForEngine } from "../agent/production-agent.js";
-+import { finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, startAutomationRun, } from "../jobs/run-history.js";
++import { automationHistoryOwner, finishAutomationRun, INTERRUPTED_RUN_ERROR_CODE, startAutomationRun, } from "../jobs/run-history.js";
  import { automationMatchesEventOwner, resolveAutomationExecutionIdentity, } from "../automations/service.js";
  import { subscribe, unsubscribe } from "../event-bus/index.js";
 -import { isBackgroundAutomationRunActive, runBackgroundAutomation, } from "../jobs/background-automation-runner.js";
 +import { isBackgroundAutomationRunActive, isBackgroundAutomationsClosed, runBackgroundAutomation, trackBackgroundAutomationWork, } from "../jobs/background-automation-runner.js";
  import { buildJobResourceContent, jobBelongsToApp, parseJobResource, } from "../jobs/frontmatter.js";
--import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
-+import { organizationResourceOwner, resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
+ import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
  import { evaluateCondition } from "./condition-evaluator.js";
- export function parseTriggerFrontmatter(content) {
-     const { meta, body } = parseJobResource(content);
 @@ -218,6 +219,10 @@ async function handleEvent(eventName, payload, eventMeta) {
              const { meta, body } = parseTriggerFrontmatter(resource.content);
              if (!body.trim())
@@ -8250,7 +8334,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
              if (meta.mode === "agentic") {
                  _dispatchingTriggers.add(dispatchKey);
                  try {
-@@ -286,6 +316,70 @@ async function handleEvent(eventName, payload, eventMeta) {
+@@ -286,6 +316,66 @@ async function handleEvent(eventName, payload, eventMeta) {
          console.error(`[triggers] Error handling event "${eventName}":`, err);
      }
  }
@@ -8286,11 +8370,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
 + */
 +export async function recordAutomationFailure(target, message, errorCode, identity, options) {
 +    const orgId = identity?.orgId ?? null;
-+    const historyOwner = orgId
-+        ? organizationResourceOwner(orgId)
-+        : target.owner === "__shared__"
-+            ? identity?.userEmail ?? target.owner
-+            : target.owner;
++    const historyOwner = automationHistoryOwner(target.owner, identity);
 +    try {
 +        const historyId = await startAutomationRun({
 +            owner: historyOwner,
@@ -8321,7 +8401,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
  /**
   * Process a webhook task after the public route has persisted it. The queue
   * worker supplies the target resource identity; the request body never gets
-@@ -297,11 +391,11 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -297,11 +387,11 @@ export async function dispatchAutomationWebhookTask(task) {
          throw new Error("Automation trigger dispatcher is not initialized.");
      const resource = await resourceGetByPath(task.owner, task.path);
      if (!resource || resource.id !== task.automationId) {
@@ -8335,7 +8415,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
      }
      if (!meta.enabled)
          return "completed";
-@@ -314,13 +408,35 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -314,13 +404,35 @@ export async function dispatchAutomationWebhookTask(task) {
      if (!resolved.ok)
          throw new Error(resolved.reason);
      const identity = resolved.identity;
@@ -8375,7 +8455,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
      if (!matches) {
          await recordTriggerSkip(resource, "skipped", undefined);
          return "completed";
-@@ -333,8 +449,9 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -333,8 +445,9 @@ export async function dispatchAutomationWebhookTask(task) {
      if (_dispatchingTriggers.has(dispatchKey))
          return "retry";
      _dispatchingTriggers.add(dispatchKey);
@@ -8386,7 +8466,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
              eventId: task.eventId,
              emittedAt: new Date().toISOString(),
              owner: identity.eventOwner,
-@@ -343,9 +460,19 @@ export async function dispatchAutomationWebhookTask(task) {
+@@ -343,9 +456,19 @@ export async function dispatchAutomationWebhookTask(task) {
      finally {
          _dispatchingTriggers.delete(dispatchKey);
      }
@@ -8408,7 +8488,7 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..63e6fcdd02bb7a9539f2e54eb2f7a864
      if (!_deps)
          return;
      const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -450,5 +577,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
+@@ -450,5 +573,7 @@ async function dispatchAgentic(resource, payload, eventMeta, identity) {
              lastError,
          });
          console.error(`[triggers] "${triggerName}" failed:`, lastError);
