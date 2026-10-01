@@ -798,15 +798,18 @@ test("End them and Continue anyway act only on the list the owner saw", { ...lin
   assert.equal((metadataOf("unscanned-choice").cleanupLifted as { how?: string }).how, "rechecked");
 });
 
-// The worker 4120 left 54 children, so each check finds 55 processes, all traced to the run through the live worker,
+// The worker left 54 children, so each check finds 55 processes, all traced to the run through the live worker,
 // and a refusal lists 50 of them. Windows denies End them every one, so End them cannot bring the list under 50.
 test("Continue anyway lifts an unchanged list cut at 50, and not once a process past the 50th changed", {
   ...linuxOnly, timeout: 30_000,
 }, async () => {
-  const worker = { platform: "win32", tracked: [{ pid: 4120, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
-  const child = (index: number, createdMs = 3_000 + index) => row(5_000 + index, 4120, createdMs, `child${index}.exe`);
+  // Synthetic targets must never alias the real host, which cleanup deliberately refuses to end.
+  const workerPid = process.pid + 4_120;
+  const firstChildPid = process.pid + 5_000;
+  const worker = { platform: "win32", tracked: [{ pid: workerPid, createdFrom: 1_000, createdTo: 7_000, childrenTo: null }] };
+  const child = (index: number, createdMs = 3_000 + index) => row(firstChildPid + index, workerPid, createdMs, `child${index}.exe`);
   const children = Array.from({ length: 54 }, (_, index) => child(index));
-  const scan = (list: readonly string[]) => writeFile(scanRows, SYSTEM_ROW + row(4120, 880, 2_000, "codex.exe")
+  const scan = (list: readonly string[]) => writeFile(scanRows, SYSTEM_ROW + row(workerPid, 880, 2_000, "codex.exe")
     + list.join(""));
   const changed = { errorCode: "vivary_code_cleanup_changed" };
   const unlisted = async () => (await agent.getVivaryCodeHostState(OWNER)).cleanup?.unlisted;
@@ -825,8 +828,9 @@ test("Continue anyway lifts an unchanged list cut at 50, and not once a process 
     assert.deepEqual({ how: lift.how, shown: lift.shown?.length, remaining: lift.remaining?.length, total: lift.total },
       { how: "owner-confirmed", shown: 50, remaining: 50, total: 55 });
     assert.equal(lastStatus("cut-unended"), "You chose to continue while these coding processes were still running: "
-      + "codex.exe (PID 4120), child0.exe (PID 5000), child1.exe (PID 5001), child2.exe (PID 5002), child3.exe "
-      + "(PID 5003), and 50 more. Vivary accepts new messages again.");
+      + `codex.exe (PID ${workerPid}), child0.exe (PID ${firstChildPid}), child1.exe (PID ${firstChildPid + 1}), `
+      + `child2.exe (PID ${firstChildPid + 2}), child3.exe (PID ${firstChildPid + 3}), and 50 more. `
+      + "Vivary accepts new messages again.");
 
     seedRefusal("cut-changes", worker);
     await agent.recheckVivaryCodeCleanup();
@@ -835,8 +839,9 @@ test("Continue anyway lifts an unchanged list cut at 50, and not once a process 
       listed: 50, unlisted: 5, instruction: "Choose End them to stop these processes. Vivary ends only listed "
         + "processes it can confirm came from that run, then checks again." });
     await assert.rejects(send("Start beside the cut list"), (error: Error) => {
-      assert.equal(error.message, "Coding processes from an earlier run are still running: codex.exe (PID 4120), "
-        + "child0.exe (PID 5000), child1.exe (PID 5001), child2.exe (PID 5002), child3.exe (PID 5003), and 50 more. "
+      assert.equal(error.message, `Coding processes from an earlier run are still running: codex.exe (PID ${workerPid}), `
+        + `child0.exe (PID ${firstChildPid}), child1.exe (PID ${firstChildPid + 1}), `
+        + `child2.exe (PID ${firstChildPid + 2}), child3.exe (PID ${firstChildPid + 3}), and 50 more. `
         + "Choose End them at the top of Vivary to stop these processes. Vivary ends only listed processes it can "
         + "confirm came from that run, then checks again.");
       return true;

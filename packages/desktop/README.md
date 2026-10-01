@@ -220,13 +220,13 @@ A Linux build host can also assemble the unsigned Windows x64 folder:
 npm --prefix packages/desktop run package -- --windows-x64
 ```
 
-This mode requires Workbench output built with Node 24.15.0 (ABI 137) and
+This mode requires Workbench output built with Node 24.19.0 (ABI 137) and
 `better-sqlite3` 12.11.1. It verifies pinned official Windows Node and SQLite
 assets, replaces the binding only in the staged copy, and asks Electron Packager
 for Windows x64. It uses the build host's `tar` command for the one SQLite entry.
 The source checkout and its installed native modules stay intact.
 
-[Node checksums](https://nodejs.org/dist/v24.15.0/SHASUMS256.txt) and the
+[Node checksums](https://nodejs.org/dist/v24.19.0/SHASUMS256.txt) and the
 [SQLite release](https://github.com/WiseLibs/better-sqlite3/releases/tag/v12.11.1)
 are the asset authorities. [Electron Packager](https://github.com/electron/packager/blob/v20.3.0/README.md)
 supports cross-platform packaging. A successful package build establishes an

@@ -38,17 +38,27 @@ export async function runDesktopServer(args = process.argv.slice(2)) {
   });
   process.once("disconnect", requestShutdown);
 
+  const capability = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { process.off("message", receive); reject(new Error("Desktop capability handoff timed out.")); }, 8000);
+    const receive = message => {
+      if (message?.type !== "vivary:desktop:bootstrap" || typeof message.capability !== "string" || !/^[\w-]{43}$/.test(message.capability)) return;
+      clearTimeout(timer); process.off("message", receive); resolve(message.capability);
+    };
+    process.on("message", receive);
+    send({ type: "vivary:desktop:bootstrap-needed" });
+  });
+  globalThis[Symbol.for("vivary.desktop.bootstrap")] = Object.freeze({ capability });
   const options = startupOptions(args, process.env);
   if (options.help || options.mode !== "local") {
     throw new Error("The desktop server accepts only validated local startup options.");
   }
   await startVivary(options);
   nativeHandlersReady = true;
-  await waitForWorkspace(options.appUrl);
+  await waitForWorkspace(options.appUrl, capability);
   send({ type: "ready", origin: options.appUrl });
 }
 
-export async function waitForWorkspace(origin) {
+export async function waitForWorkspace(origin, capability) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   let lastStatus;
   while (Date.now() < deadline) {
@@ -56,7 +66,7 @@ export async function waitForWorkspace(origin) {
     const timer = setTimeout(() => controller.abort(), 1_000);
     try {
       const response = await fetch(`${origin}/`, {
-        headers: { accept: "text/html" },
+        headers: { accept: "text/html", ...(capability ? { "x-vivary-desktop": capability } : {}) },
         method: "GET",
         redirect: "manual",
         signal: controller.signal,

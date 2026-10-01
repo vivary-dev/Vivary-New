@@ -1,3 +1,4 @@
+import { BrowserAccessSettings } from "@/components/settings/BrowserAccessSettings";
 import { useAppearancePreferences } from "@/components/layout/AppearancePreferences";
 import { AppearancePicker } from "@agent-native/core/client/ui";
 import {
@@ -79,9 +80,10 @@ export default function SettingsRoute() {
     group: "agent",
     content: <AutomationFileReview />,
   };
+  const browserTab = { id: "browser-access", label: "Browser access", icon: IconTerminal2, group: "agent", content: <BrowserAccessSettings /> };
   const tabs = nativeTabs
     .filter((tab) => tab.id !== "organization" && tab.id !== "workspace")
-    .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, automationFilesTab, tab] : [tab]));
+    .flatMap((tab) => (tab.id === "agent" ? [runtimeTab, browserTab, automationFilesTab, tab] : [tab]));
   useSetPageTitle("Settings");
 
   return (

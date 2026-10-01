@@ -133,6 +133,90 @@ Coordinated releases publish Core before its dependent role packages.
 
 The local desktop server binds to loopback and opens without a Vivary login. Hosted mode uses Native authentication. The private Zo preview uses its owner-login proxy boundary. Remote access to a user's host remains an explicit, authenticated setup requirement, with real-phone and revocation acceptance still open. [`local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts) owns request checks. The [host decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#host-and-browser-access-decision-2026-09-13) owns the product boundary.
 
+Issue #30 adds optional paired-browser access to the same desktop process and Native database.
+It is off on a new installation. The owner's enabled setting, exact HTTPS origin,
+stable host identity and approved device grants survive normal restarts; pending
+pairing challenges do not. The protected HTTPS path must already be configured.
+Vivary opens only the configured extra loopback port and does not install a tunnel,
+certificate or firewall rule. A failed optional listener leaves desktop access and
+its repair controls available.
+
+[`browser-access.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-access.mjs) owns pairing,
+grant expiry and revocation in Native-backed tables. A browser receives a separate
+Secure, HttpOnly cookie; its digest identifies a grant whose Native session token
+stays on the server. The reserved owner, existing organization, projects and threads
+remain unchanged. [`browser-ingress.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-ingress.mjs)
+rejects requests before Native dispatch, including alternate authentication inputs,
+encoded auth/control routes and public MCP credential routes. Listener-owned request
+context supplies identity. Remote session responses omit the Native token, and all
+forwarded responses strip Native cookies. A cross-site or same-site top-level HTML navigation to
+exactly `/` or `/pair`, including queries, receives only generic bootstrap HTML after the host, enabled
+state, path and alternate-credential guards. That request never admits a device or
+creates a challenge. The page checks status once from the app origin, where its
+Strict cookie can resume a saved grant. A 401 offers pairing. Connection failure
+offers explicit retry without changing the saved grant. On return to a relative
+root URL, the client preserves only `project`, `run`, `draft`, `runtime`, `history`,
+`thread`, `panel`, `path` and `line` through URLSearchParams. Other keys, including
+Native desktop codes, are dropped. Pair-page queries are dropped entirely. Raw
+queries are never reflected in server HTML or interpreted as redirect targets.
+Pairing still ends with an
+explicit same-origin completion after desktop matching-code approval. Cross-site
+API, frame, mutation and other-route requests remain denied.
+Revocation closes device-owned responses
+and future admission before Native session cleanup; it does not roll back accepted
+host actions or stop unrelated runs. Failed persistence closes admission and reports
+failure. Restart after an unsaved revocation can restore the last saved grant, so the
+owner must retry that failure before restarting.
+
+The desktop listener also requires a per-launch capability passed through private
+parent/child IPC. Electron injects it only for the owned main frame at the exact app
+origin, with a one-use initial navigation exception. Preview subframes receive none.
+Settings requests changes, but native desktop confirmation over correlated IPC owns
+enablement, pairing approval, revocation and disablement. Remote browsers cannot use
+those controls or the desktop folder chooser. Connection UI names the host, detects
+unavailability and offers explicit retry without sending a message. A status 401
+means access ended, including when a restored shell has no cached host metadata.
+That initial denied state does not mount Native session providers. Pairing and
+checking access again are explicit choices. Network failures have separate retry
+wording. An already mounted workspace is hidden during denial so Native fallback notices cannot compete with access recovery. It stays mounted through denial or connection
+failure so unsent drafts survive. The connection
+wrapper owns the dynamic viewport height; its wrapping notice and workspace share
+that height, with the existing shell filling the remaining space. Conversation recovery notices, runtime selectors and the setup
+card share the existing scrollable composer slot when space is short, preserving
+the composer.
+
+Optional remote previews use a separate protected HTTPS port on the same hostname,
+with a dedicated loopback listener that never dispatches Native. Port separation
+isolates DOM origins. Credentialless sandboxed embedding isolates ordinary cookies
+and storage, and a trusted bootstrap exchanges a one-use preview ticket through
+an exact-origin message. Top-level preview entry is refused. The gateway strips
+app credentials and upstream cookies, blocks workers and upgrades, and forwards
+only to the established socket verified as belonging to the selected registered
+project launch. Existing process identities, launch ownership and shutdown remain
+the owners. Unknown ownership fails closed, including on unsupported platforms.
+
+One app document is locked to one project, launch and host generation because
+removing an iframe does not reset its credentialless storage partition. Opening a
+different preview requires an explicit full refresh. The existing chat and
+selection close-flush must succeed before grant closure and reload. File editing
+retains its beforeunload guard. A restored browser-history document requires a
+refresh. Preview grants expire on restart and revocation cuts their streams without
+stopping unrelated host work. Shared review/start/status/stop controls remain in
+BrowserPreview. After opening, setup collapses behind a disclosure so the page
+fills the available height. The shared work panel has a visible drag grip with
+keyboard resizing. Full page and Back to workspace controls expand and restore
+the same mounted panel on desktop and phone. The iframe stays in its DOM position,
+so display changes preserve page state, navigation and live connections. Covered
+workspace controls are inert during full-page display. A compact header preserves
+project identity and Back to workspace. Setup, Stop, Refresh and Close share one
+action row while the remote frame is open. A failed preview action reveals setup
+and its error without changing the recorded running state, with Stop available
+for an explicit retry. The alert sits beside the controls, outside the scrollable setup, so it stays
+visible even when setup was already open and scrolled. Stop remains directly available, and
+Refresh preview replaces only the frame for the same identity. Separate transport configuration and credentialless support are
+required. This source slice does not establish packaged Windows or actual-phone
+acceptance.
+
 The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs) own those limits.
 
 ## Delivery and known gaps
@@ -172,6 +256,120 @@ names event automations in its condition sentence. The runtime flows are unchang
 and their storage keep their owners. The desktop guide's event paragraph and troubleshooting row say the same. The
 patch README section "Event automation conditions" has the detail. `tests/automation-event-condition.test.mjs`
 failed 4 of 4 on the previous patch, and its two loop cases failed on the first version of this fix.
+
+Issue #30 acceptance references now identify the tested browser and Windows
+candidates, the Node 24.19 runtime checks, and the shared work-panel grip and
+Details containment proof. The issue #9 row reflects its verified merged delivery.
+This documentation review changes no runtime ownership or access boundary.
+The `77282275` native Windows check restored the keyboard-selected width after
+Full page and Back while retaining preview state and the contained workspace.
+
+Issue #30 saves the layout supplied by the panel group when the user resizes with
+the keyboard. The callback runs before DOM widths update, so the work panel
+converts the new percentage using the two panels' stable total width. User-input,
+full-page and narrow-layout guards still exclude programmatic sizing from saved
+preferences. Review covers pointer then keyboard resizing and an exact width
+comparison after Full page and return, alongside retained iframe state.
+
+Issue #30 gives the work-panel splitter a 1px divider and a 3px by 28px vertical
+grip inside a 14px transparent pointer target. The grip disables the toolkit's
+inherited CSS rotation. Hover and keyboard focus reveal
+the grip without changing resize, full-page, or iframe ownership. Preview, Details,
+Files, and Search share this divider. Project navigation keeps its existing styling.
+Project details now contains its absolute
+screen-reader labels inside its own scrolling region. Those labels previously
+used the outer main area as their containing block and extended its scroll height.
+Review covers the label positioning, pointer and keyboard resizing, and viewport
+containment while the details region scrolls.
+
+Issue #30 updates the Windows x64 Node pin to 24.19.0. The packager still requires
+Workbench output built with that exact Node version and ABI 137. SQLite 12.11.1
+keeps its existing ABI 137 Windows asset. Review checked the runtime pin,
+the build-marker guard, the [official checksums](https://nodejs.org/dist/v24.19.0/SHASUMS256.txt),
+and the [upstream Windows TCP crash report](https://github.com/nodejs/node/issues/63620).
+Node 24.19.0 includes the upstream
+[Windows version-structure initialization fix](https://github.com/libuv/libuv/commit/aabb7651de).
+This runtime update preserves packaging ownership and local access boundaries.
+The original Vivary crash remains unreproduced. The acceptance register and
+issue #30 packet retain the tested package and its platform limits.
+
+Issue #30 preview sizing reuses the shared panel resize and maximize state.
+Parent visual review prompted a compact header and shared action row so phone
+full-page space goes to the iframe while retaining touch targets and direct Stop.
+Action failure reopens setup so a rejected Stop cannot hide its feedback.
+Full-page display changes CSS on the existing panel without moving or replacing
+its iframe. Setup remains available after automatic collapse for local and remote
+pages. Isolation and document identity reload guards are unchanged. Review covers
+the flex height chain, keyboard access and the existing preview fixture.
+
+The local preview confirmation no longer says remote phone routing is unavailable.
+Review of BrowserPreview confirms that this copy correction preserves the local
+host checkbox and embedding conditions. The isolated paired-browser preview
+boundary described below is unchanged.
+
+The runtime CI command now runs its existing test files with explicit concurrency
+of one. This scheduling change preserves every assertion and production timeout.
+The original parallel runs failed process-scan checks, while the same file list
+passed serially. That evidence does not establish the precise failure cause.
+Runtime ownership and cleanup contracts remain unchanged. Review covered the
+workflow command and retained failed and serial test results.
+
+Issue #30 isolated preview candidate reuses the project launcher and Native owner
+transport. A new socket check verifies the established peer before HTTP bytes are
+sent. Focused Linux checks reject an unrelated responder and a rebound port while
+the original launcher remains alive. Gateway tests cover credential stripping,
+document identity, interrupted uploads, unsupported upgrades and redirects.
+The existing close-flush test proves save failure prevents preview revocation and
+reload. At that source review, Windows socket inspection was prepared and
+awaited packaged acceptance.
+The disposable HTTPS Chromium journey verifies storage partition reset on guarded
+reload, saved draft and selection, hostile-content denial and stream revocation.
+At phone width, setup collapses after opening and the page retains usable height.
+That source review did not prove actual BFCache restoration or packaged Windows
+acceptance. The issue #30 packet records later candidate-specific acceptance.
+The PR #127 diagrams and their dated review remain intact.
+
+Issue #30 denial wording correction: BrowserConnection owns a denied state without
+host metadata and checks HTTP 401 before the standalone-local fallback. It avoids
+Native's generic temporary-server message on a restored denied shell, retains an
+already mounted workspace behind a hidden wrapper during denial, and separates access checks from connection retries.
+Component tests exercise initial denial, desktop-local status and dirty drafts.
+The existing HTTPS fixture covers a loaded and restored shell after revocation
+against a healthy backend, plus distinct network failure. The component test proves
+dirty draft identity across denial, connection failure and explicit recovery.
+
+Issue #30 browser entry correction: the outer ingress now serves a generic public
+bootstrap for guarded cross-site and same-site top-level HTML entry at `/` and
+`/pair`, including query strings. The client preserves only the named root
+navigation keys as inert URLSearchParams values and drops pair-page queries. It does
+not dispatch Native or use the supplied cookie. The bootstrap then checks the
+saved grant from the same origin, preserving Strict cookies, and distinguishes
+pairing from a connection failure. Focused denial tests and the existing normal-app
+browser journey cover external-link entry, saved-cookie resume, explicit completion,
+revocation and connection retry. This source correction does not establish the
+headers sent by any particular phone or acceptance of its packaged candidate.
+
+Issue #30 viewport correction: BrowserConnection now allocates space for its
+notice and the workspace within Core's dynamic viewport height. The shell uses
+its remaining row instead of adding another viewport below the notice. The
+existing private normal-app UI proof checks composer bounds and page overflow at
+390x844 and 390x600, wrapping connection/error notices, and paired Alpha/Beta
+selection across reload. These simulated viewports do not establish physical
+phone keyboard acceptance.
+
+Issue #30 introduces the desktop capability, outer paired-browser admission,
+persisted device lifecycle and Settings/connection UI described above. Focused tests
+exercise interrupted completion, admission during shutdown, stale response cleanup,
+expiry, alternate-auth denial, bodyless response headers and listener shutdown.
+The normal-app and browser checks use disposable state and no real provider calls.
+Transport setup, isolated preview routing and the real Windows/phone journey remain
+separate acceptance work. No external service is enabled by this source change.
+
+PR #151 merged issue #109 into `dev` as `b63ed90f` on 2026-09-29 and closed the issue.
+The acceptance register now records that closure. Its `e50ae89c` Windows evidence
+predates the later raw-database, count and loader fixes described below, which ran
+on Zo only. The merge does not establish final-head packaged acceptance. This
+update changes delivery status; the instruction-review design remains unchanged.
 
 PR #127 brings the dated diagram collection together with the current design without replacing its newer product reviews. The project flow separates denied/revoked access from authorized missing-folder recovery, and resume from new-runtime selection, denial returns to the running session, pending approval exposes Stop, and answer-bearing questions/forms collect required content before Continue. Automation flows distinguish event triggers, paused definitions, rejected/duplicate webhooks that do not queue runs, and dispatch-specific next-run bookkeeping; deletion terminates the definition/run-row lifecycle while preserving internal job thread rows. Run inspection uses automation history; retained run threads are not openable from Settings or chat history. The workspace interaction contract, Code approval owner, and automation lifecycle receipt support these corrections. The planning checker recognizes only signature-matching JPEG and tldraw assets directly in the diagram directory, with the exact visually reviewed source/export hashes pinned in code. Changed, unknown, or mismatched exports require another visual/source review and deliberate pin update before acceptance; other planning text remains strict UTF-8, and preflight and visible-byte privacy checks remain. Tldraw ZIP entries are decompressed in memory under entry/count/total-size limits and scanned for private paths and credentials; invalid or unscannable archives fail closed. The scan validates actual DEFLATE stream completion and sizes, and decodes escaped strings in SQLite diagram records, rather than trusting ZIP headers or raw bytes alone. The editable archive uses ZIP compression while preserving identical entry contents, so storage encoding does not change any diagram record. Its thumbnail-sized preview is rendered from the same reviewed diagram; the editable database, viewport settings, and full-size exports are unchanged. This changes documentation and its validation, not runtime behavior or release acceptance.
 

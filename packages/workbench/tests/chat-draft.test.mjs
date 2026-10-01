@@ -253,3 +253,19 @@ test("a pending review entry is not shown as a failed unsaved edit beside anothe
   assert.equal(needsUnmountedDraftRecovery(pending), false);
   assert.equal(needsUnmountedDraftRecovery(dirty), true);
 });
+
+test('preview refresh waits for the existing close flush and does not revoke or reload after a failed save', async () => {
+  const { refreshPreviewDocument } = await import('../app/lib/workbench-preview.ts');
+  let failing = true, dirty = true;
+  const steps = [];
+  const unregister = registerSelectionCloseFlush(async () => {
+    steps.push('flush'); if (failing) throw new Error('save failed'); dirty = false;
+  }, () => dirty);
+  try {
+    assert.equal(await refreshPreviewDocument(async () => { steps.push('revoke'); }, () => steps.push('reload')), false);
+    assert.deepEqual(steps, ['flush']);
+    failing = false;
+    assert.equal(await refreshPreviewDocument(async () => { steps.push('revoke'); }, () => steps.push('reload')), true);
+    assert.deepEqual(steps, ['flush','flush','revoke','reload']);
+  } finally { failing = false; dirty = false; unregister(); }
+});
