@@ -12,5 +12,5 @@ export default createAgentChatPlugin({
   appId: "vivary",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   ...vivaryNativeChatProjectOptions,
-  mcp: vivaryNativeMcpOptions(localAccessConfig),
+  mcp: vivaryNativeMcpOptions(localAccessConfig).agentChat,
 });

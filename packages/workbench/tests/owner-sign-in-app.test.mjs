@@ -143,9 +143,15 @@ for (const [name, mode] of Object.entries(modes)) {
     const anonymous = await session(server, mode);
     assert.equal(anonymous.body.email, undefined, 'a request without the secret gets no session');
     assert.equal(anonymous.cookie, '');
+    const raw = { host: `127.0.0.1:${server.port}`, 'content-type': 'application/json' };
     for (const route of ['/mcp', '/_agent-native/mcp']) {
-      const mcp = await mcpInitialize(server.port, route, { host: `127.0.0.1:${server.port}` });
+      const mcp = await mcpInitialize(server.port, route, { host: raw.host });
       assert.notEqual(mcp.status, 200, `${route} must not admit a raw local program that names the owner`);
+      const device = await send(server.port, 'POST', `${route}/connect/device/start`, raw, '{}');
+      assert.doesNotMatch(device.body, /device_code|user_code/, `${route} must not start an MCP connect flow`);
+      const client = await send(server.port, 'POST', `${route}/oauth/register`, raw,
+        JSON.stringify({ client_name: 'raw-local-program', redirect_uris: ['http://127.0.0.1:9/callback'] }));
+      assert.doesNotMatch(client.body, /client_id/, `${route} must not register an MCP OAuth client`);
     }
 
     const signedIn = await session(server, mode, { 'x-vivary-owner-sign-in': secrets[0] });

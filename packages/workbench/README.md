@@ -34,8 +34,8 @@ signed in across restarts. Another program on the computer cannot open an
 owner session without that file. The desktop app signs in on its own.
 
 On Windows the sign-in file has the data directory's permissions. The default
-directory in your user profile is readable only by your account and
-administrators. If you choose a
+directory in your user profile is readable only by your account,
+administrators, and SYSTEM. If you choose a
 directory elsewhere, make sure other accounts cannot read it. The same applies
 to the database and session secret beside it.
 

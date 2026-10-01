@@ -280,10 +280,12 @@ describe("Vivary local access configuration", () => {
     }
   });
 
-  it("serves Native's MCP endpoint only in hosted mode", async () => {
+  it("serves Native's MCP endpoint and its connect and OAuth routes only in hosted mode", async () => {
     const nativeServer = import.meta.resolve("@agent-native/core/server");
     const { resolveAgentChatMcpOptions } = await import(new URL("./agent-chat/mcp-options.js", nativeServer).href);
-    for (const [mode, environment, enabled] of [
+    const { resolveCoreRoutesMcpOptions } = await import(
+      new URL("./core-routes/mcp-connect-options.js", nativeServer).href);
+    for (const [mode, environment, served] of [
       ["desktop", localEnvironment({ VIVARY_DESKTOP_HOST: "1" }), false],
       ["local", localEnvironment(), false],
       ["private-proxy", privateProxyEnvironment(), false],
@@ -291,13 +293,35 @@ describe("Vivary local access configuration", () => {
       ["unset", { NODE_ENV: "production" }, true],
     ] as const) {
       const mcp = vivaryNativeMcpOptions(resolveVivaryLocalAccessConfig(environment));
-      assert.equal(resolveAgentChatMcpOptions({ mcp }).enabled, enabled, mode);
+      assert.equal(resolveAgentChatMcpOptions({ mcp: mcp.agentChat }).enabled, served, mode);
+      assert.equal(resolveCoreRoutesMcpOptions({ mcp: mcp.coreRoutes }).connect, served, mode);
     }
+
     const chatPlugin = await readFile(new URL("../server/plugins/agent-chat.ts", import.meta.url), "utf8");
-    assert.match(chatPlugin, /\bmcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)/);
+    assert.match(chatPlugin, /\bmcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.agentChat\b/);
+    const nativeChat = await readFile(new URL("./agent-chat-plugin.js", nativeServer), "utf8");
     // Native imports mountMCP inside the gate, so no call outside it can mount the endpoint.
-    assert.match(await readFile(new URL("./agent-chat-plugin.js", nativeServer), "utf8"),
-      /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*const\s*\{\s*mountMCP\s*\}\s*=\s*await\s+import\([^)]*\);\s*mountMCP\(/);
+    const endpointGate = /if\s*\(\s*mcpOptions\.enabled\s*\)\s*\{\s*(?:\/\/[^\n]*\s*)*const\s*\{\s*mountMCP\s*\}\s*=\s*await\s+import\([^)]*\);\s*mountMCP\(\s*nitroApp\b/;
+    assert.match(nativeChat, endpointGate);
+    assert.equal(nativeChat.match(/\bmountMCP\s*\(/g)?.length, 1);
+    // With the endpoint off, Integrations still manages the MCP servers that Vivary connects to.
+    assert.equal(nativeChat.match(/\bmountMcpServersRoutes\s*\(\s*nitroApp\b/g)?.length, 1);
+    assert.equal(nativeChat.match(/if\s*\(\s*mcpOptions\.enabled\s*\)/g)?.length, 1);
+    assert.ok(nativeChat.search(/\bmountMcpServersRoutes\s*\(\s*nitroApp\b/) < nativeChat.search(endpointGate));
+
+    // Native mounts its default core routes only when no app plugin has the same file stem.
+    const routesPlugin = await readFile(new URL("../server/plugins/core-routes.ts", import.meta.url), "utf8");
+    assert.match(routesPlugin, /createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",\s*mcp:\s*vivaryNativeMcpOptions\(\s*localAccessConfig\s*\)\.coreRoutes,?\s*\}\)/);
+    const nativeRoutes = await readFile(new URL("./core-routes-plugin.js", nativeServer), "utf8");
+    assert.match(nativeRoutes, /export\s+const\s+defaultCoreRoutesPlugin\s*=\s*createCoreRoutesPlugin\(\{\s*googleOAuthManagedConnection:\s*"not_applicable",?\s*\}\)/);
+    const connectGate = nativeRoutes.search(
+      /const\s+mcpConnect\s*=\s*resolveCoreRoutesMcpOptions\(\s*options\s*\);\s*if\s*\(\s*mcpConnect\.connect\s*\)\s*\{/);
+    const afterGate = nativeRoutes.search(/if\s*\(\s*!options\.disableOpenRoute\s*\)/);
+    assert.ok(connectGate > 0 && afterGate > connectGate);
+    const connectHandlers = /\bhandleMcp(?:Connect|OAuth\w*)\s*\(/g;
+    const gatedHandlers = nativeRoutes.slice(connectGate, afterGate).match(connectHandlers)?.length ?? 0;
+    assert.ok(gatedHandlers > 0);
+    assert.equal(nativeRoutes.match(connectHandlers)?.length, gatedHandlers, "every connect and OAuth route sits behind the gate");
   });
 
   it("gives desktop admission only to a desktop config and a sign-in file to every other", async (t) => {
@@ -883,8 +907,8 @@ describe("Vivary private state session header", () => {
 });
 
 describe('desktop listener admission', () => {
-  const admitted = (localRequest: VivaryLocalAccessRequest) => {
-    const value = Object.assign(event(localRequest), { context: {} });
+  const admitted = (localRequest: VivaryLocalAccessRequest, sessionTokens: string[] = []) => {
+    const value = Object.assign(event(localRequest, sessionTokens), { context: {} });
     admitBrowserContext(value.context, { kind: 'desktop' });
     return value;
   };
@@ -895,6 +919,28 @@ describe('desktop listener admission', () => {
     const resolver = createVivaryLocalSessionResolver(config, createVivaryOwnerProof(config, {}), fixture.dependencies);
     assert.equal(await resolver(event(request())), null);
     assert.equal(await resolver(event(request({ ownerSignIn: 's'.repeat(43) }))), null);
+    assert.equal(fixture.persisted.length, 0);
+  });
+
+  it('never reads an existing owner session on a request without desktop admission', async () => {
+    const config = desktopConfig();
+    const fixture = sessionFixture([['owner-session', VIVARY_LOCAL_OWNER_EMAIL]]);
+    const reads: string[] = [];
+    const resolver = createVivaryLocalSessionResolver(config, createVivaryOwnerProof(config, {}), {
+      ...fixture.dependencies,
+      readSessionTokens: (value, current) => {
+        reads.push('tokens');
+        return fixture.dependencies.readSessionTokens(value, current);
+      },
+      getSessionEmail: (token) => {
+        reads.push(token);
+        return fixture.dependencies.getSessionEmail(token);
+      },
+    });
+    assert.equal(await resolver(event(request(), ['owner-session'])), null);
+    assert.deepEqual(reads, []);
+    assert.equal((await resolver(admitted(request(), ['owner-session'])))?.token, 'owner-session');
+    assert.deepEqual(reads, ['tokens', 'owner-session']);
     assert.equal(fixture.persisted.length, 0);
   });
 
