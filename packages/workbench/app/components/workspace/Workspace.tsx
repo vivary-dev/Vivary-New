@@ -291,7 +291,7 @@ export function Workspace() {
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle title="Drag to resize the work panel, or use the arrow keys" disabled={!opened || showOnlySurface} hidden={!opened || showOnlySurface}
-          className="workspace-resize-handle" aria-label="Resize work panel" />
+          className={`workspace-resize-handle${opened === "preview" ? " workspace-preview-resize-handle" : ""}`} aria-label="Resize work panel" />
         <ResizablePanel id="surface" panelRef={panel} defaultSize={opened ? width : 0}
           minSize={showOnlySurface ? 0 : 260} collapsible collapsedSize={0}>
           <aside ref={surfaceElement} className={`workspace-surface${fullPage ? " workspace-surface-fullpage" : ""}`} hidden={!opened} aria-label="Work panel">

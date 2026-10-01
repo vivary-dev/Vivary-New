@@ -7454,6 +7454,15 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Issue #30 gives the preview splitter a 1px divider and a 3px by 28px vertical
+grip inside a 14px transparent pointer target. Hover and keyboard focus reveal
+the grip without changing resize, full-page, or iframe ownership. Other panel
+handles retain their existing styling. Project details now contains its absolute
+screen-reader labels inside its own scrolling region. Those labels previously
+used the outer main area as their containing block and extended its scroll height.
+Review covers the label positioning, pointer and keyboard resizing, and viewport
+containment while the details region scrolls.
+
 Issue #30 updates the Windows x64 Node pin to 24.19.0. The packager still requires
 Workbench output built with that exact Node version and ABI 137. SQLite 12.11.1
 keeps its existing ABI 137 Windows asset. Review checked the runtime pin,
