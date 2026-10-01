@@ -239,6 +239,20 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+CI runs the workbench dependency install, state transport, and maintained
+checks in a separate `workbench tests` job. Serializing the runtime tests raised
+the state transport step from 137 to 255 seconds, and `tests + checks`, which
+took 9m44s on a passing run, was cancelled at its 10-minute limit. The moved
+steps took about 7m45s of that job. Both jobs keep the 10-minute limit, the
+changed-path guard, and every test command and flag. The pinned pip install
+moved with the state transport step because the desktop launcher test imports
+pip's vendored distlib. No later `tests + checks` step uses it. The CI workflow
+contract now requires the new job to wait for dispatch validation, fail closed
+when it fails, and own the only maintained-checks run. Review covered a step
+comparison of both workflow versions, the contract regression tests, and the
+step times of runs 36808062653 and 36815482778. Runtime ownership and product
+behavior are unchanged.
+
 Issue #30 acceptance references now identify the tested browser and Windows
 candidates, the Node 24.19 runtime checks, and the shared work-panel grip and
 Details containment proof. The issue #9 row reflects its verified merged delivery.
