@@ -244,7 +244,8 @@ No documentation route reads arbitrary host files.
 ## Last change review
 
 Issue #30 gives the preview splitter a 1px divider and a 3px by 28px vertical
-grip inside a 14px transparent pointer target. Hover and keyboard focus reveal
+grip inside a 14px transparent pointer target. The grip disables the toolkit's
+inherited CSS rotation. Hover and keyboard focus reveal
 the grip without changing resize, full-page, or iframe ownership. Other panel
 handles retain their existing styling. Project details now contains its absolute
 screen-reader labels inside its own scrolling region. Those labels previously

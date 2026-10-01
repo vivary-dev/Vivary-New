@@ -38,7 +38,7 @@
 .workspace-preview-resize-handle { width:14px!important; background:transparent!important; }
 .workspace-preview-resize-handle::before { content:""; position:absolute; inset:0 auto 0 50%; width:1px; background:hsl(var(--border)); transform:translateX(-50%); }
 .workspace-preview-resize-handle::after { inset:0!important; }
-.workspace-preview-resize-handle > div { width:3px; height:28px; border:0; border-radius:1px; background:hsl(var(--muted-foreground) / .45); transform:none!important; }
+.workspace-preview-resize-handle > div { width:3px; height:28px; border:0; border-radius:1px; background:hsl(var(--muted-foreground) / .45); rotate:none!important; transform:none!important; }
 .workspace-preview-resize-handle > div svg { display:none; }
 .workspace-preview-resize-handle:hover,.workspace-preview-resize-handle:focus-visible { background:transparent!important; box-shadow:none!important; }
 .workspace-preview-resize-handle:hover > div,.workspace-preview-resize-handle:focus-visible > div { background:hsl(var(--ring)); }
