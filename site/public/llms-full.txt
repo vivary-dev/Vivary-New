@@ -209,7 +209,7 @@ are even named for the layers of the sky.
 # Getting started with Vivary
 
 For the Windows application, use the public
-[September 22 prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22)
+[September 22 prerelease](https://github.com/vivary-dev/vivary/releases/tag/desktop-preview-2026-09-22)
 and the [Windows installation guide](https://vivary.vercel.app/desktop-preview/). The unsigned portable
 `9884670` package includes Codex conversations, project-file search, project health,
 setup previews, and project-owned page previews with confirmed desktop browser opening.
@@ -217,10 +217,10 @@ Full desktop acceptance remains open.
 
 The rest of this page installs the original command-line engine. Its pinned
 registry versions remain separate from the desktop package. See the
-[desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
+[desktop acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
 for candidate-specific evidence and remaining gaps. Source contributors can use
-[Workbench setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md#run-from-source) or
-[desktop development](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/README.md#development).
+[Workbench setup](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/README.md#run-from-source) or
+[desktop development](https://github.com/vivary-dev/vivary/blob/dev/packages/desktop/README.md#development).
 
 Vivary is a lightweight, local-first governed-context layer for agent work. It gives a
 project one bounded context capsule, one visible state surface, provenance and
@@ -467,7 +467,7 @@ The coordinated release train named **Vivary Governed Context** is **published a
 verified**. A train is a release label, not a suite version: packages retain
 independent semvers. The only numeric lockstep is the same scaffolder distributed as
 `create-vivary` on PyPI and `@vivary/create` on npm. This policy resolves
-[#149](https://github.com/vivary-dev/vivary/issues/149); its lifecycle lives in the
+[#149](https://github.com/vivary-dev/vivary-cli/issues/149); its lifecycle lives in the
 [release workflow](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle).
 
 The table below preserves the package installation checks from **2026-08-15**.
@@ -889,7 +889,7 @@ provider runtime calls. The next productization gates are:
 - Semantic memory in an incognito, privacy-first mode: optional, explicit, and never
   default.
 - Typed semantic search over Tropo graph truth, tracked in
-  [#20](https://github.com/vivary-dev/vivary/issues/20), returning Vivary node ids and
+  [#20](https://github.com/vivary-dev/vivary-cli/issues/20), returning Vivary node ids and
   paths rather than opaque chunks.
 
 Those belong in separate feature PRs so each can run CI and review cleanly.
@@ -4003,10 +4003,10 @@ When active context was used, report:
 # Vivary optional semantic memory
 
 Status: architecture note plus first optional Cognee adapter slice
-[#84](https://github.com/vivary-dev/vivary/issues/84), now split into
-[#85](https://github.com/vivary-dev/vivary/issues/85) for presets/capabilities and
-[#86](https://github.com/vivary-dev/vivary/issues/86) for semantic memory/Cognee,
-aligned with [#20](https://github.com/vivary-dev/vivary/issues/20). The setup slice
+[#84](https://github.com/vivary-dev/vivary-cli/issues/84), now split into
+[#85](https://github.com/vivary-dev/vivary-cli/issues/85) for presets/capabilities and
+[#86](https://github.com/vivary-dev/vivary-cli/issues/86) for semantic memory/Cognee,
+aligned with [#20](https://github.com/vivary-dev/vivary-cli/issues/20). The setup slice
 landed `knowledge-work`, `create-vivary capabilities`, `--memory local|cognee`,
 `.vivary/memory.toml`, and Doctor memory reporting. Thin init writes provider config
 only after an explicit selection; it does not seed policy records. The first
@@ -4108,7 +4108,7 @@ approved source files. If provider state and source files disagree, source files
   [AgentLTM documentation](https://github.com/vivary-dev/vivary/tree/dev/docs/bellamente-memory).
 - **CandidateRecallProvider** — a provider-neutral, optional source of normalized
   prior assertions for the `vivary-core` candidate-recall firewall in
-  [#205](https://github.com/vivary-dev/vivary/issues/205). It is not a provider wire
+  [#205](https://github.com/vivary-dev/vivary-cli/issues/205). It is not a provider wire
   protocol or a synonym for SemanticMemoryAdapter. Before Core evaluates a
   Bellamente candidate, normalization must supply typed evidence and either a known
   stable Tropo node ID or the explicit unresolved-identity marker defined by the
@@ -6446,7 +6446,7 @@ container resize.
 
 Verified 2026-09-22. This is an unsigned Windows x64 portable preview of Vivary.
 It includes PR #78's desktop browser-link fix and the preceding application changes. It is available
-from the [GitHub prerelease](https://github.com/vivary-dev/Vivary-New/releases/tag/desktop-preview-2026-09-22). The repository and download are public.
+from the [GitHub prerelease](https://github.com/vivary-dev/vivary/releases/tag/desktop-preview-2026-09-22). The repository and download are public.
 The complete desktop and self-hosted web acceptance journey remains unfinished.
 
 ## Download and verify
@@ -6472,7 +6472,7 @@ if ($actual -ne $expected) { throw 'Vivary archive checksum mismatch' }
 If you already use GitHub CLI, download the pinned assets with:
 
 ```console
-gh release download desktop-preview-2026-09-22 --repo vivary-dev/Vivary-New --pattern Vivary-windows-x64-9884670.zip --pattern Vivary-windows-x64-9884670.zip.sha256
+gh release download desktop-preview-2026-09-22 --repo vivary-dev/vivary --pattern Vivary-windows-x64-9884670.zip --pattern Vivary-windows-x64-9884670.zip.sha256
 ```
 
 ## Install and launch
@@ -6605,9 +6605,9 @@ do not add a general GUI Apply button or publish newer PyPI/npm packages.
 ### Automations
 
 The published `9884670` prerelease predates the issue #51 automation changes. This section
-describes later builds. The [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
-records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
-records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
+describes later builds. The [#51 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md)
+records their test on an unpublished package. The [#114 and #115 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)
+records a later package's test of quitting during a run and of LAST CHECKED. The [#109 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)
 records a package's test of **Automation files**.
 
 An automation is a saved instruction that the agent runs on a schedule, when an event
@@ -6632,7 +6632,7 @@ If the file changed after the list showed it, Accept and Delete do nothing, and 
 shows its new text with a notice. Read it again before you choose. A file you or a chat
 edit after the run keeps waiting. A run can still delete one of your instruction files,
 and a run that rewrites one hides your earlier text too until you review it. [Issue
-#144](https://github.com/vivary-dev/Vivary-New/issues/144) tracks both.
+#144](https://github.com/vivary-dev/vivary/issues/144) tracks both.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
 running.
@@ -6703,7 +6703,7 @@ or present in its environment at launch. Without one, the event is skipped and
 **Details** shows the reason. A condition on an event automation is checked with
 Anthropic's API using that same key, whatever the provider. A key from another provider
 is rejected, and the event is skipped with no reason shown. [Issue
-#135](https://github.com/vivary-dev/Vivary-New/issues/135) tracks this. Each event run
+#135](https://github.com/vivary-dev/vivary/issues/135) tracks this. Each event run
 writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
@@ -6736,7 +6736,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/Vivary-New/issues/114) fix release the lease at a normal quit. |
+| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/vivary/issues/114) fix release the lease at a normal quit. |
 | LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
@@ -6749,7 +6749,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 
 Remote access is a separate authenticated self-hosting configuration. This ZIP
 does not publish your laptop to the internet. Consult the
-[Workbench setup](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/README.md) before enabling remote access.
+[Workbench setup](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/README.md) before enabling remote access.
 
 ## Verification and known limits
 
@@ -6785,10 +6785,10 @@ self-hosted phone access, and integrated debugging remain outside this bounded r
 Automations were not part of this package's review either. In later builds they run only
 while Vivary is open, runs cannot use MCP tools or wait for an approval, ending Vivary
 without quitting during a run delays scheduling for up to ten minutes, and webhook calls reach Vivary only from the same computer. The
-[#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
+[#51 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) lists each limit and its tracking issue.
 
-See the [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
-and [remaining release work](https://github.com/vivary-dev/Vivary-New/issues/23). For a bug report, include the
+See the [acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md)
+and [remaining release work](https://github.com/vivary-dev/vivary/issues/23). For a bug report, include the
 release tag, OS version, reproduction steps, and sanitized screenshots or errors.
 Do not include credentials, profile databases, or private transcripts.
 
@@ -6890,7 +6890,7 @@ Bump rules (semver-ish, pre-1.0):
 The historical independent versions remain valid history. A source change after one
 of its versions has published requires a new package version; it never reuses the
 published number or forces unrelated packages to match it. This is the selected
-versioning policy for [#149](https://github.com/vivary-dev/vivary/issues/149).
+versioning policy for [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 
 ## 2. Set release truth first
 
@@ -6953,7 +6953,7 @@ hook or deployment status; merging its docs does not publish a website.
 The site CI job runs `npm audit --audit-level=high` from `site/` immediately after
 `npm ci`. HIGH and CRITICAL advisories block the job. Lower-severity findings remain
 visible without turning every advisory-database change into a release blocker. This
-is the selected threshold for [#232](https://github.com/vivary-dev/vivary/issues/232):
+is the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232):
 it catches release-threatening dependency defects while limiting unrelated CI churn.
 
 The audit reads live registry data, so a site-scoped PR can turn red without changing
@@ -7215,13 +7215,13 @@ Inside the work, be fast. At the edges, leave proof.
 
 # Vivary architecture
 
-This is the high-level design for the desktop and self-hosted product in `vivary-dev/Vivary-New`. It describes the system that contributors change and the boundaries they must preserve. The [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) owns detailed responsibilities and source entry points. The [desktop acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) owns proof by candidate. GitHub issues own task scope and lifecycle.
+This is the high-level design for the desktop and self-hosted product in `vivary-dev/Vivary-New`. It describes the system that contributors change and the boundaries they must preserve. The [module catalog](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/modules.md) owns detailed responsibilities and source entry points. The [desktop acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) owns proof by candidate. GitHub issues own task scope and lifecycle.
 
 ## Purpose and owner intent
 
-Jeff's [desktop release decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md) calls for one Vivary instance on a user-controlled computer or suitable server. A local desktop window and a responsive browser connect to that host. The host keeps agents, project files, credentials, history, and memory. Local desktop use needs no Vivary account. Remote browser access requires explicit setup and authentication. Zo hosts development and a private preview. It is not a required user service.
+Jeff's [desktop release decision](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-release.md) calls for one Vivary instance on a user-controlled computer or suitable server. A local desktop window and a responsive browser connect to that host. The host keeps agents, project files, credentials, history, and memory. Local desktop use needs no Vivary account. Remote browser access requires explicit setup and authentication. Zo hosts development and a private preview. It is not a required user service.
 
-The [unified workspace decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#unified-workspace-decision-2026-09-14) puts one selected project conversation at the center. A project can have several independent conversations. Files, details, search, and preview open as optional panels. Supported installed coding runtimes retain their own tools, models, permissions, and sessions. Vivary binds their work to the selected project. A cross-runtime link and a maintained handoff remain separate product capabilities, not an implicit transfer of a live run. The [interaction contract](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/unified-workspace.md) owns those details.
+The [unified workspace decision](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/design.md#unified-workspace-decision-2026-09-14) puts one selected project conversation at the center. A project can have several independent conversations. Files, details, search, and preview open as optional panels. Supported installed coding runtimes retain their own tools, models, permissions, and sessions. Vivary binds their work to the selected project. A cross-runtime link and a maintained handoff remain separate product capabilities, not an implicit transfer of a live run. The [interaction contract](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/unified-workspace.md) owns those details.
 
 The original Vivary engine remains available as standalone commands and through bounded application operations. A project keeps its own folder and conventions. The original five-file workspace contract, plain authored files, and optional version control let a user continue work without the GUI. The [original CLI reference](https://vivary.vercel.app/original-cli/) owns command and release status.
 
@@ -7229,13 +7229,13 @@ The original design reduces active agent context. `AGENTS.md` routes to `.vivary
 
 ## Success criteria
 
-The [desktop release journey](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#acceptance-journey) defines observable success. A person can install and open the Windows package without a source checkout or Vivary account, create and adopt projects, and run authorized work in each. They can inspect actual tool results, stop work, close the app, and reopen the same project and conversation. They can save a project fact, retrieve it in a fresh session, correct it, and remove it from active memory. They can find an older chat by message content and search project files by filename, exact text, and regex. They can use all ten original command verbs through the installed operations. A desktop and phone browser can connect to the same authenticated private host, and a project preview can support an observed error and authorized repair.
+The [desktop release journey](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-release.md#acceptance-journey) defines observable success. A person can install and open the Windows package without a source checkout or Vivary account, create and adopt projects, and run authorized work in each. They can inspect actual tool results, stop work, close the app, and reopen the same project and conversation. They can save a project fact, retrieve it in a fresh session, correct it, and remove it from active memory. They can find an older chat by message content and search project files by filename, exact text, and regex. They can use all ten original command verbs through the installed operations. A desktop and phone browser can connect to the same authenticated private host, and a project preview can support an observed error and authorized repair.
 
-These are release criteria, not a claim that the full journey passes. The [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md#capability-and-acceptance-gaps) names the tested source and platform for each accepted slice and the remaining gaps. Hosted, simulated-provider, and packaged Windows evidence have different limits.
+These are release criteria, not a claim that the full journey passes. The [acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md#capability-and-acceptance-gaps) names the tested source and platform for each accepted slice and the remaining gaps. Hosted, simulated-provider, and packaged Windows evidence have different limits.
 
 ## System structure
 
-The [architecture and UX diagrams](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/diagrams/README.md) provide six editable tldraw pages and image exports. They are a dated view of this design and its interaction contracts.
+The [architecture and UX diagrams](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/diagrams/README.md) provide six editable tldraw pages and image exports. They are a dated view of this design and its interaction contracts.
 
 ```mermaid
 flowchart LR
@@ -7254,15 +7254,15 @@ flowchart LR
   Native --> Data
 ```
 
-The Electron process starts a local Workbench server, opens its loopback origin, and manages shutdown. The browser client presents the same host state. The Workbench launcher chooses local, hosted, or private-proxy access and locates private data. The source owners are [`packages/desktop/main.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs), [`packages/workbench/bin/start.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/bin/start.mjs), and [`server/local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts). The browser does not run agents or mount a phone's files.
+The Electron process starts a local Workbench server, opens its loopback origin, and manages shutdown. The browser client presents the same host state. The Workbench launcher chooses local, hosted, or private-proxy access and locates private data. The source owners are [`packages/desktop/main.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/desktop/main.mjs), [`packages/workbench/bin/start.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/bin/start.mjs), and [`server/local-access.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/local-access.ts). The browser does not run agents or mount a phone's files.
 
-Workbench composes Agent-Native's application, chat, run, action, and storage owners. Native keeps transcripts and run lifecycle. Workbench keeps project identity and authorized root bindings, then resolves those bindings for actions and sends. The registry uses Native's database with Workbench project, binding, revision, receipt, and mutation tables. See the [project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md), [`project-services.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-services.mjs), and [`db/schema.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/db/schema.mjs). An observed path is not by itself a project identity or a write grant.
+Workbench composes Agent-Native's application, chat, run, action, and storage owners. Native keeps transcripts and run lifecycle. Workbench keeps project identity and authorized root bindings, then resolves those bindings for actions and sends. The registry uses Native's database with Workbench project, binding, revision, receipt, and mutation tables. See the [project registry](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md), [`project-services.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-services.mjs), and [`db/schema.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/db/schema.mjs). An observed path is not by itself a project identity or a write grant.
 
-The selected coding runtime owns execution, tools, model access, and native session continuity. Workbench currently supports Claude Code and Codex through Native Code records and the local Code host. Codex uses its app-server and account-effective model catalog. Workbench relays native approvals, progress, child activity, and Stop. Native provider chat uses Native's chat owner with a project send guard. The [harness adapter contract](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/harness-adapters.md), [Native owner map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/native-owners.md), and [runtime source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/native-runtime/index.md) describe the distinct owners.
+The selected coding runtime owns execution, tools, model access, and native session continuity. Workbench currently supports Claude Code and Codex through Native Code records and the local Code host. Codex uses its app-server and account-effective model catalog. Workbench relays native approvals, progress, child activity, and Stop. Native provider chat uses Native's chat owner with a project send guard. The [harness adapter contract](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/harness-adapters.md), [Native owner map](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/native-owners.md), and [runtime source map](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/source-map/modules/native-runtime/index.md) describe the distinct owners.
 
 ### Original engine
 
-The original engine remains a package family, not another agent loop. `vivary-core` owns pure validation and projection while callers retain execution, persistence, and human approval. Tropo observes, builds typed graph context, and retrieves. Strato evaluates policy. Ozone verifies evidence and proposes gated repairs. Exo projects claims, dependencies, and handoffs. `create-vivary` creates and adopts workspaces. The optional MCP and semantic-memory adapters are outside the default package path. The `vivary` front door routes ten verbs to their package owners. The Workbench bundles this Python runtime and calls its established commands rather than reimplementing their decisions. See [the command reference](https://vivary.vercel.app/commands/) and [package manifests](https://github.com/vivary-dev/Vivary-New/tree/dev/packages).
+The original engine remains a package family, not another agent loop. `vivary-core` owns pure validation and projection while callers retain execution, persistence, and human approval. Tropo observes, builds typed graph context, and retrieves. Strato evaluates policy. Ozone verifies evidence and proposes gated repairs. Exo projects claims, dependencies, and handoffs. `create-vivary` creates and adopts workspaces. The optional MCP and semantic-memory adapters are outside the default package path. The `vivary` front door routes ten verbs to their package owners. The Workbench bundles this Python runtime and calls its established commands rather than reimplementing their decisions. See [the command reference](https://vivary.vercel.app/commands/) and [package manifests](https://github.com/vivary-dev/vivary/tree/dev/packages).
 
 ### The shared seam: vivary-core
 
@@ -7270,7 +7270,7 @@ Core is a library shared by Tropo, Strato, Ozone, and Exo. It owns deterministic
 evidence projection, bounded task capsules, receipt validation, policy decisions,
 and control-state projection. Callers retain clocks, execution, state persistence,
 and human approval. Unknown, conflicting, or omitted evidence stays visible.
-Observed ambiguity does not become permission to act. The [Core contract](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/core/README.md)
+Observed ambiguity does not become permission to act. The [Core contract](https://github.com/vivary-dev/vivary/blob/dev/packages/core/README.md)
 owns the detailed schemas and refusal rules.
 
 ### Package dependency map
@@ -7301,7 +7301,7 @@ flowchart BT
     suite --> exo
 ```
 
-The [package manifests](https://github.com/vivary-dev/Vivary-New/tree/dev/packages) own dependency version floors. Each
+The [package manifests](https://github.com/vivary-dev/vivary/tree/dev/packages) own dependency version floors. Each
 shipping package declares the Core dependency it imports. The meta-package
 receives Core through its component dependencies. Source versions and published
 versions remain distinct in the [CLI release status](https://vivary.vercel.app/original-cli/#release-status).
@@ -7321,13 +7321,13 @@ Coordinated releases publish Core before its dependent role packages.
 
 ## Runtime flows
 
-1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
-2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
-   Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the full block before the engine prompt on every turn, for new runs, Claude follow-ups (each a fresh CLI session), and resumed Codex threads. A resumed Codex thread therefore accumulates one block per turn, up to 8,000 characters each. That cost is accepted so a thread never depends on an earlier block that Codex may have compacted away. Only Full chat blocks name Native's owner-wide tools. The transcript keeps only the typed message, and one note per turn, which the Code view shows, names the loaded revision and whether it changed. The panel's last load is recorded only after the send passes its refusals and claims the host slot. Full chat returns the block from Native's `extraContext` on every send. Its three Vivary hooks, the send guard (`prepareRequest`), `extraContext`, and `resolveActionSurface`, each classify the pinned chat scope again rather than sharing one match. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
-3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. When a stop cannot confirm that a run's coding processes ended, Code refuses new sends and the host strip names what is left, by process name and PID. End them ends only listed processes that Vivary traced to the run, each after it checks the process's PID and start time at the moment it acts. Continue anyway lifts the refusal on the owner's word once End them has run or cannot act, and only for processes the owner was shown. A later check lifts it on its own when nothing is left. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
-4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. Project memory is the only caller of the file service's exclusive Create and version-checked Remove, which reuse the same link refusal, per-project mutation queue, and conflicts. The Memory section in Project details calls two owner actions, `vivary-project-memory` and `vivary-project-memory-write`. It shows the memory folder and why it applies, the role assignments, when changes apply, each fact with its source and file, the exact block the next message receives, and the last load in this app session. Remember, correct, and forget write the owning file, and forget states what it cannot erase. Neither action is an agent tool. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
-5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The seven project read reports, Doctor, Check, Find, Capabilities, Receipts, Review, and Impact, share one server module for the Details panel and the Native tool. Review findings carry a rule code that the app renders from a closed sentence table, so an unknown rule makes the report unreadable instead of passing text through. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. For issue #20, the CLI's public Review and Impact build their graph only from the documents in Tropo's privacy-filtered snapshot, before any rule runs. A link to a private note therefore reads exactly like a link to a missing id, findings carry no free-text message, and a private, missing, or unknown Impact target gets one `target_unavailable` refusal. Only the Structure and Editorial packs have a public form, because Context budget reads routing files from disk. Ozone loads one Tropo engine per process on first use, so the plain and public paths share its facade errors, and public note ids longer than 256 characters are left out and counted. Decide and control run through a separate server module, shown to the owner in the Evaluate section of Project details, where the owner picks whether to evaluate as themself or as the project's agent and every result states it was not saved and shows a refusal from Strato, Exo, or Vivary as an alert, including a refusal Core reports inside an ordinary result, [`project-evaluate.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-evaluate.ts), behind the `vivary-project-evaluate` agent tool and an owner action. The runner, not the caller, binds the actor: a tool call is always this project's agent, an opaque id hashed from the owner's actor id and the project id, and the owner chooses to evaluate as themself or as that agent. [`governed-request.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/governed-request.ts) is the only writer of the actor, contributor authority, project scope, and clocks, and the clocks are taken after the project lock is held. Input that names a server-owned field is refused by name, never overwritten. The agent may run decide, claim, release, expire_leases, and dependencies only, and may not submit a receipt, a verdict, or an execution log, because Native cannot verify them. Results carry `persisted: false` and are never saved. Host paths cross that boundary only as `.` and `./` project paths, and only at the absolute-path positions Core, Strato, and Exo declare. Each position names Core's capsule or claim spelling, so decoding restores claim ids and capsule fingerprints, and any other string is text that is redacted on the way out and never rewritten on the way in. An agent's scope and capsule paths are checked by their text alone, never on disk, so a claim cannot reveal whether a private file exists. A Windows device-namespace root is refused. Native has no capsule producer, so an agent decide without an owner-supplied capsule ends in Strato's own refusal. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
-6. **Preview a project.** A reviewed local command starts a project process. The app presents its page in an isolated frame and supports Stop. The selected coding runtime can inspect and repair the project through its supported browser tools. The [preview receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/11e-live-project-preview.md) states what passed on Zo and what still needs packaged or platform proof.
+1. **Select a project.** Workbench resolves the authenticated actor, stable project ID, current binding, policy revision, and observed root. Project selection changes the files and history shown. A missing folder leaves authorized history available but blocks file-dependent execution. [Project registry](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/source-map/modules/project-registry/index.md) owns the identity contract.
+2. **Send and continue.** A Native chat send rechecks its pinned project scope before model or attachment work. A Code send starts or resumes the selected native session against its bound project. Native stores the resulting run and transcript. A model choice or project switch cannot silently move an active run. [`native-chat-project.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/native-chat-project.ts), [`local-code-agent.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/local-code-agent.ts), and the [session model](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-release.md#one-understandable-model) own this flow.
+   Each project message also loads the project's context when it starts. [`project-memory.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-memory.ts) reads the law files, the state file, and the fact files in the memory folders from the admitted project only, and renders one block of at most 8,000 characters. A Code send puts the full block before the engine prompt on every turn, for new runs, Claude follow-ups (each a fresh CLI session), and resumed Codex threads. A resumed Codex thread therefore accumulates one block per turn, up to 8,000 characters each. That cost is accepted so a thread never depends on an earlier block that Codex may have compacted away. Only Full chat blocks name Native's owner-wide tools. The transcript keeps only the typed message, and one note per turn, which the Code view shows, names the loaded revision and whether it changed. The panel's last load is recorded only after the send passes its refusals and claims the host slot. Full chat returns the block from Native's `extraContext` on every send. Its three Vivary hooks, the send guard (`prepareRequest`), `extraContext`, and `resolveActionSurface`, each classify the pinned chat scope again rather than sharing one match. A change to a fact file therefore applies from the next message, in new and open conversations, and after a restart. A reply already running keeps what it started with.
+3. **Approve, deny, or stop.** Native owns an action request and its execution lifecycle. Workbench checks the owner, project, run, and exact request before relaying a decision. Stop targets the owned running work. When a stop cannot confirm that a run's coding processes ended, Code refuses new sends and the host strip names what is left, by process name and PID. End them ends only listed processes that Vivary traced to the run, each after it checks the process's PID and start time at the moment it acts. Continue anyway lifts the refusal on the owner's word once End them has run or cannot act, and only for processes the owner was shown. A later check lifts it on its own when nothing is left. Client closure does not itself approve or replay an action. The [coding permission decision](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/design.md#native-coding-permissions-and-activity-2026-09-16) and [authority module](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/modules.md#m05-authority-and-approvals) own the rules.
+4. **Read and change project files.** Scoped file actions list and read bounded content. Explicit Save and Rename check the selected project and file revision. Project memory is the only caller of the file service's exclusive Create and version-checked Remove, which reuse the same link refusal, per-project mutation queue, and conflicts. The Memory section in Project details calls two owner actions, `vivary-project-memory` and `vivary-project-memory-write`. It shows the memory folder and why it applies, the role assignments, when changes apply, each fact with its source and file, the exact block the next message receives, and the last load in this app session. Remember, correct, and forget write the owning file, and forget states what it cannot erase. Neither action is an agent tool. The Search panel walks one authorized project with caps, private-file exclusions, and continuation. It does not use a persistent index or a shell search process. [`project-files.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-files.ts), [`project-search.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-search.ts), and the [write-back map](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/source-map/modules/project-writeback/index.md) own the behavior and limits.
+5. **Call the original engine.** The bundled Python runtime receives a bounded command and a selected project root. The seven project read reports, Doctor, Check, Find, Capabilities, Receipts, Review, and Impact, share one server module for the Details panel and the Native tool. Review findings carry a rule code that the app renders from a closed sentence table, so an unknown rule makes the report unreadable instead of passing text through. The agent tool gets its project from the chat's pinned scope, not model-supplied input. Public Doctor, Find, and Check use the privacy-filtered CLI path. For issue #20, the CLI's public Review and Impact build their graph only from the documents in Tropo's privacy-filtered snapshot, before any rule runs. A link to a private note therefore reads exactly like a link to a missing id, findings carry no free-text message, and a private, missing, or unknown Impact target gets one `target_unavailable` refusal. Only the Structure and Editorial packs have a public form, because Context budget reads routing files from disk. Ozone loads one Tropo engine per process on first use, so the plain and public paths share its facade errors, and public note ids longer than 256 characters are left out and counted. Decide and control run through a separate server module, shown to the owner in the Evaluate section of Project details, where the owner picks whether to evaluate as themself or as the project's agent and every result states it was not saved and shows a refusal from Strato, Exo, or Vivary as an alert, including a refusal Core reports inside an ordinary result, [`project-evaluate.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-evaluate.ts), behind the `vivary-project-evaluate` agent tool and an owner action. The runner, not the caller, binds the actor: a tool call is always this project's agent, an opaque id hashed from the owner's actor id and the project id, and the owner chooses to evaluate as themself or as that agent. [`governed-request.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/governed-request.ts) is the only writer of the actor, contributor authority, project scope, and clocks, and the clocks are taken after the project lock is held. Input that names a server-owned field is refused by name, never overwritten. The agent may run decide, claim, release, expire_leases, and dependencies only, and may not submit a receipt, a verdict, or an execution log, because Native cannot verify them. Results carry `persisted: false` and are never saved. Host paths cross that boundary only as `.` and `./` project paths, and only at the absolute-path positions Core, Strato, and Exo declare. Each position names Core's capsule or claim spelling, so decoding restores claim ids and capsule fingerprints, and any other string is text that is redacted on the way out and never rewritten on the way in. An agent's scope and capsule paths are checked by their text alone, never on disk, so a claim cannot reveal whether a private file exists. A Windows device-namespace root is refused. Native has no capsule producer, so an agent decide without an owner-supplied capsule ends in Strato's own refusal. Governed writes retain their own plan, authority, and receipt rules. [`original-runtime.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/original-runtime.ts), [`project-read.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/project-read.ts), and the [issue #19 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/09b-original-read-tools.md) record the delivered slice.
+6. **Preview a project.** A reviewed local command starts a project process. The app presents its page in an isolated frame and supports Stop. The selected coding runtime can inspect and repair the project through its supported browser tools. The [preview receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/11e-live-project-preview.md) states what passed on Zo and what still needs packaged or platform proof.
 
 ## Data and trust boundaries
 
@@ -7336,13 +7336,13 @@ Coordinated releases publish Core before its dependent role packages.
 | Project files and authored memory | Stay in the user's authorized folder. Workspace roles identify authored knowledge. Authored facts are one Markdown file per fact in `.vivary/knowledge/` or the folders the `memory` role names. In a thin workspace Tropo types them as `vivary_fact`, which requires a source and a confirmed date, at both its private and public compose paths. `.vivary/memory/` is disposable semantic-provider state, not an authored note store, and provider forget never touches authored facts. Memory folders, law files, and the state file never use `.git`, `.vivary/memory`, the engine's declared private, runtime, and capability storage paths, or boundary role paths, compared without regard to case. Paths with a part Windows cannot use (a trailing dot or space, a device name, a colon, a backslash, or a control character) are refused. A memory folder, law file, state file, or fact file that the workspace's `.gitignore` files ignore is not loaded or changed. Neither is a fact file the engine did not check. Both sides list a memory folder the same way: the first 200 `.md` names of regular files and links, secret-looking names left out, in UTF-16 order, from at most 4,000 scanned entries. The engine checks the regular files among them whose paths the Workbench answer schema accepts, at most 3,000 paths and 96 KiB of JSON in all. The Workbench skips a link as linked, a name the engine can never report as unsupported, and a file created after the check as not checked, and Correct and Forget refuse each. Remember checks the exact new file name, so no fact is saved where the rules would ignore it. For memory the engine matches fail-closed: memory treats a path as private when any positive rule could match it and ignores negations, so it may refuse a file Git would re-include. The owner can choose a memory folder that no rule matches. A rule matches in exact case or without regard to case, a run of two or more stars reads the same whatever its length, as in Git, and a run not bounded by slashes crosses `/`, a rule and a path match as code points or as UTF-8 bytes, and a trailing `/` also matches a file. Each `.gitignore` is read as bytes: a UTF-8 byte order mark is skipped, lines split only on a newline, with one carriage return before it dropped, and an entry ends at its first NUL. Memory reads a bracket body itself only when it holds plain members and ranges, such as `[._]` or `[a-v]`, with an optional leading `!` or `^`. A body that holds a backslash, starts with `]`, `!]`, or `^]`, or holds a POSIX class, an equivalence class, or a collating symbol, a negated body holding an ASCII capital letter outside a range, such as `[!B]`, an unescaped `[` that never closes, a set Python cannot compile, and a rule longer than 256 characters make the rule match everything under its folder. Matching tracks reachable positions without backtracking, and each context read spends from a fixed matching budget. When the budget runs out, every path not yet decided counts as private, the answer sets `privacy_limited`, and the context block and the panel say the ignore rules were too costly to check in full. The budget is 20 million units: each positive rule and path pair costs its rule length plus 64 (a negated rule is skipped without a charge), and each match step costs the path positions it visits. A read that loads more than 2,000 rules from the `.gitignore` files it consults stops the same way. The budget bounds the work a read does, not its time on every machine. On Zo the slowest case measured, 1,999 rules against 200 files, stopped at the budget in about 1.7 seconds. Outside brackets a backslash escapes the next character. A differential test checks this against `git check-ignore`. The engine checks `.gitignore` files only. It does not read `.git/info/exclude` or global Git excludes, so a rule kept only there does not make memory private. Agents receive facts as labeled information in the per-message project block, never as instructions. Project chats do not get Native's owner-wide `resources`, `save-memory`, `delete-memory`, or `chat-history` actions, or its database tools `db-schema`, `db-query`, `db-exec`, and `db-patch`, because those stores have no project column and SQL could read the owner-scoped resources table. Native drops the framework prompt lines that name the tools, but its resources context note stays in the prompt, so the Full chat project block says the tools are unavailable. Personal and legacy chats keep them. |
 | Project identities and bindings | Workbench registry tables in private Native-backed application data. The server checks actor, collection, device, policy, and observed root before effects. |
 | Conversations, runs, and approvals | Native records in private application data. Workbench stores references and project scope rather than copying full transcripts into a second store. Archive only sets a chat's archive time. A project's Archived conversations list and Restore go through the `vivary-native-archive` owner action, which clears that time only for the owner's chat in the same organization or with none and in the exact project scope, so a restored chat keeps its transcript and scope. |
-| Unattended automation runs | Scheduled, event, webhook, and Run now runs execute in the Vivary server process with no one present to approve a step. The owner decided on 2026-09-26 that they are local-only, and the maintained Core patch enforces it with an allowlist. A run gets 12 Native tools: `resources`, `save-memory`, `delete-memory`, `chat-history`, `manage-progress`, `manage-notifications`, `manage-jobs`, `manage-automations`, and four lookups over files bundled with Core. It cannot send email or messages, reach the web or other agents, call MCP tools, change settings, jobs, or automations, or read or change agent profiles, remote agent manifests, or MCP configuration. It cannot pass an argument its tool does not declare. Notifications from a run reach the in-app inbox only. An automation that lists MCP tools fails before any model call, because an approval cannot be granted after the fact in an unattended run. A run can still read resources and change its owner's personal resources, memory, chat history, and progress. Every write a run makes records the run. An instruction or memory file a run writes, `AGENTS.md` or a file under `instructions/`, `skills/`, or `memory/`, waits for the owner's review, and no chat or later run loads it until the owner accepts it in Settings > Automation files. A run's `LEARNINGS.md` write goes to the app default unless it names the personal scope, so it is refused. A chat's prompt says only how many files wait, though a chat can still list their paths, and Core's raw database tools refuse the `resources` table. A run writes and deletes only its owner's personal files, and writes only under a plain path, because app default, organization, and workspace files load for other people and the loaders match a path as it was stored. A run can still delete its owner's own instruction file, and an overwrite hides the owner's earlier text until review ([issue #144](https://github.com/vivary-dev/Vivary-New/issues/144)). Two outward paths stay, and only the owner sets them from a chat or the app: reply delivery to the automation's delivery platform and dispatch to a paired execution host. Interactive chats keep their tools. A webhook call starts a run too. On the desktop its URL names the loopback address, so only programs on the same computer can call it while Vivary runs. In self-hosted mode with an app URL, anyone who has the URL can. The URL token is a stored secret, so redaction hides it, and the request body reaches the run fenced as untrusted data. An automation with a condition sends the request body to Anthropic's API to check it, and needs an Anthropic key for that. An automation with 20 calls waiting refuses more, and a call that waited 24 hours is expired unrun. A normal quit ends a run in progress as interrupted, returns an interrupted webhook call to the queue, and releases the scheduler lease. After a hard kill the run reads running for up to 15 minutes after it started, the lease holds until 10 minutes after its last renewal, and an interrupted webhook call runs again about 15 minutes after its claim. The [patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#local-only-automation-runs) own the allowlist and the refusals. |
-| CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. A coding runtime runs commands its agent chooses. [`local-runtime-setup.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-runtime-setup.ts) builds the Codex launch and the CLI status checks from the host environment without any credential-shaped name, in any letter case. A name is withheld when it contains PASSWORD, PASSWD, SECRET, TOKEN, APIKEY, CREDENTIAL, CONNECTION_STRING, CONNECTIONSTRING, COOKIE, or WEBHOOK, when one of its `_`-separated words is KEY, KEYS, PASS, PAT, or DSN, when its last word is AUTH, or when a URL or URI word follows a word that ends in DB or starts with DATABASE, DATASOURCE, POSTGRES, PG, MYSQL, MARIADB, MONGO, REDIS, KV, BROKER, AMQP, or CLOUDAMQP. It is also withheld when it is `MCP_SERVERS`, `MYSQL_PWD`, `DOCKER_AUTH_CONFIG`, `GIT_CONFIG_PARAMETERS`, or `BW_SESSION`, when it starts with `OP_SESSION_`, or when it belongs to Git's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, and `GIT_CONFIG_VALUE_n` group, which is withheld whole because Git needs complete pairs. Five names that match stay, because tools need them and they hold no secret: `GCM_CREDENTIAL_STORE`, `GCM_AZREPOS_CREDENTIALTYPE`, `NUGET_CREDENTIALPROVIDERS_PATH`, `COOKIECUTTER_CONFIG`, and `TIKTOKEN_CACHE_DIR`. That covers Native provider keys, the sign-in secret, secret-store keys, and the conventional names of integration secrets. A credential under an unconventional name still passes. Proxies, locale, and most toolchain paths pass through, including a proxy URL that carries a user name and password. A path whose name matches the rule, such as `PASSWORD_STORE_DIR`, is withheld. A user's own token variables, such as `GITHUB_TOKEN`, are withheld too, so each CLI uses its own login. Claude Code turns receive only Agent-Native's short allowlist. Issue #98 applies the same filter to the coding worker that starts Codex and Claude Code, so the process above a runtime starts without a credential-shaped name as well. The worker needs none. Claude Code gets `--strict-mcp-config` with no MCP configuration, native Codex uses its own configuration and never reaches Core's merged MCP settings, and runs are stored in files under the code-runs folder, not the database. The worker starts without database settings, so a future Core call that queried the database from the worker would open an empty default database in its working folder, and a Workbench test that runs the Claude Code path fails if that happens. [`code-execution-host.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/code-execution-host.ts) builds that environment and still removes the desktop and standalone host markers. The filter controls what a runtime inherits, not what it can reach. The runtime runs as the same operating-system user, so a determined command can still read the private data folder, including the sign-in secret file and the database. Every credential in Vivary's launch environment, such as provider keys and a user's own token variables, stays in the start environment of the server and of the desktop process that starts it, and a same-user command can read it there. Where the operating system allows it, a same-user process can also read another's memory. Windows allows it between one user's processes at one integrity level, which Vivary's are, and Linux allows it when Yama `ptrace_scope` is 0 or Yama is absent. On Windows, the settings that `bin/start.mjs` assigns at startup, including the sign-in secret, also sit in the server process's environment block. The [#98 packaged Windows check](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/98-coding-worker-environment.md) ran a command in a Codex run before and after the fix, and both times it read their names from the server's environment, five processes above it. App-invoked original command receipts go to private application data. |
-| Credentials in shown, stored, and model-bound text | Issue #97. Vivary replaces a credential with a placeholder before text reaches a model, storage, a log, or the screen. [`credential-redaction.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/credential-redaction.ts) holds the values Vivary knows: credential-named server environment settings, named by the same rule as the coding runtime filter, values in the Agent-Native secret store, legacy credential settings, and the credential environments and headers in `mcp.config.json`. A JSON bundle adds its credential-named fields, a `Bearer` value adds its token, and a URL adds its password and its credential-named query values, or its whole address when the setting is a webhook. Values under 16 characters, numbers, booleans, hosts, ports, `file:` URLs, base URLs, and paths in settings named for a path, file, or folder are not held. The set reloads at startup, after each secret write or delete, and before each Native chat send and each Code send. An exact held value, or its URL-encoded, JSON-escaped, or base64 form, becomes `[redacted NAME]`. Pattern rules turn formats Vivary does not hold into `[redacted credential]`: `sk-`, Stripe live, GitHub, GitLab, `AKIA`, `AIza`, and `xox` tokens, JSON Web Tokens, `Bearer` tokens that look like tokens, URL passwords, and credential-named assignments such as `OPENROUTER_API_KEY=...`. Assignments skip names that print ordinary data: identifiers, names, paths, addresses, expiry times, pagination tokens, and public, cache, storage, and idempotency keys. A webhook-named assignment whose value is a URL is redacted. Every rule scans a line in linear time. The maintained Core patch applies the registered redactor to a whole Native tool result before truncation, so the model, the screen, and the run journal share one redacted string, and to tool error text, the recovered-result ledger on write and replay, every run event before it is kept or stored, the saved provider-failure message, saved and forked threads, earlier turns the browser sends back, automation run errors and last errors, and Code transcript events and run records. A streamed text, thinking, or tool-input delta keeps back its last word or two, up to the longest held form plus 256 characters and at most 16,384, so a value split across deltas is redacted whole. Vivary redacts the per-message project context block, Codex approval cards, original command output and component receipts, and every server stdout and stderr write. For Codex and Claude Code runs, the host sends the coding worker salted fingerprints of the held forms, never the values, because the CLI it starts can read the worker's memory on Windows and on Linux hosts where Yama `ptrace_scope` is 0 or Yama is absent. On Linux with scope 1 or higher, the CLI can still read the worker's start environment and command line. A fingerprint is a form's length, 20 bits of a keyed rolling hash of its first 16 characters, a salted SHA-256 digest, and its placeholder. A credential typed into a chat reaches the model in the turn it is typed. Later turns, saved threads, and forks get the placeholder. Limits: pattern matching misses hex, reversed, line-split, and partial prints, compressed or custom encodings, base64 of values Vivary does not hold, and secrets with no known format, and it does no entropy detection. It can redact text that only looks like a credential, and a model that rewrites a file it read can write the placeholder back. Events stored before this change keep their text. The Codex or Claude CLI still sends raw tool output to its own provider and keeps its own session files. The worker starts without credential-shaped names (issue #98), but anything that can read the worker can test guesses against a fingerprint's digest, which finds a weak held value of 16 or more characters. Core's `captureError` forwards a raw error message to a configured tracking or error-reporting provider, which stays inactive without telemetry. The desktop startup error dialog shows server startup errors, which are Vivary's own messages, without redaction. The [patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#credential-redaction) own the Core call sites. |
+| Unattended automation runs | Scheduled, event, webhook, and Run now runs execute in the Vivary server process with no one present to approve a step. The owner decided on 2026-09-26 that they are local-only, and the maintained Core patch enforces it with an allowlist. A run gets 12 Native tools: `resources`, `save-memory`, `delete-memory`, `chat-history`, `manage-progress`, `manage-notifications`, `manage-jobs`, `manage-automations`, and four lookups over files bundled with Core. It cannot send email or messages, reach the web or other agents, call MCP tools, change settings, jobs, or automations, or read or change agent profiles, remote agent manifests, or MCP configuration. It cannot pass an argument its tool does not declare. Notifications from a run reach the in-app inbox only. An automation that lists MCP tools fails before any model call, because an approval cannot be granted after the fact in an unattended run. A run can still read resources and change its owner's personal resources, memory, chat history, and progress. Every write a run makes records the run. An instruction or memory file a run writes, `AGENTS.md` or a file under `instructions/`, `skills/`, or `memory/`, waits for the owner's review, and no chat or later run loads it until the owner accepts it in Settings > Automation files. A run's `LEARNINGS.md` write goes to the app default unless it names the personal scope, so it is refused. A chat's prompt says only how many files wait, though a chat can still list their paths, and Core's raw database tools refuse the `resources` table. A run writes and deletes only its owner's personal files, and writes only under a plain path, because app default, organization, and workspace files load for other people and the loaders match a path as it was stored. A run can still delete its owner's own instruction file, and an overwrite hides the owner's earlier text until review ([issue #144](https://github.com/vivary-dev/Vivary-New/issues/144)). Two outward paths stay, and only the owner sets them from a chat or the app: reply delivery to the automation's delivery platform and dispatch to a paired execution host. Interactive chats keep their tools. A webhook call starts a run too. On the desktop its URL names the loopback address, so only programs on the same computer can call it while Vivary runs. In self-hosted mode with an app URL, anyone who has the URL can. The URL token is a stored secret, so redaction hides it, and the request body reaches the run fenced as untrusted data. An automation with a condition sends the request body to Anthropic's API to check it, and needs an Anthropic key for that. An automation with 20 calls waiting refuses more, and a call that waited 24 hours is expired unrun. A normal quit ends a run in progress as interrupted, returns an interrupted webhook call to the queue, and releases the scheduler lease. After a hard kill the run reads running for up to 15 minutes after it started, the lease holds until 10 minutes after its last renewal, and an interrupted webhook call runs again about 15 minutes after its claim. The [patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#local-only-automation-runs) own the allowlist and the refusals. |
+| CLI credentials and logs | Stay in each provider's supported location. Vivary references native sessions. A coding runtime runs commands its agent chooses. [`local-runtime-setup.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/local-runtime-setup.ts) builds the Codex launch and the CLI status checks from the host environment without any credential-shaped name, in any letter case. A name is withheld when it contains PASSWORD, PASSWD, SECRET, TOKEN, APIKEY, CREDENTIAL, CONNECTION_STRING, CONNECTIONSTRING, COOKIE, or WEBHOOK, when one of its `_`-separated words is KEY, KEYS, PASS, PAT, or DSN, when its last word is AUTH, or when a URL or URI word follows a word that ends in DB or starts with DATABASE, DATASOURCE, POSTGRES, PG, MYSQL, MARIADB, MONGO, REDIS, KV, BROKER, AMQP, or CLOUDAMQP. It is also withheld when it is `MCP_SERVERS`, `MYSQL_PWD`, `DOCKER_AUTH_CONFIG`, `GIT_CONFIG_PARAMETERS`, or `BW_SESSION`, when it starts with `OP_SESSION_`, or when it belongs to Git's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, and `GIT_CONFIG_VALUE_n` group, which is withheld whole because Git needs complete pairs. Five names that match stay, because tools need them and they hold no secret: `GCM_CREDENTIAL_STORE`, `GCM_AZREPOS_CREDENTIALTYPE`, `NUGET_CREDENTIALPROVIDERS_PATH`, `COOKIECUTTER_CONFIG`, and `TIKTOKEN_CACHE_DIR`. That covers Native provider keys, the sign-in secret, secret-store keys, and the conventional names of integration secrets. A credential under an unconventional name still passes. Proxies, locale, and most toolchain paths pass through, including a proxy URL that carries a user name and password. A path whose name matches the rule, such as `PASSWORD_STORE_DIR`, is withheld. A user's own token variables, such as `GITHUB_TOKEN`, are withheld too, so each CLI uses its own login. Claude Code turns receive only Agent-Native's short allowlist. Issue #98 applies the same filter to the coding worker that starts Codex and Claude Code, so the process above a runtime starts without a credential-shaped name as well. The worker needs none. Claude Code gets `--strict-mcp-config` with no MCP configuration, native Codex uses its own configuration and never reaches Core's merged MCP settings, and runs are stored in files under the code-runs folder, not the database. The worker starts without database settings, so a future Core call that queried the database from the worker would open an empty default database in its working folder, and a Workbench test that runs the Claude Code path fails if that happens. [`code-execution-host.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/code-execution-host.ts) builds that environment and still removes the desktop and standalone host markers. The filter controls what a runtime inherits, not what it can reach. The runtime runs as the same operating-system user, so a determined command can still read the private data folder, including the sign-in secret file and the database. Every credential in Vivary's launch environment, such as provider keys and a user's own token variables, stays in the start environment of the server and of the desktop process that starts it, and a same-user command can read it there. Where the operating system allows it, a same-user process can also read another's memory. Windows allows it between one user's processes at one integrity level, which Vivary's are, and Linux allows it when Yama `ptrace_scope` is 0 or Yama is absent. On Windows, the settings that `bin/start.mjs` assigns at startup, including the sign-in secret, also sit in the server process's environment block. The [#98 packaged Windows check](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/98-coding-worker-environment.md) ran a command in a Codex run before and after the fix, and both times it read their names from the server's environment, five processes above it. App-invoked original command receipts go to private application data. |
+| Credentials in shown, stored, and model-bound text | Issue #97. Vivary replaces a credential with a placeholder before text reaches a model, storage, a log, or the screen. [`credential-redaction.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/credential-redaction.ts) holds the values Vivary knows: credential-named server environment settings, named by the same rule as the coding runtime filter, values in the Agent-Native secret store, legacy credential settings, and the credential environments and headers in `mcp.config.json`. A JSON bundle adds its credential-named fields, a `Bearer` value adds its token, and a URL adds its password and its credential-named query values, or its whole address when the setting is a webhook. Values under 16 characters, numbers, booleans, hosts, ports, `file:` URLs, base URLs, and paths in settings named for a path, file, or folder are not held. The set reloads at startup, after each secret write or delete, and before each Native chat send and each Code send. An exact held value, or its URL-encoded, JSON-escaped, or base64 form, becomes `[redacted NAME]`. Pattern rules turn formats Vivary does not hold into `[redacted credential]`: `sk-`, Stripe live, GitHub, GitLab, `AKIA`, `AIza`, and `xox` tokens, JSON Web Tokens, `Bearer` tokens that look like tokens, URL passwords, and credential-named assignments such as `OPENROUTER_API_KEY=...`. Assignments skip names that print ordinary data: identifiers, names, paths, addresses, expiry times, pagination tokens, and public, cache, storage, and idempotency keys. A webhook-named assignment whose value is a URL is redacted. Every rule scans a line in linear time. The maintained Core patch applies the registered redactor to a whole Native tool result before truncation, so the model, the screen, and the run journal share one redacted string, and to tool error text, the recovered-result ledger on write and replay, every run event before it is kept or stored, the saved provider-failure message, saved and forked threads, earlier turns the browser sends back, automation run errors and last errors, and Code transcript events and run records. A streamed text, thinking, or tool-input delta keeps back its last word or two, up to the longest held form plus 256 characters and at most 16,384, so a value split across deltas is redacted whole. Vivary redacts the per-message project context block, Codex approval cards, original command output and component receipts, and every server stdout and stderr write. For Codex and Claude Code runs, the host sends the coding worker salted fingerprints of the held forms, never the values, because the CLI it starts can read the worker's memory on Windows and on Linux hosts where Yama `ptrace_scope` is 0 or Yama is absent. On Linux with scope 1 or higher, the CLI can still read the worker's start environment and command line. A fingerprint is a form's length, 20 bits of a keyed rolling hash of its first 16 characters, a salted SHA-256 digest, and its placeholder. A credential typed into a chat reaches the model in the turn it is typed. Later turns, saved threads, and forks get the placeholder. Limits: pattern matching misses hex, reversed, line-split, and partial prints, compressed or custom encodings, base64 of values Vivary does not hold, and secrets with no known format, and it does no entropy detection. It can redact text that only looks like a credential, and a model that rewrites a file it read can write the placeholder back. Events stored before this change keep their text. The Codex or Claude CLI still sends raw tool output to its own provider and keeps its own session files. The worker starts without credential-shaped names (issue #98), but anything that can read the worker can test guesses against a fingerprint's digest, which finds a weak held value of 16 or more characters. Core's `captureError` forwards a raw error message to a configured tracking or error-reporting provider, which stays inactive without telemetry. The desktop startup error dialog shows server startup errors, which are Vivary's own messages, without redaction. The [patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#credential-redaction) own the Core call sites. |
 | Search results and indexes | Project file search reads the authorized folder with bounded work. A future derived index is rebuildable and belongs in private application data. |
 | Preview processes | Start only from reviewed project commands. Preview content is isolated from privileged Workbench state. Stop and host shutdown own cleanup. |
 
-The local desktop server binds to loopback and opens without a Vivary login. Hosted mode uses Native authentication. The private Zo preview uses its owner-login proxy boundary. Remote access to a user's host remains an explicit, authenticated setup requirement, with real-phone and revocation acceptance still open. [`local-access.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/local-access.ts) owns request checks. The [host decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#host-and-browser-access-decision-2026-09-13) owns the product boundary.
+The local desktop server binds to loopback and opens without a Vivary login. Hosted mode uses Native authentication. The private Zo preview uses its owner-login proxy boundary. Remote access to a user's host remains an explicit, authenticated setup requirement, with real-phone and revocation acceptance still open. [`local-access.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/local-access.ts) owns request checks. The [host decision](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/design.md#host-and-browser-access-decision-2026-09-13) owns the product boundary.
 
 Issue #30 adds optional paired-browser access to the same desktop process and Native database.
 It is off on a new installation. The owner's enabled setting, exact HTTPS origin,
@@ -7352,11 +7352,11 @@ Vivary opens only the configured extra loopback port and does not install a tunn
 certificate or firewall rule. A failed optional listener leaves desktop access and
 its repair controls available.
 
-[`browser-access.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-access.mjs) owns pairing,
+[`browser-access.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/browser-access.mjs) owns pairing,
 grant expiry and revocation in Native-backed tables. A browser receives a separate
 Secure, HttpOnly cookie; its digest identifies a grant whose Native session token
 stays on the server. The reserved owner, existing organization, projects and threads
-remain unchanged. [`browser-ingress.mjs`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/server/browser-ingress.mjs)
+remain unchanged. [`browser-ingress.mjs`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/server/browser-ingress.mjs)
 rejects requests before Native dispatch, including alternate authentication inputs,
 encoded auth/control routes and public MCP credential routes. Listener-owned request
 context supplies identity. Remote session responses omit the Native token, and all
@@ -7428,23 +7428,23 @@ Refresh preview replaces only the frame for the same identity. Separate transpor
 required. This source slice does not establish packaged Windows or actual-phone
 acceptance.
 
-The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/desktop/main.mjs) own those limits.
+The Electron window accepts its local server origin, isolates the renderer, denies browser permissions and downloads, and routes a small set of setup links externally. A project grant does not bypass CLI-native permissions. A prompt containing a path is not filesystem isolation. The selected harness may send supplied model context to its provider. Local storage does not imply offline model inference. The [runtime isolation decision](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/design.md#runtime-ownership-and-isolation) and [desktop host](https://github.com/vivary-dev/vivary/blob/dev/packages/desktop/main.mjs) own those limits.
 
 ## Delivery and known gaps
 
-The unified workspace, project registration and selection, scoped Code and Native history, bounded files and search, reviewed project preview, bundled original CLI, and selected original operations have implemented and tested slices. The [acceptance register](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) states their candidate-specific evidence. A passing component or source check does not complete the desktop and browser release journey.
+The unified workspace, project registration and selection, scoped Code and Native history, bounded files and search, reviewed project preview, bundled original CLI, and selected original operations have implemented and tested slices. The [acceptance register](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-acceptance-status.md) states their candidate-specific evidence. A passing component or source check does not complete the desktop and browser release journey.
 
-Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and the Windows packages, including the final `e6ccddf5` package, which passed the panel reads and the agent turn. PR #94 recorded that result, and the owner closed issue #19 on 2026-09-26. PR #90 added [route-question research](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
+Issue #19's five project read reports entered `dev` in PR #89. Its receipt records hosted fake-provider proof and the Windows packages, including the final `e6ccddf5` package, which passed the panel reads and the agent turn. PR #94 recorded that result, and the owner closed issue #19 on 2026-09-26. PR #90 added [route-question research](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/research/tropo-find-route-questions.md) only. It did not change Tropo's public path refusal or MCP privacy rules.
 
-Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. PR #95 merged it into `dev` as `7fb73bd`, and the owner closed issue #20 on 2026-09-26. Its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. The unpublished `1249572d` Windows package passed the panel checks and a 14-check agent turn with a fake provider. No real provider turn has run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
+Issue #20 adds public Review and Impact to the project read tool and adds a second agent tool, `vivary-project-evaluate`, for decide and four control operations, with an owner Evaluate panel. PR #95 merged it into `dev` as `7fb73bd`, and the owner closed issue #20 on 2026-09-26. Its [receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md) records three review rounds and a 22-step hosted fake-provider journey that passed three runs in a row on `33cbcbb`. The unpublished `1249572d` Windows package passed the panel checks and a 14-check agent turn with a fake provider. No real provider turn has run. Native has no capsule producer, so an agent decide needs a capsule the owner hands over, and the server copies the workspace fingerprint from that capsule, which makes Strato's workspace match a self-consistency check only. Ozone's Tropo floor and the front door's Ozone floor must rise when those packages release, because the public paths need Tropo's `public_graph`. The bundled app ships all packages from one source tree and is not affected.
 
-Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns passed under issue #50 on the unpublished `265a7ede` Windows package, with OpenRouter and the project read and evaluate tools, and its [receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/50-real-native-provider.md) records the limits that remain. Automations passed their lifecycle journey under issue #51 on the unpublished `c096528a` Windows package, and the [#51 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) records the journey and the limits that remain. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
+Issue #21's scoped file memory is implemented. Code and Full chat load each project's instructions, state, and facts per message. Its [receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) records an 11-step hosted journey that passed three runs in a row on the final code commit `285f65c` with a fake provider, a real Codex check that passed on `22d4cc0`, and a packaged Windows Full chat journey on the `90ab1eb` merge. No real Claude or Native-provider turn has run, and no Code run was part of the Windows check. Chat-content search, a generic grouped harness catalog, linked cross-harness conversations, concurrent root runs, and complete GUI/agent coverage of all original operations remain open. Real Native-provider turns passed under issue #50 on the unpublished `265a7ede` Windows package, with OpenRouter and the project read and evaluate tools, and its [receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/50-real-native-provider.md) records the limits that remain. Automations passed their lifecycle journey under issue #51 on the unpublished `c096528a` Windows package, and the [#51 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/51-automation-lifecycle.md) records the journey and the limits that remain. Authenticated phone routing, revocation and reconnect, packaged preview behavior, upgrade and removal, and final Windows acceptance remain release work. The [release target](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/desktop-release.md), [module catalog](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/modules.md), and live issues own the precise current status.
 
 ## Maintaining this document
 
-This page owns the full-product structure, data owners, trust boundaries, and cross-component flows. Detailed contracts and source paths live in the [module catalog](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/specification/modules.md) and [source map](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/source-map/index.md). Product decisions live in [design.md](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/design.md). GitHub issues own goals, acceptance, dependencies, and lifecycle. Update those owners with this page when their facts change.
+This page owns the full-product structure, data owners, trust boundaries, and cross-component flows. Detailed contracts and source paths live in the [module catalog](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/specification/modules.md) and [source map](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/source-map/index.md). Product decisions live in [design.md](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/design.md). GitHub issues own goals, acceptance, dependencies, and lifecycle. Update those owners with this page when their facts change.
 
-For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/Vivary-New/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. The branch checker passes a commit authored by Dependabot without a document update when every relevant file it changes is a dependency file. In `package.json` dependency maps and `pyproject.toml` requirements, only version values may change. On a workflow `uses:` line, only the ref and the version comment after it may change, and a SHA pin must stay a SHA. An npm or pnpm lockfile may change in any way, because the checker does not inspect lockfile content. A merge commit passes the same way when it takes a merged branch's copy of each dependency file it changes and the other line left that file alone since one of their common ancestors. The range must also have checked every commit on that branch, and commits already on the base branch count as checked. An exempt commit leaves this document unchanged and still needs it complete. The staged checker never makes these exceptions. Git author identity is self-asserted, so anyone can claim to be Dependabot. That is acceptable because the exception allows no change beyond those version values and lockfiles. The dependency review in [CONTRIBUTING.md](https://github.com/vivary-dev/Vivary-New/blob/dev/CONTRIBUTING.md) is the control for what a lockfile brings in. No commit hook rewrites this page automatically.
+For a relevant source, configuration, or documentation change, update this page in the same commit. When the change alters architecture, revise the affected description, diagram, flow, boundary, or gap. When an internal change leaves the described architecture true, update **Last change review** with the concrete changed area, why the description still holds, and the evidence checked. A timestamp or whitespace change is not a review. The [maintenance skill](https://github.com/vivary-dev/vivary/blob/dev/.agents/skills/maintain-hldd/SKILL.md) gives the review steps. The staged checker, `python scripts/check_hldd.py --staged`, and the branch checker, `python scripts/check_hldd.py --base <ref> --head HEAD`, enforce a substantive document update. They do not judge architectural truth. Human and agent review do that. The branch checker passes a commit authored by Dependabot without a document update when every relevant file it changes is a dependency file. In `package.json` dependency maps and `pyproject.toml` requirements, only version values may change. On a workflow `uses:` line, only the ref and the version comment after it may change, and a SHA pin must stay a SHA. An npm or pnpm lockfile may change in any way, because the checker does not inspect lockfile content. A merge commit passes the same way when it takes a merged branch's copy of each dependency file it changes and the other line left that file alone since one of their common ancestors. The range must also have checked every commit on that branch, and commits already on the base branch count as checked. An exempt commit leaves this document unchanged and still needs it complete. The staged checker never makes these exceptions. Git author identity is self-asserted, so anyone can claim to be Dependabot. That is acceptable because the exception allows no change beyond those version values and lockfiles. The dependency review in [CONTRIBUTING.md](https://github.com/vivary-dev/vivary/blob/dev/CONTRIBUTING.md) is the control for what a lockfile brings in. No commit hook rewrites this page automatically.
 
 The application bundles this document at build time and exposes it through
 Settings > Documentation. The reader uses the existing read-only Markdown
@@ -7453,6 +7453,25 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+PR #154 CI timeout. The tests + checks job now allows 30 minutes for dependency installation and its
+sequential suites. The previous 10-minute limit cancelled passing checks before the job finished. The workflow
+keeps every test and acceptance gate; this changes the execution budget, not the product design. The workflow
+and its contract tests support this review.
+
+Issue #152, repository name. Agent and contributor instructions, the engineering policy, the README, the Windows
+prerelease and getting-started guides, the in-app documentation link resolver, the site generator, and the plan
+generator now name `vivary-dev/vivary` instead of `vivary-dev/Vivary-New`. Sentences that mean the original CLI
+repository name `vivary-dev/vivary-cli`. Dated plans, packets, receipts, and the changelog keep `Vivary-New` links,
+because GitHub redirects the former name. The bundled managed-project bridge license is now
+`licenses/LICENSE.vivary-managed-project-bridge`. This changes names and links, not the design.
+
+Issue #152, original-repository links. On 2026-09-30 the original CLI repository becomes `vivary-dev/vivary-cli`
+and this repository takes the name `vivary-dev/vivary`. Links to the original repository's issues, pull requests,
+releases, and Actions runs now name `vivary-dev/vivary-cli`, and so does one changelog link to line numbers in a file
+whose lines have since moved here. Repository-root, issue-tracker, API, and blob or tree links whose path exists in
+this repository stay unchanged, because after the rename they name this repository. This changes documentation links
+only, not the design.
 
 Issue #30 acceptance references now identify the tested browser and Windows
 candidates, the Node 24.19 runtime checks, and the shared work-panel grip and
@@ -7602,7 +7621,7 @@ Automations section has the owner's view. The branch merged `dev` at `3ec2f02`, 
 `dev` and the branch adds only the #109 hunks. `tests/automation-file-review.test.mjs` and
 `tests/automation-file-review-component.test.mjs` pass, and each case failed before its fix, on `dev` at `4c19c2e` or on
 this branch before a review round's or the packaged check's fixes. The unpublished `e50ae89c` package ran the Windows
-check ([#109 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)). A run's `AGENTS.md`, instruction
+check ([#109 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/109-automation-file-review.md)). A run's `AGENTS.md`, instruction
 file, and memory waited with their origin and mark, its shared write and delete were refused, Settings listed, accepted,
 and deleted them, a chat's stored prompt held the run's `AGENTS.md` only after Accept, and a stale Accept showed the
 notice. The raw database tools and the note's count changed after that check. The loaders' check of the row they read
@@ -7705,7 +7724,7 @@ owner stopped just before it. A third round added a quit that begins while the r
 keeps arriving during the stop, each of which failed on the patch before its fix. A fourth round added two cases in
 which one of the owner's stops throws and another rejects, and a quit during the running mark of two runs for a paired
 host, each of which failed before its fix. The unpublished `9e921ca0` package ran the Windows check
-([#114 and #115 receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
+([#114 and #115 receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/114-automation-quit-and-status.md)). A quit
 during a scheduled run left its row interrupted 18 ms after the close with the lease released, the next launch ran at
 its first tick, a webhook call cut off by a quit ran once after relaunch, and a hard kill kept the lease until it
 expired. The server bundle holds one copy of the scheduler module. Every normal quit still took 15.5 to 15.9 seconds,
@@ -7946,7 +7965,7 @@ reservation for an unpriced model that used tokens. Native still owns engines, u
 and the Usage tab, so no component, flow, or boundary changes, and the design description holds. `test:native-chat`
 drives Core's OpenRouter engine against a loopback fake through the agent loop into the usage table and the budget
 store, runs claimed integration tasks through the webhook handler, and renders the Usage tab. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-usage-cost) list each change, its limits, and its tests.
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#native-usage-cost) list each change, its limits, and its tests.
 
 Issue #106, stopped replies. The maintained Core patch labels every reply the owner stopped, in the live chat
 and after a reload. Stop itself did not change. The run route aborts the run's signal. In the tests the run ends
@@ -7963,7 +7982,7 @@ stopped reply, with or without text and after later turns. Native still owns run
 view, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` presses
 Stop on turns that run through `startRun` and the agent loop against a loopback fake OpenRouter, checks how fast
 each run ends, builds and merges the saved turns, and renders Core's chat and saved threads, including a reload
-of a reply stopped before any content. The [patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#stopped-replies)
+of a reply stopped before any content. The [patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#stopped-replies)
 list each change, its limits, and its tests.
 
 Issues #101 and #102 are closed. PR #126 merged into `dev` as `4032e96` after all eight checks passed, including
@@ -7982,7 +8001,7 @@ swap the error card for the provider setup card. The inline notice's Retry now t
 card's does, so the round 1 entry's "one click per error" holds for both. Native still owns engines, runs, and the
 error card, so no component, flow, or boundary changes, and the design description holds. `test:native-chat` failed
 on the round 1 patch in those three cases and passes on this one. The [patch
-notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the rules.
+notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the rules.
 
 Issue #101, review round 1. Two reviews found that a provider's in-stream error was not final in every check and
 that its metadata still steered retries. The maintained Core patch now reads only a provider error's message, its
@@ -8001,7 +8020,7 @@ another AI SDK provider no longer retries on its own, because those normally arr
 during the failed run is sent first, and the failed turn then keeps no Retry. Native still owns engines, runs, saved
 turns, and the error card, so no component, flow, or boundary changes, and the design description holds.
 `test:native-chat` failed on the previous patch and passes on this one. The [patch
-notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the fields, the checks, and the limits.
+notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the fields, the checks, and the limits.
 
 Issue #102. The Toolkit patch gives the Native composer's Send button an `aria-label` from the same text as its
 tooltip, "Send message", or "Queue message" when the chat will queue the message, for example while a turn runs.
@@ -8009,7 +8028,7 @@ The button now exposes an accessible name in both states. The packaged Windows a
 message" on build `32f02b54`, where build `d5c960ce` showed an unnamed button. The composer is Toolkit's and Native
 still owns it, so no component, flow, or boundary changes, and the design description holds. The component test read
 an empty name on the previous patch and reads both names on this one. The [patch
-notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#send-button-name) record the change.
+notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#send-button-name) record the change.
 
 Issue #101. The maintained Core patch shows a provider's in-stream error, such as OpenRouter's error chunk with code
 502, as its message and code, for example "Provider returned error (code 502)", with the error code
@@ -8019,7 +8038,7 @@ message that names 502 no longer buys three silent retries and an automatic cont
 retry, which queues a new turn and keeps history, and the run's error event still passes through the redaction hook.
 Native still owns engines, runs, and the error card, so no component, flow, or boundary changes, and the design
 description holds. `test:native-chat` failed on the previous patch and passes on this one. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the change and its limits.
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#native-stream-errors) record the change and its limits.
 
 Issue #101, failing tests. `tests/native-stream-errors.test.ts` drives Core's OpenRouter engine against a loopback
 fake that streams a text chunk and then an in-stream error chunk with code 502, once directly and once through
@@ -8035,7 +8054,7 @@ Coding worker startup rows in the acceptance register record the merge. Document
 description holds.
 
 Issues #98 and #117, closure documentation. The [#98 and #117
-receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/98-coding-worker-environment.md) records the Zo tests and CI, the packaged
+receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/98-coding-worker-environment.md) records the Zo tests and CI, the packaged
 Windows check before and after the fix, Codex's own MCP server with a secret header, and the packaged worker's
 startup time against the 15-second deadline. The acceptance register drops the coding worker environment from the
 Credentials row and gains rows for the coding worker environment and its startup. The CLI credentials row now says
@@ -8228,7 +8247,7 @@ disabled composer or a failed thread create, now show the not-delivered alert at
 once through the public `AGENT_CHAT_SUBMIT_RESULT_EVENT`. Prompts sent together
 share one project switch, so the second request cannot make the first fail. The
 alert moved to
-[`SettingsPromptAlert.tsx`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/app/components/layout/SettingsPromptAlert.tsx).
+[`SettingsPromptAlert.tsx`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/app/components/layout/SettingsPromptAlert.tsx).
 It moves focus to the prompt text, selected, and returns focus on Dismiss. It
 also says when the browser blocks the clipboard. The handoff still routes an
 existing Core flow into the existing Native chat, so the design description
@@ -8244,7 +8263,7 @@ describe paths for Create Skill and Create Custom Agent call Core's
 `sendToAgentChat`. It posts the prompt to this window and buffers it for eight
 seconds. `Layout.tsx` mounts the workspace, and with it every chat, only outside
 `/settings`, so nothing received the prompt and it was lost. The new
-[`settings-chat-handoff.ts`](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/app/lib/settings-chat-handoff.ts)
+[`settings-chat-handoff.ts`](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/app/lib/settings-chat-handoff.ts)
 hook, mounted by `Layout.tsx`, listens only under `/settings`. It switches an
 active project to Personal workspace and opens
 `/?runtime=native&history=project`, where Core's Native chat replays the
@@ -8287,7 +8306,7 @@ test automations under `jobs/` in the database afterward. A
 Run now sent the moment the restarted server accepted a connection returned
 HTTP 200 and ran in process, with no redelivery or self-dispatch error in the
 log. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#in-process-run-now)
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#in-process-run-now)
 record the details.
 
 Issue #51 makes unattended automation runs local-only, as the owner decided on
@@ -8308,7 +8327,7 @@ refusing a scripted `web-request`, automation define, and `jobs/` write with
 nothing sent or written, and failing an MCP automation with the named error
 and no model request, while an ordinary chat kept `web-request`,
 `call-agent`, and `resources`. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#local-only-automation-runs)
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#local-only-automation-runs)
 record the allowlist, the refusals, and the configuration paths a run cannot
 change.
 
@@ -8329,7 +8348,7 @@ one, the workbench typecheck and maintained checks pass on Zo, and a local-mode
 `bin/start.mjs` run on Zo with no provider key returned HTTP 200 for Run now.
 Its row left `running` with a thread, ended at the model step with "No LLM
 provider is connected", and the log had no redelivery retry. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#in-process-run-now)
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#in-process-run-now)
 record the change.
 
 Issue #113 makes webhook automations run in the packaged app, as the owner
@@ -8344,7 +8363,7 @@ another program holds that port. The Automations details dialog shows the full
 URL and says who can reach it. The data and trust boundaries table states the
 reach. Evidence: the new `automation-webhook.test.mjs` failed 10 of 10 on the
 previous patch and passes on this one, and the new desktop port tests pass. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#in-process-webhook-automations)
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#in-process-webhook-automations)
 record the change.
 
 Issue #104 removes every Builder.io offer from the local app, as the owner
@@ -8354,7 +8373,7 @@ card, Settings, onboarding, the model picker, voice, uploads, web search, the
 model's guidance, and credential errors then point to the owner's own provider
 keys. Self-hosted mode keeps Core's offers. The change adds no Vivary component,
 flow, or trust boundary, so the design description holds. The
-[patch notes](https://github.com/vivary-dev/Vivary-New/blob/dev/packages/workbench/patches/README.md#builderio-offers-in-local-mode)
+[patch notes](https://github.com/vivary-dev/vivary/blob/dev/packages/workbench/patches/README.md#builderio-offers-in-local-mode)
 list each surface and the tests.
 
 Issue #50 is closed. PR #100 merged into `dev` as `8a5d262`, and the owner
@@ -8508,7 +8527,7 @@ found no new issues. On `33cbcbb` the packet's pytest command passed 275 tests,
 the Tropo and front-door suites passed 291 with 215 subtests, the CI tsx lists
 passed 69 and 383, the CI node lists passed 28 and 12, and `typecheck` passed.
 The 22-step hosted journey passed three runs in a row on `33cbcbb`. The
-[receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md)
+[receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/09c-original-review-control-tools.md)
 holds that evidence. The unpublished `1249572d` Windows package, built from
 `1249572`, which adds only documentation to `33cbcbb`, passed the panel checks
 and a 14-check agent turn with a fake provider.
@@ -8582,7 +8601,7 @@ cover the `extraContext` and action-surface closures with stubbed scope and
 project reads. The hosted journey with the recording fake provider covers the
 real Full chat request, including a restart, and one real Codex conversation
 recalled and then corrected a fact. The
-[receipt](https://github.com/vivary-dev/Vivary-New/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) holds that
+[receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/18a-scoped-file-memory.md) holds that
 evidence and its observations. The `90ab1eb7` Windows package later passed
 the Full chat memory journey.
 
@@ -8840,7 +8859,7 @@ and staged-source status do not add fresh installation acceptance.
 | **Stable** | Published and supported; this is not a promise of post-1.0 API stability. | The published Python packages and npm launcher with their baseline CLI/workspace behavior. | Public registry links appear above; baseline regressions live with [Tropo](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py), [Ozone](https://github.com/vivary-dev/vivary/blob/dev/packages/ozone/tests/test_ozone.py), [Exo](https://github.com/vivary-dev/vivary/blob/dev/packages/exo/tests/test_exo.py), and [create-vivary](https://github.com/vivary-dev/vivary/blob/dev/packages/create-vivary/tests/test_create_vivary.py). |
 | **Optional** | Installed, configured, or invoked only by explicit choice; optional is independent of maturity. | Ozone and Exo beyond the Tropo + Strato baseline; storage and semantic-memory capabilities including `vivary-memory-cognee`; Obsidian and active-context integrations; and the published but experimental `vivary-mcp`. | [Architecture boundaries](https://vivary.vercel.app/architecture/#purpose-and-owner-intent), [semantic-memory gates](https://vivary.vercel.app/semantic-memory/#non-negotiables), [active-context gates](https://vivary.vercel.app/active-context/), and the [MCP install boundary](https://vivary.vercel.app/mcp/#install-boundary). |
 | **Experimental** | Published and opt-in where callable, with contracts that may still change before 1.0. | The `thin-v0.3` init/adoption contract in `create-vivary`; `vivary-core`; governed Tropo, Strato, Ozone, and Exo paths; the provider-neutral recall firewall; and the optional read-only `vivary-mcp` adapter. | [Thin adoption regressions](https://github.com/vivary-dev/vivary/tree/dev/packages/create-vivary/tests), [Core contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/core/tests), [role envelopes](https://vivary.vercel.app/commands/#governed-machine-readable-envelopes), and [MCP contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/mcp/tests). |
-| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The unpublished workspace-role repairs and local desktop application. The earlier Front Door PyPI components are available, but npm 0.4.3 is absent and the coordinated train is incomplete. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
+| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The unpublished workspace-role repairs and local desktop application. The earlier Front Door PyPI components are available, but npm 0.4.3 is absent and the coordinated train is incomplete. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary-cli/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary-cli/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
 | **Deprecated** | Formally discouraged with a documented replacement and removal policy. | **None.** Legacy full workspace layouts and legacy Exo graph commands remain read-compatible surfaces, not deprecations. New init/adopt no longer generate the full layout. | [Doctor compatibility contract](https://vivary.vercel.app/commands/#doctor-compatibility-and-declared-configuration) and [legacy Exo commands](https://vivary.vercel.app/commands/#legacy-graph-coordination). |
 | **Planned** | Described intent with no shipped behavior claim. | Cloud storage adapters and non-file/cloud migration targets; any broader MCP transport or named-client compatibility. | [Data-layer future work](https://github.com/vivary-dev/vivary/blob/dev/docs/SPEC-data-layer.md#future--cloud-adapters-03x); MCP external conformance remains explicitly [unproven](https://vivary.vercel.app/mcp/#contract). These are plans or hypotheses until implementation evidence exists. |
 
@@ -8852,7 +8871,7 @@ of versions but is not itself a package version. Only the two distributions of t
 same scaffolder—`create-vivary` on PyPI and `@vivary/create` on npm—remain numerically
 lockstep. The policy and lifecycle are owned by the
 [release workflow](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle), resolving the
-choice requested by [#149](https://github.com/vivary-dev/vivary/issues/149).
+choice requested by [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 
 Published install commands resolve the versions in their respective registries. Do not
 infer publication from a manifest version. Source versions and verification evidence are maintained separately from registry
@@ -8870,7 +8889,7 @@ reviewed on **2026-08-09**. Later decisions carry their approval date.
 - [**D-001 — Named trains coordinate independent package semvers.**](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle)
   **Vivary Governed Context** is a release label, not a suite version. Packages bump only when their
   own surface changes; only `create-vivary` and `@vivary/create` use the same version.
-  This is the selected resolution of [#149](https://github.com/vivary-dev/vivary/issues/149).
+  This is the selected resolution of [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 - [**D-002 — `vivary-core` is a shared seam, not a fifth role or CLI.**](https://vivary.vercel.app/architecture/#the-shared-seam-vivary-core)
   Tropo observes and retrieves, Strato decides, Ozone verifies and proposes, and Exo
   projects caller-owned control state. Their manifests provide the executable
@@ -9599,7 +9618,7 @@ contract.
 - The CI workflow contract now also pins the site dependency audit to
   `npm audit --audit-level=high` in `site/` after `npm ci`. Its regression suite
   rejects a missing, misplaced, or reordered gate, and the release workflow owns the
-  live-advisory response for [#232](https://github.com/vivary-dev/vivary/issues/232).
+  live-advisory response for [#232](https://github.com/vivary-dev/vivary-cli/issues/232).
 - Doctor repair now recognizes a thin workspace even when its repairable `.gitignore`
   policy is incomplete, and atomic repair preserves the existing file mode.
 - The strict orientation proof builds local Core and Tropo wheels before exercising
@@ -9781,7 +9800,7 @@ unchanged.
   Green candidate: after reviewed transitive lock updates to `js-yaml` 4.3.1 and
   `nanoid` 3.3.18, the same audit reported zero vulnerabilities. The site behavior
   suite, production build, and link check then passed. [CI gate](https://github.com/vivary-dev/vivary/blob/dev/.github/workflows/ci.yml);
-  [decision record](https://github.com/vivary-dev/vivary/issues/232);
+  [decision record](https://github.com/vivary-dev/vivary-cli/issues/232);
   verified: 2026-08-09.
 
 ### Changed
@@ -9793,8 +9812,8 @@ unchanged.
 
 ## [Unreleased: optional read-only MCP adapter (#206)] — 2026-08-02
 
-Implements [#206](https://github.com/vivary-dev/vivary/issues/206) under the tool
-contract resolved by [#225](https://github.com/vivary-dev/vivary/issues/225). The
+Implements [#206](https://github.com/vivary-dev/vivary-cli/issues/206) under the tool
+contract resolved by [#225](https://github.com/vivary-dev/vivary-cli/issues/225). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -9837,7 +9856,7 @@ versions stay unchanged.
   results if policy changed.
 - On Python 3.11 for Windows, public candidate snapshots now read NTFS change time
   through an attribute-only handle instead of treating creation time as change time.
-  The [same-size rewrite regression](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py#L2569-L2592)
+  The [same-size rewrite regression](https://github.com/vivary-dev/vivary-cli/blob/dev/packages/tropo/tests/test_tropo.py#L2569-L2592)
   restores the documented race refusal on the package's lowest supported Python.
 - Public enumeration applies cancellation and hard entry ceilings while consuming
   directory iterators, before sorting. Cancellation propagates through ranking,
@@ -9899,7 +9918,7 @@ gates.
 
 ## [Unreleased: governed installation and capability truth (#207)] (2026-08-02)
 
-Implements [#207](https://github.com/vivary-dev/vivary/issues/207). The
+Implements [#207](https://github.com/vivary-dev/vivary-cli/issues/207). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -9991,7 +10010,7 @@ Publishing remains a manual human gate.
 
 ## [Unreleased: governed recall firewall (#205)] — 2026-08-02
 
-Implements [#205](https://github.com/vivary-dev/vivary/issues/205). The
+Implements [#205](https://github.com/vivary-dev/vivary-cli/issues/205). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -10045,7 +10064,7 @@ Publishing remains a manual human gate.
 
 ## [Unreleased: governed Exo control (#204)] — 2026-08-01
 
-Implements [#204](https://github.com/vivary-dev/vivary/issues/204). The
+Implements [#204](https://github.com/vivary-dev/vivary-cli/issues/204). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) owns current published and
 development version truth.
 
@@ -10280,7 +10299,7 @@ remains part of the final coordinated release train and requires a separate huma
   `vivary-tropo` advances from 0.4.1 to 0.5.0 because the governed flags are a
   user-visible minor feature and keeps `vivary-core>=0.2.1`, the first source version
   exposing the adapter API. This is the first real package-to-core dependency promised
-  by [#207](https://github.com/vivary-dev/vivary/issues/207).
+  by [#207](https://github.com/vivary-dev/vivary-cli/issues/207).
 - The `vivary` meta-package advances from 0.1.0 to 0.1.3: 0.1.1 raised its floor to
   `vivary-tropo>=0.5.0`, 0.1.2 raised its floor to `vivary-ozone>=0.3.0`, and 0.1.3
   raises that floor to `vivary-ozone>=0.3.1`. A fresh suite install cannot resolve the
@@ -10541,7 +10560,7 @@ install, version, publication, or deployment action occurs.
 
 ### Changed
 
-- Reconciled [#160](https://github.com/vivary-dev/vivary/pull/160) as the normative
+- Reconciled [#160](https://github.com/vivary-dev/vivary-cli/pull/160) as the normative
   predecessor to #190: Bellamente remains an independent, workspace-local AgentLTM;
   Tropo-backed semantic adapters and the provider-neutral `vivary-core` candidate
   firewall are separate seams; learned memory never silently becomes authored truth.
@@ -10572,7 +10591,7 @@ install, version, publication, or deployment action occurs.
   matches privacy paths case-insensitively on Windows, with snapshot-level regression
   coverage. Public docs distinguish that behavior from published 0.1.0. The remaining
   escaped/complex Git-ignore limitation stays explicit and tracked by
-  [#236](https://github.com/vivary-dev/vivary/issues/236).
+  [#236](https://github.com/vivary-dev/vivary-cli/issues/236).
 - **create-vivary Doctor compatibility (#199)** — Doctor now distinguishes the strict
   15-path v0.1 common contract from legacy flat and v0.2+ indexed module layouts.
   Valid published workspaces receive preset-preserving, read-only upgrade
@@ -10649,7 +10668,7 @@ coordinated release train is complete and separately approved.
 ### Changed
 
 - **Recorded the selected dependency direction for `vivary-core`** — the first
-  acceptance criterion of [#207](https://github.com/vivary-dev/vivary/issues/207). Role
+  acceptance criterion of [#207](https://github.com/vivary-dev/vivary-cli/issues/207). Role
   packages depend on core; the `vivary` meta package receives it transitively and does
   not declare it, so there is one owner per edge and no version-pinning fight. The edge
   is added to a role's `pyproject.toml` in the *same commit* that makes that role first
@@ -11671,8 +11690,8 @@ lockstep. The other three packages are unchanged at 0.1.0.
   `npm create @vivary@latest <name>` and `uvx create-vivary@0.2.3 <name>` scaffold a workspace
   without an explicit `init` (previously failed with argparse `invalid choice: …`).
   Explicit `init` / `doctor` and leading flags (`-h` / `--help`) pass through unchanged.
-  npm launcher: [#33](https://github.com/vivary-dev/vivary/pull/33). Python CLI parity:
-  [#35](https://github.com/vivary-dev/vivary/pull/35).
+  npm launcher: [#33](https://github.com/vivary-dev/vivary-cli/pull/33). Python CLI parity:
+  [#35](https://github.com/vivary-dev/vivary-cli/pull/35).
 
 ## [0.1.0] — 2026-06-14
 

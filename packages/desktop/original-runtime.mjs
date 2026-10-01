@@ -300,7 +300,7 @@ export async function stageManagedProjectBridge(destination, repository) {
   }
 
   const bridgePath = path.join(destination, "bridge", "managed_project_workspace.py");
-  const licensePath = path.join(destination, "licenses", "LICENSE.vivary-new-managed-project-bridge");
+  const licensePath = path.join(destination, "licenses", "LICENSE.vivary-managed-project-bridge");
   await Promise.all([mkdir(path.dirname(bridgePath), { recursive: true }), mkdir(path.dirname(licensePath), { recursive: true })]);
   await Promise.all([copyFile(sourceBridge, bridgePath), copyFile(sourceLicense, licensePath)]);
   return {

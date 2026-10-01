@@ -5,8 +5,8 @@ keep the implementation narrow enough that the tests and docs can move with it.
 
 ## Active repository
 
-Work in `vivary-dev/Vivary-New`, which was public when checked on 2026-09-24.
-The original `vivary-dev/vivary` repository retains its release workflow and
+Work in `vivary-dev/vivary`, which was public when checked on 2026-09-24.
+The original `vivary-dev/vivary-cli` repository retains its release workflow and
 is a separate delivery target.
 
 - `dev` integrates reviewed work.
@@ -83,7 +83,7 @@ Never reset or clean a checkout to make it appear disposable.
 
 ## Find the implementation owner
 
-Start with the ready GitHub issue you claim in `vivary-dev/Vivary-New`; since
+Start with the ready GitHub issue you claim in `vivary-dev/vivary`; since
 2026-09-13 issues own task goals, acceptance, dependencies, ownership, and
 lifecycle. Use [the program frontier](docs/product/multi-project/index.md) and
 any linked packet for implementation guidance and retained evidence, and

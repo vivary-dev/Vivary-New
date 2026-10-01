@@ -2,16 +2,18 @@
 
 ## Active repository and product acceptance
 
-Jeff selected a complete new repository on 2026-09-13:
-`vivary-dev/Vivary-New`. It started private and was public when checked on
-2026-09-24. His later branching correction selects typed topic
+Jeff selected this complete new repository on 2026-09-13. It was
+`vivary-dev/Vivary-New` from that date, started private, was public when checked
+on 2026-09-24, and was renamed `vivary-dev/vivary` on 2026-09-30. The original
+CLI repository is `vivary-dev/vivary-cli`. His later branching correction
+selects typed topic
 branches from `dev`, PRs into `dev`, and reviewed promotion from `dev` to `main`.
 Do not commit directly to either long-lived branch. `main` is the default branch.
 The `origin` remote is that GitHub repository. The `entire` remote is its Entire
 mirror. Push reviewed source to both. Preserve the previous repositories and
 history. This supersedes the earlier Entire-only `feat/vivary-gui` restriction.
 
-The original public `vivary-dev/vivary` repository and its `dev` branch are not
+The original public `vivary-dev/vivary-cli` repository and its `dev` branch are not
 this development target. Publication, releases, and changes to the public product
 still require Jeff's explicit acceptance. A working component does not establish
 a finished product.
@@ -103,17 +105,17 @@ issues from the live release milestone after checking accepted and held work. Ke
 workstreams. Do not mark the desktop finished from packaging or CI alone.
 
 Jeff approved GitHub issues as the execution ledger on 2026-09-13. Issues in
-`vivary-dev/Vivary-New` own task goals, acceptance, dependencies, ownership,
+`vivary-dev/vivary` own task goals, acceptance, dependencies, ownership,
 priority, and lifecycle. Documents own architecture, code contracts,
 implementation guidance, and retained evidence. Packets and the generated
 frontier are synchronized references; refresh them when a linked issue changes,
 but a routine issue needs no packet before it starts. Read the live issue before
-work. Issue [#29](https://github.com/vivary-dev/Vivary-New/issues/29) tracks this
-alignment. State repair [#5](https://github.com/vivary-dev/Vivary-New/issues/5) and
-runtime packaging [#7](https://github.com/vivary-dev/Vivary-New/issues/7) are accepted.
-[Project sessions #6](https://github.com/vivary-dev/Vivary-New/issues/6) records
+work. Issue [#29](https://github.com/vivary-dev/vivary/issues/29) tracks this
+alignment. State repair [#5](https://github.com/vivary-dev/vivary/issues/5) and
+runtime packaging [#7](https://github.com/vivary-dev/vivary/issues/7) are accepted.
+[Project sessions #6](https://github.com/vivary-dev/vivary/issues/6) records
 verified project conversations, Native persistence, and history controls.
-[Windows first-launch #8](https://github.com/vivary-dev/Vivary-New/issues/8)
+[Windows first-launch #8](https://github.com/vivary-dev/vivary/issues/8)
 has accepted candidate evidence in the
 [Windows receipt](docs/product/multi-project/receipts/23b-windows-desktop-acceptance.md).
 The [desktop acceptance register](docs/product/multi-project/desktop-acceptance-status.md)
