@@ -8,16 +8,11 @@ import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 // Issues #157 and #162. No Vivary launch serves an MCP endpoint, so Settings > MCP shows every user one note
-// instead of Native's setup guides. The component and React are real. The router link is stubbed.
+// instead of Native's setup guides. Hosted mode refuses the coding runtimes tab, so the note links nowhere.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKBENCH = resolve(HERE, "..");
 const SETTINGS = join(WORKBENCH, "app", "components", "settings", "McpSettings.tsx");
 const CORE = dirname(realpathSync(join(WORKBENCH, "node_modules", "@agent-native", "core", "package.json")));
-
-const stubs = new Map([
-  ["react-router", `
-    export function Link({ to, ...props }) { return <a href={to} {...props} />; }`],
-]);
 
 const proofSource = String.raw`
 import assert from "node:assert/strict";
@@ -30,9 +25,9 @@ export async function everyUserGetsTheNote() {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => { root.render(<McpSettings />); });
-  assert.match(host.textContent, /Vivary serves no MCP endpoint\. Agents work through the coding runtimes in Settings\./);
-  assert.deepEqual([...host.querySelectorAll("a")].map(link => [link.getAttribute("href"), link.textContent.trim()]),
-    [["/settings/runtimes", "Set up coding runtimes"]]);
+  assert.equal(host.querySelector("p").textContent, "The Vivary app serves no MCP endpoint, so MCP clients cannot " +
+    "connect to it. The separate vivary-mcp adapter offers read-only MCP access to a local workspace.");
+  assert.equal(host.querySelectorAll("a, button").length, 0, "the note sends no one to a page their launch may refuse");
   await act(async () => { root.unmount(); });
   host.remove();
 }
@@ -54,13 +49,7 @@ async function buildProof() {
     plugins: [{
       name: "mcp-settings-proof",
       setup(build) {
-        build.onResolve({ filter: /.*/ }, args => {
-          if (args.path === "@proof/McpSettings") return { path: SETTINGS };
-          if (stubs.has(args.path)) return { path: args.path, namespace: "stub" };
-          return undefined;
-        });
-        build.onLoad({ filter: /.*/, namespace: "stub" }, args => (
-          { contents: stubs.get(args.path), loader: "tsx", resolveDir: WORKBENCH }));
+        build.onResolve({ filter: /^@proof\/McpSettings$/ }, () => ({ path: SETTINGS }));
       },
     }],
   });
@@ -85,7 +74,7 @@ function installDom() {
   return () => { for (const channel of channels) { channel.port1.close(); channel.port2.close(); } };
 }
 
-test("Settings > MCP shows every user the note and a link to coding runtimes", async t => {
+test("Settings > MCP shows every user the same note and no link", async t => {
   assert.ok(existsSync(SETTINGS), "Vivary has its own MCP settings content");
   const proof = await import(`data:text/javascript;base64,${Buffer.from(await buildProof()).toString("base64")}`);
   const closeChannels = installDom();
@@ -93,9 +82,10 @@ test("Settings > MCP shows every user the note and a link to coding runtimes", a
   await proof.everyUserGetsTheNote();
 });
 
-test("the Settings page replaces the content of Native's MCP tab", async () => {
+test("the Settings page replaces the content and search terms of Native's MCP tab", async () => {
   const settings = await readFile(join(WORKBENCH, "app", "routes", "settings.tsx"), "utf8");
-  assert.match(settings, /tab\.id === "mcp" \? \{ \.\.\.tab, content: <McpSettings \/> \}/);
+  assert.match(settings,
+    /tab\.id === "mcp" \? \{ \.\.\.tab, keywords: "mcp", searchEntries: \[\], content: <McpSettings \/> \}/);
 });
 
 test.after(() => esbuild.stop());

@@ -172,14 +172,6 @@ export function resolveVivaryLocalAccessConfig(
   };
 }
 
-// No Vivary launch serves Native's MCP endpoint. Agents work through the coding
-// runtimes instead. The MCP connect and OAuth routes turn off with it, because
-// the tokens they mint also open Native's action routes.
-export const VIVARY_NATIVE_MCP_OPTIONS = {
-  agentChat: { enabled: false },
-  coreRoutes: { connect: false },
-} as const;
-
 // How a request proves it comes from the owner before Vivary creates a new
 // owner session. Existing owner sessions need no proof.
 export type VivaryOwnerProof =

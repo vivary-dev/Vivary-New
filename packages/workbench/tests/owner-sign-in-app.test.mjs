@@ -1,55 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
-import { request as httpRequest } from 'node:http';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const OWNER = 'owner@local.vivary.test';
+import { assertNoMcpSurface, OWNER, send, startBuiltApp } from './built-app.mjs';
+
 const PROXY_ORIGIN = 'https://vivary.example.test';
 
-async function freePort() {
-  const server = createServer();
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  await new Promise(resolve => server.close(resolve));
-  return port;
-}
-
-// fetch() cannot set Host, which the private proxy boundary reads.
-function send(port, method, route, headers, body) {
-  return new Promise((resolve, reject) => {
-    const request = httpRequest({ host: '127.0.0.1', port, path: route, method, headers }, response => {
-      let text = '';
-      response.setEncoding('utf8');
-      response.on('data', chunk => { text += chunk; });
-      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: text }));
-    });
-    request.setTimeout(15_000, () => request.destroy(new Error(`${method} ${route} timed out`)));
-    request.on('error', reject);
-    request.end(body);
-  });
-}
-
 const get = (port, route, headers) => send(port, 'GET', route, headers);
-
-// Native's MCP dev-open mode trusted a loopback caller that names the owner, with no session.
-async function mcpInitialize(port, route, headers) {
-  const body = JSON.stringify({
-    jsonrpc: '2.0', id: 1, method: 'initialize',
-    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'raw-local-program', version: '0' } },
-  });
-  return send(port, 'POST', route, {
-    ...headers,
-    'content-type': 'application/json',
-    accept: 'application/json, text/event-stream',
-    'x-agent-native-owner-email': OWNER,
-  }, body);
-}
 
 const modes = {
   local: {
@@ -77,36 +36,7 @@ const modes = {
   },
 };
 
-async function start(mode, data) {
-  const port = await freePort();
-  const child = spawn(process.execPath, ['bin/start.mjs', '--port', String(port), '--data-dir', data, ...mode.args], {
-    cwd: root,
-    detached: true,
-    env: { PATH: '/usr/bin:/bin', HOME: data, ...mode.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let output = '';
-  child.stdout.on('data', data => { output += data; });
-  child.stderr.on('data', data => { output += data; });
-  const stop = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise(resolve => {
-      const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), 10_000);
-      child.once('exit', () => { clearTimeout(timer); resolve(); });
-      process.kill(-child.pid, 'SIGTERM');
-    });
-  };
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    if (child.exitCode !== null) throw new Error(`Vivary exited before readiness:\n${output}`);
-    try {
-      if ((await get(port, '/_agent-native/ping', mode.headers(port))).status === 200) break;
-    } catch { /* The server may still be booting. */ }
-    if (Date.now() > deadline) { await stop(); throw new Error(`Vivary readiness timed out:\n${output}`); }
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-  return { port, stop, output: () => output };
-}
+const start = (mode, data) => startBuiltApp(mode.args, data, { env: mode.env, headers: mode.headers });
 
 async function savedSecret(file, origin) {
   const address = new URL((await readFile(file, 'utf8')).trim());
@@ -143,18 +73,7 @@ for (const [name, mode] of Object.entries(modes)) {
     const anonymous = await session(server, mode);
     assert.equal(anonymous.body.email, undefined, 'a request without the secret gets no session');
     assert.equal(anonymous.cookie, '');
-    const raw = { host: `127.0.0.1:${server.port}`, 'content-type': 'application/json' };
-    for (const route of ['/mcp', '/_agent-native/mcp']) {
-      const mcp = await mcpInitialize(server.port, route, { host: raw.host });
-      assert.notEqual(mcp.status, 200, `${route} must not admit a raw local program that names the owner`);
-      const device = await send(server.port, 'POST', `${route}/connect/device/start`, raw, '{}');
-      assert.ok([401, 404].includes(device.status), `${route} connect is unmounted, got ${device.status}`);
-      assert.doesNotMatch(device.body, /device_code|user_code/, `${route} must not start an MCP connect flow`);
-      const client = await send(server.port, 'POST', `${route}/oauth/register`, raw,
-        JSON.stringify({ client_name: 'raw-local-program', redirect_uris: ['http://127.0.0.1:9/callback'] }));
-      assert.ok([401, 404].includes(client.status), `${route} OAuth is unmounted, got ${client.status}`);
-      assert.doesNotMatch(client.body, /client_id/, `${route} must not register an MCP OAuth client`);
-    }
+    await assertNoMcpSurface(server.port, { host: `127.0.0.1:${server.port}` });
 
     const signedIn = await session(server, mode, { 'x-vivary-owner-sign-in': secrets[0] });
     assert.equal(signedIn.body.email, OWNER);
