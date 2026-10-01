@@ -6,7 +6,9 @@ import path from "node:path";
 import { ActionContractError, fail, isActionContractError, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
-import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
+import {
+  workspacePatternChoices, workspacePreset as preset, type WorkspacePatternChoice, type WorkspacePreset,
+} from "../shared/workspace-patterns.ts";
 import {
   projectReadBudgetSchema, projectReadKSchema, projectReadNodeIdSchema, projectReadPackSchema, projectReadQuerySchema,
   READ_BOUNDS, type ProjectRef,
@@ -71,11 +73,22 @@ const governedCommandSchema = z.discriminatedUnion("evaluateAs", [
   { message: "The operation does not belong to this verb.", path: ["input", "operation"] });
 export type GovernedCommand = z.infer<typeof governedCommandSchema>;
 
+/** One creator bridge operation. Its gate, receipt row, and bridge request all follow from `operation`. */
+export type CreatorCall =
+  | { operation: "catalog" }
+  | { operation: "plan"; target: string; patternChoices: WorkspacePatternChoice[]; preset: WorkspacePreset }
+  | { operation: "apply"; target: string; acceptedPlanSha256: string;
+      patternChoices: WorkspacePatternChoice[]; preset: WorkspacePreset }
+  | { operation: "context"; projectId: string; target: string; candidates?: readonly string[] };
+/** The bundle's interpreter and staged bridge, or a development or standalone Python and the source bridge. */
+export type CreatorRuntime = { executable: string; bridge: string; version: string };
+type CreatorVerb = `creator-${CreatorCall["operation"]}`;
+
 // A Native tool call may run these reads and the governed evaluations, and none of the owner's commands.
 const toolVerbs: ReadonlySet<string> = new Set([...projectReadCommandSchema.options.map(option => option.shape.verb.value),
   "decide", "control"]);
 // The tool gate compares verbs, so no owner command may share a verb with one a tool may run.
-const ownerVerbsAreNotToolVerbs: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"],
+const ownerVerbsAreNotToolVerbs: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"] | CreatorVerb,
   ProjectReadCommand["verb"] | GovernedCommand["verb"]>] extends [never] ? true : never = true;
 void ownerVerbsAreNotToolVerbs;
 type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand | GovernedCommand;
@@ -99,6 +112,8 @@ const ISOLATED_PYTHON = ["-I", "-X", "utf8", "-B"] as const;
 /** How much a child may print across stdout and stderr, and whether its stdout is redacted. Stderr always is. */
 export type ChildOutput = { bytes: number; stdout: "redacted" | "structured" };
 const ORIGINAL_OUTPUT: ChildOutput = { bytes: OUTPUT_BYTES, stdout: "redacted" };
+// The engine sizes its context answer against 512 KiB. The answer is parsed, so it stays byte-exact.
+const CREATOR_OUTPUT: ChildOutput = { bytes: 512 * 1024, stdout: "structured" };
 type ChildResult = { exitCode: number | null; stdout: string; stderr: string; signal: NodeJS.Signals | null };
 
 /**
@@ -125,11 +140,14 @@ type AccessMode = "read" | "write";
 // within that project. `receipt` says who records the command: its component,
 // in a private file the app appends after the command settles, or the app
 // itself. `logs` reads the shared log and records nothing. A governed command
-// or a write fails without its component's receipt.
+// or a write fails without its component's receipt. The creator's catalog and
+// context reads record nothing, because project memory reads context for every
+// message and the Receipts panel shows only the newest lines.
 type CommandPolicy = { access: AccessMode } & (
   | { receipt: "component" | "app"; required: boolean }
-  | { receipt: "reads-log" });
-type Verb = RuntimeCommand["verb"];
+  | { receipt: "reads-log" }
+  | { receipt: "none" });
+type Verb = RuntimeCommand["verb"] | CreatorVerb;
 const commandPolicy: Record<Verb, CommandPolicy> = {
   create: { access: "read", receipt: "component", required: false },
   adopt: { access: "read", receipt: "component", required: false },
@@ -147,6 +165,10 @@ const commandPolicy: Record<Verb, CommandPolicy> = {
   logs: { access: "read", receipt: "reads-log" },
   review: { access: "read", receipt: "app", required: false },
   impact: { access: "read", receipt: "app", required: false },
+  "creator-catalog": { access: "read", receipt: "none" },
+  "creator-context": { access: "read", receipt: "none" },
+  "creator-plan": { access: "read", receipt: "app", required: false },
+  "creator-apply": { access: "write", receipt: "app", required: true },
 };
 
 /** `document` is the governed request the runner built. Control reads it from `controlRequestPath`. */
@@ -296,7 +318,8 @@ async function privateReceiptDirectory(configured: string | undefined, projectRo
 type Settled = { durationMs: number } & ({ exitCode: number | null } | { failure: string });
 
 // Everything one command does with receipts, driven by its policy row.
-async function openReceipts(verb: Verb, policy: CommandPolicy, receiptDir: string, pythonVersion: string) {
+async function openReceipts(verb: Verb, policy: Exclude<CommandPolicy, { receipt: "none" }>, receiptDir: string,
+  pythonVersion: string) {
   const receiptLog = path.join(receiptDir, "receipts.jsonl");
   const required = policy.receipt !== "reads-log" && policy.required;
   // `logs` reads the shared log, and a required receipt must be writable before its command runs.
@@ -484,9 +507,25 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
 }
 
 declare const gateBrand: unique symbol;
-/** A reader-writer lock key. Only the constructors below build one. */
+/**
+ * A reader-writer lock key. Only the constructors below build one. A project
+ * id cannot hold ":", so a creator key never equals a project's key.
+ */
 type GateKey = string & { readonly [gateBrand]: true };
 const projectGate = (projectId: string) => projectId as GateKey;
+/** Folded as `activeTargets` folds it, so two spellings of one managed folder share a gate. */
+const targetGate = (target: string) => `creator:target:${target.toLocaleLowerCase("en-US")}` as GateKey;
+/** The catalog touches no project, so its key only counts it against the ceiling. */
+const CATALOG_GATE = "creator:catalog" as GateKey;
+
+/** A context read waits for a write to its project. A plan waits for an apply to the same folder. */
+export function creatorGate(call: CreatorCall): GateKey {
+  switch (call.operation) {
+    case "catalog": return CATALOG_GATE;
+    case "context": return projectGate(call.projectId);
+    case "plan": case "apply": return targetGate(call.target);
+  }
+}
 
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
 type Waiter = { key: GateKey; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
@@ -673,12 +712,17 @@ const runtimeDependencies: Dependencies = {
 const evaluateDependencies: EvaluateDependencies = { ...runtimeDependencies, now: () => new Date() };
 
 type Receipts = Awaited<ReturnType<typeof openReceipts>>;
+const NO_RECEIPTS: Receipts = {
+  requestFile: undefined, childLog: undefined, stageRequest: async () => {}, dropRequest: async () => {},
+  settle: async () => {}, dispose: async () => {},
+};
 type Invocation = { args: string[]; stdin: string; environment: NodeJS.ProcessEnv; document?: string };
 type GatedRun = {
   verb: Verb;
   gate: GateKey;
   python: { executable: string; version: string };
-  receiptDir: string;
+  /** Undefined when the verb records nothing, or when no data folder is configured. */
+  receiptDir: string | undefined;
   cwd: string;
   output: ChildOutput;
   signal?: AbortSignal;
@@ -693,7 +737,11 @@ type GatedRun = {
  */
 async function runGated(run: GatedRun, dependencies: Pick<Dependencies, "execute" | "parallelism">): Promise<ChildResult> {
   const policy = commandPolicy[run.verb];
-  const receipts = await openReceipts(run.verb, policy, run.receiptDir, run.python.version);
+  if (run.receiptDir === undefined && "required" in policy && policy.required) {
+    commandError("Vivary application data is not configured.", ORIGINAL_RUN_FAILURES.dataUnavailable);
+  }
+  const receipts = policy.receipt === "none" || run.receiptDir === undefined ? NO_RECEIPTS
+    : await openReceipts(run.verb, policy, run.receiptDir, run.python.version);
   const recorded = Promise.withResolvers<void>();
   // Shutdown waits for a started command until its receipt is recorded and its private folder is gone.
   const record = async (settled: Settled) => {
@@ -739,6 +787,37 @@ async function runGated(run: GatedRun, dependencies: Pick<Dependencies, "execute
     await receipts.dispose();
     recorded.resolve();
   }
+}
+
+/** The bridge refuses keys it does not know, so a context read's project id stays with its gate. */
+function bridgeRequest(call: CreatorCall) {
+  if (call.operation !== "context") return call;
+  const { operation, target, candidates } = call;
+  return { operation, target, ...(candidates ? { candidates } : {}) };
+}
+
+/**
+ * One creator bridge call through the original runner, with its allowlisted
+ * environment, gate, limits, receipt, and shutdown. Its callers authorize
+ * first. It resolves with the exit code and the exact stdout.
+ */
+export async function runCreatorBridge(call: CreatorCall, runtime: CreatorRuntime,
+  dependencies: { dataDir: string | undefined; execute?: typeof runOriginalProcess }) {
+  // A call that arrives after shutdown began touches no files.
+  if (commandHost.closing) throw closingError();
+  const verb = `creator-${call.operation}` as const;
+  const receiptDir = commandPolicy[verb].receipt === "none" || !dependencies.dataDir ? undefined
+    : (await privateReceiptDirectory(dependencies.dataDir)).receiptDir;
+  const result = await runGated({
+    verb, gate: creatorGate(call), python: runtime, receiptDir,
+    // The bridge finds its engine from its own file, never from its working folder.
+    cwd: path.dirname(runtime.bridge), output: CREATOR_OUTPUT,
+    // The bridge calls library functions and never writes a component receipt, so it gets no receipt path.
+    admit: async () => ({ args: [runtime.bridge], stdin: JSON.stringify(bridgeRequest(call)),
+      environment: originalChildEnvironment(runtimeDependencies.environment(), undefined,
+        call.operation === "catalog" ? undefined : call.target) }),
+  }, { execute: dependencies.execute ?? runtimeDependencies.execute, parallelism: runtimeDependencies.parallelism });
+  return { exitCode: result.exitCode, stdout: result.stdout };
 }
 
 // Resolution and the run are separate steps, so a project read can still name

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -30,35 +29,37 @@ test("production package cwd resolves the shipped creator bridge", async () => {
   }
 });
 
-test("creator keeps isolated mode and explicitly enables UTF-8", async () => {
+test("the creator runs isolated Python through the original runner with only allowlisted names", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "vivary-managed-args-"));
-  let launch;
-  const spawn = (executable, args, options) => {
-    launch = { executable, args, options };
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.kill = () => true;
-    child.stdin = { end: () => queueMicrotask(() => {
-      child.stdout.emit("data", Buffer.from(JSON.stringify({ code: "preview", plan: {
-        schema: "vivary.thin-init-plan/v1", target: path.join(dataDir, "projects", "Preview"), files: [],
-      } }), "utf8"));
-      child.emit("close", 0);
-    }) };
-    return child;
+  const bridge = path.join(dataDir, "managed_project_workspace.py");
+  const launches = [];
+  const answer = value => async (executable, args, stdin, cwd, environment, _signal, output) => {
+    launches.push({ executable, args, request: JSON.parse(stdin), cwd, environment, output });
+    return { exitCode: 0, stdout: JSON.stringify(value), stderr: "", signal: null };
   };
+  const dependencies = { dataDir, getAccess: async () => ({ code: "catalog" }), python: "python-test", bridge,
+    access: async () => {} };
+  const target = path.join(dataDir, "projects", "Preview");
+  const allowed = new Set(["PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "HOME", "USERPROFILE",
+    "TEMP", "TMP", "LANG", "LC_ALL", "TZ", "PATH", "PYTHONNOUSERSITE"]);
   try {
-    const result = await previewManagedProject({}, { name: "Preview" }, {
-      dataDir,
-      getAccess: async () => ({ code: "catalog" }),
-      python: "python-test",
-      bridge: path.join(dataDir, "managed_project_workspace.py"),
-      access: async () => {},
-      spawn,
-    });
+    const result = await previewManagedProject({}, { name: "Preview" }, { ...dependencies,
+      execute: answer({ code: "preview", plan: { schema: "vivary.thin-init-plan/v1", target, files: [] } }) });
     assert.equal(result.code, "preview");
-    assert.deepEqual(launch.args, ["-I", "-X", "utf8", "-B", path.join(dataDir, "managed_project_workspace.py")]);
-    assert.equal(launch.executable, "python-test");
-    assert.deepEqual(launch.options, { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+    assert.deepEqual(await readWorkspaceContext({ projectId: "project_a", root: dataDir }, ["notes/new.md"],
+      { ...dependencies, execute: answer({ code: "context", context: { status: "invalid", message: "bad toml" } }) }),
+    { status: "invalid", message: "bad toml" });
+    for (const launch of launches) {
+      assert.equal(launch.executable, "python-test");
+      assert.deepEqual(launch.args, ["-I", "-X", "utf8", "-B", bridge]);
+      assert.equal(launch.cwd, dataDir);
+      assert.deepEqual(launch.output, { bytes: 512 * 1024, stdout: "structured" });
+      assert.deepEqual(Object.keys(launch.environment).filter(name => !allowed.has(name)), []);
+    }
+    assert.deepEqual(launches.map(launch => launch.request), [
+      { operation: "plan", target, patternChoices: [], preset: "coding" },
+      { operation: "context", target: dataDir, candidates: ["notes/new.md"] },
+    ], "the bridge never receives the project id");
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
@@ -161,7 +162,7 @@ test("workspace context reads the engine answer through the shipped bridge", asy
   const folder = await mkdtemp(path.join(os.tmpdir(), "vivary-context-plain-"));
   try {
     process.chdir(workbenchRoot);
-    assert.deepEqual(await readWorkspaceContext(folder), {
+    assert.deepEqual(await readWorkspaceContext({ projectId: "project_plain", root: folder }), {
       status: "plain", memory: [".vivary/knowledge"], protected: [],
       privacy: { policy: "none", private: [], privateFiles: [],
         ignoreFiles: [".gitignore", ".vivary/.gitignore", ".vivary/knowledge/.gitignore"], privateCandidates: [],
@@ -175,15 +176,16 @@ test("workspace context reads the engine answer through the shipped bridge", asy
 
 test("workspace context passes invalid settings through and refuses an unexpected answer", async () => {
   const answer = context => ({ runCreator: async () => ({ code: "context", context }) });
-  assert.deepEqual(await readWorkspaceContext("/project", [], answer({ status: "invalid", message: "bad toml" })),
+  const project = { projectId: "project_a", root: "/project" };
+  assert.deepEqual(await readWorkspaceContext(project, [], answer({ status: "invalid", message: "bad toml" })),
     { status: "invalid", message: "bad toml" });
-  await assert.rejects(readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
+  await assert.rejects(readWorkspaceContext(project, [], answer({ status: "plain", roles: null, state: null,
     memory: ["../outside"], memory_assigned: false, protected: [], privacy_policy: "none", private: [],
     private_files: [], ignore_files: [], private_candidates: [], checked_files: [] })));
-  const limited = await readWorkspaceContext("/project", [], answer({ status: "plain", roles: null, state: null,
+  const limited = await readWorkspaceContext(project, [], answer({ status: "plain", roles: null, state: null,
     memory: [".vivary/knowledge"], memory_assigned: false, protected: [], privacy_policy: "gitignore", private: [],
     private_files: [], ignore_files: [".gitignore"], private_candidates: [], checked_files: [], privacy_limited: true }));
   assert.equal(limited.status === "plain" && limited.privacy.limited, true);
-  await assert.rejects(readWorkspaceContext("/project", [], { runCreator: async () => ({ code: "refused" }) }),
+  await assert.rejects(readWorkspaceContext(project, [], { runCreator: async () => ({ code: "refused" }) }),
     /settings reader is unavailable/);
 });

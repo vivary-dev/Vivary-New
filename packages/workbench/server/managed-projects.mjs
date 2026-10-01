@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
 import { access, lstat, mkdir, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { redactCredentials } from "./credential-redaction.ts";
+import { runCreatorBridge } from "./original-runtime.ts";
 import { connectLocalProjectFolder, getLocalProjectAccess } from "./project-services.mjs";
 import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 
@@ -9,8 +10,6 @@ const projectName = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
   .refine(value => !value.endsWith("."));
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const BRIDGE_FILE = "managed_project_workspace.py";
-const MAX_OUTPUT_BYTES = 512 * 1024;
-const CREATOR_TIMEOUT_MS = 30_000;
 const activeTargets = new Set();
 const WINDOWS_RESERVED_NAME = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 
@@ -19,8 +18,8 @@ export function isWindowsReservedName(name) {
   return WINDOWS_RESERVED_NAME.test(name);
 }
 
-async function runCreator(request, dependencies = {}) {
-  const start = dependencies.spawn ?? spawn;
+/** The launcher's bundle, else `VIVARY_PYTHON` or `python3` with the source bridge. */
+async function creatorRuntime(dependencies) {
   // guard:allow-env-credential - Launcher-selected runtime directory, not a credential.
   const runtimeDirectory = dependencies.runtimeDirectory ?? process.env.VIVARY_ORIGINAL_RUNTIME;
   const bundled = runtimeDirectory ? await resolveOriginalRuntime(runtimeDirectory) : null;
@@ -37,47 +36,29 @@ async function runCreator(request, dependencies = {}) {
     console.error(`[vivary-managed-projects] bridge-unavailable executable=${path.basename(executable)} bridge=${bridge}`);
     throw new Error("The original workspace creator is unavailable in this Vivary runtime.");
   }
-  return new Promise((resolve, reject) => {
-    const child = start(executable, ["-I", "-X", "utf8", "-B", bridge], {
-      stdio: ["pipe", "pipe", "ignore"],
-      windowsHide: true,
-    });
-    const output = [];
-    let outputBytes = 0;
-    let settled = false;
-    const finish = (callback, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      callback(value);
-    };
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish(reject, new Error("The workspace creator timed out."));
-    }, dependencies.timeoutMs ?? CREATOR_TIMEOUT_MS);
-    child.stdout.on("data", chunk => {
-      outputBytes += chunk.length;
-      if (outputBytes > MAX_OUTPUT_BYTES) {
-        child.kill("SIGKILL");
-        finish(reject, new Error("The workspace preview is too large."));
-      } else {
-        output.push(chunk);
-      }
-    });
-    child.on("error", error => finish(reject, error));
-    child.on("close", code => {
-      if (settled) return;
-      try {
-        const value = JSON.parse(Buffer.concat(output).toString("utf8"));
-        if (code === 0) finish(resolve, value);
-        else finish(reject, new Error(value?.message ?? "The workspace creator refused this project."));
-      } catch {
-        console.error(`[vivary-managed-projects] unreadable-result executable=${path.basename(executable)} bridge=${bridge} exit=${code ?? "unknown"}`);
-        finish(reject, new Error("The workspace creator is unavailable (unreadable-result)."));
-      }
-    });
-    child.stdin.end(JSON.stringify(request));
-  });
+  // A receipt names the interpreter's version, and a Python outside the bundle has none.
+  return { executable, bridge, version: bundled?.version ?? "unbundled" };
+}
+
+/** Exit 0 resolves the answer, another exit rejects with the bridge's message, and unparseable output is unavailable. */
+function parseBridgeAnswer(exitCode, stdout, runtime) {
+  let value;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    console.error(`[vivary-managed-projects] unreadable-result executable=${path.basename(runtime.executable)} bridge=${runtime.bridge} exit=${exitCode ?? "unknown"}`);
+    throw new Error("The workspace creator is unavailable (unreadable-result).");
+  }
+  if (exitCode === 0) return value;
+  // The answer is parsed exactly as printed. Only the refusal an owner reads is redacted.
+  throw new Error(redactCredentials(String(value?.message ?? "The workspace creator refused this project.")));
+}
+
+async function runCreator(call, dependencies = {}) {
+  const runtime = await creatorRuntime(dependencies);
+  const { exitCode, stdout } = await runCreatorBridge(call, runtime,
+    { dataDir: managedProjectDataDirectory(dependencies), execute: dependencies.execute });
+  return parseBridgeAnswer(exitCode, stdout, runtime);
 }
 
 export function managedProjectDataDirectory(dependencies = {}) {
@@ -173,15 +154,17 @@ const workspaceContextAnswer = z.discriminatedUnion("status", [
 ]);
 
 /**
- * The engine's context paths for one project root that project services
- * already admitted. This function does not authorize. `candidates` are
+ * The engine's context paths for one project that project services already
+ * admitted. This function does not authorize. The read holds the project's
+ * read lock, so it waits for a write to that project. `candidates` are
  * workspace-relative files about to be created, checked against the ignore
  * rules. It throws when the bridge is unavailable or its answer does not
  * parse, and the caller reports that as unavailable settings.
  */
-export async function readWorkspaceContext(root, candidates = [], dependencies = {}) {
-  const request = { operation: "context", target: root, ...(candidates.length > 0 ? { candidates } : {}) };
-  const result = await (dependencies.runCreator ?? runCreator)(request, dependencies);
+export async function readWorkspaceContext(workspace, candidates = [], dependencies = {}) {
+  const call = { operation: "context", projectId: workspace.projectId, target: workspace.root,
+    ...(candidates.length > 0 ? { candidates } : {}) };
+  const result = await (dependencies.runCreator ?? runCreator)(call, dependencies);
   if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
   const answer = workspaceContextAnswer.parse(result.context);
   if (answer.status === "invalid") return answer;
