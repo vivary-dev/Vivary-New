@@ -8315,7 +8315,7 @@ index 489b36d86f416c8f40c44727bd62e190048f43c4..2746910fb7cdbbcc49d92f020f22eebc
   * Process a webhook task after the public route has persisted it. The queue
   * worker supplies the target resource identity; the request body never gets
 diff --git a/dist/triggers/dispatcher.js b/dist/triggers/dispatcher.js
-index d843d34cda6ffb870df40e200c30f1a409d11c1e..2507e0bd2e90a7dd88a0a26dbdbf9cbd4a2aabd6 100644
+index d843d34cda6ffb870df40e200c30f1a409d11c1e..1c55725951e6f54f1841b95c78aa031dc48c48a7 100644
 --- a/dist/triggers/dispatcher.js
 +++ b/dist/triggers/dispatcher.js
 @@ -5,10 +5,11 @@
@@ -8371,9 +8371,9 @@ index d843d34cda6ffb870df40e200c30f1a409d11c1e..2507e0bd2e90a7dd88a0a26dbdbf9cbd
 -            if (!apiKey) {
 -                await recordTriggerSkip(resource, "error", "No API key is available for this automation");
 -                console.warn(`[triggers] ${meta.lastError}: "${resource.path}"`);
-+            // Vivary #110: a run of this automation, such as a scheduled run or
-+            // Run now, does not start it again. Checked before the condition, so
-+            // it costs no classifier call.
++            // Vivary #110: a run of this automation itself, such as Run now,
++            // does not start it again. Checked before the condition, so it
++            // costs no classifier call.
 +            if (eventName === "automation.run.finished" &&
 +                isOwnAutomationRun(payload, resource, identity))
 +                continue;

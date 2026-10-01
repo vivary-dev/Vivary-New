@@ -11,8 +11,10 @@ import { pathToFileURL } from "node:url";
 // the installed, patched files by path.
 const caseRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-automation-event-loop-"));
 const database = `file:${path.join(caseRoot, "automations.sqlite")}`;
-for (const name of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]) {
-  delete process.env[name]; // guard:allow-env-credential - Removes provider key names. No value is read.
+for (const name of ["AGENT_ENGINE", "ANTHROPIC_API_KEY", "BUILDER_GATEWAY_SPACE_ID", "BUILDER_GATEWAY_TOKEN",
+  "BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY", "COHERE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY",
+  "MISTRAL_API_KEY", "OLLAMA_BASE_URL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENROUTER_API_KEY"]) {
+  delete process.env[name]; // guard:allow-env-credential - Removes the names the engine registry reads. No value is read.
 }
 // A webhook automation's token is stored as an encrypted app secret, which needs a key in production.
 Object.assign(process.env, {
@@ -33,11 +35,14 @@ globalThis.setTimeout = (handler, delay, ...args) => {
 
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
-const [{ initTriggerDispatcher, isOwnAutomationRun, refreshEventSubscriptions }, { defineAutomation },
+const [{ initTriggerDispatcher, isOwnAutomationRun, parseTriggerFrontmatter, refreshEventSubscriptions },
+  { defineAutomation },
   { emit, listSubscriptions, registerEvent, subscribe, unsubscribe },
   { finishAutomationRun, listAutomationRuns, startAutomationRun },
   { organizationResourceOwner, resourceDeleteByPath, resourceGetByPath }, { getThread }, { insertPendingTask },
-  { runAutomationWebhookTaskInProcess }] = await Promise.all([
+  { runAutomationWebhookTaskInProcess },
+  { queueAutomationRunNow, redispatchUnclaimedAutomationRuns, setInProcessAutomationRunner },
+  { runQueuedAutomation }, { getDbExec }] = await Promise.all([
   load("triggers/dispatcher.js"),
   load("automations/service.js"),
   load("event-bus/index.js"),
@@ -46,6 +51,9 @@ const [{ initTriggerDispatcher, isOwnAutomationRun, refreshEventSubscriptions },
   load("chat-threads/store.js"),
   load("integrations/pending-tasks-store.js"),
   load("integrations/automation-webhook-task.js"),
+  load("jobs/run-now.js"),
+  load("jobs/scheduler.js"),
+  load("db/client.js"),
 ]);
 
 const owner = "owner@example.test";
@@ -59,7 +67,7 @@ const engine = {
   capabilities: { thinking: false, promptCaching: false, vision: false, computerUse: false, parallelToolCalls: false },
   async *stream(options) {
     const messages = JSON.stringify(options.messages);
-    engineRuns.push(/\[Automation Trigger: ([^\]]+)\]/.exec(messages)?.[1] ?? "unknown");
+    engineRuns.push(/\[(?:Automation Trigger|Manual Automation Run): ([^\]]+)\]/.exec(messages)?.[1] ?? "unknown");
     if (messages.includes(FAIL)) throw new Error("The fake engine failed this run.");
     yield { type: "assistant-content", parts: [{ type: "text", text: "Event handled." }] };
     yield { type: "stop", reason: "end_turn" };
@@ -103,9 +111,10 @@ function capRunFinishedEvents(cap = 30) {
 
 // These automations subscribe to the event that finished runs emit, so they exist only inside their own case.
 async function withRunFinishedAutomations(automations, run) {
-  for (const [name, body] of Object.entries(automations)) {
+  for (const [name, definition] of Object.entries(automations)) {
     await defineAutomation({ userEmail: owner, appId }, {
-      scope: "personal", name, body, triggerType: "event", event: "automation.run.finished",
+      scope: "personal", name, triggerType: "event", event: "automation.run.finished",
+      ...(typeof definition === "string" ? { body: definition } : definition),
     });
   }
   await refreshEventSubscriptions();
@@ -126,6 +135,19 @@ async function finishRunOf(name) {
 }
 const finishOutsideRun = () => finishRunOf("outside");
 
+// Run now as the packaged app runs it, through the in-process runner, and wait until that run ends.
+async function runNow(name) {
+  const ended = Promise.withResolvers();
+  const runner = id => runQueuedAutomation(id, dispatcherDeps).then(ended.resolve, ended.reject);
+  setInProcessAutomationRunner(runner, { appId });
+  try {
+    await queueAutomationRunNow({ userEmail: owner, appId, scope: "personal", name });
+    return await ended.promise;
+  } finally {
+    setInProcessAutomationRunner(null);
+  }
+}
+
 const runsOf = name => listAutomationRuns({ owners: [owner], automation: name, appId, limit: 100 });
 // Wait until every automation has a finished row and no row is added or finished for a quiet window.
 async function settledRuns(names, { quietMs = 500, capMs = 10_000 } = {}) {
@@ -145,10 +167,31 @@ const statuses = runs => runs.map(list => list.map(run => run.status));
 
 test("a self-subscribed automation that finishes twice is not started by its own runs", async () => {
   await withRunFinishedAutomations({ "self-subscribed": "Summarize the finished run in one sentence." }, async () => {
-    await finishRunOf("self-subscribed");
-    await finishRunOf("self-subscribed");
+    await runNow("self-subscribed");
+    await runNow("self-subscribed");
     assert.deepEqual(statuses(await settledRuns(["self-subscribed"])), [["success", "success"]],
       "only the two finished runs, and neither started another");
+  });
+  assert.deepEqual(engineRuns, ["self-subscribed", "self-subscribed"], "one model run for each Run now");
+});
+
+test("a Run now row that ends late does not start its own automation", async () => {
+  await withRunFinishedAutomations({ "late-self": "Summarize the finished run in one sentence." }, async finishedEvents => {
+    // The runner drops the delivery, as when the app quits before the run starts, so the row stays queued.
+    setInProcessAutomationRunner(async () => {}, { appId });
+    try {
+      const { runId } = await queueAutomationRunNow({ userEmail: owner, appId, scope: "personal", name: "late-self" });
+      await getDbExec().execute({
+        sql: "UPDATE automation_runs SET started_at = ? WHERE id = ?", args: [Date.now() - 60 * 60_000, runId],
+      });
+      await redispatchUnclaimedAutomationRuns({ appId });
+    } finally {
+      setInProcessAutomationRunner(null);
+    }
+    const [runs] = await settledRuns(["late-self"]);
+    assert.deepEqual(runs.map(run => [run.status, run.errorCode]), [["error", "automation_run_not_started"]],
+      "only the late row, and its end started nothing");
+    assert.equal(finishedEvents(), 1, "the late row announced its end");
   });
   assert.deepEqual(engineRuns, [], "no model run");
 });
@@ -190,8 +233,9 @@ test("two failing automations subscribed to automation.run.finished do not start
 });
 
 test("two automations without a usable credential do not trade failed runs", async () => {
-  // Without an injected engine, a run resolves its own engine and credential as a scheduled run does. No provider key
-  // is set and the network is closed, so each run fails.
+  // Without an injected engine, a run resolves its own engine and credential as a scheduled run does. The file clears
+  // every engine, key, and endpoint name the engine registry reads, the new database stores no key, and the network
+  // is closed, so each run fails.
   const { engine: _engine, model: _model, ...keylessDeps } = dispatcherDeps;
   await initTriggerDispatcher(keylessDeps);
   try {
@@ -226,9 +270,10 @@ test("a run another event started does not start an automation.run.finished subs
     event: relayEvent,
   });
   try {
-    await withRunFinishedAutomations({ watcher: "Summarize the finished run in one sentence." }, async () => {
+    await withRunFinishedAutomations({ watcher: "Summarize the finished run in one sentence." }, async finishedEvents => {
       emit(relayEvent, { topic: "relay" }, { owner });
       assert.deepEqual(statuses(await settledRuns(["relay"])), [["success"]], "the event starts the relay once");
+      assert.equal(finishedEvents(), 0, "the relay's finish is not announced");
       assert.deepEqual(await runsOf("watcher"), [], "the relay's finish starts no watcher run");
     });
   } finally {
@@ -236,6 +281,21 @@ test("a run another event started does not start an automation.run.finished subs
     await refreshEventSubscriptions();
   }
   assert.deepEqual(engineRuns, ["relay"], "one model run");
+});
+
+test("a self-subscribed automation with a condition skips its own runs before it looks for a key", async () => {
+  await withRunFinishedAutomations({
+    "self-conditioned": { body: "Summarize the finished run in one sentence.", condition: "The run succeeded." },
+  }, async () => {
+    await finishRunOf("self-conditioned");
+    await finishRunOf("self-conditioned");
+    assert.deepEqual(statuses(await settledRuns(["self-conditioned"])), [["success", "success"]],
+      "only the two finished runs, and no condition key refusal");
+    const { meta } = parseTriggerFrontmatter((await resourceGetByPath(owner, "jobs/self-conditioned.md")).content);
+    assert.equal(meta.lastStatus, undefined, "no refusal on the automation's last status");
+  });
+  assert.deepEqual(engineRuns, [], "no model run");
+  assert.deepEqual(fetchedUrls, [], "nothing reached the network");
 });
 
 test("a webhook-started run still announces its finish", async () => {
