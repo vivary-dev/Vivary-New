@@ -578,8 +578,9 @@ function warn(message: string): void {
 
 type Dependencies = {
   resolveWorkspace: (context: ActionRunContext | undefined, projectId: string) => Promise<LocalProjectWorkspace>;
-  /** The creator bridge `context` operation for an admitted root, optionally checking files about to be created. */
-  readWorkspaceContext: (root: string, candidates?: readonly string[]) => Promise<WorkspaceContextPaths>;
+  /** The creator bridge `context` operation for an admitted project, optionally checking files about to be created. */
+  readWorkspaceContext: (workspace: Pick<Workspace, "projectId" | "root">, candidates?: readonly string[]) =>
+    Promise<WorkspaceContextPaths>;
   files: Pick<typeof projectFileService, "create" | "save" | "remove">;
   /** Host-local date as YYYY-MM-DD. */
   today: () => string;
@@ -588,7 +589,7 @@ type Dependencies = {
 
 const defaultDependencies: Dependencies = {
   resolveWorkspace: resolveLocalProjectWorkspace,
-  readWorkspaceContext: (root, candidates = []) => readWorkspaceContext(root, candidates),
+  readWorkspaceContext: (workspace, candidates = []) => readWorkspaceContext(workspace, candidates),
   files: projectFileService,
   today: localDate,
   now: () => new Date(),
@@ -657,7 +658,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     }
     let answer: WorkspaceContextPaths;
     try {
-      answer = await dependencies.readWorkspaceContext(workspace.root);
+      answer = await dependencies.readWorkspaceContext(workspace);
     } catch (error) {
       warn((error as Error)?.name === "ZodError"
         ? "The settings reader's answer failed validation." : "The settings reader failed.");
@@ -819,7 +820,7 @@ export function createProjectMemory(overrides: Partial<Dependencies> = {}) {
     // The folder check used a probe name. The engine checks this exact file too.
     let check: WorkspaceContextPaths;
     try {
-      check = await dependencies.readWorkspaceContext(workspace.root, [path]);
+      check = await dependencies.readWorkspaceContext(workspace, [path]);
     } catch {
       warn("The settings reader failed while checking a new fact file.");
       return { code: "unavailable", reason: "settings", message: WRITE_TEXT.settings };

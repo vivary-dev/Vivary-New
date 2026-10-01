@@ -47,7 +47,7 @@ export function createManagedProject(
 export function isWindowsReservedName(name: string): boolean;
 
 export function readWorkspaceContext(
-  root: string,
+  workspace: { projectId: string; root: string },
   candidates?: readonly string[],
   dependencies?: Record<string, unknown>,
 ): Promise<import("../app/lib/project-memory-schema").WorkspaceContextPaths>;

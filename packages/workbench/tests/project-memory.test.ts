@@ -119,7 +119,7 @@ function serviceFor(workspaces: ReturnType<typeof workspaceFor>[], files = undef
   };
   const memory = createProjectMemory({
     resolveWorkspace,
-    readWorkspaceContext: async (root, candidates = []) => {
+    readWorkspaceContext: async ({ root }, candidates = []) => {
       bridge.calls += 1;
       bridge.callsByRoot.set(root, (bridge.callsByRoot.get(root) ?? 0) + 1);
       if (bridge.fail) throw new Error(`runtime unavailable at ${root}`);

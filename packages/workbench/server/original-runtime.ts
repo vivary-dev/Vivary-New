@@ -6,7 +6,9 @@ import path from "node:path";
 import { ActionContractError, fail, isActionContractError, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import { adoptionPrivacyRequest } from "../shared/project-adoption";
-import { workspacePatternChoices, workspacePreset as preset } from "../shared/workspace-patterns.ts";
+import {
+  workspacePatternChoices, workspacePreset as preset, type WorkspacePatternChoice, type WorkspacePreset,
+} from "../shared/workspace-patterns.ts";
 import {
   projectReadBudgetSchema, projectReadKSchema, projectReadNodeIdSchema, projectReadPackSchema, projectReadQuerySchema,
   READ_BOUNDS, type ProjectRef,
@@ -71,11 +73,22 @@ const governedCommandSchema = z.discriminatedUnion("evaluateAs", [
   { message: "The operation does not belong to this verb.", path: ["input", "operation"] });
 export type GovernedCommand = z.infer<typeof governedCommandSchema>;
 
+/** One creator bridge operation. Its gate, receipt row, and bridge request all follow from `operation`. */
+export type CreatorCall =
+  | { operation: "catalog" }
+  | { operation: "plan"; target: string; patternChoices: WorkspacePatternChoice[]; preset: WorkspacePreset }
+  | { operation: "apply"; target: string; acceptedPlanSha256: string;
+      patternChoices: WorkspacePatternChoice[]; preset: WorkspacePreset }
+  | { operation: "context"; projectId: string; target: string; candidates?: readonly string[] };
+/** The bundle's interpreter and staged bridge, or a development or standalone Python and the source bridge. */
+export type CreatorRuntime = { executable: string; bridge: string; version: string };
+type CreatorVerb = `creator-${CreatorCall["operation"]}`;
+
 // A Native tool call may run these reads and the governed evaluations, and none of the owner's commands.
 const toolVerbs: ReadonlySet<string> = new Set([...projectReadCommandSchema.options.map(option => option.shape.verb.value),
   "decide", "control"]);
 // The tool gate compares verbs, so no owner command may share a verb with one a tool may run.
-const ownerVerbsAreNotToolVerbs: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"],
+const ownerVerbsAreNotToolVerbs: [Extract<OriginalCommand["verb"] | AdoptionExecution["verb"] | CreatorVerb,
   ProjectReadCommand["verb"] | GovernedCommand["verb"]>] extends [never] ? true : never = true;
 void ownerVerbsAreNotToolVerbs;
 type RuntimeCommand = OriginalCommand | AdoptionExecution | ProjectReadCommand | GovernedCommand;
@@ -93,6 +106,15 @@ const QUEUE_WAIT_MS = 30_000;
 const OUTPUT_BYTES = 256 * 1024;
 const CHILD_RECEIPT_BYTES = 64 * 1024;
 const STALE_RUN_MS = 10 * 60_000;
+/** Flags every Python child gets. Isolated mode ignores PYTHON* names and the user site. */
+const ISOLATED_PYTHON = ["-I", "-X", "utf8", "-B"] as const;
+
+/** How much a child may print across stdout and stderr, and whether its stdout is redacted. Stderr always is. */
+export type ChildOutput = { bytes: number; stdout: "redacted" | "structured" };
+const ORIGINAL_OUTPUT: ChildOutput = { bytes: OUTPUT_BYTES, stdout: "redacted" };
+// The engine sizes its context answer against 512 KiB. The answer is parsed, so it stays byte-exact.
+const CREATOR_OUTPUT: ChildOutput = { bytes: 512 * 1024, stdout: "structured" };
+type ChildResult = { exitCode: number | null; stdout: string; stderr: string; signal: NodeJS.Signals | null };
 
 /**
  * Failures after the project resolved in which the original command produced
@@ -118,11 +140,15 @@ type AccessMode = "read" | "write";
 // within that project. `receipt` says who records the command: its component,
 // in a private file the app appends after the command settles, or the app
 // itself. `logs` reads the shared log and records nothing. A governed command
-// or a write fails without its component's receipt.
+// or a write fails without its component's receipt. The creator's catalog and
+// context reads record nothing, because project memory reads context whenever
+// its memo misses and the Receipts panel shows only the newest lines.
 type CommandPolicy = { access: AccessMode } & (
   | { receipt: "component" | "app"; required: boolean }
-  | { receipt: "reads-log" });
-const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
+  | { receipt: "reads-log" }
+  | { receipt: "none" });
+type Verb = RuntimeCommand["verb"] | CreatorVerb;
+const commandPolicy: Record<Verb, CommandPolicy> = {
   create: { access: "read", receipt: "component", required: false },
   adopt: { access: "read", receipt: "component", required: false },
   "pattern-state": { access: "read", receipt: "component", required: false },
@@ -139,6 +165,10 @@ const commandPolicy: Record<RuntimeCommand["verb"], CommandPolicy> = {
   logs: { access: "read", receipt: "reads-log" },
   review: { access: "read", receipt: "app", required: false },
   impact: { access: "read", receipt: "app", required: false },
+  "creator-catalog": { access: "read", receipt: "none" },
+  "creator-context": { access: "read", receipt: "none" },
+  "creator-plan": { access: "read", receipt: "app", required: false },
+  "creator-apply": { access: "write", receipt: "app", required: true },
 };
 
 /** `document` is the governed request the runner built. Control reads it from `controlRequestPath`. */
@@ -268,11 +298,28 @@ async function sweepStaleRuns(receiptDir: string, receiptLog: string): Promise<v
   }
 }
 
+/** Canonical application data and its private receipt folder, created and swept. Data inside `projectRoot` is refused first. */
+async function privateReceiptDirectory(configured: string | undefined, projectRoot?: string) {
+  if (!configured || !path.isAbsolute(configured)) {
+    commandError("Vivary application data is not configured.", ORIGINAL_RUN_FAILURES.dataUnavailable);
+  }
+  const dataDir = await realpath(configured).catch(() => commandError(
+    "Vivary application data is unavailable on this host.", ORIGINAL_RUN_FAILURES.dataUnavailable));
+  if (projectRoot && containsPath(projectRoot, dataDir)) {
+    commandError("Choose a project that does not contain Vivary's private application data.", "vivary_original_data_in_project");
+  }
+  const receiptDir = path.join(dataDir, "original-runtime");
+  await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
+  if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
+  await sweepStaleRuns(receiptDir, path.join(receiptDir, "receipts.jsonl"));
+  return { dataDir, receiptDir };
+}
+
 type Settled = { durationMs: number } & ({ exitCode: number | null } | { failure: string });
 
 // Everything one command does with receipts, driven by its policy row.
-async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonVersion: string) {
-  const policy = commandPolicy[command.verb];
+async function openReceipts(verb: Verb, policy: Exclude<CommandPolicy, { receipt: "none" }>, receiptDir: string,
+  pythonVersion: string) {
   const receiptLog = path.join(receiptDir, "receipts.jsonl");
   const required = policy.receipt !== "reads-log" && policy.required;
   // `logs` reads the shared log, and a required receipt must be writable before its command runs.
@@ -283,7 +330,7 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
   const componentLog = privateDir ? path.join(privateDir, "receipts.jsonl") : undefined;
   // Exo refuses stdin when receipts are enabled, so control reads its request
   // from a file in its private folder. Control is required, so the folder exists.
-  const request = command.verb === "control" && privateDir ? { file: path.join(privateDir, "request.json") } : undefined;
+  const request = verb === "control" && privateDir ? { file: path.join(privateDir, "request.json") } : undefined;
   // Control's request exists only while its admitted child can read it.
   const dropRequest = () => request
     ? rm(request.file, { force: true, maxRetries: 3 }).then(() => undefined, () => undefined) : Promise.resolve();
@@ -306,7 +353,7 @@ async function openReceipts(command: RuntimeCommand, receiptDir: string, pythonV
         // The app records every command whose component wrote no receipt.
         const app = policy.receipt === "app" || !component ? JSON.stringify({
           schema: "vivary.run_receipt.v1", timestamp: new Date().toISOString(),
-          tool: "vivary-workbench", command: command.verb, exit_code: "exitCode" in settled ? settled.exitCode : null,
+          tool: "vivary-workbench", command: verb, exit_code: "exitCode" in settled ? settled.exitCode : null,
           ok: succeeded && !missing, duration_ms: settled.durationMs, python: pythonVersion, platform: process.platform,
           receipt_source: "app", ...(failure ? { error_type: failure } : {}),
         }) + "\n" : "";
@@ -459,12 +506,34 @@ async function validateGovernedRequest(document: string, verb: GovernedCommand["
   }
 }
 
+declare const gateBrand: unique symbol;
+/**
+ * A reader-writer lock key. Only the constructors below build one. A project
+ * id cannot hold ":", so a creator key never equals a project's key.
+ */
+type GateKey = string & { readonly [gateBrand]: true };
+const projectGate = (projectId: string) => projectId as GateKey;
+/** Folded as `activeTargets` folds it, so two spellings of one managed folder share a gate. */
+const targetGate = (target: string) => `creator:target:${target.toLocaleLowerCase("en-US")}` as GateKey;
+/** The catalog touches no project, so its key only counts it against the ceiling. */
+const CATALOG_GATE = "creator:catalog" as GateKey;
+
+/** A context read waits for a write to its project. A plan waits for an apply to the same folder. */
+export function creatorGate(call: CreatorCall): GateKey {
+  switch (call.operation) {
+    case "catalog": return CATALOG_GATE;
+    case "context": return projectGate(call.projectId);
+    case "plan": case "apply": return targetGate(call.target);
+  }
+}
+
 type ActiveCommand = { stop: (error: Error) => void; settled: Promise<void> };
-type Waiter = { projectId: string; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
+type Waiter = { projectId: GateKey; mode: AccessMode; ceiling: number; start: () => void; refuse: (error: Error) => void };
 type ProjectAccess = { reads: number; writing: boolean };
 type CommandHost = {
   closing: boolean; active: Set<ActiveCommand>; shutdown: Promise<void> | null;
-  running: number; projects: Map<string, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
+  // A key in `projects` may also be a creator key, which holds ":" and never equals a project id.
+  running: number; projects: Map<GateKey, ProjectAccess>; waiting: Waiter[]; sweptDirectories?: Set<string>;
   /** Commands registered before their request is staged, until their receipt is recorded and their private folder is gone. */
   recording?: Set<Promise<void>>;
 };
@@ -476,10 +545,10 @@ const commandHost: CommandHost = commandProcess[commandHostKey] ??= {
 };
 const closingError = () => new Error("Vivary is closing. New original commands cannot start.");
 
-// Codex's read/write tool lock, keyed by project. Waiters start in arrival
-// order within a project, so a waiting write holds back the reads behind it.
+// Codex's read/write tool lock, keyed by gate. Waiters start in arrival
+// order within a gate, so a waiting write holds back the reads behind it.
 function admitWaiting(): void {
-  const blocked = new Set<string>();
+  const blocked = new Set<GateKey>();
   for (const waiter of [...commandHost.waiting]) {
     if (commandHost.running >= waiter.ceiling) return;
     const access = commandHost.projects.get(waiter.projectId);
@@ -498,7 +567,7 @@ function admitWaiting(): void {
   }
 }
 
-function acquireProject(projectId: string, mode: AccessMode, ceiling: number, signal?: AbortSignal): Promise<() => void> {
+function acquireGate(key: GateKey, mode: AccessMode, ceiling: number, signal?: AbortSignal): Promise<() => void> {
   signal?.throwIfAborted();
   if (commandHost.closing) throw closingError();
   return new Promise((resolve, reject) => {
@@ -506,15 +575,15 @@ function acquireProject(projectId: string, mode: AccessMode, ceiling: number, si
     const release = () => {
       if (released) return;
       released = true;
-      const access = commandHost.projects.get(projectId)!;
+      const access = commandHost.projects.get(key)!;
       if (mode === "write") access.writing = false; else access.reads -= 1;
-      if (!access.writing && access.reads === 0) commandHost.projects.delete(projectId);
+      if (!access.writing && access.reads === 0) commandHost.projects.delete(key);
       commandHost.running -= 1;
       admitWaiting();
     };
     const settle = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); };
     const waiter: Waiter = {
-      projectId, mode, ceiling,
+      projectId: key, mode, ceiling,
       start: () => { settle(); resolve(release); },
       refuse: error => { settle(); reject(error); },
     };
@@ -549,14 +618,15 @@ export function shutdownOriginalCommands(): Promise<void> {
   return commandHost.shutdown;
 }
 
-export function runOriginalProcess(executable: string, args: string[], stdin: string, cwd: string, environment: NodeJS.ProcessEnv, signal?: AbortSignal) {
+export function runOriginalProcess(executable: string, args: string[], stdin: string, cwd: string, environment: NodeJS.ProcessEnv,
+  signal?: AbortSignal, output: ChildOutput = ORIGINAL_OUTPUT) {
   signal?.throwIfAborted();
   if (commandHost.closing) throw closingError();
-  return new Promise<{ exitCode: number | null; stdout: string; stderr: string; signal: NodeJS.Signals | null }>((resolve, reject) => {
+  return new Promise<ChildResult>((resolve, reject) => {
     const child = spawn(executable, args, {
       cwd, env: environment, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
     });
-    const output: Buffer[] = [];
+    const printed: Buffer[] = [];
     const errors: Buffer[] = [];
     let bytes = 0;
     let failure: Error | undefined;
@@ -594,11 +664,11 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
     signal?.addEventListener("abort", abort, { once: true });
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > OUTPUT_BYTES) stop(new ActionContractError("The original Vivary command exceeded its output limit.",
+      if (bytes > output.bytes) stop(new ActionContractError("The original Vivary command exceeded its output limit.",
         { errorCode: ORIGINAL_RUN_FAILURES.outputLimit, statusCode: 413 }));
       else target.push(chunk);
     };
-    child.stdout.on("data", collect(output));
+    child.stdout.on("data", collect(printed));
     child.stderr.on("data", collect(errors));
     // Without IPC or ChildProcess.kill, a child error means the spawn failed.
     child.on("error", () => { failure ??= new ActionContractError("The bundled Vivary runtime could not start. Reinstall Vivary, then try again.",
@@ -611,9 +681,13 @@ export function runOriginalProcess(executable: string, args: string[], stdin: st
       commandHost.active.delete(active);
       markSettled();
       if (failure) reject(failure);
-      // Output reaches the model, the screen, and receipts, so credentials are redacted first.
-      else resolve({ exitCode, stdout: redactCredentials(Buffer.concat(output).toString("utf8")),
-        stderr: redactCredentials(Buffer.concat(errors).toString("utf8")), signal: exitSignal });
+      // Output reaches the model, the screen, and receipts, so credentials are redacted first. Structured
+      // stdout is parsed, and a placeholder would change its values, so its caller redacts the text it shows.
+      else {
+        const stdout = Buffer.concat(printed).toString("utf8");
+        resolve({ exitCode, stdout: output.stdout === "redacted" ? redactCredentials(stdout) : stdout,
+          stderr: redactCredentials(Buffer.concat(errors).toString("utf8")), signal: exitSignal });
+      }
     });
     child.stdin.end(stdin);
   });
@@ -637,6 +711,115 @@ const runtimeDependencies: Dependencies = {
   parallelism: Math.max(4, availableParallelism()),
 };
 const evaluateDependencies: EvaluateDependencies = { ...runtimeDependencies, now: () => new Date() };
+
+type Receipts = Awaited<ReturnType<typeof openReceipts>>;
+const NO_RECEIPTS: Receipts = {
+  requestFile: undefined, childLog: undefined, stageRequest: async () => {}, dropRequest: async () => {},
+  settle: async () => {}, dispose: async () => {},
+};
+type Invocation = { args: string[]; stdin: string; environment: NodeJS.ProcessEnv; document?: string };
+type GatedRun = {
+  verb: Verb;
+  gate: GateKey;
+  python: { executable: string; version: string };
+  /** Undefined when the verb records nothing, or when no data folder is configured. */
+  receiptDir: string | undefined;
+  cwd: string;
+  output: ChildOutput;
+  signal?: AbortSignal;
+  /** Runs with the gate held, before any child exists. A throw here records nothing. */
+  admit: (receipts: Receipts) => Promise<Invocation>;
+};
+
+/**
+ * The one place a Python child starts. It holds the gate while the child
+ * runs and records the child once it started, and shutdown waits for that
+ * receipt. Every front door authorizes before it calls this.
+ */
+async function runGated(run: GatedRun, dependencies: Pick<Dependencies, "execute" | "parallelism">): Promise<ChildResult> {
+  const policy = commandPolicy[run.verb];
+  if (run.receiptDir === undefined && "required" in policy && policy.required) {
+    commandError("Vivary application data is not configured.", ORIGINAL_RUN_FAILURES.dataUnavailable);
+  }
+  const receipts = policy.receipt === "none" || run.receiptDir === undefined ? NO_RECEIPTS
+    : await openReceipts(run.verb, policy, run.receiptDir, run.python.version);
+  const recorded = Promise.withResolvers<void>();
+  // Shutdown waits for a started command until its receipt is recorded and its private folder is gone.
+  const record = async (settled: Settled) => {
+    try { await receipts.settle(settled); } finally { await receipts.dispose(); recorded.resolve(); }
+  };
+  try {
+    const release = await acquireGate(run.gate, policy.access, dependencies.parallelism, run.signal);
+    let result: ChildResult;
+    let started: number | undefined;
+    let ended: number | undefined;
+    let durationMs = 0;
+    try {
+      const invocation = await run.admit(receipts);
+      // Shutdown or a cancel may arrive while an admitted command prepares its child.
+      if (commandHost.closing) throw closingError();
+      run.signal?.throwIfAborted();
+      // From here shutdown waits for this command, so its request file is gone before shutdown resolves.
+      (commandHost.recording ??= new Set()).add(recorded.promise);
+      void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
+      try {
+        await receipts.stageRequest(invocation.document);
+        if (commandHost.closing) throw closingError();
+        run.signal?.throwIfAborted();
+        const startedAt = performance.now();
+        // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
+        const running = dependencies.execute(run.python.executable, [...ISOLATED_PYTHON, ...invocation.args],
+          invocation.stdin, run.cwd, invocation.environment, run.signal, run.output);
+        started = startedAt;
+        try { result = await running; } finally { ended = performance.now(); }
+        durationMs = Math.round(ended - started);
+      } finally { await receipts.dropRequest(); }
+    } catch (error) {
+      // A command whose child started is recorded when it fails or is stopped.
+      if (started !== undefined) {
+        await record({ failure: isActionContractError(error) ? error.errorCode : "stopped",
+          durationMs: Math.round((ended ?? performance.now()) - started) }).catch(() => undefined);
+      }
+      throw error;
+    } finally { release(); }
+    await record({ exitCode: result.exitCode, durationMs });
+    return result;
+  } finally {
+    await receipts.dispose();
+    recorded.resolve();
+  }
+}
+
+/** The bridge refuses keys it does not know, so a context read's project id stays with its gate. */
+function bridgeRequest(call: CreatorCall) {
+  if (call.operation !== "context") return call;
+  const { operation, target, candidates } = call;
+  return { operation, target, ...(candidates ? { candidates } : {}) };
+}
+
+/**
+ * One creator bridge call through the original runner, with its allowlisted
+ * environment, gate, limits, receipt, and shutdown. Its callers authorize
+ * first. It resolves with the exit code and the exact stdout.
+ */
+export async function runCreatorBridge(call: CreatorCall, runtime: CreatorRuntime,
+  dependencies: { dataDir: string | undefined; execute?: typeof runOriginalProcess }) {
+  // A call that arrives after shutdown began touches no files.
+  if (commandHost.closing) throw closingError();
+  const verb = `creator-${call.operation}` as const;
+  const receiptDir = commandPolicy[verb].receipt === "none" || !dependencies.dataDir ? undefined
+    : (await privateReceiptDirectory(dependencies.dataDir)).receiptDir;
+  const result = await runGated({
+    verb, gate: creatorGate(call), python: runtime, receiptDir,
+    // The bridge finds its engine from its own file, never from its working folder.
+    cwd: path.dirname(runtime.bridge), output: CREATOR_OUTPUT,
+    // The bridge calls library functions and never writes a component receipt, so it gets no receipt path.
+    admit: async () => ({ args: [runtime.bridge], stdin: JSON.stringify(bridgeRequest(call)),
+      environment: originalChildEnvironment(runtimeDependencies.environment(), undefined,
+        call.operation === "catalog" ? undefined : call.target) }),
+  }, { execute: dependencies.execute ?? runtimeDependencies.execute, parallelism: runtimeDependencies.parallelism });
+  return { exitCode: result.exitCode, stdout: result.stdout };
+}
 
 // Resolution and the run are separate steps, so a project read can still name
 // its project when the run fails.
@@ -666,91 +849,43 @@ function createRuntimeCommandRunner(dependencies: Dependencies, now: () => Date 
       if (refusal) throw new GovernedRefusal(refusal);
       return document;
     };
-    const policy = commandPolicy[command.verb];
     const { projectId } = workspace;
     const environment = dependencies.environment();
     const runtime = await resolveOriginalRuntime(environment.VIVARY_ORIGINAL_RUNTIME).catch(() => commandError(
       "The bundled Vivary runtime is unavailable on this host. Reinstall Vivary, then try again.",
       ORIGINAL_RUN_FAILURES.runtimeUnavailable, 503));
-    if (!environment.VIVARY_DATA_DIR || !path.isAbsolute(environment.VIVARY_DATA_DIR)) {
-      commandError("Vivary application data is not configured.", ORIGINAL_RUN_FAILURES.dataUnavailable);
-    }
-    const dataDir = await realpath(environment.VIVARY_DATA_DIR).catch(() => commandError(
-      "Vivary application data is unavailable on this host.", ORIGINAL_RUN_FAILURES.dataUnavailable));
-    if (containsPath(workspace.root, dataDir)) {
-      commandError("Choose a project that does not contain Vivary's private application data.", "vivary_original_data_in_project");
-    }
-    const receiptDir = path.join(dataDir, "original-runtime");
-    await mkdir(receiptDir, { recursive: true, mode: 0o700 }).catch(receiptDirectoryError);
-    if (await realpath(receiptDir).catch(receiptDirectoryError) !== receiptDir) receiptDirectoryError();
-    await sweepStaleRuns(receiptDir, path.join(receiptDir, "receipts.jsonl"));
+    const { dataDir, receiptDir } = await privateReceiptDirectory(environment.VIVARY_DATA_DIR, workspace.root);
     await governedRequest(workspace);
-    const receipts = await openReceipts(command, receiptDir, runtime.version);
-    const recorded = Promise.withResolvers<void>();
-    // Shutdown waits for a started command until its receipt is recorded and its private folder is gone.
-    const record = async (settled: Settled) => {
-      try { await receipts.settle(settled); } finally { await receipts.dispose(); recorded.resolve(); }
-    };
-    const invocationFor = (document?: string) => {
-      const invocation = originalCommandArguments(command, workspace.root, receipts.requestFile, document);
+    const invocationFor = (requestFile?: string, document?: string) => {
+      const invocation = originalCommandArguments(command, workspace.root, requestFile, document);
       if (invocation.args.some(value => value.includes(String.fromCharCode(0)))) {
         commandError("The command input exceeds its allowed format or size.", "vivary_original_input", 400);
       }
       return invocation;
     };
-    try {
-      let invocation = governed ? undefined : invocationFor();
-      const release = await acquireProject(projectId, policy.access, dependencies.parallelism, context?.signal);
-      let current: LocalProjectWorkspace;
-      let result: Awaited<ReturnType<typeof runOriginalProcess>>;
-      let started: number | undefined;
-      let ended: number | undefined;
-      let durationMs = 0;
-      try {
+    // Only control reads a request file, and control is governed, so other input is checked before it queues.
+    const checked = governed ? undefined : invocationFor();
+    let current!: LocalProjectWorkspace;
+    const result = await runGated({
+      verb: command.verb, gate: projectGate(projectId), python: runtime, receiptDir, cwd: dataDir,
+      output: ORIGINAL_OUTPUT, signal: context?.signal,
+      admit: async receipts => {
         current = await dependencies.resolveWorkspace(context, projectId);
         if (!current || !sameOriginalWorkspace(current, workspace)) {
           commandError("The selected project changed before the command could start. Try again.", "vivary_original_project_changed");
         }
         const document = await governedRequest(current);
-        invocation ??= invocationFor(document);
-        // Shutdown or a cancel may arrive while an admitted command re-checks its project.
-        if (commandHost.closing) throw closingError();
-        context?.signal?.throwIfAborted();
-        // From here shutdown waits for this command, so its request file is gone before shutdown resolves.
-        (commandHost.recording ??= new Set()).add(recorded.promise);
-        void recorded.promise.then(() => commandHost.recording?.delete(recorded.promise));
-        try {
-          await receipts.stageRequest(document);
-          if (commandHost.closing) throw closingError();
-          context?.signal?.throwIfAborted();
-          const startedAt = performance.now();
-          // The executor throws here, before any child exists, when it refuses to start one. Such a run records nothing.
-          const running = dependencies.execute(runtime.executable, ["-I", "-X", "utf8", "-B", "-m", "vivary_cli", ...invocation.args],
-            invocation.stdin, dataDir,
-            originalChildEnvironment(environment, receipts.childLog, current.root), context?.signal);
-          started = startedAt;
-          try { result = await running; } finally { ended = performance.now(); }
-          durationMs = Math.round(ended - started);
-        } finally { await receipts.dropRequest(); }
-      } catch (error) {
-        // A command whose child started is recorded when it fails or is stopped.
-        if (started !== undefined) {
-          await record({ failure: isActionContractError(error) ? error.errorCode : "stopped",
-            durationMs: Math.round((ended ?? performance.now()) - started) }).catch(() => undefined);
-        }
-        throw error;
-      } finally { release(); }
-      await record({ exitCode: result.exitCode, durationMs });
-      const after = await dependencies.resolveWorkspace(context, projectId);
-      if (!sameOriginalWorkspace(after, current)) {
-        commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
-      }
-      return { workspace: after, dataDir, actor, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
-        ...(governed ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
-    } finally {
-      await receipts.dispose();
-      recorded.resolve();
+        const invocation = checked ?? invocationFor(receipts.requestFile, document);
+        return { args: ["-m", "vivary_cli", ...invocation.args], stdin: invocation.stdin,
+          environment: originalChildEnvironment(environment, receipts.childLog, current.root), document };
+      },
+    }, dependencies);
+    const after = await dependencies.resolveWorkspace(context, projectId);
+    if (!sameOriginalWorkspace(after, current)) {
+      commandError("The project changed while the command ran. Refresh the project before continuing.", "vivary_original_project_changed");
     }
+    return { workspace: after, dataDir, actor, output: { verb: command.verb, projectId, pythonVersion: runtime.version,
+      ...(governed ? { evaluationKind: "caller-provided-evidence" as const } : {}), ...result } };
   };
   return { resolve, execute };
 }
