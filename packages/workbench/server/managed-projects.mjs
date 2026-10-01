@@ -1,8 +1,8 @@
-import { access, lstat, mkdir, readdir, realpath } from "node:fs/promises";
+import { access, constants, lstat, mkdir, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { redactCredentials } from "./credential-redaction.ts";
-import { runCreatorBridge } from "./original-runtime.ts";
+import { ORIGINAL_RUN_FAILURES, runCreatorBridge } from "./original-runtime.ts";
 import { connectLocalProjectFolder, getLocalProjectAccess } from "./project-services.mjs";
 import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 
@@ -18,13 +18,34 @@ export function isWindowsReservedName(name) {
   return WINDOWS_RESERVED_NAME.test(name);
 }
 
+/**
+ * A bare interpreter name, found on the server's own `PATH`. The child's
+ * `PATH` leaves out the project's folders, so a name the child looked up
+ * could start a different Python for each project.
+ */
+async function onServerPath(name) {
+  if (path.basename(name) !== name) return name;
+  // guard:allow-env-credential - The server's executable search path and Windows extensions, not credentials.
+  const { PATH = "", PATHEXT = ".COM;.EXE" } = process.env;
+  const extensions = process.platform !== "win32" ? [""]
+    : [...(path.extname(name) ? [""] : []), ...PATHEXT.split(";").filter(Boolean)];
+  for (const directory of PATH.split(path.delimiter).filter(entry => path.isAbsolute(entry))) {
+    for (const extension of extensions) {
+      const candidate = path.join(directory, name + extension);
+      if (await stat(candidate).then(info => info.isFile(), () => false)
+        && await access(candidate, constants.X_OK).then(() => true, () => false)) return candidate;
+    }
+  }
+  throw new Error(`The Python interpreter for the workspace creator, ${name}, is not on Vivary's PATH.`);
+}
+
 /** The launcher's bundle, else `VIVARY_PYTHON` or `python3` with the source bridge. */
 async function creatorRuntime(dependencies) {
   // guard:allow-env-credential - Launcher-selected runtime directory, not a credential.
   const runtimeDirectory = dependencies.runtimeDirectory ?? process.env.VIVARY_ORIGINAL_RUNTIME;
   const bundled = runtimeDirectory ? await resolveOriginalRuntime(runtimeDirectory) : null;
   // guard:allow-env-credential - Development-selected Python executable, not a credential.
-  const executable = bundled?.executable ?? dependencies.python ?? process.env.VIVARY_PYTHON ?? "python3";
+  const executable = bundled?.executable ?? await onServerPath(dependencies.python ?? process.env.VIVARY_PYTHON ?? "python3");
   const bridge = bundled ? path.join(bundled.root, "bridge", BRIDGE_FILE)
     : dependencies.bridge ?? path.join(process.cwd(), "server", BRIDGE_FILE);
   if (!path.isAbsolute(bridge) || path.basename(bridge) !== BRIDGE_FILE) {
@@ -57,7 +78,11 @@ function parseBridgeAnswer(exitCode, stdout, runtime) {
 async function runCreator(call, dependencies = {}) {
   const runtime = await creatorRuntime(dependencies);
   const { exitCode, stdout } = await runCreatorBridge(call, runtime,
-    { dataDir: managedProjectDataDirectory(dependencies), execute: dependencies.execute });
+    { dataDir: managedProjectDataDirectory(dependencies), execute: dependencies.execute }).catch(error => {
+    // The runner's start failure says to reinstall Vivary, which cannot help a Python outside the bundle.
+    if (runtime.version !== "unbundled" || error?.errorCode !== ORIGINAL_RUN_FAILURES.runtimeUnavailable) throw error;
+    throw new Error("The Python interpreter for the workspace creator could not start.");
+  });
   return parseBridgeAnswer(exitCode, stdout, runtime);
 }
 
@@ -167,7 +192,8 @@ export async function readWorkspaceContext(workspace, candidates = [], dependenc
   const result = await (dependencies.runCreator ?? runCreator)(call, dependencies);
   if (result?.code !== "context") throw new Error("The workspace settings reader is unavailable.");
   const answer = workspaceContextAnswer.parse(result.context);
-  if (answer.status === "invalid") return answer;
+  // The settings error is display text, not a path, so it is redacted like the bridge's refusal.
+  if (answer.status === "invalid") return { status: "invalid", message: redactCredentials(answer.message) };
   const privacy = { policy: answer.privacy_policy, private: answer.private,
     privateFiles: answer.private_files, ignoreFiles: answer.ignore_files,
     privateCandidates: answer.private_candidates, checkedFiles: answer.checked_files,

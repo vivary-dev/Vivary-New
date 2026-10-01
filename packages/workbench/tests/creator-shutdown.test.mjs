@@ -35,7 +35,8 @@ test("shutdown stops a running creator apply and its process tree, and records t
   await writeFile(bridge, [
     "import json, os, subprocess, sys, time",
     "sys.stdin.read()",
-    "grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])",
+    "grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],",
+    "    stdout=sys.stdout, stderr=sys.stderr)",
     `with open(${JSON.stringify(pids + ".partial")}, 'w') as handle:`,
     "    json.dump({'child': os.getpid(), 'grandchild': grandchild.pid}, handle)",
     `os.replace(${JSON.stringify(pids + ".partial")}, ${JSON.stringify(pids)})`,
@@ -56,7 +57,7 @@ test("shutdown stops a running creator apply and its process tree, and records t
     const atShutdown = await Promise.race([
       shutdownOriginalCommands().then(() => existsSync(log) ? readFileSync(log, "utf8") : ""),
       delay(15_000).then(() => undefined)]);
-    // The grandchild holds the output pipes, so a stop that misses it leaves shutdown waiting.
+    // The grandchild inherits the output pipes on Windows and Linux, so a stop that misses it leaves shutdown waiting.
     assert.notEqual(atShutdown, undefined, "shutdown ended the process tree within 15 seconds");
     const receipts = atShutdown.split("\n").filter(Boolean).map(line => JSON.parse(line));
     assert.deepEqual(receipts.map(receipt => [receipt.command, receipt.ok, receipt.error_type]),
@@ -73,6 +74,6 @@ test("shutdown stops a running creator apply and its process tree, and records t
     }
     await shutdownOriginalCommands();
     await outcome;
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true, maxRetries: 5 });
   }
 });

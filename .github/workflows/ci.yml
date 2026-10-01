@@ -751,9 +751,12 @@ jobs:
         with:
           node-version: "22"
       - name: install workbench dependencies
+        shell: pwsh
         run: |
           npm install --global pnpm@10.33.2
+          if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
           pnpm --dir packages/workbench install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw "workbench dependency install failed" }
       - name: creator shutdown on Windows
         run: pnpm --dir packages/workbench exec tsx --test tests/creator-shutdown.test.mjs
       - name: core governed-context contract

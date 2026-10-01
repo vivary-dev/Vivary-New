@@ -542,6 +542,8 @@ const commandProcess = globalThis as typeof globalThis & { [commandHostKey]?: Co
 const commandHost: CommandHost = commandProcess[commandHostKey] ??= {
   closing: false, active: new Set<ActiveCommand>(), shutdown: null, running: 0, gates: new Map(), waiting: [],
 };
+// A host an older copy of this module created keyed its locks by project and has no gates.
+commandHost.gates ??= new Map();
 const closingError = () => new Error("Vivary is closing. New original commands cannot start.");
 
 // Codex's read/write tool lock, keyed by gate. Waiters start in arrival
