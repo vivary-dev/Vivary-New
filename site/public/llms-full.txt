@@ -467,7 +467,7 @@ The coordinated release train named **Vivary Governed Context** is **published a
 verified**. A train is a release label, not a suite version: packages retain
 independent semvers. The only numeric lockstep is the same scaffolder distributed as
 `create-vivary` on PyPI and `@vivary/create` on npm. This policy resolves
-[#149](https://github.com/vivary-dev/vivary/issues/149); its lifecycle lives in the
+[#149](https://github.com/vivary-dev/vivary-cli/issues/149); its lifecycle lives in the
 [release workflow](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle).
 
 The table below preserves the package installation checks from **2026-08-15**.
@@ -889,7 +889,7 @@ provider runtime calls. The next productization gates are:
 - Semantic memory in an incognito, privacy-first mode: optional, explicit, and never
   default.
 - Typed semantic search over Tropo graph truth, tracked in
-  [#20](https://github.com/vivary-dev/vivary/issues/20), returning Vivary node ids and
+  [#20](https://github.com/vivary-dev/vivary-cli/issues/20), returning Vivary node ids and
   paths rather than opaque chunks.
 
 Those belong in separate feature PRs so each can run CI and review cleanly.
@@ -4003,10 +4003,10 @@ When active context was used, report:
 # Vivary optional semantic memory
 
 Status: architecture note plus first optional Cognee adapter slice
-[#84](https://github.com/vivary-dev/vivary/issues/84), now split into
-[#85](https://github.com/vivary-dev/vivary/issues/85) for presets/capabilities and
-[#86](https://github.com/vivary-dev/vivary/issues/86) for semantic memory/Cognee,
-aligned with [#20](https://github.com/vivary-dev/vivary/issues/20). The setup slice
+[#84](https://github.com/vivary-dev/vivary-cli/issues/84), now split into
+[#85](https://github.com/vivary-dev/vivary-cli/issues/85) for presets/capabilities and
+[#86](https://github.com/vivary-dev/vivary-cli/issues/86) for semantic memory/Cognee,
+aligned with [#20](https://github.com/vivary-dev/vivary-cli/issues/20). The setup slice
 landed `knowledge-work`, `create-vivary capabilities`, `--memory local|cognee`,
 `.vivary/memory.toml`, and Doctor memory reporting. Thin init writes provider config
 only after an explicit selection; it does not seed policy records. The first
@@ -4108,7 +4108,7 @@ approved source files. If provider state and source files disagree, source files
   [AgentLTM documentation](https://github.com/vivary-dev/vivary/tree/dev/docs/bellamente-memory).
 - **CandidateRecallProvider** — a provider-neutral, optional source of normalized
   prior assertions for the `vivary-core` candidate-recall firewall in
-  [#205](https://github.com/vivary-dev/vivary/issues/205). It is not a provider wire
+  [#205](https://github.com/vivary-dev/vivary-cli/issues/205). It is not a provider wire
   protocol or a synonym for SemanticMemoryAdapter. Before Core evaluates a
   Bellamente candidate, normalization must supply typed evidence and either a known
   stable Tropo node ID or the explicit unresolved-identity marker defined by the
@@ -6890,7 +6890,7 @@ Bump rules (semver-ish, pre-1.0):
 The historical independent versions remain valid history. A source change after one
 of its versions has published requires a new package version; it never reuses the
 published number or forces unrelated packages to match it. This is the selected
-versioning policy for [#149](https://github.com/vivary-dev/vivary/issues/149).
+versioning policy for [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 
 ## 2. Set release truth first
 
@@ -6953,7 +6953,7 @@ hook or deployment status; merging its docs does not publish a website.
 The site CI job runs `npm audit --audit-level=high` from `site/` immediately after
 `npm ci`. HIGH and CRITICAL advisories block the job. Lower-severity findings remain
 visible without turning every advisory-database change into a release blocker. This
-is the selected threshold for [#232](https://github.com/vivary-dev/vivary/issues/232):
+is the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232):
 it catches release-threatening dependency defects while limiting unrelated CI churn.
 
 The audit reads live registry data, so a site-scoped PR can turn red without changing
@@ -7369,6 +7369,13 @@ links open online through the browser or desktop's existing confirmation flow.
 No documentation route reads arbitrary host files.
 
 ## Last change review
+
+Issue #152, original-repository links. On 2026-09-30 the original CLI repository becomes `vivary-dev/vivary-cli`
+and this repository takes the name `vivary-dev/vivary`. Links to the original repository's issues, pull requests,
+releases, and Actions runs now name `vivary-dev/vivary-cli`, and so does one changelog link to line numbers in a file
+whose lines have since moved here. Repository-root, issue-tracker, API, and blob or tree links whose path exists in
+this repository stay unchanged, because after the rename they name this repository. This changes documentation links
+only, not the design.
 
 PR #127 brings the dated diagram collection together with the current design without replacing its newer product reviews. The project flow separates denied/revoked access from authorized missing-folder recovery, and resume from new-runtime selection, denial returns to the running session, pending approval exposes Stop, and answer-bearing questions/forms collect required content before Continue. Automation flows distinguish event triggers, paused definitions, rejected/duplicate webhooks that do not queue runs, and dispatch-specific next-run bookkeeping; deletion terminates the definition/run-row lifecycle while preserving internal job thread rows. Run inspection uses automation history; retained run threads are not openable from Settings or chat history. The workspace interaction contract, Code approval owner, and automation lifecycle receipt support these corrections. The planning checker recognizes only signature-matching JPEG and tldraw assets directly in the diagram directory, with the exact visually reviewed source/export hashes pinned in code. Changed, unknown, or mismatched exports require another visual/source review and deliberate pin update before acceptance; other planning text remains strict UTF-8, and preflight and visible-byte privacy checks remain. Tldraw ZIP entries are decompressed in memory under entry/count/total-size limits and scanned for private paths and credentials; invalid or unscannable archives fail closed. The scan validates actual DEFLATE stream completion and sizes, and decodes escaped strings in SQLite diagram records, rather than trusting ZIP headers or raw bytes alone. The editable archive uses ZIP compression while preserving identical entry contents, so storage encoding does not change any diagram record. Its thumbnail-sized preview is rendered from the same reviewed diagram; the editable database, viewport settings, and full-size exports are unchanged. This changes documentation and its validation, not runtime behavior or release acceptance.
 
@@ -8642,7 +8649,7 @@ and staged-source status do not add fresh installation acceptance.
 | **Stable** | Published and supported; this is not a promise of post-1.0 API stability. | The published Python packages and npm launcher with their baseline CLI/workspace behavior. | Public registry links appear above; baseline regressions live with [Tropo](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py), [Ozone](https://github.com/vivary-dev/vivary/blob/dev/packages/ozone/tests/test_ozone.py), [Exo](https://github.com/vivary-dev/vivary/blob/dev/packages/exo/tests/test_exo.py), and [create-vivary](https://github.com/vivary-dev/vivary/blob/dev/packages/create-vivary/tests/test_create_vivary.py). |
 | **Optional** | Installed, configured, or invoked only by explicit choice; optional is independent of maturity. | Ozone and Exo beyond the Tropo + Strato baseline; storage and semantic-memory capabilities including `vivary-memory-cognee`; Obsidian and active-context integrations; and the published but experimental `vivary-mcp`. | [Architecture boundaries](https://vivary.vercel.app/architecture/#purpose-and-owner-intent), [semantic-memory gates](https://vivary.vercel.app/semantic-memory/#non-negotiables), [active-context gates](https://vivary.vercel.app/active-context/), and the [MCP install boundary](https://vivary.vercel.app/mcp/#install-boundary). |
 | **Experimental** | Published and opt-in where callable, with contracts that may still change before 1.0. | The `thin-v0.3` init/adoption contract in `create-vivary`; `vivary-core`; governed Tropo, Strato, Ozone, and Exo paths; the provider-neutral recall firewall; and the optional read-only `vivary-mcp` adapter. | [Thin adoption regressions](https://github.com/vivary-dev/vivary/tree/dev/packages/create-vivary/tests), [Core contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/core/tests), [role envelopes](https://vivary.vercel.app/commands/#governed-machine-readable-envelopes), and [MCP contract tests](https://github.com/vivary-dev/vivary/tree/dev/packages/mcp/tests). |
-| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The unpublished workspace-role repairs and local desktop application. The earlier Front Door PyPI components are available, but npm 0.4.3 is absent and the coordinated train is incomplete. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
+| **Held** | Complete or partial source work that must not be described as published, graduated, or default-enabled. | The unpublished workspace-role repairs and local desktop application. The earlier Front Door PyPI components are available, but npm 0.4.3 is absent and the coordinated train is incomplete. | The release policy resolved by [#149](https://github.com/vivary-dev/vivary-cli/issues/149), the documentation acceptance completed by [#210](https://github.com/vivary-dev/vivary-cli/issues/210), and the per-item human gates in the [release workflow](https://vivary.vercel.app/release-workflow/#gates). |
 | **Deprecated** | Formally discouraged with a documented replacement and removal policy. | **None.** Legacy full workspace layouts and legacy Exo graph commands remain read-compatible surfaces, not deprecations. New init/adopt no longer generate the full layout. | [Doctor compatibility contract](https://vivary.vercel.app/commands/#doctor-compatibility-and-declared-configuration) and [legacy Exo commands](https://vivary.vercel.app/commands/#legacy-graph-coordination). |
 | **Planned** | Described intent with no shipped behavior claim. | Cloud storage adapters and non-file/cloud migration targets; any broader MCP transport or named-client compatibility. | [Data-layer future work](https://github.com/vivary-dev/vivary/blob/dev/docs/SPEC-data-layer.md#future--cloud-adapters-03x); MCP external conformance remains explicitly [unproven](https://vivary.vercel.app/mcp/#contract). These are plans or hypotheses until implementation evidence exists. |
 
@@ -8654,7 +8661,7 @@ of versions but is not itself a package version. Only the two distributions of t
 same scaffolder—`create-vivary` on PyPI and `@vivary/create` on npm—remain numerically
 lockstep. The policy and lifecycle are owned by the
 [release workflow](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle), resolving the
-choice requested by [#149](https://github.com/vivary-dev/vivary/issues/149).
+choice requested by [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 
 Published install commands resolve the versions in their respective registries. Do not
 infer publication from a manifest version. Source versions and verification evidence are maintained separately from registry
@@ -8672,7 +8679,7 @@ reviewed on **2026-08-09**. Later decisions carry their approval date.
 - [**D-001 — Named trains coordinate independent package semvers.**](https://vivary.vercel.app/release-workflow/#train-and-version-lifecycle)
   **Vivary Governed Context** is a release label, not a suite version. Packages bump only when their
   own surface changes; only `create-vivary` and `@vivary/create` use the same version.
-  This is the selected resolution of [#149](https://github.com/vivary-dev/vivary/issues/149).
+  This is the selected resolution of [#149](https://github.com/vivary-dev/vivary-cli/issues/149).
 - [**D-002 — `vivary-core` is a shared seam, not a fifth role or CLI.**](https://vivary.vercel.app/architecture/#the-shared-seam-vivary-core)
   Tropo observes and retrieves, Strato decides, Ozone verifies and proposes, and Exo
   projects caller-owned control state. Their manifests provide the executable
@@ -9401,7 +9408,7 @@ contract.
 - The CI workflow contract now also pins the site dependency audit to
   `npm audit --audit-level=high` in `site/` after `npm ci`. Its regression suite
   rejects a missing, misplaced, or reordered gate, and the release workflow owns the
-  live-advisory response for [#232](https://github.com/vivary-dev/vivary/issues/232).
+  live-advisory response for [#232](https://github.com/vivary-dev/vivary-cli/issues/232).
 - Doctor repair now recognizes a thin workspace even when its repairable `.gitignore`
   policy is incomplete, and atomic repair preserves the existing file mode.
 - The strict orientation proof builds local Core and Tropo wheels before exercising
@@ -9583,7 +9590,7 @@ unchanged.
   Green candidate: after reviewed transitive lock updates to `js-yaml` 4.3.1 and
   `nanoid` 3.3.18, the same audit reported zero vulnerabilities. The site behavior
   suite, production build, and link check then passed. [CI gate](https://github.com/vivary-dev/vivary/blob/dev/.github/workflows/ci.yml);
-  [decision record](https://github.com/vivary-dev/vivary/issues/232);
+  [decision record](https://github.com/vivary-dev/vivary-cli/issues/232);
   verified: 2026-08-09.
 
 ### Changed
@@ -9595,8 +9602,8 @@ unchanged.
 
 ## [Unreleased: optional read-only MCP adapter (#206)] — 2026-08-02
 
-Implements [#206](https://github.com/vivary-dev/vivary/issues/206) under the tool
-contract resolved by [#225](https://github.com/vivary-dev/vivary/issues/225). The
+Implements [#206](https://github.com/vivary-dev/vivary-cli/issues/206) under the tool
+contract resolved by [#225](https://github.com/vivary-dev/vivary-cli/issues/225). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -9639,7 +9646,7 @@ versions stay unchanged.
   results if policy changed.
 - On Python 3.11 for Windows, public candidate snapshots now read NTFS change time
   through an attribute-only handle instead of treating creation time as change time.
-  The [same-size rewrite regression](https://github.com/vivary-dev/vivary/blob/dev/packages/tropo/tests/test_tropo.py#L2569-L2592)
+  The [same-size rewrite regression](https://github.com/vivary-dev/vivary-cli/blob/dev/packages/tropo/tests/test_tropo.py#L2569-L2592)
   restores the documented race refusal on the package's lowest supported Python.
 - Public enumeration applies cancellation and hard entry ceilings while consuming
   directory iterators, before sorting. Cancellation propagates through ranking,
@@ -9701,7 +9708,7 @@ gates.
 
 ## [Unreleased: governed installation and capability truth (#207)] (2026-08-02)
 
-Implements [#207](https://github.com/vivary-dev/vivary/issues/207). The
+Implements [#207](https://github.com/vivary-dev/vivary-cli/issues/207). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -9793,7 +9800,7 @@ Publishing remains a manual human gate.
 
 ## [Unreleased: governed recall firewall (#205)] — 2026-08-02
 
-Implements [#205](https://github.com/vivary-dev/vivary/issues/205). The
+Implements [#205](https://github.com/vivary-dev/vivary-cli/issues/205). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status)
 owns current published and development version truth.
 
@@ -9847,7 +9854,7 @@ Publishing remains a manual human gate.
 
 ## [Unreleased: governed Exo control (#204)] — 2026-08-01
 
-Implements [#204](https://github.com/vivary-dev/vivary/issues/204). The
+Implements [#204](https://github.com/vivary-dev/vivary-cli/issues/204). The
 [release-status section](https://github.com/vivary-dev/vivary/blob/dev/README.md#release-status) owns current published and
 development version truth.
 
@@ -10082,7 +10089,7 @@ remains part of the final coordinated release train and requires a separate huma
   `vivary-tropo` advances from 0.4.1 to 0.5.0 because the governed flags are a
   user-visible minor feature and keeps `vivary-core>=0.2.1`, the first source version
   exposing the adapter API. This is the first real package-to-core dependency promised
-  by [#207](https://github.com/vivary-dev/vivary/issues/207).
+  by [#207](https://github.com/vivary-dev/vivary-cli/issues/207).
 - The `vivary` meta-package advances from 0.1.0 to 0.1.3: 0.1.1 raised its floor to
   `vivary-tropo>=0.5.0`, 0.1.2 raised its floor to `vivary-ozone>=0.3.0`, and 0.1.3
   raises that floor to `vivary-ozone>=0.3.1`. A fresh suite install cannot resolve the
@@ -10343,7 +10350,7 @@ install, version, publication, or deployment action occurs.
 
 ### Changed
 
-- Reconciled [#160](https://github.com/vivary-dev/vivary/pull/160) as the normative
+- Reconciled [#160](https://github.com/vivary-dev/vivary-cli/pull/160) as the normative
   predecessor to #190: Bellamente remains an independent, workspace-local AgentLTM;
   Tropo-backed semantic adapters and the provider-neutral `vivary-core` candidate
   firewall are separate seams; learned memory never silently becomes authored truth.
@@ -10374,7 +10381,7 @@ install, version, publication, or deployment action occurs.
   matches privacy paths case-insensitively on Windows, with snapshot-level regression
   coverage. Public docs distinguish that behavior from published 0.1.0. The remaining
   escaped/complex Git-ignore limitation stays explicit and tracked by
-  [#236](https://github.com/vivary-dev/vivary/issues/236).
+  [#236](https://github.com/vivary-dev/vivary-cli/issues/236).
 - **create-vivary Doctor compatibility (#199)** — Doctor now distinguishes the strict
   15-path v0.1 common contract from legacy flat and v0.2+ indexed module layouts.
   Valid published workspaces receive preset-preserving, read-only upgrade
@@ -10451,7 +10458,7 @@ coordinated release train is complete and separately approved.
 ### Changed
 
 - **Recorded the selected dependency direction for `vivary-core`** — the first
-  acceptance criterion of [#207](https://github.com/vivary-dev/vivary/issues/207). Role
+  acceptance criterion of [#207](https://github.com/vivary-dev/vivary-cli/issues/207). Role
   packages depend on core; the `vivary` meta package receives it transitively and does
   not declare it, so there is one owner per edge and no version-pinning fight. The edge
   is added to a role's `pyproject.toml` in the *same commit* that makes that role first
@@ -11473,8 +11480,8 @@ lockstep. The other three packages are unchanged at 0.1.0.
   `npm create @vivary@latest <name>` and `uvx create-vivary@0.2.3 <name>` scaffold a workspace
   without an explicit `init` (previously failed with argparse `invalid choice: …`).
   Explicit `init` / `doctor` and leading flags (`-h` / `--help`) pass through unchanged.
-  npm launcher: [#33](https://github.com/vivary-dev/vivary/pull/33). Python CLI parity:
-  [#35](https://github.com/vivary-dev/vivary/pull/35).
+  npm launcher: [#33](https://github.com/vivary-dev/vivary-cli/pull/33). Python CLI parity:
+  [#35](https://github.com/vivary-dev/vivary-cli/pull/35).
 
 ## [0.1.0] — 2026-06-14
 

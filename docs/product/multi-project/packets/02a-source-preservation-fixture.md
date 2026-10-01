@@ -71,4 +71,4 @@ Name those limits in the receipt and prepare the executable successor.
 
 - 2026-09-05: Two-reader review found and corrected the initial prose-only fixture ambiguity. The contract now has 33 structured acceptance cases, including positive resume and malformed-input refusal. JSON parsed and case IDs are unique. Documentation CI remains pending; no restoration result is claimed.
 
-- 2026-09-05: Inspection acceptance complete; the two-reader review and [CI guard suite](https://github.com/vivary-dev/vivary/actions/runs/33990271792) passed. Supersedes earlier pending-review log entries. Final publication checks are tracked on PR #328. Source restoration and BrowserPod runtime behavior remain open.
+- 2026-09-05: Inspection acceptance complete; the two-reader review and [CI guard suite](https://github.com/vivary-dev/vivary-cli/actions/runs/33990271792) passed. Supersedes earlier pending-review log entries. Final publication checks are tracked on PR #328. Source restoration and BrowserPod runtime behavior remain open.
