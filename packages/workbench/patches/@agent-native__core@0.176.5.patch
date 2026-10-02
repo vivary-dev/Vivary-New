@@ -6157,7 +6157,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..e595ae0956f6948ef86bf5b3df961beb
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e013526c8f 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..458b14386131fe73c6781e338d791be643d7f5ce 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,10 +1,11 @@
@@ -6467,7 +6467,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e0
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -430,135 +538,175 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -430,135 +538,176 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
      // Manual runs use the same resource row as scheduled runs for concurrency
      // protection. The check is paired with the conditional write below: two
      // requests that read the same idle snapshot cannot both claim it.
@@ -6503,7 +6503,8 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e0
 +    // outcome is written, or until a paired-host run is queued, so no scan
 +    // reads it as stuck, and a lease another run holds means that run is live.
 +    // A scheduled job then stays due. The lease reads nothing from `deps`, so
-+    // a run whose dependencies fail still records that failure as its outcome.
++    // any failure the run's dependencies raise lands in the run's own error
++    // handling and its redacted last error.
 +    const runLease = await holdRunLease(resource);
 +    if (!runLease) {
 +        if (!options.manual)
@@ -6750,7 +6751,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e0
      }
  }
  /** Execute one stored automation without changing its scheduled next run. */
-@@ -577,7 +725,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+@@ -577,7 +726,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -6762,7 +6763,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e0
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +737,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +738,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -6772,7 +6773,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e0
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +753,37 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +754,37 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }

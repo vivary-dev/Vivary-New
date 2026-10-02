@@ -1768,20 +1768,22 @@ the same table on the same lease columns, and the schema does not change. Run
 lease rows share the table under `run:<owner>:<path>` ids that no reader lists,
 because every reader looks up a heartbeat or the scheduler lease by its
 `<appId>:<orgId>` or `<appId>:global` id. The run lease takes no app id, so
-taking it reads nothing from the run's dependencies, and a run whose
-dependencies fail still records that failure as its last error. Its row is keyed
-by the resource alone, so its `app_id` column reads `default`, and a job written
-before app ownership was saved, which every app's scheduler scans, has one run
-lease for all of them. `executeJob` takes the run lease after the identity, Run
-now, and quit checks and before the running mark, renews it every minute, and
-deletes the row after the outcome write. A failed delete is logged, and the row
-expires as after a hard kill. A run on a paired host releases the lease once the
-run is queued there. Event and webhook runs take none. When another run holds
-the run lease, a Run now ends as already running with the existing message, and
-a scheduled job is skipped with one log line and stays due.
-`scheduler-health.js` exports `acquireAutomationRunLease`,
-`renewAutomationRunLease`, and `releaseAutomationRunLease`, which share the
-scheduler lease's acquire and renew SQL.
+taking it reads nothing from the run's dependencies. Any failure those
+dependencies raise lands in the run's own error handling and its redacted last
+error, as the issue #97 case for an automation's last error in
+`tests/native-redaction.test.ts` pins. Its row is keyed by the resource alone,
+so its `app_id` column reads `default`, and a job written before app ownership
+was saved, which every app's scheduler scans, has one run lease for all of them.
+`executeJob` takes the run lease after the identity, Run now, and quit checks
+and before the running mark, renews it every minute, and deletes the row after
+the outcome write. A failed delete is logged, and the row expires as after a
+hard kill. A run on a paired host releases the lease once the run is queued
+there. Event and webhook runs take none. When another run holds the run lease, a
+Run now ends as already running with the existing message, and a scheduled job
+is skipped with one log line and stays due. `scheduler-health.js` exports
+`acquireAutomationRunLease`, `renewAutomationRunLease`, and
+`releaseAutomationRunLease`, which share the scheduler lease's acquire and renew
+SQL.
 
 A sweep that meets a `running` mark first tries to take its run lease. If
 another run holds it, that run is live however old its mark is, and the sweep
@@ -1820,9 +1822,9 @@ still shows a copied LAST CHECKED (issue #141). Run now and scheduled runs now
 write the health table before the running mark, so they need it writable. When
 the run lease cannot be taken because that write fails, the run does not start.
 A Run now ends as an automation worker failure, and a scheduled job stays due. A
-Run now of an automation whose `running` mark has passed its time window is
-refused as already running if it arrives while a scan holds that mark's run
-lease for its short check.
+Run now is refused as already running whenever a scan holds the automation's run
+lease for its short check. A scan takes that lease for every mark its list read
+as `running`, including the mark of a run that finished after the list was read.
 
 Run `node --test packages/workbench/tests/automation-quit.test.mjs`. The case "a
 due automation starts at the next tick while another automation's scheduled run
@@ -1852,9 +1854,11 @@ the run lease, and the next launch after a hard kill runs another due
 automation. Five cases have a tick that should leave a running mark alone: the
 run another process holds, the mark with no run lease, the paired-host mark
 whose dispatch holds the lease, the run that finished after the scan listed it,
-and the fresh reconcile. Each checks that the tick reached the mark, by the
-scan's heartbeat or by the run lease the scan took for it, and that the check of
-the mark logged no failure.
+and the fresh reconcile. Each counts the scan's attempt to take the mark's run
+lease, which shows that the tick reached the mark, and checks that the tick
+logged no failed check of the mark. For the run another process holds and the
+dispatching paired-host mark, the attempt gets no lease, and the holder still
+holds it after the tick.
 
 Upstream can take this change as it is. It adds exports to
 `scheduler-health.js` and changes no schema. Remove this part of the patch

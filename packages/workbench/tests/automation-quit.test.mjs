@@ -333,6 +333,20 @@ const consoleLines = async (method, work) => {
   return lines;
 };
 const markCheckFailures = lines => lines.filter(line => line.includes("Could not check the running mark"));
+// Run one tick of `appId` and return its warnings and how often it tried to take the run lease of `name`.
+const countedTick = async (appId, name) => {
+  let acquires = 0;
+  const restore = interceptQueries((query, run) => {
+    if (acquiresRunLease(query, name)) acquires += 1;
+    return run();
+  });
+  try {
+    const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch(appId)));
+    return { warnings, acquires };
+  } finally {
+    restore();
+  }
+};
 
 test("a due automation starts at the next tick while another automation's scheduled run is in progress", async () => {
   await defineScheduled("overlap-app", "long-run", "0 0 1 1 *");
@@ -433,12 +447,17 @@ test("a run another process still holds stays live past the time window", async 
   await makeDue("live");
   const { child, report, exited } = spawnChild("hold", "live-app");
   try {
-    assert.equal((await report).running, "live");
-    await patchStored("live", { lastRun: minutesAgo(30) });
+    const { running, runLease: held } = await report;
+    assert.equal(running, "live");
+    // Not due, so only the scan's check of the mark can try to take its run lease.
+    await patchStored("live", { lastRun: minutesAgo(30), nextRun: new Date(Date.now() + 3_600_000).toISOString() });
     const tickAt = Date.now();
-    const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("live-app")));
+    const { warnings, acquires } = await countedTick("live-app", "live");
     assert.ok((await leaseRow("live-app")).lastCheckedAt >= tickAt, "the tick scanned");
     assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
+    assert.equal(acquires, 1, "the scan tried to take the mark's run lease");
+    assert.equal((await runLeaseRow("live"))?.leaseOwner, held.leaseOwner,
+      "the scan got no run lease, and the run still holds it");
     assert.equal((await stored("live")).lastStatus, "running", "the scan left a run whose lease is held");
     assert.equal((await runsOf("live-app", "live")).length, 1);
     assert.deepEqual(await scheduler.runJobNow(owner, "live", nextLaunch("live-app")),
@@ -452,18 +471,8 @@ test("a run another process still holds stays live past the time window", async 
 test("a running mark no run lease covers keeps today's time window", async () => {
   await defineScheduled("unleased-app", "unleased");
   await patchStored("unleased", { lastStatus: "running", lastRun: new Date().toISOString() });
-  let acquires = 0;
-  const restore = interceptQueries((query, run) => {
-    if (acquiresRunLease(query, "unleased")) acquires += 1;
-    return run();
-  });
   const tickAt = Date.now();
-  let warnings;
-  try {
-    warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("unleased-app")));
-  } finally {
-    restore();
-  }
+  const { warnings, acquires } = await countedTick("unleased-app", "unleased");
   assert.ok((await leaseRow("unleased-app")).lastCheckedAt >= tickAt, "the tick scanned");
   assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
   assert.equal((await stored("unleased")).lastStatus, "running", "a mark inside the run's time limit stays running");
@@ -492,9 +501,12 @@ test("a tick leaves a paired-host mark alone while its dispatch holds the run le
   const leaseOwner = await acquireAutomationRunLease({ key });
   assert.ok(leaseOwner, "the dispatch holds the run lease");
   const tickAt = Date.now();
-  const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("dispatch-app")));
+  const { warnings, acquires } = await countedTick("dispatch-app", "dispatching");
   assert.ok((await leaseRow("dispatch-app")).lastCheckedAt >= tickAt, "the tick scanned");
   assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
+  assert.equal(acquires, 1, "the scan tried to take the mark's run lease");
+  assert.equal((await runLeaseRow("dispatching"))?.leaseOwner, leaseOwner,
+    "the scan got no run lease, and the dispatch still holds it");
   const held = await stored("dispatching");
   assert.equal(held.lastStatus, "running", "the tick left the mark whose dispatch holds the run lease");
   assert.equal(held.lastError, undefined);
