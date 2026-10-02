@@ -882,19 +882,23 @@ passes `"webhook"`. On every dispatch, `dispatchAgenticRun` gives the runner
 nothing checks the value, and a missing value is silent, which fails toward no
 loop. `jobs/background-automation-runner.js` takes the new `emitFinished`
 option and passes it to `finishAutomationRun` on the success path and on the
-error and interrupted path. Unset emits, so the scheduler, Run now, and remote
-execution still emit.
+error and interrupted path. Unset emits, so the scheduler and Run now still
+emit. Remote execution never calls the runner. `jobs/remote-execution.js`
+finishes its rows with `finishAutomationRun` and no option, so they emit too.
 
-Every `automation.run.finished` now comes from a run that a schedule, Run now,
-or a webhook call started. That includes a scheduled run on a paired execution
-host and a refused webhook call, whose errored row emits as before. No cycle
-of runs inside Vivary can pass through that event, whatever other event closes
-the cycle. The rule closes the cycle because a run cannot start a scheduled,
-Run now, or webhook run, which the section "Local-only automation runs"
-enforces. In a run, `manage-automations` refuses `run-now`, `fire-test`, and
-every change to an automation, `manage-jobs` and `resources` refuse writes
-under `jobs/`, and no web tool exists that could call a webhook URL. The rule
-covers runs that any event started, not only those that
+For an automation created through the service, every `automation.run.finished`
+now comes from a run that a schedule, Run now, or a webhook call started, or
+from a refused, failed, or expired webhook call. That includes a scheduled run
+on a paired execution host. `recordAutomationFailure` records each refused,
+failed, or expired call as an errored row, and that row emits as before. The
+restart paragraph below names the exception for a hand-written automation
+file. No cycle of runs inside Vivary can pass through that event, whatever
+other event closes the cycle. The rule closes the cycle because a run cannot
+start a scheduled, Run now, or webhook run, which the section "Local-only
+automation runs" enforces. In a run, `manage-automations` refuses `run-now`,
+`fire-test`, and every change to an automation, `manage-jobs` and `resources`
+refuse writes under `jobs/`, and no web tool exists that could call a webhook
+URL. The rule covers runs that any event started, not only those that
 `automation.run.finished` started. A run can send an inbox notification, and
 an automation on `notification.sent` would otherwise restart the first
 automation through its own finish.
@@ -977,24 +981,29 @@ no column, migration, or payload field. If a second subscriber of
 origin on the row with a named migration and add an optional payload key.
 
 Run `node --test packages/workbench/tests/automation-event-loop.test.mjs`. It
-uses a disposable SQLite database, a fake engine, and a closed network, and it
-clears every engine, key, and endpoint name that the engine registry reads. A
-listener counts `automation.run.finished` events and drops every listener
-after 30, so a loop fails a case instead of hanging it. A self-subscribed
-automation run twice with Run now, through the in-process runner, gets no
-extra run. A queued Run now row of a self-subscribed automation that ends late
-starts nothing. One outside run starts each of two subscribed automations
-once, whether they succeed, fail, or lack a credential, and only the outside
-run emits the event. A run that another event started emits nothing and starts
-no subscriber. A self-subscribed automation with a condition and no Anthropic
-key skips its own finished runs with no refusal and no request. A webhook
-call, queued as the route queues it and run by the in-process runner, starts a
-subscriber once, and that subscriber's finish emits nothing. Unit cases check
+uses a disposable SQLite database, a fake engine, and a closed network. It
+clears 16 names that Core's engine code read on 2026-10-01. Three decide which
+engines a run can use: `AGENT_ENGINE`, `AGENT_BUILT_IN_ENGINES`, and
+`AGENT_NATIVE_BUILD_ENGINE_PACKAGES`. The others are the seven provider key
+names in `agent/engine/provider-env-vars.js`, the four Builder credential
+names in `agent/engine/builtin.js`, and the `OLLAMA_BASE_URL` and
+`OPENAI_BASE_URL` endpoints. A listener counts `automation.run.finished`
+events and drops every listener after 30, so a loop fails a case instead of
+hanging it. A self-subscribed automation run twice with Run now, through the
+in-process runner, gets no extra run. A queued Run now row of a
+self-subscribed automation that ends late starts nothing. One outside run
+starts each of two subscribed automations once, whether they succeed, fail, or
+lack a credential, and only the outside run emits the event. A run that
+another event started emits nothing and starts no subscriber. A
+self-subscribed automation with a condition and no Anthropic key skips its own
+finished runs with no refusal and no request. A webhook call, queued as the
+route queues it and run by the in-process runner, starts a subscriber once,
+and that subscriber's finish emits nothing. Unit cases check
 `isOwnAutomationRun` for a personal, an organization, and a legacy
 `__shared__` automation. Removing each part of the fix fails at least one
 case. Without the own-run check, the late Run now case and the condition case
-fail. The two Run now runs still pass then, because the "running" guard drops
-their finishes, and they fail when both are gone.
+fail. The two Run now runs still pass then, because on SQLite the "running"
+guard drops their finishes, and they fail when both are gone.
 
 Upstream could take this change as it is. Remove it when an upstream release
 keeps runs that events started and an automation's own runs from starting

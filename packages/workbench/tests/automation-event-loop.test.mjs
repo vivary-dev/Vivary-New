@@ -11,10 +11,12 @@ import { pathToFileURL } from "node:url";
 // the installed, patched files by path.
 const caseRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-automation-event-loop-"));
 const database = `file:${path.join(caseRoot, "automations.sqlite")}`;
-for (const name of ["AGENT_ENGINE", "ANTHROPIC_API_KEY", "BUILDER_GATEWAY_SPACE_ID", "BUILDER_GATEWAY_TOKEN",
-  "BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY", "COHERE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY",
-  "MISTRAL_API_KEY", "OLLAMA_BASE_URL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENROUTER_API_KEY"]) {
-  delete process.env[name]; // guard:allow-env-credential - Removes the names the engine registry reads. No value is read.
+// Core's engine code read these 16 names on 2026-10-01 to pick a run's engine, credential, or endpoint.
+for (const name of ["AGENT_BUILT_IN_ENGINES", "AGENT_ENGINE", "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+  "ANTHROPIC_API_KEY", "BUILDER_GATEWAY_SPACE_ID", "BUILDER_GATEWAY_TOKEN", "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY", "COHERE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+  "OLLAMA_BASE_URL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENROUTER_API_KEY"]) {
+  delete process.env[name]; // guard:allow-env-credential - Removes the names above. No value is read.
 }
 // A webhook automation's token is stored as an encrypted app secret, which needs a key in production.
 Object.assign(process.env, {
@@ -135,7 +137,7 @@ async function finishRunOf(name) {
 }
 const finishOutsideRun = () => finishRunOf("outside");
 
-// Run now as the packaged app runs it, through the in-process runner, and wait until that run ends.
+// Run now through its in-process runner hook, with the scheduler's runQueuedAutomation, and wait for the run to end.
 async function runNow(name) {
   const ended = Promise.withResolvers();
   const runner = id => runQueuedAutomation(id, dispatcherDeps).then(ended.resolve, ended.reject);
@@ -165,6 +167,8 @@ async function settledRuns(names, { quietMs = 500, capMs = 10_000 } = {}) {
 }
 const statuses = runs => runs.map(list => list.map(run => run.status));
 
+// On SQLite the "running" guard drops both finishes before the own-run check. The case that pins the own-run
+// rule is "a Run now row that ends late does not start its own automation".
 test("a self-subscribed automation that finishes twice is not started by its own runs", async () => {
   await withRunFinishedAutomations({ "self-subscribed": "Summarize the finished run in one sentence." }, async () => {
     await runNow("self-subscribed");
@@ -234,8 +238,7 @@ test("two failing automations subscribed to automation.run.finished do not start
 
 test("two automations without a usable credential do not trade failed runs", async () => {
   // Without an injected engine, a run resolves its own engine and credential as a scheduled run does. The file clears
-  // every engine, key, and endpoint name the engine registry reads, the new database stores no key, and the network
-  // is closed, so each run fails.
+  // the 16 names at its top, the new database stores no key, and the network is closed, so each run fails.
   const { engine: _engine, model: _model, ...keylessDeps } = dispatcherDeps;
   await initTriggerDispatcher(keylessDeps);
   try {
@@ -283,7 +286,7 @@ test("a run another event started does not start an automation.run.finished subs
   assert.deepEqual(engineRuns, ["relay"], "one model run");
 });
 
-test("a self-subscribed automation with a condition skips its own runs before it looks for a key", async () => {
+test("a self-subscribed automation with a condition skips its own runs before the condition key refusal", async () => {
   await withRunFinishedAutomations({
     "self-conditioned": { body: "Summarize the finished run in one sentence.", condition: "The run succeeded." },
   }, async () => {

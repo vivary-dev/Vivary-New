@@ -5646,7 +5646,7 @@ index 2188250bd393e45badf4a61d0df23c28099bf000..be44c20dad4372cfc7ff4e3a38afbaa0
   * Attach the agent thread once it exists. The thread is created after the run
   * row so the history survives a crash between the two.
 diff --git a/dist/jobs/run-history.js b/dist/jobs/run-history.js
-index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..8008cdb8e168affd832344a4328807fe6f6db312 100644
+index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..2978df54433924425502c86396a3cd601fa1310b 100644
 --- a/dist/jobs/run-history.js
 +++ b/dist/jobs/run-history.js
 @@ -5,9 +5,11 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
@@ -5658,7 +5658,7 @@ index 24f3a1ae4d0c87f4e78316216b07cdf67799c3b9..8008cdb8e168affd832344a4328807fe
  registerEvent({
      name: "automation.run.finished",
 -    description: "Fires after a scheduled or manual automation run records a terminal status.",
-+    description: "Fires after an automation run that a schedule, Run now, or a webhook call started records a terminal status. A run that an event started records its history without firing it, and an automation is never started by its own runs.",
++    description: "Fires after an automation run that a schedule, Run now, or a webhook call started records a terminal status, or after a refused, failed, or expired webhook call records an error. A run that an event started records its history without firing it, and an automation is never started by its own runs.",
      payloadSchema: z.object({
          automationRunId: z.string(),
          owner: z.string(),
