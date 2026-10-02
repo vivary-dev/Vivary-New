@@ -26,7 +26,7 @@ const [
   { createChatScriptEntries, createDbScriptEntries, createDocsScriptEntries, createResourceScriptEntries },
   { createPlanModeActionRegistry },
   { runWithRequestContext },
-  { resourceGetByPath },
+  { resourceGetByPath, SHARED_OWNER },
   { formatArgs, parseArgs },
   { createThread, updateThreadData },
 ] = await Promise.all([
@@ -43,6 +43,8 @@ const owner = "owner@example.test";
 const chat = { caller: "tool" };
 const asOwner = fn => runWithRequestContext({ userEmail: owner }, fn);
 const outcome = promise => promise.then(String, error => `Error: ${error.message}`);
+// runToolCall appends the code to the model's text only for a thrown ActionContractError.
+const unknownArgument = error => error.errorCode === "unknown_argument" && error.statusCode === 400;
 const stored = async resourcePath => (await resourceGetByPath(owner, resourcePath))?.content ?? null;
 
 after(async () => {
@@ -68,11 +70,18 @@ test("a chat value that reads like another flag stays a value", async () => {
 });
 
 test("declared arguments still reach the script", async () => {
-  const result = await write({ path: "notes/declared.md", content: "kept", scope: "personal", visibility: "agent_scratch", mime: "text/markdown" });
+  // A notes/ path defaults to the personal scope, agent_scratch, and text/markdown.
+  const result = await write({ path: "notes/declared.md", content: "kept", scope: "shared", visibility: "workspace", mime: "text/plain" });
   assert.match(result, /Wrote resource: notes\/declared\.md/);
-  assert.equal(await stored("notes/declared.md"), "kept");
-  const listed = await call(resources, { action: "list", prefix: "notes/declared", includeAgentScratch: true, format: "json" });
-  assert.match(listed, /notes\/declared\.md/, "a boolean argument still lists agent scratch files");
+  const row = await resourceGetByPath(SHARED_OWNER, "notes/declared.md");
+  assert.deepEqual({ content: row?.content, visibility: row?.visibility, mimeType: row?.mimeType },
+    { content: "kept", visibility: "workspace", mimeType: "text/plain" });
+  assert.equal(await stored("notes/declared.md"), null, "the shared scope reached the script");
+  assert.match(await write({ path: "notes/declared-scratch.md", content: "scratch" }), /Wrote resource/);
+  const listed = includeAgentScratch =>
+    call(resources, { action: "list", prefix: "notes/declared-scratch", includeAgentScratch, format: "json" });
+  assert.match(await listed(true), /notes\/declared-scratch\.md/, "a boolean argument still lists agent scratch files");
+  assert.doesNotMatch(await listed(false), /notes\/declared-scratch\.md/);
 });
 
 test("a chat cannot pass an argument name the bridge would split or the tool does not declare", async () => {
@@ -87,6 +96,8 @@ test("a chat cannot pass an argument name the bridge would split or the tool doe
     const result = await write({ path: "notes/named.md", content: "x", [name]: value });
     assert.ok(result.startsWith(`Error: Unknown argument ${JSON.stringify(name)}. `), `${name} is refused: ${result}`);
   }
+  await assert.rejects(asOwner(() => resources.run({ action: "write", path: "notes/named.md", content: "x", createdBy: "user" }, chat)),
+    unknownArgument);
   assert.equal(await stored("notes/named.md"), null, "no crafted call wrote its declared path");
   assert.equal(await stored("notes/crafted.md"), null, "no crafted call wrote the crafted path");
 });
@@ -170,6 +181,7 @@ test("every script tool a chat can call refuses a name it does not declare", asy
       assert.match(await call(entry, { "undeclared-probe": "x" }), /Unknown argument "undeclared-probe"/, `${group} ${name}`);
     }
   }
+  await assert.rejects(asOwner(() => groups.read["db-query"].run({ sql: "SELECT 1", db: "x" }, chat)), unknownArgument);
   const other = path.join(caseRoot, "exec-other.sqlite");
   assert.match(await call(groups.write["db-exec"], { sql: "INSERT INTO notes (id) VALUES ('n1')", db: other }),
     /Unknown argument "db"/);

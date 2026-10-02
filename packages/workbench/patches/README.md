@@ -1302,12 +1302,17 @@ constant, `resourcesParameters` or `chatHistoryParameters`, that the tool and
 the check share. The registration lines keep the shapes that
 `nativeFrameworkActions` in `tests/native-chat-project.test.ts` reads.
 
-`framework-search` also reads an undeclared `query` alias. Its schema shows
-chats `pattern`, and no prompt teaches `query`, so a chat's `query` is refused,
-and the refusal lists `pattern`. Only the terminal command `agent-native agent`
-uses the alias, through `cli/agent.js`, which this change leaves alone. Core's
-comment above `allowedArgs` said that some MCP hosts send undeclared keys. Such
-a host now gets a refusal. Vivary turns MCP off.
+`framework-search` also reads an undeclared `query` alias. The alias serves
+someone who runs the script from a shell, as
+`pnpm action framework-search --query <text>`. The tool's schema declares
+`pattern` only. So does the `framework-search` that `cli/agent.js` builds for
+the terminal command `agent-native agent`, though that one does not refuse an
+undeclared `query`, and this change leaves it alone. The script's help text,
+which it prints when a call sets neither `pattern` nor `list`, lists `--query`.
+A chat that reads it and tries `query` gets the refusal, which names `pattern`,
+so the chat recovers in one more call. Core's comment above `allowedArgs` said
+that some MCP hosts send undeclared keys. Such a host now gets a refusal.
+Vivary turns MCP off.
 
 The extensions SQL route uses the same encoder. `handleSqlQuery` and
 `handleSqlExec` in `extensions/routes.js` answer `sql/query` and `sql/exec`
@@ -1320,9 +1325,9 @@ fixed names: `sql`, `format`, `limit` for a query, and `args`. A `limit` of
 `--db=<file>` now reaches the script as the `limit` value, and the query runs
 against the app database. The handlers are not exported and sit behind the
 session check, so CI pins the route by its source: each handler makes exactly
-one `formatArgs({` call and holds no `.push(` and no string literal that starts
-with `"--`. A built-app journey on Zo checks the route itself. Its run on
-2026-10-02 posted `limit: "--db=<other.sqlite>"` to
+one `formatArgs({` call and holds no `.push(` and no string literal, in any
+quote style, that starts with `--`. A built-app journey on Zo checks the route
+itself. Its run on 2026-10-02 posted `limit: "--db=<other.sqlite>"` to
 `/_agent-native/extensions/sql/query` as the signed-in owner and got
 `{"output": "Error: no such table: secret"}`.
 
@@ -1352,13 +1357,15 @@ pnpm --dir packages/workbench exec tsx --test tests/native-chat-project.test.ts
 
 The first file uses a disposable SQLite database and calls the installed Core's
 entries as a chat. It covers front matter, a value that reads like a flag,
-declared arguments with a boolean, six refused names on a write, `db-query`
-with `limit` set to `--db=<file>` and with a `db` name, plan mode with the
-result of each planned call, the round trip of `formatArgs` and `parseArgs`
-over values and names that broke the old form, an undeclared name on every
-script tool a chat can reach, a `chat-history` search, and a source pin on the
-bridge and the extensions SQL route. Removing each part of the fix fails at
-least one case.
+declared values that differ from the path's defaults and that the stored row
+keeps, a boolean that lists agent scratch files, six refused names on a write,
+`db-query` with `limit` set to `--db=<file>` and with a `db` name, plan mode
+with the result of each planned call, the round trip of `formatArgs` and
+`parseArgs` over values and names that broke the old form, an undeclared name
+on every script tool a chat can reach, the error code `unknown_argument` and
+status 400 on the thrown refusal of a `resources` write and a `db-query` call,
+a `chat-history` search, and a source pin on the bridge and the extensions SQL
+route. Removing each part of the fix fails at least one case.
 
 Remove this part of the patch only when an upstream release builds every
 script's argv with one lossless encoder, refuses undeclared names at the tool
