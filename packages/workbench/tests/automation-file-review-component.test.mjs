@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 // Issue #109. Settings > Automation files lists the owner's instruction and memory files that automation runs wrote,
-// each with its text as plain text, Accept, and Delete. The component and React are real. The owner action transport
+// each with its text as plain text, Accept, and Discard. The component and React are real. The owner action transport
 // and the toolkit button are stubbed.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKBENCH = resolve(HERE, "..");
@@ -41,7 +41,7 @@ import { AutomationFileReview } from "@proof/AutomationFileReview";
 import { callProof } from "../../lib/native-actions";
 
 const PLANTED = "# Rules\n\n![x](http://evil.test/x.png) <img src=x onerror=alert(1)> [click](http://evil.test)";
-const CHANGED = "This file changed since the list showed it. Read it again before you accept or delete it.";
+const CHANGED = "This file changed since the list showed it. Read it again before you accept or discard it.";
 const AGENTS = { id: "res-agents", path: "AGENTS.md", content: PLANTED, updatedAt: Date.UTC(2026, 8, 29, 13) };
 
 async function flush() {
@@ -76,13 +76,16 @@ export async function aFileShowsItsPathAndPlainText() {
     const [item] = items(host);
     assert.equal(item.querySelector("h3")?.textContent, "AGENTS.md");
     assert.equal(item.querySelector("pre")?.textContent, PLANTED, "the file shows as written");
+    assert.match(host.textContent, /accepted|previous/i, "review copy identifies the version kept active");
+    assert.match(host.textContent, /Discard/, "review copy explains the discard action");
+    assert.doesNotMatch(host.textContent, /Delete removes the whole file/);
     assert.equal(host.querySelectorAll("img, a").length, 0, "a planted image or link is only text");
-    assert.deepEqual([...item.querySelectorAll("button")].map(control => control.textContent), ["Accept", "Delete"]);
+    assert.deepEqual([...item.querySelectorAll("button")].map(control => control.textContent), ["Accept", "Discard"]);
   } finally { await dispose(); }
 }
 
 export async function eachReviewNamesTheVersionShownAndReloads() {
-  for (const [label, operation] of [["Accept", "accept"], ["Delete", "delete"]]) {
+  for (const [label, operation] of [["Accept", "accept"], ["Discard", "delete"]]) {
     let files = [AGENTS];
     const { host, dispose } = await mount(params => {
       if (params.operation !== "list") files = [];
@@ -200,14 +203,14 @@ function installDom() {
   return () => { for (const channel of channels) { channel.port1.close(); channel.port2.close(); } };
 }
 
-test("Settings > Automation files lists run-written files with their text, Accept, and Delete", async t => {
+test("Settings > Automation files lists run-written files with their text, Accept, and Discard", async t => {
   assert.ok(existsSync(REVIEW), "Vivary has the Automation files tab");
   const proof = await import(`data:text/javascript;base64,${Buffer.from(await buildProof()).toString("base64")}`);
   const closeChannels = installDom();
   t.after(() => closeChannels());
   for (const [name, run] of [
     ["a file shows its path and its text as plain text", proof.aFileShowsItsPathAndPlainText],
-    ["Accept and Delete name the version shown and reload the list", proof.eachReviewNamesTheVersionShownAndReloads],
+    ["Accept and Discard name the version shown and reload the list", proof.eachReviewNamesTheVersionShownAndReloads],
     ["a refused review shows the file as it is now, with one notice to read it again",
       proof.aRefusedReviewShowsTheChangedFileWithANotice],
     ["a review refused for another reason does not say the file changed",

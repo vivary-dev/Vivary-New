@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -205,10 +206,13 @@ test("an automation run deletes only its owner's personal files", async () => {
   });
   assert.ok(await store.resourceGetByPath(kept.owner, kept.path), "another user's file stays");
 
-  // The run's own files and memories stay deletable.
+  // Ordinary notes stay deletable, while instruction and memory files require review.
   await asChat({ userEmail: creator }, "save-memory", { name: "own", type: "user", description: "own fact", content: "Own fact." });
-  assert.match(await asRun({ userEmail: creator }, "delete-memory", { name: "own" }), /Deleted memory "own"/);
-  assert.equal(await store.resourceGetByPath(creator, "memory/own.md"), null, "the run deleted its owner's memory");
+  const memoryBefore = await store.resourceGetByPath(creator, "memory/own.md");
+  const indexBefore = await store.resourceGetByPath(creator, "memory/MEMORY.md");
+  assert.match(await asRun({ userEmail: creator }, "delete-memory", { name: "own" }), /^Error: Automation runs cannot delete/);
+  assert.deepEqual(await store.resourceGetByPath(creator, "memory/own.md"), memoryBefore);
+  assert.deepEqual(await store.resourceGetByPath(creator, "memory/MEMORY.md"), indexBefore, "refusal leaves the index unchanged");
   await store.resourcePut(creator, "notes/own.md", "Own notes.", "text/markdown");
   assert.match(await asRun({ userEmail: creator }, "resources", { action: "delete", path: "notes/own.md" }),
     /Deleted resource: notes\/own\.md/);
@@ -242,7 +246,7 @@ test("every write an automation run makes records the run, and an instruction wr
   const owner = "origin@example.test";
   await asChat({ userEmail: owner }, "save-memory", { name: "old", type: "user", description: "old fact", content: "Old fact." });
   await plant(owner, "ORIGIN");
-  assert.doesNotMatch(await asRun({ userEmail: owner }, "delete-memory", { name: "old" }), /^Error/);
+  assert.match(await asRun({ userEmail: owner }, "delete-memory", { name: "old" }), /^Error: Automation runs cannot delete/);
   assert.match(await asRun({ userEmail: owner }, "resources", { action: "write", path: "notes/probe.md", content: "Run notes." }),
     /Wrote resource/);
 
@@ -416,6 +420,7 @@ test("accept loads the file from then on, and a stale accept changes nothing", a
     { ...RUN, runId: "job-probe-2" });
   assert.deepEqual(await markOf(owner, "AGENTS.md"), { state: "pending", runId: "job-probe-2" });
   assert.ok(!(await prompt(owner, true)).includes("ACCEPT-SECOND"), "a second run's write waits again");
+  assert.match(await prompt(owner, true), /ACCEPT-LATE/, "the previously accepted text remains active");
 });
 
 test("a write in the same millisecond as the version shown still refuses a stale review", async () => {
@@ -464,7 +469,7 @@ async function afterList(owner, prefix, during, body) {
   }
 }
 
-test("a loader skips a file a run rewrites between its list and its read", async () => {
+test("a loader preserves accepted text when a run rewrites between its list and its read", async () => {
   // Codex review on PR #151: the instruction and skill loaders filter on the list's metadata, then read each body by
   // id. A run's write between the two gives an accepted file's listing the run's waiting text.
   const owner = "race@example.test";
@@ -488,16 +493,18 @@ test("a loader skips a file a run rewrites between its list and its read", async
       /^Error/);
   }, () => prompt(owner, false));
   assert.ok(!full.includes("RACE-NEW-INSTR"), "the full prompt holds no text the run wrote after the list");
+  assert.match(full, /RACE-OLD-INSTR/, "the accepted instruction stays available");
   assert.match(full, /1 instruction or memory file written by an automation run is waiting/, "the note counts the skipped file");
 
   const compact = await afterList(owner, "skills/", async () => {
     assert.doesNotMatch(await write("skills/race/SKILL.md", skill("RACE-NEW-SKILL"), {}, later), /^Error/);
   }, () => prompt(owner, true));
   assert.ok(!compact.includes("RACE-NEW-SKILL"), "the skill summary holds no text the run wrote after the list");
+  assert.match(compact, /RACE-OLD-SKILL/, "the accepted skill stays available");
   assert.match(compact, /2 instruction or memory files written by automation runs are waiting/, "the note counts both");
 });
 
-test("delete removes the whole file, and a stale delete changes nothing", async () => {
+test("discard removes a new-only proposal, and a stale discard changes nothing", async () => {
   const owner = "delete@example.test";
   await plant(owner, "DELETE");
   const listed = (await listFor(owner)).find(file => file.path === "skills/probe/SKILL.md");
@@ -531,17 +538,9 @@ test("the run surface marks writes, and Settings is the only way to review", asy
   assert.ok(/runWithRequestContext\(\{[\s\S]{0,200}automationRun: \{[\s\S]{0,200}runId: context\?\.runId/.test(surface),
     "each kept tool runs with the run's origin in its request context");
   const plugin = await readFile(path.join(coreRoot, "dist", "server", "agent-chat-plugin.js"), "utf8");
-  assert.ok(/for \(const r of resourceSkills\) \{\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(r\)\)\s*continue;/.test(plugin),
-    "the slash-skill menu leaves out a waiting skill");
-  // A run can rewrite a skill between the list and the read, so each list-then-read also checks the row it read.
-  assert.ok(/const full = await resourceGet\(r\.id, skillsOwner[\s\S]{0,200}?: undefined\);\s*(\/\/[^\n]*\n\s*)*if \(isPendingRunReview\(full\)\)\s*continue;/.test(plugin),
-    "the slash-skill menu leaves out a skill that waits when read");
-  // Vivary turns this inventory off, because lazyContext is on, so only its source can show the skip.
+  assert.ok(plugin.includes("resourceForAgent"), "the slash-skill menu projects accepted resources");
   const agent = await readFile(path.join(coreRoot, "dist", "agent", "production-agent.js"), "utf8");
-  assert.ok(/const allResources = \(await resourceListAccessible\(ownerEmail, undefined, \{ userEmail: ownerEmail, orgId \}\)\)\.filter\(\(resource\) => !isPendingRunReview\(resource\)\);/.test(agent),
-    "the first-message files inventory leaves out a waiting file");
-  assert.ok(/const full = await resourceGet\(r\.id, \{\s*userEmail: ownerEmail,\s*orgId,\s*\}\);\s*(\/\/[^\n]*\n\s*)*if \(!full \|\| isPendingRunReview\(full\)\)\s*continue;/.test(agent),
-    "the files inventory leaves out a skill that waits when read");
+  assert.ok(agent.includes("resourceForAgent"), "the agent projects accepted resources when it reads skill bodies");
   const actionFile = path.join(WORKBENCH, "actions", "vivary-automation-files.ts");
   assert.ok(existsSync(actionFile), "Vivary has a Settings action for the review");
   const action = await readFile(actionFile, "utf8");
@@ -549,4 +548,146 @@ test("the run surface marks writes, and Settings is the only way to review", asy
     "no chat, MCP client, or run can call it");
   const ownerActions = await readFile(path.join(WORKBENCH, "shared", "owner-actions.ts"), "utf8");
   assert.ok(ownerActions.includes('"vivary-automation-files"'), "the private proxy transport reaches it");
+});
+
+
+async function acceptAll(owner) {
+  for (const file of await listFor(owner)) {
+    assert.equal(await reviewAs(owner, { operation: "accept", id: file.id, updatedAt: file.updatedAt }), "done");
+  }
+}
+async function discardPath(owner, resourcePath) {
+  const file = (await listFor(owner)).find(item => item.path === resourcePath);
+  assert.ok(file, resourcePath);
+  assert.equal(await reviewAs(owner, { operation: "delete", id: file.id, updatedAt: file.updatedAt }), "done");
+}
+const writeProposal = (owner, resourcePath, content, extra = {}, run = RUN) =>
+  asRun({ userEmail: owner }, "resources", { action: "write", path: resourcePath, content, ...extra }, run);
+
+test("pending overwrites preserve accepted instructions, skills, and memory for chats and later runs", async () => {
+  const owner = "preserved@example.test";
+  await plant(owner, "ACTIVE");
+  await acceptAll(owner);
+  const accepted = new Map(await Promise.all(INSTRUCTION_PATHS.map(async resourcePath =>
+    [resourcePath, (await store.resourceGetByPath(owner, resourcePath)).content])));
+  await plant(owner, "PROPOSED", { ...RUN, runId: "next-run" });
+  for (const resourcePath of INSTRUCTION_PATHS) {
+    assert.notEqual((await store.resourceGetByPath(owner, resourcePath)).content, accepted.get(resourcePath), "Settings sees the proposal");
+    for (const read of [
+      await asChat({ userEmail: owner }, "resources", { action: "read", path: resourcePath, scope: "personal" }),
+      await asRun({ userEmail: owner }, "resources", { action: "read", path: resourcePath, scope: "personal" }, { ...RUN, runId: "reader-run" }),
+    ]) {
+      assert.ok(read.includes(accepted.get(resourcePath)), resourcePath);
+      assert.doesNotMatch(read, /PROPOSED/);
+    }
+  }
+  for (const compact of [true, false]) {
+    const body = await prompt(owner, compact);
+    assert.match(body, /ACTIVE-AGENTS/);
+    assert.match(body, /ACTIVE-SKILL/);
+    assert.doesNotMatch(body, /PROPOSED/);
+    assert.match(body, REVIEW_NOTE);
+  }
+  const skill = await runWithRequestContext({ userEmail: owner }, () =>
+    resolveSkillReferenceContent({ source: "resource", path: "skills/probe/SKILL.md" }));
+  assert.match(String(skill), /ACTIVE-SKILLBODY/);
+  for (const resourcePath of INSTRUCTION_PATHS) {
+    await discardPath(owner, resourcePath);
+    assert.equal((await store.resourceGetByPath(owner, resourcePath)).content, accepted.get(resourcePath));
+  }
+  assert.equal((await listFor(owner)).length, 0);
+});
+
+test("repeated proposals and owner edits cannot replace the accepted snapshot", async () => {
+  const owner = "repeated@example.test";
+  await store.resourcePut(owner, "AGENTS.md", "Accepted original.", "text/markdown");
+  await writeProposal(owner, "AGENTS.md", "First proposal.");
+  const first = (await listFor(owner)).find(file => file.path === "AGENTS.md");
+  await writeProposal(owner, "AGENTS.md", "Second proposal.", {}, { ...RUN, runId: "second-run" });
+  await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md", content: "Chat proposal edit." });
+  await store.resourcePut(owner, "AGENTS.md", "Owner proposal edit.", "text/markdown", {
+    metadata: JSON.stringify({ label: "kept", runReview: { state: "accepted", previous: { content: "Caller replacement." } } }),
+  });
+  assert.match(await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }), /Accepted original/);
+  assert.equal((await listFor(owner)).filter(file => file.path === "AGENTS.md").length, 1);
+  assert.equal((await listFor(owner)).find(file => file.path === "AGENTS.md").content, "Owner proposal edit.");
+  for (const operation of ["accept", "delete"]) {
+    assert.match(await reviewAs(owner, { operation, id: first.id, updatedAt: first.updatedAt }), /This file changed/);
+  }
+  await discardPath(owner, "AGENTS.md");
+  assert.equal((await store.resourceGetByPath(owner, "AGENTS.md")).content, "Accepted original.");
+});
+
+test("accepting a proposal replaces the baseline used by the next discard", async () => {
+  const owner = "new-baseline@example.test";
+  await store.resourcePut(owner, "AGENTS.md", "Original baseline.", "text/markdown");
+  await writeProposal(owner, "AGENTS.md", "Accepted replacement.");
+  await acceptAll(owner);
+  await writeProposal(owner, "AGENTS.md", "Later proposal.");
+  assert.match(await prompt(owner, true), /Accepted replacement/);
+  await discardPath(owner, "AGENTS.md");
+  assert.equal((await store.resourceGetByPath(owner, "AGENTS.md")).content, "Accepted replacement.");
+  assert.doesNotMatch(await prompt(owner, true), /Original baseline|Later proposal/);
+});
+
+test("discard restores accepted visibility, expiry, MIME type, and provenance", async () => {
+  const owner = "attributes@example.test";
+  const accepted = await store.resourcePut(owner, "instructions/kept.md", "Accepted visible instruction.", "text/plain", {
+    visibility: "workspace", expiresAt: Date.now() + 86400000, createdBy: "user", threadId: "owner-thread",
+    metadata: JSON.stringify({ label: "accepted" }),
+  });
+  await writeProposal(owner, "instructions/kept.md", "Scratch proposal.", { visibility: "agent_scratch" });
+  assert.match(await prompt(owner, false), /Accepted visible instruction/);
+  await discardPath(owner, "instructions/kept.md");
+  const restored = await store.resourceGetByPath(owner, "instructions/kept.md");
+  for (const key of ["id", "content", "mimeType", "visibility", "expiresAt", "createdBy", "threadId", "runId", "createdAt", "size"]) {
+    assert.equal(restored[key], accepted[key], key);
+  }
+  assert.equal(JSON.parse(restored.metadata).label, "accepted");
+});
+
+test("caller metadata cannot invent an accepted version for a new pending file", async () => {
+  const owner = "metadata@example.test";
+  await runWithRequestContext({ userEmail: owner, automationRun: RUN }, () =>
+    store.resourcePut(owner, "AGENTS.md", "Real proposal.", "text/markdown", {
+      metadata: JSON.stringify({ runReview: { state: "accepted", previous: { content: "Caller invented active text." } } }),
+    }));
+  assert.doesNotMatch(await prompt(owner, true), /Caller invented|Real proposal/);
+  await discardPath(owner, "AGENTS.md");
+  assert.equal(await store.resourceGetByPath(owner, "AGENTS.md"), null);
+});
+
+test("run deletion refuses personal instruction and memory paths through every store entry", async () => {
+  const owner = "protected-delete@example.test";
+  await plant(owner, "KEPT");
+  await acceptAll(owner);
+  for (const resourcePath of INSTRUCTION_PATHS) {
+    const before = await store.resourceGetByPath(owner, resourcePath);
+    assert.match(await asRun({ userEmail: owner }, "resources", { action: "delete", path: resourcePath }),
+      /^Error: Automation runs cannot delete/);
+    await runWithRequestContext({ userEmail: owner, automationRun: RUN }, async () => {
+      for (const remove of [
+        () => store.resourceDeleteByPath(owner, resourcePath),
+        () => store.resourceDeleteIfCurrent(before),
+        () => store.resourceDelete(before.id),
+      ]) await assert.rejects(remove(), /Automation runs cannot delete/);
+    });
+    assert.deepEqual(await store.resourceGetByPath(owner, resourcePath), before);
+  }
+});
+
+test("accepted content and pending review survive a fresh process", async () => {
+  const owner = "restart@example.test";
+  await store.resourcePut(owner, "AGENTS.md", "Durable accepted rules.", "text/markdown");
+  await writeProposal(owner, "AGENTS.md", "Durable proposed rules.");
+  const result = execFileSync(process.execPath,
+    [path.join(HERE, "fixtures", "automation-review-restart.mjs"), coreRoot, owner],
+    { cwd: WORKBENCH, env: { ...process.env }, encoding: "utf8", timeout: 30000 });
+  const observed = JSON.parse(result.trim().split("\n").at(-1));
+  assert.equal(observed.proposed, "Durable proposed rules.");
+  assert.match(observed.read, /Durable accepted rules/);
+  assert.doesNotMatch(observed.read, /Durable proposed rules/);
+  assert.match(observed.prompt, /Durable accepted rules/);
+  assert.doesNotMatch(observed.prompt, /Durable proposed rules/);
+  assert.equal(observed.listed, "Durable proposed rules.");
 });
