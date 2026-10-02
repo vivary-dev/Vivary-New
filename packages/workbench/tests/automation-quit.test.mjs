@@ -6,6 +6,7 @@ import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Issue #114. A normal quit must end in-flight automation runs as interrupted and release the scheduler lease, and a
@@ -42,7 +43,8 @@ const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", im
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
 const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGetByPath, resourcePut },
   { parseJobResource, patchJobFrontmatterFields }, { initTriggerDispatcher }, webhookTask,
-  { setInProcessIntegrationTaskRunner }, { insertPendingTask }, { retryStuckPendingTasks }] = await Promise.all([
+  { setInProcessIntegrationTaskRunner }, { insertPendingTask }, { retryStuckPendingTasks },
+  listAutomations] = await Promise.all([
   load("jobs/scheduler.js"),
   load("jobs/run-history.js"),
   load("automations/service.js"),
@@ -54,6 +56,7 @@ const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGet
   load("integrations/integration-durable-dispatch.js"),
   load("integrations/pending-tasks-store.js"),
   load("integrations/pending-tasks-retry-job.js"),
+  load("triggers/actions/list-automations.js"),
 ]);
 const { INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, getAutomationRun, listAutomationRuns } = runHistory;
 
@@ -253,6 +256,105 @@ test("the stop returns at its bound when a run ignores its abort", async () => {
   assert.ok(result.elapsedMs >= 950 && result.elapsedMs < 3_000, `the stop returned at its 1-second bound (${result.elapsedMs} ms)`);
   assert.deepEqual(result.statuses, ["running"], "a run that did not settle is left for the fallback");
   assert.ok(result.lease.leaseOwner, "its sweep still held the lease, which then expires as after a hard kill");
+});
+
+// Issue #139. A scheduled run in progress must not keep the app's next tick from starting other due automations.
+const gate = () => {
+  let open;
+  const promise = new Promise(resolve => { open = resolve; });
+  return { promise, open };
+};
+const within = (promise, ms, what) => Promise.race([promise, sleep(ms, undefined, { ref: false }).then(() => {
+  throw new Error(`${what} did not happen within ${ms} ms`);
+})]);
+const poll = async (read, done, ms) => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await read();
+    if (done(value) || Date.now() > deadline) return value;
+    await sleep(20);
+  }
+};
+
+test("a due automation starts at the next tick while another automation's scheduled run is in progress", async () => {
+  await defineScheduled("overlap-app", "long-run", "0 0 1 1 *");
+  await defineScheduled("overlap-app", "on-time", "0 0 1 1 *");
+  const starts = [];
+  const longRunStarted = gate();
+  const release = gate();
+  const engine = { ...quickEngine, async *stream(options) {
+    const name = JSON.stringify(options.messages).match(/Recurring Job: ([a-z-]+)/)?.[1];
+    starts.push({ name, at: Date.now() });
+    if (name === "long-run") {
+      longRunStarted.open();
+      await new Promise(resolve => {
+        void release.promise.then(resolve);
+        options.abortSignal?.addEventListener("abort", resolve, { once: true });
+      });
+      options.abortSignal?.throwIfAborted();
+    }
+    yield* quickEngine.stream(options);
+  } };
+  const engineStarts = name => starts.filter(start => start.name === name);
+  const deps = { ...nextLaunch("overlap-app"), engine };
+  await makeDue("long-run");
+  const first = scheduler.processRecurringJobs(deps);
+  let second;
+  let onTime;
+  try {
+    await within(longRunStarted.promise, 30_000, "long-run starting");
+    const checkedBefore = (await leaseRow("overlap-app")).lastCheckedAt;
+    await makeDue("on-time");
+    // Heartbeats are whole milliseconds, so the second tick's check must land in a later one.
+    await sleep(5);
+    const tick2At = Date.now();
+    second = scheduler.processRecurringJobs(deps);
+    const onTimeRuns = await poll(() => runsOf("overlap-app", "on-time"),
+      runs => runs.some(run => run.status === "success"), 10_000);
+    assert.deepEqual(onTimeRuns.map(run => run.status), ["success"],
+      "a due automation started at the next tick while another automation's scheduled run was in progress");
+    [onTime] = onTimeRuns;
+    assert.ok(onTime.startedAt >= tick2At && onTime.startedAt - tick2At < 5_000,
+      `it started within 5 s of that tick (${onTime.startedAt - tick2At} ms)`);
+    assert.equal(engineStarts("on-time").length, 1, "the engine started on-time once");
+    assert.ok(engineStarts("on-time")[0].at >= tick2At, "the engine started on-time after the second tick began");
+    const longRuns = await runsOf("overlap-app", "long-run");
+    assert.equal(longRuns.length, 1, "long-run has one run although the second tick scanned it while it was in progress");
+    assert.equal(engineStarts("long-run").length, 1, "the engine started long-run once");
+    assert.equal(longRuns[0].status, "running", "long-run was still in progress while on-time ran");
+    assert.equal(longRuns[0].finishedAt, null);
+    assert.ok(longRuns[0].startedAt < onTime.startedAt, "long-run started before on-time");
+    assert.ok((await leaseRow("overlap-app")).lastCheckedAt > checkedBefore,
+      "the scheduler's last check advanced at the second tick during long-run");
+    const listed = (await listAutomations.default.run({ scope: "personal" }, { userEmail: owner, appId: "overlap-app" }))
+      .find(row => row.name === "long-run");
+    assert.ok(Date.parse(listed.lastCheck) > checkedBefore, "LAST CHECKED in the automation list advanced during long-run");
+  } finally {
+    release.open();
+    await Promise.allSettled([first, second]);
+  }
+  const [longRun] = await runsOf("overlap-app", "long-run");
+  assert.equal(longRun.status, "success", "long-run finished once released");
+  assert.ok(longRun.finishedAt > onTime.startedAt, "on-time started before long-run finished");
+});
+
+test("two processes on one database never sweep at the same time", async () => {
+  await defineScheduled("scan-app", "scan-due", "0 0 1 1 *");
+  const { child, report, exited } = spawnChild("scan-hold", "scan-app");
+  try {
+    const { lease: held } = await report;
+    assert.ok(held.leaseOwner, "the child's sweep holds the lease while it scans");
+    await makeDue("scan-due");
+    const before = await leaseRow("scan-app");
+    await within(scheduler.processRecurringJobs(nextLaunch("scan-app")), 30_000, "the parent's tick");
+    assert.equal((await leaseRow("scan-app")).lastCheckedAt, before.lastCheckedAt,
+      "the parent's tick did not scan while the child's sweep was scanning");
+    assert.deepEqual(await runsOf("scan-app", "scan-due"), [], "the parent's tick started nothing");
+    assert.equal((await leaseRow("scan-app")).leaseOwner, held.leaseOwner, "the lease still names the child");
+  } finally {
+    child.kill("SIGKILL");
+    await exited;
+  }
 });
 
 // Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as

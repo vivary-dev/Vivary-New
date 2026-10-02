@@ -412,6 +412,19 @@ if (role === "quit") {
     }, 20);
   }), 30_000, "a run starting");
   await report({ running: name, lease: await leaseRow() });
+} else if (role === "scan-hold") {
+  // A sweep held in its resource scan, which runs under the lease, until the parent ends this process.
+  await getDbExec().execute("SELECT 1");
+  const db = getDbExec();
+  const execute = db.execute.bind(db);
+  const scanning = gate();
+  db.execute = async query => {
+    if (!/^SELECT \* FROM resources WHERE path LIKE \? ESCAPE '!'$/.test(query?.sql ?? "")) return execute(query);
+    scanning.open(await leaseRow());
+    return new Promise(() => {});
+  };
+  void scheduler.processRecurringJobs(deps("cooperative"));
+  await report({ lease: await within(scanning.promise, 30_000, "the sweep's scan starting") });
 } else if (role === "stop-only") {
   // A second process on the same database: its tick finds the lease taken, then it quits.
   await scheduler.processRecurringJobs(deps("cooperative"));
