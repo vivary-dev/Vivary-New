@@ -8,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const role = process.env.VIVARY_SHUTDOWN_TEST_ROLE;
+const role = process.argv[2];
 const lifecycle = new URL("../server/plugins/02-local-code-lifecycle.ts", import.meta.url).href;
 const desktop = new URL("../bin/desktop-server.mjs", import.meta.url).href;
 
@@ -21,7 +21,7 @@ async function until(check, description) {
 }
 
 if (role) {
-  const directory = process.env.VIVARY_SHUTDOWN_TEST_DIR;
+  const directory = process.argv[3];
   const receipt = name => path.join(directory, name);
   const exists = name => readFile(receipt(name)).then(() => true, () => false);
   // This handle must survive cleanup. Only production shutdown may end desktop cases.
@@ -75,12 +75,11 @@ if (role) {
   for (const scenario of ["shutdown", "disconnect", "failure", "hosted"]) {
     test(`desktop lifecycle: ${scenario}`, { timeout: 10000 }, async () => {
       const directory = await mkdtemp(path.join(os.tmpdir(), "vivary-shutdown-"));
-      const environment = { ...process.env, VIVARY_SHUTDOWN_TEST_ROLE: scenario,
-        VIVARY_SHUTDOWN_TEST_DIR: directory };
+      const environment = { ...process.env };
       delete environment.VIVARY_STANDALONE_HOST;
       delete environment.VIVARY_DESKTOP_HOST;
       if (scenario !== "hosted") environment.VIVARY_DESKTOP_HOST = "1";
-      const child = fork(fileURLToPath(import.meta.url), [], {
+      const child = fork(fileURLToPath(import.meta.url), [scenario, directory], {
         env: environment, execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"],
       });
       let stderr = "";
