@@ -6853,9 +6853,18 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
      };
      return JSON.stringify(result, null, 2);
 diff --git a/dist/scripts/db/exec.js b/dist/scripts/db/exec.js
-index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..42b87ddeb025cd91c98e608a52c1d1a1bb1ae252 100644
+index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..b3c521fb422b6f0276956962e559225ab64608f2 100644
 --- a/dist/scripts/db/exec.js
 +++ b/dist/scripts/db/exec.js
+@@ -1,7 +1,7 @@
+ /**
+  * Core script: db-exec
+  *
+- * Execute write SQL statements (INSERT, UPDATE, DELETE, REPLACE)
++ * Execute supported SQL writes (INSERT, UPDATE, DELETE)
+  * against a SQLite or Postgres database.
+  *
+  * In production mode, temporary views scope UPDATE/DELETE to the current
 @@ -14,6 +14,8 @@
   *   pnpm action db-exec --statements '[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value=value+1 WHERE key=?","args":["notes"]}]'
   */
@@ -7229,7 +7238,33 @@ index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..42b87ddeb025cd91c98e608a52c1d1a1
  }
  function printResult(sql, result, hasReturning, format) {
      if (hasReturning && result.rows && result.rows.length > 0) {
-@@ -543,7 +346,7 @@ Options:
+@@ -420,7 +223,7 @@ function printResult(sql, result, hasReturning, format) {
+     }
+ }
+ /**
+- * Hint emitted when an UPDATE/DELETE/REPLACE matches zero rows. Matches the
++ * Hint emitted when an UPDATE/DELETE matches zero rows. Matches the
+  * wording used by db-patch's "no rows matched" error so the agent gets the
+  * same scoping nudge from both tools — without this hint, the agent reports
+  * "Changes: 0" as success and the user sees no UI update because the row
+@@ -502,7 +305,7 @@ export default async function dbExec(args) {
+        pnpm action db-exec --statements '[{"sql":"UPDATE ...","args":[...]}]' [options]
+ 
+ Options:
+-  --sql <stmt>         Single INSERT / UPDATE / DELETE / REPLACE statement
++  --sql <stmt>         Single supported INSERT / UPDATE / DELETE statement
+   --args <json>        JSON array of positional SQL bind parameters for --sql
+   --statements <json>  JSON array of {sql, args?}; runs in one transaction
+   --db <path>          Path to SQLite database (default: data/app.db)
+@@ -534,6 +337,7 @@ Options:
+             const scoping = await buildScopingPostgres(pgSql);
+             const results = [];
+             await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+                 try {
+                     // For UPDATE/DELETE: temp views scope to current user's rows.
+                     // Creating and dropping them inside the same transaction keeps
+@@ -543,7 +347,7 @@ Options:
                      }
                      for (let i = 0; i < statements.length; i++) {
                          const statement = statements[i];
@@ -7238,7 +7273,7 @@ index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..42b87ddeb025cd91c98e608a52c1d1a1
                          const finalSql = normalizePostgresSql(injectOwnership(statement.sql, scoping), statement.args);
                          try {
                              const result = statement.args.length > 0
-@@ -590,7 +393,7 @@ Options:
+@@ -590,7 +394,7 @@ Options:
          try {
              for (let i = 0; i < statements.length; i++) {
                  const statement = statements[i];
@@ -7248,7 +7283,7 @@ index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..42b87ddeb025cd91c98e608a52c1d1a1
                  try {
                      const result = statement.args.length > 0
 diff --git a/dist/scripts/db/patch.js b/dist/scripts/db/patch.js
-index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..b7b8f2de19147292a5f0d3e321b648cd4c3cb16a 100644
+index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..11935e78a2f65e25c6c9e2d30749fcb77dd429fa 100644
 --- a/dist/scripts/db/patch.js
 +++ b/dist/scripts/db/patch.js
 @@ -47,9 +47,10 @@
@@ -7307,7 +7342,15 @@ index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..b7b8f2de19147292a5f0d3e321b648cd
      }
  }
  function parseEdits(parsed) {
-@@ -635,6 +618,7 @@ When to use db-patch vs other tools:
+@@ -459,6 +442,7 @@ async function runPostgres(opts) {
+     try {
+         let result;
+         await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+             // Same temp-view scoping db-exec uses — SELECT and UPDATE both go
+             // through the scoped view. Keep setup and teardown transaction-local
+             // so pooled Postgres backends never retain the temp views.
+@@ -635,6 +619,7 @@ When to use db-patch vs other tools:
      assertNoSensitiveFrameworkTables(table, "patch");
      assertNoRawDbAccessControlPatchTarget(table, column);
      assertNoSensitiveFrameworkTables(where, "read");
@@ -7316,7 +7359,7 @@ index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..b7b8f2de19147292a5f0d3e321b648cd
      const jsonOps = parseJsonOps(parsed);
      // Edit parsing only runs when json-ops isn't provided — otherwise the
 diff --git a/dist/scripts/db/query.js b/dist/scripts/db/query.js
-index 670c18d1310235c84a79e3fbb74642421ac6fec7..dfac6d52d0e1512b061443e7c87253f93708bea5 100644
+index 670c18d1310235c84a79e3fbb74642421ac6fec7..55a607bcfac8168f42feecdebc834dab7330b0d3 100644
 --- a/dist/scripts/db/query.js
 +++ b/dist/scripts/db/query.js
 @@ -12,6 +12,7 @@
@@ -7485,6 +7528,14 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..dfac6d52d0e1512b061443e7c87253f9
      }
      // Postgres path
      if (isPostgresUrl(url)) {
+@@ -206,6 +149,7 @@ Options:
+             const pgSqlText = normalizePostgresSql(finalSql, sqlArgs);
+             let rows = [];
+             await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+                 // Temp views are session state. Keep setup/query/teardown on one
+                 // transaction-bound backend so pooled Postgres never retains them.
+                 const scoping = await buildScopingPostgres(tx);
 diff --git a/dist/scripts/db/safety.js b/dist/scripts/db/safety.js
 index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3aa615812 100644
 --- a/dist/scripts/db/safety.js

@@ -21,7 +21,8 @@ value or join two keywords. Token offsets refer to the SQL that executes.
 The tokenizer follows SQLite quoting, including doubled single quotes, double
 quotes, backticks, and bracket identifiers. SQLite's legacy single-quoted table
 names remain visible to the table checks. The installed SQLite build disables
-double-quoted string literals. Both database paths use this inspection.
+double-quoted string literals. Both database paths use this inspection. Each PostgreSQL transaction sets
+standard string escaping before scoped-view setup or user SQL.
 
 | Inspection | Treatment |
 | --- | --- |
@@ -52,12 +53,14 @@ The existing owner and organization views still control row visibility.
 Verification from the repository root:
 
 ```sh
-node --test packages/workbench/tests/sql-inspection.test.mjs packages/workbench/tests/cli-bridge-arguments.test.mjs
+node --test packages/workbench/tests/sql-inspection.test.mjs packages/workbench/tests/sql-postgres-inspection.test.mjs packages/workbench/tests/cli-bridge-arguments.test.mjs
 ```
 
 The tests use production mode, a disposable SQLite database, Core's registered
 tools, and the extensions HTTP handlers. Refusal cases first require the query
-tool to return an owner-scoped control row. Test-only SQL stays in the tests.
+tool to return an owner-scoped control row. Three mocked PostgreSQL tests check transaction ordering and synthetic results.
+They do not establish execution against a PostgreSQL server. Test-only SQL stays
+in the tests.
 
 Remove this section and these patch hunks when a pinned upstream Core release
 uses equivalent token inspection and scoped write handling at every listed
