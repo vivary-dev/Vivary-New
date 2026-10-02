@@ -197,7 +197,7 @@ test("extension routes keep harmless SQL-looking text intact", async () => {
   assert.deepEqual(result.body.rows, [{ body: "settings -- DROP TABLE /*" }]);
   const written = await route("exec", "UPDATE inspection_notes SET body = 'own seeded row' WHERE id = 'own' AND 'DROP TABLE settings' = 'DROP TABLE settings'");
   assert.equal(written.status, 200);
-  assert.equal(written.body.error, undefined);
+  assert.equal(written.body.changes, 1);
   await control();
 });
 
@@ -265,3 +265,94 @@ test("db-query refuses writes introduced by WITH or PRAGMA", async () => {
     await control();
   }
 });
+
+for (const [label, sql] of [
+  ["modifying CTE", "WITH changed AS (UPDATE inspection_notes SET body = 'changed' RETURNING id) SELECT id FROM changed"],
+  ["EXPLAIN ANALYZE write", "EXPLAIN ANALYZE UPDATE inspection_notes SET body = 'changed'"],
+  ["SELECT INTO", "SELECT id INTO inspection_copy FROM inspection_notes"],
+]) {
+  test(`db-query refuses ${label} before execution`, async () => {
+    await control();
+    assert.deepEqual(JSON.parse(await query("WITH rows AS (SELECT id FROM inspection_notes) SELECT id FROM rows")).rows, [{ id: "own" }]);
+    assert.ok(JSON.parse(await query("EXPLAIN SELECT id FROM inspection_notes")).count > 0);
+    try {
+      assert.equal(await query(sql), "Error: Only read-only statements are allowed through db-query.");
+      await control();
+    } finally {
+      await db.execute("UPDATE inspection_notes SET body = CASE id WHEN 'own' THEN 'own seeded row' ELSE 'other seeded row' END");
+    }
+  });
+}
+for (const prefix of ["REPLACE", "INSERT OR REPLACE"]) {
+  test(`db-exec refuses ${prefix} conflicts`, async () => {
+    await control();
+    try {
+      assert.equal(await call("db-exec", { sql: `${prefix} INTO inspection_notes (id, body) VALUES ('other', 'changed')` }),
+        "Error: REPLACE conflict handling is not supported through raw DB tools.");
+      await control();
+    } finally {
+      await db.execute({ sql: "INSERT OR REPLACE INTO inspection_notes VALUES ('other', 'other seeded row', ?, 0)", args: ["other@example.test"] });
+    }
+  });
+}
+await db.execute("CREATE TABLE inspection_org_notes (id TEXT PRIMARY KEY, body TEXT, org_id TEXT)");
+for (const [id, body, org] of [["org-own", "own org row", "org-test"], ["org-other", "other org row", "org-other"]]) {
+  await db.execute({ sql: "INSERT INTO inspection_org_notes VALUES (?, ?, ?)", args: [id, body, org] });
+}
+const orgCall = (name, args) => runWithRequestContext({ userEmail: owner, orgId: "org-test" },
+  () => (read[name] ?? write[name]).run(args, { caller: "tool" }))
+  .then(String, error => `Error: ${error.message}`);
+async function orgControl() {
+  await control();
+  const result = JSON.parse(await orgCall("db-query", { sql: "SELECT id, body FROM inspection_org_notes", format: "json" }));
+  assert.deepEqual(result.rows, [{ id: "org-own", body: "own org row" }]);
+}
+for (const [label, sql] of [
+  ["INSERT", "INSERT INTO inspection_org_notes (id, body, org_id) VALUES ('org-inserted', 'changed', 'org-other')"],
+  ["UPDATE", "UPDATE inspection_org_notes SET org_id = 'org-other' WHERE id = 'org-own'"],
+]) {
+  test(`db-exec refuses caller-specified org_id in ${label}`, async () => {
+    await orgControl();
+    try {
+      assert.equal(await orgCall("db-exec", { sql }), access("org_id"));
+      await orgControl();
+      const result = await db.execute("SELECT id, org_id FROM inspection_org_notes ORDER BY id");
+      assert.deepEqual(result.rows.map(row => ({ id: row.id, org_id: row.org_id })), [
+        { id: "org-other", org_id: "org-other" }, { id: "org-own", org_id: "org-test" },
+      ]);
+    } finally {
+      await db.execute("DELETE FROM inspection_org_notes WHERE id = 'org-inserted'");
+      await db.execute("UPDATE inspection_org_notes SET org_id = 'org-test' WHERE id = 'org-own'");
+    }
+  });
+}
+test("db-query preserves string values in a nested SELECT", async () => {
+  await control();
+  const result = JSON.parse(await query("SELECT label FROM (SELECT id, 'resources' AS label FROM inspection_notes)"));
+  assert.deepEqual(result.rows, [{ label: "resources" }]);
+});
+test("db-query preserves JSON table-function path arguments", async () => {
+  await control();
+  const result = JSON.parse(await query(`SELECT value FROM json_each('{"resources":["kept"]}', '$.resources')`));
+  assert.deepEqual(result.rows, [{ value: "kept" }]);
+});
+test("db-query refuses CR-only line comments and accepts CRLF", async () => {
+  await control();
+  assert.deepEqual(JSON.parse(await query("-- heading\r\nSELECT id FROM inspection_notes")).rows, [{ id: "own" }]);
+  assert.equal(await query("SELECT id FROM inspection_notes -- tail\r"),
+    "Error: CR-only SQL line comments are not supported by raw DB tools.");
+});
+for (const [label, sql, error] of [
+  ["Unicode dollar quoting", "SELECT $é$resources$é$",
+    "Dollar-quoted SQL is not supported by raw DB tools. Use bind parameters."],
+  ["prefixed string quoting", "SELECT E'resources'",
+    "Prefixed SQL quoting is not supported by raw DB tools. Use bind parameters."],
+  ["nested block comments", "SELECT /* outer /* inner */ 1",
+    "Nested SQL comments are not supported by raw DB tools."],
+]) {
+  test(`db-query refuses unsupported ${label}`, async () => {
+    await control();
+    assert.deepEqual(JSON.parse(await query("SELECT 'resources' AS literal FROM inspection_notes")).rows, [{ literal: "resources" }]);
+    assert.equal(await query(sql), `Error: ${error}`);
+  });
+}
