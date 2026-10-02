@@ -691,3 +691,190 @@ test("accepted content and pending review survive a fresh process", async () => 
   assert.doesNotMatch(observed.prompt, /Durable proposed rules/);
   assert.equal(observed.listed, "Durable proposed rules.");
 });
+
+
+async function beforeStoreStatement(matches, during, body) {
+  const client = getDbExec();
+  const execute = client.execute;
+  let fired = false;
+  client.execute = async function (statement) {
+    if (!fired && matches(statement)) {
+      fired = true;
+      await during();
+    }
+    return execute.call(this, statement);
+  };
+  try {
+    const result = await body();
+    assert.ok(fired, "the write reached the intercepted store boundary");
+    return result;
+  } finally {
+    client.execute = execute;
+  }
+}
+for (const intervening of ["owner edit", "accept"]) {
+  test(`a proposal retries after a concurrent ${intervening} and preserves the latest baseline`, async () => {
+    const owner = `retry-${intervening.replace(" ", "-")}@example.test`;
+    await store.resourcePut(owner, "AGENTS.md", "Original rules.", "text/markdown");
+    if (intervening === "accept") await writeProposal(owner, "AGENTS.md", "Reviewed replacement.");
+    const current = await store.resourceGetByPath(owner, "AGENTS.md");
+    const latest = intervening === "accept" ? "Reviewed replacement." : "Concurrent owner rules.";
+    const result = await beforeStoreStatement(
+      statement => /^UPDATE resources SET content =/.test(statement?.sql ?? "") &&
+        statement.args.includes(current.id) && statement.args[0] === "Latest proposal.",
+      () => runWithRequestContext({ userEmail: owner, automationRun: null }, async () => {
+        if (intervening === "accept") {
+          assert.equal(await store.resourceAcceptRunReviewIfCurrent({
+            id: current.id, updatedAt: current.updatedAt, acceptedBy: owner,
+          }), true);
+        } else {
+          await store.resourcePut(owner, "AGENTS.md", latest, "text/markdown");
+        }
+      }),
+      () => writeProposal(owner, "AGENTS.md", "Latest proposal."));
+    assert.doesNotMatch(result, /^Error:/);
+    assert.equal((await store.resourceGetByPath(owner, "AGENTS.md")).content, "Latest proposal.");
+    assert.ok((await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" })).includes(latest));
+    await discardPath(owner, "AGENTS.md");
+    assert.equal((await store.resourceGetByPath(owner, "AGENTS.md")).content, latest);
+  });
+}
+
+test("an empty accepted file survives discard as an empty file", async () => {
+  const owner = "empty-accepted@example.test";
+  const original = await store.resourcePut(owner, "AGENTS.md", "", "text/markdown");
+  await writeProposal(owner, "AGENTS.md", "Proposed nonempty rules.");
+  const read = await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md", scope: "personal" });
+  assert.doesNotMatch(read, REVIEW_NOTE);
+  assert.doesNotMatch(read, /Proposed nonempty/);
+  await discardPath(owner, "AGENTS.md");
+  const restored = await store.resourceGetByPath(owner, "AGENTS.md");
+  assert.ok(restored);
+  assert.equal(restored.id, original.id);
+  assert.equal(restored.content, "");
+});
+
+test("run alternate writes and moves protect instruction paths while ordinary notes work", async () => {
+  const owner = "alternate-write@example.test";
+  const instruction = await store.resourcePut(owner, "AGENTS.md", "Kept rules.", "text/markdown");
+  const note = await store.resourcePut(owner, "notes/ordinary.md", "Ordinary note.", "text/markdown");
+  const conditional = row => ({ owner, path: row.path, expectedId: row.id, expectedUpdatedAt: row.updatedAt,
+    expectedContent: row.content, content: "Changed text.", mimeType: "text/markdown" });
+  await runWithRequestContext({ userEmail: owner, automationRun: RUN }, async () => {
+    for (const operation of [
+      () => store.resourcePutIfAbsent(owner, "instructions/new.md", "New rules.", "text/markdown"),
+      () => store.resourcePutIfCurrent(conditional(instruction)),
+      () => store.resourceMove(instruction.id, "notes/moved-rules.md"),
+      () => store.resourceMove(note.id, "instructions/moved-note.md"),
+    ]) await assert.rejects(operation(), /Automation runs cannot (write|move)/);
+    const created = await store.resourcePutIfAbsent(owner, "notes/created.md", "Created note.", "text/markdown");
+    assert.ok(created);
+    const changed = await store.resourcePutIfCurrent(conditional(note));
+    assert.equal(changed?.content, "Changed text.");
+    assert.equal(await store.resourceMove(note.id, "notes/renamed.md"), true);
+  });
+  assert.deepEqual(await store.resourceGetByPath(owner, "AGENTS.md"), instruction);
+  assert.equal(await store.resourceGetByPath(owner, "instructions/new.md"), null);
+  assert.equal(await store.resourceGetByPath(owner, "instructions/moved-note.md"), null);
+  assert.equal((await store.resourceGetByPath(owner, "notes/renamed.md")).content, "Changed text.");
+});
+
+for (const method of ["resourcePut", "resourcePutIfAbsent"]) {
+  test(`${method} ignores caller-supplied review state`, async () => {
+    const owner = `metadata-${method.toLowerCase()}@example.test`;
+    await store[method](owner, "AGENTS.md", "Owner rules.", "text/markdown", {
+      metadata: JSON.stringify({ label: "owner metadata", runReview: {
+        state: "pending", previous: { content: "Invented earlier rules." },
+      } }),
+    });
+    const stored = await store.resourceGetByPath(owner, "AGENTS.md");
+    assert.equal(runReviewOf(stored), null);
+    assert.equal(JSON.parse(stored.metadata).label, "owner metadata");
+    assert.match(await asChat({ userEmail: owner }, "resources", { action: "read", path: "AGENTS.md" }), /Owner rules/);
+    assert.equal((await listFor(owner)).length, 0);
+  });
+}
+
+for (const intervening of ["accept", "rewrite"]) {
+  test(`the review list handles a concurrent ${intervening} before its body read`, async () => {
+    const owner = `review-read-${intervening}@example.test`;
+    await writeProposal(owner, "AGENTS.md", "Listed proposal.");
+    const current = await store.resourceGetByPath(owner, "AGENTS.md");
+    const files = await beforeStoreStatement(
+      statement => /^SELECT \* FROM resources WHERE id = \?/.test(statement?.sql ?? "") &&
+        statement.args[0] === current.id,
+      async () => {
+        if (intervening === "accept") {
+          assert.equal(await store.resourceAcceptRunReviewIfCurrent({
+            id: current.id, updatedAt: current.updatedAt, acceptedBy: owner,
+          }), true);
+        } else {
+          await writeProposal(owner, "AGENTS.md", "Latest listed proposal.");
+        }
+      },
+      () => listFor(owner));
+    if (intervening === "accept") {
+      assert.equal(files.length, 0, "an accepted file is no longer listed for review");
+    } else {
+      const stored = await store.resourceGetByPath(owner, "AGENTS.md");
+      assert.deepEqual(files, [{ id: stored.id, path: stored.path, content: "Latest listed proposal.", updatedAt: stored.updatedAt }]);
+      assert.notEqual(stored.updatedAt, current.updatedAt);
+    }
+  });
+}
+
+
+test("the owner settles a pending proposal before moving its accepted identity", async () => {
+  const owner = "pending-move@example.test";
+  const accepted = await store.resourcePut(owner, "instructions/original.md", "Accepted instruction.", "text/markdown");
+  await writeProposal(owner, accepted.path, "Proposed instruction.");
+  const pending = await store.resourceGet(accepted.id);
+  await assert.rejects(store.resourceMove(accepted.id, "instructions/moved.md"), /Accept or discard/);
+  assert.deepEqual(await store.resourceGet(accepted.id), pending);
+  assert.match(await prompt(owner, false), /Accepted instruction/);
+  await discardPath(owner, accepted.path);
+  assert.equal(await store.resourceMove(accepted.id, "instructions/moved.md"), true);
+  assert.equal(await store.resourceGetByPath(owner, accepted.path), null);
+  assert.equal((await store.resourceGetByPath(owner, "instructions/moved.md")).content, "Accepted instruction.");
+});
+
+test("an owner move refuses a proposal written after it inspected the accepted file", async () => {
+  const owner = "move-race@example.test";
+  const note = await store.resourcePut(owner, "notes/control.md", "Ordinary note.", "text/markdown");
+  assert.equal(await store.resourceMove(note.id, "notes/moved-control.md"), true);
+  const accepted = await store.resourcePut(owner, "instructions/race.md", "Accepted move rules.", "text/markdown", { visibility: "workspace" });
+  const outcome = await beforeStoreStatement(
+    statement => /^UPDATE resources SET path =/.test(statement?.sql ?? "") && statement.args.includes(accepted.id),
+    async () => {
+      assert.doesNotMatch(await writeProposal(owner, "instructions/race.md", "Pending move rules.", { visibility: "workspace" }), /^Error:/);
+    },
+    () => runWithRequestContext({ userEmail: owner, automationRun: null }, () =>
+      text(store.resourceMove(accepted.id, "notes/moved-rules.md"))));
+  assert.match(outcome, /^Error: This file changed/);
+  assert.equal((await store.resourceGetByPath(owner, "instructions/race.md")).content, "Pending move rules.");
+  assert.equal(await store.resourceGetByPath(owner, "notes/moved-rules.md"), null);
+  const active = await asChat({ userEmail: owner }, "resources", { action: "read", path: "instructions/race.md", scope: "personal" });
+  assert.match(active, /Accepted move rules/);
+  assert.doesNotMatch(active, /Pending move rules/);
+});
+
+test("a run delete by id refuses a note moved into instructions after inspection", async () => {
+  const owner = "delete-move-race@example.test";
+  const control = await store.resourcePut(owner, "notes/control.md", "Deletable note.", "text/markdown");
+  await runWithRequestContext({ userEmail: owner, automationRun: RUN }, async () => {
+    assert.equal(await store.resourceDelete(control.id), true);
+  });
+  assert.equal(await store.resourceGetByPath(owner, "notes/control.md"), null);
+  const note = await store.resourcePut(owner, "notes/race.md", "Moved instruction rules.", "text/markdown");
+  const deleted = await beforeStoreStatement(
+    statement => /^DELETE FROM resources WHERE id =/.test(statement?.sql ?? "") && statement.args[0] === note.id,
+    () => runWithRequestContext({ userEmail: owner, automationRun: null }, async () => {
+      assert.equal(await store.resourceMove(note.id, "instructions/moved.md"), true);
+    }),
+    () => runWithRequestContext({ userEmail: owner, automationRun: RUN }, () => store.resourceDelete(note.id)));
+  assert.equal(deleted, false);
+  assert.equal(await store.resourceGetByPath(owner, "notes/race.md"), null);
+  const moved = await store.resourceGetByPath(owner, "instructions/moved.md");
+  assert.equal(moved.id, note.id);
+  assert.equal(moved.content, "Moved instruction rules.");
+});
