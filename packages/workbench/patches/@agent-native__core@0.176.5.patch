@@ -4246,6 +4246,63 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/extensions/routes.js b/dist/extensions/routes.js
+index 1ec595015432fc2de6897d1d7dda623aa493c9b7..61f3acf758bc602049f43388fc7c27c400077da3 100644
+--- a/dist/extensions/routes.js
++++ b/dist/extensions/routes.js
+@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
+ import { defineEventHandler, getMethod, setResponseStatus, setResponseHeader, } from "h3";
+ import { getDbExec, isPostgres } from "../db/client.js";
+ import { getOrgContext } from "../org/context.js";
++import { formatArgs } from "../scripts/parse-args.js";
+ import { resolveKeyReferencesWithRequestScopes, validateUrlAllowlist, getResolvedKeyAllowlist, } from "../secrets/substitution.js";
+ import { getSession } from "../server/auth.js";
+ import { readBody } from "../server/h3-helpers.js";
+@@ -770,16 +771,16 @@ async function handleSqlQuery(event) {
+     }
+     try {
+         const mod = await import("../scripts/db/query.js");
+-        const args = ["--sql", sql, "--format", "json"];
+-        if (body.limit)
+-            args.push("--limit", String(body.limit));
+-        if (body.args !== undefined) {
+-            if (!Array.isArray(body.args)) {
+-                setResponseStatus(event, 400);
+-                return { error: "args must be an array" };
+-            }
+-            args.push("--args", JSON.stringify(body.args));
++        if (body.args !== undefined && !Array.isArray(body.args)) {
++            setResponseStatus(event, 400);
++            return { error: "args must be an array" };
+         }
++        const args = formatArgs({
++            sql,
++            format: "json",
++            limit: body.limit ? String(body.limit) : undefined,
++            args: body.args,
++        });
+         const output = await captureCliOutput(mod.default, args);
+         try {
+             return JSON.parse(output);
+@@ -872,14 +873,11 @@ async function handleSqlExec(event) {
+     }
+     try {
+         const mod = await import("../scripts/db/exec.js");
+-        const args = ["--sql", sql, "--format", "json"];
+-        if (body.args !== undefined) {
+-            if (!Array.isArray(body.args)) {
+-                setResponseStatus(event, 400);
+-                return { error: "args must be an array" };
+-            }
+-            args.push("--args", JSON.stringify(body.args));
++        if (body.args !== undefined && !Array.isArray(body.args)) {
++            setResponseStatus(event, 400);
++            return { error: "args must be an array" };
+         }
++        const args = formatArgs({ sql, format: "json", args: body.args });
+         const output = await captureCliOutput(mod.default, args);
+         try {
+             return JSON.parse(output);
 diff --git a/dist/extensions/web-search-tool.js b/dist/extensions/web-search-tool.js
 index 2d28621c2b109d176351b47aa6027adff40b8868..73d3787bcac13db54cd8463962031919639dd8f4 100644
 --- a/dist/extensions/web-search-tool.js

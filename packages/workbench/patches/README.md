@@ -1297,7 +1297,18 @@ uses the alias, through `cli/agent.js`, which this change leaves alone. Core's
 comment above `allowedArgs` said that some MCP hosts send undeclared keys. Such
 a host now gets a refusal. Vivary turns MCP off.
 
-Five other places build argv, and this change leaves them alone:
+The extensions SQL route uses the same encoder. `handleSqlQuery` and
+`handleSqlExec` in `extensions/routes.js` answer `sql/query` and `sql/exec`
+under `/_agent-native/extensions` and its `/tools` alias for any signed-in
+session. They built `--name value` pairs too, so a body `limit` of
+`--db=<file>` parsed as `limit: "true"` and `db: "<file>"`, and the query
+script read that file. They keep every check in its order, including the
+`args must be an array` refusal, and then build argv with `formatArgs` from
+fixed names: `sql`, `format`, `limit` for a query, and `args`. A `limit` of
+`--db=<file>` now reaches the script as the `limit` value, and the query runs
+against the app database.
+
+Four other places build argv, and this change leaves them alone:
 
 - `server/action-discovery.js` `wrapDefaultExport` wraps an action whose
   default export is a function. Every Vivary action uses `defineAction`, so
@@ -1308,13 +1319,9 @@ Five other places build argv, and this change leaves them alone:
   `agent-native agent`.
 - The dev shell fallback in `server/agent-chat-plugin.js` runs `pnpm action`
   through bash in dev mode only.
-- The extensions SQL route, `handleSqlQuery` and `handleSqlExec` in
-  `extensions/routes.js`, still builds `--name value` pairs for a signed-in
-  caller. A body `limit` of `--db=<file>` there parses as `limit: "true"` and
-  `db: "<file>"`, and the query script then reads that file.
 
-The first four are not reachable in the packaged app, and their values come
-from a developer who also has a shell. Upstream can swap each to `formatArgs`.
+None of them is reachable in the packaged app, and their values come from a
+developer who also has a shell. Upstream can swap each to `formatArgs`.
 
 From the repository root, run:
 
@@ -1329,8 +1336,8 @@ declared arguments with a boolean, six refused names on a write, `db-query`
 with `limit` set to `--db=<file>` and with a `db` name, plan mode, the round
 trip of `formatArgs` and `parseArgs` over values and names that broke the old
 form, an undeclared name on every script tool a chat can reach, a
-`chat-history` search, and a source pin. Removing each part of the fix fails at
-least one case.
+`chat-history` search, and a source pin on the bridge and the extensions SQL
+route. Removing each part of the fix fails at least one case.
 
 Remove this part of the patch only when an upstream release builds every
 script's argv with one lossless encoder, refuses undeclared names at the tool

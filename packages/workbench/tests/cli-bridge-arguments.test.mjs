@@ -184,9 +184,17 @@ test("chat-history search from a chat reaches the search script", async () => {
   assert.match(await call(chatHistory, { action: "search", "--query": "x" }), /Unknown argument "--query"/);
 });
 
-test("the chat bridge has no second argv form or argument list", async () => {
-  const entries = await readFile(path.join(coreRoot, "dist", "server", "agent-chat", "script-entries.js"), "utf8");
+test("the chat bridge and the extensions SQL route build argv only with formatArgs", async () => {
+  const source = relative => readFile(path.join(coreRoot, "dist", relative), "utf8");
+  const entries = await source("server/agent-chat/script-entries.js");
   // assert.equal on booleans keeps a failure from printing the whole source file.
   assert.equal(entries.includes("push(`--${"), false, "script-entries.js builds no argv of its own");
   assert.equal(entries.includes("allowedArgs"), false, "the input schema is the only argument list");
+  const routes = await source("extensions/routes.js");
+  for (const handler of ["handleSqlQuery", "handleSqlExec"]) {
+    const start = routes.indexOf(`async function ${handler}(event) {`);
+    assert.notEqual(start, -1, handler);
+    assert.equal(routes.slice(start, routes.indexOf("\n}\n", start)).includes("formatArgs("), true, `${handler} uses formatArgs`);
+  }
+  assert.equal(routes.includes('"--limit", String('), false, "the route builds no --limit pair");
 });
