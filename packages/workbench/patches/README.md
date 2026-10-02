@@ -1569,9 +1569,9 @@ stop works in this order:
    occurrence after the quit, and a Run now keeps its next run.
 4. Each scheduled run or Run now releases its run lease after it records its
    outcome, and a run on a paired host releases it once the run is queued there.
-   Event and webhook runs hold none. The scheduler lease is already free,
-   because a sweep releases it when its scan ends. See "Scheduler lease per
-   scan".
+   Event and webhook runs hold none. The scheduler lease is free once any scan
+   in progress ends, because a sweep releases it when its scan ends, and the
+   stop waits for that sweep. See "Scheduler lease per scan".
 
 The stop waits for the sweeps, the queued runs, the runs it interrupted, and
 the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
@@ -1778,7 +1778,7 @@ after the outcome write. A failed delete is logged, and the row expires as after
 a hard kill. A run on a paired host releases the lease once the run is queued
 there. Event and webhook runs take none. When another run holds the run lease, a
 Run now ends as already running with the existing message, and a scheduled job
-is skipped and stays due. `scheduler-health.js` exports
+is skipped with one log line and stays due. `scheduler-health.js` exports
 `acquireAutomationRunLease`, `renewAutomationRunLease`, and
 `releaseAutomationRunLease`, which share the scheduler lease's acquire and
 renew SQL.
@@ -1788,23 +1788,26 @@ another run holds it, that run is live however old its mark is, and the sweep
 leaves it. If the sweep takes the lease, it reads the automation again,
 because the list it scanned can predate a run that has since finished and
 released its lease, and it acts only on that fresh read. A mark that still reads
-`running` with a valid schedule is reset as before, and only once its time
-window has passed, because some marks have no run lease. An event run of an
-automation that also has a schedule takes none, and neither did older builds. A
-paired-host mark is reconciled under the same rule, so no tick reconciles a mark
-as failed while its dispatch is still saving the request id. The sweep then
-releases the run lease. A failure while it checks one mark is logged, and the
-scan goes on to the next automation.
+`running`, enabled with a valid schedule, is reset as before, and only once its
+time window has passed, because some marks have no run lease. An event run of
+an automation that also has a schedule takes none, and neither did older
+builds. A paired-host mark is reconciled under the same rule, so no tick
+reconciles a mark as failed while its dispatch is still saving the request id.
+The sweep then releases the run lease. A failure while it checks one mark is
+logged, and the scan goes on to the next automation.
 
 After a hard kill, the next launch scans at its first tick and runs every
 other due automation, because the killed process held no scheduler lease
 unless it died during a scan. The killed run's lease holds until 10 minutes
 after its last renewal. Once that lease has expired and the run's time window
 has also passed, a scan takes the lease, resets the mark to the interrupted
-error, finishes the history row, and deletes the lease row. A kill
-during a scan still blocks scans for 10 minutes. After a quit and a quick
-relaunch on the same database, the new process skips only automations whose
-run leases the old one still holds.
+error, and deletes the lease row. It also finishes the automation's latest
+history row with that error when that row has not finished. If a later row
+exists, such as a Run now refused while the lease held, the killed run's row
+keeps no finish time and reads interrupted. A kill during a scan still blocks
+scans for 10 minutes. After a quit and a quick relaunch on the same database,
+the new process skips only automations whose run leases the old one still
+holds.
 
 A run whose process stops renewing for 10 minutes while the run lives, such as
 a laptop asleep beside a second server on one database, reads as dead to the
@@ -1826,20 +1829,26 @@ due, and runs the next tick. The second automation runs within 5 seconds, LAST
 CHECKED advances, and the first keeps one run and one engine start. The first
 run still holds its run lease when its outcome is written, each run then deletes
 its run lease row, and no check is written when the runs end. The case failed on
-the patch before this change. The guard "two processes on one
-database never sweep at the same time" passed on both. A run whose lease
-another process holds stays `running` with its `lastRun` 30 minutes old, and
-Run now refuses it. A mark with no run lease stays `running` inside the time
-window and resets past it, and that case counts the run lease its scan took. A
-paired-host mark whose dispatch holds the run lease is left alone, and it is
-reconciled as failed once the lease is released. A run that finished after the
-scan listed it is left alone. A paired-host mark whose dispatch saved its
-bookkeeping and released the lease after the scan listed it is reconciled from a
-fresh read and stays `running`. A paired-host dispatch still holds the run lease
-when it saves the queued run's bookkeeping. The hard-kill, stop, and stuck-run
-cases check the run lease, and the next launch after a hard kill runs another
-due automation. The cases whose tick should leave a run alone also check that
-the tick scanned.
+the patch before this change. The guard "two processes on one database never
+scan at the same time" passed on both. A run whose lease another process holds
+stays `running` with its `lastRun` 30 minutes old, and Run now refuses it. A
+mark with no run lease stays `running` inside the time window and resets past
+it, and that case counts the run lease its scan took. A paired-host mark whose
+dispatch holds the run lease is left alone, and it is reconciled as failed once
+the lease is released. A run that finished after the scan listed it is left
+alone, with its finished history row and a Run now row claimed after it. A
+paired-host mark whose dispatch saved its bookkeeping and released the lease
+after the scan listed it is reconciled from a fresh read and stays `running`. A
+paired-host dispatch still holds the run lease when it saves the queued run's
+bookkeeping. A due automation whose run lease another run holds is skipped with
+one log line and stays due. When the database refuses a run lease delete, a
+scheduled run keeps its success outcome, a Run now's history row reads success,
+and the row is left to expire. When it refuses one running mark's run lease,
+the scan logs that mark, leaves it, and still runs another due automation with
+no scan error. The hard-kill, stop, and stuck-run cases check the run lease, and
+the next launch after a hard kill runs another due automation. The cases whose
+tick should leave a run alone also check that the tick scanned and that no
+check of a running mark failed.
 
 Upstream can take this change as it is. It adds exports to
 `scheduler-health.js` and changes no schema. Remove this part of the patch

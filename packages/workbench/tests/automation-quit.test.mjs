@@ -59,7 +59,8 @@ const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGet
   load("triggers/actions/list-automations.js"),
   load("jobs/scheduler-health.js"),
 ]);
-const { INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, getAutomationRun, listAutomationRuns } = runHistory;
+const { INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, claimAutomationRun, finishAutomationRun, getAutomationRun,
+  listAutomationRuns, startAutomationRun } = runHistory;
 
 const owner = "owner@example.test";
 const children = new Set();
@@ -85,7 +86,7 @@ const minutesAgo = minutes => new Date(Date.now() - minutes * 60_000).toISOStrin
 const runsOf = (appId, automation) => listAutomationRuns({ owners: [owner], automation, appId, limit: 20 });
 const healthRow = async id => {
   const { rows } = await getDbExec().execute({
-    sql: "SELECT lease_owner, lease_expires_at, last_checked_at FROM automation_scheduler_health WHERE id = ?",
+    sql: "SELECT lease_owner, lease_expires_at, last_checked_at, last_error FROM automation_scheduler_health WHERE id = ?",
     args: [id],
   });
   const row = rows?.[0];
@@ -93,6 +94,7 @@ const healthRow = async id => {
     leaseOwner: row.lease_owner ?? null,
     leaseExpiresAt: row.lease_expires_at == null ? null : Number(row.lease_expires_at),
     lastCheckedAt: row.last_checked_at == null ? null : Number(row.last_checked_at),
+    lastError: row.last_error ?? null,
   } : null;
 };
 const leaseRow = appId => healthRow(`${appId}:global`);
@@ -310,6 +312,25 @@ const interceptQueries = intercept => {
 const LIST_JOBS = /^SELECT \* FROM resources WHERE path LIKE \? ESCAPE '!'$/;
 const writesJob = (query, name, field) => /^UPDATE resources SET content = \?/.test(query?.sql ?? "")
   && query.args?.[5] === `jobs/${name}.md` && field.test(String(query.args[0]));
+// Reject each query `refused(sql, args)` matches until the returned restore runs.
+const refuseQueries = refused => interceptQueries((query, run) => refused(query?.sql ?? "", query?.args ?? [])
+  ? Promise.reject(new Error("The database refused this query.")) : run());
+// Run `work` and return what it wrote through console[method]. The lines still reach the output.
+const consoleLines = async (method, work) => {
+  const lines = [];
+  const write = console[method];
+  console[method] = (...args) => {
+    lines.push(args.map(String).join(" "));
+    write(...args);
+  };
+  try {
+    await work();
+  } finally {
+    console[method] = write;
+  }
+  return lines;
+};
+const markCheckFailures = lines => lines.filter(line => line.includes("Could not check the running mark"));
 
 test("a due automation starts at the next tick while another automation's scheduled run is in progress", async () => {
   await defineScheduled("overlap-app", "long-run", "0 0 1 1 *");
@@ -386,7 +407,7 @@ test("a due automation starts at the next tick while another automation's schedu
     "no tick wrote a check when its runs ended");
 });
 
-test("two processes on one database never sweep at the same time", async () => {
+test("two processes on one database never scan at the same time", async () => {
   await defineScheduled("scan-app", "scan-due", "0 0 1 1 *");
   const { child, report, exited } = spawnChild("scan-hold", "scan-app");
   try {
@@ -413,8 +434,9 @@ test("a run another process still holds stays live past the time window", async 
     assert.equal((await report).running, "live");
     await patchStored("live", { lastRun: minutesAgo(30) });
     const tickAt = Date.now();
-    await scheduler.processRecurringJobs(nextLaunch("live-app"));
+    const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("live-app")));
     assert.ok((await leaseRow("live-app")).lastCheckedAt >= tickAt, "the tick scanned");
+    assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
     assert.equal((await stored("live")).lastStatus, "running", "the scan left a run whose lease is held");
     assert.equal((await runsOf("live-app", "live")).length, 1);
     assert.deepEqual(await scheduler.runJobNow(owner, "live", nextLaunch("live-app")),
@@ -435,12 +457,14 @@ test("a running mark no run lease covers keeps today's time window", async () =>
     return run();
   });
   const tickAt = Date.now();
+  let warnings;
   try {
-    await scheduler.processRecurringJobs(nextLaunch("unleased-app"));
+    warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("unleased-app")));
   } finally {
     restore();
   }
   assert.ok((await leaseRow("unleased-app")).lastCheckedAt >= tickAt, "the tick scanned");
+  assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
   assert.equal((await stored("unleased")).lastStatus, "running", "a mark inside the run's time limit stays running");
   assert.equal(acquires, 1, "the scan took the run lease");
   assert.equal(await runLeaseRow("unleased"), null, "the scan released the run lease it took");
@@ -466,7 +490,10 @@ test("a tick leaves a paired-host mark alone while its dispatch holds the run le
   const key = runLeaseKey("dispatching");
   const leaseOwner = await acquireAutomationRunLease({ appId: "dispatch-app", key });
   assert.ok(leaseOwner, "the dispatch holds the run lease");
-  await scheduler.processRecurringJobs(nextLaunch("dispatch-app"));
+  const tickAt = Date.now();
+  const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("dispatch-app")));
+  assert.ok((await leaseRow("dispatch-app")).lastCheckedAt >= tickAt, "the tick scanned");
+  assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
   const held = await stored("dispatching");
   assert.equal(held.lastStatus, "running", "the tick left the mark whose dispatch holds the run lease");
   assert.equal(held.lastError, undefined);
@@ -480,24 +507,42 @@ test("a tick leaves a paired-host mark alone while its dispatch holds the run le
 test("a tick leaves a run that finished after the scan read it", async () => {
   await defineScheduled("fresh-app", "finished-late");
   await patchStored("finished-late", { lastStatus: "running", lastRun: minutesAgo(11) });
-  let finished = false;
+  const historyRow = dispatchPending => startAutomationRun({ owner, automation: "finished-late",
+    path: "jobs/finished-late.md", scope: "personal", appId: "fresh-app", dispatchPending });
+  const finishedId = await historyRow(false);
+  let listed = false;
+  let finished;
+  let runNowId;
   const restore = interceptQueries(async (query, run) => {
     const result = await run();
-    if (!finished && LIST_JOBS.test(query?.sql ?? "")) {
-      finished = true;
+    if (!listed && LIST_JOBS.test(query?.sql ?? "")) {
+      listed = true;
+      await finishAutomationRun(finishedId, "success");
       await patchStored("finished-late", { lastStatus: "success" });
+      finished = await getAutomationRun(finishedId);
+      // History orders rows by their whole-millisecond start, so the Run now row must start in a later one.
+      await sleep(5);
+      runNowId = await historyRow(true);
+      await claimAutomationRun(runNowId);
     }
     return result;
   });
+  let warnings;
   try {
-    await scheduler.processRecurringJobs(nextLaunch("fresh-app"));
+    warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("fresh-app")));
   } finally {
     restore();
   }
-  assert.equal(finished, true, "the run finished after the scan listed the automations");
+  assert.ok(finished, "the run finished after the scan listed the automations");
+  assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
   const meta = await stored("finished-late");
   assert.equal(meta.lastStatus, "success", "the scan read the mark again and left the finished run");
   assert.equal(meta.lastError, undefined);
+  const [runNow, done] = await runsOf("fresh-app", "finished-late");
+  assert.deepEqual([done.id, done.status, done.finishedAt], [finishedId, "success", finished.finishedAt],
+    "the finished run's history row keeps its status and finish time");
+  assert.deepEqual([runNow.id, runNow.status, runNow.finishedAt], [runNowId, "running", null],
+    "a Run now claimed after the run finished stays unfinished");
 });
 
 test("a tick reconciles a paired-host mark from a fresh read", async () => {
@@ -515,12 +560,14 @@ test("a tick reconciles a paired-host mark from a fresh read", async () => {
     }
     return result;
   });
+  let warnings;
   try {
-    await scheduler.processRecurringJobs(nextLaunch("queued-app"));
+    warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("queued-app")));
   } finally {
     restore();
   }
   assert.equal(queued, true, "the dispatch saved its bookkeeping and released the lease after the scan listed the mark");
+  assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
   const meta = await stored("queued");
   assert.equal(meta.lastStatus, "running", "the scan read the mark again and left the queued run");
   assert.equal(meta.lastError, undefined);
@@ -546,6 +593,67 @@ test("a paired-host dispatch holds the run lease until the run is queued", async
   assert.equal(meta.lastStatus, "running");
   assert.ok(meta.remoteCommandId, "the run was queued on the paired host");
   assert.equal(await runLeaseRow("queueing"), null, "the dispatch released the run lease once the run was queued");
+});
+
+test("a due automation whose run lease another run holds is skipped and stays due", async () => {
+  await defineScheduled("skip-app", "leased");
+  await makeDue("leased");
+  const before = await stored("leased");
+  const key = runLeaseKey("leased");
+  const leaseOwner = await acquireAutomationRunLease({ appId: "skip-app", key });
+  let logs;
+  try {
+    logs = await consoleLines("log", () => scheduler.processRecurringJobs(nextLaunch("skip-app")));
+  } finally {
+    await releaseAutomationRunLease({ key, owner: leaseOwner });
+  }
+  assert.deepEqual(logs.filter(line => line.includes('"leased"')),
+    ['[recurring-jobs] Job "leased" was skipped because another run holds its run lease.'], "the skip was logged once");
+  const meta = await stored("leased");
+  assert.deepEqual([meta.lastStatus, meta.nextRun], [before.lastStatus, before.nextRun], "the job stays due");
+  assert.deepEqual(await runsOf("skip-app", "leased"), [], "nothing ran");
+});
+
+test("a run lease release the database refuses leaves the run's outcome", async () => {
+  await defineScheduled("release-app", "released");
+  await defineScheduled("release-app", "released-now", "0 0 1 1 *");
+  await makeDue("released");
+  const restore = refuseQueries((sql, args) => /^DELETE FROM automation_scheduler_health\s/.test(sql)
+    && String(args[0]).startsWith("run:"));
+  try {
+    const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("release-app")));
+    assert.ok(warnings.some(line => line.includes('Run lease release for "jobs/released.md" failed')),
+      "the refused release was logged");
+    assert.equal((await stored("released")).lastStatus, "success", "the scheduled run kept its success outcome");
+    const historyId = await startAutomationRun({ owner, automation: "released-now", path: "jobs/released-now.md",
+      scope: "personal", appId: "release-app", dispatchPending: true });
+    const runNow = await scheduler.runQueuedAutomation(historyId, nextLaunch("release-app"));
+    assert.equal(runNow.error, undefined, "Run now returned without an error");
+    assert.equal((await getAutomationRun(historyId)).status, "success", "the Run now row reads success");
+  } finally {
+    restore();
+  }
+  assert.ok((await runLeaseRow("released"))?.leaseOwner, "the row the release could not delete is left to expire");
+});
+
+test("a running mark the scan cannot check leaves the rest of the scan", async () => {
+  await defineScheduled("check-app", "unchecked");
+  await defineScheduled("check-app", "checked-due");
+  await patchStored("unchecked", { lastStatus: "running", lastRun: minutesAgo(11) });
+  await makeDue("checked-due");
+  const restore = refuseQueries((sql, args) => /^INSERT INTO automation_scheduler_health\s/.test(sql)
+    && args[0] === `run:${runLeaseKey("unchecked")}`);
+  let warnings;
+  try {
+    warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("check-app")));
+  } finally {
+    restore();
+  }
+  assert.equal(markCheckFailures(warnings).length, 1, "the failed check was logged");
+  assert.equal((await stored("unchecked")).lastStatus, "running", "the scan left the mark it could not check");
+  assert.deepEqual((await runsOf("check-app", "checked-due")).map(run => run.status), ["success"],
+    "another due automation started in the same tick");
+  assert.equal((await leaseRow("check-app")).lastError, null, "the scan recorded no error");
 });
 
 // Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as

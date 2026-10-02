@@ -6119,10 +6119,10 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..1fdf5618e9cc1ec6799b445622a7ac6d
      return {
          appId: typeof row.app_id === "string"
 diff --git a/dist/jobs/scheduler.d.ts b/dist/jobs/scheduler.d.ts
-index 74b780aee4258ac540ce9feb98106febe05e744a..4e50ae2d1f8b47b240f79f09e0ce4771a36a1fa9 100644
+index 74b780aee4258ac540ce9feb98106febe05e744a..be46e2ca98c0ba5982b4c2d6c7b2d542efdd191b 100644
 --- a/dist/jobs/scheduler.d.ts
 +++ b/dist/jobs/scheduler.d.ts
-@@ -24,9 +24,11 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
+@@ -24,9 +24,12 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
  /**
   * Process all due recurring jobs. Called every 60 seconds.
   *
@@ -6132,20 +6132,22 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..4e50ae2d1f8b47b240f79f09e0ce4771
 + * Vivary #139: scans never overlap, because each one holds the app's scheduler
 + * lease. Sweeps do overlap while their runs execute, because a sweep releases
 + * that lease before it starts the jobs it reserved and settles after they end.
-+ * Each run holds its automation's run lease until its outcome is written, so
-+ * a job never runs twice at once and never makes other due jobs wait.
++ * A scheduled run or Run now holds its automation's run lease until its
++ * outcome is written, and a paired-host run until it is queued, so a job never
++ * runs twice at once and never makes other due jobs wait.
   */
  export declare function processRecurringJobs(deps: SchedulerDeps): Promise<void>;
  export declare const jobRunCutOffReason: typeof backgroundRunCutOffReason;
-@@ -40,6 +42,15 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
+@@ -40,6 +43,16 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
      historyId?: string;
      path?: string;
  }): Promise<JobExecutionResult>;
 +/**
 + * Vivary #114. Stop this process's automations for a normal quit: take no new
 + * lease, start no run, interrupt in-process runs, and wait for them to record
-+ * their outcome and release their run leases, or for `timeoutMs` (10 seconds
-+ * by default). It writes nothing itself. Later calls return the first stop.
++ * their outcome and release any run lease they hold, or for `timeoutMs` (10
++ * seconds by default). It writes nothing itself. Later calls return the first
++ * stop.
 + */
 +export declare function stopRecurringJobs(options?: {
 +    timeoutMs?: number;
@@ -6154,7 +6156,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..4e50ae2d1f8b47b240f79f09e0ce4771
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f0822164191ffb0c7 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497acfaf780 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,10 +1,11 @@
@@ -6189,7 +6191,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
  async function recordSchedulerHealthForScopes(input) {
      const orgIds = [...new Set(input.orgIds)];
      const scopes = orgIds.length > 0 ? orgIds : [null];
-@@ -63,11 +74,19 @@ function subscribeToJobsResourceEvents() {
+@@ -63,11 +74,20 @@ function subscribeToJobsResourceEvents() {
  /**
   * Process all due recurring jobs. Called every 60 seconds.
   *
@@ -6199,8 +6201,9 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
 + * Vivary #139: scans never overlap, because each one holds the app's scheduler
 + * lease. Sweeps do overlap while their runs execute, because a sweep releases
 + * that lease before it starts the jobs it reserved and settles after they end.
-+ * Each run holds its automation's run lease until its outcome is written, so
-+ * a job never runs twice at once and never makes other due jobs wait.
++ * A scheduled run or Run now holds its automation's run lease until its
++ * outcome is written, and a paired-host run until it is queued, so a job never
++ * runs twice at once and never makes other due jobs wait.
   */
 -export async function processRecurringJobs(deps) {
 +export function processRecurringJobs(deps) {
@@ -6213,7 +6216,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      const leaseOwner = await acquireAutomationSchedulerLease({
          appId: deps.appId,
      });
-@@ -81,11 +100,13 @@ export async function processRecurringJobs(deps) {
+@@ -81,11 +101,13 @@ export async function processRecurringJobs(deps) {
              console.warn("[recurring-jobs] Scheduler lease renewal failed:", error instanceof Error ? error.message : error);
          });
      }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
@@ -6228,7 +6231,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      }
      catch (error) {
          primaryFailed = true;
-@@ -107,9 +128,25 @@ export async function processRecurringJobs(deps) {
+@@ -107,9 +129,25 @@ export async function processRecurringJobs(deps) {
              }
          }
      }
@@ -6254,7 +6257,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
  async function processRecurringJobsWithLease(deps) {
      subscribeToJobsResourceEvents();
      // Skip if we recently confirmed there are no job resources to run.
-@@ -128,10 +165,10 @@ async function processRecurringJobsWithLease(deps) {
+@@ -128,10 +166,10 @@ async function processRecurringJobsWithLease(deps) {
              orgIds: [],
              checkedAt: nowMs,
          });
@@ -6267,7 +6270,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      const healthOrgIds = new Set();
      let healthError = null;
      let dispatchedAt;
-@@ -140,7 +177,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -140,7 +178,7 @@ async function processRecurringJobsWithLease(deps) {
          _hasJobsCache = jobResources.some((r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"));
          _lastJobsCheck = nowMs;
          if (!_hasJobsCache)
@@ -6276,7 +6279,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
          const now = new Date();
          const dueJobCandidates = [];
          for (const resource of jobResources) {
-@@ -163,8 +200,12 @@ async function processRecurringJobsWithLease(deps) {
+@@ -163,8 +201,12 @@ async function processRecurringJobsWithLease(deps) {
                  null);
              // A host-targeted run is reconciled from the durable relay command. It
              // must never fall back to this scheduler after the laptop disconnects.
@@ -6290,13 +6293,14 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
                  continue;
              }
              // Skip disabled or missing schedule
-@@ -174,17 +215,24 @@ async function processRecurringJobsWithLease(deps) {
+@@ -174,17 +216,25 @@ async function processRecurringJobsWithLease(deps) {
                  continue;
              // Skip if currently running, unless it has been stuck for more than 10 minutes
              // (server crash mid-job leaves lastStatus=running forever without this guard)
-+            // Vivary #139: a run holds its run lease until its outcome is written,
-+            // so a held lease means a live run, however old its mark. A mark that
-+            // no run lease covers, such as an event run's, keeps the time window.
++            // Vivary #139: a scheduled run or Run now holds its run lease until
++            // its outcome is written, so a held lease means a live run, however
++            // old its mark. A mark that no run lease covers, such as an event
++            // run's, keeps the time window.
              if (meta.lastStatus === "running") {
 -                if (isBackgroundAutomationRunActive(meta, now))
 -                    continue;
@@ -6325,7 +6329,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
                  continue;
              }
              // Check if due
-@@ -213,7 +261,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -213,7 +263,7 @@ async function processRecurringJobsWithLease(deps) {
                  _preflightingScheduledJobs.has(key)) {
                  continue;
              }
@@ -6334,7 +6338,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
          }
          const preflightCandidates = [];
          for (const candidate of dueJobCandidates) {
-@@ -257,6 +305,10 @@ async function processRecurringJobsWithLease(deps) {
+@@ -257,6 +307,10 @@ async function processRecurringJobsWithLease(deps) {
                  _preflightingScheduledJobs.delete(candidate.key);
              }
          }
@@ -6345,7 +6349,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
          if (dueJobs.length > 0)
              dispatchedAt = Date.now();
          await recordSchedulerHealthForScopes({
-@@ -265,17 +317,9 @@ async function processRecurringJobsWithLease(deps) {
+@@ -265,17 +319,9 @@ async function processRecurringJobsWithLease(deps) {
              checkedAt: Date.now(),
              dispatchedAt,
          });
@@ -6366,7 +6370,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      }
      catch (err) {
          // Transient WS / connection drops (Neon serverless): silently retry next
-@@ -286,7 +330,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -286,7 +332,7 @@ async function processRecurringJobsWithLease(deps) {
              healthError = "The scheduler could not reach the database.";
              _hasJobsCache = undefined; // force re-check on next successful tick
              _lastJobsCheck = 0;
@@ -6375,7 +6379,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
          }
          // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
          const detail = err instanceof Error
-@@ -299,7 +343,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -299,7 +345,7 @@ async function processRecurringJobsWithLease(deps) {
          // A scan can fail after reserving a job but before dispatching it. Do not
          // leave that reservation blocking the job on every subsequent tick.
          for (const key of reservedJobKeys) {
@@ -6384,7 +6388,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
                  _activeScheduledJobs.delete(key);
          }
          await recordSchedulerHealthForScopes({
-@@ -310,6 +354,68 @@ async function processRecurringJobsWithLease(deps) {
+@@ -310,6 +356,68 @@ async function processRecurringJobsWithLease(deps) {
              error: healthError,
          });
      }
@@ -6453,7 +6457,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
  }
  async function recoverStaleAutomationHistory(owner, path) {
      const automation = path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -324,7 +430,7 @@ async function recoverStaleAutomationHistory(owner, path) {
+@@ -324,7 +432,7 @@ async function recoverStaleAutomationHistory(owner, path) {
              (run.status !== "running" && run.status !== "interrupted")) {
              return;
          }
@@ -6462,7 +6466,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -430,135 +536,170 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -430,135 +538,174 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
      // Manual runs use the same resource row as scheduled runs for concurrency
      // protection. The check is paired with the conditional write below: two
      // requests that read the same idle snapshot cannot both claim it.
@@ -6493,12 +6497,21 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
 -        return {
 -            status: "error",
 -            error: "The automation changed before the run could start.",
+-        };
 +    // Vivary #139: the run lease covers this run in every process until its
-+    // outcome is written, so no scan reads it as stuck, and a lease another run
-+    // holds means that run is live. A scheduled job then stays due.
++    // outcome is written, or until a paired-host run is queued, so no scan
++    // reads it as stuck, and a lease another run holds means that run is live.
++    // A scheduled job then stays due.
 +    const runLease = await holdRunLease(deps.appId, resource);
-+    if (!runLease)
++    if (!runLease) {
++        if (!options.manual)
++            console.log(`[recurring-jobs] Job "${jobName}" was skipped because another run holds its run lease.`);
 +        return refuseAlreadyRunning(options.historyId);
+     }
+-    const prompt = options.manual
+-        ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+-        : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
+-    if (meta.executionHostId) {
 +    try {
 +        // Vivary #114: the fields the mark replaces, written back when a quit
 +        // begins before a remote dispatch.
@@ -6506,12 +6519,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
 +            lastRun: meta.lastRun,
 +            lastStatus: meta.lastStatus,
 +            lastError: meta.lastError,
-         };
--    }
--    const prompt = options.manual
--        ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
--        : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
--    if (meta.executionHostId) {
++        };
 +        // Mark as running
 +        meta.lastRun = now.toISOString();
 +        meta.lastStatus = "running";
@@ -6740,7 +6748,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      }
  }
  /** Execute one stored automation without changing its scheduled next run. */
-@@ -577,7 +718,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+@@ -577,7 +724,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -6752,7 +6760,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +730,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +736,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -6762,7 +6770,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +746,36 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +752,36 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }
@@ -6770,8 +6778,8 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f08221641
 + * Vivary #114. Stop this process's automations for a normal quit. Sweeps take
 + * no new lease and start no job, a queued Run now row stays unclaimed, and
 + * every in-process run is aborted with the reason `shutdown`, including one
-+ * that starts later. Each run then records itself interrupted and releases its
-+ * run lease. The stop waits for that
++ * that starts later. Each run then records itself interrupted, and a scheduled
++ * run or Run now releases its run lease. The stop waits for that
 + * work, including work the runner tracks after the stop began, or for
 + * `timeoutMs`, whichever comes first. It writes nothing itself,
 + * so whatever has not settled by then is left to the lease expiry and the
