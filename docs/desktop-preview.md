@@ -178,17 +178,20 @@ Each run writes one chat thread, named `Job: <name>` for a scheduled run and
 yet. Chat history does not list them, and **Details** cannot open one. A run can read
 your resources, change your personal resources, memory, chat history, and progress, and
 notify you in the in-app inbox. It cannot write or delete shared files.
-An instruction, skill, or memory file a run writes waits for you: `AGENTS.md` or a file
-under `instructions/`, `skills/`, or `memory/`. A run cannot write the shared
-`LEARNINGS.md`. Chats and later runs do not load a waiting file, and a chat's prompt
-says only how many files wait. Settings > **Automation files** lists each waiting file
-with its text. Read it, then choose **Accept** to let chats and runs load it, or
-**Delete** to remove the whole file, including anything that was in it before the run.
-If the file changed after the list showed it, Accept and Delete do nothing, and the file
-shows its new text with a notice. Read it again before you choose. A file you or a chat
-edit after the run keeps waiting. A run can still delete one of your instruction files,
-and a run that rewrites one hides your earlier text too until you review it. [Issue
-#144](https://github.com/vivary-dev/vivary/issues/144) tracks both.
+An instruction, skill, or memory change a run writes waits for you:
+AGENTS.md or a file under instructions/, skills/, or memory/. A run cannot
+write the shared LEARNINGS.md or delete your instruction and memory files.
+Chats and later runs keep using the saved accepted text while a proposal waits.
+Settings > **Automation files** lists the proposed text. **Accept** makes that
+version active. **Discard** restores the saved previous version, or removes the
+proposal if none was saved. An earlier pending file created before this fix
+has no saved previous version, so its overwritten text cannot be recovered.
+
+If the file changed after the list showed it, Accept and Discard do nothing,
+and the file shows its new text with a notice. Read it again before choosing.
+Edits by you or a chat keep the proposal waiting. Accept or discard a proposal
+before moving its path. The prompt reports the number of waiting files without
+quoting their proposed text.
 A run cannot send email or messages, reach the web or other agents, use MCP tools, or
 change settings, jobs, or automations. An automation that lists MCP tools fails without
 running.

@@ -4,13 +4,13 @@ import { Button } from "@agent-native/toolkit/ui";
 import { useNativeActionCaller } from "../../lib/native-actions";
 import type { AutomationFile } from "../../../actions/vivary-automation-files";
 
-// Issue #109. The owner's instruction, skill, and memory files that automation runs wrote wait here, and no chat or
-// run loads one until the owner accepts it. The text shows as plain text, so a planted link or image does nothing.
+// Automation proposals wait here while chats keep using the last accepted instructions.
+// Proposed text renders as plain text, so a link or image cannot run.
 export function AutomationFileReview() {
   const { call, ready } = useNativeActionCaller();
   const [files, setFiles] = useState<AutomationFile[]>([]);
   const [listFailed, setListFailed] = useState(false);
-  // The file whose Accept or Delete was refused because it changed since the list showed it. The action answers that
+  // The file whose Accept or Discard was refused because it changed since the list showed it. The action answers that
   // refusal, and only that one, with 409.
   const [changedId, setChangedId] = useState<string | null>(null);
   const load = useCallback(async () => {
@@ -37,8 +37,9 @@ export function AutomationFileReview() {
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Automation files</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Instruction, skill, and memory files that automation runs wrote wait here. Chats and automation runs do not
-          load a file until you accept it. Delete removes the whole file.
+          Instruction, skill, and memory changes written by automation runs wait here. Chats and automation runs keep
+          using the previous accepted version. Accept loads the proposed text. Discard restores the saved previous
+          version. If none was saved, it removes the proposed file.
         </p>
         {listFailed && (
           <p role="alert" className="mt-2 text-sm text-destructive">
@@ -55,12 +56,12 @@ export function AutomationFileReview() {
             </pre>
             {file.id === changedId && (
               <p role="alert" className="text-sm text-destructive">
-                This file changed since the list showed it. Read it again before you accept or delete it.
+                This file changed since the list showed it. Read it again before you accept or discard it.
               </p>
             )}
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void review(file, "accept")}>Accept</Button>
-              <Button variant="destructive" size="sm" onClick={() => void review(file, "delete")}>Delete</Button>
+              <Button variant="destructive" size="sm" onClick={() => void review(file, "delete")}>Discard</Button>
             </div>
           </li>
         ))}
