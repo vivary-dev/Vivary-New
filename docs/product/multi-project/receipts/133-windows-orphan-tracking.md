@@ -54,11 +54,39 @@ after completion implies about 1.90 seconds between scan starts.
 
 ## Packaged Windows acceptance
 
-A new package with this change has not yet completed acceptance. The planned
-journey uses the production Code worker and scanner with an external synthetic
-CLI. It starts an intermediary and a real detached child, waits for the
-intermediary to exit, then exercises Stop and End them through the app. A
-separate process using the same executable serves as the positive control.
+The unpublished Windows package was built from clean source commit
+`042dce25bd111405988216324fe4b4ba9af66d35`. Its source snapshot reports no tracked
+overlay. The build and the existing built-server smoke test passed on Zo before
+packaging. The archive was checked before extraction on Windows.
+
+- Archive size: 222,617,061 bytes.
+- Archive SHA-256: `5c4d8f4e738b14a1490ad372fb2074940d1666d56dba3cc61150aeb52decdc66`.
+- Bundled Node: v24.19.0. Electron: v44.3.0.
+
+The journey used the production Code worker, Windows scanner, cleanup actions,
+and app UI with an external offline Codex CLI fixture. It made no provider call.
+A normal project Code turn returned `ready` before the orphan test.
+
+The fixture launched an intermediary and a real detached child. The intermediary
+exited after 15 seconds. Before Stop, an operating-system check confirmed that
+the parent had ended while its child, PID 29320, remained alive. A separately
+launched Node process, PID 26856, used the same executable as a control.
+
+Stop displayed only the orphan in the cleanup strip, by name and PID. End them
+removed it, cleared the strip, and allowed the next Code turn to return `ready`.
+The post-action check found the orphan gone 84.898 seconds after it started,
+before its 120-second fallback. The control retained its PID and creation time,
+remained alive, and advanced its heartbeat. Normal app close left no candidate
+processes.
+
+The first fixture attempt returned the wrong conversation ID on resume, which
+the app refused before starting a turn. The corrected fixture passed all five
+protocol smoke tests. An earlier orphan run passed cleanup, but its control
+expired before the follow-up check. The repeated run above provides the control
+survival evidence. Neither fixture correction changed the packaged application.
+Screenshots and names-only process snapshots remain in private acceptance
+artifacts. This receipt records targeted tests and packaged acceptance. The PR
+records final CI status.
 
 ## Limits
 
@@ -72,4 +100,5 @@ separate process using the same executable serves as the positive control.
   Overflow or an unavailable final scan refuses another Code run.
 - The query requests only PID, parent PID, creation time, and process name.
   It never requests command lines, paths, or owners.
+- The packaged journey did not use a real provider or force a host crash.
 - This work does not use Windows Job Objects.
