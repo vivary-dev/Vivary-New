@@ -1049,3 +1049,154 @@ test("the Windows worker's identity spans its fork readings and its children end
   "an exit Vivary did not observe leaves the children's window open");
   assert.equal(await target(undefined, 60_000), null, "a worker that never got a PID has no target");
 });
+
+// Issue #133. Real worker IPC and exit, with names-only Windows scan rows and taskkill supplied by fixtures.
+// A fixed host clock gives the synthetic rows the worker's fork identity without relying on process-start timing.
+async function windowsOrphanFixture() {
+  const fixture = await mkdtemp(path.join(tmpdir(), "vivary-code-orphan-"));
+  const server = path.join(fixture, ".output", "server");
+  const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
+  const received = path.join(fixture, "received.json");
+  const phase = path.join(fixture, "phase");
+  const scans = path.join(fixture, "scans.jsonl");
+  const hold = path.join(fixture, "hold");
+  const done = path.join(fixture, "done");
+  const stopped = path.join(fixture, "stopped");
+  await mkdir(server, { recursive: true });
+  await mkdir(scanner, { recursive: true });
+  await writeFile(phase, "linked");
+  await writeFile(path.join(server, "vivary-code-worker.mjs"), `
+import { existsSync, writeFileSync } from "node:fs";
+process.on("message", message => {
+  if (message.type !== "vivary:code-worker:start") return;
+  writeFileSync(${JSON.stringify(received)}, JSON.stringify({ worker: process.pid }));
+  const tick = setInterval(() => {
+    if (!existsSync(${JSON.stringify(done)})) return;
+    clearInterval(tick);
+    process.send({ type: "vivary:code-worker:done", runId: message.runId });
+  }, 10);
+});
+process.send({ type: "vivary:code-worker:ready" });
+`);
+  await writeFile(path.join(scanner, "scanner.mjs"), `
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
+appendFileSync(${JSON.stringify(scans)}, JSON.stringify({ event: "start", args: process.argv.slice(2) }) + "\\n");
+while (!existsSync(${JSON.stringify(received)}) || existsSync(${JSON.stringify(hold)})) await delay(10);
+const { worker } = JSON.parse(readFileSync(${JSON.stringify(received)}, "utf8"));
+const phase = readFileSync(${JSON.stringify(phase)}, "utf8");
+const stopped = existsSync(${JSON.stringify(stopped)});
+const rows = [[4, 0, null, "System"]];
+if (!stopped) rows.push([worker, 1, 100000, "worker.exe"]);
+if (phase === "linked") rows.push([41001, worker, 100010, "launcher.exe"], [41002, 41001, 100020, "orphan.exe"]);
+else if (phase === "orphan") rows.push([41002, 41001, 100020, "orphan.exe"], [41003, 41001, 100030, "ambiguous.exe"]);
+else if (phase === "direct") rows.push([41004, worker, 100010, "leftover.exe"]);
+else if (phase === "reused") rows.push([41002, 77, 100040, "unrelated.exe"]);
+for (const [pid, parent, created, name] of rows) {
+  const stamp = created === null ? "" : String(BigInt(created) * 10000n + 116444736000000000n);
+  process.stdout.write([pid, parent, stamp, name].join("\\t") + "\\n");
+}
+process.stdout.write("END\\t" + rows.length + "\\n");
+appendFileSync(${JSON.stringify(scans)}, JSON.stringify({ event: "end", phase, stopped }) + "\\n");
+`, { mode: 0o755 });
+  await writeFile(path.join(scanner, "powershell.exe"),
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(scanner, "scanner.mjs"))} "$@"\n`,
+    { mode: 0o755 });
+  await writeFile(path.join(fixture, "System32", "taskkill.exe"),
+    `#!/bin/sh\nprintf stopped > ${JSON.stringify(stopped)}\nkill -9 "$2"\n`, { mode: 0o755 });
+  const events = async () => (await readFile(scans, "utf8").catch(() => "")).trim().split("\n")
+    .filter(Boolean).map(line => JSON.parse(line));
+  const waitForScan = async (event: string, count: number) => {
+    const signal = AbortSignal.timeout(5_000);
+    try {
+      while ((await events()).filter(item => item.event === event).length < count) await delay(20, undefined, { signal });
+    } catch (error) {
+      if (signal.aborted) assert.fail("The active Windows run did not record scan " + event + " " + count);
+      throw error;
+    }
+  };
+  return { fixture, received, phase, hold, done, events, waitForScan };
+}
+
+for (const scenario of ["orphan", "direct", "reused"]) test(
+  `Windows active descendant tracking: ${scenario} after successful taskkill`,
+  { timeout: WORKER_TEST_TIMEOUT_MS, skip: process.platform === "win32" }, async t => {
+    t.mock.method(Date, "now", () => 100_000);
+    const proof = await windowsOrphanFixture();
+    if (scenario === "orphan") await writeFile(proof.hold, "");
+    // guard:allow-env-credential - Directs fixed Windows executables to this test's process fixtures.
+    const systemRoot = process.env.SystemRoot;
+    try {
+      // guard:allow-env-credential - Directs fixed Windows executables to this test's process fixtures.
+      process.env.SystemRoot = proof.fixture;
+      process.chdir(proof.fixture);
+      await asWindows(async () => {
+        const controller = new AbortController();
+        const refusals: { target: CleanupTarget | null }[] = [];
+        const outcome = executeVivaryCodeWorker({ runId: request.runId, prompt: "observe descendants",
+          ownerEmail: request.ownerEmail, signal: controller.signal,
+          onStopFailed: refusal => { refusals.push(refusal); } }).then(() => null, (error: unknown) => error);
+        try {
+          await waitForPids(proof.received, t.signal);
+          if (scenario !== "direct") {
+            if (scenario === "orphan") {
+              await proof.waitForScan("start", 1);
+              await delay(1_300);
+              assert.equal((await proof.events()).filter(item => item.event === "start").length, 1,
+                "a held scan does not overlap another periodic scan");
+              await rm(proof.hold);
+            }
+            await proof.waitForScan("end", 1);
+            await writeFile(proof.phase, scenario);
+            await proof.waitForScan("end", 2);
+          } else {
+            await writeFile(proof.phase, "direct");
+          }
+          await writeFile(proof.done, "");
+          const error = await outcome;
+          if (scenario === "reused") {
+            assert.equal(error, null, "a reused orphan PID does not belong to the completed run");
+            assert.equal(refusals.length, 0);
+            return;
+          }
+          assert.ok(error instanceof VivaryCodeWorkerCleanupError, "successful taskkill still checks for descendants");
+          assert.equal(error.cause?.step, "exit");
+          const check = error.leftovers?.check;
+          assert.ok(check?.result === "remaining");
+          const expected = scenario === "orphan" ? [41002, 41003] : [41004];
+          assert.deepEqual(check.remaining.map(item => item.pid).sort(), expected);
+          assert.equal(refusals.length, 1, "the existing refusal strip receives the failed cleanup");
+          const ended: number[] = [];
+          await endWorkerLeftovers(check.target, check.remaining, {
+            bootId: async () => null,
+            proc: { signalGroup: () => undefined, list: async () => [], stat: async () => "", kill: () => undefined },
+            windowsProcesses: async () => [],
+            windowsEnd: async processes => {
+              ended.push(...processes.map(item => item.pid));
+              return processes.map(item => ({ ...item, outcome: "ended" }));
+            },
+          });
+          assert.deepEqual(ended, scenario === "orphan" ? [41002] : [41004],
+            "End them uses observed live ancestry, never the ambiguous child of a historical parent");
+          const calls = await proof.events();
+          for (const call of calls.filter(item => item.event === "start")) {
+            assert.ok(call.args.join(" ").includes("SELECT ProcessId,ParentProcessId,Name,CreationDate FROM Win32_Process"));
+            assert.doesNotMatch(call.args.join(" "), /CommandLine/);
+          }
+          await delay(1_200);
+          assert.deepEqual(await proof.events(), calls, "settled runs start no more scans");
+        } finally {
+          await rm(proof.hold, { force: true });
+          controller.abort();
+          await outcome;
+        }
+      });
+    } finally {
+      process.chdir(originalCwd);
+      // guard:allow-env-credential - Restores the original fixed Windows executable directory.
+      if (systemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = systemRoot;
+      const pid = await readFile(proof.received, "utf8").then(value => Number(JSON.parse(value).worker), () => 0);
+      if (pid && await isAlive(pid)) process.kill(pid, "SIGKILL");
+      await rm(proof.fixture, { recursive: true, force: true });
+    }
+  });
