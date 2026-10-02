@@ -1783,6 +1783,8 @@ accepted content, metadata, MIME type, visibility, expiry and origin in one
 conditional update. If no predecessor was saved, it deletes the proposal with
 the existing full-row comparison. Both decisions refuse a changed version.
 The list rechecks ownership and pending state after reading each body.
+An unconfirmed decision shows a notice until that file has a confirmed decision.
+A successful review of another file cannot clear that notice.
 The owner action remains unavailable to chats, MCP clients and automation
 runs. Its internal delete operation now means discarding a proposal.
 A pending proposal must be accepted or discarded before moving its path.
@@ -1818,8 +1820,9 @@ wrapper. They cover accepted reads and prompts during proposals, skill loading,
 repeated edits, all deletion boundaries, conditional-write conflicts, reserved
 metadata, stale decisions, list/read races and a fresh process after a proposal.
 The first test commit records 15 failures before the fix. Two later identity-race
-cases also failed before their fixes. All 39 focused cases pass. The Settings component
-tests render the real component with a stubbed action transport.
+cases also failed before their fixes. The Settings component tests render the
+real component with a stubbed action transport. They cover failed Accept and
+Discard requests, successful retries and overlapping decisions on two files.
 
 The older issue #109 packaged result remains in
 [its receipt](../../../docs/product/multi-project/receipts/109-automation-file-review.md).

@@ -189,6 +189,9 @@ has no saved previous version, so its overwritten text cannot be recovered.
 
 If the file changed after the list showed it, Accept and Discard do nothing,
 and the file shows its new text with a notice. Read it again before choosing.
+If a decision cannot be confirmed, Settings shows a separate notice. Check the
+list and try again if that file is still waiting. Reviewing another file does
+not clear the notice.
 Edits by you or a chat keep the proposal waiting. Accept or discard a proposal
 before moving its path. The prompt reports the number of waiting files without
 quoting their proposed text.

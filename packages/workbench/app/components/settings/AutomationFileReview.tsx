@@ -10,6 +10,7 @@ export function AutomationFileReview() {
   const { call, ready } = useNativeActionCaller();
   const [files, setFiles] = useState<AutomationFile[]>([]);
   const [listFailed, setListFailed] = useState(false);
+  const [failedDecisionIds, setFailedDecisionIds] = useState<Set<string>>(() => new Set());
   // The file whose Accept or Discard was refused because it changed since the list showed it. The action answers that
   // refusal, and only that one, with 409.
   const [changedId, setChangedId] = useState<string | null>(null);
@@ -25,11 +26,25 @@ export function AutomationFileReview() {
     if (ready) void load();
   }, [ready, load]);
   async function review(file: AutomationFile, operation: "accept" | "delete") {
-    // A refused review changes nothing. The reloaded list shows the file as it is now, and when it changed, the notice
-    // asks the owner to read it again, so a second click cannot approve text the owner did not see.
-    const changed = await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt })
-      .then(() => false, (error: unknown) => (error as { status?: unknown })?.status === 409);
-    setChangedId(changed ? file.id : null);
+    // Reload every decision. A 409 identifies changed text, while other errors leave the outcome unconfirmed.
+    try {
+      await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt });
+      setChangedId(null);
+      setFailedDecisionIds(ids => {
+        const next = new Set(ids);
+        next.delete(file.id);
+        return next;
+      });
+    } catch (error: unknown) {
+      const changed = typeof error === "object" && error !== null && "status" in error && error.status === 409;
+      setChangedId(changed ? file.id : null);
+      setFailedDecisionIds(ids => {
+        const next = new Set(ids);
+        if (changed) next.delete(file.id);
+        else next.add(file.id);
+        return next;
+      });
+    }
     await load();
   }
   return (
@@ -41,6 +56,11 @@ export function AutomationFileReview() {
           using the previous accepted version. Accept loads the proposed text. Discard restores the saved previous
           version. If none was saved, it removes the proposed file.
         </p>
+        {failedDecisionIds.size > 0 && (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            Your decision could not be confirmed. Check the list and try again if the file is still waiting.
+          </p>
+        )}
         {listFailed && (
           <p role="alert" className="mt-2 text-sm text-destructive">
             The list of waiting files could not load, so files may still be waiting.
