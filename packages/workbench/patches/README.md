@@ -26,7 +26,7 @@ standard string escaping before scoped-view setup or user SQL.
 
 | Inspection | Treatment |
 | --- | --- |
-| `db-query` prefix, protected tables, and schema references | Check the input token stream. Read queries require a complete allowed keyword. WITH and EXPLAIN cannot wrap writes. PRAGMA accepts the listed read operations only. |
+| `db-query` prefix, protected tables, and schema references | Check the input token stream, including qualified tables in comma lists and parenthesized groups. Read queries require a complete allowed keyword. WITH and EXPLAIN cannot wrap writes. PRAGMA accepts the listed read operations only. |
 | `db-query` LIMIT | Find a top-level keyword and insert a requested limit before a terminator or trailing comment. String values, identifiers, and nested queries do not suppress it. |
 | `db-exec` prefix and statement count | Remove real comments as whitespace and accept one statement per batch entry. Quoted punctuation remains data. |
 | Protected and access-control names | Inspect decoded identifiers and parsed write targets and columns. The extensions route keeps its separate, longer protected-table list. |

@@ -7537,12 +7537,12 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..55a607bcfac8168f42feecdebc834dab
                  // transaction-bound backend so pooled Postgres never retains them.
                  const scoping = await buildScopingPostgres(tx);
 diff --git a/dist/scripts/db/safety.js b/dist/scripts/db/safety.js
-index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3aa615812 100644
+index 1965099e723d476f9d2b02e827dc2f63de310308..e58182ceff66f0a3cb653424ce04947edea9b80b 100644
 --- a/dist/scripts/db/safety.js
 +++ b/dist/scripts/db/safety.js
 @@ -1,59 +1,15 @@
  import { fail } from "../utils.js";
-+import { sqlGateText } from "./sql-text.js";
++import { sqlGateText, hasQualifiedTableReference } from "./sql-text.js";
 +import { analyzeWriteSql } from "./sql-write.js";
  // Credential and identity tables are deliberately off-limits to the generic
  // agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
@@ -7607,25 +7607,48 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3
      const match = cleanSql.match(SENSITIVE_FRAMEWORK_TABLE_RE);
      if (!match)
          return;
-@@ -62,7 +18,7 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
+@@ -62,35 +18,15 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
          : operation === "write"
              ? "writable"
              : "patchable";
 -    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`);
 +    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, OAuth, or resources APIs instead.`);
  }
- // Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
- // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
-@@ -88,7 +44,7 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
+-// Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
+-// `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
+-// db-query / db-exec, because those views only shadow UNQUALIFIED table names.
+-// A qualified reference resolves straight to the real base table, defeating the
+-// owner_email / org_id scoping and exposing (or letting writes touch) every
+-// tenant's rows. db-patch already rejects dotted identifiers via
+-// isValidIdentifier; db-query / db-exec must reject them too.
+-//
+-// Two complementary detectors run on the comment/string-stripped SQL:
+-//   1. The schemas that actually HOLD base tables and so defeat scoping when
+-//      named explicitly: `public` (Neon Postgres prod), `main` (SQLite desktop),
+-//      and the Postgres system catalogs. This fires in ANY position, so it also
+-//      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
+-//      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our
+-//      scoping views) live there, so `temp.notes` resolves to the *scoped* view,
+-//      not a bypass, and `temp` is a common table alias we must not reject.
+-//      The schema may be bare or double-quoted (`"public"."notes"`).
+-//   2. Any dotted reference in table position (FROM/JOIN/INTO/UPDATE, incl.
+-//      ONLY/LATERAL), which also catches non-standard schema names. Column /
+-//      alias references like `f.id` sit in select/where/on position, not table
+-//      position, so they do not match — no false positives on ordinary joins.
++// Qualified table references select base tables outside the scoped views.
++// The shared table walk covers joins, comma lists, and parenthesized groups.
  const DANGEROUS_SCHEMA_QUALIFIER_RE = /(?:\b|")(?:main|public|pg_catalog|pg_toast|information_schema)"?\s*\.\s*(?:"|`|\[|[A-Za-z_])/i;
- const TABLE_POSITION_QUALIFIED_RE = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+|LATERAL\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)/i;
+-const TABLE_POSITION_QUALIFIED_RE = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+|LATERAL\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)/i;
  export function assertNoSchemaQualifiedTables(sql, operation) {
 -    const cleanSql = stripSqlNonIdentifiers(sql);
 +    const cleanSql = sqlGateText(sql);
      if (!DANGEROUS_SCHEMA_QUALIFIER_RE.test(cleanSql) &&
-         !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)) {
+-        !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)) {
++        !hasQualifiedTableReference(sql)) {
          return;
-@@ -132,6 +88,7 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
+     }
+     const verb = operation === "read" ? "queried" : "written";
+@@ -132,6 +68,7 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
      "members",
      "owner",
      "owner_email",
@@ -7633,7 +7656,7 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3
      "permission",
      "permissions",
      "privilege",
-@@ -161,55 +118,16 @@ function hasSensitiveToken(identifier, sensitiveTokens) {
+@@ -161,55 +98,16 @@ function hasSensitiveToken(identifier, sensitiveTokens) {
      }
      return null;
  }
@@ -7694,10 +7717,10 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3
              continue;
 diff --git a/dist/scripts/db/sql-text.js b/dist/scripts/db/sql-text.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1e45263c7
+index 0000000000000000000000000000000000000000..1bd7173cab641710fa79d51f210619defd133133
 --- /dev/null
 +++ b/dist/scripts/db/sql-text.js
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,182 @@
 +import { fail } from "../utils.js";
 +
 +export const keyword = (token, word) => token?.kind === "word" && token.value.toUpperCase() === word;
@@ -7714,7 +7737,6 @@ index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1
 +        const start = i;
 +        const ch = sql[i];
 +        if (/\s/.test(ch)) { i++; continue; }
-+        if (ch === "\0") fail("SQL must not contain a NUL character.");
 +        let kind = "symbol";
 +        let value;
 +        if (sql.startsWith("--", i)) {
@@ -7808,7 +7830,7 @@ index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1
 +}
 +
 +// SQLite accepts a single-quoted table name in an identifier-only position.
-+function tableNameStrings(tokens) {
++function tableReferences(tokens) {
 +    const names = new Set();
 +    const contexts = new Map();
 +    for (let index = 0; index < tokens.length; index++) {
@@ -7824,6 +7846,7 @@ index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1
 +                context = { from: false, expect: false };
 +            }
 +            else if (context.expect && !["ONLY", "LATERAL", "OR", "ROLLBACK", "ABORT", "FAIL", "IGNORE", "REPLACE"].includes(word)) {
++                names.add(token);
 +                context.expect = false;
 +            }
 +        }
@@ -7838,7 +7861,7 @@ index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1
 +            context.expect = true;
 +        }
 +        else if (token.kind === "string" || token.kind === "identifier") {
-+            if (context.expect && token.kind === "string") names.add(token);
++            if (context.expect) names.add(token);
 +            context.expect = false;
 +        }
 +        contexts.set(level, context);
@@ -7846,12 +7869,20 @@ index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1
 +    return names;
 +}
 +
++export function hasQualifiedTableReference(sql) {
++    const tokens = tokenizeSql(sql).filter(token => token.kind !== "comment");
++    const references = tableReferences(tokens);
++    return tokens.some((token, index) => references.has(token) &&
++        tokens[index + 1]?.kind === "symbol" && tokens[index + 1].value === "." &&
++        ["word", "identifier", "string"].includes(tokens[index + 2]?.kind));
++}
++
 +export function sqlGateText(sql) {
 +    const tokens = tokenizeSql(sql).filter(token => token.kind !== "comment");
-+    const names = tableNameStrings(tokens);
++    const names = tableReferences(tokens);
 +    return tokens.map(token => {
 +        if (token.kind === "string" && !names.has(token)) return "''";
-+        if (token.kind === "identifier" || names.has(token))
++        if (token.kind === "identifier" || (token.kind === "string" && names.has(token)))
 +            return '"' + token.value.replace(/"/g, '""') + '"';
 +        return token.value;
 +    }).join(" ");
