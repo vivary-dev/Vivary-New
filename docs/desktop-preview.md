@@ -251,15 +251,19 @@ Anthropic key.
 An event automation runs when something happens inside Vivary. Vivary emits six events:
 `agent.turn.completed` when a Native chat reply finishes, `notification.sent` when a
 notification reaches your inbox, `run.progress.started` and `run.progress.updated` when
-a run reports progress, `automation.run.finished` when an automation run ends, and
-`test.event.fired` when you ask the agent in a chat to fire a test event. The agent
-accepts other event names, but nothing in Vivary emits them, so such an automation never
-runs. An event run uses the provider chosen in Settings, as a scheduled run does. A
-condition on an event automation is checked the same way as a webhook condition, with
-Anthropic's API, whatever provider you use for chats, and Vivary sends the event's data to
-Anthropic for the check. It needs an Anthropic API key. Without one, or when Anthropic
-rejects the key, the event does not start a run, and **Details** shows the reason. Each
-event run writes a chat thread whose name starts with `Trigger: <name>`.
+a run reports progress, `automation.run.finished` when a scheduled, Run now, or webhook
+automation run ends, and `test.event.fired` when you ask the agent in a chat to fire a
+test event. Vivary also fires `automation.run.finished` for a refused, failed, or
+expired webhook call. A run that an event started does not fire
+`automation.run.finished`, so automations on that event cannot keep starting each other.
+An automation also never starts from its own run. The agent accepts other event names,
+but nothing in Vivary emits them, so such an automation never runs. An event run uses
+the provider chosen in Settings, as a scheduled run does. A condition on an event
+automation is checked the same way as a webhook condition, with Anthropic's API,
+whatever provider you use for chats, and Vivary sends the event's data to Anthropic for
+the check. It needs an Anthropic API key. Without one, or when Anthropic rejects the
+key, the event does not start a run, and **Details** shows the reason. Each event run
+writes a chat thread whose name starts with `Trigger: <name>`.
 
 Automations run only while Vivary is open. Closing the Vivary window quits the app, and
 nothing runs while it is closed. After you reopen Vivary, a missed automation runs at most
