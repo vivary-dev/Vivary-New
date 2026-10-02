@@ -6231,10 +6231,10 @@ index 0000000000000000000000000000000000000000..2c7184fb15dd08cab865871ba610777c
 +export declare function restrictActionsForUnattendedRun(actions: Record<string, ActionEntry>, automation?: Pick<BackgroundAutomationContext, "meta">): Record<string, ActionEntry>;
 diff --git a/dist/jobs/unattended-surface.js b/dist/jobs/unattended-surface.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..826786fa43f88ec53aab342c01fb89f05ac6efc4
+index 0000000000000000000000000000000000000000..809916ffaea0d49365eb9e331ea2f3138fa47aab
 --- /dev/null
 +++ b/dist/jobs/unattended-surface.js
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,192 @@
 +/**
 + * Local-only tool surface for unattended automation runs.
 + *
@@ -6244,9 +6244,13 @@ index 0000000000000000000000000000000000000000..826786fa43f88ec53aab342c01fb89f0
 + * settings, jobs, or automations. This is an allowlist, so a tool that a later
 + * Core release adds stays out of automation runs until someone reviews it.
 + *
-+ * The background runner applies `restrictActionsForUnattendedRun`. The kept
-+ * tools also call `unattendedToolRefusal` themselves when their caller is
-+ * "automation", so a tool reached some other way enforces the same limits.
++ * The background runner applies `restrictActionsForUnattendedRun`. resources,
++ * chat-history, save-memory, delete-memory, manage-jobs, manage-automations,
++ * and manage-notifications also check an "automation" caller themselves, so
++ * a call that reaches them some other way gets the same limits. The three
++ * lookups, docs-search, framework-search, and source-search, rely on the run
++ * surface. On any other path, the CLI bridge's declared-name check refuses an
++ * unsafe name with its own text.
 + */
 +import path from "node:path";
 +import { getRequestContext, runWithRequestContext } from "../server/request-context.js";
@@ -6813,16 +6817,18 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..3b6c8b80e6e16b2625ec923b9d5c3bf4
  // Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
  // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
 diff --git a/dist/scripts/parse-args.d.ts b/dist/scripts/parse-args.d.ts
-index 822e93d0a36d7935137bb9dd210ef86e7c96a94a..7dc3e515fcb30c3b35103bc635c78b61808f5837 100644
+index 822e93d0a36d7935137bb9dd210ef86e7c96a94a..0ba3d95508aab05f295901c04833e8179a1baf6a 100644
 --- a/dist/scripts/parse-args.d.ts
 +++ b/dist/scripts/parse-args.d.ts
-@@ -7,6 +7,18 @@
+@@ -7,6 +7,20 @@
   * Supports: --key value, --key=value, --flag (boolean true)
   */
  export declare function parseArgs(args: string[]): Record<string, string>;
 +/**
-+ * True for an argument name that parseArgs would split, read as a flag, or
-+ * drop. It drops "__proto__", which an assignment to a plain object ignores.
++ * True for an argument name that no script may receive. parseArgs splits a
++ * name that holds "=" and drops "__proto__", which an assignment to a plain
++ * object ignores. A name that starts with "-" reads back as itself, and the
++ * bridge's rule refuses it anyway.
 + */
 +export declare function isUnsafeArgumentName(name: string): boolean;
 +/**
@@ -6836,16 +6842,18 @@ index 822e93d0a36d7935137bb9dd210ef86e7c96a94a..7dc3e515fcb30c3b35103bc635c78b61
   * Convert kebab-case keys to camelCase.
   */
 diff --git a/dist/scripts/parse-args.js b/dist/scripts/parse-args.js
-index dd3c207db1c60bd1156e13169f6dd093fbd32120..93f13137262d7428e75a80acd825c5dbc724a5c9 100644
+index dd3c207db1c60bd1156e13169f6dd093fbd32120..f0c7f77490dd2c6e719d8c39348c6e414c630075 100644
 --- a/dist/scripts/parse-args.js
 +++ b/dist/scripts/parse-args.js
-@@ -31,6 +31,31 @@ export function parseArgs(args) {
+@@ -31,6 +31,33 @@ export function parseArgs(args) {
      }
      return result;
  }
 +/**
-+ * True for an argument name that parseArgs would split, read as a flag, or
-+ * drop. It drops "__proto__", which an assignment to a plain object ignores.
++ * True for an argument name that no script may receive. parseArgs splits a
++ * name that holds "=" and drops "__proto__", which an assignment to a plain
++ * object ignores. A name that starts with "-" reads back as itself, and the
++ * bridge's rule refuses it anyway.
 + */
 +export function isUnsafeArgumentName(name) {
 +    return name.includes("=") || name.startsWith("-") || name === "__proto__";
@@ -7276,10 +7284,10 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..964d93258c786b2eb4e42af80f05d703
          return "";
      let selectedSections = sections.map((section) => section.content);
 diff --git a/dist/server/agent-chat/script-entries.js b/dist/server/agent-chat/script-entries.js
-index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae04a07077 100644
+index ea9fd705f1741f2988ac6fca3498c9a831811a7d..99142fc8d5899f6a2bd057414a28d561185c1ea2 100644
 --- a/dist/server/agent-chat/script-entries.js
 +++ b/dist/server/agent-chat/script-entries.js
-@@ -1,13 +1,37 @@
+@@ -1,13 +1,38 @@
 +import { fail } from "../../action.js";
  import { renameThread, resolveThreadAccess, setThreadArchived, setThreadPinned, } from "../../chat-threads/store.js";
  import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
@@ -7304,8 +7312,9 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
 +    };
 +}
 +/**
-+ * Refuse an argument name the schema does not declare. fail() keeps the
-+ * text on the action HTTP route.
++ * Refuse an argument name the schema does not declare. fail() gives the
++ * refusal the error code unknown_argument, which runToolCall appends to the
++ * text the model reads.
 + */
 +function assertDeclaredArguments(parameters, args) {
 +    const declared = parameters.properties;
@@ -7317,7 +7326,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
  /**
   * Wraps a core CLI script (that writes to console.log) as a ActionEntry
   * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
-@@ -15,27 +39,32 @@ import { getAmbientUserEmail, getRequestOrgId, getRequestRunContext, getRequestU
+@@ -15,27 +40,32 @@ import { getAmbientUserEmail, getRequestOrgId, getRequestRunContext, getRequestU
   * (see `cli-capture.ts`).
   */
  function wrapCliScript(tool, cliDefault, opts) {
@@ -7366,7 +7375,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
          },
      };
  }
-@@ -81,7 +110,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
+@@ -81,7 +111,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
                      },
                  },
              }, schemaMod.default, {
@@ -7374,7 +7383,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                  readOnly: true,
              }),
              "db-query": wrapCliScript({
-@@ -110,7 +138,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
+@@ -110,7 +139,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
                      required: ["sql"],
                  },
              }, queryMod.default, {
@@ -7382,7 +7391,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                  readOnly: true,
              }),
          };
-@@ -290,6 +317,59 @@ export function shouldDefaultResourceWriteToWorkspace(path) {
+@@ -290,6 +318,59 @@ export function shouldDefaultResourceWriteToWorkspace(path) {
  export function shouldDefaultResourceWriteToShared(path) {
      return path.replace(/^\/+/, "") === "LEARNINGS.md";
  }
@@ -7442,7 +7451,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
  export async function createResourceScriptEntries() {
      try {
          const [list, read, effective, write, del, saveMem, delMem, store] = await Promise.all([
-@@ -303,83 +383,16 @@ export async function createResourceScriptEntries() {
+@@ -303,83 +384,16 @@ export async function createResourceScriptEntries() {
              import("../../resources/store.js"),
          ]);
          // Wrap each CLI runner so it captures stdout and converts args properly
@@ -7532,7 +7541,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                  },
                  planMode: {
                      effect: (args) => args.action === "list" ||
-@@ -390,19 +403,28 @@ export async function createResourceScriptEntries() {
+@@ -390,19 +404,28 @@ export async function createResourceScriptEntries() {
                      allowedValues: { action: ["list", "read", "effective"] },
                      description: "Plan mode allows listing and reading workspace resources.",
                  },
@@ -7565,7 +7574,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                      }
                      if (a === "write") {
                          if (!rest.path ||
-@@ -423,7 +445,7 @@ export async function createResourceScriptEntries() {
+@@ -423,7 +446,7 @@ export async function createResourceScriptEntries() {
                          const runCtx = getRequestRunContext();
                          if (runCtx?.threadId)
                              rest.threadId = runCtx.threadId;
@@ -7574,7 +7583,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                      }
                      if (a === "promote") {
                          if (!rest.path)
-@@ -457,12 +479,12 @@ export async function createResourceScriptEntries() {
+@@ -457,12 +480,12 @@ export async function createResourceScriptEntries() {
                      if (a === "delete") {
                          if (!rest.path)
                              return "Error: path is required for delete";
@@ -7589,7 +7598,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                  description: "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references.",
                  parameters: {
                      type: "object",
-@@ -487,8 +509,8 @@ export async function createResourceScriptEntries() {
+@@ -487,8 +510,8 @@ export async function createResourceScriptEntries() {
                      },
                      required: ["name", "type", "description", "content"],
                  },
@@ -7600,7 +7609,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                  description: "Delete a memory entry and remove it from the memory index.",
                  parameters: {
                      type: "object",
-@@ -500,7 +522,7 @@ export async function createResourceScriptEntries() {
+@@ -500,7 +523,7 @@ export async function createResourceScriptEntries() {
                      },
                      required: ["name"],
                  },
@@ -7609,7 +7618,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
          };
      }
      catch {
-@@ -508,6 +530,42 @@ export async function createResourceScriptEntries() {
+@@ -508,6 +531,42 @@ export async function createResourceScriptEntries() {
          return {};
      }
  }
@@ -7652,7 +7661,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
  /**
   * Creates a unified chat-history ActionEntry that dispatches to search, open,
   * rename, or lightweight organization actions.
-@@ -518,93 +576,28 @@ export async function createChatScriptEntries() {
+@@ -518,93 +577,28 @@ export async function createChatScriptEntries() {
              import("../../scripts/chat/search-chats.js"),
              import("../../scripts/chat/open-chat.js"),
          ]);
@@ -7757,7 +7766,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..8c726b3b5045af9852c9c21093676eae
                      }
                      if (args?.action === "rename" ||
                          args?.action === "pin" ||
-@@ -645,7 +638,7 @@ export async function createChatScriptEntries() {
+@@ -645,7 +639,7 @@ export async function createChatScriptEntries() {
                              return `Chat thread "${id}" could not be updated.`;
                          return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
                      }

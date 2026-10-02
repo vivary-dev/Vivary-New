@@ -1137,10 +1137,16 @@ Some kept tools refuse part of their work in a run:
   `remote-agents/` can hold server headers or tokens that a run could copy into
   memory.
 
-The wrapper forces `caller: "automation"` into the tool context. Each kept tool
-also checks that caller itself (`triggers/actions.js`, `jobs/tools.js`,
-`server/agent-chat/script-entries.js`, and `notifications/actions.js`), so a
-tool reached some other way enforces the same limits.
+The wrapper forces `caller: "automation"` into the tool context. `resources`,
+`chat-history`, `save-memory`, `delete-memory`, `manage-jobs`,
+`manage-automations`, and `manage-notifications` also check that caller
+themselves (`server/agent-chat/script-entries.js`, `jobs/tools.js`,
+`triggers/actions.js`, and `notifications/actions.js`), so a call that reaches
+them some other way gets the same limits. `docs-search`, `framework-search`,
+and `source-search` rely on the run surface. On any other path, the CLI
+bridge's declared-name check refuses an unsafe name with its own text.
+`manage-progress` and `get-framework-context` have no limit beyond the run
+surface's argument checks.
 
 An automation that lists `mcpTools` fails before any model call. Its history
 row reads "This automation lists MCP tools (names). Automation runs cannot call
@@ -1155,14 +1161,14 @@ success for a step that never ran. `getJobMcpActionEntries` is gone, and the
 first for every automation that lists MCP tools.
 
 A review of the first version found a bypass. The CLI bridge in
-`server/agent-chat/script-entries.js` turns each argument into a `--name value`
-pair, and `scripts/parse-args.js` reads `--name=value` and lets a later flag
-win. A run could call `resources` with `path: "notes/ok.md"` and an extra
-argument named `path=jobs/x.md`. The refusal checked `notes/ok.md`, and the
-write script received `jobs/x.md`. A value that starts with `--` could do the
-same. The run surface now refuses an argument that the tool's input schema
-does not declare, and every kept tool refuses an argument name that holds `=`
-or starts with `-`. The bridge itself now passes each value inline as
+`server/agent-chat/script-entries.js` turned each argument into a
+`--name value` pair, and `scripts/parse-args.js` reads `--name=value` and lets
+a later flag win. A run could call `resources` with `path: "notes/ok.md"` and
+an extra argument named `path=jobs/x.md`. The refusal checked `notes/ok.md`,
+and the write script received `jobs/x.md`. A value that starts with `--` could
+do the same. The run surface now refuses an argument that the tool's input
+schema does not declare, and every kept tool refuses an argument name that
+holds `=` or starts with `-`. The bridge itself now passes each value inline as
 `--name=value` and refuses an undeclared name for every caller, chats included,
 as "CLI bridge arguments" below describes.
 
@@ -1268,18 +1274,24 @@ and `chat-history` dispatchers check their own schemas after their automation
 check and before they pick a script. The `resources` write branch adds
 `createdBy`, `scope`, `visibility`, and `threadId` after that check, so a chat
 cannot set `created-by`, `createdBy`, or `threadId`. The refusal goes through
-`fail()`, so its text survives the action HTTP route as a 400 with the error
-code `unknown_argument`. `runToolCall` in `agent/production-agent.js` adds the
-tool name and the code, so a chat model reads:
+`fail()`, which gives it the error code `unknown_argument`. `runToolCall` in
+`agent/production-agent.js` adds the tool name and appends the code, so a chat
+model reads:
 
 ```text
 Error running resources: Unknown argument "created-by". This tool takes only: action, path, content, scope, prefix, mime, format, visibility, includeAgentScratch. (errorCode: unknown_argument)
 ```
 
 An unsafe name is never declared, so this check refuses it first, and the throw
-in `formatArgs` is a backstop. An automation run still gets the #51 text first,
-because the run surface, `refuseForAutomationCaller`, and the dispatchers'
-automation checks run before the bridge.
+in `formatArgs` is a backstop. `resources`, `chat-history`, `save-memory`, and
+`delete-memory` check an automation caller before the bridge runs, through the
+dispatchers' automation checks and `refuseForAutomationCaller`, so an
+automation caller still gets the #51 text from them. The three lookups,
+`docs-search`, `framework-search`, and `source-search`, rely on the run
+surface, which refuses an undeclared or unsafe name with its own text before
+the bridge sees it. A direct automation caller that skips the run surface gets
+the bridge's `Unknown argument` text from a lookup. Nothing in Core or Vivary
+makes that call.
 
 `wrapCliScript` lost its automation-only branch and its `allowedArgs` option,
 where `db-schema` and `db-query` listed their names. `db-exec` and `db-patch`,
@@ -1306,7 +1318,13 @@ script read that file. They keep every check in its order, including the
 `args must be an array` refusal, and then build argv with `formatArgs` from
 fixed names: `sql`, `format`, `limit` for a query, and `args`. A `limit` of
 `--db=<file>` now reaches the script as the `limit` value, and the query runs
-against the app database.
+against the app database. The handlers are not exported and sit behind the
+session check, so CI pins the route by its source: each handler makes exactly
+one `formatArgs({` call and holds no `.push(` and no string literal that starts
+with `"--`. A built-app journey on Zo checks the route itself. Its run on
+2026-10-02 posted `limit: "--db=<other.sqlite>"` to
+`/_agent-native/extensions/sql/query` as the signed-in owner and got
+`{"output": "Error: no such table: secret"}`.
 
 Four other places build argv, and this change leaves them alone:
 
@@ -1320,8 +1338,10 @@ Four other places build argv, and this change leaves them alone:
 - The dev shell fallback in `server/agent-chat-plugin.js` runs `pnpm action`
   through bash in dev mode only.
 
-None of them is reachable in the packaged app, and their values come from a
-developer who also has a shell. Upstream can swap each to `formatArgs`.
+None of them is reachable in the packaged app. In dev mode a chat model does
+call the dev registry's `db-query`, which keeps the two-token form, with values
+it chose. That model already has `bash` there, so the bug adds no reach.
+Upstream can swap each to `formatArgs`.
 
 From the repository root, run:
 
@@ -1333,11 +1353,12 @@ pnpm --dir packages/workbench exec tsx --test tests/native-chat-project.test.ts
 The first file uses a disposable SQLite database and calls the installed Core's
 entries as a chat. It covers front matter, a value that reads like a flag,
 declared arguments with a boolean, six refused names on a write, `db-query`
-with `limit` set to `--db=<file>` and with a `db` name, plan mode, the round
-trip of `formatArgs` and `parseArgs` over values and names that broke the old
-form, an undeclared name on every script tool a chat can reach, a
-`chat-history` search, and a source pin on the bridge and the extensions SQL
-route. Removing each part of the fix fails at least one case.
+with `limit` set to `--db=<file>` and with a `db` name, plan mode with the
+result of each planned call, the round trip of `formatArgs` and `parseArgs`
+over values and names that broke the old form, an undeclared name on every
+script tool a chat can reach, a `chat-history` search, and a source pin on the
+bridge and the extensions SQL route. Removing each part of the fix fails at
+least one case.
 
 Remove this part of the patch only when an upstream release builds every
 script's argv with one lossless encoder, refuses undeclared names at the tool

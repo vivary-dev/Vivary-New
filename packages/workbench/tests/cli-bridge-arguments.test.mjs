@@ -111,14 +111,14 @@ test("plan mode approves the arguments the script reads", async () => {
   assert.match(await write({ path: "notes/plan-visible.md", content: "visible" }), /Wrote resource/);
   assert.match(await write({ path: "notes/plan-hidden.md", content: "hidden-from-plan" }), /Wrote resource/);
   const planned = createPlanModeActionRegistry({ resources, "db-query": db["db-query"] });
-  for (const args of [
-    { action: "read", path: "notes/plan-visible.md", "path=notes/plan-hidden.md": "x" },
-    { action: "read", path: "--path=notes/plan-hidden.md" },
-  ]) {
-    assert.doesNotMatch(await call(planned.resources, args), /hidden-from-plan/, JSON.stringify(args));
-  }
+  const read = args => call(planned.resources, { action: "read", ...args });
+  assert.equal(await read({ path: "notes/plan-visible.md" }), "visible");
+  assert.match(await read({ path: "notes/plan-visible.md", "path=notes/plan-hidden.md": "x" }),
+    /^Error: Unknown argument "path=notes\/plan-hidden\.md"\. /);
+  assert.match(await read({ path: "--path=notes/plan-hidden.md" }), /^Resource not found: --path=notes\/plan-hidden\.md\. /);
   const created = path.join(caseRoot, "plan-created.sqlite");
-  await call(planned["db-query"], { sql: "PRAGMA user_version", limit: `--db=${created}` });
+  assert.match(await call(planned["db-query"], { sql: "PRAGMA user_version", limit: `--db=${created}` }),
+    /^Query: PRAGMA user_version\nRows: 1\n\nuser_version\n/);
   assert.equal(existsSync(created), false, "a plan-mode read cannot create a file");
 });
 
@@ -127,6 +127,7 @@ test("parseArgs reads back the names and values formatArgs writes", () => {
     ["---\nx: [a=b]\n---\n", "---\nx: [a=b]\n---\n"],
     ["--path=x", "--path=x"],
     ["a=b=c", "a=b=c"],
+    ["=x", "=x"],
     ["", ""],
     ["-", "-"],
     ["--", "--"],
@@ -194,7 +195,11 @@ test("the chat bridge and the extensions SQL route build argv only with formatAr
   for (const handler of ["handleSqlQuery", "handleSqlExec"]) {
     const start = routes.indexOf(`async function ${handler}(event) {`);
     assert.notEqual(start, -1, handler);
-    assert.equal(routes.slice(start, routes.indexOf("\n}\n", start)).includes("formatArgs("), true, `${handler} uses formatArgs`);
+    const end = routes.indexOf("\n}\n", start);
+    assert.notEqual(end, -1, `${handler} ends`);
+    const body = routes.slice(start, end);
+    assert.equal(body.split("formatArgs({").length - 1, 1, `${handler} calls formatArgs once`);
+    assert.equal(body.includes(".push("), false, `${handler} pushes nothing onto argv`);
+    assert.equal(/["'`]--/.test(body), false, `${handler} writes no -- token of its own`);
   }
-  assert.equal(routes.includes('"--limit", String('), false, "the route builds no --limit pair");
 });
