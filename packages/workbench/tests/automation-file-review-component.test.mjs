@@ -42,6 +42,7 @@ import { callProof } from "../../lib/native-actions";
 
 const PLANTED = "# Rules\n\n![x](http://evil.test/x.png) <img src=x onerror=alert(1)> [click](http://evil.test)";
 const CHANGED = "This file changed since the list showed it. Read it again before you accept or discard it.";
+const UNCONFIRMED = "Your decision could not be confirmed. Check the list and try again if the file is still waiting.";
 const AGENTS = { id: "res-agents", path: "AGENTS.md", content: PLANTED, updatedAt: Date.UTC(2026, 8, 29, 13) };
 
 async function flush() {
@@ -125,21 +126,91 @@ export async function aRefusedReviewShowsTheChangedFileWithANotice() {
   } finally { await dispose(); }
 }
 
-export async function aReviewRefusedForAnotherReasonSaysNothingChanged() {
-  // An expired session or a lost connection refuses the review too, and the file did not change.
+export async function anUnconfirmedReviewShowsFeedback() {
   for (const failure of [
     Object.assign(new Error("Sign in again to review automation files."), { status: 401 }),
+    Object.assign(new Error("Server error"), { status: 500 }),
     new Error("Failed to fetch"),
   ]) {
+    for (const label of ["Accept", "Discard"]) {
+      const { host, dispose } = await mount(params => {
+        if (params.operation !== "list") throw failure;
+        return { files: [AGENTS] };
+      });
+      try {
+        await click(button(items(host)[0], label));
+        assert.equal(items(host).length, 1, "the file still waits");
+        assert.equal(items(host)[0].querySelector("pre").textContent, AGENTS.content);
+        assert.doesNotMatch(host.textContent, new RegExp(CHANGED), "an unconfirmed decision does not claim the file changed");
+        assert.equal(host.querySelector('[role="alert"]')?.textContent, UNCONFIRMED,
+          label + " reports an unconfirmed decision after " + failure.message);
+      } finally { await dispose(); }
+    }
+  }
+}
+
+export async function aSuccessfulRetryClearsDecisionFeedback() {
+  for (const label of ["Accept", "Discard"]) {
+    let attempts = 0;
+    let files = [AGENTS];
     const { host, dispose } = await mount(params => {
-      if (params.operation !== "list") throw failure;
-      return { files: [AGENTS] };
+      if (params.operation !== "list") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("Failed to fetch");
+        files = [];
+      }
+      return { files };
     });
     try {
-      await click(button(items(host)[0], "Accept"));
-      assert.equal(items(host).length, 1, "the file still waits");
-      assert.doesNotMatch(host.textContent, new RegExp(CHANGED), failure.message + " does not say the file changed");
+      await click(button(items(host)[0], label));
+      assert.equal(host.querySelector('[role="alert"]')?.textContent, UNCONFIRMED);
+      assert.equal(items(host).length, 1);
+      await click(button(items(host)[0], label));
+      assert.equal(attempts, 2, "the retry reaches the action");
+      assert.equal(items(host).length, 0, "the successful decision removes the proposal");
+      assert.equal(host.querySelector('[role="alert"]'), null, "a confirmed decision clears the earlier error");
+      assert.doesNotMatch(host.textContent, new RegExp(CHANGED));
     } finally { await dispose(); }
+  }
+}
+
+export async function anotherFilesSuccessPreservesDecisionFeedback() {
+  for (const label of ["Accept", "Discard"]) {
+    for (const failureFirst of [true, false]) {
+      const skill = { ...AGENTS, id: "res-skill", path: "skills/probe/SKILL.md" };
+      let files = [AGENTS, skill];
+      const decisions = new Map();
+      const { host, dispose } = await mount(params => {
+        if (params.operation === "list") return { files };
+        return new Promise((resolve, reject) => { decisions.set(params.id, { resolve, reject }); });
+      });
+      try {
+        await click(button(items(host)[0], label));
+        await click(button(items(host)[1], label));
+        assert.equal(decisions.size, 2, "both files have decisions in flight");
+        const fail = async () => {
+          await act(async () => { decisions.get(AGENTS.id).reject(new Error("Failed to fetch")); });
+          await flush();
+        };
+        const succeed = async () => {
+          files = [AGENTS];
+          await act(async () => { decisions.get(skill.id).resolve({}); });
+          await flush();
+        };
+        if (failureFirst) {
+          await fail();
+          assert.equal(host.querySelector('[role="alert"]')?.textContent, UNCONFIRMED);
+          await succeed();
+        } else {
+          await succeed();
+          await fail();
+        }
+        assert.equal(items(host).length, 1, "only the unconfirmed proposal still waits");
+        assert.equal(items(host)[0].querySelector("h3").textContent, AGENTS.path);
+        assert.equal(host.querySelector('[role="alert"]')?.textContent, UNCONFIRMED,
+          label + " preserves another file's error with failureFirst=" + failureFirst);
+      } finally { await dispose(); }
+    }
   }
 }
 
@@ -213,8 +284,11 @@ test("Settings > Automation files lists run-written files with their text, Accep
     ["Accept and Discard name the version shown and reload the list", proof.eachReviewNamesTheVersionShownAndReloads],
     ["a refused review shows the file as it is now, with one notice to read it again",
       proof.aRefusedReviewShowsTheChangedFileWithANotice],
-    ["a review refused for another reason does not say the file changed",
-      proof.aReviewRefusedForAnotherReasonSaysNothingChanged],
+    ["an unconfirmed review shows feedback without claiming the file changed",
+      proof.anUnconfirmedReviewShowsFeedback],
+    ["a successful retry clears decision feedback", proof.aSuccessfulRetryClearsDecisionFeedback],
+    ["another file's successful decision preserves feedback in either completion order",
+      proof.anotherFilesSuccessPreservesDecisionFeedback],
     ["a list that fails to load says so", proof.aListThatFailsSaysSo],
   ]) await t.test(name, () => run());
 });
