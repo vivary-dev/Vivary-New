@@ -4247,10 +4247,12 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
          run.status === "completed" ||
          run.status === "errored" ||
 diff --git a/dist/extensions/routes.js b/dist/extensions/routes.js
-index 1ec595015432fc2de6897d1d7dda623aa493c9b7..61f3acf758bc602049f43388fc7c27c400077da3 100644
+index 1ec595015432fc2de6897d1d7dda623aa493c9b7..572e572ae931ba3adce9af9ac3e18cedd920c7d4 100644
 --- a/dist/extensions/routes.js
 +++ b/dist/extensions/routes.js
-@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
+@@ -1,7 +1,9 @@
+ import { randomUUID } from "node:crypto";
++import { keyword, statementTokens, sqlGateText } from "../scripts/db/sql-text.js";
  import { defineEventHandler, getMethod, setResponseStatus, setResponseHeader, } from "h3";
  import { getDbExec, isPostgres } from "../db/client.js";
  import { getOrgContext } from "../org/context.js";
@@ -4258,7 +4260,18 @@ index 1ec595015432fc2de6897d1d7dda623aa493c9b7..61f3acf758bc602049f43388fc7c27c4
  import { resolveKeyReferencesWithRequestScopes, validateUrlAllowlist, getResolvedKeyAllowlist, } from "../secrets/substitution.js";
  import { getSession } from "../server/auth.js";
  import { readBody } from "../server/h3-helpers.js";
-@@ -770,16 +771,16 @@ async function handleSqlQuery(event) {
+@@ -757,8 +759,8 @@ async function handleSqlQuery(event) {
+         setResponseStatus(event, 400);
+         return { error: "sql is required" };
+     }
+-    const cleanSql = stripSqlComments(sql);
+-    if (!/^\s*(SELECT|WITH)\b/i.test(cleanSql)) {
++    const first = statementTokens(sql)[0];
++    if (!keyword(first, "SELECT") && !keyword(first, "WITH")) {
+         setResponseStatus(event, 403);
+         return { error: "Only SELECT queries are allowed from extensions" };
+     }
+@@ -770,16 +772,16 @@ async function handleSqlQuery(event) {
      }
      try {
          const mod = await import("../scripts/db/query.js");
@@ -4284,7 +4297,55 @@ index 1ec595015432fc2de6897d1d7dda623aa493c9b7..61f3acf758bc602049f43388fc7c27c4
          const output = await captureCliOutput(mod.default, args);
          try {
              return JSON.parse(output);
-@@ -872,14 +873,11 @@ async function handleSqlExec(event) {
+@@ -793,12 +795,8 @@ async function handleSqlQuery(event) {
+         return { error: err?.message ?? "Query failed" };
+     }
+ }
+-// TODO(security): replace this regex blocklist with a SQL parser + an explicit
+-// allowlist of tables a extension may read/write (e.g. only `tool_data`, plus a
+-// per-template list). The current blocklist is best-effort defense in depth
+-// and is by design bypassable via SQL constructions that don't include the
+-// blocklisted token literally (string concat, dynamic SQL, etc). The temp-
+-// view scoping in scripts/db/scoping.ts is the actual ownership boundary.
++// Extension policy is stricter than the shared script policy.
++// Inspect the same lexical tokens while retaining this separate table list.
+ export const DESTRUCTIVE_SQL_RE = /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
+ // Sensitive tables that extensions must not touch directly. Includes Better Auth
+ // identity tables, framework infrastructure (tracing, evals, automations,
+@@ -810,31 +808,8 @@ export const SENSITIVE_SQL_RE = /\b(app_secrets|settings|user|users|session|sess
+ // `INSERT INTO recordings (col1, col2) VALUES (...)` is required so the
+ // downstream injectOwnership helper can append owner_email.
+ export const POSITIONAL_INSERT_RE = /\bINSERT\s+INTO\s+["'`]?\w+["'`]?\s+VALUES\b/i;
+-function stripSqlComments(sql) {
+-    return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+-}
+-/**
+- * Test a blocklist regex against the SQL with comments normalized two ways, so
+- * a comment placed *inside* a keyword can't smuggle a blocked construct past a
+- * literal-token match:
+- *   - comments → space  catches `DROP /* x *​/ TABLE` (token boundaries kept)
+- *   - comments → empty  catches `DR/**​/OP TABLE`     (split keyword rejoined)
+- *
+- * A statement is refused if EITHER normalization trips the regex. This only
+- * ever ADDS matches — it never newly-allows SQL — so it cannot loosen the gate
+- * (real extension SQL doesn't embed comments inside keywords, so false-positive
+- * risk is negligible). The authoritative ownership boundary remains the
+- * fail-closed temp-view scoping in scripts/db/scoping.ts; this stays defense in
+- * depth. See the TODO above re: replacing all of this with a real SQL parser.
+- */
+ export function matchesSqlGate(re, sql) {
+-    const withSpace = sql
+-        .replace(/\/\*[\s\S]*?\*\//g, " ")
+-        .replace(/--[^\n]*/g, " ");
+-    const withNothing = sql
+-        .replace(/\/\*[\s\S]*?\*\//g, "")
+-        .replace(/--[^\n]*/g, "");
+-    return re.test(withSpace) || re.test(withNothing);
++    return re.test(sqlGateText(sql));
+ }
+ function isLikelyJson(text) {
+     try {
+@@ -872,14 +847,11 @@ async function handleSqlExec(event) {
      }
      try {
          const mod = await import("../scripts/db/exec.js");
@@ -6791,31 +6852,1203 @@ index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b
              },
      };
      return JSON.stringify(result, null, 2);
+diff --git a/dist/scripts/db/exec.js b/dist/scripts/db/exec.js
+index 081d44315cc362c4a41bd2c7c2a0d81abb78d0fb..b3c521fb422b6f0276956962e559225ab64608f2 100644
+--- a/dist/scripts/db/exec.js
++++ b/dist/scripts/db/exec.js
+@@ -1,7 +1,7 @@
+ /**
+  * Core script: db-exec
+  *
+- * Execute write SQL statements (INSERT, UPDATE, DELETE, REPLACE)
++ * Execute supported SQL writes (INSERT, UPDATE, DELETE)
+  * against a SQLite or Postgres database.
+  *
+  * In production mode, temporary views scope UPDATE/DELETE to the current
+@@ -14,6 +14,8 @@
+  *   pnpm action db-exec --statements '[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value=value+1 WHERE key=?","args":["notes"]}]'
+  */
+ import path from "path";
++import { keyword, statementTokens, sqlWithoutComments, normalizePostgresSql } from "./sql-text.js";
++import { analyzeWriteSql } from "./sql-write.js";
+ import { getDatabaseUrl } from "../../db/client.js";
+ import { parseArgs, fail } from "../utils.js";
+ import { assertNoRawDbAccessControlWrite, assertNoSchemaQualifiedTables, assertNoSensitiveFrameworkTables, } from "./safety.js";
+@@ -69,243 +71,61 @@ function parseStatements(parsed) {
+     }
+     return [{ sql: parsed.sql, args: parseSqlArgs(parsed.args) }];
+ }
+-function stripLeadingSqlComments(sql) {
+-    return sql
+-        .replace(/^\s*--[^\n]*\n/gm, "")
+-        .replace(/\/\*[\s\S]*?\*\//g, "")
+-        .trim();
+-}
+-function hasAdditionalStatement(sql) {
+-    let state = "normal";
+-    for (let i = 0; i < sql.length; i++) {
+-        const ch = sql[i];
+-        const next = sql[i + 1];
+-        if (state === "line-comment") {
+-            if (ch === "\n")
+-                state = "normal";
+-            continue;
+-        }
+-        if (state === "block-comment") {
+-            if (ch === "*" && next === "/") {
+-                i++;
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "single") {
+-            if (ch === "'" && next === "'") {
+-                i++;
+-            }
+-            else if (ch === "'") {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "double") {
+-            if (ch === '"' && next === '"') {
+-                i++;
+-            }
+-            else if (ch === '"') {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (ch === "-" && next === "-") {
+-            i++;
+-            state = "line-comment";
+-            continue;
+-        }
+-        if (ch === "/" && next === "*") {
+-            i++;
+-            state = "block-comment";
+-            continue;
+-        }
+-        if (ch === "'") {
+-            state = "single";
+-            continue;
+-        }
+-        if (ch === '"') {
+-            state = "double";
+-            continue;
+-        }
+-        if (ch === ";") {
+-            return sql.slice(i + 1).trim().length > 0;
+-        }
+-    }
+-    return false;
+-}
+ function normalizeUserSql(sql, index) {
+-    const stripped = stripLeadingSqlComments(sql);
+-    if (!stripped) {
+-        fail(`Statement ${index} is empty`);
+-    }
+-    if (hasAdditionalStatement(stripped)) {
+-        fail(`Statement ${index} contains multiple SQL statements. Use --statements for batches so each write can be validated and run transactionally.`);
+-    }
+-    return stripped.replace(/;\s*$/, "");
++    const normalized = sqlWithoutComments(sql).trim();
++    const tokens = statementTokens(normalized, index);
++    if (!tokens.length) fail(`Statement ${index} is empty`);
++    return normalized.slice(0, tokens[tokens.length - 1].end);
+ }
+ function validateWriteSql(sql, index) {
+     const normalized = normalizeUserSql(sql, index);
+-    const upper = normalized.toUpperCase();
++    const first = statementTokens(normalized)[0];
+     const allowed = ["INSERT", "UPDATE", "DELETE", "REPLACE"];
+-    const blocked = ["SELECT", "WITH", "EXPLAIN", "PRAGMA"];
+-    if (blocked.some((kw) => upper.startsWith(kw))) {
++    if (["SELECT", "WITH", "EXPLAIN", "PRAGMA"].some((word) => keyword(first, word))) {
+         fail(`Statement ${index}: use db-query for SELECT/read statements. db-exec is for writes only.`);
+     }
+-    if (upper.startsWith("CREATE") || upper.startsWith("ALTER")) {
++    if (keyword(first, "CREATE") || keyword(first, "ALTER")) {
+         fail(`Statement ${index}: schema changes are not allowed through db-exec. Additive schema changes must go through reviewed migrations/startup code, not ad-hoc agent SQL.`);
+     }
+-    if (!allowed.some((kw) => upper.startsWith(kw))) {
+-        fail(`Statement ${index}: only ${allowed.join(", ")} statements are allowed. ` +
+-            `Dangerous operations like DROP, ATTACH, VACUUM, DETACH, CREATE, and ALTER are blocked.`);
++    if (!allowed.some((word) => keyword(first, word))) {
++        fail(`Statement ${index}: only ${allowed.join(", ")} statements are allowed. Dangerous operations like DROP, ATTACH, VACUUM, DETACH, CREATE, and ALTER are blocked.`);
+     }
+     assertNoSensitiveFrameworkTables(normalized, "write");
+-    assertNoRawDbAccessControlWrite(normalized);
+     assertNoSchemaQualifiedTables(normalized, "write");
++    assertNoRawDbAccessControlWrite(normalized);
++    analyzeWriteSql(normalized);
+     return normalized;
+ }
+-function convertQuestionMarksToPostgresParams(sql) {
+-    let index = 0;
+-    let out = "";
+-    let state = "normal";
+-    for (let i = 0; i < sql.length; i++) {
+-        const ch = sql[i];
+-        const next = sql[i + 1];
+-        if (state === "line-comment") {
+-            out += ch;
+-            if (ch === "\n")
+-                state = "normal";
+-            continue;
+-        }
+-        if (state === "block-comment") {
+-            out += ch;
+-            if (ch === "*" && next === "/") {
+-                out += next;
+-                i++;
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "single") {
+-            out += ch;
+-            if (ch === "'" && next === "'") {
+-                out += next;
+-                i++;
+-            }
+-            else if (ch === "'") {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "double") {
+-            out += ch;
+-            if (ch === '"' && next === '"') {
+-                out += next;
+-                i++;
+-            }
+-            else if (ch === '"') {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (ch === "-" && next === "-") {
+-            out += ch + next;
+-            i++;
+-            state = "line-comment";
+-            continue;
+-        }
+-        if (ch === "/" && next === "*") {
+-            out += ch + next;
+-            i++;
+-            state = "block-comment";
+-            continue;
+-        }
+-        if (ch === "'") {
+-            out += ch;
+-            state = "single";
+-            continue;
+-        }
+-        if (ch === '"') {
+-            out += ch;
+-            state = "double";
+-            continue;
+-        }
+-        if (ch === "?") {
+-            index++;
+-            out += `$${index}`;
+-            continue;
+-        }
+-        out += ch;
+-    }
+-    return out;
+-}
+-function normalizePostgresSql(sql, args) {
+-    if (args.length === 0 || /\$\d+\b/.test(sql))
+-        return sql;
+-    return convertQuestionMarksToPostgresParams(sql);
++function scopedTableName(name, scoping) {
++    const lower = name.toLowerCase();
++    for (const known of new Set([
++        ...scoping.ownerEmailTables,
++        ...scoping.orgIdTables,
++        ...scoping.tablePredicates.keys(),
++    ])) {
++        if (known.toLowerCase() === lower) return known;
++    }
++    return name;
+ }
+-/**
+- * SQLite/standard SQL forms that create a new row and therefore need
+- * owner_email / org_id auto-injected:
+- *   INSERT INTO …, INSERT OR {ROLLBACK,ABORT,FAIL,IGNORE,REPLACE} INTO …,
+- *   REPLACE INTO … (shorthand for INSERT OR REPLACE INTO).
+- * Used by both injectOwnership and qualifySqliteWrite so the two stay in sync.
+- */
+-const INSERT_OR_REPLACE_INTO = "(?:INSERT(?:\\s+OR\\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?|REPLACE)\\s+INTO";
+-/**
+- * For INSERT/REPLACE statements targeting a table with owner_email / org_id
+- * columns, auto-inject the current user's email and org ID if not already
+- * present. REPLACE and the `INSERT OR <action>` conflict forms also create a
+- * row under the current user, so they are injected too — otherwise the row
+- * lands unowned and is invisible to the writer under scoping.
+- *
+- * Handles the explicit column list form:
+- *   INSERT INTO table (col1, col2) VALUES (val1, val2)
+- */
+ function injectOwnership(sql, scoping) {
+-    if (!scoping.active)
+-        return sql;
+-    const upper = sql
+-        .replace(/^\s*--[^\n]*\n/gm, "")
+-        .replace(/\/\*[\s\S]*?\*\//g, "")
+-        .trim()
+-        .toUpperCase();
+-    if (!upper.startsWith("INSERT") && !upper.startsWith("REPLACE"))
+-        return sql;
+-    // Extract table name: INSERT [OR ...] INTO <table> / REPLACE INTO <table>
+-    const match = sql.match(new RegExp(`${INSERT_OR_REPLACE_INTO}\\s+["']?(\\w+)["']?`, "i"));
+-    if (!match)
+-        return sql;
+-    const tableName = match[1];
+-    // Determine which columns to inject
++    if (!scoping.active) return sql;
++    const analysis = analyzeWriteSql(sql);
++    if (!analysis.insert) return sql;
++    const tableName = scopedTableName(analysis.table, scoping);
++    const columns = new Set(analysis.columns.map((column) => column.toLowerCase()));
+     const injections = [];
+-    if (scoping.userEmail &&
+-        scoping.ownerEmailTables.has(tableName) &&
+-        !/owner_email/i.test(sql)) {
+-        injections.push({
+-            col: "owner_email",
+-            value: `'${scoping.userEmail.replace(/'/g, "''")}'`,
+-        });
+-    }
+-    if (scoping.orgId &&
+-        scoping.orgIdTables.has(tableName) &&
+-        !/org_id/i.test(sql)) {
+-        injections.push({
+-            col: "org_id",
+-            value: `'${scoping.orgId.replace(/'/g, "''")}'`,
+-        });
+-    }
+-    if (injections.length === 0)
+-        return sql;
+-    // Try to inject into explicit column list: INSERT INTO t (cols) VALUES (vals)
+-    const colListMatch = sql.match(new RegExp(`(${INSERT_OR_REPLACE_INTO}\\s+["']?\\w+["']?\\s*)\\(([^)]+)\\)(\\s*VALUES\\s*)\\(([^)]+)\\)`, "i"));
+-    if (colListMatch) {
+-        const [, prefix, cols, valueKeyword, vals] = colListMatch;
+-        const extraCols = injections.map((i) => i.col).join(", ");
+-        const extraVals = injections.map((i) => i.value).join(", ");
+-        return `${prefix}(${cols}, ${extraCols})${valueKeyword}(${vals}, ${extraVals})`;
+-    }
+-    return sql;
++    if (scoping.userEmail && scoping.ownerEmailTables.has(tableName) && !columns.has("owner_email")) {
++        injections.push({ col: "owner_email", value: `'${escapeSqlString(scoping.userEmail)}'` });
++    }
++    if (scoping.orgId && scoping.orgIdTables.has(tableName) && !columns.has("org_id")) {
++        injections.push({ col: "org_id", value: `'${escapeSqlString(scoping.orgId)}'` });
++    }
++    if (!injections.length) return sql;
++    const { columnsClose, valuesClose } = analysis.insert;
++    const extraColumns = injections.map((item) => item.col).join(", ");
++    const extraValues = injections.map((item) => item.value).join(", ");
++    return sql.slice(0, columnsClose) + ", " + extraColumns +
++        sql.slice(columnsClose, valuesClose) + ", " + extraValues + sql.slice(valuesClose);
+ }
+ function escapeSqlString(value) {
+     return value.replace(/'/g, "''");
+@@ -337,55 +157,38 @@ function sqliteScopePredicate(tableName, scoping) {
+         return clauses.join(" AND ");
+     return scoping.tablePredicates.get(tableName) ?? null;
+ }
+-function splitReturning(sql) {
+-    const match = /\bRETURNING\b/i.exec(sql);
+-    if (!match)
+-        return { body: sql, returning: "" };
+-    return {
+-        body: sql.slice(0, match.index).trimEnd(),
+-        returning: sql.slice(match.index),
+-    };
+-}
+ function addSqliteScopeToWhere(sql, predicate) {
+-    const { body, returning } = splitReturning(sql);
+-    const whereMatch = /\bWHERE\b/i.exec(body);
+-    const scoped = whereMatch
+-        ? `${body.slice(0, whereMatch.index)}WHERE ${predicate} AND (${body.slice(whereMatch.index + whereMatch[0].length).trim()})`
+-        : `${body} WHERE ${predicate}`;
+-    return returning ? `${scoped} ${returning}` : scoped;
++    const analysis = analyzeWriteSql(sql);
++    if (analysis.where) {
++        const { keywordStart, expressionStart, end } = analysis.where;
++        const suffix = sql.slice(end);
++        return sql.slice(0, keywordStart) + `WHERE ${predicate} AND (` +
++            sql.slice(expressionStart, end).trim() + ")" + (suffix ? " " + suffix : "");
++    }
++    const end = analysis.returning?.start ?? sql.length;
++    const suffix = sql.slice(end);
++    return sql.slice(0, end).trimEnd() + ` WHERE ${predicate}` + (suffix ? " " + suffix : "");
+ }
+ function qualifySqliteWrite(sql, scoping) {
+-    if (!scoping.active)
+-        return sql;
+-    const updateMatch = sql.match(/^\s*UPDATE\s+(?:"([^"]+)"|'([^']+)'|(\w+))/i);
+-    if (updateMatch) {
+-        const tableName = updateMatch[1] ?? updateMatch[2] ?? updateMatch[3];
+-        const predicate = sqliteScopePredicate(tableName, scoping);
+-        if (!predicate)
+-            return sql;
+-        const qualified = sql.replace(/^\s*UPDATE\s+(?:"[^"]+"|'[^']+'|\w+)/i, `UPDATE main."${tableName.replace(/"/g, '""')}"`);
+-        return addSqliteScopeToWhere(qualified, predicate);
+-    }
+-    const deleteMatch = sql.match(/^\s*DELETE\s+FROM\s+(?:"([^"]+)"|'([^']+)'|(\w+))/i);
+-    if (deleteMatch) {
+-        const tableName = deleteMatch[1] ?? deleteMatch[2] ?? deleteMatch[3];
++    if (!scoping.active) return sql;
++    const analysis = analyzeWriteSql(sql);
++    const tableName = scopedTableName(analysis.table, scoping);
++    const qualifiedTarget = `main."${tableName.replace(/"/g, '""')}"`;
++    const qualifiedSql = () => sql.slice(0, analysis.target.start) + qualifiedTarget + sql.slice(analysis.target.end);
++    if (analysis.kind === "UPDATE" || analysis.kind === "DELETE") {
+         const predicate = sqliteScopePredicate(tableName, scoping);
+-        if (!predicate)
+-            return sql;
+-        const qualified = sql.replace(/^\s*DELETE\s+FROM\s+(?:"[^"]+"|'[^']+'|\w+)/i, `DELETE FROM main."${tableName.replace(/"/g, '""')}"`);
+-        return addSqliteScopeToWhere(qualified, predicate);
++        if (!predicate) return sql;
++        // Insert the predicate before introducing an internal qualified target.
++        const scoped = addSqliteScopeToWhere(sql, predicate);
++        return scoped.slice(0, analysis.target.start) + qualifiedTarget + scoped.slice(analysis.target.end);
+     }
+-    return sql.replace(new RegExp(`^\\s*(${INSERT_OR_REPLACE_INTO})\\s+(?:"([^"]+)"|'([^']+)'|(\\w+))`, "i"), (match, keyword, quotedDouble, quotedSingle, bare) => {
+-        const tableName = quotedDouble ?? quotedSingle ?? bare;
+-        if (!scoping.ownerEmailTables.has(tableName) &&
+-            !(scoping.orgId && scoping.orgIdTables.has(tableName))) {
+-            if (scoping.tablePredicates.has(tableName)) {
+-                throw new Error(`INSERT/REPLACE into "${tableName}" is not allowed through raw DB tools because the table does not have owner_email/org_id columns for automatic write scoping. Use a template action, or add scoped ownership columns and an additive migration.`);
+-            }
+-            return match;
++    if (!scoping.ownerEmailTables.has(tableName) && !(scoping.orgId && scoping.orgIdTables.has(tableName))) {
++        if (scoping.tablePredicates.has(tableName)) {
++            throw new Error(`INSERT/REPLACE into "${tableName}" is not allowed through raw DB tools because the table does not have owner_email/org_id columns for automatic write scoping. Use a template action, or add scoped ownership columns and an additive migration.`);
+         }
+-        return `${keyword} main."${tableName.replace(/"/g, '""')}"`;
+-    });
++        return sql;
++    }
++    return qualifiedSql();
+ }
+ function printResult(sql, result, hasReturning, format) {
+     if (hasReturning && result.rows && result.rows.length > 0) {
+@@ -420,7 +223,7 @@ function printResult(sql, result, hasReturning, format) {
+     }
+ }
+ /**
+- * Hint emitted when an UPDATE/DELETE/REPLACE matches zero rows. Matches the
++ * Hint emitted when an UPDATE/DELETE matches zero rows. Matches the
+  * wording used by db-patch's "no rows matched" error so the agent gets the
+  * same scoping nudge from both tools — without this hint, the agent reports
+  * "Changes: 0" as success and the user sees no UI update because the row
+@@ -502,7 +305,7 @@ export default async function dbExec(args) {
+        pnpm action db-exec --statements '[{"sql":"UPDATE ...","args":[...]}]' [options]
+ 
+ Options:
+-  --sql <stmt>         Single INSERT / UPDATE / DELETE / REPLACE statement
++  --sql <stmt>         Single supported INSERT / UPDATE / DELETE statement
+   --args <json>        JSON array of positional SQL bind parameters for --sql
+   --statements <json>  JSON array of {sql, args?}; runs in one transaction
+   --db <path>          Path to SQLite database (default: data/app.db)
+@@ -534,6 +337,7 @@ Options:
+             const scoping = await buildScopingPostgres(pgSql);
+             const results = [];
+             await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+                 try {
+                     // For UPDATE/DELETE: temp views scope to current user's rows.
+                     // Creating and dropping them inside the same transaction keeps
+@@ -543,7 +347,7 @@ Options:
+                     }
+                     for (let i = 0; i < statements.length; i++) {
+                         const statement = statements[i];
+-                        const hasReturning = /\bRETURNING\b/i.test(statement.sql);
++                        const hasReturning = Boolean(analyzeWriteSql(statement.sql).returning);
+                         const finalSql = normalizePostgresSql(injectOwnership(statement.sql, scoping), statement.args);
+                         try {
+                             const result = statement.args.length > 0
+@@ -590,7 +394,7 @@ Options:
+         try {
+             for (let i = 0; i < statements.length; i++) {
+                 const statement = statements[i];
+-                const hasReturning = /\bRETURNING\b/i.test(statement.sql);
++                const hasReturning = Boolean(analyzeWriteSql(statement.sql).returning);
+                 const finalSql = qualifySqliteWrite(injectOwnership(statement.sql, scoping), scoping);
+                 try {
+                     const result = statement.args.length > 0
+diff --git a/dist/scripts/db/patch.js b/dist/scripts/db/patch.js
+index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..11935e78a2f65e25c6c9e2d30749fcb77dd429fa 100644
+--- a/dist/scripts/db/patch.js
++++ b/dist/scripts/db/patch.js
+@@ -47,9 +47,10 @@
+  *     --edits '[{"find":"Q3","replace":"Q4"},{"find":"$1M","replace":"$1.2M"}]'
+  */
+ import path from "path";
++import { tokenizeSql, keyword } from "./sql-text.js";
+ import { getDatabaseUrl } from "../../db/client.js";
+ import { parseArgs, fail } from "../utils.js";
+-import { assertNoRawDbAccessControlPatchTarget, assertNoSensitiveFrameworkTables, } from "./safety.js";
++import { assertNoRawDbAccessControlPatchTarget, assertNoSensitiveFrameworkTables, assertNoSchemaQualifiedTables, } from "./safety.js";
+ import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
+ import { createSqliteScriptClient } from "./sqlite-client.js";
+ function isPostgresUrl(url) {
+@@ -65,34 +66,16 @@ function isValidIdentifier(s) {
+  *  a full SQL parser — just a keyword/character denylist to keep the surface
+  *  area equivalent to what db-exec already allows. */
+ function validateWhere(where) {
+-    if (where.includes(";")) {
++    const tokens = tokenizeSql(where);
++    if (tokens.some(token => token.kind === "symbol" && token.value === ";"))
+         fail("--where must not contain ';' (no statement chaining)");
+-    }
+-    // Strip inline strings before keyword scanning so "WHERE name = 'DROP TABLE'"
+-    // doesn't trip the denylist.
+-    const stripped = where
+-        .replace(/'(?:''|[^'])*'/g, "''")
+-        .replace(/"(?:""|[^"])*"/g, '""')
+-        .toUpperCase();
+-    const blocked = [
+-        " INSERT ",
+-        " UPDATE ",
+-        " DELETE ",
+-        " DROP ",
+-        " ALTER ",
+-        " CREATE ",
+-        " ATTACH ",
+-        " DETACH ",
+-        " PRAGMA ",
+-        " VACUUM ",
+-        "--",
+-        "/*",
+-    ];
+-    const padded = " " + stripped + " ";
+-    for (const kw of blocked) {
+-        if (padded.includes(kw)) {
+-            fail(`--where must not contain "${kw.trim()}"`);
+-        }
++    if (tokens.some(token => token.kind === "comment"))
++        fail("--where must not contain SQL comments");
++    const blocked = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
++        "ATTACH", "DETACH", "PRAGMA", "VACUUM"];
++    for (const token of tokens) {
++        if (blocked.some(word => keyword(token, word)))
++            fail('--where must not contain "' + token.value.toUpperCase() + '"');
+     }
+ }
+ function parseEdits(parsed) {
+@@ -459,6 +442,7 @@ async function runPostgres(opts) {
+     try {
+         let result;
+         await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+             // Same temp-view scoping db-exec uses — SELECT and UPDATE both go
+             // through the scoped view. Keep setup and teardown transaction-local
+             // so pooled Postgres backends never retain the temp views.
+@@ -635,6 +619,7 @@ When to use db-patch vs other tools:
+     assertNoSensitiveFrameworkTables(table, "patch");
+     assertNoRawDbAccessControlPatchTarget(table, column);
+     assertNoSensitiveFrameworkTables(where, "read");
++    assertNoSchemaQualifiedTables(where, "write");
+     validateWhere(where);
+     const jsonOps = parseJsonOps(parsed);
+     // Edit parsing only runs when json-ops isn't provided — otherwise the
+diff --git a/dist/scripts/db/query.js b/dist/scripts/db/query.js
+index 670c18d1310235c84a79e3fbb74642421ac6fec7..55a607bcfac8168f42feecdebc834dab7330b0d3 100644
+--- a/dist/scripts/db/query.js
++++ b/dist/scripts/db/query.js
+@@ -12,6 +12,7 @@
+  *   pnpm action db-query --sql "SELECT * FROM forms WHERE id = ?" [--args '["abc"]'] [--db path] [--format json] [--limit N]
+  */
+ import path from "path";
++import { keyword, statementTokens, normalizePostgresSql } from "./sql-text.js";
+ import { getDatabaseUrl } from "../../db/client.js";
+ import { parseArgs, fail } from "../utils.js";
+ import { assertNoSchemaQualifiedTables, assertNoSensitiveFrameworkTables, } from "./safety.js";
+@@ -33,85 +34,37 @@ function parseSqlArgs(raw) {
+     }
+     fail("--args must be a JSON array");
+ }
+-function convertQuestionMarksToPostgresParams(sql) {
+-    let index = 0;
+-    let out = "";
+-    let state = "normal";
+-    for (let i = 0; i < sql.length; i++) {
+-        const ch = sql[i];
+-        const next = sql[i + 1];
+-        if (state === "line-comment") {
+-            out += ch;
+-            if (ch === "\n")
+-                state = "normal";
+-            continue;
+-        }
+-        if (state === "block-comment") {
+-            out += ch;
+-            if (ch === "*" && next === "/") {
+-                out += next;
+-                i++;
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "single") {
+-            out += ch;
+-            if (ch === "'" && next === "'") {
+-                out += next;
+-                i++;
+-            }
+-            else if (ch === "'") {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "double") {
+-            out += ch;
+-            if (ch === '"' && next === '"') {
+-                out += next;
+-                i++;
+-            }
+-            else if (ch === '"') {
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (ch === "-" && next === "-") {
+-            out += ch + next;
+-            i++;
+-            state = "line-comment";
+-            continue;
+-        }
+-        if (ch === "/" && next === "*") {
+-            out += ch + next;
+-            i++;
+-            state = "block-comment";
+-            continue;
+-        }
+-        if (ch === "'") {
+-            out += ch;
+-            state = "single";
+-            continue;
+-        }
+-        if (ch === '"') {
+-            out += ch;
+-            state = "double";
+-            continue;
+-        }
+-        if (ch === "?") {
+-            index++;
+-            out += `$${index}`;
+-            continue;
++function assertReadOnlySql(tokens) {
++    const first = tokens[0];
++    if (!["SELECT", "WITH", "EXPLAIN", "PRAGMA"].some(word => keyword(first, word))) {
++        fail("Only SELECT, WITH, EXPLAIN, and PRAGMA queries are allowed. Use db-exec for writes.");
++    }
++    const writeKeywords = ["INSERT", "UPDATE", "DELETE", "REPLACE", "INTO", "CREATE",
++        "ALTER", "DROP", "ATTACH", "DETACH", "VACUUM", "REINDEX", "GRANT",
++        "REVOKE", "COPY", "CALL", "DO"];
++    if (tokens.some((token, index) => writeKeywords.some(word => keyword(token, word)) &&
++        !(keyword(token, "REPLACE") && tokens[index + 1]?.kind === "symbol" &&
++            tokens[index + 1].value === "("))) {
++        fail("Only read-only statements are allowed through db-query.");
++    }
++    if (keyword(first, "WITH")) {
++        const statement = tokens.slice(1).find(token => token.depth === 0 &&
++            ["SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE"].some(word => keyword(token, word)));
++        if (!keyword(statement, "SELECT"))
++            fail("Only read-only statements are allowed through db-query.");
++    }
++    if (keyword(first, "PRAGMA")) {
++        const readPragmas = ["user_version", "schema_version", "database_list", "compile_options",
++            "table_list", "table_info", "table_xinfo", "index_info", "index_xinfo", "index_list",
++            "foreign_key_list"];
++        const withArgument = ["table_info", "table_xinfo", "index_info", "index_xinfo",
++            "index_list", "foreign_key_list"];
++        const name = tokens[1]?.value.toLowerCase();
++        if (tokens[1]?.kind !== "word" || !readPragmas.includes(name) ||
++            (tokens.length > 2 && (!withArgument.includes(name) || tokens[2].value !== "("))) {
++            fail("Only read-only statements are allowed through db-query.");
+         }
+-        out += ch;
+     }
+-    return out;
+-}
+-function normalizePostgresSql(sql, args) {
+-    if (args.length === 0 || /\$\d+\b/.test(sql))
+-        return sql;
+-    return convertQuestionMarksToPostgresParams(sql);
+ }
+ function printTable(rows, finalSql, format) {
+     if (format === "json") {
+@@ -163,21 +116,10 @@ Options:
+         fail('--sql is required. Example: --sql "SELECT * FROM forms"');
+     }
+     const sqlArgs = parseSqlArgs(parsed.args);
+-    // Safety: only allow read-only statements.
+-    // Strip leading SQL comments before checking the prefix.
+-    const stripped = sql
+-        .replace(/^\s*--[^\n]*\n/gm, "")
+-        .replace(/\/\*[\s\S]*?\*\//g, "")
+-        .trim();
+-    const upper = stripped.toUpperCase();
+-    if (!upper.startsWith("SELECT") &&
+-        !upper.startsWith("WITH") &&
+-        !upper.startsWith("EXPLAIN") &&
+-        !upper.startsWith("PRAGMA")) {
+-        fail("Only SELECT, WITH, EXPLAIN, and PRAGMA queries are allowed. Use db-exec for writes.");
+-    }
+-    assertNoSensitiveFrameworkTables(stripped, "read");
+-    assertNoSchemaQualifiedTables(stripped, "read");
++    const tokens = statementTokens(sql);
++    assertReadOnlySql(tokens);
++    assertNoSensitiveFrameworkTables(sql, "read");
++    assertNoSchemaQualifiedTables(sql, "read");
+     // Resolve database URL: --db flag → DATABASE_URL env → default file path
+     let url;
+     if (parsed.db) {
+@@ -191,12 +133,13 @@ Options:
+     }
+     let finalSql = sql;
+     if (parsed.limit &&
+-        (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
+-        !/\bLIMIT\b/i.test(stripped)) {
++        (keyword(tokens[0], "SELECT") || keyword(tokens[0], "WITH")) &&
++        !tokens.some(token => token.depth === 0 && keyword(token, "LIMIT"))) {
+         const limitVal = parseInt(parsed.limit, 10);
+         if (isNaN(limitVal) || limitVal < 1)
+             fail("--limit must be a positive integer");
+-        finalSql = `${sql} LIMIT ${limitVal}`;
++        const end = tokens[tokens.length - 1].end;
++        finalSql = sql.slice(0, end) + " LIMIT " + limitVal + sql.slice(end);
+     }
+     // Postgres path
+     if (isPostgresUrl(url)) {
+@@ -206,6 +149,7 @@ Options:
+             const pgSqlText = normalizePostgresSql(finalSql, sqlArgs);
+             let rows = [];
+             await pgSql.begin(async (tx) => {
++                await tx.unsafe("SET LOCAL standard_conforming_strings = on");
+                 // Temp views are session state. Keep setup/query/teardown on one
+                 // transaction-bound backend so pooled Postgres never retains them.
+                 const scoping = await buildScopingPostgres(tx);
 diff --git a/dist/scripts/db/safety.js b/dist/scripts/db/safety.js
-index 1965099e723d476f9d2b02e827dc2f63de310308..3b6c8b80e6e16b2625ec923b9d5c3bf427019614 100644
+index 1965099e723d476f9d2b02e827dc2f63de310308..e58182ceff66f0a3cb653424ce04947edea9b80b 100644
 --- a/dist/scripts/db/safety.js
 +++ b/dist/scripts/db/safety.js
-@@ -2,7 +2,10 @@ import { fail } from "../utils.js";
+@@ -1,59 +1,15 @@
+ import { fail } from "../utils.js";
++import { sqlGateText, hasQualifiedTableReference } from "./sql-text.js";
++import { analyzeWriteSql } from "./sql-write.js";
  // Credential and identity tables are deliberately off-limits to the generic
  // agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
  // auth identity data; use the framework stores/actions instead.
 -const SENSITIVE_FRAMEWORK_TABLE_RE = /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+-function stripSqlNonIdentifiers(sql) {
+-    let out = "";
+-    let state = "normal";
+-    for (let i = 0; i < sql.length; i++) {
+-        const ch = sql[i];
+-        const next = sql[i + 1];
+-        if (state === "line-comment") {
+-            if (ch === "\n") {
+-                out += " ";
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "block-comment") {
+-            if (ch === "*" && next === "/") {
+-                i++;
+-                out += " ";
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (state === "single") {
+-            if (ch === "'" && next === "'") {
+-                i++;
+-            }
+-            else if (ch === "'") {
+-                out += " ";
+-                state = "normal";
+-            }
+-            continue;
+-        }
+-        if (ch === "-" && next === "-") {
+-            i++;
+-            state = "line-comment";
+-            continue;
+-        }
+-        if (ch === "/" && next === "*") {
+-            i++;
+-            state = "block-comment";
+-            continue;
+-        }
+-        if (ch === "'") {
+-            state = "single";
+-            continue;
+-        }
+-        out += ch;
+-    }
+-    return out;
+-}
 +// Vivary #109: `resources` too. It holds instruction and memory files an
 +// automation run wrote that wait for the owner's review, and chats read
 +// files through the resources tool, which skips a waiting file.
 +const SENSITIVE_FRAMEWORK_TABLE_RE = /\b(app_secrets|oauth_tokens|resources|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
- function stripSqlNonIdentifiers(sql) {
-     let out = "";
-     let state = "normal";
-@@ -62,7 +65,7 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
+ export function assertNoSensitiveFrameworkTables(sql, operation) {
+-    const cleanSql = stripSqlNonIdentifiers(sql);
++    const cleanSql = sqlGateText(sql);
+     const match = cleanSql.match(SENSITIVE_FRAMEWORK_TABLE_RE);
+     if (!match)
+         return;
+@@ -62,35 +18,15 @@ export function assertNoSensitiveFrameworkTables(sql, operation) {
          : operation === "write"
              ? "writable"
              : "patchable";
 -    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`);
 +    fail(`Sensitive framework table "${match[1]}" is not ${verb} through raw DB tools. Use the framework auth, secrets, OAuth, or resources APIs instead.`);
  }
- // Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
- // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
+-// Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
+-// `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
+-// db-query / db-exec, because those views only shadow UNQUALIFIED table names.
+-// A qualified reference resolves straight to the real base table, defeating the
+-// owner_email / org_id scoping and exposing (or letting writes touch) every
+-// tenant's rows. db-patch already rejects dotted identifiers via
+-// isValidIdentifier; db-query / db-exec must reject them too.
+-//
+-// Two complementary detectors run on the comment/string-stripped SQL:
+-//   1. The schemas that actually HOLD base tables and so defeat scoping when
+-//      named explicitly: `public` (Neon Postgres prod), `main` (SQLite desktop),
+-//      and the Postgres system catalogs. This fires in ANY position, so it also
+-//      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
+-//      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our
+-//      scoping views) live there, so `temp.notes` resolves to the *scoped* view,
+-//      not a bypass, and `temp` is a common table alias we must not reject.
+-//      The schema may be bare or double-quoted (`"public"."notes"`).
+-//   2. Any dotted reference in table position (FROM/JOIN/INTO/UPDATE, incl.
+-//      ONLY/LATERAL), which also catches non-standard schema names. Column /
+-//      alias references like `f.id` sit in select/where/on position, not table
+-//      position, so they do not match — no false positives on ordinary joins.
++// Qualified table references select base tables outside the scoped views.
++// The shared table walk covers joins, comma lists, and parenthesized groups.
+ const DANGEROUS_SCHEMA_QUALIFIER_RE = /(?:\b|")(?:main|public|pg_catalog|pg_toast|information_schema)"?\s*\.\s*(?:"|`|\[|[A-Za-z_])/i;
+-const TABLE_POSITION_QUALIFIED_RE = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+|LATERAL\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)/i;
+ export function assertNoSchemaQualifiedTables(sql, operation) {
+-    const cleanSql = stripSqlNonIdentifiers(sql);
++    const cleanSql = sqlGateText(sql);
+     if (!DANGEROUS_SCHEMA_QUALIFIER_RE.test(cleanSql) &&
+-        !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)) {
++        !hasQualifiedTableReference(sql)) {
+         return;
+     }
+     const verb = operation === "read" ? "queried" : "written";
+@@ -132,6 +68,7 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
+     "members",
+     "owner",
+     "owner_email",
++    "org_id",
+     "permission",
+     "permissions",
+     "privilege",
+@@ -161,55 +98,16 @@ function hasSensitiveToken(identifier, sensitiveTokens) {
+     }
+     return null;
+ }
+-function tableNameFromWriteSql(sql) {
+-    const match = sql.match(/^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+((?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+))?)/i);
+-    if (!match)
+-        return null;
+-    return normalizeIdentifier(match[1].split(".").pop() ?? match[1]);
+-}
+-function splitColumnList(columns) {
+-    return columns
+-        .split(",")
+-        .map((column) => normalizeIdentifier(column))
+-        .filter(Boolean);
+-}
+-function insertColumnsFromSql(sql) {
+-    const match = sql.match(/^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE(?:\s+OR\s+\w+)?\s+INTO)\s+(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+)(?:\s*\.\s*(?:"[^"]+"|'[^']+'|`[^`]+`|[\w]+))?\s*\(([^)]+)\)/i);
+-    return match ? splitColumnList(match[1]) : [];
+-}
+-function updateColumnsFromSql(sql) {
+-    const setMatch = /\bSET\b/i.exec(sql);
+-    if (!setMatch)
+-        return [];
+-    const tail = sql.slice(setMatch.index + setMatch[0].length);
+-    const endMatch = /\b(?:WHERE|RETURNING)\b/i.exec(tail);
+-    const setClause = endMatch ? tail.slice(0, endMatch.index) : tail;
+-    const columns = [];
+-    const columnRe = /(?:^|,)\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))\s*=/g;
+-    let match;
+-    while ((match = columnRe.exec(setClause)) !== null) {
+-        columns.push(normalizeIdentifier(match[1] ?? match[2] ?? match[3] ?? match[4]));
+-    }
+-    return columns;
+-}
+-function writeColumnsFromSql(sql) {
+-    const upper = sql.trim().toUpperCase();
+-    if (upper.startsWith("UPDATE"))
+-        return updateColumnsFromSql(sql);
+-    if (upper.startsWith("INSERT") || upper.startsWith("REPLACE")) {
+-        return insertColumnsFromSql(sql);
+-    }
+-    return [];
+-}
+ export function assertNoRawDbAccessControlWrite(sql) {
+-    const tableName = tableNameFromWriteSql(sql);
++    const write = analyzeWriteSql(sql);
++    const tableName = write.table;
+     if (tableName) {
+         const tableToken = hasSensitiveToken(tableName, ACCESS_CONTROL_TABLE_TOKENS);
+         if (tableToken) {
+             fail(`Sensitive identity/access-control table "${tableName}" is not writable through raw DB tools. Use a dedicated app action or implement the permission change in reviewed code.`);
+         }
+     }
+-    for (const column of writeColumnsFromSql(sql)) {
++    for (const column of write.columns) {
+         const columnToken = hasSensitiveToken(column, ACCESS_CONTROL_COLUMN_TOKENS);
+         if (!columnToken)
+             continue;
+diff --git a/dist/scripts/db/sql-text.js b/dist/scripts/db/sql-text.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bd7173cab641710fa79d51f210619defd133133
+--- /dev/null
++++ b/dist/scripts/db/sql-text.js
+@@ -0,0 +1,182 @@
++import { fail } from "../utils.js";
++
++export const keyword = (token, word) => token?.kind === "word" && token.value.toUpperCase() === word;
++const wordStart = ch => ch !== undefined && /[A-Za-z_\u0080-\uffff]/.test(ch);
++const wordPart = ch => ch !== undefined && /[A-Za-z_0-9$\u0080-\uffff]/.test(ch);
++
++// Offsets always refer to the input. Comments separate tokens, as in SQLite.
++export function tokenizeSql(sql) {
++    if (sql.includes("\0")) fail("SQL must not contain a NUL character.");
++    const tokens = [];
++    let depth = 0;
++    let i = 0;
++    while (i < sql.length) {
++        const start = i;
++        const ch = sql[i];
++        if (/\s/.test(ch)) { i++; continue; }
++        let kind = "symbol";
++        let value;
++        if (sql.startsWith("--", i)) {
++            i = sql.indexOf("\n", i + 2);
++            if (i < 0) i = sql.length;
++            const comment = sql.slice(start, i + (sql[i] === "\n" ? 1 : 0));
++            if (/\r(?!\n)/.test(comment))
++                fail("CR-only SQL line comments are not supported by raw DB tools.");
++            kind = "comment";
++        }
++        else if (sql.startsWith("/*", i)) {
++            const end = sql.indexOf("*/", i + 2);
++            i = end < 0 ? sql.length : end + 2;
++            if (sql.slice(start + 2, end < 0 ? i : end).includes("/*"))
++                fail("Nested SQL comments are not supported by raw DB tools.");
++            kind = "comment";
++        }
++        else if (ch === "'" || ch === '"' || ch === "`" || ch === "[") {
++            kind = ch === "'" ? "string" : "identifier";
++            const close = ch === "[" ? "]" : ch;
++            i++;
++            value = "";
++            let closed = false;
++            while (i < sql.length) {
++                if (sql[i] === close) {
++                    if (ch !== "[" && sql[i + 1] === close) {
++                        value += close;
++                        i += 2;
++                        continue;
++                    }
++                    i++;
++                    closed = true;
++                    break;
++                }
++                value += sql[i++];
++            }
++            if (!closed) fail("SQL contains an unterminated quoted value.");
++        }
++        else if (wordStart(ch)) {
++            i++;
++            while (wordPart(sql[i])) i++;
++            kind = "word";
++            value = sql.slice(start, i);
++            if ((/^[eEnNbBxX]$/.test(value) && sql[i] === "'") ||
++                (/^[uU]$/.test(value) && sql[i] === "&" && /['"]/.test(sql[i + 1] ?? ""))) {
++                // Dialect-specific quoting must not change what the checks can see.
++                fail("Prefixed SQL quoting is not supported by raw DB tools. Use bind parameters.");
++            }
++        }
++        else if (ch === "?" || ch === "$" || ch === ":" || ch === "@") {
++            if (ch === "$" && /^\$(?:[A-Za-z_\u0080-\uffff][A-Za-z_0-9\u0080-\uffff]*)?\$/.test(sql.slice(i)))
++                fail("Dollar-quoted SQL is not supported by raw DB tools. Use bind parameters.");
++            i++;
++            while (wordPart(sql[i])) i++;
++            kind = "parameter";
++        }
++        else {
++            i++;
++        }
++        value ??= sql.slice(start, i);
++        if (kind === "symbol" && value === ")") {
++            depth--;
++            if (depth < 0) fail("SQL contains unbalanced parentheses.");
++        }
++        tokens.push({ kind, value, start, end: i, depth });
++        if (kind === "symbol" && value === "(") depth++;
++    }
++    if (depth !== 0) fail("SQL contains unbalanced parentheses.");
++    return tokens;
++}
++
++export function statementTokens(sql, index) {
++    const tokens = tokenizeSql(sql).filter(token => token.kind !== "comment");
++    if (tokens.at(-1)?.value === ";" && tokens.at(-1)?.kind === "symbol") tokens.pop();
++    if (tokens.some(token => token.kind === "symbol" && token.value === ";"))
++        fail(index === undefined
++            ? "SQL contains multiple SQL statements. Use --statements for validated write batches."
++            : `Statement ${index} contains multiple SQL statements. Use --statements for batches so each write can be validated and run transactionally.`);
++    return tokens;
++}
++
++export function sqlWithoutComments(sql) {
++    let out = "";
++    let end = 0;
++    for (const token of tokenizeSql(sql)) {
++        if (token.kind !== "comment") continue;
++        out += sql.slice(end, token.start) + sql.slice(token.start, token.end).replace(/[^\r\n]/g, " ");
++        end = token.end;
++    }
++    return out + sql.slice(end);
++}
++
++// SQLite accepts a single-quoted table name in an identifier-only position.
++function tableReferences(tokens) {
++    const names = new Set();
++    const contexts = new Map();
++    for (let index = 0; index < tokens.length; index++) {
++        const token = tokens[index];
++        const level = token.depth;
++        let context = contexts.get(level) ?? { from: false, expect: false };
++        if (token.kind === "word") {
++            const word = token.value.toUpperCase();
++            if (["FROM", "JOIN", "INTO", "UPDATE"].includes(word)) {
++                context = { from: word === "FROM" || word === "JOIN", expect: true };
++            }
++            else if (["SELECT", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "UNION", "EXCEPT", "INTERSECT", "RETURNING", "SET", "VALUES"].includes(word)) {
++                context = { from: false, expect: false };
++            }
++            else if (context.expect && !["ONLY", "LATERAL", "OR", "ROLLBACK", "ABORT", "FAIL", "IGNORE", "REPLACE"].includes(word)) {
++                names.add(token);
++                context.expect = false;
++            }
++        }
++        else if (token.kind === "symbol" && token.value === "(") {
++            contexts.set(level + 1, { from: context.expect, expect: context.expect });
++            context.expect = false;
++        }
++        else if (token.kind === "symbol" && token.value === ",") {
++            context.expect = context.from;
++        }
++        else if (token.kind === "symbol" && token.value === ".") {
++            context.expect = true;
++        }
++        else if (token.kind === "string" || token.kind === "identifier") {
++            if (context.expect) names.add(token);
++            context.expect = false;
++        }
++        contexts.set(level, context);
++    }
++    return names;
++}
++
++export function hasQualifiedTableReference(sql) {
++    const tokens = tokenizeSql(sql).filter(token => token.kind !== "comment");
++    const references = tableReferences(tokens);
++    return tokens.some((token, index) => references.has(token) &&
++        tokens[index + 1]?.kind === "symbol" && tokens[index + 1].value === "." &&
++        ["word", "identifier", "string"].includes(tokens[index + 2]?.kind));
++}
++
++export function sqlGateText(sql) {
++    const tokens = tokenizeSql(sql).filter(token => token.kind !== "comment");
++    const names = tableReferences(tokens);
++    return tokens.map(token => {
++        if (token.kind === "string" && !names.has(token)) return "''";
++        if (token.kind === "identifier" || (token.kind === "string" && names.has(token)))
++            return '"' + token.value.replace(/"/g, '""') + '"';
++        return token.value;
++    }).join(" ");
++}
++
++export function normalizePostgresSql(sql, args) {
++    if (!args.length) return sql;
++    const tokens = tokenizeSql(sql);
++    const parameters = tokens.filter(token => token.kind === "parameter");
++    if (parameters.some(token => /^\$\d+$/.test(token.value))) return sql;
++    let index = 0;
++    let end = 0;
++    let out = "";
++    for (const token of parameters) {
++        if (token.value !== "?") continue;
++        out += sql.slice(end, token.start) + "$" + (++index);
++        end = token.end;
++    }
++    return out + sql.slice(end);
++}
+diff --git a/dist/scripts/db/sql-write.js b/dist/scripts/db/sql-write.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b6052b2136132d2bde64a53fc08dae233708086
+--- /dev/null
++++ b/dist/scripts/db/sql-write.js
+@@ -0,0 +1,140 @@
++import { keyword, statementTokens } from "./sql-text.js";
++
++const identifier = (token) => token && ["word", "identifier", "string"].includes(token.kind);
++const symbol = (token, value) => token?.kind === "symbol" && token.value === value;
++const unsupported = (detail) => { throw new Error(`Unsupported raw SQL write: ${detail}. Use a dedicated app action or reviewed code.`); };
++
++function requireIdentifier(tokens, index, label) {
++    const token = tokens[index];
++    if (!identifier(token)) unsupported(`expected a plain or quoted ${label}`);
++    return token;
++}
++function matchingClose(tokens, index) {
++    const open = tokens[index];
++    if (!symbol(open, "(")) unsupported("expected a parenthesized list");
++    for (let i = index + 1; i < tokens.length; i++) {
++        if (symbol(tokens[i], ")") && tokens[i].depth === open.depth) return i;
++    }
++    unsupported("unclosed parenthesized list");
++}
++function splitList(tokens, start, end, depth) {
++    const groups = [];
++    let from = start;
++    for (let i = start; i < end; i++) {
++        if (symbol(tokens[i], ",") && tokens[i].depth === depth) {
++            groups.push(tokens.slice(from, i));
++            from = i + 1;
++        }
++    }
++    groups.push(tokens.slice(from, end));
++    if (groups.some((group) => group.length === 0)) unsupported("empty list item");
++    return groups;
++}
++function rejectClauses(tokens, names) {
++    for (const token of tokens) {
++        if (token.depth === 0 && names.some((name) => keyword(token, name))) {
++            unsupported(`${token.value.toUpperCase()} clause`);
++        }
++    }
++}
++function findClause(tokens, name, start) {
++    return tokens.findIndex((token, index) => index >= start && token.depth === 0 && keyword(token, name));
++}
++function returningClause(tokens, index) {
++    if (index < 0) return null;
++    if (index === tokens.length - 1) unsupported("empty RETURNING clause");
++    rejectClauses(tokens.slice(index + 1), ["RETURNING", "WHERE", "ORDER", "LIMIT"]);
++    return { start: tokens[index].start };
++}
++
++/** Inspect the supported write grammar before any ownership transformation. */
++export function analyzeWriteSql(sql) {
++    const tokens = statementTokens(sql);
++    if (!tokens.length) unsupported("empty statement");
++    const kind = ["INSERT", "REPLACE", "UPDATE", "DELETE"].find((word) => keyword(tokens[0], word));
++    if (!kind) unsupported("only INSERT, REPLACE, UPDATE, and DELETE are allowed");
++    if (kind === "REPLACE" || (kind === "INSERT" &&
++        keyword(tokens[1], "OR") && keyword(tokens[2], "REPLACE"))) {
++        throw new Error("REPLACE conflict handling is not supported through raw DB tools.");
++    }
++    let index = 1;
++    if (kind === "INSERT" && keyword(tokens[index], "OR")) {
++        index++;
++        if (!["ROLLBACK", "ABORT", "FAIL", "IGNORE", "REPLACE"].some((word) => keyword(tokens[index], word))) {
++            unsupported("INSERT conflict action");
++        }
++        index++;
++    }
++    if (kind === "INSERT" || kind === "REPLACE") {
++        if (!keyword(tokens[index++], "INTO")) unsupported("expected INTO");
++    } else if (kind === "DELETE") {
++        if (!keyword(tokens[index++], "FROM")) unsupported("expected FROM");
++    } else if (keyword(tokens[index], "OR")) {
++        unsupported("UPDATE conflict action");
++    }
++    const target = requireIdentifier(tokens, index++, "table name");
++    if (symbol(tokens[index], ".")) unsupported("schema-qualified target");
++    const result = {
++        kind, table: target.value, target: { start: target.start, end: target.end },
++        columns: [], tokens, where: null, returning: null, insert: null,
++    };
++    if (kind === "INSERT" || kind === "REPLACE") {
++        if (!symbol(tokens[index], "(")) unsupported("INSERT requires an explicit column list");
++        const columnsClose = matchingClose(tokens, index);
++        const columns = splitList(tokens, index + 1, columnsClose, 1);
++        result.columns = columns.map((group) => {
++            if (group.length !== 1 || !identifier(group[0])) unsupported("INSERT column expression");
++            return group[0].value;
++        });
++        if (new Set(result.columns.map((column) => column.toLowerCase())).size !== result.columns.length) {
++            unsupported("duplicate INSERT column");
++        }
++        index = columnsClose + 1;
++        if (!keyword(tokens[index++], "VALUES")) unsupported("only explicit VALUES inserts are supported");
++        if (!symbol(tokens[index], "(")) unsupported("expected VALUES tuple");
++        const valuesClose = matchingClose(tokens, index);
++        const values = splitList(tokens, index + 1, valuesClose, 1);
++        if (values.length !== columns.length) unsupported("INSERT column and value counts differ");
++        result.insert = { columnsClose: tokens[columnsClose].start, valuesClose: tokens[valuesClose].start };
++        index = valuesClose + 1;
++        if (index < tokens.length) {
++            if (!keyword(tokens[index], "RETURNING")) unsupported("multiple VALUES rows or INSERT suffix");
++            result.returning = returningClause(tokens, index);
++        }
++        return result;
++    }
++
++    if (kind === "UPDATE") {
++        if (!keyword(tokens[index++], "SET")) unsupported("expected SET after the target");
++    }
++    const returningIndex = findClause(tokens, "RETURNING", index);
++    const whereIndex = findClause(tokens, "WHERE", index);
++    if (whereIndex >= 0 && returningIndex >= 0 && whereIndex > returningIndex) {
++        unsupported("WHERE after RETURNING");
++    }
++    const bodyEnd = returningIndex < 0 ? tokens.length : returningIndex;
++    rejectClauses(tokens.slice(index, bodyEnd), ["FROM", "ORDER", "LIMIT", "ON", "UNION", "INTERSECT", "EXCEPT"]);
++    if (whereIndex >= 0) {
++        if (whereIndex + 1 >= bodyEnd) unsupported("empty WHERE clause");
++        if (findClause(tokens, "WHERE", whereIndex + 1) >= 0) unsupported("multiple WHERE clauses");
++        result.where = {
++            keywordStart: tokens[whereIndex].start,
++            expressionStart: tokens[whereIndex].end,
++            end: returningIndex < 0 ? tokens[tokens.length - 1].end : tokens[returningIndex].start,
++        };
++    }
++    result.returning = returningClause(tokens, returningIndex);
++    if (kind === "UPDATE") {
++        const assignmentsEnd = whereIndex < 0 ? bodyEnd : whereIndex;
++        const assignments = splitList(tokens, index, assignmentsEnd, 0);
++        result.columns = assignments.map((group) => {
++            if (!identifier(group[0]) || !symbol(group[1], "=") || group.length < 3) {
++                unsupported("UPDATE requires individual column assignments");
++            }
++            return group[0].value;
++        });
++    } else if (index !== (whereIndex < 0 ? bodyEnd : whereIndex)) {
++        unsupported("DELETE target alias or suffix");
++    }
++    return result;
++}
 diff --git a/dist/scripts/parse-args.d.ts b/dist/scripts/parse-args.d.ts
 index 822e93d0a36d7935137bb9dd210ef86e7c96a94a..0ba3d95508aab05f295901c04833e8179a1baf6a 100644
 --- a/dist/scripts/parse-args.d.ts
