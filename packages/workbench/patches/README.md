@@ -1734,215 +1734,101 @@ with the same order and fallback that passes the same test.
 
 ## Automation-written instruction files
 
-Issue #109. The owner decided on 2026-09-28 that an instruction or memory file
-an automation run writes waits for the owner's review before a chat loads it,
-and on 2026-09-29 that later runs skip it too, so one run cannot plant
-instructions for the next. Before this change a run could write `AGENTS.md`,
-`instructions/`, `skills/`, `LEARNINGS.md`, and `memory/`, every later chat and
-run loaded them, and nothing in the row told a run's write from a chat's.
+Issues #109 and #144. The owner decided on 2026-09-28 that instruction and
+memory files written by automation runs wait for review, and on 2026-09-29
+that later runs skip those proposals too. Runs can change only their owner's
+personal resources. They cannot write or delete app default, organization or
+workspace resources, even when their creator is an organization admin.
 
-The run wrapper in `dist/jobs/unattended-surface.js` runs each kept tool inside
-a request context that adds `automationRun`, with the run id, the thread id,
-and the automation name from the tool's context. `resourcePut` in
-`dist/resources/store.js` reads it, so it covers every write a run makes:
-`resources write` and `promote`, `save-memory`, and `delete-memory`. No tool
-argument can set or clear it.
+The wrapper in dist/jobs/unattended-surface.js supplies automationRun through
+the request context. The resource store derives the run identity from that
+context, never from tool arguments. Every run write records created_by,
+run_id and thread_id. A reviewed path is AGENTS.md, LEARNINGS.md, or a path
+under instructions/, skills/ or memory/, compared in lower case. Runs must
+write plain paths because the loaders match the stored path. A run's
+LEARNINGS.md write defaults to the app-shared scope and is refused unless it
+explicitly names its personal scope. Personal LEARNINGS.md is not prompt-loaded.
 
-- Every write a run makes records `created_by = agent`, `run_id`, and
-  `thread_id`.
-- A write to an instruction path also sets `runReview` in the row's JSON
-  metadata: `state: "pending"`, the run id, the automation name, and
-  `writtenAt`. Instruction paths are `AGENTS.md`, `LEARNINGS.md`, and anything
-  under `instructions/`, `skills/`, or `memory/`, compared in lower case. With
-  the libsql client, SQLite 3.53.2 on Zo, the store's `LIKE` prefix queries
-  ignore ASCII case, so `resourceList(owner, "skills/")` also returns
-  `SKILLS/x/SKILL.md` when that row is not agent scratch. `AGENTS.md` and
-  `LEARNINGS.md` load by an exact, case-sensitive path. Other metadata keys are
-  kept.
-- Any other write keeps the row's `runReview`, even when its caller passes
-  metadata. A chat's write, `save-memory`, `delete-memory`, and an owner's
-  edit in the Resources panel leave the file waiting. `save-memory` carries the
-  index lines a run wrote into its rewrite, so clearing the mark there would
-  launder them. While the file waits, such a write also keeps the run's
-  `created_by`, `run_id`, and `thread_id`, whatever its caller passed.
-- Every write moves the row's `updated_at` at least one millisecond past the
-  value it replaces. Settings names the version the owner reviewed by that
-  time, and a second write in the same millisecond, or after the clock stepped
-  back, used to keep it. Two concurrent writers are a limit, named below.
-- A run writes only its own user's personal files, whatever the path. In
-  hosted mode several owners share one database. A personal automation runs
-  with no organization, because `resolveAutomationExecutionIdentity` returns
-  none for it, so a run's `resources write` with scope `shared` reached the app
-  default owner, `__shared__`, and `assertCanWriteSharedResource` skips its role
-  check when there is no organization. Every user's chat loads the app default
-  `AGENTS.md`, and the resource index in `prompt-resources.js` prints the path
-  and title of each workspace, app default, and organization note in every
-  chat's and run's prompt. An organization run whose creator is an admin could
-  write the organization's files, which every member loads. `resourcePut` now
-  refuses every run write, `promote` included, whose owner is not the run's
-  user, with "Automation runs cannot write `<path>` outside the owner's
-  personal files". A run's `LEARNINGS.md` write goes to the app default unless
-  it names the personal scope, because `shouldDefaultResourceWriteToShared`
-  sends it there, so it is refused, not held for review. A write that names
-  the personal scope waits, and no loader reads a personal `LEARNINGS.md`.
-- A run deletes only its own user's personal files too, which the owner decided
-  on 2026-09-29. A personal run's `resources delete` with scope `shared`
-  reached the app default owner the same way, and
-  `assertCanDeleteSharedResource` skips its role check with no organization, so
-  the run deleted the app default `AGENTS.md`. An organization run whose
-  creator is an admin could delete the organization's files.
-  `resourceDeleteByPath`, `resourceDeleteIfCurrent`, and `resourceDelete` now
-  refuse a run's delete whose owner is not the run's user, with "Automation
-  runs cannot delete `<path>` outside the owner's personal files". The first
-  two are the ones `resources delete` and `delete-memory` call. No run tool
-  reaches `resourceDelete` today, because a run only lists jobs and
-  automations, and it has the same check so the store holds the rule for every
-  delete. `delete-memory` names the run's user as the owner, so its deletes
-  were already personal.
-- A run writes only a plain path, with no `.` or `..` segment, no leading,
-  repeated, or back slash, and no surrounding space. The loaders match the
-  stored path as written, so `skills/../x/SKILL.md` is listed as a skill,
-  while a check on the collapsed path would read it as `x/SKILL.md` and set no
-  mark. `resourcePut` refuses such a path with "is not a plain path. Write
-  `<plain path>` instead." The same rule stops a run's `jobs/../x.md`, which
-  the run surface's configuration check collapses to `x.md`, while the
-  scheduler lists every `jobs/` row by its stored path and parses it as a job.
+A write to a reviewed path keeps the proposed content in the resource row
+and stores one accepted predecessor in runReview.previous. This is a complete
+resource snapshot, bound to the same id, owner and path. The first proposal
+captures the last accepted version. Later proposals, chat edits and owner
+edits keep that predecessor while replacing only the proposed text. An empty
+accepted file is a predecessor, distinct from a proposal with no earlier file.
+Caller-supplied runReview metadata is removed by resourcePut and
+resourcePutIfAbsent, then only the store's review record is attached.
 
-The store exports `isPendingRunReview` and `resourceAcceptRunReviewIfCurrent`,
-declared in `store.d.ts`. The accept changes a row only while it still waits
-and has the update time the owner reviewed, and its update also compares the
-metadata it read. It sets `state: "accepted"` with `acceptedBy` and
-`acceptedAt` and keeps the run id.
+resourcePut writes against the version, content and metadata it read. On a
+conflict it reloads and recomputes the proposal, for at most eight attempts.
+A competing initial insert does nothing and retries. Every successful write
+advances updated_at, so same-millisecond writes and review decisions have
+different versions. Moves compare the identity and version inspected before the
+move, and ID-based deletes compare the owner and path checked before deletion.
+Pending rows retain the accepted visibility and have no
+expiry. A proposal cannot hide accepted instructions as agent scratch or
+erase them through scratch cleanup. New proposals stay visible to Settings.
 
-Every loader that a run's personal file reaches skips a waiting file:
+resourceForAgent returns the accepted projection while a proposal waits.
+A new or legacy pending row without a saved predecessor returns no content.
+The helper covers prompt AGENTS, compact and full instructions, memory,
+skill indexes, skill references, the skills route, the first-message file
+inventory and resources read. Loaders that list then fetch a body also project
+the freshly read row. Settings reads the raw proposed content. The prompt
+notice counts every pending personal file without quoting proposal paths
+or content, and explains that accepted content remains available.
 
-- `loadResourcesForPrompt` in `dist/server/agent-chat/prompt-resources.js`
-  skips `AGENTS.md`, `instructions/` in both modes, the resource skills index,
-  and `memory/MEMORY.md` in full mode. When the owner has a waiting file, the
-  prompt gets one required line with the count of every file Settings >
-  Automation files lists, from the same query, such as "3 instruction or
-  memory files written by automation runs are waiting for the owner's review
-  in Settings > Automation files. They are not loaded. Do not follow or
-  rewrite them. If a task seems to depend on one, tell the owner." It names no
-  path and quotes no text, because both are the run's.
-- `resolveSkillReferenceContent` in `dist/agent/production-agent.js` does not
-  inline a waiting skill, and the `/skills` route in
-  `dist/server/agent-chat-plugin.js` does not list one.
-- The first-message files inventory in `dist/agent/production-agent.js`
-  leaves out a waiting file. Vivary turns that inventory off, because
-  `lazyContext` is on.
-- `resources read` in `dist/scripts/resources/read.js` prints "This file was
-  written by an automation run and is waiting for the owner's review in
-  Settings > Automation files. Its content is not available to chats or
-  automation runs until the owner accepts it." in place of the text. It does
-  not fall back to a shared file at the same path.
+Settings > Automation files lists proposed text as plain text. Accept activates
+that exact version and removes the saved predecessor. Discard restores the
+accepted content, metadata, MIME type, visibility, expiry and origin in one
+conditional update. If no predecessor was saved, it deletes the proposal with
+the existing full-row comparison. Both decisions refuse a changed version.
+The list rechecks ownership and pending state after reading each body.
+An unconfirmed decision shows a notice until that file has a confirmed decision.
+A successful review of another file cannot clear that notice.
+The owner action remains unavailable to chats, MCP clients and automation
+runs. Its internal delete operation now means discarding a proposal.
+A pending proposal must be accepted or discarded before moving its path.
 
-A loader that lists files and then reads each one by id also checks the row it
-read. Four do: the full-mode `instructions/` loader and the resource skills
-index in `prompt-resources.js`, the `/skills` route, and the files inventory. A
-run can overwrite an accepted file between the list and the read. The overwrite
-keeps the row's id, so the read would return the run's waiting text. The note
-counts such a file, because its query runs after the loaders. The compact-mode
-`instructions/` list prints paths and reads no file. A file that a run rewrites
-during that list can still appear by its path, and `resources read` then gives
-the note.
+Automation deletion of instruction and memory paths is refused by every store
+delete entry point. delete-memory refuses before deleting the body or changing
+the memory index. Ordinary personal notes remain deletable. Conditional writes,
+insert-if-absent writes and moves refuse automation changes involving reviewed
+paths, so internal alternate writers cannot bypass proposal creation.
 
-Core's raw database tools, `db-query`, `db-exec`, and `db-patch`, refuse the
-`resources` table. `SENSITIVE_FRAMEWORK_TABLE_RE` in
-`dist/scripts/db/safety.js` lists it beside the credential and identity
-tables, and the refusal now names the resources APIs. In the packaged check on
-`e50ae89c`, a chat's `db-query` read a waiting file's text from the table,
-because Core's SQL tools scope `resources` by owner only, and a `db-exec` of
-the row's metadata could clear the mark. The list matches `resources` as a
-whole word outside strings and comments, so a table whose name only contains
-it and a string that holds it pass, and a quoted `"resources"` is refused. No
-Core caller sends SQL on `resources` through these tools: the store and the
-other Core modules query the table directly, and the extension SQL routes in
-`dist/extensions/routes.js` refuse `resources` in their own list before they
-reach the query and exec scripts.
+Core's raw SQL tools and extensions SQL routes refuse the resources table.
+The raw SQL inspection section documents their shared parser and checks.
+An ordinary note remains readable, and resources list may still show paths.
+This change adds no schema migration and keeps only one accepted predecessor,
+not a version history.
 
-`LEARNINGS.md` loads from the organization or the app default only, which a
-run cannot write, so it needs no skip. The filter sits in
-`loadResourcesForPrompt`, so it covers interactive and project chats, A2A, MCP
-`ask_app`, integration turns, the context preview, and the run prompts that the
-scheduler and the dispatcher build. `resources list` and `resources effective`
-print no content and are unchanged. A personal memory file other than the
-index loads only on demand, and `resources read` gives the note when a chat
-opens it. The note counts it anyway. In the packaged check on `e50ae89c` the
-note counted only the files a prompt loader skipped, so it left out memory
-files and was gone while two of them still waited.
+Limits: earlier pending rows have no saved predecessor, so this change cannot
+recover text already overwritten before the fix. Those proposals remain
+hidden until review. A new personal proposal can still shadow an inherited
+shared or organization file at the same path. Accepted scratch visibility
+remains scratch visibility. Interactive owner deletion remains an explicit
+deletion. Live PostgreSQL and a packaged Windows journey for #144 are not
+established by the SQLite and component tests.
 
-Vivary's Settings > Automation files tab lists the signed-in owner's waiting
-files, each with its path, its text as plain text, Accept, and Delete. It is
-Vivary code, not a Core hunk: the `vivary-automation-files` action lists,
-accepts, and deletes, and no chat, MCP client, or run can call it. Only the
-file's owner may review it. Accept and Delete act only on the version the list
-showed, so a write since then refuses them, and the list reloads with the file
-as it is now and one notice on it to read it again. The action answers only
-that refusal with 409, and the tab shows the notice only for 409, so an expired
-session or a lost connection does not say the file changed. A list that fails
-to load says so. Delete removes the whole file.
+Run:
 
-Limits. A run can still delete its owner's own instruction file or memory entry
-with `resources delete` or `delete-memory`, and a run that overwrites an
-owner's file hides the owner's earlier text too until review, because the table
-keeps one row per path and no earlier version. Issue #144 tracks both, for the
-owner's own files only. Two writes to one row in the same millisecond can still
-store the same `updated_at`. `resourcePut` reads the row and then writes it
-with no transaction, so when both read the row before either lands, neither
-sees the other's time, and an Accept of the first writer's text then approves
-the second's. Closing it needs a compare-and-set on `updated_at` in
-`resourcePut`, which the smallest version leaves out. A waiting personal file
-also hides a shared or organization file at the same path until the owner
-reviews it: chats list no skill for it, the `/skills` menu leaves it out, and
-`resources read` gives the note, not the shared text. Falling through to the
-shared file would change three places that each put a personal file before a
-shared one: the merge in `resourceListAccessible`, which seven callers share,
-the Resources panel among them, `resourceEffectiveContext`, and the
-personal-first order of `read.js`. It hides a file and loads nothing, so it
-stays a limit beside #144. A chat can still overwrite a waiting file, and the
-result keeps waiting, so the owner then reviews the chat's text. A run's
-personal notes stay readable, and the resource index lists no personal file.
-The prompt says only how many files wait, but a chat can still list their paths
-with `resources list`, which loads no file into a prompt. A shared or
-organization row that a caller of the Resources routes marked waiting through
-metadata stays hidden, and Settings does not list it, because only a run is
-expected to set the mark.
+```sh
+node --test packages/workbench/tests/automation-file-review.test.mjs packages/workbench/tests/automation-file-review-component.test.mjs
+```
 
-Run `node --test packages/workbench/tests/automation-file-review.test.mjs`. It
-uses a disposable SQLite database and drives writes through
-`restrictActionsForUnattendedRun` with a run's tool context. It checks the
-origin and the mark on each instruction path, a note that gets origin and no
-mark, the refusal of every app default and organization write and promote by a
-run, notes included, and of a path that is not plain, the refusal of a run's app
-default and organization delete and of each store delete of another user's file
-inside a run, a run's delete of its owner's note and memory, the note in compact
-and full prompts with the count Settings lists and no path, a run's prompt, the
-applied skill, `resources read`, the refusal of a chat's `db-query`, `db-exec`,
-and `db-patch` on the `resources` table, that a chat write, a memory save, and
-an owner edit keep the mark and the run's origin, the Settings action's list,
-accept, delete, and owner check, and a stale review after a second write in the
-same millisecond, and a run's rewrite of an accepted file between a loader's
-list and its read. Source pins cover the wrapper, the `/skills` route, the files
-inventory, the check of the row read in both, and the action's flags.
-`tests/automation-file-review-component.test.mjs` renders the tab, its notice on
-a review refused because the file changed and on no other refusal, and its line
-for a failed list. Each case failed before its fix, on `dev` at `4c19c2e` or on
-this branch before a review round's or the packaged check's fixes.
+The tests use disposable production SQLite data and the real unattended action
+wrapper. They cover accepted reads and prompts during proposals, skill loading,
+repeated edits, all deletion boundaries, conditional-write conflicts, reserved
+metadata, stale decisions, list/read races and a fresh process after a proposal.
+The first test commit records 15 failures before the fix. Two later identity-race
+cases also failed before their fixes. The Settings component tests render the
+real component with a stubbed action transport. They cover failed Accept and
+Discard requests, successful retries and overlapping decisions on two files.
 
-The unpublished `e50ae89c` package holds one copy of the store: the #109
-strings are in the Core chunk only. A run's files waited there, Settings listed,
-accepted, and deleted them, a chat's stored prompt held the run's `AGENTS.md`
-only after Accept, and a stale Accept showed the notice. The
-[#109 receipt](../../../docs/product/multi-project/receipts/109-automation-file-review.md)
-records the check. The raw database refusal and the note's count above came from
-it and ran on Zo only. The loaders' check of the row they read came from the PR
-review and ran on Zo only too.
-
-Upstream could take the origin and the review mark as they are, with the host
-choosing the note's wording. Remove this part of the patch only when an
-upstream release holds agent-written instruction files for review and passes
-the same test.
+The older issue #109 packaged result remains in
+[its receipt](../../../docs/product/multi-project/receipts/109-automation-file-review.md).
+It is evidence for that earlier build, not this change. Remove this patch only
+when upstream preserves accepted instruction content during pending changes,
+refuses unattended instruction deletion, and passes these tests.
 
 ## Credential redaction
 
