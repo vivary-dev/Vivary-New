@@ -6014,19 +6014,132 @@ index 7af3befd00e560cf644d4654820686c6bfd3fc37..0c62950fccaa60ffe50e9ddcd9cb0449
              attempted += 1;
          }
          catch (error) {
+diff --git a/dist/jobs/scheduler-health.d.ts b/dist/jobs/scheduler-health.d.ts
+index 27ee398ef729e3c8e81379a8050751bf50248bbe..4adfe368e05c5877695daf79d811e20918c5b5b3 100644
+--- a/dist/jobs/scheduler-health.d.ts
++++ b/dist/jobs/scheduler-health.d.ts
+@@ -32,6 +32,25 @@ export declare function releaseAutomationSchedulerLease(input: {
+     appId?: string;
+     owner: string;
+ }): Promise<void>;
++/**
++ * Vivary #139. Claim one automation's run across all processes. `key` is
++ * `<owner>:<path>` of its resource. Returns the lease owner, or null while
++ * another run holds the lease.
++ */
++export declare function acquireAutomationRunLease(input: {
++    appId?: string;
++    key: string;
++}): Promise<string | null>;
++/** Renew a run lease. False when this owner no longer holds it. */
++export declare function renewAutomationRunLease(input: {
++    key: string;
++    owner: string;
++}): Promise<boolean>;
++/** Delete a run lease row while this owner still holds it. */
++export declare function releaseAutomationRunLease(input: {
++    key: string;
++    owner: string;
++}): Promise<void>;
+ /** Record the last scheduler tick without making health bookkeeping fatal. */
+ export declare function recordAutomationSchedulerHealth(input: {
+     appId?: string;
+diff --git a/dist/jobs/scheduler-health.js b/dist/jobs/scheduler-health.js
+index bfe5eb32673b056ace050a6af925c0d7cc1874e3..a319ba5ce0872e3b7bc239ce9fdaaf9229a322c3 100644
+--- a/dist/jobs/scheduler-health.js
++++ b/dist/jobs/scheduler-health.js
+@@ -133,9 +133,13 @@ function leaseRowId(appId) {
+ }
+ /** Claim one recurring scheduler across all deployments of an app. */
+ export async function acquireAutomationSchedulerLease(input = {}) {
++    return acquireLeaseRow(leaseRowId(normalizeAppId(input.appId)), input);
++}
++// Vivary #139: each automation's run lease is a row in this table too, so the
++// scheduler lease and the run leases share this SQL.
++async function acquireLeaseRow(id, input) {
+     await ensureHealthTable();
+     const appId = normalizeAppId(input.appId);
+-    const id = leaseRowId(appId);
+     const now = input.now ?? Date.now();
+     const leaseMs = Math.max(input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS * 2);
+     const owner = randomUUID();
+@@ -165,6 +169,9 @@ export async function acquireAutomationSchedulerLease(input = {}) {
+ }
+ /** Renew a lease while a slow sweep is still executing. */
+ export async function renewAutomationSchedulerLease(input) {
++    return renewLeaseRow(leaseRowId(normalizeAppId(input.appId)), input);
++}
++async function renewLeaseRow(id, input) {
+     await ensureHealthTable();
+     const now = input.now ?? Date.now();
+     const expiresAt = now + Math.max(input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS, 0);
+@@ -175,7 +182,7 @@ export async function renewAutomationSchedulerLease(input) {
+         args: [
+             expiresAt,
+             now,
+-            leaseRowId(normalizeAppId(input.appId)),
++            id,
+             input.owner,
+         ],
+     });
+@@ -191,6 +198,29 @@ export async function releaseAutomationSchedulerLease(input) {
+         args: [Date.now(), leaseRowId(normalizeAppId(input.appId)), input.owner],
+     });
+ }
++function runLeaseRowId(key) {
++    return `run:${key}`;
++}
++/**
++ * Vivary #139. Claim one automation's run across all processes. `key` is
++ * `<owner>:<path>` of its resource. Returns the lease owner, or null while
++ * another run holds the lease.
++ */
++export async function acquireAutomationRunLease(input) {
++    return acquireLeaseRow(runLeaseRowId(input.key), input);
++}
++/** Renew a run lease. False when this owner no longer holds it. */
++export async function renewAutomationRunLease(input) {
++    return renewLeaseRow(runLeaseRowId(input.key), input);
++}
++/** Delete a run lease row while this owner still holds it. */
++export async function releaseAutomationRunLease(input) {
++    await ensureHealthTable();
++    await getDbExec().execute({
++        sql: `DELETE FROM ${TABLE} WHERE id = ? AND lease_owner = ?`,
++        args: [runLeaseRowId(input.key), input.owner],
++    });
++}
+ function fromRow(row) {
+     return {
+         appId: typeof row.app_id === "string"
 diff --git a/dist/jobs/scheduler.d.ts b/dist/jobs/scheduler.d.ts
-index 74b780aee4258ac540ce9feb98106febe05e744a..bed36d11bec3a5829931107e2b05b7c042bd27f5 100644
+index 74b780aee4258ac540ce9feb98106febe05e744a..4e50ae2d1f8b47b240f79f09e0ce4771a36a1fa9 100644
 --- a/dist/jobs/scheduler.d.ts
 +++ b/dist/jobs/scheduler.d.ts
-@@ -40,6 +40,15 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
+@@ -24,9 +24,11 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
+ /**
+  * Process all due recurring jobs. Called every 60 seconds.
+  *
+- * Scans may overlap while a long-running job is executing. Each resource is
+- * still protected by its persisted running state and a process-local key, so
+- * one job cannot run twice while leaving other due jobs waiting behind it.
++ * Vivary #139: scans never overlap, because each one holds the app's scheduler
++ * lease. Sweeps do overlap while their runs execute, because a sweep releases
++ * that lease before it starts the jobs it reserved and settles after they end.
++ * Each run holds its automation's run lease until its outcome is written, so
++ * a job never runs twice at once and never makes other due jobs wait.
+  */
+ export declare function processRecurringJobs(deps: SchedulerDeps): Promise<void>;
+ export declare const jobRunCutOffReason: typeof backgroundRunCutOffReason;
+@@ -40,6 +42,15 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
      historyId?: string;
      path?: string;
  }): Promise<JobExecutionResult>;
 +/**
 + * Vivary #114. Stop this process's automations for a normal quit: take no new
 + * lease, start no run, interrupt in-process runs, and wait for them to record
-+ * their outcome and release the lease, or for `timeoutMs` (10 seconds by
-+ * default). It writes nothing itself. Later calls return the first stop.
++ * their outcome and release their run leases, or for `timeoutMs` (10 seconds
++ * by default). It writes nothing itself. Later calls return the first stop.
 + */
 +export declare function stopRecurringJobs(options?: {
 +    timeoutMs?: number;
@@ -6035,10 +6148,10 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..bed36d11bec3a5829931107e2b05b7c0
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e857f8b85 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d223c36ceb 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
-@@ -1,9 +1,10 @@
+@@ -1,10 +1,11 @@
 +import { redactText } from "../audit/redact.js";
  import { resourceGetByPath, resourceListAllOwners, resourcePutIfCurrent, } from "../resources/store.js";
 -import { backgroundRunCutOffReason, isBackgroundAutomationRunActive, resolveBackgroundAutomationIdentity, runBackgroundAutomation, } from "./background-automation-runner.js";
@@ -6047,17 +6160,19 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
  import { buildJobResourceContent, isRecoveredFactoryJob, jobBelongsToApp, parseJobResource, patchJobFrontmatterFields, recoveredFactoryOwnerOrgId, } from "./frontmatter.js";
  import { dispatchRemoteAutomation, finishRemoteAutomationHistory, getRemoteAutomationStatus, } from "./remote-execution.js";
 -import { claimAutomationRun, finishAutomationRun, getAutomationRun, listAutomationRuns, } from "./run-history.js";
+-import { acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationSchedulerLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
 +import { claimAutomationRun, finishAutomationRun, getAutomationRun, INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, listAutomationRuns, } from "./run-history.js";
- import { acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationSchedulerLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
++import { acquireAutomationRunLease, acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationRunLease, releaseAutomationSchedulerLease, renewAutomationRunLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
  // ─── Frontmatter parsing ────────────────────────────────────────────────────
  export { classifyJobFrontmatter, classifyJobResource, normalizeJobMcpTools, parseJobResource, } from "./frontmatter.js";
+ export function parseJobFrontmatter(content) {
 @@ -26,6 +27,16 @@ let _hasJobsCache;
  let _lastJobsCheck = 0;
  const JOBS_CHECK_INTERVAL_MS = 5 * 60_000;
  let _emitterSubscribed = false;
 +// Vivary #114: set by stopRecurringJobs and never cleared, so it is also the
 +// closed flag. Sweeps and queued runs still settling are tracked so the stop
-+// can wait while they record their outcome and release the lease.
++// can wait while they record their outcome and release their leases.
 +let _stopPromise;
 +const _activeSchedulerWork = new Set();
 +function trackSchedulerWork(work) {
@@ -6068,9 +6183,18 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
  async function recordSchedulerHealthForScopes(input) {
      const orgIds = [...new Set(input.orgIds)];
      const scopes = orgIds.length > 0 ? orgIds : [null];
-@@ -67,7 +78,13 @@ function subscribeToJobsResourceEvents() {
-  * still protected by its persisted running state and a process-local key, so
-  * one job cannot run twice while leaving other due jobs waiting behind it.
+@@ -63,11 +74,19 @@ function subscribeToJobsResourceEvents() {
+ /**
+  * Process all due recurring jobs. Called every 60 seconds.
+  *
+- * Scans may overlap while a long-running job is executing. Each resource is
+- * still protected by its persisted running state and a process-local key, so
+- * one job cannot run twice while leaving other due jobs waiting behind it.
++ * Vivary #139: scans never overlap, because each one holds the app's scheduler
++ * lease. Sweeps do overlap while their runs execute, because a sweep releases
++ * that lease before it starts the jobs it reserved and settles after they end.
++ * Each run holds its automation's run lease until its outcome is written, so
++ * a job never runs twice at once and never makes other due jobs wait.
   */
 -export async function processRecurringJobs(deps) {
 +export function processRecurringJobs(deps) {
@@ -6083,17 +6207,125 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
      const leaseOwner = await acquireAutomationSchedulerLease({
          appId: deps.appId,
      });
-@@ -179,8 +196,7 @@ async function processRecurringJobsWithLease(deps) {
-                     continue;
-                 // Stuck — reset so the next check can re-run it
-                 meta.lastStatus = "error";
+@@ -81,11 +100,13 @@ export async function processRecurringJobs(deps) {
+             console.warn("[recurring-jobs] Scheduler lease renewal failed:", error instanceof Error ? error.message : error);
+         });
+     }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
++    leaseRenewal.unref();
++    let dueJobs = [];
+     let primaryFailed = false;
+     let shouldThrowReleaseError = false;
+     let releaseErrorToThrow;
+     try {
+-        await processRecurringJobsWithLease(deps);
++        dueJobs = await processRecurringJobsWithLease(deps);
+     }
+     catch (error) {
+         primaryFailed = true;
+@@ -107,9 +128,25 @@ export async function processRecurringJobs(deps) {
+             }
+         }
+     }
++    // Vivary #139: the jobs start after the release, so the next tick scans
++    // while they run. The sweep settles after them, so the stop and the sweep
++    // route still wait for their outcomes.
++    const outcomes = await Promise.allSettled(dueJobs.map(({ key, resource, meta, body, now }) => executeJob(resource, meta, body, deps, now).finally(() => {
++        _activeScheduledJobs.delete(key);
++    })));
++    for (const outcome of outcomes) {
++        if (outcome.status === "rejected") {
++            console.error("[recurring-jobs] Job execution error:", outcome.reason);
++        }
++    }
+     if (shouldThrowReleaseError)
+         throw releaseErrorToThrow;
+ }
++/**
++ * Vivary #139: returns the jobs it reserved, which the caller starts after it
++ * releases the lease. Their keys stay in `_activeScheduledJobs` until each
++ * job settles.
++ */
+ async function processRecurringJobsWithLease(deps) {
+     subscribeToJobsResourceEvents();
+     // Skip if we recently confirmed there are no job resources to run.
+@@ -128,10 +165,10 @@ async function processRecurringJobsWithLease(deps) {
+             orgIds: [],
+             checkedAt: nowMs,
+         });
+-        return;
++        return [];
+     }
+     const reservedJobKeys = new Set();
+-    const startedJobKeys = new Set();
++    const handedOffJobKeys = new Set();
+     const healthOrgIds = new Set();
+     let healthError = null;
+     let dispatchedAt;
+@@ -140,7 +177,7 @@ async function processRecurringJobsWithLease(deps) {
+         _hasJobsCache = jobResources.some((r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"));
+         _lastJobsCheck = nowMs;
+         if (!_hasJobsCache)
+-            return;
++            return [];
+         const now = new Date();
+         const dueJobCandidates = [];
+         for (const resource of jobResources) {
+@@ -163,8 +200,12 @@ async function processRecurringJobsWithLease(deps) {
+                 null);
+             // A host-targeted run is reconciled from the durable relay command. It
+             // must never fall back to this scheduler after the laptop disconnects.
++            // Vivary #139: its dispatch holds the run lease until the run is queued.
+             if (meta.lastStatus === "running" && meta.executionHostId) {
+-                await reconcileRemoteJob(resource, meta, now);
++                await actOnRunningMark(deps.appId, resource, async (latest, fresh) => {
++                    if (fresh.executionHostId)
++                        await reconcileRemoteJob(latest, fresh, now);
++                });
+                 continue;
+             }
+             // Skip disabled or missing schedule
+@@ -174,17 +215,21 @@ async function processRecurringJobsWithLease(deps) {
+                 continue;
+             // Skip if currently running, unless it has been stuck for more than 10 minutes
+             // (server crash mid-job leaves lastStatus=running forever without this guard)
++            // Vivary #139: a run holds its run lease until its outcome is written,
++            // so a held lease means a live run, however old its mark. A mark that
++            // no run lease covers, such as an event run's, keeps the time window.
+             if (meta.lastStatus === "running") {
+-                if (isBackgroundAutomationRunActive(meta, now))
+-                    continue;
+-                // Stuck — reset so the next check can re-run it
+-                meta.lastStatus = "error";
 -                meta.lastError =
 -                    "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
-+                meta.lastError = INTERRUPTED_RUN_MESSAGE;
-                 const next = nextOccurrence(meta.schedule, now, meta.timezone);
-                 meta.nextRun = next.toISOString();
-                 await updateResource(resource, meta, body);
-@@ -257,6 +273,10 @@ async function processRecurringJobsWithLease(deps) {
+-                const next = nextOccurrence(meta.schedule, now, meta.timezone);
+-                meta.nextRun = next.toISOString();
+-                await updateResource(resource, meta, body);
+-                await recoverStaleAutomationHistory(resource.owner, resource.path);
++                await actOnRunningMark(deps.appId, resource, async (latest, fresh) => {
++                    if (isBackgroundAutomationRunActive(fresh, now))
++                        return;
++                    // Stuck. Reset it so the next check can run it again.
++                    fresh.lastStatus = "error";
++                    fresh.lastError = INTERRUPTED_RUN_MESSAGE;
++                    const next = nextOccurrence(fresh.schedule, now, fresh.timezone);
++                    fresh.nextRun = next.toISOString();
++                    await updateResource(latest, fresh);
++                    await recoverStaleAutomationHistory(latest.owner, latest.path);
++                });
+                 continue;
+             }
+             // Check if due
+@@ -213,7 +258,7 @@ async function processRecurringJobsWithLease(deps) {
+                 _preflightingScheduledJobs.has(key)) {
+                 continue;
+             }
+-            dueJobCandidates.push({ key, resource, meta, body });
++            dueJobCandidates.push({ key, resource, meta, body, now });
+         }
+         const preflightCandidates = [];
+         for (const candidate of dueJobCandidates) {
+@@ -257,6 +302,10 @@ async function processRecurringJobsWithLease(deps) {
                  _preflightingScheduledJobs.delete(candidate.key);
              }
          }
@@ -6104,7 +6336,106 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
          if (dueJobs.length > 0)
              dispatchedAt = Date.now();
          await recordSchedulerHealthForScopes({
-@@ -324,7 +344,7 @@ async function recoverStaleAutomationHistory(owner, path) {
+@@ -265,17 +314,9 @@ async function processRecurringJobsWithLease(deps) {
+             checkedAt: Date.now(),
+             dispatchedAt,
+         });
+-        const outcomes = await Promise.allSettled(dueJobs.map(({ key, resource, meta, body }) => {
+-            startedJobKeys.add(key);
+-            return executeJob(resource, meta, body, deps, now).finally(() => {
+-                _activeScheduledJobs.delete(key);
+-            });
+-        }));
+-        for (const outcome of outcomes) {
+-            if (outcome.status === "rejected") {
+-                console.error("[recurring-jobs] Job execution error:", outcome.reason);
+-            }
+-        }
++        for (const { key } of dueJobs)
++            handedOffJobKeys.add(key);
++        return dueJobs;
+     }
+     catch (err) {
+         // Transient WS / connection drops (Neon serverless): silently retry next
+@@ -286,7 +327,7 @@ async function processRecurringJobsWithLease(deps) {
+             healthError = "The scheduler could not reach the database.";
+             _hasJobsCache = undefined; // force re-check on next successful tick
+             _lastJobsCheck = 0;
+-            return;
++            return [];
+         }
+         // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
+         const detail = err instanceof Error
+@@ -299,7 +340,7 @@ async function processRecurringJobsWithLease(deps) {
+         // A scan can fail after reserving a job but before dispatching it. Do not
+         // leave that reservation blocking the job on every subsequent tick.
+         for (const key of reservedJobKeys) {
+-            if (!startedJobKeys.has(key))
++            if (!handedOffJobKeys.has(key))
+                 _activeScheduledJobs.delete(key);
+         }
+         await recordSchedulerHealthForScopes({
+@@ -310,6 +351,59 @@ async function processRecurringJobsWithLease(deps) {
+             error: healthError,
+         });
+     }
++    return [];
++}
++/**
++ * Vivary #139. Take the automation's run lease and renew it every minute until
++ * `release`. Null while another run, in any process, holds it.
++ */
++async function holdRunLease(appId, resource) {
++    const key = `${resource.owner}:${resource.path}`;
++    const leaseOwner = await acquireAutomationRunLease({ appId, key });
++    if (!leaseOwner)
++        return null;
++    const renewal = setInterval(() => {
++        void renewAutomationRunLease({ key, owner: leaseOwner }).then((renewed) => {
++            if (!renewed)
++                console.warn(`[recurring-jobs] The run lease for "${resource.path}" was lost.`);
++        }, (error) => {
++            console.warn("[recurring-jobs] Run lease renewal failed:", error instanceof Error ? error.message : error);
++        });
++    }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
++    renewal.unref();
++    return {
++        release: async () => {
++            clearInterval(renewal);
++            await releaseAutomationRunLease({ key, owner: leaseOwner });
++        },
++    };
++}
++/**
++ * Vivary #139. A running mark whose run lease another run holds is live, so
++ * this leaves it. Otherwise it takes the lease and calls `act` with a fresh
++ * read of the mark, if that still reads running, because the scan's copy can
++ * predate a run that has finished since.
++ */
++async function actOnRunningMark(appId, resource, act) {
++    const lease = await holdRunLease(appId, resource);
++    if (!lease)
++        return;
++    try {
++        const latest = await resourceGetByPath(resource.owner, resource.path);
++        const fresh = latest ? parseJobResource(latest.content).meta : undefined;
++        if (fresh?.lastStatus === "running")
++            await act(latest, fresh);
++    }
++    finally {
++        await lease.release();
++    }
++}
++async function refuseAlreadyRunning(historyId) {
++    const error = "The automation is already running.";
++    if (historyId) {
++        await finishAutomationRun(historyId, "error", `${error} No delivery was confirmed.`);
++    }
++    return { status: "skipped", error };
+ }
+ async function recoverStaleAutomationHistory(owner, path) {
+     const automation = path.replace(/^jobs\//, "").replace(/\.md$/, "");
+@@ -324,7 +418,7 @@ async function recoverStaleAutomationHistory(owner, path) {
              (run.status !== "running" && run.status !== "interrupted")) {
              return;
          }
@@ -6113,59 +6444,285 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -437,6 +457,22 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
-         }
-         return { status: "skipped", error };
-     }
+@@ -430,135 +524,170 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+     // Manual runs use the same resource row as scheduled runs for concurrency
+     // protection. The check is paired with the conditional write below: two
+     // requests that read the same idle snapshot cannot both claim it.
+-    if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
+-        const error = "The automation is already running.";
++    if (options.manual && isBackgroundAutomationRunActive(meta, now))
++        return refuseAlreadyRunning(options.historyId);
 +    // Vivary #114: a quit has begun, so the run does not start. A scheduled
 +    // job stays due for the next launch, and a Run now row it had already
 +    // claimed reads interrupted.
 +    if (isBackgroundAutomationsClosed()) {
-+        if (options.historyId) {
+         if (options.historyId) {
+-            await finishAutomationRun(options.historyId, "error", `${error} No delivery was confirmed.`);
 +            await finishAutomationRun(options.historyId, "interrupted", INTERRUPTED_RUN_MESSAGE, INTERRUPTED_RUN_ERROR_CODE);
-+        }
+         }
+-        return { status: "skipped", error };
 +        return { status: "skipped", error: "The app is quitting, so the run did not start." };
-+    }
-+    // Vivary #114: the fields the mark replaces, written back when a quit
-+    // begins before a remote dispatch.
-+    const unmarked = {
-+        lastRun: meta.lastRun,
-+        lastStatus: meta.lastStatus,
-+        lastError: meta.lastError,
-+    };
-     // Mark as running
-     meta.lastRun = now.toISOString();
-     meta.lastStatus = "running";
-@@ -455,6 +491,18 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
-         ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
-         : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
-     if (meta.executionHostId) {
-+        // Vivary #114: the stop cannot abort a run on a paired host, so a
-+        // quit that began while the run was being marked queues nothing
-+        // there. The mark is written back without moving the next run, so a
-+        // scheduled job stays due, and a claimed Run now row reads
-+        // interrupted, as at the check above.
-+        if (isBackgroundAutomationsClosed()) {
-+            await recordExecutionOutcome(resource, { ...unmarked, advanceSchedule: false });
-+            if (options.historyId) {
-+                await finishAutomationRun(options.historyId, "interrupted", INTERRUPTED_RUN_MESSAGE, INTERRUPTED_RUN_ERROR_CODE);
-+            }
-+            return { status: "skipped", error: "The app is quitting, so the run did not start." };
-+        }
-         try {
-             const dispatch = await dispatchRemoteAutomation({
-                 resource,
-@@ -549,7 +597,8 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
-         return { status: "success", runId: result.runId };
      }
-     catch (err) {
+-    // Mark as running
+-    meta.lastRun = now.toISOString();
+-    meta.lastStatus = "running";
+-    meta.lastError = undefined;
+-    if (!(await updateResource(resource, meta, body))) {
+-        console.log(`[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`);
+-        if (options.historyId) {
+-            await finishAutomationRun(options.historyId, "error", "The automation changed before the run could start. No delivery was confirmed.");
+-        }
+-        return {
+-            status: "error",
+-            error: "The automation changed before the run could start.",
++    // Vivary #139: the run lease covers this run in every process until its
++    // outcome is written, so no scan reads it as stuck, and a lease another run
++    // holds means that run is live. A scheduled job then stays due.
++    const runLease = await holdRunLease(deps.appId, resource);
++    if (!runLease)
++        return refuseAlreadyRunning(options.historyId);
++    try {
++        // Vivary #114: the fields the mark replaces, written back when a quit
++        // begins before a remote dispatch.
++        const unmarked = {
++            lastRun: meta.lastRun,
++            lastStatus: meta.lastStatus,
++            lastError: meta.lastError,
+         };
+-    }
+-    const prompt = options.manual
+-        ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+-        : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
+-    if (meta.executionHostId) {
++        // Mark as running
++        meta.lastRun = now.toISOString();
++        meta.lastStatus = "running";
++        meta.lastError = undefined;
++        if (!(await updateResource(resource, meta, body))) {
++            console.log(`[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`);
++            if (options.historyId) {
++                await finishAutomationRun(options.historyId, "error", "The automation changed before the run could start. No delivery was confirmed.");
++            }
++            return {
++                status: "error",
++                error: "The automation changed before the run could start.",
++            };
++        }
++        const prompt = options.manual
++            ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
++            : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
++        if (meta.executionHostId) {
++            // Vivary #114: the stop cannot abort a run on a paired host, so a
++            // quit that began while the run was being marked queues nothing
++            // there. The mark is written back without moving the next run, so a
++            // scheduled job stays due, and a claimed Run now row reads
++            // interrupted, as at the check above.
++            if (isBackgroundAutomationsClosed()) {
++                await recordExecutionOutcome(resource, { ...unmarked, advanceSchedule: false });
++                if (options.historyId) {
++                    await finishAutomationRun(options.historyId, "interrupted", INTERRUPTED_RUN_MESSAGE, INTERRUPTED_RUN_ERROR_CODE);
++                }
++                return { status: "skipped", error: "The app is quitting, so the run did not start." };
++            }
++            try {
++                const dispatch = await dispatchRemoteAutomation({
++                    resource,
++                    meta,
++                    body,
++                    ownerEmail: jobUserEmail,
++                    orgId: jobOrgId,
++                    appId: deps.appId,
++                    prompt,
++                    title: `${options.manual ? "Automation" : "Job"}: ${jobName}`,
++                    historyId: options.historyId,
++                    advanceSchedule: options.advanceSchedule,
++                    now,
++                });
++                console.log(`[recurring-jobs] Job "${jobName}" queued on remote host as ${dispatch.command.id}.`);
++                return { status: "success", runId: dispatch.command.id };
++            }
++            catch (err) {
++                const lastError = err instanceof Error
++                    ? err.message.slice(0, 200)
++                    : "Remote dispatch failed";
++                const reportedError = `${lastError}. No delivery was confirmed.`;
++                await recordExecutionOutcome(resource, {
++                    lastRun: meta.lastRun,
++                    lastStatus: "error",
++                    lastError: reportedError,
++                    remoteRequestId: undefined,
++                    remoteCommandId: undefined,
++                    remoteRunId: undefined,
++                    remoteAutomationRunId: undefined,
++                    remoteAdvanceSchedule: undefined,
++                    advanceSchedule: options.advanceSchedule,
++                });
++                if (options.historyId) {
++                    await finishAutomationRun(options.historyId, "error", reportedError);
++                }
++                console.error(`[recurring-jobs] Job "${jobName}" remote dispatch failed:`, reportedError);
++                return { status: "error", error: reportedError };
++            }
++        }
++        const requestContext = meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
++            ? {
++                isIntegrationCaller: true,
++                integration: {
++                    taskId: `job:${jobName}:${now.getTime()}`,
++                    scopeId: meta.originScopeId,
++                    principalType: "service",
++                    incoming: {
++                        platform: meta.deliveryPlatform,
++                        externalThreadId: `${meta.deliveryTenantId || "unknown"}:${meta.deliveryDestination}:${meta.deliveryThreadRef || "root"}`,
++                        text: "",
++                        tenantId: meta.deliveryTenantId,
++                        integrationScopeId: meta.originScopeId,
++                        platformContext: {
++                            channelId: meta.deliveryDestination,
++                            threadTs: meta.deliveryThreadRef,
++                            teamId: meta.deliveryTenantId,
++                        },
++                        threadRef: meta.deliveryThreadRef,
++                        timestamp: now.getTime(),
++                    },
++                },
++            }
++            : undefined;
+         try {
+-            const dispatch = await dispatchRemoteAutomation({
+-                resource,
+-                meta,
+-                body,
++            const result = await runBackgroundAutomation({
++                automation: jobContext,
+                 ownerEmail: jobUserEmail,
+                 orgId: jobOrgId,
+-                appId: deps.appId,
+                 prompt,
+-                title: `${options.manual ? "Automation" : "Job"}: ${jobName}`,
+-                historyId: options.historyId,
++                threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
++                runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
++                usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
++                requestContext,
++                ...(options.historyId ? { historyId: options.historyId } : {}),
++                actionCaller: "automation",
++                actionAutomation: {
++                    triggerId: resource.id,
++                    triggerName: jobName,
++                    ...(meta.delegatedPolicyId
++                        ? { policyId: meta.delegatedPolicyId }
++                        : {}),
++                },
++            }, deps);
++            await recordExecutionOutcome(resource, {
++                lastRun: meta.lastRun,
++                lastStatus: "success",
++                lastError: undefined,
+                 advanceSchedule: options.advanceSchedule,
+-                now,
+             });
+-            console.log(`[recurring-jobs] Job "${jobName}" queued on remote host as ${dispatch.command.id}.`);
+-            return { status: "success", runId: dispatch.command.id };
++            console.log(`[recurring-jobs] Job "${jobName}" completed.`);
++            return { status: "success", runId: result.runId };
+         }
+         catch (err) {
+-            const lastError = err instanceof Error
+-                ? err.message.slice(0, 200)
+-                : "Remote dispatch failed";
++            // Vivary #97: the last error is stored in the automation's file and shown.
++            const lastError = err instanceof Error ? redactText(err.message).slice(0, 200) : "Unknown error";
+             const reportedError = `${lastError}. No delivery was confirmed.`;
+             await recordExecutionOutcome(resource, {
+                 lastRun: meta.lastRun,
+                 lastStatus: "error",
+                 lastError: reportedError,
+-                remoteRequestId: undefined,
+-                remoteCommandId: undefined,
+-                remoteRunId: undefined,
+-                remoteAutomationRunId: undefined,
+-                remoteAdvanceSchedule: undefined,
+                 advanceSchedule: options.advanceSchedule,
+             });
+-            if (options.historyId) {
+-                await finishAutomationRun(options.historyId, "error", reportedError);
+-            }
+-            console.error(`[recurring-jobs] Job "${jobName}" remote dispatch failed:`, reportedError);
++            console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+             return { status: "error", error: reportedError };
+         }
+     }
+-    const requestContext = meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
+-        ? {
+-            isIntegrationCaller: true,
+-            integration: {
+-                taskId: `job:${jobName}:${now.getTime()}`,
+-                scopeId: meta.originScopeId,
+-                principalType: "service",
+-                incoming: {
+-                    platform: meta.deliveryPlatform,
+-                    externalThreadId: `${meta.deliveryTenantId || "unknown"}:${meta.deliveryDestination}:${meta.deliveryThreadRef || "root"}`,
+-                    text: "",
+-                    tenantId: meta.deliveryTenantId,
+-                    integrationScopeId: meta.originScopeId,
+-                    platformContext: {
+-                        channelId: meta.deliveryDestination,
+-                        threadTs: meta.deliveryThreadRef,
+-                        teamId: meta.deliveryTenantId,
+-                    },
+-                    threadRef: meta.deliveryThreadRef,
+-                    timestamp: now.getTime(),
+-                },
+-            },
+-        }
+-        : undefined;
+-    try {
+-        const result = await runBackgroundAutomation({
+-            automation: jobContext,
+-            ownerEmail: jobUserEmail,
+-            orgId: jobOrgId,
+-            prompt,
+-            threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
+-            runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
+-            usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
+-            requestContext,
+-            ...(options.historyId ? { historyId: options.historyId } : {}),
+-            actionCaller: "automation",
+-            actionAutomation: {
+-                triggerId: resource.id,
+-                triggerName: jobName,
+-                ...(meta.delegatedPolicyId
+-                    ? { policyId: meta.delegatedPolicyId }
+-                    : {}),
+-            },
+-        }, deps);
+-        await recordExecutionOutcome(resource, {
+-            lastRun: meta.lastRun,
+-            lastStatus: "success",
+-            lastError: undefined,
+-            advanceSchedule: options.advanceSchedule,
+-        });
+-        console.log(`[recurring-jobs] Job "${jobName}" completed.`);
+-        return { status: "success", runId: result.runId };
+-    }
+-    catch (err) {
 -        const lastError = err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-+        // Vivary #97: the last error is stored in the automation's file and shown.
-+        const lastError = err instanceof Error ? redactText(err.message).slice(0, 200) : "Unknown error";
-         const reportedError = `${lastError}. No delivery was confirmed.`;
-         await recordExecutionOutcome(resource, {
-             lastRun: meta.lastRun,
-@@ -577,7 +626,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+-        const reportedError = `${lastError}. No delivery was confirmed.`;
+-        await recordExecutionOutcome(resource, {
+-            lastRun: meta.lastRun,
+-            lastStatus: "error",
+-            lastError: reportedError,
+-            advanceSchedule: options.advanceSchedule,
+-        });
+-        console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+-        return { status: "error", error: reportedError };
++    finally {
++        await runLease.release();
+     }
+ }
+ /** Execute one stored automation without changing its scheduled next run. */
+@@ -577,7 +706,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -6177,7 +6734,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +638,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +718,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -6187,7 +6744,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +654,36 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +734,36 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }
@@ -6195,8 +6752,8 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..6a9583db596bd3159dad5c7f56804a3e
 + * Vivary #114. Stop this process's automations for a normal quit. Sweeps take
 + * no new lease and start no job, a queued Run now row stays unclaimed, and
 + * every in-process run is aborted with the reason `shutdown`, including one
-+ * that starts later. Each run then records itself interrupted, and the sweep
-+ * that holds the lease releases it with its own owner. The stop waits for that
++ * that starts later. Each run then records itself interrupted and releases its
++ * run lease. The stop waits for that
 + * work, including work the runner tracks after the stop began, or for
 + * `timeoutMs`, whichever comes first. It writes nothing itself,
 + * so whatever has not settled by then is left to the lease expiry and the

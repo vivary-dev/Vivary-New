@@ -1448,18 +1448,18 @@ entry keeps its stored value, usually empty, until the next check. Pausing
 and resuming keep the created time, so a resumed automation shows the last
 check at once, although that check read it while it was paused and skipped
 it. Checks run about once a minute, so that value is at most about a minute
-older than the resume, or older while a scheduled run holds the lease. The
+older than the resume. The
 field keeps its name and ISO
 format, so the client is unchanged. A heartbeat whose row records an error in
 `last_error` is not a check, so the lists ignore it: a sweep writes that error
 in its `finally` when its scan failed. The value is informative only, so a
 failed read of the row is logged and each entry keeps its stored value instead
 of failing the list. Only the lease holder writes the heartbeat, so LAST
-CHECKED stops advancing while a process that has gone still holds the lease.
-It also stands still while a scheduled run is in progress, up to the run's
-10-minute limit, because the sweep that started the run holds the lease until
-the run ends and every other tick fails to take it. That is honest, because no
-check runs then. The sweep writes the heartbeat again when it ends. The Details
+CHECKED stops advancing while a process that died during its scan still holds
+the lease, for up to 10 minutes. Since issue #139 it keeps advancing while a
+scheduled run is in progress, because a sweep releases the lease when its scan
+ends, before its runs start, and writes no heartbeat when they end. See
+"Scheduler lease per scan". The Details
 dialog shows the list entry captured when it opened (`AgentJobsTab.js`), and the
 list query has no refresh interval, so LAST CHECKED in Details can lag behind
 the heartbeat until the Automations tab reloads. The packaged check on the
@@ -1567,8 +1567,9 @@ stop works in this order:
    run or Run now, `executeJob` then writes `lastStatus: error` and the same
    message on the automation. A scheduled run's next run moves to the next
    occurrence after the quit, and a Run now keeps its next run.
-4. The sweep that holds the lease releases it in its existing `finally`, with
-   its own owner id.
+4. Each run releases its run lease after it records its outcome. The
+   scheduler lease is already free, because a sweep releases it when its scan
+   ends. See "Scheduler lease per scan".
 
 The stop waits for the sweeps, the queued runs, the runs it interrupted, and
 the writes that record a trigger run's outcome, or for `timeoutMs`, whichever
@@ -1603,18 +1604,20 @@ seconds, with the automation rows written within 40 ms.
 The hard-kill fallback does not change. The stop writes nothing itself and
 never clears a lease by row id, so it cannot free another process's lease. Its
 flag and run list are process state that only the stop sets, so a killed
-process leaves the database as before: the row reads `running` until the
+process leaves the database as before. The row reads `running` until the
 liveness ceiling, 15 minutes after the run started, or the stale-run reset, the
-automation reads running, and the lease holds until 10 minutes after its last
-renewal. When the bound expires, the stop returns and writes nothing more. A
+automation reads running, and the run's lease holds until 10 minutes after its
+last renewal. Since issue #139 that lease blocks only the killed automation,
+and the next launch runs the others at its first tick. When the bound expires,
+the stop returns and writes nothing more. A
 run that settles later still records itself, as any run end does, while the
 process lives, and one that never settles is left as after a kill. No
 startup recovery was added, because clearing a lease or ending rows at launch
 is unsafe when two processes share a database. The lease length, the renewal,
 the liveness ceiling, and the claim lease are unchanged. While a dead process's
-lease holds, Settings shows the automation's next run about a minute out,
+run lease holds, Settings shows that automation's next run about a minute out,
 because the list actions report the next occurrence from now once the stored
-one has passed. Nothing runs until the lease expires.
+one has passed. That automation does not run until the lease expires.
 
 Trigger runs record their outcome through the dispatcher, which catches the
 run's error and writes the automation's last error from its message, without
@@ -1650,11 +1653,13 @@ marks both rows interrupted with the message once and the code, writes each
 automation's last status and next run, releases the lease, and returns only
 after both runs settled. After the stop, a tick takes no lease and writes no
 heartbeat, and a queued Run now stays unclaimed. The next launch runs both due
-automations at its first tick. A killed child keeps the lease, which expires
-about 10 minutes out and blocks the next scan, and its run reads interrupted
-only past the liveness ceiling. A stop in a second process leaves the first
-process's lease alone. A run that ignores its abort holds the stop only until
-the bound and stays `running`. A source pin checks that `stopLocalWork` calls
+automations at its first tick. A killed child keeps its run's lease, which
+expires about 10 minutes out. The next launch still scans and runs another due
+automation, the killed run reads interrupted only past the liveness ceiling,
+and once the run lease expires a scan resets the automation and deletes the
+lease row. A stop in a second process leaves the first process's run lease
+alone. A run that ignores its abort holds the stop only until the bound, stays
+`running`, and keeps its run lease. A source pin checks that `stopLocalWork` calls
 the stop with 10 seconds, the Code host's wait, and that the package entry
 exports the scheduler's own function. Eight of the nine cases failed on the
 previous patch. The hard-kill case passed on both.
@@ -1731,6 +1736,94 @@ records the check.
 Upstream could take the stop as it is, because nothing changes until a host
 calls it. Remove this part of the patch when an upstream release offers a stop
 with the same order and fallback that passes the same test.
+
+## Scheduler lease per scan
+
+Issue #139. A sweep held the scheduler lease, the app's `<appId>:global` row in
+`automation_scheduler_health`, until every job it started had finished. Each
+tick asks for the lease with a new owner, so while one scheduled run lasted, up
+to its 10-minute limit, every other tick in every process failed to take it
+and returned without scanning. No other scheduled automation started, and LAST
+CHECKED stood still, until that run ended.
+
+The scheduler lease now covers one scan. `sweepRecurringJobs` takes it, writes
+the heartbeat, scans, preflights and reserves the due jobs, writes the
+dispatch and scan-end heartbeats, and releases it. Only then does it start the
+jobs it reserved. Its renewal timer runs only while it holds the lease. A tick
+that fails to take the lease still returns at once and writes nothing. Scans
+never overlap, in one process or across processes on one database. Sweeps do
+overlap while their runs execute. Each sweep's promise still settles after its
+runs record their outcomes, so the stop, the sweep route, and the timer call
+are unchanged. No heartbeat is written when the runs end, so LAST CHECKED
+means a scan happened.
+
+Releasing the lease early exposes a weakness it used to hide, the running
+mark's time window. A sweep reads a `running` mark as stuck once its `lastRun`
+is older than the run's hard timeout. That `lastRun` is the scan's time, taken
+before the identity check, setup, and the model call, and delivery and the
+outcome write come after the hard abort, so a live run can outlast its window.
+Once sweeps scan during runs, another sweep would reset such a run. Each run
+now holds a run lease of its own, a `run:<owner>:<path>` row in the same table
+on the same lease columns, so the schema does not change. `executeJob` takes
+it after the identity, Run now, and quit checks and before the running mark,
+renews it every minute, and deletes the row after the outcome write. A run on
+a paired host releases it once the run is queued there. When another run holds
+it, a Run now ends as already running with the existing message, and a
+scheduled job is skipped and stays due. `scheduler-health.js` exports
+`acquireAutomationRunLease`, `renewAutomationRunLease`, and
+`releaseAutomationRunLease`, which share the scheduler lease's acquire and
+renew SQL.
+
+A sweep that meets a `running` mark first tries to take its run lease. If
+another run holds it, that run is live however old its mark is, and the sweep
+leaves it. If the sweep takes the lease, it reads the automation again,
+because the list it scanned can predate a run that has since finished and
+released its lease, and it acts only on that fresh read. A mark that still
+reads `running` is reset as before, and only once its time window has passed,
+because some marks have no run lease. An event run of an automation that also
+has a schedule takes none, and neither did older builds. A paired-host mark is
+reconciled under the same rule, so no tick reconciles a mark as failed while
+its dispatch is still saving the request id. The sweep then releases the run
+lease.
+
+After a hard kill, the next launch scans at its first tick and runs every
+other due automation, because the killed process held no scheduler lease
+unless it died during a scan. The killed run's lease holds until 10 minutes
+after its last renewal. Then a scan takes it, resets the mark to the
+interrupted error, finishes the history row, and deletes the lease row. A kill
+during a scan still blocks scans for 10 minutes. After a quit and a quick
+relaunch on the same database, the new process skips only automations whose
+run leases the old one still holds.
+
+A run whose process stops renewing for 10 minutes while the run lives, such as
+a laptop asleep beside a second server on one database, reads as dead to the
+other server. That is not new. Before this change the sweep ignored a failed
+renewal, and the time window freed such a run the same way. A run does not
+abort when its renewal finds another holder. A process still runs at most
+eight scheduled jobs at once. Issue #140, a next run shown after a hard kill
+that passes with no run, now affects only the killed automation, for up to 10
+minutes. The Details dialog still shows a copied LAST CHECKED (issue #141).
+
+Run `node --test packages/workbench/tests/automation-quit.test.mjs`. The case
+"a due automation starts at the next tick while another automation's scheduled
+run is in progress" holds one scheduled run open, makes a second automation
+due, and runs the next tick. The second automation runs within 5 seconds, LAST
+CHECKED advances, and the first keeps one run and one engine start. Each run
+then deletes its run lease row, and no check is written when the runs end. The
+case failed on the patch before this change. The guard "two processes on one
+database never sweep at the same time" passed on both. A run whose lease
+another process holds stays `running` with its `lastRun` 30 minutes old, and
+Run now refuses it. A mark with no run lease stays `running` inside the time
+window and resets past it. A paired-host mark whose dispatch holds the run
+lease is left alone, and it is reconciled as failed once the lease is
+released. A run that finished after the scan listed it is left alone. The
+hard-kill, stop, and stuck-run cases check the run lease, and the next launch
+after a hard kill runs another due automation.
+
+Upstream can take this change as it is. It adds exports to
+`scheduler-health.js` and changes no schema. Remove this part of the patch
+when an upstream release releases the scheduler lease before its runs, gives
+each run a renewed claim of its own, and passes the same test.
 
 ## Automation-written instruction files
 

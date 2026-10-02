@@ -154,10 +154,10 @@ const until = async (check, ms, what) => {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
 };
-const leaseRow = async () => {
+const healthRow = async id => {
   const { rows } = await getDbExec().execute({
     sql: "SELECT lease_owner, lease_expires_at, last_checked_at, last_dispatched_at, updated_at FROM automation_scheduler_health WHERE id = ?",
-    args: [`${appId}:global`],
+    args: [id],
   });
   const row = rows?.[0];
   return row ? {
@@ -168,6 +168,8 @@ const leaseRow = async () => {
     updatedAt: Number(row.updated_at),
   } : null;
 };
+const leaseRow = () => healthRow(`${appId}:global`);
+const runLeaseRow = name => healthRow(`run:${owner}:jobs/${name}.md`);
 const runCount = async () => Number((await getDbExec().execute({
   sql: "SELECT COUNT(*) AS n FROM automation_runs WHERE app_id = ?", args: [appId],
 })).rows[0].n);
@@ -402,7 +404,7 @@ if (role === "quit") {
   await report({ runId, statusAtQuit });
   process.exit(0);
 } else if (role === "hold") {
-  // A process that holds the scheduler lease in a long run, until the parent ends it.
+  // A process whose long run holds its run lease until the parent ends it.
   const sweep = scheduler.processRecurringJobs(deps("cooperative"));
   void sweep.catch(() => {});
   const name = await within(new Promise(resolve => {
@@ -411,7 +413,7 @@ if (role === "quit") {
       if (first) { clearInterval(poll); resolve(first); }
     }, 20);
   }), 30_000, "a run starting");
-  await report({ running: name, lease: await leaseRow() });
+  await report({ running: name, lease: await leaseRow(), runLease: await runLeaseRow(name) });
 } else if (role === "scan-hold") {
   // A sweep held in its resource scan, which runs under the lease, until the parent ends this process.
   await getDbExec().execute("SELECT 1");
@@ -426,7 +428,7 @@ if (role === "quit") {
   void scheduler.processRecurringJobs(deps("cooperative"));
   await report({ lease: await within(scanning.promise, 30_000, "the sweep's scan starting") });
 } else if (role === "stop-only") {
-  // A second process on the same database: its tick finds the lease taken, then it quits.
+  // A second process on the same database ticks while the first one's run is in progress, then quits.
   await scheduler.processRecurringJobs(deps("cooperative"));
   if (stopExported) await scheduler.stopRecurringJobs({ timeoutMs: 2_000 });
   await report({ stopExported });
@@ -445,7 +447,8 @@ if (role === "quit") {
   const { rows } = await getDbExec().execute({
     sql: "SELECT status FROM automation_runs WHERE app_id = ? AND automation = 'stuck'", args: [appId],
   });
-  await report({ stopExported, elapsedMs, statuses: rows.map(row => row.status), lease: await leaseRow() });
+  await report({ stopExported, elapsedMs, statuses: rows.map(row => row.status), lease: await leaseRow(),
+    runLease: await runLeaseRow("stuck") });
   process.exit(0);
 } else {
   throw new Error(`Unknown role ${role}`);
