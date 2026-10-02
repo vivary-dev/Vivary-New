@@ -366,7 +366,7 @@ index 2c1f3c527573540b1a4c0bd5ce09a5d74816dd6b..37c648b04b204dbcf6caecc3cc6e11f3
      onOutcome?: (outcome: AgentLoopOutcome) => void;
      ownerEmail?: string | null;
 diff --git a/dist/agent/production-agent.js b/dist/agent/production-agent.js
-index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33e9aabc3d 100644
+index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..ba992e605879f72119e458d03a79b950c64c07a2 100644
 --- a/dist/agent/production-agent.js
 +++ b/dist/agent/production-agent.js
 @@ -31,7 +31,7 @@ import { buildSystemManifestSections, readContextXraySystemSections, } from "./c
@@ -416,23 +416,27 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
              return null;
          try {
 -            const { resourceEffectiveContext, resourceGet } = await import("../resources/store.js");
-+            const { isPendingRunReview, resourceEffectiveContext, resourceGet } = await import("../resources/store.js");
++            const { resourceForAgent, resourceEffectiveContext, resourceGet } = await import("../resources/store.js");
              const resourceOptions = {
                  userEmail: ownerEmail,
                  orgId: getRequestOrgId() ?? null,
-@@ -1436,7 +1445,10 @@ export async function resolveSkillReferenceContent(ref) {
-             const full = await resourceGet(effective.effectiveResource.id, {
-                 ...resourceOptions,
+@@ -1433,10 +1442,12 @@ export async function resolveSkillReferenceContent(ref) {
              });
+             if (!effective.effectiveResource)
+                 return null;
+-            const full = await resourceGet(effective.effectiveResource.id, {
++            const full = resourceForAgent(await resourceGet(effective.effectiveResource.id, {
+                 ...resourceOptions,
+-            });
 -            if (!full?.content || !isRuntimeVisibleSkillContent(full.content)) {
-+            // Vivary #109: a skill an automation run wrote waits for the owner's review.
++            }));
++            // Referenced skills use the last accepted content while changes wait.
 +            if (!full?.content ||
-+                isPendingRunReview(full) ||
 +                !isRuntimeVisibleSkillContent(full.content)) {
                  return null;
              }
              return full.content;
-@@ -1708,6 +1720,11 @@ export function isResumableEngineError(err) {
+@@ -1708,6 +1719,11 @@ export function isResumableEngineError(err) {
      if (!(err instanceof Error))
          return false;
      const code = err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
@@ -444,7 +448,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
      if (code === "builder_gateway_timeout" ||
          code === "builder_gateway_network_error" ||
          // A gateway stream that stopped mid-turn. It reached here as
-@@ -3334,6 +3351,65 @@ function validateRawToolInput(entry, input) {
+@@ -3334,6 +3350,65 @@ function validateRawToolInput(entry, input) {
          dataVar: "input",
      });
  }
@@ -510,7 +514,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
  /**
   * The core agent loop — calls the engine iteratively until no more tool calls.
   * Decoupled from HTTP transport so it can run in the background.
-@@ -3625,6 +3701,7 @@ export async function runAgentLoop(opts) {
+@@ -3625,6 +3700,7 @@ export async function runAgentLoop(opts) {
                      providerOptions: opts.providerOptions,
                  };
                  usage.llmCalls = (usage.llmCalls ?? 0) + 1;
@@ -518,7 +522,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                  const eventStream = engine.stream(streamOpts);
                  let thinkingBuffer = "";
                  const toolInputNames = new Map();
-@@ -3941,6 +4018,7 @@ export async function runAgentLoop(opts) {
+@@ -3941,6 +4017,7 @@ export async function runAgentLoop(opts) {
                                  cacheReadTokens: event.cacheReadTokens ?? 0,
                                  cacheWriteTokens: event.cacheWriteTokens ?? 0,
                                  model,
@@ -526,7 +530,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                              };
                              usage.inputTokens += eventUsage.inputTokens;
                              usage.outputTokens += eventUsage.outputTokens;
-@@ -4363,7 +4441,8 @@ export async function runAgentLoop(opts) {
+@@ -4363,7 +4440,8 @@ export async function runAgentLoop(opts) {
                  });
              };
              const finalizeToolErrorResult = (rawResult) => {
@@ -536,7 +540,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                  // Counting is the wrong instrument for a precondition the turn cannot
                  // satisfy: six identical round-trips through a missing API key cost the
                  // user minutes and end where the first one did. Classified first so the
-@@ -5085,6 +5164,10 @@ export async function runAgentLoop(opts) {
+@@ -5085,6 +5163,10 @@ export async function runAgentLoop(opts) {
                      let resultStr = typeof resultForAgent === "string"
                          ? resultForAgent
                          : JSON.stringify(resultForAgent, null, 2);
@@ -547,7 +551,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                      if (resultStr.length > toolMaxResultChars) {
                          const truncated = resultStr.slice(0, toolMaxResultChars);
                          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-@@ -5136,7 +5219,7 @@ export async function runAgentLoop(opts) {
+@@ -5136,7 +5218,7 @@ export async function runAgentLoop(opts) {
                  // so nothing stays pending to bleed into a later tool's result.
                  const agentWarnings = drainAgentWarnings();
                  if (agentWarnings.length > 0) {
@@ -556,7 +560,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                  }
                  // Auto-refresh the UI after a successful mutating tool call. Any call
                  // that isn't read-only — by its own per-call Plan-mode effect, else the
-@@ -5469,6 +5552,11 @@ export function isRecoverableContinuationError(event) {
+@@ -5469,6 +5551,11 @@ export function isRecoverableContinuationError(event) {
      const message = event.error.toLowerCase();
      if (code === "builder_gateway_error")
          return false;
@@ -568,7 +572,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
      // An explicit flag outranks the message sniff below, which exists for events
      // that carry no flag at all. Every guard stop sets `recoverable: false`, and
      // sniffing its prose is how a stop that merely NAMES a connection or a
-@@ -5890,7 +5978,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
+@@ -5890,7 +5977,7 @@ export async function markBackgroundContinuationChunkTerminal(opts) {
              await persistError(opts.runId, terminalEvent.errorCode, terminalEvent.details || terminalEvent.error);
          }
          else if (terminalEvent?.type === "missing_api_key") {
@@ -577,35 +581,37 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
          }
      }
      return updated;
-@@ -7186,13 +7274,14 @@ export function createProductionAgentHandler(options) {
+@@ -7186,13 +7273,13 @@ export function createProductionAgentHandler(options) {
              }
              if (history.length === 0) {
                  try {
 -                    const { resourceListAccessible, SHARED_OWNER, WORKSPACE_OWNER, resourceGet, } = await import("../resources/store.js");
-+                    const { isPendingRunReview, resourceListAccessible, SHARED_OWNER, WORKSPACE_OWNER, resourceGet, } = await import("../resources/store.js");
++                    const { resourceForAgent, resourceListAccessible, SHARED_OWNER, WORKSPACE_OWNER, resourceGet, } = await import("../resources/store.js");
                      const { getResourceKind, parseCustomAgentProfile, parseRemoteAgentManifest, parseSkillMetadata, } = await import("../resources/metadata.js");
                      const ownerEmail = getRequestUserEmail();
                      const orgId = getRequestOrgId();
                      if (!ownerEmail)
                          throw new Error("no authenticated user");
 -                    const allResources = await resourceListAccessible(ownerEmail, undefined, { userEmail: ownerEmail, orgId });
-+                    // Vivary #109: a file an automation run wrote waits for the owner's review.
-+                    const allResources = (await resourceListAccessible(ownerEmail, undefined, { userEmail: ownerEmail, orgId })).filter((resource) => !isPendingRunReview(resource));
++                    const allResources = (await resourceListAccessible(ownerEmail, undefined, { userEmail: ownerEmail, orgId })).map(resourceForAgent).filter(Boolean);
                      if (allResources.length > 0) {
                          const fileLines = [];
                          const skillLines = [];
-@@ -7220,7 +7309,9 @@ export function createProductionAgentHandler(options) {
+@@ -7216,10 +7303,11 @@ export function createProductionAgentHandler(options) {
+                             if (kind === "skill" ||
+                                 kind === "agent" ||
+                                 kind === "remote-agent") {
+-                                const full = await resourceGet(r.id, {
++                                const full = resourceForAgent(await resourceGet(r.id, {
                                      userEmail: ownerEmail,
                                      orgId,
-                                 });
--                                if (!full)
-+                                // Vivary #109: a run can rewrite a skill between the
-+                                // list and this read, so check the row read too.
-+                                if (!full || isPendingRunReview(full))
+-                                });
++                                }));
++                                // Project the fresh row too, because a run can overwrite after listing.
+                                 if (!full)
                                      continue;
                                  if (kind === "skill") {
-                                     const skill = parseSkillMetadata(full.content, r.path);
-@@ -7389,12 +7480,12 @@ export function createProductionAgentHandler(options) {
+@@ -7389,12 +7477,12 @@ export function createProductionAgentHandler(options) {
              attachments: requestAttachments,
          });
          const historyMessages = structuredHistoryToEngineMessages(structuredHistory) ??
@@ -620,7 +626,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
          const messages = [
              ...historyMessages,
              { role: "user", content: userContent },
-@@ -8299,13 +8390,7 @@ export function createProductionAgentHandler(options) {
+@@ -8299,13 +8387,7 @@ export function createProductionAgentHandler(options) {
                  : typeof message === "string" && message.trim().length > 0
                      ? message
                      : undefined;
@@ -635,7 +641,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
              const agentLoopOpts = {
                  engine,
                  model: effectiveModel,
-@@ -8318,13 +8403,8 @@ export function createProductionAgentHandler(options) {
+@@ -8318,13 +8400,8 @@ export function createProductionAgentHandler(options) {
                  actions: requestActions,
                  send,
                  signal,
@@ -651,7 +657,7 @@ index 04c2c4fce3d658d5ed4ee0d7aa603d2073f5fa66..40cde1211e895e711368f75830abfc33
                  ownerEmail,
                  orgId: getRequestOrgId() ?? null,
                  attachments: requestAttachments,
-@@ -8493,11 +8573,7 @@ export function createProductionAgentHandler(options) {
+@@ -8493,11 +8570,7 @@ export function createProductionAgentHandler(options) {
                          const { recordUsage } = await import("../usage/store.js");
                          await recordUsage({
                              ownerEmail: resolvedOwnerEmail,
@@ -7134,7 +7140,7 @@ index f6429f95fb3eddc4071e39f1e4394d5c2ea8d3bb..e8807f035d1a072e6a5d6e574366f7a7
                  const action = args.action;
                  switch (action) {
 diff --git a/dist/resources/store.d.ts b/dist/resources/store.d.ts
-index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c0a44522a 100644
+index 9e45f714a6a3a275e97e41d67111802c17aa6c71..82b63746c29b92753594abf149e3f540604d3a0f 100644
 --- a/dist/resources/store.d.ts
 +++ b/dist/resources/store.d.ts
 @@ -127,6 +127,14 @@ export declare function resourcePutIfAbsent(owner: string, path: string, content
@@ -7152,8 +7158,21 @@ index 9e45f714a6a3a275e97e41d67111802c17aa6c71..f267e59c26851ed94654db98e02f167c
  export declare function resourceDelete(id: string): Promise<boolean>;
  export declare function resourceDeleteByPath(owner: string, path: string): Promise<boolean>;
  export declare function resourceList(owner: string, pathPrefix?: string, options?: ResourceListOptions): Promise<ResourceMeta[]>;
+@@ -144,3 +152,12 @@ export declare function resourceEffectiveContext(userEmail: string, path: string
+  */
+ export declare function resourceListAllOwners(pathPrefix: string): Promise<Resource[]>;
+ export declare function resourceMove(id: string, newPath: string): Promise<boolean>;
++
++/** Project the accepted version for model consumption while a proposal waits. */
++export declare function resourceForAgent(resource: Resource | null | undefined): Resource | null;
++export declare function resourceForAgent(resource: ResourceMeta | null | undefined): ResourceMeta | null;
++export declare function resourceDiscardRunReviewIfCurrent(input: {
++    id: string;
++    owner: string;
++    updatedAt: number;
++}): Promise<boolean>;
 diff --git a/dist/resources/store.js b/dist/resources/store.js
-index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9ed8adabf 100644
+index 44e9ccf92edf7026bae290de14c9c65388042eae..ea685cffdefb5197104816cd2fb1be3763868c25 100644
 --- a/dist/resources/store.js
 +++ b/dist/resources/store.js
 @@ -1,9 +1,10 @@
@@ -7168,7 +7187,7 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9
  import { getSetting, putSetting, } from "../settings/store.js";
  import { emitResourceChange, emitResourceDelete } from "./emitter.js";
  export const SHARED_OWNER = "__shared__";
-@@ -367,6 +368,29 @@ function serializeMetadata(value) {
+@@ -367,6 +368,78 @@ function serializeMetadata(value) {
          return null;
      return typeof value === "string" ? value : JSON.stringify(value);
  }
@@ -7195,10 +7214,59 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9
 +export function isPendingRunReview(resource) {
 +    return metadataObject(resource?.metadata).runReview?.state === "pending";
 +}
++
++function isRunReviewedPath(path) {
++    const lower = String(path).toLowerCase();
++    return RUN_REVIEWED_FILES.has(lower) ||
++        RUN_REVIEWED_PREFIXES.some((prefix) => lower.startsWith(prefix));
++}
++function withoutCallerRunReview(metadata) {
++    const value = metadataObject(metadata);
++    if (!Object.prototype.hasOwnProperty.call(value, "runReview"))
++        return metadata;
++    delete value.runReview;
++    return Object.keys(value).length ? JSON.stringify(value) : null;
++}
++function acceptedRunReviewVersion(resource) {
++    const previous = metadataObject(resource?.metadata).runReview?.previous;
++    if (!previous || typeof previous !== "object" ||
++        previous.id !== resource.id || previous.path !== resource.path ||
++        previous.owner !== resource.owner || typeof previous.content !== "string" ||
++        typeof previous.mimeType !== "string" ||
++        !["user", "agent", "system"].includes(previous.createdBy) ||
++        !["workspace", "agent_scratch"].includes(previous.visibility) ||
++        ![previous.size, previous.createdAt, previous.updatedAt].every(Number.isFinite) ||
++        ![previous.threadId, previous.runId, previous.metadata].every((value) => value === null || typeof value === "string") ||
++        !(previous.expiresAt === null || Number.isFinite(previous.expiresAt)) ||
++        isPendingRunReview(previous)) {
++        return null;
++    }
++    return {
++        id: resource.id, path: resource.path, owner: resource.owner,
++        content: previous.content, mimeType: previous.mimeType, size: previous.size,
++        createdAt: previous.createdAt, updatedAt: previous.updatedAt,
++        createdBy: previous.createdBy, visibility: previous.visibility,
++        threadId: previous.threadId, runId: previous.runId,
++        expiresAt: previous.expiresAt, metadata: previous.metadata,
++    };
++}
++/** The accepted resource a model may consume while its proposed change waits. */
++export function resourceForAgent(resource) {
++    if (!resource)
++        return null;
++    return isPendingRunReview(resource) ? acceptedRunReviewVersion(resource) : resource;
++}
++function refuseRunInstructionMutation(owner, path, verb) {
++    refuseRunOutsideOwner(owner, path, verb);
++    if (getRequestContext()?.automationRun && isRunReviewedPath(path)) {
++        throw new Error("Automation runs cannot " + verb + " " + path +
++            ", because instruction and memory files require the owner's review.");
++    }
++}
  function scratchFilterSql(options) {
      return options?.includeAgentScratch === true
          ? ""
-@@ -1119,8 +1143,43 @@ export async function resourceGetByPath(owner, path, options) {
+@@ -1119,8 +1192,40 @@ export async function resourceGetByPath(owner, path, options) {
          ? resource
          : null;
  }
@@ -7235,108 +7303,221 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9
 +    }
 +    // Lower case, because the store's LIKE prefix queries ignore ASCII case
 +    // in SQLite, so skills/ also lists SKILLS/x/SKILL.md.
-+    const lowerPath = String(path).toLowerCase();
-+    const runReviewed = !!run &&
-+        (RUN_REVIEWED_FILES.has(lowerPath) ||
-+            RUN_REVIEWED_PREFIXES.some((prefix) => lowerPath.startsWith(prefix)));
++    const runReviewed = !!run && isRunReviewedPath(path);
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
          const written = await writeLocalWorkspaceResource({ path, content });
-@@ -1135,29 +1194,49 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+@@ -1135,83 +1240,122 @@ export async function resourcePut(owner, path, content, mimeType, options) {
          await assertWritableWorkspaceResourcePath(path);
      }
      const client = getDbExec();
 -    const now = Date.now();
-+    let now = Date.now();
-     const size = Buffer.byteLength(content, "utf8");
-     const mime = mimeType || "text/markdown";
-     // Check for existing resource to preserve ID on upsert
-     const { rows: existing } = await client.execute({
+-    const size = Buffer.byteLength(content, "utf8");
+-    const mime = mimeType || "text/markdown";
+-    // Check for existing resource to preserve ID on upsert
+-    const { rows: existing } = await client.execute({
 -        sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
-+        sql: `SELECT id, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
-         args: [owner, path],
-     });
-     const existingRow = existing[0];
-+    // Vivary #109: Settings names the version the owner reviews by its update
-+    // time, so a write moves it forward even in the same millisecond or after
-+    // the clock stepped back.
-+    if (existingRow)
-+        now = Math.max(now, Number(existingRow.updated_at) + 1);
-     const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
-     const createdAt = existingRow ? Number(existingRow.created_at) : now;
+-        args: [owner, path],
+-    });
+-    const existingRow = existing[0];
+-    const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
+-    const createdAt = existingRow ? Number(existingRow.created_at) : now;
 -    const createdBy = normalizeCreatedBy(hasOption(options, "createdBy")
 -        ? options?.createdBy
 -        : existingRow?.created_by);
-+    // Vivary #109: a run's write records the run, whatever the caller passed
-+    // or the row held, and any other write keeps the run's origin while the
-+    // file waits for review.
-+    const keptRunReview = metadataObject(existingRow?.metadata).runReview;
-+    const origin = run
-+        ? { created_by: "agent", thread_id: run.threadId, run_id: run.runId }
-+        : keptRunReview?.state === "pending"
-+            ? existingRow
-+            : null;
-+    const createdBy = origin
-+        ? normalizeCreatedBy(origin.created_by)
-+        : normalizeCreatedBy(hasOption(options, "createdBy")
-+            ? options?.createdBy
-+            : existingRow?.created_by);
-     const visibility = normalizeVisibility(hasOption(options, "visibility")
-         ? options?.visibility
-         : existingRow?.visibility);
+-    const visibility = normalizeVisibility(hasOption(options, "visibility")
+-        ? options?.visibility
+-        : existingRow?.visibility);
 -    const threadId = hasOption(options, "threadId")
 -        ? (options?.threadId ?? null)
 -        : nullableString(existingRow?.thread_id);
 -    const runId = hasOption(options, "runId")
 -        ? (options?.runId ?? null)
 -        : nullableString(existingRow?.run_id);
-+    const threadId = origin
-+        ? nullableString(origin.thread_id)
-+        : hasOption(options, "threadId")
-+            ? (options?.threadId ?? null)
-+            : nullableString(existingRow?.thread_id);
-+    const runId = origin
-+        ? nullableString(origin.run_id)
-+        : hasOption(options, "runId")
-+            ? (options?.runId ?? null)
-+            : nullableString(existingRow?.run_id);
-     let expiresAt = hasOption(options, "expiresAt")
-         ? (options?.expiresAt ?? null)
-         : nullableNumber(existingRow?.expires_at);
-@@ -1168,9 +1247,23 @@ export async function resourcePut(owner, path, content, mimeType, options) {
+-    let expiresAt = hasOption(options, "expiresAt")
+-        ? (options?.expiresAt ?? null)
+-        : nullableNumber(existingRow?.expires_at);
+-    if (visibility === "agent_scratch" && expiresAt === null) {
+-        expiresAt = now + AGENT_SCRATCH_TTL_MS;
+-    }
+-    if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
+-        expiresAt = null;
+-    }
+-    const serializedMetadata = serializeMetadata(options?.metadata);
+-    const metadata = serializedMetadata !== undefined
+-        ? serializedMetadata
+-        : nullableString(existingRow?.metadata);
+-    await client.execute({
+-        sql: isPostgres()
+-            ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
+-            : `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+-        args: [
++    for (let attempt = 0; attempt < 8; attempt++) {
++        let now = Date.now();
++        const size = Buffer.byteLength(content, "utf8");
++        const mime = mimeType || "text/markdown";
++        // Check for existing resource to preserve ID on upsert
++        const { rows: existing } = await client.execute({
++            sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
++            args: [owner, path],
++        });
++        const existingRow = existing[0];
++        // Vivary #109: Settings names the version the owner reviews by its update
++        // time, so a write moves it forward even in the same millisecond or after
++        // the clock stepped back.
++        if (existingRow)
++            now = Math.max(now, Number(existingRow.updated_at) + 1);
++        const id = existing.length > 0 ? existingRow?.id : crypto.randomUUID();
++        const createdAt = existingRow ? Number(existingRow.created_at) : now;
++        // Vivary #109: a run's write records the run, whatever the caller passed
++        // or the row held, and any other write keeps the run's origin while the
++        // file waits for review.
++        const keptRunReview = metadataObject(existingRow?.metadata).runReview;
++        const origin = run
++            ? { created_by: "agent", thread_id: run.threadId, run_id: run.runId }
++            : keptRunReview?.state === "pending"
++                ? existingRow
++                : null;
++        const createdBy = origin
++            ? normalizeCreatedBy(origin.created_by)
++            : normalizeCreatedBy(hasOption(options, "createdBy")
++                ? options?.createdBy
++                : existingRow?.created_by);
++        let visibility = normalizeVisibility(hasOption(options, "visibility")
++            ? options?.visibility
++            : existingRow?.visibility);
++        const threadId = origin
++            ? nullableString(origin.thread_id)
++            : hasOption(options, "threadId")
++                ? (options?.threadId ?? null)
++                : nullableString(existingRow?.thread_id);
++        const runId = origin
++            ? nullableString(origin.run_id)
++            : hasOption(options, "runId")
++                ? (options?.runId ?? null)
++                : nullableString(existingRow?.run_id);
++        let expiresAt = hasOption(options, "expiresAt")
++            ? (options?.expiresAt ?? null)
++            : nullableNumber(existingRow?.expires_at);
++        if (visibility === "agent_scratch" && expiresAt === null) {
++            expiresAt = now + AGENT_SCRATCH_TTL_MS;
++        }
++        if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
++            expiresAt = null;
++        }
++        const serializedMetadata = withoutCallerRunReview(serializeMetadata(options?.metadata));
++        let metadata = serializedMetadata !== undefined
++            ? serializedMetadata
++            : nullableString(existingRow?.metadata);
++        // Vivary #109: a run's write to an instruction path waits for review. Any
++        // other write keeps the row's review record, so only the owner's accept
++        // or delete in Settings settles it, never a later chat or edit.
++        if (runReviewed) {
++            metadata = withRunReview(metadata, {
++                state: "pending",
++                runId: run.runId ?? null,
++                automation: run.automation ?? null,
++                writtenAt: now,
++                previous: existingRow ? resourceForAgent(rowToResource(existingRow)) : null,
++            });
++        }
++        else if (keptRunReview) {
++            metadata = withRunReview(metadata, keptRunReview);
++        }
++
++        if (runReviewed || keptRunReview?.state === "pending") {
++            // Review proposals cannot disappear through scratch filtering or expiry.
++            const accepted = existingRow ? resourceForAgent(rowToResource(existingRow)) : null;
++            visibility = accepted?.visibility ?? "workspace";
++            expiresAt = null;
++        }
++        const values = [content, mime, size, now, createdBy, visibility, threadId, runId, expiresAt, metadata];
++        const result = existingRow
++            ? await client.execute({
++                sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ? AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
++                args: [...values, id, owner, path, existingRow.updated_at, existingRow.content,
++                    existingRow.metadata, existingRow.metadata],
++            })
++            : await client.execute({
++                sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`,
++                args: [id, path, owner, content, mime, size, createdAt, now, createdBy,
++                    visibility, threadId, runId, expiresAt, metadata],
++            });
++        if (result.rowsAffected !== 1)
++            continue;
++        emitResourceChange(id, path, owner, options?.requestSource);
++        return {
+             id,
+             path,
+             owner,
+             content,
+-            mime,
++            mimeType: mime,
+             size,
+             createdAt,
+-            now,
++            updatedAt: now,
+             createdBy,
+             visibility,
+             threadId,
+             runId,
+             expiresAt,
+             metadata,
+-        ],
+-    });
+-    emitResourceChange(id, path, owner, options?.requestSource);
+-    return {
+-        id,
+-        path,
+-        owner,
+-        content,
+-        mimeType: mime,
+-        size,
+-        createdAt,
+-        updatedAt: now,
+-        createdBy,
+-        visibility,
+-        threadId,
+-        runId,
+-        expiresAt,
+-        metadata,
+-    };
++        };
++    }
++    throw new Error("This resource kept changing. Try the write again.");
+ }
+ /** Insert a resource only when its owner/path pair is still unused. */
+ export async function resourcePutIfAbsent(owner, path, content, mimeType, options) {
++    refuseRunInstructionMutation(owner, path, "write");
+     await ensureTable();
+     if (owner === WORKSPACE_OWNER &&
+         (await shouldHandleWorkspaceResourceAsLocal(path))) {
+@@ -1240,7 +1384,7 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
+     if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
          expiresAt = null;
      }
-     const serializedMetadata = serializeMetadata(options?.metadata);
--    const metadata = serializedMetadata !== undefined
-+    let metadata = serializedMetadata !== undefined
-         ? serializedMetadata
-         : nullableString(existingRow?.metadata);
-+    // Vivary #109: a run's write to an instruction path waits for review. Any
-+    // other write keeps the row's review record, so only the owner's accept
-+    // or delete in Settings settles it, never a later chat or edit.
-+    if (runReviewed) {
-+        metadata = withRunReview(metadata, {
-+            state: "pending",
-+            runId: run.runId ?? null,
-+            automation: run.automation ?? null,
-+            writtenAt: now,
-+        });
-+    }
-+    else if (keptRunReview) {
-+        metadata = withRunReview(metadata, keptRunReview);
-+    }
-     await client.execute({
+-    const metadata = serializeMetadata(options?.metadata) ?? null;
++    const metadata = withoutCallerRunReview(serializeMetadata(options?.metadata)) ?? null;
+     const result = await client.execute({
          sql: isPostgres()
-             ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-@@ -1331,6 +1424,7 @@ export async function resourcePutIfCurrent(input) {
+             ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+@@ -1290,6 +1434,7 @@ export async function resourcePutIfAbsent(owner, path, content, mimeType, option
+  * so this helper fails closed for them.
+  */
+ export async function resourcePutIfCurrent(input) {
++    refuseRunInstructionMutation(input.owner, input.path, "write");
+     await ensureTable();
+     if (input.owner === WORKSPACE_OWNER &&
+         (await shouldHandleWorkspaceResourceAsLocal(input.path))) {
+@@ -1331,6 +1476,7 @@ export async function resourcePutIfCurrent(input) {
      return resource;
  }
  export async function resourceDeleteIfCurrent(resource) {
-+    refuseRunOutsideOwner(resource.owner, resource.path, "delete");
++    refuseRunInstructionMutation(resource.owner, resource.path, "delete");
      await ensureTable();
      if (isLocalWorkspaceResourceId(resource.id))
          return false;
-@@ -1367,12 +1461,54 @@ export async function resourceDeleteIfCurrent(resource) {
+@@ -1367,12 +1513,89 @@ export async function resourceDeleteIfCurrent(resource) {
      }
      return deleted;
  }
@@ -7359,7 +7540,10 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9
 +        !isPendingRunReview(current)) {
 +        return false;
 +    }
-+    const review = metadataObject(current.metadata).runReview;
++    if (current.owner !== input.acceptedBy)
++        return false;
++    refuseRunInstructionMutation(current.owner, current.path, "accept");
++    const { previous: _previous, ...review } = metadataObject(current.metadata).runReview;
 +    const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
 +    const result = await client.execute({
 +        sql: `UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ? AND updated_at = ? AND metadata = ?`,
@@ -7381,32 +7565,100 @@ index 44e9ccf92edf7026bae290de14c9c65388042eae..2e544d7f9e31a6c30eeafaeeb06210c9
 +    emitResourceChange(current.id, current.path, current.owner);
 +    return true;
 +}
++
++/** Discard only the version the owner reviewed, restoring its accepted predecessor. */
++export async function resourceDiscardRunReviewIfCurrent(input) {
++    await ensureTable();
++    const current = await resourceGet(input.id);
++    if (!current || current.owner !== input.owner || current.updatedAt !== input.updatedAt ||
++        !isPendingRunReview(current))
++        return false;
++    refuseRunInstructionMutation(current.owner, current.path, "discard");
++    const previous = acceptedRunReviewVersion(current);
++    const recordedPrevious = metadataObject(current.metadata).runReview.previous;
++    if (recordedPrevious != null && !previous)
++        return false;
++    if (!previous)
++        return resourceDeleteIfCurrent(current);
++    const client = getDbExec();
++    const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
++    const result = await client.execute({
++        sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, created_at = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ? AND metadata = ?`,
++        args: [
++            previous.content, previous.mimeType, previous.size, previous.createdAt,
++            updatedAt, previous.createdBy, previous.visibility, previous.threadId,
++            previous.runId, previous.expiresAt, previous.metadata,
++            current.id, current.owner, current.path, current.updatedAt,
++            current.content, current.metadata,
++        ],
++    });
++    if (result.rowsAffected !== 1)
++        return false;
++    emitResourceChange(current.id, current.path, current.owner);
++    return true;
++}
  export async function resourceDelete(id) {
      await ensureTable();
      if (isLocalWorkspaceResourceId(id)) {
          const resourcePath = localWorkspaceResourcePathFromId(id);
          if (!resourcePath)
              return false;
-+        refuseRunOutsideOwner(WORKSPACE_OWNER, resourcePath, "delete");
++        refuseRunInstructionMutation(WORKSPACE_OWNER, resourcePath, "delete");
          const deleted = await deleteLocalWorkspaceResource({ path: resourcePath });
          if (deleted) {
              emitResourceDelete(id, resourcePath, WORKSPACE_OWNER);
-@@ -1387,6 +1523,7 @@ export async function resourceDelete(id) {
+@@ -1387,9 +1610,10 @@ export async function resourceDelete(id) {
      });
      if (rows.length === 0)
          return false;
-+    refuseRunOutsideOwner(rows[0].owner, rows[0].path, "delete");
++    refuseRunInstructionMutation(rows[0].owner, rows[0].path, "delete");
      const result = await client.execute({
-         sql: `DELETE FROM resources WHERE id = ?`,
-         args: [id],
-@@ -1398,6 +1535,7 @@ export async function resourceDelete(id) {
+-        sql: `DELETE FROM resources WHERE id = ?`,
+-        args: [id],
++        sql: `DELETE FROM resources WHERE id = ? AND owner = ? AND path = ?`,
++        args: [id, rows[0].owner, rows[0].path],
+     });
+     const deleted = result.rowsAffected > 0;
+     if (deleted) {
+@@ -1398,6 +1622,7 @@ export async function resourceDelete(id) {
      return deleted;
  }
  export async function resourceDeleteByPath(owner, path) {
-+    refuseRunOutsideOwner(owner, path, "delete");
++    refuseRunInstructionMutation(owner, path, "delete");
      await ensureTable();
      if (owner === WORKSPACE_OWNER &&
          (await shouldHandleWorkspaceResourceAsLocal(path))) {
+@@ -1623,18 +1848,24 @@ export async function resourceMove(id, newPath) {
+     const now = Date.now();
+     // Get current resource info
+     const { rows } = await client.execute({
+-        sql: `SELECT path, owner FROM resources WHERE id = ?`,
++        sql: `SELECT path, owner, metadata, updated_at FROM resources WHERE id = ?`,
+         args: [id],
+     });
+     if (rows.length === 0)
+         return false;
++    refuseRunInstructionMutation(rows[0].owner, rows[0].path, "move");
++    refuseRunInstructionMutation(rows[0].owner, newPath, "move");
++    if (isPendingRunReview(rows[0])) {
++        throw new Error("Accept or discard this file's proposed change before moving it.");
++    }
+     const result = await client.execute({
+-        sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ?`,
+-        args: [newPath, now, id],
++        sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
++        args: [newPath, Math.max(now, Number(rows[0].updated_at) + 1), id, rows[0].owner, rows[0].path,
++            rows[0].updated_at, rows[0].metadata, rows[0].metadata],
+     });
+     const moved = result.rowsAffected > 0;
+-    if (moved) {
+-        emitResourceChange(id, newPath, rows[0].owner);
+-    }
++    if (!moved)
++        throw new Error("This file changed. Reload before moving it.");
++    emitResourceChange(id, newPath, rows[0].owner);
+     return moved;
+ }
 diff --git a/dist/scripts/agent-engines/list-agent-engines.js b/dist/scripts/agent-engines/list-agent-engines.js
 index fbf87b306902458e7426c727455251f706c7f028..0513231b7f297e511c2214feb354097b12d0f633 100644
 --- a/dist/scripts/agent-engines/list-agent-engines.js
@@ -8681,8 +8933,32 @@ index dd3c207db1c60bd1156e13169f6dd093fbd32120..f0c7f77490dd2c6e719d8c39348c6e41
  /**
   * Convert kebab-case keys to camelCase.
   */
+diff --git a/dist/scripts/resources/delete-memory.js b/dist/scripts/resources/delete-memory.js
+index c7e7266483fb3e891cb1667e21431b48c076b8ec..e3c48f7bf00fd09bf100a16a5966d4571f3d2c4b 100644
+--- a/dist/scripts/resources/delete-memory.js
++++ b/dist/scripts/resources/delete-memory.js
+@@ -4,7 +4,7 @@
+  * Delete a memory entry and remove it from the index.
+  */
+ import { resourcePut, resourceGetByPath, resourceDeleteByPath, } from "../../resources/store.js";
+-import { getAmbientUserEmail, getRequestUserEmail, } from "../../server/request-context.js";
++import { getAmbientUserEmail, getRequestContext, getRequestUserEmail, } from "../../server/request-context.js";
+ import { parseArgs, fail } from "../utils.js";
+ export default async function deleteMemoryScript(args) {
+     const parsed = parseArgs(args);
+@@ -15,6 +15,10 @@ export default async function deleteMemoryScript(args) {
+     if (!owner) {
+         fail("delete-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).");
+     }
++    // Refuse before either mutation, outside the missing-file catch blocks.
++    if (getRequestContext()?.automationRun) {
++        fail("Automation runs cannot delete instruction or memory files. Ask the owner to review the change.");
++    }
+     const memoryPath = `memory/${name}.md`;
+     const indexPath = "memory/MEMORY.md";
+     // Delete the memory file
 diff --git a/dist/scripts/resources/read.js b/dist/scripts/resources/read.js
-index 467263c0411135a3acdfc27b790da7b330a17361..b82f01231c6267e37b88ea56bab15626f230aa5b 100644
+index 467263c0411135a3acdfc27b790da7b330a17361..ac9f52008cc86dbd081eb1012df45fc4d6ea39ed 100644
 --- a/dist/scripts/resources/read.js
 +++ b/dist/scripts/resources/read.js
 @@ -6,9 +6,18 @@
@@ -8690,17 +8966,17 @@ index 467263c0411135a3acdfc27b790da7b330a17361..b82f01231c6267e37b88ea56bab15626
   *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
   */
 -import { SHARED_OWNER, resourceGetByPath, ensurePersonalDefaults, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
-+import { SHARED_OWNER, isPendingRunReview, resourceGetByPath, ensurePersonalDefaults, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
++import { SHARED_OWNER, resourceForAgent, resourceGetByPath, ensurePersonalDefaults, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
  import { getAmbientUserEmail, getRequestOrgId, getRequestUserEmail, } from "../../server/request-context.js";
  import { parseArgs, fail } from "../utils.js";
-+// Vivary #109: a file an automation run wrote waits for the owner's review,
-+// so a chat or a run reading it gets a note instead of its text.
++// Pending changes use the accepted content, or a note when no accepted version exists.
 +function writeResourceContent(resource) {
-+    if (isPendingRunReview(resource)) {
++    const accepted = resourceForAgent(resource);
++    if (!accepted) {
 +        console.log("This file was written by an automation run and is waiting for the owner's review in Settings > Automation files. Its content is not available to chats or automation runs until the owner accepts it.");
 +        return;
 +    }
-+    process.stdout.write(resource.content);
++    process.stdout.write(accepted.content);
 +}
  export default async function resourceReadScript(args) {
      const parsed = parseArgs(args);
@@ -8991,81 +9267,84 @@ index e60c5334c0159767045b81164ee54138e3e248f3..c675f3c9ab9cf0d068fbe84faf6402fa
      backgroundMcpTools?: "requested" | "all";
      /**
 diff --git a/dist/server/agent-chat/prompt-resources.js b/dist/server/agent-chat/prompt-resources.js
-index 40396251b3887addb4303ece517af947f2eb4ed3..964d93258c786b2eb4e42af80f05d703a9bfe10d 100644
+index 40396251b3887addb4303ece517af947f2eb4ed3..eb4ff2082d40a2d52b784b9ed3ec7f13277ae89f 100644
 --- a/dist/server/agent-chat/prompt-resources.js
 +++ b/dist/server/agent-chat/prompt-resources.js
 @@ -1,6 +1,6 @@
  import { frameworkGroupEnabled, } from "../../framework-tools.js";
  import { getFrontmatterValue, getSkillNameFromPath, parseFrontmatter, } from "../../resources/metadata.js";
 -import { ensurePersonalDefaults, organizationIdFromResourceOwner, resourceGet, resourceGetByPath, resourceList, resourceListAccessible, SHARED_OWNER, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
-+import { ensurePersonalDefaults, isPendingRunReview, organizationIdFromResourceOwner, resourceGet, resourceGetByPath, resourceList, resourceListAccessible, SHARED_OWNER, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
++import { ensurePersonalDefaults, isPendingRunReview, resourceForAgent, organizationIdFromResourceOwner, resourceGet, resourceGetByPath, resourceList, resourceListAccessible, SHARED_OWNER, sharedResourceOwner, WORKSPACE_OWNER, } from "../../resources/store.js";
  import { discoverAgents } from "../agent-discovery.js";
  import { getRequestOrgId } from "../request-context.js";
  import { isRuntimeVisibleScope, parseSkillFrontmatter, } from "./skill-frontmatter.js";
-@@ -433,6 +433,9 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
+@@ -428,11 +428,12 @@ export function resourceScopeForOwner(owner, currentOwner) {
+ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS) {
+     let agents;
+     try {
+-        agents = await resourceGetByPath(owner, "AGENTS.md");
++        agents = resourceForAgent(await resourceGetByPath(owner, "AGENTS.md"));
+     }
      catch (error) {
          throw new Error(`Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`, { cause: error });
      }
-+    // Vivary #109: a file an automation run wrote waits for the owner's review.
-+    if (isPendingRunReview(agents))
-+        return null;
++    // Keep the last accepted instructions while a proposed change waits.
      if (!agents?.content?.trim())
          return null;
      return promptResourceBlock({
-@@ -446,8 +449,9 @@ async function loadAgentsResourceForPrompt(owner, scope, maxChars = SHARED_PROMP
- async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS, summaryOnly = false) {
+@@ -447,7 +448,8 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
      try {
          const resources = await resourceList(owner, "instructions/");
-+        // Vivary #109: files an automation run wrote wait for the owner's review.
          const sorted = resources
 -            .filter((resource) => isAutoLoadedInstructionPath(resource.path))
-+            .filter((resource) => isAutoLoadedInstructionPath(resource.path) && !isPendingRunReview(resource))
++            .map(resourceForAgent)
++            .filter((resource) => resource && isAutoLoadedInstructionPath(resource.path))
              .sort((a, b) => a.path.localeCompare(b.path));
          if (summaryOnly) {
              if (sorted.length === 0)
-@@ -471,7 +475,9 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
+@@ -470,7 +472,8 @@ async function loadInstructionResourcesForPrompt(owner, scope, maxChars = SHARED
+         const blocks = [];
          for (let index = 0; index < sorted.length; index++) {
              const resource = sorted[index];
-             const full = fullResources[index];
--            if (!full?.content?.trim())
-+            // Vivary #109: a run can rewrite the file between the list and
-+            // this read, so check the row that was read too.
-+            if (isPendingRunReview(full) || !full?.content?.trim())
+-            const full = fullResources[index];
++            // A run can overwrite the file after listing it. Project the row read.
++            const full = resourceForAgent(fullResources[index]);
+             if (!full?.content?.trim())
                  continue;
              const block = promptResourceBlock({
-                 name: resource.path,
-@@ -498,7 +504,8 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+@@ -498,7 +501,7 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
                  ...(await resourceList(WORKSPACE_OWNER, "skills/")),
              ]
              : await resourceListAccessible(owner, "skills/", { orgId });
 -        const sorted = resources.sort((a, b) => {
-+        // Vivary #109: skills an automation run wrote wait for the owner's review.
-+        const sorted = resources.filter((resource) => !isPendingRunReview(resource)).sort((a, b) => {
++        const sorted = resources.map(resourceForAgent).filter(Boolean).sort((a, b) => {
              const ownerOrder = (a.owner === owner
                  ? 0
                  : a.owner === organizationOwner
-@@ -529,7 +536,9 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+@@ -524,11 +527,12 @@ async function loadResourceSkillsPromptBlock(owner, orgId) {
+         const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
+         const loaded = await Promise.all(skillCandidates.map(async (resource) => ({
+             resource,
+-            full: await resourceGet(resource.id).catch(() => null),
++            full: resourceForAgent(await resourceGet(resource.id).catch(() => null)),
+         })));
          const seen = new Set();
          const lines = [];
          for (const { resource, full } of loaded) {
--            if (!full?.content)
-+            // Vivary #109: a run can rewrite the skill between the list and
-+            // this read, so check the row that was read too.
-+            if (isPendingRunReview(full) || !full?.content)
++            // The fresh read selects accepted content even after a concurrent overwrite.
+             if (!full?.content)
                  continue;
              const meta = parseSkillFrontmatter(full.content);
-             if (meta.userInvocable === false)
-@@ -758,7 +767,8 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -757,7 +761,7 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+         // context.
          if (owner !== SHARED_OWNER) {
              try {
-                 const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
--                if (memoryIndex?.content?.trim()) {
-+                // Vivary #109: an index an automation run wrote waits for the owner's review.
-+                if (!isPendingRunReview(memoryIndex) && memoryIndex?.content?.trim()) {
+-                const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
++                const memoryIndex = resourceForAgent(await resourceGetByPath(owner, "memory/MEMORY.md"));
+                 if (memoryIndex?.content?.trim()) {
                      const block = promptResourceBlock({
                          name: "memory/MEMORY.md",
-                         scope: "personal",
-@@ -804,6 +814,19 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
+@@ -804,6 +808,19 @@ export async function loadResourcesForPrompt(owner, compact = false, selfAppId,
      catch {
          // Agent discovery is helpful context, not required for the run.
      }
@@ -9080,7 +9359,7 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..964d93258c786b2eb4e42af80f05d703
 +        const one = waiting === 1;
 +        addSection(`<context-note>${one
 +            ? "1 instruction or memory file written by an automation run is"
-+            : `${waiting} instruction or memory files written by automation runs are`} waiting for the owner's review in Settings > Automation files. ${one ? "It is" : "They are"} not loaded. Do not follow or rewrite ${one ? "it" : "them"}. If a task seems to depend on one, tell the owner.</context-note>`, "required");
++            : `${waiting} instruction or memory files written by automation runs are`} waiting for the owner's review in Settings > Automation files. Proposed changes are not loaded. Any previously accepted content remains available. Do not follow or rewrite the proposed changes. If a task depends on them, tell the owner.</context-note>`, "required");
 +    }
      if (sections.length === 0)
          return "";
@@ -9578,7 +9857,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..99142fc8d5899f6a2bd057414a28d561
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f630d113f3 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2daa68b9d 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -9591,7 +9870,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
  import { setProgressPreListHook } from "../progress/store.js";
  import { getSkillNameFromPath } from "../resources/metadata.js";
 -import { resourceList, resourceListAccessible, resourceGet, ensurePersonalDefaults, SHARED_OWNER, WORKSPACE_OWNER, } from "../resources/store.js";
-+import { isPendingRunReview, resourceList, resourceListAccessible, resourceGet, ensurePersonalDefaults, SHARED_OWNER, WORKSPACE_OWNER, } from "../resources/store.js";
++import { resourceForAgent, resourceList, resourceListAccessible, resourceGet, ensurePersonalDefaults, SHARED_OWNER, WORKSPACE_OWNER, } from "../resources/store.js";
  import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
  import { getSetting, putSetting } from "../settings/store.js";
  import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD, normalizeAnalyticsClientPlatform, } from "../shared/analytics-platform.js";
@@ -9753,28 +10032,32 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                          : "";
                      const hostedHarnessRuntime = getRequestRunContext()?.hostedHarnessRuntime;
                      const hostedHarnessPromptNote = hostedHarnessRuntime
-@@ -3817,6 +3830,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -3816,15 +3829,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                             return pathOrder;
                          return a.path.localeCompare(b.path);
                      });
-                     for (const r of resourceSkills) {
-+                        // Vivary #109: a skill an automation run wrote waits for the owner's review.
-+                        if (isPendingRunReview(r))
+-                    for (const r of resourceSkills) {
++                    for (const listed of resourceSkills) {
++                        const r = resourceForAgent(listed);
++                        if (!r)
 +                            continue;
                          // Try to get content to parse frontmatter
                          let skillName = getSkillNameFromPath(r.path);
                          let description;
-@@ -3825,6 +3841,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
-                             const full = await resourceGet(r.id, skillsOwner
+                         let userInvocable;
+                         try {
+-                            const full = await resourceGet(r.id, skillsOwner
++                            const full = resourceForAgent(await resourceGet(r.id, skillsOwner
                                  ? { userEmail: skillsOwner, orgId: skillsOrgId ?? null }
-                                 : undefined);
-+                            // Vivary #109: a run can rewrite the skill between
-+                            // the list and this read, so check the row read too.
-+                            if (isPendingRunReview(full))
+-                                : undefined);
++                                : undefined));
++                            // A run may have overwritten the skill since the list was read.
++                            if (!full)
 +                                continue;
                              if (full) {
                                  const fm = parseSkillFrontmatter(full.content);
                                  if (!isRuntimeVisibleScope(fm.scope))
-@@ -4649,6 +4669,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4649,6 +4668,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  setResponseStatus(event, 404);
                                  return { error: "Thread not found" };
                              }
@@ -9794,7 +10077,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                              let newThreadData = body.threadData || thread.threadData;
                              let newMessageCount = body.messageCount ?? thread.messageCount;
                              let nextTitle = typeof body.title === "string" ? body.title : thread.title;
-@@ -4666,34 +4699,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4666,34 +4698,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                          nextTitle = meta.title;
                                  }
                              };
@@ -9841,7 +10124,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                              // Scope updates piggyback on the PUT — the client uses this
                              // path for detach and for claiming a legacy unscoped thread.
                              // A scoped thread cannot be retagged across resources here.
-@@ -4701,7 +4720,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -4701,7 +4719,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                                  const incomingScope = parseScopeFromBody(body.scope);
                                  await setThreadScope(threadId, incomingScope);
                              }
@@ -9850,7 +10133,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                          });
                      }
                      // POST /threads/:id/queued — debounced writes from the client
-@@ -5113,32 +5132,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5113,32 +5131,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      ? preparedMarker.automationRunId
                      : undefined;
                  if (typeof automationRunId === "string" && automationRunId) {
@@ -9884,7 +10167,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                          }
                          catch {
                              setResponseStatus(event, 500);
-@@ -5146,7 +5146,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5146,7 +5145,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                          }
                      }
                      const waitUntil = event.req?.waitUntil;
@@ -9893,7 +10176,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5321,34 +5321,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5320,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              // Poll every 60 seconds for due recurring jobs and execute them.
              // Long-lived runtimes use setInterval; serverless runtimes rely on a
              // platform-owned sweep because an invocation cannot own a durable loop.
@@ -9931,7 +10214,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5423,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,6 +5422,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -9947,7 +10230,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5755,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5762,24 +5754,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -9992,7 +10275,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..37bb2042bdf6ac10c228905162c629f6
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5806,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5805,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",

@@ -4,13 +4,14 @@ import { Button } from "@agent-native/toolkit/ui";
 import { useNativeActionCaller } from "../../lib/native-actions";
 import type { AutomationFile } from "../../../actions/vivary-automation-files";
 
-// Issue #109. The owner's instruction, skill, and memory files that automation runs wrote wait here, and no chat or
-// run loads one until the owner accepts it. The text shows as plain text, so a planted link or image does nothing.
+// Automation proposals wait here while chats keep using the last accepted instructions.
+// Proposed text renders as plain text, so a link or image cannot run.
 export function AutomationFileReview() {
   const { call, ready } = useNativeActionCaller();
   const [files, setFiles] = useState<AutomationFile[]>([]);
   const [listFailed, setListFailed] = useState(false);
-  // The file whose Accept or Delete was refused because it changed since the list showed it. The action answers that
+  const [failedDecisionIds, setFailedDecisionIds] = useState<Set<string>>(() => new Set());
+  // The file whose Accept or Discard was refused because it changed since the list showed it. The action answers that
   // refusal, and only that one, with 409.
   const [changedId, setChangedId] = useState<string | null>(null);
   const load = useCallback(async () => {
@@ -25,11 +26,25 @@ export function AutomationFileReview() {
     if (ready) void load();
   }, [ready, load]);
   async function review(file: AutomationFile, operation: "accept" | "delete") {
-    // A refused review changes nothing. The reloaded list shows the file as it is now, and when it changed, the notice
-    // asks the owner to read it again, so a second click cannot approve text the owner did not see.
-    const changed = await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt })
-      .then(() => false, (error: unknown) => (error as { status?: unknown })?.status === 409);
-    setChangedId(changed ? file.id : null);
+    // Reload every decision. A 409 identifies changed text, while other errors leave the outcome unconfirmed.
+    try {
+      await call("vivary-automation-files", { operation, id: file.id, updatedAt: file.updatedAt });
+      setChangedId(null);
+      setFailedDecisionIds(ids => {
+        const next = new Set(ids);
+        next.delete(file.id);
+        return next;
+      });
+    } catch (error: unknown) {
+      const changed = typeof error === "object" && error !== null && "status" in error && error.status === 409;
+      setChangedId(changed ? file.id : null);
+      setFailedDecisionIds(ids => {
+        const next = new Set(ids);
+        if (changed) next.delete(file.id);
+        else next.add(file.id);
+        return next;
+      });
+    }
     await load();
   }
   return (
@@ -37,9 +52,15 @@ export function AutomationFileReview() {
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Automation files</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Instruction, skill, and memory files that automation runs wrote wait here. Chats and automation runs do not
-          load a file until you accept it. Delete removes the whole file.
+          Instruction, skill, and memory changes written by automation runs wait here. Chats and automation runs keep
+          using the previous accepted version. Accept loads the proposed text. Discard restores the saved previous
+          version. If none was saved, it removes the proposed file.
         </p>
+        {failedDecisionIds.size > 0 && (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            Your decision could not be confirmed. Check the list and try again if the file is still waiting.
+          </p>
+        )}
         {listFailed && (
           <p role="alert" className="mt-2 text-sm text-destructive">
             The list of waiting files could not load, so files may still be waiting.
@@ -55,12 +76,12 @@ export function AutomationFileReview() {
             </pre>
             {file.id === changedId && (
               <p role="alert" className="text-sm text-destructive">
-                This file changed since the list showed it. Read it again before you accept or delete it.
+                This file changed since the list showed it. Read it again before you accept or discard it.
               </p>
             )}
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void review(file, "accept")}>Accept</Button>
-              <Button variant="destructive" size="sm" onClick={() => void review(file, "delete")}>Delete</Button>
+              <Button variant="destructive" size="sm" onClick={() => void review(file, "delete")}>Discard</Button>
             </div>
           </li>
         ))}
