@@ -20,8 +20,10 @@ export const CLEANUP_EXIT_RESERVE_MS = 3_000;
 const TASKKILL_TIMEOUT_MS = 3_000;
 // Issue #121. A check after a stop gives a Linux group this long to empty, which also gives a slow stop one more second.
 const CLEANUP_CHECK_MS = 1_000;
-// Bounds a stuck PowerShell. One start plus one CIM query took under a second on a Windows laptop.
+// Bounds PowerShell startup, the CIM query, and output collection when a scan stalls.
 const WINDOWS_SCAN_TIMEOUT_MS = 10_000;
+// Issue #133. Wait after each completed scan, rather than overlap slow PowerShell queries.
+const WINDOWS_TRACK_INTERVAL_MS = 1_000;
 // The worker's Windows identity comes from the host clock, read just before and just after `fork`, which creates the
 // process before it returns, and at its observed exit, since a dead parent starts nothing. Windows stamps a creation
 // time from its system clock, which can advance in 15.6 ms ticks, and both clocks are compared in whole milliseconds,
@@ -114,8 +116,8 @@ export async function executeVivaryCodeWorker(input: {
   orgId?: string;
   signal: AbortSignal;
   /**
-   * Issue #121. Called when a stop fails, before the check that names what it left, so the caller can record the
-   * refusal at once. A quit during that check then still leaves it.
+   * Called before checking a failed stop or verifying Windows descendants after taskkill. The caller persists the
+   * target while verification is pending, so a host exit during that scan cannot lose an already observed orphan.
    */
   onStopFailed?: (failure: { step: CleanupFailure["step"]; target: CleanupTarget | null }) => void;
 }): Promise<void> {
@@ -157,6 +159,30 @@ export async function executeVivaryCodeWorker(input: {
     let grace: ReturnType<typeof setTimeout> | undefined;
     let exitTimer: ReturnType<typeof setTimeout> | undefined;
     let workerExited = false;
+    let windowsTarget = process.platform === "win32" && child.pid
+      ? windowsWorkerTarget(child.pid, forkedFrom, forkedTo, null) : null;
+    let scanTimer: ReturnType<typeof setTimeout> | undefined;
+    let scanAbort: AbortController | undefined;
+    let activeScan: Promise<void> | undefined;
+    const trackWindows = () => {
+      if (!windowsTarget || activeScan || settled || cleanup || !runSent) return;
+      const controller = new AbortController();
+      scanAbort = controller;
+      activeScan = scanWindowsProcesses(controller.signal).then(rows => {
+        if (controller.signal.aborted || settled || !windowsTarget) return;
+        const observed = windowsLeftovers(rows, windowsTarget.tracked, windowsTarget.traced);
+        windowsTarget = { platform: "win32", tracked: observed.tracked, traced: observed.traced,
+          ...(windowsTarget.overflow || observed.overflow ? { overflow: true } : {}) };
+      }).catch(() => { /* A later scan retries without discarding identities already observed. */ }).finally(() => {
+        activeScan = undefined;
+        if (!settled && !cleanup && runSent) scanTimer = setTimeout(trackWindows, WINDOWS_TRACK_INTERVAL_MS);
+      });
+    };
+    const stopTracking = () => {
+      clearTimeout(scanTimer);
+      scanAbort?.abort();
+      return activeScan;
+    };
     let resolveExit: () => void;
     const exited = new Promise<void>(done => { resolveExit = done; });
 
@@ -166,6 +192,7 @@ export async function executeVivaryCodeWorker(input: {
       clearTimeout(startupDeadline);
       clearTimeout(grace);
       clearTimeout(exitTimer);
+      stopTracking();
       input.signal.removeEventListener("abort", onAbort);
       child.off("message", onMessage);
       child.off("error", onError);
@@ -177,22 +204,40 @@ export async function executeVivaryCodeWorker(input: {
       if (error) reject(error);
       else resolve();
     };
-    // Issue #121. One fresh check after a failed stop. When it finds nothing left, the stop did finish.
-    const failedStopOutcome = async (cause: CleanupFailure): Promise<Error | null> => {
-      // Reading the boot id cannot reject, so the target is known before the scan starts.
-      const target = await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
+    // A successful taskkill can miss an orphan. Keep identities observed while its ancestry was still live.
+    const stoppedOutcome = async (cause: CleanupFailure | null, deadline: number): Promise<Error | null> => {
+      if (windowsTarget && exitedAt !== null) {
+        const childrenTo = exitedAt + CLOCK_TOLERANCE_MS;
+        windowsTarget.tracked = windowsTarget.tracked.map(identity => identity.pid === child.pid
+          && identity.createdFrom >= forkedFrom - CLOCK_TOLERANCE_MS
+          && identity.createdTo <= forkedTo + CLOCK_TOLERANCE_MS
+          ? { ...identity, childrenTo } : identity);
+      }
+      const target = windowsTarget ?? await workerCleanupTarget(child.pid, forkedFrom, forkedTo, exitedAt);
+      const reportFailure = (failure: CleanupFailure, target: CleanupTarget | null) => {
+        try { input.onStopFailed?.({ step: failure.step, target }); }
+        catch { /* The error the run settles with records the refusal. */ }
+      };
+      const failed: CleanupFailure = cause ?? {
+        step: "exit", error: new Error("Windows coding process cleanup could not be confirmed."),
+      };
+      reportFailure(failed, target);
       let check: CleanupCheck = { result: "unavailable" };
-      try { input.onStopFailed?.({ step: cause.step, target }); }
-      catch { /* The error the run settles with records the refusal. */ }
       try {
-        if (target) check = await checkStoppedWorker(target);
-      } catch { /* An unexpected failure leaves the check unavailable, which still refuses later runs. */ }
-      return check.result === "clean" ? failure
-        : new VivaryCodeWorkerCleanupError(cause, { leftovers: { target, check } });
+        if (target?.platform === "win32") {
+          const remaining = deadline - Date.now();
+          if (remaining > 0) check = await checkWorkerCleanup(target, { ...cleanupIo,
+            windowsProcesses: () => scanWindowsProcesses(AbortSignal.timeout(remaining)) });
+        } else if (target) check = await checkStoppedWorker(target);
+      } catch { /* An unavailable check still refuses later runs. */ }
+      if (check.result === "clean") return failure;
+      const checkedTarget = check.result === "remaining" ? check.target : target;
+      return new VivaryCodeWorkerCleanupError(failed, { leftovers: { target: checkedTarget, check } });
     };
     const stopTree = () => {
       cleanup ??= (async () => {
         const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
+        const pendingScan = stopTracking();
         let step: CleanupFailure["step"] = process.platform !== "win32" ? "group"
           : workerExited ? "worker-exited" : "taskkill";
         try {
@@ -214,9 +259,11 @@ export async function executeVivaryCodeWorker(input: {
               });
             }
           }
-          finish(failure);
+          await pendingScan;
+          finish(process.platform === "win32" && runSent ? await stoppedOutcome(null, deadline) : failure);
         } catch (error) {
-          finish(await failedStopOutcome({ step, error }));
+          await pendingScan;
+          finish(await stoppedOutcome({ step, error }, deadline));
         }
       })();
     };
@@ -260,6 +307,7 @@ export async function executeVivaryCodeWorker(input: {
             runSent = false;
             requestStop(new Error("The coding worker could not receive its run."));
           });
+          trackWindows();
         } catch {
           runSent = false;
           requestStop(new Error("The coding worker connection closed."));
@@ -683,6 +731,11 @@ export async function workerCleanupTarget(
     return { platform: "linux", groupId: pid, bootId: await readBootId(), traced: [] };
   }
   if (process.platform !== "win32") return null;
+  return windowsWorkerTarget(pid, forkedFrom, forkedTo, exitedAt);
+}
+
+function windowsWorkerTarget(pid: number, forkedFrom: number, forkedTo: number,
+  exitedAt: number | null): Extract<CleanupTarget, { platform: "win32" }> {
   return { platform: "win32", tracked: [{ pid, createdFrom: forkedFrom - CLOCK_TOLERANCE_MS,
     createdTo: forkedTo + CLOCK_TOLERANCE_MS,
     childrenTo: exitedAt === null ? null : exitedAt + CLOCK_TOLERANCE_MS }], traced: [] };

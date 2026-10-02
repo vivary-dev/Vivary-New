@@ -607,7 +607,7 @@ function processList(processes: readonly LeftoverProcess[], refusal?: CleanupRef
 }
 
 /** The heading while the check right after a failed stop runs. */
-const STOP_CHECK_HEADING = "Vivary is checking what a failed stop left running";
+const STOP_CHECK_HEADING = "Vivary is checking whether coding processes stopped";
 
 function cleanupHeading(refusal: CleanupRefusal): string {
   if (refusal.scan !== "done") return "Vivary could not confirm that an earlier run's coding processes stopped";
@@ -1087,7 +1087,7 @@ async function executeVivaryCodeRun(input: {
   model: string | undefined;
   runId: string;
 }): Promise<void> {
-  // Issue #121. When a stop fails, its refusal goes on the record before the check that names what it left.
+  // Persist the cleanup target before final verification. The finally block clears it when nothing remains.
   let stopRefusedAt = null as string | null;
   try {
     await executeVivaryCodeWorker({
