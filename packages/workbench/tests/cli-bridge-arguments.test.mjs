@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -23,15 +23,19 @@ Object.assign(process.env, {
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
 const [
-  { createDbScriptEntries, createResourceScriptEntries },
+  { createChatScriptEntries, createDbScriptEntries, createDocsScriptEntries, createResourceScriptEntries },
   { createPlanModeActionRegistry },
   { runWithRequestContext },
   { resourceGetByPath },
+  { formatArgs, parseArgs },
+  { createThread, updateThreadData },
 ] = await Promise.all([
   load("server/agent-chat/script-entries.js"),
   load("agent/production-agent.js"),
   load("server/request-context.js"),
   load("resources/store.js"),
+  load("scripts/parse-args.js"),
+  load("chat-threads/store.js"),
 ]);
 const Database = createRequire(path.join(coreRoot, "package.json"))("better-sqlite3");
 
@@ -77,9 +81,11 @@ test("a chat cannot pass an argument name the bridge would split or the tool doe
     ["-path", "notes/crafted.md"],
     ["--path", "notes/crafted.md"],
     ["created-by", "user"],
+    ["createdBy", "user"],
+    ["threadId", "thread-from-model"],
   ]) {
     const result = await write({ path: "notes/named.md", content: "x", [name]: value });
-    assert.match(result, /^Error:/, `${name} is refused`);
+    assert.ok(result.startsWith(`Error: Unknown argument ${JSON.stringify(name)}. `), `${name} is refused: ${result}`);
   }
   assert.equal(await stored("notes/named.md"), null, "no crafted call wrote its declared path");
   assert.equal(await stored("notes/crafted.md"), null, "no crafted call wrote the crafted path");
@@ -114,4 +120,73 @@ test("plan mode approves the arguments the script reads", async () => {
   const created = path.join(caseRoot, "plan-created.sqlite");
   await call(planned["db-query"], { sql: "PRAGMA user_version", limit: `--db=${created}` });
   assert.equal(existsSync(created), false, "a plan-mode read cannot create a file");
+});
+
+test("parseArgs reads back the names and values formatArgs writes", () => {
+  const values = [
+    ["---\nx: [a=b]\n---\n", "---\nx: [a=b]\n---\n"],
+    ["--path=x", "--path=x"],
+    ["a=b=c", "a=b=c"],
+    ["", ""],
+    ["-", "-"],
+    ["--", "--"],
+    ["\n--db=x", "\n--db=x"],
+    ["é", "é"],
+    [true, "true"],
+    [false, "false"],
+    [0, "0"],
+    [{ a: "--x" }, '{"a":"--x"}'],
+    [["--db=x"], '["--db=x"]'],
+  ];
+  for (const name of ["v", "a b", "x.y", "include-agent-scratch"]) {
+    for (const [value, expected] of values) {
+      assert.deepEqual(parseArgs(formatArgs({ [name]: value })), { [name]: expected }, `${name}: ${JSON.stringify(value)}`);
+    }
+  }
+  const named = entries => Object.fromEntries(entries.map((entry, index) => [`v${index}`, entry]));
+  assert.deepEqual(parseArgs(formatArgs(named(values.map(([value]) => value)))), named(values.map(([, expected]) => expected)));
+  assert.deepEqual(formatArgs({ a: null, b: undefined }), []);
+  for (const args of [{ "path=x": "y" }, { "-x": "y" }, { "--x": "y" }, JSON.parse('{"__proto__":"x"}')]) {
+    assert.throws(() => formatArgs(args), /cannot be passed to a script/, Object.keys(args)[0]);
+  }
+});
+
+test("every script tool a chat can call refuses a name it does not declare", async () => {
+  const groups = {
+    read: db,
+    write: await createDbScriptEntries("write"),
+    docs: await createDocsScriptEntries(),
+    resources: await createResourceScriptEntries(),
+    chat: await createChatScriptEntries(),
+  };
+  assert.deepEqual(Object.keys(groups.read).sort(), ["db-query", "db-schema"]);
+  assert.deepEqual(Object.keys(groups.write).sort(), ["db-exec", "db-patch", "db-query", "db-schema"]);
+  assert.ok(groups.docs["framework-search"] && groups.docs["docs-search"]);
+  assert.deepEqual(Object.keys(groups.resources).sort(), ["delete-memory", "resources", "save-memory"]);
+  assert.deepEqual(Object.keys(groups.chat), ["chat-history"]);
+  for (const [group, entries] of Object.entries(groups)) {
+    for (const [name, entry] of Object.entries(entries)) {
+      assert.match(await call(entry, { "undeclared-probe": "x" }), /Unknown argument "undeclared-probe"/, `${group} ${name}`);
+    }
+  }
+  const other = path.join(caseRoot, "exec-other.sqlite");
+  assert.match(await call(groups.write["db-exec"], { sql: "INSERT INTO notes (id) VALUES ('n1')", db: other }),
+    /Unknown argument "db"/);
+  assert.equal(existsSync(other), false);
+});
+
+test("chat-history search from a chat reaches the search script", async () => {
+  const chatHistory = (await createChatScriptEntries())["chat-history"];
+  const thread = await asOwner(() => createThread(owner, { title: "Bridge probe thread" }));
+  const messages = JSON.stringify({ messages: [{ id: "m1", role: "user", content: [{ type: "text", text: "hello" }] }] });
+  await asOwner(() => updateThreadData(thread.id, messages, "Bridge probe thread", "probe preview", 1));
+  assert.match(await call(chatHistory, { action: "search", query: "Bridge probe" }), /Bridge probe thread/);
+  assert.match(await call(chatHistory, { action: "search", "--query": "x" }), /Unknown argument "--query"/);
+});
+
+test("the chat bridge has no second argv form or argument list", async () => {
+  const entries = await readFile(path.join(coreRoot, "dist", "server", "agent-chat", "script-entries.js"), "utf8");
+  // assert.equal on booleans keeps a failure from printing the whole source file.
+  assert.equal(entries.includes("push(`--${"), false, "script-entries.js builds no argv of its own");
+  assert.equal(entries.includes("allowedArgs"), false, "the input schema is the only argument list");
 });

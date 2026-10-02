@@ -345,9 +345,14 @@ test("a later chat or owner edit keeps the file waiting", async () => {
   const runOrigin = { createdBy: "agent", runId: RUN.runId, threadId: RUN.threadId };
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "the run's AGENTS.md waits");
 
-  // A chat's write keeps the mark and the run's origin, even with arguments that name another run or metadata.
+  // A chat's write keeps the mark and the run's origin. A chat cannot pass a name that sets another run or
+  // metadata (#111).
+  for (const [name, value] of [["runId", "cleared"], ["threadId", "t-chat"], ["metadata", "{}"]]) {
+    assert.match(await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md",
+      content: "Chat edit EDIT-CHATWRITE.", [name]: value }), new RegExp(`^Error: Unknown argument "${name}"`));
+  }
   assert.match(await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md",
-    content: "Chat edit EDIT-CHATWRITE.", runId: "cleared", threadId: "t-chat", metadata: "{}" }), /Wrote resource/);
+    content: "Chat edit EDIT-CHATWRITE." }), /Wrote resource/);
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "a chat's write keeps the mark");
   assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "a chat's write keeps the run's origin");
   assert.doesNotMatch(await asChat({ userEmail: owner }, "save-memory",
