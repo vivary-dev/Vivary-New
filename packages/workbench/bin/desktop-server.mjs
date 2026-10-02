@@ -52,6 +52,8 @@ export async function runDesktopServer(args = process.argv.slice(2)) {
   if (options.help || options.mode !== "local") {
     throw new Error("The desktop server accepts only validated local startup options.");
   }
+  // guard:allow-env-credential - This dedicated server process owns its exit after cleanup.
+  process.env.VIVARY_STANDALONE_HOST = "1"; // guard:allow-env-mutation - Desktop process startup only.
   await startVivary(options);
   nativeHandlersReady = true;
   await waitForWorkspace(options.appUrl, capability);

@@ -213,9 +213,12 @@ the usual Electron desktop libraries, including GTK 3 and its GSettings schemas.
 
 There is one application instance per user. The window starts its own local
 server, waits for the actual app route, and uses parent-child IPC for graceful
-shutdown. POSIX also cleans the owned process group if the server exits.
-Windows has a live-process tree fallback; crash cleanup on Windows still needs
-an actual platform test.
+shutdown. The server owns its exit after local-work cleanup settles and, on
+success, Nitro closes. Cleanup failure exits with failure after all stops settle.
+The desktop keeps a 15-second process-tree kill when cleanup does not settle.
+POSIX also cleans the owned process group if the server exits. Windows has a
+live-process tree fallback. Crash cleanup on Windows still needs an actual
+platform test.
 
 ## Windows x64 portable preview
 

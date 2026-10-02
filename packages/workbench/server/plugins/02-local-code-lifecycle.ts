@@ -24,7 +24,7 @@ const stopLocalWork = async () => {
 };
 
 export default defineNitroPlugin(async (nitroApp) => {
-  // guard:allow-env-credential - The direct CLI launcher owns this process's exit.
+  // guard:allow-env-credential - The dedicated CLI and desktop launchers own this process's exit.
   const standalone = process.env.VIVARY_STANDALONE_HOST === "1";
   let stopping = false;
   const shutdown = () => {
