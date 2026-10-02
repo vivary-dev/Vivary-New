@@ -7316,7 +7316,7 @@ index 551ae6b9ddf65efd98fd12f17b50f8c7b7d8969e..b7b8f2de19147292a5f0d3e321b648cd
      const jsonOps = parseJsonOps(parsed);
      // Edit parsing only runs when json-ops isn't provided — otherwise the
 diff --git a/dist/scripts/db/query.js b/dist/scripts/db/query.js
-index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c82eae11c1 100644
+index 670c18d1310235c84a79e3fbb74642421ac6fec7..dfac6d52d0e1512b061443e7c87253f93708bea5 100644
 --- a/dist/scripts/db/query.js
 +++ b/dist/scripts/db/query.js
 @@ -12,6 +12,7 @@
@@ -7327,7 +7327,7 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c8
  import { getDatabaseUrl } from "../../db/client.js";
  import { parseArgs, fail } from "../utils.js";
  import { assertNoSchemaQualifiedTables, assertNoSensitiveFrameworkTables, } from "./safety.js";
-@@ -33,85 +34,29 @@ function parseSqlArgs(raw) {
+@@ -33,85 +34,37 @@ function parseSqlArgs(raw) {
      }
      fail("--args must be a JSON array");
  }
@@ -7406,6 +7406,14 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c8
 +    if (!["SELECT", "WITH", "EXPLAIN", "PRAGMA"].some(word => keyword(first, word))) {
 +        fail("Only SELECT, WITH, EXPLAIN, and PRAGMA queries are allowed. Use db-exec for writes.");
 +    }
++    const writeKeywords = ["INSERT", "UPDATE", "DELETE", "REPLACE", "INTO", "CREATE",
++        "ALTER", "DROP", "ATTACH", "DETACH", "VACUUM", "REINDEX", "GRANT",
++        "REVOKE", "COPY", "CALL", "DO"];
++    if (tokens.some((token, index) => writeKeywords.some(word => keyword(token, word)) &&
++        !(keyword(token, "REPLACE") && tokens[index + 1]?.kind === "symbol" &&
++            tokens[index + 1].value === "("))) {
++        fail("Only read-only statements are allowed through db-query.");
++    }
 +    if (keyword(first, "WITH")) {
 +        const statement = tokens.slice(1).find(token => token.depth === 0 &&
 +            ["SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE"].some(word => keyword(token, word)));
@@ -7434,7 +7442,7 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c8
  }
  function printTable(rows, finalSql, format) {
      if (format === "json") {
-@@ -163,21 +108,10 @@ Options:
+@@ -163,21 +116,10 @@ Options:
          fail('--sql is required. Example: --sql "SELECT * FROM forms"');
      }
      const sqlArgs = parseSqlArgs(parsed.args);
@@ -7460,7 +7468,7 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c8
      // Resolve database URL: --db flag → DATABASE_URL env → default file path
      let url;
      if (parsed.db) {
-@@ -191,12 +125,13 @@ Options:
+@@ -191,12 +133,13 @@ Options:
      }
      let finalSql = sql;
      if (parsed.limit &&
@@ -7478,7 +7486,7 @@ index 670c18d1310235c84a79e3fbb74642421ac6fec7..d52df321fe3b54b09bb75969127347c8
      // Postgres path
      if (isPostgresUrl(url)) {
 diff --git a/dist/scripts/db/safety.js b/dist/scripts/db/safety.js
-index 1965099e723d476f9d2b02e827dc2f63de310308..1518fbf21e86c29c28c1bb970b419153c1a8d53b 100644
+index 1965099e723d476f9d2b02e827dc2f63de310308..dcea0334253d604a13c0b4cdcc436cb3aa615812 100644
 --- a/dist/scripts/db/safety.js
 +++ b/dist/scripts/db/safety.js
 @@ -1,59 +1,15 @@
@@ -7566,7 +7574,15 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..1518fbf21e86c29c28c1bb970b419153
      if (!DANGEROUS_SCHEMA_QUALIFIER_RE.test(cleanSql) &&
          !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)) {
          return;
-@@ -161,55 +117,16 @@ function hasSensitiveToken(identifier, sensitiveTokens) {
+@@ -132,6 +88,7 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
+     "members",
+     "owner",
+     "owner_email",
++    "org_id",
+     "permission",
+     "permissions",
+     "privilege",
+@@ -161,55 +118,16 @@ function hasSensitiveToken(identifier, sensitiveTokens) {
      }
      return null;
  }
@@ -7627,10 +7643,10 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..1518fbf21e86c29c28c1bb970b419153
              continue;
 diff --git a/dist/scripts/db/sql-text.js b/dist/scripts/db/sql-text.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d68ad4cbaf52b22a9595ee87163163307f2cb39
+index 0000000000000000000000000000000000000000..cdf2ec25ef8db1bdb69f0fd23f3ffca1e45263c7
 --- /dev/null
 +++ b/dist/scripts/db/sql-text.js
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,174 @@
 +import { fail } from "../utils.js";
 +
 +export const keyword = (token, word) => token?.kind === "word" && token.value.toUpperCase() === word;
@@ -7653,6 +7669,9 @@ index 0000000000000000000000000000000000000000..2d68ad4cbaf52b22a9595ee871631633
 +        if (sql.startsWith("--", i)) {
 +            i = sql.indexOf("\n", i + 2);
 +            if (i < 0) i = sql.length;
++            const comment = sql.slice(start, i + (sql[i] === "\n" ? 1 : 0));
++            if (/\r(?!\n)/.test(comment))
++                fail("CR-only SQL line comments are not supported by raw DB tools.");
 +            kind = "comment";
 +        }
 +        else if (sql.startsWith("/*", i)) {
@@ -7750,7 +7769,7 @@ index 0000000000000000000000000000000000000000..2d68ad4cbaf52b22a9595ee871631633
 +            if (["FROM", "JOIN", "INTO", "UPDATE"].includes(word)) {
 +                context = { from: word === "FROM" || word === "JOIN", expect: true };
 +            }
-+            else if (["WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "UNION", "EXCEPT", "INTERSECT", "RETURNING", "SET", "VALUES"].includes(word)) {
++            else if (["SELECT", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "UNION", "EXCEPT", "INTERSECT", "RETURNING", "SET", "VALUES"].includes(word)) {
 +                context = { from: false, expect: false };
 +            }
 +            else if (context.expect && !["ONLY", "LATERAL", "OR", "ROLLBACK", "ABORT", "FAIL", "IGNORE", "REPLACE"].includes(word)) {
@@ -7758,7 +7777,8 @@ index 0000000000000000000000000000000000000000..2d68ad4cbaf52b22a9595ee871631633
 +            }
 +        }
 +        else if (token.kind === "symbol" && token.value === "(") {
-+            contexts.set(level + 1, { from: context.from, expect: context.expect });
++            contexts.set(level + 1, { from: context.expect, expect: context.expect });
++            context.expect = false;
 +        }
 +        else if (token.kind === "symbol" && token.value === ",") {
 +            context.expect = context.from;
@@ -7803,10 +7823,10 @@ index 0000000000000000000000000000000000000000..2d68ad4cbaf52b22a9595ee871631633
 +}
 diff --git a/dist/scripts/db/sql-write.js b/dist/scripts/db/sql-write.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..6b00d3eea2d2a310cd8c86b1633425c65a871cef
+index 0000000000000000000000000000000000000000..4b6052b2136132d2bde64a53fc08dae233708086
 --- /dev/null
 +++ b/dist/scripts/db/sql-write.js
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,140 @@
 +import { keyword, statementTokens } from "./sql-text.js";
 +
 +const identifier = (token) => token && ["word", "identifier", "string"].includes(token.kind);
@@ -7862,6 +7882,10 @@ index 0000000000000000000000000000000000000000..6b00d3eea2d2a310cd8c86b1633425c6
 +    if (!tokens.length) unsupported("empty statement");
 +    const kind = ["INSERT", "REPLACE", "UPDATE", "DELETE"].find((word) => keyword(tokens[0], word));
 +    if (!kind) unsupported("only INSERT, REPLACE, UPDATE, and DELETE are allowed");
++    if (kind === "REPLACE" || (kind === "INSERT" &&
++        keyword(tokens[1], "OR") && keyword(tokens[2], "REPLACE"))) {
++        throw new Error("REPLACE conflict handling is not supported through raw DB tools.");
++    }
 +    let index = 1;
 +    if (kind === "INSERT" && keyword(tokens[index], "OR")) {
 +        index++;

@@ -25,25 +25,26 @@ double-quoted string literals. Both database paths use this inspection.
 
 | Inspection | Treatment |
 | --- | --- |
-| `db-query` prefix, protected tables, and schema references | Check the input token stream. Read queries require a complete allowed keyword. A WITH statement must end in SELECT. PRAGMA accepts the listed read operations only. |
+| `db-query` prefix, protected tables, and schema references | Check the input token stream. Read queries require a complete allowed keyword. WITH and EXPLAIN cannot wrap writes. PRAGMA accepts the listed read operations only. |
 | `db-query` LIMIT | Find a top-level keyword and insert a requested limit before a terminator or trailing comment. String values, identifiers, and nested queries do not suppress it. |
 | `db-exec` prefix and statement count | Remove real comments as whitespace and accept one statement per batch entry. Quoted punctuation remains data. |
 | Protected and access-control names | Inspect decoded identifiers and parsed write targets and columns. The extensions route keeps its separate, longer protected-table list. |
-| Write ownership and SQLite scope predicates | Parse supported targets, column lists, and top-level clauses. Insert ownership values at parsed offsets and scope only the actual WHERE expression. |
+| Write ownership and SQLite scope predicates | Parse supported targets, column lists, and top-level clauses. Insert trusted ownership values at parsed offsets and scope only the actual WHERE expression. Caller-supplied organization ownership is refused. |
 | `db-patch` WHERE | Inspect tokens for statement chaining, real comments, forbidden keywords, protected tables, and qualified table references. Table and column arguments still require plain identifiers. |
 | Extensions query, destructive, and positional-insert gates | Inspect the same tokens before delegating to the Core scripts. Quoted values do not become policy keywords. |
 | PostgreSQL parameter conversion and RETURNING detection | Convert only parameter tokens and detect only a top-level RETURNING clause. |
 | Write result hints | The hint reads an already validated statement prefix. It changes output only and cannot authorize or change a write. |
 
-Supported writes are a single INSERT or REPLACE with explicit columns and one
-VALUES tuple, UPDATE with individual column assignments, and DELETE FROM.
-INSERT conflict actions and RETURNING remain supported. Unsupported write
-forms return an error before opening the database. That includes tuple
-assignments, UPDATE FROM, positional or multi-row inserts, INSERT SELECT,
+Supported writes are a single INSERT with explicit columns and one VALUES tuple,
+UPDATE with individual column assignments, and DELETE FROM. RETURNING and INSERT
+conflict actions other than REPLACE remain supported. Replacement conflicts are
+refused because a base-table conflict can affect a row outside the caller's view.
+Unsupported forms return an error before opening the database. That includes
+tuple assignments, UPDATE FROM, positional or multi-row inserts, INSERT SELECT,
 and upsert suffixes.
 
 The shared syntax excludes prefixed quotes, dollar-quoted strings, and nested
-comments. Those forms return an error rather than receiving a different
+comments. CR-only line comments are refused too. Those forms return an error rather than receiving a different
 interpretation on PostgreSQL. Use bind parameters for values. This is a bounded
 SQL inspector, not a complete SQL grammar or a database permission system.
 The existing owner and organization views still control row visibility.
