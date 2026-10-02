@@ -356,3 +356,17 @@ for (const [label, sql, error] of [
     assert.equal(await query(sql), `Error: ${error}`);
   });
 }
+
+for (const grouped of [false, true]) {
+  test(`db-query refuses qualified tables in ${grouped ? "grouped" : "comma-separated"} FROM lists`, async () => {
+    await control();
+    const positive = JSON.parse(await query("SELECT n.id, length(n.body) AS size FROM inspection_notes AS n"));
+    assert.deepEqual(positive.rows, [{ id: "own", size: 14 }]);
+    for (const style of [null, '"', "`", "[", "'"]) {
+      const identifier = value => style === null ? value : quote(value, style);
+      const tables = `inspection_notes AS n, ${identifier("tenant")}.${identifier("inspection_notes")} AS t`;
+      const sql = `SELECT n.id FROM ${grouped ? `(${tables})` : tables}`;
+      assert.equal(await query(sql), schema("queried"));
+    }
+  });
+}
