@@ -254,6 +254,7 @@ test("a stop in one process leaves another process's run lease alone", async () 
   const holder = spawnChild("hold", "shared-app");
   const { runLease: held } = await holder.report;
   assert.ok(held.leaseOwner, "the first process holds the run's lease");
+  const tickAt = Date.now();
   const stopper = spawnChild("stop-only", "shared-app");
   const { stopExported } = await stopper.report;
   await stopper.exited;
@@ -261,6 +262,7 @@ test("a stop in one process leaves another process's run lease alone", async () 
   const lease = await runLeaseRow("busy");
   assert.equal(lease.leaseOwner, held.leaseOwner, "the run lease still names the first process");
   assert.ok(lease.leaseExpiresAt >= held.leaseExpiresAt);
+  assert.ok((await leaseRow("shared-app")).lastCheckedAt >= tickAt, "the second process scanned");
   assert.equal((await runsOf("shared-app", "busy")).length, 1, "the second process's scan started nothing");
   holder.child.kill("SIGKILL");
   await holder.exited;
@@ -296,6 +298,18 @@ const poll = async (read, done, ms) => {
     await sleep(20);
   }
 };
+// Route this process's database calls through `intercept(query, run)` until the returned restore runs.
+const interceptQueries = intercept => {
+  const db = getDbExec();
+  const execute = db.execute;
+  db.execute = function (query) {
+    return intercept(query, () => execute.call(this, query));
+  };
+  return () => { db.execute = execute; };
+};
+const LIST_JOBS = /^SELECT \* FROM resources WHERE path LIKE \? ESCAPE '!'$/;
+const writesJob = (query, name, field) => /^UPDATE resources SET content = \?/.test(query?.sql ?? "")
+  && query.args?.[5] === `jobs/${name}.md` && field.test(String(query.args[0]));
 
 test("a due automation starts at the next tick while another automation's scheduled run is in progress", async () => {
   await defineScheduled("overlap-app", "long-run", "0 0 1 1 *");
@@ -318,6 +332,13 @@ test("a due automation starts at the next tick while another automation's schedu
   } };
   const engineStarts = name => starts.filter(start => start.name === name);
   const deps = { ...nextLaunch("overlap-app"), engine };
+  let leaseAtOutcome;
+  const restore = interceptQueries(async (query, run) => {
+    if (leaseAtOutcome === undefined && writesJob(query, "long-run", /^lastStatus: success$/m)) {
+      leaseAtOutcome = await runLeaseRow("long-run");
+    }
+    return run();
+  });
   await makeDue("long-run");
   const first = scheduler.processRecurringJobs(deps);
   let second;
@@ -353,10 +374,12 @@ test("a due automation starts at the next tick while another automation's schedu
   } finally {
     release.open();
     await Promise.allSettled([first, second]);
+    restore();
   }
   const [longRun] = await runsOf("overlap-app", "long-run");
   assert.equal(longRun.status, "success", "long-run finished once released");
   assert.ok(longRun.finishedAt > onTime.startedAt, "on-time started before long-run finished");
+  assert.ok(leaseAtOutcome?.leaseOwner, "long-run still held its run lease when its outcome was written");
   assert.deepEqual([await runLeaseRow("long-run"), await runLeaseRow("on-time")], [null, null],
     "each run deleted its run lease row after its outcome");
   assert.ok((await leaseRow("overlap-app")).lastCheckedAt < longRun.finishedAt,
@@ -389,7 +412,9 @@ test("a run another process still holds stays live past the time window", async 
   try {
     assert.equal((await report).running, "live");
     await patchStored("live", { lastRun: minutesAgo(30) });
+    const tickAt = Date.now();
     await scheduler.processRecurringJobs(nextLaunch("live-app"));
+    assert.ok((await leaseRow("live-app")).lastCheckedAt >= tickAt, "the tick scanned");
     assert.equal((await stored("live")).lastStatus, "running", "the scan left a run whose lease is held");
     assert.equal((await runsOf("live-app", "live")).length, 1);
     assert.deepEqual(await scheduler.runJobNow(owner, "live", nextLaunch("live-app")),
@@ -403,8 +428,21 @@ test("a run another process still holds stays live past the time window", async 
 test("a running mark no run lease covers keeps today's time window", async () => {
   await defineScheduled("unleased-app", "unleased");
   await patchStored("unleased", { lastStatus: "running", lastRun: new Date().toISOString() });
-  await scheduler.processRecurringJobs(nextLaunch("unleased-app"));
+  let acquires = 0;
+  const restore = interceptQueries((query, run) => {
+    if (/^INSERT INTO automation_scheduler_health\s/.test(query?.sql ?? "")
+      && query.args?.[0] === `run:${runLeaseKey("unleased")}`) acquires += 1;
+    return run();
+  });
+  const tickAt = Date.now();
+  try {
+    await scheduler.processRecurringJobs(nextLaunch("unleased-app"));
+  } finally {
+    restore();
+  }
+  assert.ok((await leaseRow("unleased-app")).lastCheckedAt >= tickAt, "the tick scanned");
   assert.equal((await stored("unleased")).lastStatus, "running", "a mark inside the run's time limit stays running");
+  assert.equal(acquires, 1, "the scan took the run lease");
   assert.equal(await runLeaseRow("unleased"), null, "the scan released the run lease it took");
   await patchStored("unleased", { lastRun: minutesAgo(11) });
   await scheduler.processRecurringJobs(nextLaunch("unleased-app"));
@@ -414,12 +452,16 @@ test("a running mark no run lease covers keeps today's time window", async () =>
   assert.equal(await runLeaseRow("unleased"), null, "no run lease row is left");
 });
 
-test("a tick leaves a paired-host mark alone while its dispatch holds the run lease", async () => {
+const definePairedHost = async (appId, name, label) => {
   const { createRemoteDevice } = await load("integrations/remote-devices-store.js");
-  const { device } = await createRemoteDevice({ ownerEmail: owner, label: "Dispatch test host" });
-  await defineAutomation({ userEmail: owner, appId: "dispatch-app" }, { scope: "personal", name: "dispatching",
+  const { device } = await createRemoteDevice({ ownerEmail: owner, label });
+  await defineAutomation({ userEmail: owner, appId }, { scope: "personal", name,
     body: "Summarize the project in one sentence.", triggerType: "schedule", schedule: "0 0 1 1 *", timezone: "UTC",
     executionHostId: device.id });
+};
+
+test("a tick leaves a paired-host mark alone while its dispatch holds the run lease", async () => {
+  await definePairedHost("dispatch-app", "dispatching", "Dispatch test host");
   await patchStored("dispatching", { lastStatus: "running", lastRun: new Date().toISOString() });
   const key = runLeaseKey("dispatching");
   const leaseOwner = await acquireAutomationRunLease({ appId: "dispatch-app", key });
@@ -438,26 +480,72 @@ test("a tick leaves a paired-host mark alone while its dispatch holds the run le
 test("a tick leaves a run that finished after the scan read it", async () => {
   await defineScheduled("fresh-app", "finished-late");
   await patchStored("finished-late", { lastStatus: "running", lastRun: minutesAgo(11) });
-  const db = getDbExec();
-  const execute = db.execute;
   let finished = false;
-  db.execute = async function (query) {
-    const result = await execute.call(this, query);
-    if (!finished && /^SELECT \* FROM resources WHERE path LIKE \? ESCAPE '!'$/.test(query?.sql ?? "")) {
+  const restore = interceptQueries(async (query, run) => {
+    const result = await run();
+    if (!finished && LIST_JOBS.test(query?.sql ?? "")) {
       finished = true;
       await patchStored("finished-late", { lastStatus: "success" });
     }
     return result;
-  };
+  });
   try {
     await scheduler.processRecurringJobs(nextLaunch("fresh-app"));
   } finally {
-    db.execute = execute;
+    restore();
   }
   assert.equal(finished, true, "the run finished after the scan listed the automations");
   const meta = await stored("finished-late");
   assert.equal(meta.lastStatus, "success", "the scan read the mark again and left the finished run");
   assert.equal(meta.lastError, undefined);
+});
+
+test("a tick reconciles a paired-host mark from a fresh read", async () => {
+  await definePairedHost("queued-app", "queued", "Bookkeeping test host");
+  await patchStored("queued", { lastStatus: "running", lastRun: new Date().toISOString() });
+  const key = runLeaseKey("queued");
+  const leaseOwner = await acquireAutomationRunLease({ appId: "queued-app", key });
+  let queued = false;
+  const restore = interceptQueries(async (query, run) => {
+    const result = await run();
+    if (!queued && LIST_JOBS.test(query?.sql ?? "")) {
+      queued = true;
+      await patchStored("queued", { remoteRequestId: "remote-automation:queued", remoteCommandId: "queued-command" });
+      await releaseAutomationRunLease({ key, owner: leaseOwner });
+    }
+    return result;
+  });
+  try {
+    await scheduler.processRecurringJobs(nextLaunch("queued-app"));
+  } finally {
+    restore();
+  }
+  assert.equal(queued, true, "the dispatch saved its bookkeeping and released the lease after the scan listed the mark");
+  const meta = await stored("queued");
+  assert.equal(meta.lastStatus, "running", "the scan read the mark again and left the queued run");
+  assert.equal(meta.lastError, undefined);
+});
+
+test("a paired-host dispatch holds the run lease until the run is queued", async () => {
+  await definePairedHost("queue-app", "queueing", "Queue test host");
+  await makeDue("queueing");
+  let leaseAtQueue;
+  const restore = interceptQueries(async (query, run) => {
+    if (leaseAtQueue === undefined && writesJob(query, "queueing", /^remoteCommandId:/m)) {
+      leaseAtQueue = await runLeaseRow("queueing");
+    }
+    return run();
+  });
+  try {
+    await scheduler.processRecurringJobs(nextLaunch("queue-app"));
+  } finally {
+    restore();
+  }
+  assert.ok(leaseAtQueue?.leaseOwner, "the dispatch held the run lease while it saved the queued run's bookkeeping");
+  const meta = await stored("queueing");
+  assert.equal(meta.lastStatus, "running");
+  assert.ok(meta.remoteCommandId, "the run was queued on the paired host");
+  assert.equal(await runLeaseRow("queueing"), null, "the dispatch released the run lease once the run was queued");
 });
 
 // Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as

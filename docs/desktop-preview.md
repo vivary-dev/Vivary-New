@@ -273,9 +273,9 @@ browser tab open.
 Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
 Vivary takes about 15 seconds to close. The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task
-Manager, the run shows as running, and scheduled automations wait up to 10 minutes
-after the next launch. During that wait, **Details** can show a next run about a minute
-away, but nothing runs until the wait ends.
+Manager, the run shows as running, and that automation waits up to 10 minutes after the
+next launch while your other automations run on schedule. During that wait, **Details**
+can show its next run about a minute away, but it does not run until the wait ends.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute

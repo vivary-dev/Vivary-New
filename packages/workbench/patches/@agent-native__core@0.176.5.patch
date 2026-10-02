@@ -6045,7 +6045,7 @@ index 27ee398ef729e3c8e81379a8050751bf50248bbe..4adfe368e05c5877695daf79d811e209
  export declare function recordAutomationSchedulerHealth(input: {
      appId?: string;
 diff --git a/dist/jobs/scheduler-health.js b/dist/jobs/scheduler-health.js
-index bfe5eb32673b056ace050a6af925c0d7cc1874e3..a319ba5ce0872e3b7bc239ce9fdaaf9229a322c3 100644
+index bfe5eb32673b056ace050a6af925c0d7cc1874e3..1fdf5618e9cc1ec6799b445622a7ac6d663d6262 100644
 --- a/dist/jobs/scheduler-health.js
 +++ b/dist/jobs/scheduler-health.js
 @@ -133,9 +133,13 @@ function leaseRowId(appId) {
@@ -6095,11 +6095,11 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..a319ba5ce0872e3b7bc239ce9fdaaf92
 + * another run holds the lease.
 + */
 +export async function acquireAutomationRunLease(input) {
-+    return acquireLeaseRow(runLeaseRowId(input.key), input);
++    return acquireLeaseRow(runLeaseRowId(input.key), { appId: input.appId });
 +}
 +/** Renew a run lease. False when this owner no longer holds it. */
 +export async function renewAutomationRunLease(input) {
-+    return renewLeaseRow(runLeaseRowId(input.key), input);
++    return renewLeaseRow(runLeaseRowId(input.key), { owner: input.owner });
 +}
 +/** Delete a run lease row while this owner still holds it. */
 +export async function releaseAutomationRunLease(input) {
@@ -6148,7 +6148,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..4e50ae2d1f8b47b240f79f09e0ce4771
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d223c36ceb 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..b09bd0008b1c9b1bbcc0053f0822164191ffb0c7 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,10 +1,11 @@
@@ -6284,7 +6284,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
                  continue;
              }
              // Skip disabled or missing schedule
-@@ -174,17 +215,21 @@ async function processRecurringJobsWithLease(deps) {
+@@ -174,17 +215,24 @@ async function processRecurringJobsWithLease(deps) {
                  continue;
              // Skip if currently running, unless it has been stuck for more than 10 minutes
              // (server crash mid-job leaves lastStatus=running forever without this guard)
@@ -6303,6 +6303,9 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
 -                await updateResource(resource, meta, body);
 -                await recoverStaleAutomationHistory(resource.owner, resource.path);
 +                await actOnRunningMark(deps.appId, resource, async (latest, fresh) => {
++                    // The owner can edit the automation after the scan read it.
++                    if (!fresh.enabled || !fresh.schedule || !isValidCron(fresh.schedule))
++                        return;
 +                    if (isBackgroundAutomationRunActive(fresh, now))
 +                        return;
 +                    // Stuck. Reset it so the next check can run it again.
@@ -6316,7 +6319,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
                  continue;
              }
              // Check if due
-@@ -213,7 +258,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -213,7 +261,7 @@ async function processRecurringJobsWithLease(deps) {
                  _preflightingScheduledJobs.has(key)) {
                  continue;
              }
@@ -6325,7 +6328,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
          }
          const preflightCandidates = [];
          for (const candidate of dueJobCandidates) {
-@@ -257,6 +302,10 @@ async function processRecurringJobsWithLease(deps) {
+@@ -257,6 +305,10 @@ async function processRecurringJobsWithLease(deps) {
                  _preflightingScheduledJobs.delete(candidate.key);
              }
          }
@@ -6336,7 +6339,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
          if (dueJobs.length > 0)
              dispatchedAt = Date.now();
          await recordSchedulerHealthForScopes({
-@@ -265,17 +314,9 @@ async function processRecurringJobsWithLease(deps) {
+@@ -265,17 +317,9 @@ async function processRecurringJobsWithLease(deps) {
              checkedAt: Date.now(),
              dispatchedAt,
          });
@@ -6357,7 +6360,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
      }
      catch (err) {
          // Transient WS / connection drops (Neon serverless): silently retry next
-@@ -286,7 +327,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -286,7 +330,7 @@ async function processRecurringJobsWithLease(deps) {
              healthError = "The scheduler could not reach the database.";
              _hasJobsCache = undefined; // force re-check on next successful tick
              _lastJobsCheck = 0;
@@ -6366,7 +6369,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
          }
          // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
          const detail = err instanceof Error
-@@ -299,7 +340,7 @@ async function processRecurringJobsWithLease(deps) {
+@@ -299,7 +343,7 @@ async function processRecurringJobsWithLease(deps) {
          // A scan can fail after reserving a job but before dispatching it. Do not
          // leave that reservation blocking the job on every subsequent tick.
          for (const key of reservedJobKeys) {
@@ -6375,7 +6378,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
                  _activeScheduledJobs.delete(key);
          }
          await recordSchedulerHealthForScopes({
-@@ -310,6 +351,59 @@ async function processRecurringJobsWithLease(deps) {
+@@ -310,6 +354,68 @@ async function processRecurringJobsWithLease(deps) {
              error: healthError,
          });
      }
@@ -6402,7 +6405,10 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
 +    return {
 +        release: async () => {
 +            clearInterval(renewal);
-+            await releaseAutomationRunLease({ key, owner: leaseOwner });
++            // A row left behind expires as after a hard kill.
++            await releaseAutomationRunLease({ key, owner: leaseOwner }).catch((error) => {
++                console.warn(`[recurring-jobs] Run lease release for "${resource.path}" failed:`, error instanceof Error ? error.message : error);
++            });
 +        },
 +    };
 +}
@@ -6410,20 +6416,26 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
 + * Vivary #139. A running mark whose run lease another run holds is live, so
 + * this leaves it. Otherwise it takes the lease and calls `act` with a fresh
 + * read of the mark, if that still reads running, because the scan's copy can
-+ * predate a run that has finished since.
++ * predate a run that has finished since. A failure is logged and leaves the
++ * mark for the next tick, so one automation cannot stop the scan.
 + */
 +async function actOnRunningMark(appId, resource, act) {
-+    const lease = await holdRunLease(appId, resource);
-+    if (!lease)
-+        return;
 +    try {
-+        const latest = await resourceGetByPath(resource.owner, resource.path);
-+        const fresh = latest ? parseJobResource(latest.content).meta : undefined;
-+        if (fresh?.lastStatus === "running")
-+            await act(latest, fresh);
++        const lease = await holdRunLease(appId, resource);
++        if (!lease)
++            return;
++        try {
++            const latest = await resourceGetByPath(resource.owner, resource.path);
++            const fresh = latest ? parseJobResource(latest.content).meta : undefined;
++            if (fresh?.lastStatus === "running")
++                await act(latest, fresh);
++        }
++        finally {
++            await lease.release();
++        }
 +    }
-+    finally {
-+        await lease.release();
++    catch (error) {
++        console.warn(`[recurring-jobs] Could not check the running mark of "${resource.path}":`, error instanceof Error ? error.message : error);
 +    }
 +}
 +async function refuseAlreadyRunning(historyId) {
@@ -6435,7 +6447,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
  }
  async function recoverStaleAutomationHistory(owner, path) {
      const automation = path.replace(/^jobs\//, "").replace(/\.md$/, "");
-@@ -324,7 +418,7 @@ async function recoverStaleAutomationHistory(owner, path) {
+@@ -324,7 +430,7 @@ async function recoverStaleAutomationHistory(owner, path) {
              (run.status !== "running" && run.status !== "interrupted")) {
              return;
          }
@@ -6444,7 +6456,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -430,135 +524,170 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -430,135 +536,170 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
      // Manual runs use the same resource row as scheduled runs for concurrency
      // protection. The check is paired with the conditional write below: two
      // requests that read the same idle snapshot cannot both claim it.
@@ -6722,7 +6734,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
      }
  }
  /** Execute one stored automation without changing its scheduled next run. */
-@@ -577,7 +706,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+@@ -577,7 +718,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -6734,7 +6746,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +718,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +730,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -6744,7 +6756,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..e29ac95a6c3ab14aadf5e79675ec76d2
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +734,36 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +746,36 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }
