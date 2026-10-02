@@ -312,6 +312,8 @@ const interceptQueries = intercept => {
 const LIST_JOBS = /^SELECT \* FROM resources WHERE path LIKE \? ESCAPE '!'$/;
 const writesJob = (query, name, field) => /^UPDATE resources SET content = \?/.test(query?.sql ?? "")
   && query.args?.[5] === `jobs/${name}.md` && field.test(String(query.args[0]));
+const acquiresRunLease = (query, name) => /^INSERT INTO automation_scheduler_health\s/.test(query?.sql ?? "")
+  && query.args?.[0] === `run:${runLeaseKey(name)}`;
 // Reject each query `refused(sql, args)` matches until the returned restore runs.
 const refuseQueries = refused => interceptQueries((query, run) => refused(query?.sql ?? "", query?.args ?? [])
   ? Promise.reject(new Error("The database refused this query.")) : run());
@@ -452,8 +454,7 @@ test("a running mark no run lease covers keeps today's time window", async () =>
   await patchStored("unleased", { lastStatus: "running", lastRun: new Date().toISOString() });
   let acquires = 0;
   const restore = interceptQueries((query, run) => {
-    if (/^INSERT INTO automation_scheduler_health\s/.test(query?.sql ?? "")
-      && query.args?.[0] === `run:${runLeaseKey("unleased")}`) acquires += 1;
+    if (acquiresRunLease(query, "unleased")) acquires += 1;
     return run();
   });
   const tickAt = Date.now();
@@ -488,7 +489,7 @@ test("a tick leaves a paired-host mark alone while its dispatch holds the run le
   await definePairedHost("dispatch-app", "dispatching", "Dispatch test host");
   await patchStored("dispatching", { lastStatus: "running", lastRun: new Date().toISOString() });
   const key = runLeaseKey("dispatching");
-  const leaseOwner = await acquireAutomationRunLease({ appId: "dispatch-app", key });
+  const leaseOwner = await acquireAutomationRunLease({ key });
   assert.ok(leaseOwner, "the dispatch holds the run lease");
   const tickAt = Date.now();
   const warnings = await consoleLines("warn", () => scheduler.processRecurringJobs(nextLaunch("dispatch-app")));
@@ -513,7 +514,9 @@ test("a tick leaves a run that finished after the scan read it", async () => {
   let listed = false;
   let finished;
   let runNowId;
+  let acquires = 0;
   const restore = interceptQueries(async (query, run) => {
+    if (acquiresRunLease(query, "finished-late")) acquires += 1;
     const result = await run();
     if (!listed && LIST_JOBS.test(query?.sql ?? "")) {
       listed = true;
@@ -535,6 +538,8 @@ test("a tick leaves a run that finished after the scan read it", async () => {
   }
   assert.ok(finished, "the run finished after the scan listed the automations");
   assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
+  assert.equal(acquires, 1, "the scan took the mark's run lease");
+  assert.equal((await leaseRow("fresh-app")).lastError, null, "the scan recorded no error");
   const meta = await stored("finished-late");
   assert.equal(meta.lastStatus, "success", "the scan read the mark again and left the finished run");
   assert.equal(meta.lastError, undefined);
@@ -549,9 +554,11 @@ test("a tick reconciles a paired-host mark from a fresh read", async () => {
   await definePairedHost("queued-app", "queued", "Bookkeeping test host");
   await patchStored("queued", { lastStatus: "running", lastRun: new Date().toISOString() });
   const key = runLeaseKey("queued");
-  const leaseOwner = await acquireAutomationRunLease({ appId: "queued-app", key });
+  const leaseOwner = await acquireAutomationRunLease({ key });
   let queued = false;
+  let acquires = 0;
   const restore = interceptQueries(async (query, run) => {
+    if (acquiresRunLease(query, "queued")) acquires += 1;
     const result = await run();
     if (!queued && LIST_JOBS.test(query?.sql ?? "")) {
       queued = true;
@@ -568,6 +575,8 @@ test("a tick reconciles a paired-host mark from a fresh read", async () => {
   }
   assert.equal(queued, true, "the dispatch saved its bookkeeping and released the lease after the scan listed the mark");
   assert.deepEqual(markCheckFailures(warnings), [], "the tick checked the mark without an error");
+  assert.equal(acquires, 1, "the scan took the mark's run lease");
+  assert.equal((await leaseRow("queued-app")).lastError, null, "the scan recorded no error");
   const meta = await stored("queued");
   assert.equal(meta.lastStatus, "running", "the scan read the mark again and left the queued run");
   assert.equal(meta.lastError, undefined);
@@ -600,7 +609,7 @@ test("a due automation whose run lease another run holds is skipped and stays du
   await makeDue("leased");
   const before = await stored("leased");
   const key = runLeaseKey("leased");
-  const leaseOwner = await acquireAutomationRunLease({ appId: "skip-app", key });
+  const leaseOwner = await acquireAutomationRunLease({ key });
   let logs;
   try {
     logs = await consoleLines("log", () => scheduler.processRecurringJobs(nextLaunch("skip-app")));
@@ -627,13 +636,19 @@ test("a run lease release the database refuses leaves the run's outcome", async 
     assert.equal((await stored("released")).lastStatus, "success", "the scheduled run kept its success outcome");
     const historyId = await startAutomationRun({ owner, automation: "released-now", path: "jobs/released-now.md",
       scope: "personal", appId: "release-app", dispatchPending: true });
-    const runNow = await scheduler.runQueuedAutomation(historyId, nextLaunch("release-app"));
+    let runNow;
+    const runNowWarnings = await consoleLines("warn", async () => {
+      runNow = await scheduler.runQueuedAutomation(historyId, nextLaunch("release-app"));
+    });
+    assert.equal(runNowWarnings.filter(line => line.includes('Run lease release for "jobs/released-now.md" failed')).length,
+      1, "the Run now's refused release was logged");
     assert.equal(runNow.error, undefined, "Run now returned without an error");
     assert.equal((await getAutomationRun(historyId)).status, "success", "the Run now row reads success");
   } finally {
     restore();
   }
   assert.ok((await runLeaseRow("released"))?.leaseOwner, "the row the release could not delete is left to expire");
+  assert.ok((await runLeaseRow("released-now"))?.leaseOwner, "the Run now's row is left to expire too");
 });
 
 test("a running mark the scan cannot check leaves the rest of the scan", async () => {

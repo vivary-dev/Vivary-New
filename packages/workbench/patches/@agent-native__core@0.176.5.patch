@@ -6021,20 +6021,19 @@ index 7af3befd00e560cf644d4654820686c6bfd3fc37..0c62950fccaa60ffe50e9ddcd9cb0449
          }
          catch (error) {
 diff --git a/dist/jobs/scheduler-health.d.ts b/dist/jobs/scheduler-health.d.ts
-index 27ee398ef729e3c8e81379a8050751bf50248bbe..4adfe368e05c5877695daf79d811e20918c5b5b3 100644
+index 27ee398ef729e3c8e81379a8050751bf50248bbe..b218d16d8b2012fa487e3f62a86e711c0dc1f2cb 100644
 --- a/dist/jobs/scheduler-health.d.ts
 +++ b/dist/jobs/scheduler-health.d.ts
-@@ -32,6 +32,25 @@ export declare function releaseAutomationSchedulerLease(input: {
+@@ -32,6 +32,24 @@ export declare function releaseAutomationSchedulerLease(input: {
      appId?: string;
      owner: string;
  }): Promise<void>;
 +/**
-+ * Vivary #139. Claim one automation's run across all processes. `key` is
-+ * `<owner>:<path>` of its resource. Returns the lease owner, or null while
++ * Vivary #139. Claim one automation's run across all processes and apps. `key`
++ * is `<owner>:<path>` of its resource. Returns the lease owner, or null while
 + * another run holds the lease.
 + */
 +export declare function acquireAutomationRunLease(input: {
-+    appId?: string;
 +    key: string;
 +}): Promise<string | null>;
 +/** Renew a run lease. False when this owner no longer holds it. */
@@ -6051,7 +6050,7 @@ index 27ee398ef729e3c8e81379a8050751bf50248bbe..4adfe368e05c5877695daf79d811e209
  export declare function recordAutomationSchedulerHealth(input: {
      appId?: string;
 diff --git a/dist/jobs/scheduler-health.js b/dist/jobs/scheduler-health.js
-index bfe5eb32673b056ace050a6af925c0d7cc1874e3..1fdf5618e9cc1ec6799b445622a7ac6d663d6262 100644
+index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e8a1f5d37 100644
 --- a/dist/jobs/scheduler-health.js
 +++ b/dist/jobs/scheduler-health.js
 @@ -133,9 +133,13 @@ function leaseRowId(appId) {
@@ -6096,12 +6095,12 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..1fdf5618e9cc1ec6799b445622a7ac6d
 +    return `run:${key}`;
 +}
 +/**
-+ * Vivary #139. Claim one automation's run across all processes. `key` is
-+ * `<owner>:<path>` of its resource. Returns the lease owner, or null while
++ * Vivary #139. Claim one automation's run across all processes and apps. `key`
++ * is `<owner>:<path>` of its resource. Returns the lease owner, or null while
 + * another run holds the lease.
 + */
 +export async function acquireAutomationRunLease(input) {
-+    return acquireLeaseRow(runLeaseRowId(input.key), { appId: input.appId });
++    return acquireLeaseRow(runLeaseRowId(input.key), {});
 +}
 +/** Renew a run lease. False when this owner no longer holds it. */
 +export async function renewAutomationRunLease(input) {
@@ -6119,7 +6118,7 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..1fdf5618e9cc1ec6799b445622a7ac6d
      return {
          appId: typeof row.app_id === "string"
 diff --git a/dist/jobs/scheduler.d.ts b/dist/jobs/scheduler.d.ts
-index 74b780aee4258ac540ce9feb98106febe05e744a..be46e2ca98c0ba5982b4c2d6c7b2d542efdd191b 100644
+index 74b780aee4258ac540ce9feb98106febe05e744a..e595ae0956f6948ef86bf5b3df961beb5ea346d0 100644
 --- a/dist/jobs/scheduler.d.ts
 +++ b/dist/jobs/scheduler.d.ts
 @@ -24,9 +24,12 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
@@ -6138,15 +6137,17 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..be46e2ca98c0ba5982b4c2d6c7b2d542
   */
  export declare function processRecurringJobs(deps: SchedulerDeps): Promise<void>;
  export declare const jobRunCutOffReason: typeof backgroundRunCutOffReason;
-@@ -40,6 +43,16 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
+@@ -40,6 +43,18 @@ export declare function runJobNow(owner: string, name: string, deps: SchedulerDe
      historyId?: string;
      path?: string;
  }): Promise<JobExecutionResult>;
 +/**
-+ * Vivary #114. Stop this process's automations for a normal quit: take no new
-+ * lease, start no run, interrupt in-process runs, and wait for them to record
-+ * their outcome and release any run lease they hold, or for `timeoutMs` (10
-+ * seconds by default). It writes nothing itself. Later calls return the first
++ * Vivary #114. Stop this process's automations for a normal quit: a new tick
++ * takes no lease, no run starts, and in-process runs are interrupted. The stop
++ * waits for them to record their outcome and release any run lease they hold,
++ * or for `timeoutMs` (10 seconds by default). A scan already in progress when
++ * the stop begins still takes and releases the run lease of each running mark
++ * it checks. The stop writes nothing itself. Later calls return the first
 + * stop.
 + */
 +export declare function stopRecurringJobs(options?: {
@@ -6156,7 +6157,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..be46e2ca98c0ba5982b4c2d6c7b2d542
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497acfaf780 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..665360afe3ca23827f8d21537d2d08e013526c8f 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,10 +1,11 @@
@@ -6286,7 +6287,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
 +            // Vivary #139: its dispatch holds the run lease until the run is queued.
              if (meta.lastStatus === "running" && meta.executionHostId) {
 -                await reconcileRemoteJob(resource, meta, now);
-+                await actOnRunningMark(deps.appId, resource, async (latest, fresh) => {
++                await actOnRunningMark(resource, async (latest, fresh) => {
 +                    if (fresh.executionHostId)
 +                        await reconcileRemoteJob(latest, fresh, now);
 +                });
@@ -6312,7 +6313,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
 -                meta.nextRun = next.toISOString();
 -                await updateResource(resource, meta, body);
 -                await recoverStaleAutomationHistory(resource.owner, resource.path);
-+                await actOnRunningMark(deps.appId, resource, async (latest, fresh) => {
++                await actOnRunningMark(resource, async (latest, fresh) => {
 +                    // The owner can edit the automation after the scan read it.
 +                    if (!fresh.enabled || !fresh.schedule || !isValidCron(fresh.schedule))
 +                        return;
@@ -6398,9 +6399,9 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
 + * Vivary #139. Take the automation's run lease and renew it every minute until
 + * `release`. Null while another run, in any process, holds it.
 + */
-+async function holdRunLease(appId, resource) {
++async function holdRunLease(resource) {
 +    const key = `${resource.owner}:${resource.path}`;
-+    const leaseOwner = await acquireAutomationRunLease({ appId, key });
++    const leaseOwner = await acquireAutomationRunLease({ key });
 +    if (!leaseOwner)
 +        return null;
 +    const renewal = setInterval(() => {
@@ -6429,9 +6430,9 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
 + * predate a run that has finished since. A failure is logged and leaves the
 + * mark for the next tick, so one automation cannot stop the scan.
 + */
-+async function actOnRunningMark(appId, resource, act) {
++async function actOnRunningMark(resource, act) {
 +    try {
-+        const lease = await holdRunLease(appId, resource);
++        const lease = await holdRunLease(resource);
 +        if (!lease)
 +            return;
 +        try {
@@ -6466,7 +6467,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
      }
      catch (error) {
          console.warn(`[recurring-jobs] Could not record stale history for "${automation}":`, error instanceof Error ? error.message : error);
-@@ -430,135 +538,174 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
+@@ -430,135 +538,175 @@ async function executeJob(resource, meta, body, deps, now, options = {}) {
      // Manual runs use the same resource row as scheduled runs for concurrency
      // protection. The check is paired with the conditional write below: two
      // requests that read the same idle snapshot cannot both claim it.
@@ -6501,8 +6502,9 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
 +    // Vivary #139: the run lease covers this run in every process until its
 +    // outcome is written, or until a paired-host run is queued, so no scan
 +    // reads it as stuck, and a lease another run holds means that run is live.
-+    // A scheduled job then stays due.
-+    const runLease = await holdRunLease(deps.appId, resource);
++    // A scheduled job then stays due. The lease reads nothing from `deps`, so
++    // a run whose dependencies fail still records that failure as its outcome.
++    const runLease = await holdRunLease(resource);
 +    if (!runLease) {
 +        if (!options.manual)
 +            console.log(`[recurring-jobs] Job "${jobName}" was skipped because another run holds its run lease.`);
@@ -6748,7 +6750,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
      }
  }
  /** Execute one stored automation without changing its scheduled next run. */
-@@ -577,7 +724,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
+@@ -577,7 +725,10 @@ export async function runJobNow(owner, name, deps, options = {}) {
      });
  }
  /** Process a durable run-now history row exactly once in the background worker. */
@@ -6760,7 +6762,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
      const queued = await getAutomationRun(historyId);
      if (!queued)
          throw new Error(`Automation run "${historyId}" not found.`);
-@@ -586,6 +736,9 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -586,6 +737,9 @@ export async function runQueuedAutomation(historyId, deps) {
      if (queuedAppId && queuedAppId !== workerAppId) {
          return { skipped: true };
      }
@@ -6770,20 +6772,21 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..4a28641f87b9cbb9747b3fb7c883b497
      if (!(await claimAutomationRun(historyId))) {
          return { skipped: true };
      }
-@@ -599,6 +752,36 @@ export async function runQueuedAutomation(historyId, deps) {
+@@ -599,6 +753,37 @@ export async function runQueuedAutomation(historyId, deps) {
          ...(result.error ? { error: result.error } : {}),
      };
  }
 +/**
-+ * Vivary #114. Stop this process's automations for a normal quit. Sweeps take
-+ * no new lease and start no job, a queued Run now row stays unclaimed, and
-+ * every in-process run is aborted with the reason `shutdown`, including one
++ * Vivary #114. Stop this process's automations for a normal quit. A new tick
++ * takes no lease, a sweep starts no job, a queued Run now row stays unclaimed,
++ * and every in-process run is aborted with the reason `shutdown`, including one
 + * that starts later. Each run then records itself interrupted, and a scheduled
-+ * run or Run now releases its run lease. The stop waits for that
-+ * work, including work the runner tracks after the stop began, or for
-+ * `timeoutMs`, whichever comes first. It writes nothing itself,
-+ * so whatever has not settled by then is left to the lease expiry and the
-+ * stale-run reset, as after a hard kill. Later calls return the first stop.
++ * run or Run now releases its run lease. A scan already in progress when the
++ * stop begins still takes and releases the run lease of each running mark it
++ * checks. The stop waits for that work, including work the runner tracks after
++ * the stop began, or for `timeoutMs`, whichever comes first. It writes nothing
++ * itself, so whatever has not settled by then is left to the lease expiry and
++ * the stale-run reset, as after a hard kill. Later calls return the first stop.
 + */
 +export function stopRecurringJobs(options = {}) {
 +    if (_stopPromise)
