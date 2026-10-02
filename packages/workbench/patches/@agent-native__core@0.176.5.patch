@@ -4246,6 +4246,63 @@ index fdf6f6f7c40ef513c9297d9a7f06df312fe05a3c..dbc05accce0069d6347269fb7c554f32
      return !(run.needsApproval ||
          run.status === "completed" ||
          run.status === "errored" ||
+diff --git a/dist/extensions/routes.js b/dist/extensions/routes.js
+index 1ec595015432fc2de6897d1d7dda623aa493c9b7..61f3acf758bc602049f43388fc7c27c400077da3 100644
+--- a/dist/extensions/routes.js
++++ b/dist/extensions/routes.js
+@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
+ import { defineEventHandler, getMethod, setResponseStatus, setResponseHeader, } from "h3";
+ import { getDbExec, isPostgres } from "../db/client.js";
+ import { getOrgContext } from "../org/context.js";
++import { formatArgs } from "../scripts/parse-args.js";
+ import { resolveKeyReferencesWithRequestScopes, validateUrlAllowlist, getResolvedKeyAllowlist, } from "../secrets/substitution.js";
+ import { getSession } from "../server/auth.js";
+ import { readBody } from "../server/h3-helpers.js";
+@@ -770,16 +771,16 @@ async function handleSqlQuery(event) {
+     }
+     try {
+         const mod = await import("../scripts/db/query.js");
+-        const args = ["--sql", sql, "--format", "json"];
+-        if (body.limit)
+-            args.push("--limit", String(body.limit));
+-        if (body.args !== undefined) {
+-            if (!Array.isArray(body.args)) {
+-                setResponseStatus(event, 400);
+-                return { error: "args must be an array" };
+-            }
+-            args.push("--args", JSON.stringify(body.args));
++        if (body.args !== undefined && !Array.isArray(body.args)) {
++            setResponseStatus(event, 400);
++            return { error: "args must be an array" };
+         }
++        const args = formatArgs({
++            sql,
++            format: "json",
++            limit: body.limit ? String(body.limit) : undefined,
++            args: body.args,
++        });
+         const output = await captureCliOutput(mod.default, args);
+         try {
+             return JSON.parse(output);
+@@ -872,14 +873,11 @@ async function handleSqlExec(event) {
+     }
+     try {
+         const mod = await import("../scripts/db/exec.js");
+-        const args = ["--sql", sql, "--format", "json"];
+-        if (body.args !== undefined) {
+-            if (!Array.isArray(body.args)) {
+-                setResponseStatus(event, 400);
+-                return { error: "args must be an array" };
+-            }
+-            args.push("--args", JSON.stringify(body.args));
++        if (body.args !== undefined && !Array.isArray(body.args)) {
++            setResponseStatus(event, 400);
++            return { error: "args must be an array" };
+         }
++        const args = formatArgs({ sql, format: "json", args: body.args });
+         const output = await captureCliOutput(mod.default, args);
+         try {
+             return JSON.parse(output);
 diff --git a/dist/extensions/web-search-tool.js b/dist/extensions/web-search-tool.js
 index 2d28621c2b109d176351b47aa6027adff40b8868..73d3787bcac13db54cd8463962031919639dd8f4 100644
 --- a/dist/extensions/web-search-tool.js
@@ -6144,10 +6201,10 @@ index 04c5f7dd462a0010e57ba3737add3fb837f4b506..78d2f56c9952164a6ba67d5785112976
                          return runCreate(args, appId);
 diff --git a/dist/jobs/unattended-surface.d.ts b/dist/jobs/unattended-surface.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..cde432822f3a6e0aa3dc15e06ca9a22542150d28
+index 0000000000000000000000000000000000000000..2c7184fb15dd08cab865871ba610777c3b15f4cf
 --- /dev/null
 +++ b/dist/jobs/unattended-surface.d.ts
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,24 @@
 +import type { ActionEntry } from "../agent/production-agent.js";
 +import type { BackgroundAutomationContext } from "./background-automation-runner.js";
 +/** The only tools an automation run is offered. */
@@ -6155,8 +6212,6 @@ index 0000000000000000000000000000000000000000..cde432822f3a6e0aa3dc15e06ca9a225
 +/** Appended to the framework prompt of an automation run in place of the action list. */
 +export declare const UNATTENDED_PROMPT_NOTE: string;
 +export declare function isConfigurationResourcePath(value: unknown): boolean;
-+/** True for an argument name the CLI bridge would split or read as a flag. */
-+export declare function isUnsafeArgumentName(name: string): boolean;
 +/**
 + * Returns the error text for a tool call that an automation run may not
 + * make, or null when the call is allowed.
@@ -6176,10 +6231,10 @@ index 0000000000000000000000000000000000000000..cde432822f3a6e0aa3dc15e06ca9a225
 +export declare function restrictActionsForUnattendedRun(actions: Record<string, ActionEntry>, automation?: Pick<BackgroundAutomationContext, "meta">): Record<string, ActionEntry>;
 diff --git a/dist/jobs/unattended-surface.js b/dist/jobs/unattended-surface.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..70d45581075d65f8265b783c863acfd40dd41067
+index 0000000000000000000000000000000000000000..809916ffaea0d49365eb9e331ea2f3138fa47aab
 --- /dev/null
 +++ b/dist/jobs/unattended-surface.js
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,192 @@
 +/**
 + * Local-only tool surface for unattended automation runs.
 + *
@@ -6189,12 +6244,17 @@ index 0000000000000000000000000000000000000000..70d45581075d65f8265b783c863acfd4
 + * settings, jobs, or automations. This is an allowlist, so a tool that a later
 + * Core release adds stays out of automation runs until someone reviews it.
 + *
-+ * The background runner applies `restrictActionsForUnattendedRun`. The kept
-+ * tools also call `unattendedToolRefusal` themselves when their caller is
-+ * "automation", so a tool reached some other way enforces the same limits.
++ * The background runner applies `restrictActionsForUnattendedRun`. resources,
++ * chat-history, save-memory, delete-memory, manage-jobs, manage-automations,
++ * and manage-notifications also check an "automation" caller themselves, so
++ * a call that reaches them some other way gets the same limits. The three
++ * lookups, docs-search, framework-search, and source-search, rely on the run
++ * surface. On any other path, the CLI bridge's declared-name check refuses an
++ * unsafe name with its own text.
 + */
 +import path from "node:path";
 +import { getRequestContext, runWithRequestContext } from "../server/request-context.js";
++import { isUnsafeArgumentName } from "../scripts/parse-args.js";
 +/** The only tools an automation run is offered. */
 +export const UNATTENDED_TOOLS = Object.freeze([
 +    "resources",
@@ -6264,16 +6324,6 @@ index 0000000000000000000000000000000000000000..70d45581075d65f8265b783c863acfd4
 +    const normalized = normalizeResourcePath(value);
 +    return (CONFIGURATION_FILES.has(normalized) ||
 +        CONFIGURATION_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix)));
-+}
-+/**
-+ * The CLI bridge behind resources, save-memory, delete-memory, chat-history,
-+ * and the lookups turns each argument into a `--name` flag, and its parser
-+ * reads `--name=value` and lets a later flag win. An argument named
-+ * "path=jobs/x.md" would replace a path that the checks below accepted, so
-+ * an automation run may not pass a name that holds "=" or starts with "-".
-+ */
-+export function isUnsafeArgumentName(name) {
-+    return name.includes("=") || name.startsWith("-");
 +}
 +/**
 + * Returns the error text for a tool call that an automation run may not
@@ -6766,6 +6816,69 @@ index 1965099e723d476f9d2b02e827dc2f63de310308..3b6c8b80e6e16b2625ec923b9d5c3bf4
  }
  // Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
  // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
+diff --git a/dist/scripts/parse-args.d.ts b/dist/scripts/parse-args.d.ts
+index 822e93d0a36d7935137bb9dd210ef86e7c96a94a..0ba3d95508aab05f295901c04833e8179a1baf6a 100644
+--- a/dist/scripts/parse-args.d.ts
++++ b/dist/scripts/parse-args.d.ts
+@@ -7,6 +7,20 @@
+  * Supports: --key value, --key=value, --flag (boolean true)
+  */
+ export declare function parseArgs(args: string[]): Record<string, string>;
++/**
++ * True for an argument name that no script may receive. parseArgs splits a
++ * name that holds "=" and drops "__proto__", which an assignment to a plain
++ * object ignores. A name that starts with "-" reads back as itself, and the
++ * bridge's rule refuses it anyway.
++ */
++export declare function isUnsafeArgumentName(name: string): boolean;
++/**
++ * Build the argv that parseArgs reads back as `args`: one --name=value token
++ * per argument, so a value that starts with "--" stays a value. A string
++ * passes as given, an object or array as JSON, and any other value through
++ * String. null and undefined are left out, like an absent argument.
++ */
++export declare function formatArgs(args: Readonly<Record<string, unknown>>): string[];
+ /**
+  * Convert kebab-case keys to camelCase.
+  */
+diff --git a/dist/scripts/parse-args.js b/dist/scripts/parse-args.js
+index dd3c207db1c60bd1156e13169f6dd093fbd32120..f0c7f77490dd2c6e719d8c39348c6e414c630075 100644
+--- a/dist/scripts/parse-args.js
++++ b/dist/scripts/parse-args.js
+@@ -31,6 +31,33 @@ export function parseArgs(args) {
+     }
+     return result;
+ }
++/**
++ * True for an argument name that no script may receive. parseArgs splits a
++ * name that holds "=" and drops "__proto__", which an assignment to a plain
++ * object ignores. A name that starts with "-" reads back as itself, and the
++ * bridge's rule refuses it anyway.
++ */
++export function isUnsafeArgumentName(name) {
++    return name.includes("=") || name.startsWith("-") || name === "__proto__";
++}
++/**
++ * Build the argv that parseArgs reads back as `args`: one --name=value token
++ * per argument, so a value that starts with "--" stays a value. A string
++ * passes as given, an object or array as JSON, and any other value through
++ * String. null and undefined are left out, like an absent argument.
++ */
++export function formatArgs(args) {
++    const argv = [];
++    for (const [name, value] of Object.entries(args)) {
++        if (isUnsafeArgumentName(name)) {
++            throw new Error(`Argument name ${JSON.stringify(name.slice(0, 80))} cannot be passed to a script.`);
++        }
++        if (value == null)
++            continue;
++        argv.push(`--${name}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
++    }
++    return argv;
++}
+ /**
+  * Convert kebab-case keys to camelCase.
+  */
 diff --git a/dist/scripts/resources/read.js b/dist/scripts/resources/read.js
 index 467263c0411135a3acdfc27b790da7b330a17361..b82f01231c6267e37b88ea56bab15626f230aa5b 100644
 --- a/dist/scripts/resources/read.js
@@ -7171,50 +7284,79 @@ index 40396251b3887addb4303ece517af947f2eb4ed3..964d93258c786b2eb4e42af80f05d703
          return "";
      let selectedSections = sections.map((section) => section.content);
 diff --git a/dist/server/agent-chat/script-entries.js b/dist/server/agent-chat/script-entries.js
-index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae5e1158b9 100644
+index ea9fd705f1741f2988ac6fca3498c9a831811a7d..99142fc8d5899f6a2bd057414a28d561185c1ea2 100644
 --- a/dist/server/agent-chat/script-entries.js
 +++ b/dist/server/agent-chat/script-entries.js
-@@ -2,6 +2,7 @@ import { renameThread, resolveThreadAccess, setThreadArchived, setThreadPinned,
+@@ -1,13 +1,38 @@
++import { fail } from "../../action.js";
+ import { renameThread, resolveThreadAccess, setThreadArchived, setThreadPinned, } from "../../chat-threads/store.js";
  import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
++import { formatArgs } from "../../scripts/parse-args.js";
  import { captureCliOutput } from "../cli-capture.js";
  import { getAmbientUserEmail, getRequestOrgId, getRequestRunContext, getRequestUserEmail, } from "../request-context.js";
-+import { isUnsafeArgumentName, unattendedToolRefusal } from "../../jobs/unattended-surface.js";
++import { unattendedToolRefusal } from "../../jobs/unattended-surface.js";
  // ---------------------------------------------------------------------------
  // CLI-script-backed action entries: db-*, framework-search/docs-search/source-search,
  // resources/save-memory/delete-memory, chat-history, manage-agent-engine,
-@@ -18,9 +19,17 @@ function wrapCliScript(tool, cliDefault, opts) {
+ // manage-agent-loop-settings, and call-agent. Each wraps a core CLI script
+ // (that writes to console.log) as an ActionEntry via `wrapCliScript`.
+ // ---------------------------------------------------------------------------
++/**
++ * Runs a core CLI script with named arguments. The argv is built before the
++ * capture, which would turn a throw from formatArgs into output text.
++ */
++function cliScriptRunner(cliDefault) {
++    return async (args) => {
++        const argv = formatArgs(args);
++        return captureCliOutput(() => cliDefault(argv));
++    };
++}
++/**
++ * Refuse an argument name the schema does not declare. fail() gives the
++ * refusal the error code unknown_argument, which runToolCall appends to the
++ * text the model reads.
++ */
++function assertDeclaredArguments(parameters, args) {
++    const declared = parameters.properties;
++    const unknown = Object.keys(args ?? {}).find((name) => !Object.hasOwn(declared, name));
++    if (unknown !== undefined) {
++        fail(`Unknown argument ${JSON.stringify(unknown.slice(0, 80))}. This tool takes only: ${Object.keys(declared).join(", ")}.`, { errorCode: "unknown_argument" });
++    }
++}
+ /**
+  * Wraps a core CLI script (that writes to console.log) as a ActionEntry
+  * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
+@@ -15,27 +40,32 @@ import { getAmbientUserEmail, getRequestOrgId, getRequestRunContext, getRequestU
+  * (see `cli-capture.ts`).
+  */
+ function wrapCliScript(tool, cliDefault, opts) {
++    const runScript = cliScriptRunner(cliDefault);
      return {
          tool,
          ...(opts?.readOnly ? { readOnly: true } : {}),
--        run: async (args) => {
-+        run: async (args, context) => {
-+            // An automation run passes each value inline as --name=value, so a
-+            // value that starts with "--" cannot become a second flag, and it
-+            // refuses a name the parser would split. Interactive callers keep the
-+            // older form.
-+            const inline = context?.caller === "automation";
-             const cliArgs = [];
-             for (const [k, v] of Object.entries(args)) {
-+                if (inline && isUnsafeArgumentName(k)) {
-+                    throw new Error(`Automation runs cannot pass an argument named ${JSON.stringify(k.slice(0, 80))}.`);
-+                }
-                 // MCP input schemas are descriptive and some hosts can still send
-                 // undeclared keys. The externally exposed DB readers must never accept
-                 // the CLI-only `--db` escape hatch, which could point at another local
-@@ -33,12 +42,32 @@ function wrapCliScript(tool, cliDefault, opts) {
-                 const value = raw != null && typeof raw === "object"
-                     ? JSON.stringify(raw)
-                     : String(raw);
++        // The input schema is the allowlist for every caller, so no caller can
++        // pass a name the scripts take only from a terminal, such as db.
+         run: async (args) => {
+-            const cliArgs = [];
+-            for (const [k, v] of Object.entries(args)) {
+-                // MCP input schemas are descriptive and some hosts can still send
+-                // undeclared keys. The externally exposed DB readers must never accept
+-                // the CLI-only `--db` escape hatch, which could point at another local
+-                // SQLite file. Keep their runtime surface identical to the advertised
+-                // schema instead of trusting the client to validate it.
+-                if (opts?.allowedArgs && !opts.allowedArgs.includes(k)) {
+-                    throw new Error(`Unknown argument: ${k}`);
+-                }
+-                const raw = v;
+-                const value = raw != null && typeof raw === "object"
+-                    ? JSON.stringify(raw)
+-                    : String(raw);
 -                cliArgs.push(`--${k}`, value);
-+                if (inline)
-+                    cliArgs.push(`--${k}=${value}`);
-+                else
-+                    cliArgs.push(`--${k}`, value);
-             }
-             return captureCliOutput(() => cliDefault(cliArgs));
-         },
-     };
- }
++            assertDeclaredArguments(tool.parameters, args);
++            return runScript(args);
++        },
++    };
++}
 +/**
 + * Apply the automation-run refusal inside an entry that has no handler of its
 + * own, so a caller that skips the run surface gets the same limits.
@@ -7227,15 +7369,179 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
 +                const refusal = unattendedToolRefusal(toolName, args);
 +                if (refusal)
 +                    return refusal;
-+            }
+             }
+-            return captureCliOutput(() => cliDefault(cliArgs));
 +            return entry.run(args, context);
+         },
+     };
+ }
+@@ -81,7 +111,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
+                     },
+                 },
+             }, schemaMod.default, {
+-                allowedArgs: ["format"],
+                 readOnly: true,
+             }),
+             "db-query": wrapCliScript({
+@@ -110,7 +139,6 @@ export async function createDbScriptEntries(mode = "read", options = {}) {
+                     required: ["sql"],
+                 },
+             }, queryMod.default, {
+-                allowedArgs: ["sql", "args", "format", "limit"],
+                 readOnly: true,
+             }),
+         };
+@@ -290,6 +318,59 @@ export function shouldDefaultResourceWriteToWorkspace(path) {
+ export function shouldDefaultResourceWriteToShared(path) {
+     return path.replace(/^\/+/, "") === "LEARNINGS.md";
+ }
++const resourcesParameters = {
++    type: "object",
++    properties: {
++        action: {
++            type: "string",
++            description: "The operation to perform",
++            enum: [
++                "list",
++                "read",
++                "effective",
++                "write",
++                "promote",
++                "delete",
++            ],
 +        },
-+    };
-+}
- /**
-  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
-  * By default these let the agent inspect the app's own SQL database; raw SQL
-@@ -390,19 +419,26 @@ export async function createResourceScriptEntries() {
++        path: {
++            type: "string",
++            description: "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
++        },
++        content: {
++            type: "string",
++            description: "Content to write. Required for write.",
++        },
++        scope: {
++            type: "string",
++            description: "personal, shared, workspace, or all (default varies by action). Workspace is read-only when inherited from Dispatch; in local file mode AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/ are writable.",
++            enum: ["personal", "shared", "workspace", "all"],
++        },
++        prefix: {
++            type: "string",
++            description: "Filter by path prefix when listing (e.g. 'notes/')",
++        },
++        mime: {
++            type: "string",
++            description: "MIME type for write (default: inferred from extension)",
++        },
++        format: {
++            type: "string",
++            description: 'Output format for list: "json" or "text" (default: text)',
++            enum: ["json", "text"],
++        },
++        visibility: {
++            type: "string",
++            description: 'Visibility for write: "agent_scratch" for internal working files, "workspace" for user-requested files. Defaults to agent_scratch except durable instruction/skill/job/memory paths.',
++            enum: ["workspace", "agent_scratch"],
++        },
++        includeAgentScratch: {
++            type: "boolean",
++            description: "Include hidden agent scratch files when listing.",
++        },
++    },
++    required: ["action"],
++};
+ export async function createResourceScriptEntries() {
+     try {
+         const [list, read, effective, write, del, saveMem, delMem, store] = await Promise.all([
+@@ -303,83 +384,16 @@ export async function createResourceScriptEntries() {
+             import("../../resources/store.js"),
+         ]);
+         // Wrap each CLI runner so it captures stdout and converts args properly
+-        const listEntry = wrapCliScript({
+-            description: "",
+-            parameters: { type: "object", properties: {} },
+-        }, list.default, { readOnly: true });
+-        const readEntry = wrapCliScript({
+-            description: "",
+-            parameters: { type: "object", properties: {} },
+-        }, read.default, { readOnly: true });
+-        const writeEntry = wrapCliScript({
+-            description: "",
+-            parameters: { type: "object", properties: {} },
+-        }, write.default);
+-        const effectiveEntry = wrapCliScript({
+-            description: "",
+-            parameters: { type: "object", properties: {} },
+-        }, effective.default, { readOnly: true });
+-        const deleteEntry = wrapCliScript({
+-            description: "",
+-            parameters: { type: "object", properties: {} },
+-        }, del.default);
++        const runList = cliScriptRunner(list.default);
++        const runRead = cliScriptRunner(read.default);
++        const runWrite = cliScriptRunner(write.default);
++        const runEffective = cliScriptRunner(effective.default);
++        const runDelete = cliScriptRunner(del.default);
+         return {
+             resources: {
+                 tool: {
+                     description: 'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared; workspace only for local file mode control files), "promote" (make agent scratch visible), "delete" (remove personal or shared; workspace only for local file mode control files). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+-                    parameters: {
+-                        type: "object",
+-                        properties: {
+-                            action: {
+-                                type: "string",
+-                                description: "The operation to perform",
+-                                enum: [
+-                                    "list",
+-                                    "read",
+-                                    "effective",
+-                                    "write",
+-                                    "promote",
+-                                    "delete",
+-                                ],
+-                            },
+-                            path: {
+-                                type: "string",
+-                                description: "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
+-                            },
+-                            content: {
+-                                type: "string",
+-                                description: "Content to write. Required for write.",
+-                            },
+-                            scope: {
+-                                type: "string",
+-                                description: "personal, shared, workspace, or all (default varies by action). Workspace is read-only when inherited from Dispatch; in local file mode AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/ are writable.",
+-                                enum: ["personal", "shared", "workspace", "all"],
+-                            },
+-                            prefix: {
+-                                type: "string",
+-                                description: "Filter by path prefix when listing (e.g. 'notes/')",
+-                            },
+-                            mime: {
+-                                type: "string",
+-                                description: "MIME type for write (default: inferred from extension)",
+-                            },
+-                            format: {
+-                                type: "string",
+-                                description: 'Output format for list: "json" or "text" (default: text)',
+-                                enum: ["json", "text"],
+-                            },
+-                            visibility: {
+-                                type: "string",
+-                                description: 'Visibility for write: "agent_scratch" for internal working files, "workspace" for user-requested files. Defaults to agent_scratch except durable instruction/skill/job/memory paths.',
+-                                enum: ["workspace", "agent_scratch"],
+-                            },
+-                            includeAgentScratch: {
+-                                type: "boolean",
+-                                description: "Include hidden agent scratch files when listing.",
+-                            },
+-                        },
+-                        required: ["action"],
+-                    },
++                    parameters: resourcesParameters,
+                 },
+                 planMode: {
+                     effect: (args) => args.action === "list" ||
+@@ -390,19 +404,28 @@ export async function createResourceScriptEntries() {
                      allowedValues: { action: ["list", "read", "effective"] },
                      description: "Plan mode allows listing and reading workspace resources.",
                  },
@@ -7248,39 +7554,41 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
 +                        if (refusal)
 +                            return refusal;
 +                    }
++                    // Before the write branch adds the keys the server sets.
++                    assertDeclaredArguments(resourcesParameters, args);
                      const { action: a, ...rest } = args;
                      if (a === "list")
 -                        return listEntry.run(rest);
-+                        return listEntry.run(rest, context);
++                        return runList(rest);
                      if (a === "read") {
                          if (!rest.path)
                              return "Error: path is required for read";
 -                        return readEntry.run(rest);
-+                        return readEntry.run(rest, context);
++                        return runRead(rest);
                      }
                      if (a === "effective") {
                          if (!rest.path)
                              return "Error: path is required for effective";
 -                        return effectiveEntry.run(rest);
-+                        return effectiveEntry.run(rest, context);
++                        return runEffective(rest);
                      }
                      if (a === "write") {
                          if (!rest.path ||
-@@ -423,7 +459,7 @@ export async function createResourceScriptEntries() {
+@@ -423,7 +446,7 @@ export async function createResourceScriptEntries() {
                          const runCtx = getRequestRunContext();
                          if (runCtx?.threadId)
                              rest.threadId = runCtx.threadId;
 -                        return writeEntry.run(rest);
-+                        return writeEntry.run(rest, context);
++                        return runWrite(rest);
                      }
                      if (a === "promote") {
                          if (!rest.path)
-@@ -457,12 +493,12 @@ export async function createResourceScriptEntries() {
+@@ -457,12 +480,12 @@ export async function createResourceScriptEntries() {
                      if (a === "delete") {
                          if (!rest.path)
                              return "Error: path is required for delete";
 -                        return deleteEntry.run(rest);
-+                        return deleteEntry.run(rest, context);
++                        return runDelete(rest);
                      }
                      return `Error: unknown action "${a}". Use: list, read, write, promote, delete`;
                  },
@@ -7290,7 +7598,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
                  description: "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references.",
                  parameters: {
                      type: "object",
-@@ -487,8 +523,8 @@ export async function createResourceScriptEntries() {
+@@ -487,8 +510,8 @@ export async function createResourceScriptEntries() {
                      },
                      required: ["name", "type", "description", "content"],
                  },
@@ -7301,7 +7609,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
                  description: "Delete a memory entry and remove it from the memory index.",
                  parameters: {
                      type: "object",
-@@ -500,7 +536,7 @@ export async function createResourceScriptEntries() {
+@@ -500,7 +523,7 @@ export async function createResourceScriptEntries() {
                      },
                      required: ["name"],
                  },
@@ -7310,7 +7618,137 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
          };
      }
      catch {
-@@ -602,9 +638,14 @@ export async function createChatScriptEntries() {
+@@ -508,6 +531,42 @@ export async function createResourceScriptEntries() {
+         return {};
+     }
+ }
++const chatHistoryParameters = {
++    type: "object",
++    properties: {
++        action: {
++            type: "string",
++            description: "The operation to perform",
++            enum: ["search", "open", "rename", "pin", "unpin", "archive"],
++        },
++        query: {
++            type: "string",
++            description: "(search) Search term to find chats by title, preview, or content",
++        },
++        limit: {
++            type: "string",
++            description: "(search) Max number of results (default: 20)",
++        },
++        format: {
++            type: "string",
++            description: "(search) Output format",
++            enum: ["json", "text"],
++        },
++        includeArchived: {
++            type: "boolean",
++            description: "(search) Also include archived chats in the results. Archived chats are excluded by default, matching the 'archive' action's effect on the chat list.",
++        },
++        id: {
++            type: "string",
++            description: "(open, rename, pin, unpin, archive) The chat thread ID to manage",
++        },
++        title: {
++            type: "string",
++            description: "(rename) New chat title",
++        },
++    },
++    required: ["action"],
++};
+ /**
+  * Creates a unified chat-history ActionEntry that dispatches to search, open,
+  * rename, or lightweight organization actions.
+@@ -518,93 +577,28 @@ export async function createChatScriptEntries() {
+             import("../../scripts/chat/search-chats.js"),
+             import("../../scripts/chat/open-chat.js"),
+         ]);
+-        const searchEntry = wrapCliScript({
+-            description: "Search or list past agent chat threads.",
+-            parameters: {
+-                type: "object",
+-                properties: {
+-                    query: {
+-                        type: "string",
+-                        description: "Search term to find chats by title, preview, or content",
+-                    },
+-                    limit: {
+-                        type: "string",
+-                        description: "Max number of results (default: 20)",
+-                    },
+-                    format: {
+-                        type: "string",
+-                        description: "Output format",
+-                        enum: ["json", "text"],
+-                    },
+-                    includeArchived: {
+-                        type: "boolean",
+-                        description: "Also include archived chats in the results. Archived chats are excluded by default.",
+-                    },
+-                },
+-            },
+-        }, searchMod.default);
+-        const openEntry = wrapCliScript({
+-            description: "Open a chat thread in the UI.",
+-            parameters: {
+-                type: "object",
+-                properties: {
+-                    id: {
+-                        type: "string",
+-                        description: "The chat thread ID to open",
+-                    },
+-                },
+-                required: ["id"],
+-            },
+-        }, openMod.default);
++        const runSearch = cliScriptRunner(searchMod.default);
++        const runOpen = cliScriptRunner(openMod.default);
+         return {
+             "chat-history": {
+                 tool: {
+                     description: "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'rename'/'pin'/'unpin'/'archive' to organize history.",
+-                    parameters: {
+-                        type: "object",
+-                        properties: {
+-                            action: {
+-                                type: "string",
+-                                description: "The operation to perform",
+-                                enum: ["search", "open", "rename", "pin", "unpin", "archive"],
+-                            },
+-                            query: {
+-                                type: "string",
+-                                description: "(search) Search term to find chats by title, preview, or content",
+-                            },
+-                            limit: {
+-                                type: "string",
+-                                description: "(search) Max number of results (default: 20)",
+-                            },
+-                            format: {
+-                                type: "string",
+-                                description: "(search) Output format",
+-                                enum: ["json", "text"],
+-                            },
+-                            includeArchived: {
+-                                type: "boolean",
+-                                description: "(search) Also include archived chats in the results. Archived chats are excluded by default, matching the 'archive' action's effect on the chat list.",
+-                            },
+-                            id: {
+-                                type: "string",
+-                                description: "(open, rename, pin, unpin, archive) The chat thread ID to manage",
+-                            },
+-                            title: {
+-                                type: "string",
+-                                description: "(rename) New chat title",
+-                            },
+-                        },
+-                        required: ["action"],
+-                    },
++                    parameters: chatHistoryParameters,
+                 },
+                 planMode: {
+                     effect: (args) => (args.action === "search" ? "read" : "write"),
                      allowedValues: { action: ["search"] },
                      description: "Plan mode allows searching chat history.",
                  },
@@ -7321,18 +7759,19 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..fbd0f9faa88dc884fff507428f914fae
 +                        if (refusal)
 +                            return refusal;
 +                    }
++                    assertDeclaredArguments(chatHistoryParameters, args);
                      if (args?.action === "open") {
 -                        return openEntry.run(args);
-+                        return openEntry.run(args, context);
++                        return runOpen(args);
                      }
                      if (args?.action === "rename" ||
                          args?.action === "pin" ||
-@@ -645,7 +686,7 @@ export async function createChatScriptEntries() {
+@@ -645,7 +639,7 @@ export async function createChatScriptEntries() {
                              return `Chat thread "${id}" could not be updated.`;
                          return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
                      }
 -                    return searchEntry.run(args);
-+                    return searchEntry.run(args, context);
++                    return runSearch(args);
                  },
              },
          };

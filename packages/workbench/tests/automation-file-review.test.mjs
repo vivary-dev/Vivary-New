@@ -345,9 +345,19 @@ test("a later chat or owner edit keeps the file waiting", async () => {
   const runOrigin = { createdBy: "agent", runId: RUN.runId, threadId: RUN.threadId };
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "the run's AGENTS.md waits");
 
-  // A chat's write keeps the mark and the run's origin, even with arguments that name another run or metadata.
-  assert.match(await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md",
-    content: "Chat edit EDIT-CHATWRITE.", runId: "cleared", threadId: "t-chat", metadata: "{}" }), /Wrote resource/);
+  // A chat's write keeps the mark and the run's origin. A chat cannot pass a name that sets another run or
+  // metadata (#111).
+  for (const [name, value] of [["runId", "cleared"], ["threadId", "t-chat"], ["metadata", "{}"]]) {
+    assert.match(await asChat({ userEmail: owner }, "resources", { action: "write", path: "AGENTS.md",
+      content: "Chat edit EDIT-CHATWRITE.", [name]: value }), new RegExp(`^Error: Unknown argument "${name}"`));
+  }
+  // A real chat's run context holds its thread, and the resources tool passes it to the store.
+  const inChat = { userEmail: owner, run: { threadId: "t-chat" } };
+  assert.match(await asChat(inChat, "resources", { action: "write", path: "notes/chat.md", content: "Chat note." }),
+    /Wrote resource/);
+  assert.equal((await originOf(owner, "notes/chat.md")).threadId, "t-chat", "a chat's write forwards its thread");
+  assert.match(await asChat(inChat, "resources", { action: "write", path: "AGENTS.md",
+    content: "Chat edit EDIT-CHATWRITE." }), /Wrote resource/);
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "a chat's write keeps the mark");
   assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "a chat's write keeps the run's origin");
   assert.doesNotMatch(await asChat({ userEmail: owner }, "save-memory",
@@ -358,9 +368,10 @@ test("a later chat or owner edit keeps the file waiting", async () => {
   await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown");
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "an owner edit is not a review");
   await store.resourcePut(owner, "AGENTS.md", "Owner edit EDIT-OWNER.", "text/markdown",
-    { metadata: JSON.stringify({ runReview: { state: "accepted" } }), createdBy: "user", runId: null, threadId: null });
+    { metadata: JSON.stringify({ runReview: { state: "accepted" } }), createdBy: "user", runId: "job-other",
+      threadId: "t-other" });
   assert.deepEqual(await markOf(owner, "AGENTS.md"), waiting, "metadata from a caller cannot clear the mark");
-  assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "options from a caller cannot clear the run's origin");
+  assert.deepEqual(await originOf(owner, "AGENTS.md"), runOrigin, "options from a caller cannot replace the run's origin");
 
   const compact = await prompt(owner, true);
   for (const marker of ["EDIT-CHATWRITE", "EDIT-OWNER", "EDIT-CHATMEM"]) assert.ok(!compact.includes(marker), marker);
