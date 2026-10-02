@@ -876,6 +876,10 @@ test("a Windows abort of a live worker runs taskkill and then observes the exit"
   await mkdir(path.join(fixture, "System32"));
   await writeFile(path.join(fixture, "System32", "taskkill.exe"),
     `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nkill -9 "$2"\n`, { mode: 0o755 });
+  const scanner = path.join(fixture, "System32", "WindowsPowerShell", "v1.0");
+  await mkdir(scanner, { recursive: true });
+  await writeFile(path.join(scanner, "powershell.exe"),
+    "#!/bin/sh\nprintf '4\\t0\\t\\tSystem\\nEND\\t1\\n'\n", { mode: 0o755 });
   // This worker ignores the abort, so it stays alive until `taskkill` stops it.
   await writeFile(path.join(server, "vivary-code-worker.mjs"), `
 import { writeFileSync } from "node:fs";
@@ -1062,6 +1066,7 @@ async function windowsOrphanFixture() {
   const hold = path.join(fixture, "hold");
   const done = path.join(fixture, "done");
   const stopped = path.join(fixture, "stopped");
+  const holdFinal = path.join(fixture, "hold-final");
   await mkdir(server, { recursive: true });
   await mkdir(scanner, { recursive: true });
   await writeFile(phase, "linked");
@@ -1082,7 +1087,12 @@ process.send({ type: "vivary:code-worker:ready" });
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 appendFileSync(${JSON.stringify(scans)}, JSON.stringify({ event: "start", args: process.argv.slice(2) }) + "\\n");
-while (!existsSync(${JSON.stringify(received)}) || existsSync(${JSON.stringify(hold)})) await delay(10);
+process.once("SIGTERM", () => {
+  appendFileSync(${JSON.stringify(scans)}, JSON.stringify({ event: "aborted" }) + "\\n");
+  process.exit(0);
+});
+while (!existsSync(${JSON.stringify(received)}) || existsSync(${JSON.stringify(hold)})
+  || (existsSync(${JSON.stringify(stopped)}) && existsSync(${JSON.stringify(holdFinal)}))) await delay(10);
 const { worker } = JSON.parse(readFileSync(${JSON.stringify(received)}, "utf8"));
 const phase = readFileSync(${JSON.stringify(phase)}, "utf8");
 const stopped = existsSync(${JSON.stringify(stopped)});
@@ -1115,15 +1125,15 @@ appendFileSync(${JSON.stringify(scans)}, JSON.stringify({ event: "end", phase, s
       throw error;
     }
   };
-  return { fixture, received, phase, hold, done, events, waitForScan };
+  return { fixture, received, phase, hold, holdFinal, done, events, waitForScan };
 }
 
-for (const scenario of ["orphan", "direct", "reused"]) test(
+for (const scenario of ["orphan", "direct", "reused", "scan-held-at-stop", "final-scan-persistence"]) test(
   `Windows active descendant tracking: ${scenario} after successful taskkill`,
   { timeout: WORKER_TEST_TIMEOUT_MS, skip: process.platform === "win32" }, async t => {
     t.mock.method(Date, "now", () => 100_000);
     const proof = await windowsOrphanFixture();
-    if (scenario === "orphan") await writeFile(proof.hold, "");
+    if (scenario === "orphan" || scenario === "scan-held-at-stop") await writeFile(proof.hold, "");
     // guard:allow-env-credential - Directs fixed Windows executables to this test's process fixtures.
     const systemRoot = process.env.SystemRoot;
     try {
@@ -1138,7 +1148,10 @@ for (const scenario of ["orphan", "direct", "reused"]) test(
           onStopFailed: refusal => { refusals.push(refusal); } }).then(() => null, (error: unknown) => error);
         try {
           await waitForPids(proof.received, t.signal);
-          if (scenario !== "direct") {
+          if (scenario === "scan-held-at-stop") {
+            await proof.waitForScan("start", 1);
+            await writeFile(proof.phase, "reused");
+          } else if (scenario !== "direct") {
             if (scenario === "orphan") {
               await proof.waitForScan("start", 1);
               await delay(1_300);
@@ -1147,23 +1160,38 @@ for (const scenario of ["orphan", "direct", "reused"]) test(
               await rm(proof.hold);
             }
             await proof.waitForScan("end", 1);
-            await writeFile(proof.phase, scenario);
+            await writeFile(proof.phase, scenario === "final-scan-persistence" ? "orphan" : scenario);
             await proof.waitForScan("end", 2);
           } else {
             await writeFile(proof.phase, "direct");
           }
+          if (scenario === "final-scan-persistence") await writeFile(proof.holdFinal, "");
           await writeFile(proof.done, "");
+          if (scenario === "final-scan-persistence") {
+            await proof.waitForScan("start", 3);
+            assert.equal(refusals.length, 1, "persist the target before awaiting final verification");
+            const saved = refusals[0]?.target;
+            assert.ok(saved?.platform === "win32");
+            assert.ok(saved.tracked.some(item => item.pid === 41002 && item.createdFrom === 100020));
+            assert.ok(saved.traced.some(item => item.pid === 41002 && item.start === 100020),
+              "a restart during verification must retain the orphan's End them identity");
+            await rm(proof.holdFinal);
+          }
+          if (scenario === "scan-held-at-stop") {
+            await proof.waitForScan("aborted", 1);
+            await rm(proof.hold);
+          }
           const error = await outcome;
-          if (scenario === "reused") {
+          if (scenario === "reused" || scenario === "scan-held-at-stop") {
             assert.equal(error, null, "a reused orphan PID does not belong to the completed run");
-            assert.equal(refusals.length, 0);
+            assert.equal(refusals.length, 1, "even a clean final result is persisted while verification is pending");
             return;
           }
           assert.ok(error instanceof VivaryCodeWorkerCleanupError, "successful taskkill still checks for descendants");
           assert.equal(error.cause?.step, "exit");
           const check = error.leftovers?.check;
           assert.ok(check?.result === "remaining");
-          const expected = scenario === "orphan" ? [41002, 41003] : [41004];
+          const expected = scenario === "orphan" || scenario === "final-scan-persistence" ? [41002, 41003] : [41004];
           assert.deepEqual(check.remaining.map(item => item.pid).sort(), expected);
           assert.equal(refusals.length, 1, "the existing refusal strip receives the failed cleanup");
           const ended: number[] = [];
@@ -1176,7 +1204,7 @@ for (const scenario of ["orphan", "direct", "reused"]) test(
               return processes.map(item => ({ ...item, outcome: "ended" }));
             },
           });
-          assert.deepEqual(ended, scenario === "orphan" ? [41002] : [41004],
+          assert.deepEqual(ended, scenario === "orphan" || scenario === "final-scan-persistence" ? [41002] : [41004],
             "End them uses observed live ancestry, never the ambiguous child of a historical parent");
           const calls = await proof.events();
           for (const call of calls.filter(item => item.event === "start")) {
@@ -1187,6 +1215,7 @@ for (const scenario of ["orphan", "direct", "reused"]) test(
           assert.deepEqual(await proof.events(), calls, "settled runs start no more scans");
         } finally {
           await rm(proof.hold, { force: true });
+          await rm(proof.holdFinal, { force: true });
           controller.abort();
           await outcome;
         }

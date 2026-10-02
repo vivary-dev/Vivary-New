@@ -531,14 +531,14 @@ test("a failed stop's own check offers no choice until it ends and says that Viv
       // Another user of the host sees the check without the run. The owner's view is in the Stop case above.
       const checking = (await agent.getVivaryCodeHostState("someone-else@example.test")).cleanup;
       assert.deepEqual({ ...checking, version: "" }, {
-        version: "", heading: "Vivary is checking what a failed stop left running", remaining: [], unlisted: 0,
+        version: "", heading: "Vivary is checking whether coding processes stopped", remaining: [], unlisted: 0,
         instruction: "The choices appear here when the check ends.", canEnd: false, canContinue: false,
-        notice: null, composer: "Vivary is checking what a failed stop left running. Wait for the check to end before "
+        notice: null, composer: "Vivary is checking whether coding processes stopped. Wait for the check to end before "
           + "sending another message.", checking: true, run: null,
       });
       await assert.rejects(send("Start during the check"), (error: Error & { errorCode?: string }) => {
         assert.equal(error.errorCode, "vivary_code_cleanup_required");
-        assert.equal(error.message, "Vivary is checking what a failed stop left running. The choices appear at the top "
+        assert.equal(error.message, "Vivary is checking whether coding processes stopped. The choices appear at the top "
           + "of Vivary when the check ends.");
         return true;
       });
