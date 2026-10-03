@@ -3,17 +3,17 @@
   "checkpoint_id": "01M3ZWXT8HTGAZE64DMM5592VD",
   "session_id": "01a0fec8-208d-7f50-922d-1168908966d9",
   "strategy": "manual-commit",
-  "created_at": "2026-10-03T11:53:35.253629Z",
-  "checkpoints_count": 41,
+  "created_at": "2026-10-03T13:04:49.9838253Z",
+  "checkpoints_count": 48,
   "files_touched": null,
   "agent": "Codex",
   "model": "",
   "compact_transcript_start": 0,
   "token_usage": {
-    "input_tokens": 2021115,
+    "input_tokens": 2469055,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 95592064,
-    "output_tokens": 295695,
-    "api_call_count": 637
+    "cache_read_tokens": 105781760,
+    "output_tokens": 343765,
+    "api_call_count": 711
   }
 }
