@@ -1,0 +1,89 @@
+# AGENTS.md instructions for C:\Users\jeffk\AIS-OS
+
+<INSTRUCTIONS>
+# Codex global defaults
+
+Read the selected workspace's `AGENTS.md`; repository rules own branches, tests,
+dependencies, and delivery. Do not carry conventions between unrelated projects.
+
+Explain unfamiliar primitives when they affect Jeff's decision; otherwise be direct.
+
+## Efficient model use
+
+- When operating Claude Fable, use `efficient-fable`.
+- On a high-cost frontier model doing codebase-heavy work, use
+  `efficient-frontier`.
+- When long-running or parallel work needs usage checks, use
+  `stay-within-limits`.
+- Use `quick-recap` for final response status indicators.
+
+## Windows Defender
+
+Preserve Microsoft Defender. Never disable protection or add broad exclusions.
+Avoid encoded or giant inline PowerShell, download-and-execute patterns, and pasted
+source blobs. Prefer bounded commands and reviewed script files.
+## Windows "Open With" safety
+
+Treat an unexpected Windows "Open With" or "Pick an app" prompt as a launcher bug, not a file-association request. Dismiss it. Never select "Always," never choose Git Bash as a permanent handler, and never change file associations or related registry keys as a workaround. Trace the originating process, command, and path; fix the launcher or stale terminal environment instead. File-association or registry changes require Jeff's explicit approval for that exact change.
+
+--- project-doc ---
+
+# Jeff Kazzee's AIOS
+
+This workspace is Jeff's personal AI operating system. One workspace, many
+runtimes, one direction: a one-person AI company.
+
+`CLAUDE.md` beside this file is a router that imports this file. It carries
+no policy, so edit only this file.
+
+## Read first
+
+1. `Brain/USER.md` is the canonical profile. Read it before acting on Jeff's
+   behalf.
+
+2. `WORKSHOP.md` is the law. Routing, autonomy, skills, design, writing, and
+   sourcing live there. This file does not restate it.
+
+3. The nearest `AGENTS.md` to your work.
+
+`C:\Users\jeffk\AGENTS.md` is the machine baseline above all of this. Its
+Simplicity law applies here: one space, one law file, one index.
+
+## Where work goes
+
+- `Brain/` holds durable knowledge, and `Brain/SCHEMA.md` is the contract.
+
+- `content/` holds everything published under Jeff's name.
+
+- `career/` holds the job campaign, its trackers, and its ticket graph.
+
+- `projects/` holds every project, Jeff's own and the company's.
+
+- `working/` is scratch on a fourteen day clock. `archives/` holds retired
+  material, so move things there rather than deleting them.
+
+- `prompts/`, `zo/`, `dev/`, and `working/` each carry their own `AGENTS.md`.
+
+## The writing floor
+
+No em dashes. No semicolons in prose. No marketing adjectives. The floor holds
+in chat replies and commit messages, not only in shipped files.
+
+Content published as Jeff loads the `jeff-voice` skill. Technical and
+instructional prose loads `tech-writing`. Do not merge the two.
+
+## What stays with Jeff
+
+Per item, with no batch approvals: publishing, posting, scheduling, or sending
+anything external. Spending beyond the session. Deleting anything outside
+`working/`. Credential and security changes.
+
+## What is not filled
+
+`aios-intake.md` is answered through Q7 (2026-09-12) and `connections.md` is
+populated from it, but four of its seven rows are not yet wired, so check a
+row's mechanism before relying on it. `context/` is still empty. Do not cite it as a source.
+
+When a claim here looks aspirational, check it on disk before you rely on it.
+
+</INSTRUCTIONS>
