@@ -1531,7 +1531,7 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
-Issue #141 added twelve cases to that file. They bundle Core's real
+Issue #141 added thirteen cases to that file. They bundle Core's real
 `AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
 hooks on React Query with a fake transport, and render the tab under linkedom.
 An open Details dialog follows new list data. Opening Details fetches its list
@@ -1548,16 +1548,18 @@ automation with one name keep Details on the organization one while another
 entry moves ahead of it. Details closed with Close stays closed through the
 timer, which fetches no past runs. A failed list refresh shows no load error,
 keeps the row and the Details values, and shows the section note and the
-Details note until the next successful refresh clears both. A failed runs
-refresh keeps the runs listed and shows the Details note. A hidden window
-skips the timer, and a return refetches each list and the runs once they are
-stale. The first three failed on the patch before the fix. Each of 32
-mutations, one rule of the fix reverted or broken alone in the installed Core,
-fails a named case. They cover the snapshot, the key's makeup, each opener,
-the list each opener refetches and that it refetches no other, closing, Past
-runs stopping after Close, the key clearing on departure, each interval and its
-length, the refetch on return, both failed-refresh rules, the section note, and
-the Details note for its list and for Past runs.
+Details note until the next successful refresh clears both. A failed refresh
+of each of the four lists shows the section note above that section's rows
+and not in the other section. A failed runs refresh keeps the runs listed and
+shows the Details note. A hidden window skips the timer, and a return
+refetches each list and the runs once they are stale. The first three failed
+on the patch before the fix. Each of 37 mutations, one rule of the fix
+reverted or broken alone in the installed Core, fails a named case. They cover
+the snapshot, the key's makeup, each opener, the list each opener refetches
+and that it refetches no other, closing, Past runs stopping after Close, the
+key clearing on departure, each interval and its length, the refetch on
+return, both failed-refresh rules, the section note for each list and only in
+its own section, and the Details note for its list and for Past runs.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1569,7 +1571,7 @@ the control. Upstream could take the #141 identity, opener, interval, and
 failed-refresh rules. `refetchOnWindowFocus: true` fits only a client that
 does not mount `useDbSync`, which runs its own focus refetch. Remove the #141
 part when an upstream release keeps Details on the current list entry,
-refreshes the lists while the tab is open, and passes the twelve #141 cases.
+refreshes the lists while the tab is open, and passes the thirteen #141 cases.
 
 ## Automation runs at quit
 

@@ -211,7 +211,12 @@ Settings > Agent > Automations holds the controls:
   the window is visible, **Details** refreshes these values every 30 seconds, and it
   refreshes them when you return to the window. Past runs stays within 30 seconds of
   LAST RUN. To do this the tab asks the local server for the four automation lists every
-  30 seconds, and for past runs too while **Details** is open. Builds without the
+  30 seconds, and for past runs too while **Details** is open. If a refresh fails, the
+  tab keeps the last values. The section whose list failed shows "Could not refresh
+  automations. The values shown may be out of date.", and **Details** shows "Could not
+  refresh. These values may be out of date." Both notes go away once a refresh
+  succeeds. A value far older than 90 seconds with a note shown means the local server
+  stopped answering, not that the scheduler stopped. Builds without the
   [issue #141](https://github.com/vivary-dev/vivary/issues/141) fix show the values
   from when the Automations tab loaded. In those builds, open another Settings tab,
   come back, and open **Details** again to refresh them.

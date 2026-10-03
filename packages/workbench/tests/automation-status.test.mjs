@@ -378,6 +378,13 @@ export async function mountJobsTab(rows) {
     controls: label => [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label).length,
     pastRuns: () => host.querySelector('[role="dialog"]')?.querySelectorAll("li").length ?? 0,
     dialogText: () => host.querySelector('[role="dialog"]')?.textContent ?? "",
+    section(index) {
+      const section = host.querySelectorAll("section")[index];
+      const text = section.textContent;
+      const firstRow = section.querySelector("article");
+      return { text, rows: section.querySelectorAll("article").length,
+        aboveRows: firstRow ? text.slice(0, text.indexOf(firstRow.textContent)) : text };
+    },
     async closeDetails() {
       const close = host.querySelector('[role="dialog"] button');
       await act(async () => { close.click(); });
@@ -627,6 +634,37 @@ test("a failed list refresh keeps the rows and the Details values and notes it u
     assert.doesNotMatch(tab.text(), sectionNote, "the next successful refresh clears the section note");
     assert.doesNotMatch(tab.dialogText(), detailsNote, "the next successful refresh clears the Details note");
     assert.equal(tab.details()?.["Last checked"], later.lastCheck, "the next successful refresh shows the new values");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a failed refresh of each list notes it above that section's rows alone", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const job = { ...afterTick, id: "res-legacy", name: "legacy", instructions: "Check the build." };
+  const rows = { personal: [afterTick],
+    organization: [{ ...afterTick, id: "res-shared", name: "shared", scope: "organization" }],
+    jobs: { personal: [job],
+      organization: [{ ...job, id: "res-organization-legacy", name: "organization-legacy", scope: "organization" }] } };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    for (const [list, failed, other] of [["list-recurring-jobs personal", 0, 1], ["list-automations personal", 0, 1],
+      ["list-recurring-jobs organization", 1, 0], ["list-automations organization", 1, 0]]) {
+      rows.failing = [list];
+      await timers.fire(30_000);
+      assert.match(tab.section(failed).aboveRows, sectionNote, `a failed ${list} refresh notes it above the rows`);
+      assert.equal(tab.section(failed).rows, 2, `a failed ${list} refresh keeps its section's rows`);
+      assert.doesNotMatch(tab.section(other).text, sectionNote, `a failed ${list} refresh leaves the other section alone`);
+      rows.failing = [];
+      await timers.fire(30_000);
+      assert.doesNotMatch(tab.text(), sectionNote, `the next successful refresh clears the note for ${list}`);
+    }
   } finally {
     await tab.unmount();
   }
