@@ -663,7 +663,13 @@ export function createProjectPreviewService(
         if (entry.state !== "stopped") {
           entry.state = "unavailable";
           entry.reason = "The approved preview command could not start.";
-          void stopOwned(entry, deps.portOccupied, () => settle(entry)).catch(() => {});
+          if (child.pid === undefined) {
+            // A confirmed spawn failure owns no process tree or listening port.
+            entry.child = null;
+            settle(entry);
+          } else {
+            void stopOwned(entry, deps.portOccupied, () => settle(entry)).catch(() => {});
+          }
         }
       });
       child.once("exit", () => {

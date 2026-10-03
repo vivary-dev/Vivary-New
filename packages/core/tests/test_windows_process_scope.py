@@ -9,6 +9,8 @@ import time
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from vivary_core.windows_process_scope import WindowsProcessScope
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="requires native Windows Job semantics")

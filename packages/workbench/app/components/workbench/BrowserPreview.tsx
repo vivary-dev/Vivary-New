@@ -244,7 +244,7 @@ export function BrowserPreview({ projectId, projectName, chatTarget }: {
       </div>}
       {pendingStart && <div role="status" className="text-sm space-y-2"><p>The start request has not been confirmed. Check the same request before starting another.</p><Button size="sm" disabled={busy} onClick={() => startCommand(pendingStart)}>Check start request</Button></div>}
       {run && <div className="space-y-2 text-xs" aria-label="Preview process">
-        <p role="status">{run.code === "ready" ? "Server is responding" : run.code === "starting" ? "Starting the project command" : run.code === "stopped" ? "Preview command stopped" : run.reason}{run.pid ? ` · command process ${run.pid}` : ""}</p>
+        <p role="status">{run.code === "ready" ? "Server is responding" : run.code === "starting" ? "Starting the project command" : run.code === "stopped" ? "Preview command stopped" : run.reason}{run.pid ? ` · preview owner PID ${run.pid}` : ""}</p>
         {run.staleBinding && <p role="alert">This command belongs to an earlier folder connection. Stop it before starting a preview for the current folder.</p>}
         <details><summary className="cursor-pointer">Command and folder</summary><pre className="mt-1 whitespace-pre-wrap break-all">{run.command}{"\n"}{run.folder}{"\n"}{run.url}</pre>{run.code === "unavailable" && run.logTail && <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-all">{run.logTail}</pre>}</details>
       </div>}
