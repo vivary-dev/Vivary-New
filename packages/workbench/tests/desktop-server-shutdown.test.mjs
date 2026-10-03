@@ -24,6 +24,7 @@ function isAlive(pid) {
 }
 
 function forceWindowsTree(pid) {
+  // guard:allow-env-credential - Native Windows fixture locates the OS tree-kill executable.
   const taskkill = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
   const result = spawnSync(taskkill, ["/PID", String(pid), "/T", "/F"], {
     encoding: "utf8", timeout: 5000, windowsHide: true,
