@@ -29,8 +29,9 @@ const launch = {
   reviewExpiresAt: z.number().int().positive(),
   requestId,
   launchId: z.string().uuid(),
-  pid: z.number().int().positive().nullable(),
-  processRunning: z.boolean(),
+  pid: z.number().int().positive().nullable().describe(
+    "Preview owner PID: the Python containment owner on Windows or package-manager process-group leader on POSIX."),
+  processRunning: z.boolean().describe("Whether the preview owner process is running."),
   staleBinding: z.boolean(),
 };
 

@@ -207,11 +207,12 @@ async function startServer() {
   return started;
 }
 
-async function launchServer({ root, node, entry, dataDir, port }) {
+export async function launchServer({ root, node, entry, dataDir, port }) {
   const origin = `http://127.0.0.1:${port}`;
   const child = fork(entry, ["--port", String(port), "--data-dir", dataDir], {
     cwd: root,
-    detached: process.platform !== "win32",
+    // On Windows, survive the parent job so IPC loss can trigger tree cleanup.
+    detached: true,
     env: localChildEnvironment(),
     execArgv: [],
     execPath: node,

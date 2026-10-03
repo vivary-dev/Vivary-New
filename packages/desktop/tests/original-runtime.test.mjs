@@ -15,7 +15,7 @@ import {
   ORIGINAL_RUNTIME_COMPONENTS,
   ORIGINAL_RUNTIME_LICENSE_ASSET,
   originalRuntimeTarget,
-  stageManagedProjectBridge,
+  stageWorkbenchBridge,
   writeOriginalRuntimeLauncher,
 } from "../original-runtime.mjs";
 
@@ -128,6 +128,10 @@ test("manifest records the runtime, source, exact component closure, and relativ
       sha256: "b".repeat(64),
       licensePath: "licenses/LICENSE.vivary-managed-project-bridge",
     },
+    previewOwnerBridge: {
+      path: "bridge/windows_preview_owner.py", sha256: "c".repeat(64),
+      licensePath: "licenses/LICENSE.vivary-preview-owner",
+    },
     runtimeLicensePaths: ["licenses/LICENSE.distlib", "licenses/python-build-standalone.rst", "python/LICENSE.txt"],
   });
   assert.equal(manifest.schemaVersion, 1);
@@ -137,6 +141,8 @@ test("manifest records the runtime, source, exact component closure, and relativ
   assert.equal(manifest.runtimeLicenseAsset.url, "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20260901/python-licenses.rst");
   assert.equal(manifest.managedProjectBridge.path, "bridge/managed_project_workspace.py");
   assert.equal(manifest.managedProjectBridge.sha256, "b".repeat(64));
+  assert.equal(manifest.previewOwnerBridge.path, "bridge/windows_preview_owner.py");
+  assert.equal(manifest.previewOwnerBridge.sha256, "c".repeat(64));
   assert.deepEqual(manifest.runtimeLicensePaths,
     ["licenses/LICENSE.distlib", "licenses/python-build-standalone.rst", "python/LICENSE.txt"]);
   assert.equal(JSON.stringify(manifest).includes(os.tmpdir()), false);
@@ -152,7 +158,8 @@ test("managed project bridge is copied with a content hash and repository licens
     const bridge = "def main():\n    return 'installed creator'\n";
     await writeFile(path.join(repository, "packages", "workbench", "server", "managed_project_workspace.py"), bridge);
     await writeFile(path.join(repository, "LICENSE"), "MIT fixture license\n");
-    const entry = await stageManagedProjectBridge(destination, repository);
+    const entry = await stageWorkbenchBridge(destination, repository,
+      "managed_project_workspace.py", "LICENSE.vivary-managed-project-bridge");
     assert.deepEqual(entry, {
       path: "bridge/managed_project_workspace.py",
       sha256: createHash("sha256").update(bridge).digest("hex"),
@@ -162,6 +169,23 @@ test("managed project bridge is copied with a content hash and repository licens
     assert.equal(await readFile(path.join(destination, ...entry.licensePath.split("/")), "utf8"), "MIT fixture license\n");
   } finally {
     await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("preview owner bridge is staged byte-for-byte with a recorded digest", async () => {
+  const destination = await mkdtemp(path.join(os.tmpdir(), "vivary-preview-owner-bundle-"));
+  const repository = path.resolve(testRoot, "../../..");
+  try {
+    const expected = await readFile(path.join(repository, "packages/workbench/server/windows_preview_owner.py"));
+    const entry = await stageWorkbenchBridge(destination, repository,
+      "windows_preview_owner.py", "LICENSE.vivary-preview-owner");
+    const staged = await readFile(path.join(destination, ...entry.path.split("/")));
+    assert.deepEqual(staged, expected);
+    assert.equal(entry.sha256, createHash("sha256").update(staged).digest("hex"));
+    assert.deepEqual(await readFile(path.join(destination, ...entry.licensePath.split("/"))),
+      await readFile(path.join(repository, "LICENSE")));
+  } finally {
+    await rm(destination, { recursive: true, force: true });
   }
 });
 
