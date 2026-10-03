@@ -248,6 +248,17 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Contributor session recording. The shared Entire settings route future approved
+Vivary checkpoints to the existing private recording repository and retain an
+automatic upload hold for the historical shared queue. Source remotes, branch
+roles, Native conversation storage and runtime ownership are unchanged. The
+[contributor guide](ENTIRE.md) distinguishes installed hooks, actual local capture
+and remote delivery, and requires a fresh session for previously disabled
+checkouts. Review used Entire 0.10.6 configuration, remote resolution and native
+checkpoint ref naming, plus metadata from an existing real checkpoint. The web
+link to a newly delivered private checkpoint remains to be verified. This changes
+development recording, not the product's persistence or access boundaries above.
+
 Approved mascot integration. CodeConversation's existing empty-state introduction displays the approved static vector icon as a decorative 48px image with reserved dimensions. The main README reuses the approved transparent character artwork and links to the existing website brand guide. These are the visual identity of the main project agent, with no new persona prompt, execution owner, state indicator, controls, or public character name. The selected coding runtime and Native retain the behavior described above. The icon's bone tile works with the existing light and dark themes, and no motion is added. Asset-byte comparison, the affected JSX/CSS, and the existing empty-state contract are the review evidence. Browser validation and the applicable checks are recorded in the pull request.
 
 Issue #138, final runtime acceptance on 4f7a0394. The reviewed implementation and integrated #175 patch are unchanged. All required fresh Windows journeys passed, including server-first cleanup of the complete pnpm, shell, preview and ordinary-child chain while Electron stayed alive, active-preview normal close and parent loss, and idle, scheduled and webhook shutdown persistence. The original registered root, grants and five file hashes were preserved. Private observer corrections retained PID and creation-time checks and did not alter product source or the package. The receipt separates earlier failures, native controls and completed package evidence. This update changes only documentation and generated mirrors.
