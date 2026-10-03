@@ -344,7 +344,8 @@ const jobsTabStubs = new Map([
 const jobsTabSource = String.raw`
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider, environmentManager, focusManager, timeoutManager } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, environmentManager, focusManager, onlineManager, timeoutManager }
+  from "@tanstack/react-query";
 import { AgentJobsTab } from "@proof/entry";
 
 const settle = () => act(async () => {
@@ -399,6 +400,10 @@ export async function mountJobsTab(rows) {
       await act(async () => { focusManager.setFocused(focused); });
       await settle();
     },
+    async online(online) {
+      await act(async () => { onlineManager.setOnline(online); });
+      await settle();
+    },
     async openDetails(label = "Details", nth = 0) {
       const details = [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label)[nth];
       await act(async () => { details.click(); });
@@ -423,6 +428,10 @@ export async function mountJobsTab(rows) {
 
 export function resetFocus() {
   focusManager.setFocused(undefined);
+}
+
+export function resetOnline() {
+  onlineManager.setOnline(true);
 }
 
 export function recordTimers() {
@@ -479,9 +488,12 @@ const listed = { id: "res-digest", name: "digest", scope: "personal", enabled: t
 const beforeTick = { ...listed, lastCheck: iso(tick), nextRun: iso(tick + 20_000), lastRun: null, lastStatus: null };
 const afterTick = { ...listed, lastCheck: iso(tick + 60_000), nextRun: iso(tick + 80_000),
   lastRun: iso(tick + 20_000), lastStatus: "success" };
+const pastRun = { id: "run-1", status: "success", error: null, threadId: "thread-1", runId: "run-1",
+  startedAt: tick + 20_000, finishedAt: tick + 23_000, errorCode: null, automation: "digest" };
 
 const sectionNote = /Could not refresh automations\. The values shown may be out of date\./;
 const detailsNote = /Could not refresh\. These values may be out of date\./;
+const runsNote = /Could not refresh run history\./;
 
 function assertDetailsShow(shown, row, where) {
   assert.equal(shown?.["Last checked"], row.lastCheck, `${where} shows the LAST CHECKED the list now holds`);
@@ -629,6 +641,7 @@ test("a failed list refresh keeps the rows and the Details values and notes it u
     assert.equal(tab.controls("Details"), 2, "the automation's row stays listed");
     assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a failed refresh");
     assert.match(tab.dialogText(), detailsNote, "Details notes that its values may be out of date");
+    assert.doesNotMatch(tab.dialogText(), runsNote, "a failed list refresh leaves Past runs without a note");
     rows.failing = [];
     await timers.fire(30_000);
     assert.doesNotMatch(tab.text(), sectionNote, "the next successful refresh clears the section note");
@@ -639,7 +652,7 @@ test("a failed list refresh keeps the rows and the Details values and notes it u
   }
 });
 
-test("a failed refresh of each list notes it above that section's rows alone", async t => {
+test("a failed refresh of each list notes it in its section and in Details only for its own list", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   const timers = proof.recordTimers();
@@ -654,6 +667,7 @@ test("a failed refresh of each list notes it above that section's rows alone", a
       organization: [{ ...job, id: "res-organization-legacy", name: "organization-legacy", scope: "organization" }] } };
   const tab = await proof.mountJobsTab(rows);
   try {
+    await tab.openDetails("Details", 6);
     for (const [list, failed, other] of [["list-recurring-jobs personal", 0, 1], ["list-automations personal", 0, 1],
       ["list-recurring-jobs organization", 1, 0], ["list-automations organization", 1, 0]]) {
       rows.failing = [list];
@@ -661,6 +675,11 @@ test("a failed refresh of each list notes it above that section's rows alone", a
       assert.match(tab.section(failed).aboveRows, sectionNote, `a failed ${list} refresh notes it above the rows`);
       assert.equal(tab.section(failed).rows, 2, `a failed ${list} refresh keeps its section's rows`);
       assert.doesNotMatch(tab.section(other).text, sectionNote, `a failed ${list} refresh leaves the other section alone`);
+      if (list === "list-automations organization") {
+        assert.match(tab.dialogText(), detailsNote, "Details on an organization automation notes its own list");
+      } else {
+        assert.doesNotMatch(tab.dialogText(), detailsNote, `Details on an organization automation ignores ${list}`);
+      }
       rows.failing = [];
       await timers.fire(30_000);
       assert.doesNotMatch(tab.text(), sectionNote, `the next successful refresh clears the note for ${list}`);
@@ -670,7 +689,7 @@ test("a failed refresh of each list notes it above that section's rows alone", a
   }
 });
 
-test("a failed runs refresh keeps the past runs and notes it in Details", async t => {
+test("a failed runs refresh keeps the past runs and notes it under Past runs until a success", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   const timers = proof.recordTimers();
@@ -678,10 +697,7 @@ test("a failed runs refresh keeps the past runs and notes it in Details", async 
     timers.restore();
     restoreDom();
   });
-  const startedAt = tick + 20_000;
-  const run = { id: "run-1", status: "success", error: null, threadId: "thread-1", runId: "run-1", startedAt,
-    finishedAt: startedAt + 3_000, errorCode: null, automation: "digest" };
-  const rows = { personal: [afterTick], organization: [], runs: [run] };
+  const rows = { personal: [afterTick], organization: [], runs: [pastRun] };
   const tab = await proof.mountJobsTab(rows);
   try {
     await tab.openDetails();
@@ -691,8 +707,60 @@ test("a failed runs refresh keeps the past runs and notes it in Details", async 
     await timers.fire(30_000);
     assert.ok(tab.calls("list-automation-runs", "personal") > fetched, "the timed refresh asks for the runs again");
     assert.equal(tab.pastRuns(), 1, "a failed refresh keeps the run listed");
-    assert.match(tab.dialogText(), detailsNote, "Details notes that its values may be out of date");
+    assert.match(tab.dialogText(), runsNote, "Past runs notes that it may be out of date");
+    assert.doesNotMatch(tab.dialogText(), detailsNote, "a failed runs refresh leaves the Details fields without a note");
     assert.doesNotMatch(tab.text(), /Could not load run history/, "a failed refresh after an answer is no load error");
+    rows.failing = [];
+    await timers.fire(30_000);
+    assert.doesNotMatch(tab.dialogText(), runsNote, "the next successful runs refresh clears the Past runs note");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a list and Past runs that fail their first load show their load errors and no refresh note", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const tab = await proof.mountJobsTab({ personal: [afterTick], organization: [],
+    failing: ["list-automations organization", "list-automation-runs personal"] });
+  try {
+    assert.match(tab.section(1).text, /Could not load all automations/, "a failed first load shows the load error");
+    assert.doesNotMatch(tab.text(), sectionNote, "a failed first load shows no refresh note");
+    await tab.openDetails();
+    assert.match(tab.dialogText(), /Could not load run history/, "a failed first runs load shows the runs load error");
+    assert.doesNotMatch(tab.dialogText(), runsNote, "a failed first runs load shows no refresh note");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("the timed refresh keeps fetching and noting failures while the browser reports no network", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    proof.resetOnline();
+    timers.restore();
+    restoreDom();
+  });
+  const rows = { personal: [afterTick], organization: [], runs: [pastRun] };
+  const tab = await proof.mountJobsTab(rows);
+  const watched = [["list-automations", "personal"], ["list-recurring-jobs", "personal"],
+    ["list-automation-runs", "personal"]];
+  try {
+    await tab.openDetails();
+    await tab.online(false);
+    const fetched = watched.map(([action, scope]) => tab.calls(action, scope));
+    await timers.fire(30_000);
+    watched.forEach(([action, scope], index) => {
+      assert.ok(tab.calls(action, scope) > fetched[index], `the timer fetches ${action} ${scope} with no network`);
+    });
+    rows.failing = ["list-automations personal", "list-automation-runs personal"];
+    await timers.fire(30_000);
+    assert.match(tab.section(0).aboveRows, sectionNote, "a failed list refresh with no network shows the section note");
+    assert.match(tab.dialogText(), detailsNote, "a failed list refresh with no network shows the Details note");
+    assert.match(tab.dialogText(), runsNote, "a failed runs refresh with no network shows the Past runs note");
   } finally {
     await tab.unmount();
   }
@@ -709,6 +777,7 @@ test("a return to a hidden window refetches the automation data that went stale"
   });
   const tab = await proof.mountJobsTab({ personal: [beforeTick], organization: [] });
   const watched = [["list-automations", { scope: "personal" }], ["list-recurring-jobs", { scope: "personal" }],
+    ["list-automations", { scope: "organization" }], ["list-recurring-jobs", { scope: "organization" }],
     ["list-automation-runs", { scope: "personal", name: "digest" }]];
   try {
     await tab.openDetails();
@@ -720,7 +789,7 @@ test("a return to a hidden window refetches the automation data that went stale"
     for (const [action, params] of watched) await tab.age(action, params);
     await tab.focus(true);
     watched.forEach(([action, { scope }], index) => {
-      assert.ok(tab.calls(action, scope) > fetched[index], `a return to the window fetches ${action} again`);
+      assert.ok(tab.calls(action, scope) > fetched[index], `a return to the window fetches ${action} ${scope} again`);
     });
   } finally {
     await tab.unmount();

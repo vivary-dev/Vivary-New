@@ -3216,7 +3216,7 @@ index 8404f4595011e858c4f47dcdda3d0d1c2d80dfce..3cf9f6cad9c0949c13dd77731e3196aa
 -export declare function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, scope, formatTimestamp, onClose, }: AutomationDetailsDialogProps): import("react").JSX.Element;
 +export declare function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, refreshFailed, scope, formatTimestamp, onClose, }: AutomationDetailsDialogProps): import("react").JSX.Element;
 diff --git a/dist/client/agent-page/AutomationDetailsDialog.js b/dist/client/agent-page/AutomationDetailsDialog.js
-index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..b9716685009b6ac257dd9c1c490c7f3abb43ff17 100644
+index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..8badfba9f85cec794e3cf4345eeeea07fa603b04 100644
 --- a/dist/client/agent-page/AutomationDetailsDialog.js
 +++ b/dist/client/agent-page/AutomationDetailsDialog.js
 @@ -1,7 +1,5 @@
@@ -3228,7 +3228,7 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..b9716685009b6ac257dd9c1c490c7f3a
  import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, } from "../components/ui/dialog.js";
  import { useT } from "../i18n.js";
  import { useAutomationRuns } from "./use-jobs.js";
-@@ -17,23 +15,26 @@ function RunStatusDot({ status }) {
+@@ -17,23 +15,29 @@ function RunStatusDot({ status }) {
                      : "bg-amber-500";
      return _jsx("span", { className: `size-1.5 shrink-0 rounded-full ${tone}` });
  }
@@ -3241,18 +3241,21 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..b9716685009b6ac257dd9c1c490c7f3a
      const runsQuery = useAutomationRuns(scope, open ? name : null, open);
 +    // Vivary #141: Past runs refreshes every 30 seconds, and a failed refresh
 +    // keeps the last answer, so the runs the owner was reading stay listed. A
-+    // failed refresh of the entry's list or of Past runs gets one quiet line.
++    // failed refresh of the entry's list notes the fields, and a failed refresh
++    // of Past runs notes Past runs alone.
      const runs = runsQuery.data ?? [];
      return (_jsx(Dialog, { open: open, onOpenChange: (next) => {
              if (!next)
                  onClose();
 -        }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [lastError ? (_jsxs("div", { className: "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5", children: [_jsx(IconAlertTriangle, { className: "mt-0.5 size-4 shrink-0 text-destructive" }), _jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-xs font-medium text-destructive", children: t("jobs.blockedTitle", {
-+        }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [refreshFailed || runsQuery.isRefetchError ? (_jsx("p", { className: "text-xs text-muted-foreground", children: t("jobs.detailsRefreshError", {
++        }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [refreshFailed ? (_jsx("p", { className: "text-xs text-muted-foreground", children: t("jobs.detailsRefreshError", {
 +                                defaultValue: "Could not refresh. These values may be out of date.",
 +                            }) })) : null, lastError ? (_jsxs("div", { className: "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5", children: [_jsx(IconAlertTriangle, { className: "mt-0.5 size-4 shrink-0 text-destructive" }), _jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-xs font-medium text-destructive", children: t("jobs.blockedTitle", {
                                                  defaultValue: "This automation is not running",
 -                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isLoading ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : runsQuery.error ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
-+                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools (automation runs cannot use these)" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isLoading ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : runsQuery.error && !runsQuery.data ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
++                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools (automation runs cannot use these)" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isRefetchError ? (_jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: t("jobs.runsRefreshError", {
++                                        defaultValue: "Could not refresh run history.",
++                                    }) })) : null, runsQuery.isLoading ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : runsQuery.error && !runsQuery.data ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
                                          defaultValue: "Could not load run history.",
                                      }) })) : runs.length === 0 ? (_jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: t("jobs.noRuns", {
                                          defaultValue: "This automation has not executed yet. Only real executions are recorded here.",
@@ -3265,10 +3268,10 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..b9716685009b6ac257dd9c1c490c7f3a
 +                                    }) })) : (_jsx("ul", { className: "mt-2 divide-y divide-border/60 border-y border-border/60", children: runs.map((run) => (_jsxs("li", { className: "flex items-center gap-2 py-1.5 text-xs", children: [_jsx(RunStatusDot, { status: run.status }), _jsx("span", { className: "shrink-0 text-muted-foreground", children: formatTimestamp(run.startedAt) }), _jsx("span", { className: "shrink-0 font-medium", children: run.status }), run.error ? (_jsx("span", { className: "min-w-0 flex-1 truncate text-muted-foreground", title: run.error, children: run.error })) : (_jsx("span", { className: "min-w-0 flex-1" })), run.finishedAt ? (_jsxs("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: [Math.round((run.finishedAt - run.startedAt) / 1000), "s"] })) : null] }, run.id))) }))] })] })] }) }));
  }
 diff --git a/dist/client/agent-page/use-jobs.js b/dist/client/agent-page/use-jobs.js
-index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..4601e509e4fd9f64fbfe486f28641be1c697fbec 100644
+index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..0e96c4ce55985982db88022961bfc37fad671e91 100644
 --- a/dist/client/agent-page/use-jobs.js
 +++ b/dist/client/agent-page/use-jobs.js
-@@ -6,6 +6,14 @@ function recurringParams(scope) {
+@@ -6,6 +6,16 @@ function recurringParams(scope) {
  function automationParams(scope) {
      return { scope: scope === "org" ? "organization" : "personal" };
  }
@@ -3278,30 +3281,33 @@ index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..4601e509e4fd9f64fbfe486f28641be1
 +// refetch while the page is hidden. refetchOnWindowFocus: true, set here
 +// against the house default, refetches data past its stale time when the page
 +// returns. Vivary does not mount useDbSync, which the house client's
-+// refetchOnWindowFocus: false assumes.
++// refetchOnWindowFocus: false assumes. networkMode: "always" keeps fetching
++// while the browser reports no network, because the server usually runs on
++// this computer, and one that does not answer should fail and show a note.
 +const AUTOMATION_REFRESH_MS = 30_000;
  /**
   * Deploy-scoped and fixed for the life of the process, so it is cached far
   * longer than the automation lists.
-@@ -21,10 +29,10 @@ export function useScheduledTriggerState() {
+@@ -21,10 +31,10 @@ export function useScheduledTriggerState() {
      return { kind: "loading" };
  }
  export function useRecurringJobs(scope) {
 -    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000 });
-+    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true });
++    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, networkMode: "always" });
  }
  export function useAutomations(scope) {
 -    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000 });
-+    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true });
++    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, networkMode: "always" });
  }
  export function useManageRecurringJob(scope) {
      const queryClient = useQueryClient();
-@@ -118,6 +126,8 @@ export function useAutomationRuns(scope, name, active) {
+@@ -118,6 +128,9 @@ export function useAutomationRuns(scope, name, active) {
      };
      return useActionQuery("list-automation-runs", params, {
          staleTime: 5_000,
 +        refetchInterval: AUTOMATION_REFRESH_MS,
 +        refetchOnWindowFocus: true,
++        networkMode: "always",
          enabled: active && Boolean(name),
      });
  }
@@ -7277,7 +7283,7 @@ index 0000000000000000000000000000000000000000..809916ffaea0d49365eb9e331ea2f313
 +    return restricted;
 +}
 diff --git a/dist/localization/default-messages.d.ts b/dist/localization/default-messages.d.ts
-index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..a9bf8498adc344333ae42679aadbdd651bd0e295 100644
+index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..413acab21262354f610d7c0f3ec064872d70605a 100644
 --- a/dist/localization/default-messages.d.ts
 +++ b/dist/localization/default-messages.d.ts
 @@ -665,6 +665,7 @@ declare const messages: {
@@ -7288,15 +7294,16 @@ index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..a9bf8498adc344333ae42679aadbdd65
          organizationEmptyTitle: string;
          organizationEmptyDescription: string;
          organizationPrompt: string;
-@@ -684,6 +685,7 @@ declare const messages: {
+@@ -684,6 +685,8 @@ declare const messages: {
          blockedTitle: string;
          pastRuns: string;
          runsLoadError: string;
 +        detailsRefreshError: string;
++        runsRefreshError: string;
          noRuns: string;
          edit: string;
          editScheduleTitle: string;
-@@ -742,6 +744,10 @@ declare const messages: {
+@@ -742,6 +745,10 @@ declare const messages: {
          webhookTrigger: string;
          webhookUrl: string;
          webhookUrlHint: string;
@@ -7308,7 +7315,7 @@ index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..a9bf8498adc344333ae42679aadbdd65
          deleteAutomationDescription: string;
          runNow: string;
 diff --git a/dist/localization/default-messages.js b/dist/localization/default-messages.js
-index a534663feca2ca8960b6782390c5a97f944c35b5..e57822b39645902d56f5b5be9deeed2b2c6fd847 100644
+index a534663feca2ca8960b6782390c5a97f944c35b5..707b1a0e8b7e37597927b76f7bd7275559488921 100644
 --- a/dist/localization/default-messages.js
 +++ b/dist/localization/default-messages.js
 @@ -671,6 +671,7 @@ const messages = {
@@ -7319,15 +7326,16 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..e57822b39645902d56f5b5be9deeed2b
          organizationEmptyTitle: "No organization automations yet",
          organizationEmptyDescription: "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
          organizationPrompt: "Create a shared organization automation that does this: ",
-@@ -690,6 +691,7 @@ const messages = {
+@@ -690,6 +691,8 @@ const messages = {
          blockedTitle: "This automation is not running",
          pastRuns: "Past runs",
          runsLoadError: "Could not load run history.",
 +        detailsRefreshError: "Could not refresh. These values may be out of date.",
++        runsRefreshError: "Could not refresh run history.",
          noRuns: "This automation has not executed yet. Only real executions are recorded here.",
          edit: "Edit",
          editScheduleTitle: "Edit schedule — {{name}}",
-@@ -729,7 +731,7 @@ const messages = {
+@@ -729,7 +732,7 @@ const messages = {
          automationPrompt: "Create an automation that does this: ",
          cancel: "Cancel",
          instructions: "Instructions",
@@ -7336,7 +7344,7 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..e57822b39645902d56f5b5be9deeed2b
          automationEventTrigger: "On {{event}}",
          webhook: "Webhook",
          automationWebhookDetails: "Runs when a webhook is received.",
-@@ -748,17 +750,21 @@ const messages = {
+@@ -748,17 +751,21 @@ const messages = {
          webhookTrigger: "Webhook-triggered",
          webhookUrl: "Webhook URL",
          webhookUrlHint: "Paste this URL into a service that sends HTTP POST webhooks.",

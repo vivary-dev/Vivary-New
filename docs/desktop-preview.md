@@ -214,9 +214,12 @@ Settings > Agent > Automations holds the controls:
   30 seconds, and for past runs too while **Details** is open. If a refresh fails, the
   tab keeps the last values. The section whose list failed shows "Could not refresh
   automations. The values shown may be out of date.", and **Details** shows "Could not
-  refresh. These values may be out of date." Both notes go away once a refresh
-  succeeds. A value far older than 90 seconds with a note shown means the local server
-  stopped answering, not that the scheduler stopped. Builds without the
+  refresh. These values may be out of date." above its fields. If past runs fail to
+  refresh, Past runs shows "Could not refresh run history." A note goes away once its
+  refresh succeeds. Pausing, resuming, editing, or deleting an automation also hides
+  its list's note until the next refresh fails, within about 30 seconds. A value far
+  older than 90 seconds with a note shown means the local server stopped answering,
+  not that the scheduler stopped. Builds without the
   [issue #141](https://github.com/vivary-dev/vivary/issues/141) fix show the values
   from when the Automations tab loaded. In those builds, open another Settings tab,
   come back, and open **Details** again to refresh them.
